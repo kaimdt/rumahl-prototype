@@ -72,27 +72,26 @@ This is a sophisticated smart home management platform requiring real-time devic
 
 ## Design Direction
 
-The design evokes the cutting-edge aesthetic of iOS 26 - a premium interface that feels simultaneously ethereal and substantial. Sophisticated glassmorphism creates layers of translucent depth, with content floating on blurred, vibrant backgrounds. The design breathes with the rhythm of the day, transitioning from bright and energetic during daytime to subdued and calming at night. Every interaction should feel buttery smooth, with micro-animations that delight without distracting.
+The design embodies modern minimalism with a timeless, sophisticated aesthetic. A full-screen photographic background creates immersive depth, while subtle glassmorphism provides elegant content separation without overwhelming the imagery. The interface is clean and uncluttered - every element serves a purpose. Typography is crisp and legible, with generous whitespace creating breathing room. The design transitions gracefully throughout the day, dimming the background image to match ambient lighting conditions. Interactions are refined and purposeful, with minimal but meaningful feedback.
 
 ## Color Selection
 
-An advanced blue-based color system with rich glassmorphic effects that creates atmospheric depth through four distinct time modes.
+A refined, minimal color palette that prioritizes readability over photographic backgrounds with adaptive brightness for time-based themes.
 
-- **Primary Color (Day)**: Soft blue-gray `oklch(0.32 0.06 240)` - Modern, technological sophistication
-- **Primary Color (Evening)**: Warmer muted slate `oklch(0.26 0.05 255)` - Gentle transition to evening
-- **Primary Color (Night)**: Deep charcoal blue `oklch(0.15 0.035 240)` - Rich darkness with subtle color
-- **Primary Color (Sleep)**: Near-black `oklch(0.06 0.015 240)` - Maximum darkness for night mode
-- **Accent Color**: Vibrant cyan `oklch(0.60 0.18 220)` - High-tech highlight with electric energy
-- **Success/On State**: Warm amber `oklch(0.68 0.14 75)` - Represents active/on devices with warm glow
-- **Background Gradients**: Multi-layered mesh gradients using radial gradients with accent and primary colors at low opacity
-- **Glass Effects**: backdrop-filter blur (40px day, 20px sleep) with 55-65% opacity and subtle border highlights
+- **Primary Color**: Subtle blue-gray `oklch(0.28 0.04 240)` - Clean, modern, unobtrusive
+- **Foreground (Day)**: Near-white `oklch(0.95 0.005 240)` - High contrast over photography
+- **Foreground (Night)**: Soft white `oklch(0.78 0.015 240)` - Readable but not harsh
+- **Accent Color**: Refined cyan `oklch(0.55 0.15 220)` - Subtle highlights and interactions
+- **Background Treatment**: Full-screen photography with CSS brightness filters (0.75 day, 0.6 evening, 0.4 night, 0.2 sleep)
+- **Glass Effects**: Minimal blur (30px) with very low opacity (15-25%) to preserve background visibility
+- **Gradients**: Subtle black gradient overlays (from-black/40 via-black/20 to-black/60) for text legibility
 
 **Foreground/Background Pairings**:
-- Day Mode: Dark text `oklch(0.18 0.02 240)` on light bg `oklch(0.96 0.015 240)` - Ratio 14.8:1 ✓
-- Evening Mode: Dark text `oklch(0.22 0.025 250)` on medium bg `oklch(0.78 0.03 250)` - Ratio 11.2:1 ✓
-- Night Mode: Light text `oklch(0.88 0.02 240)` on dark bg `oklch(0.18 0.04 240)` - Ratio 13.5:1 ✓
-- Sleep Mode: Dim text `oklch(0.32 0.02 240)` on black bg `oklch(0.08 0.02 240)` - Ratio 5.1:1 ✓
-- Accent: White text `oklch(0.98 0 0)` on cyan `oklch(0.60 0.18 220)` - Ratio 5.8:1 ✓
+- Day Mode: Near-white text `oklch(0.95 0.005 240)` on dimmed photo (brightness 0.75) - High contrast ✓
+- Evening Mode: Soft white `oklch(0.85 0.01 250)` on darker photo (brightness 0.6) - Optimal ✓
+- Night Mode: Muted white `oklch(0.78 0.015 240)` on dark photo (brightness 0.4) - Comfortable ✓
+- Sleep Mode: Dim gray `oklch(0.25 0.015 240)` on black photo (brightness 0.2) - Minimal strain ✓
+- Glass cards: 15-25% opacity with subtle borders for depth
 
 ## Font Selection
 
@@ -102,60 +101,56 @@ The typography should feel technical yet approachable, with excellent readabilit
 - **Accent/Data Font**: JetBrains Mono - For sensor values, timestamps, and technical data to create visual distinction
 
 **Typographic Hierarchy**:
-- H1 (Greeting): Inter SemiBold/32px/tight tracking/-0.02em
-- H2 (Section Headers): Inter Medium/20px/normal tracking
-- H3 (Card Titles): Inter Medium/16px/normal tracking
-- Body (Descriptions): Inter Regular/14px/relaxed leading/1.6
-- Data (Sensor Values): JetBrains Mono Medium/18px/tabular numbers
-- Small (Labels): Inter Regular/12px/uppercase/wide tracking/0.05em
+- H1 (Greeting): Inter Normal/40px/tight leading
+- H2 (Section Headers): Inter Medium/16px/normal tracking  
+- Body (Context Text): Inter Regular/15px/relaxed leading/1.6
+- Small (Labels): Inter Medium/12px/uppercase/wide tracking
+- Timestamps: Inter Medium/14px/normal
 
 ## Animations
 
-Animations create a premium, iOS-like fluidity throughout the interface. Theme transitions use slow 2.5-second cubic-bezier easing for atmospheric shifts. Card interactions feature subtle scale transforms (1.02 on hover, 0.98 on press). Loading states use pulsing glows rather than spinners. Success states have gentle bounce animations. All transitions maintain 60fps performance with GPU-accelerated properties (transform, opacity). The overall feel should be buttery smooth and delightfully responsive.
+Animations are subtle and purposeful, enhancing usability without calling attention to themselves. Theme transitions use gentle 400ms ease timing for smooth atmospheric shifts between day/evening/night modes. The background image brightness animates fluidly to match time-based themes. Interactive elements have minimal hover states - no aggressive scaling or bouncing. Loading states are simple and unobtrusive. The overall feel is calm, refined, and distraction-free.
 
 ## Component Selection
 
 - **Components**: 
-  - Card (glassmorphic with backdrop-blur, increased border radius to 1.25rem base)
-  - Switch (smooth slide with color transitions)
-  - Slider (for brightness controls with gradient track)
-  - Button (subtle scale and glow effects)
-  - Custom glass header (blurred sticky header with translucent background)
-  - Time-contextual content containers (show/hide based on time of day)
+  - Minimal glass cards with 12px border radius and 15-20% opacity
+  - Photographic background with CSS filter brightness adjustments
+  - Subtle gradient overlays for text legibility
+  - Clean header with glassmorphism
+  - Simple content layout with generous spacing
+  - Weather widget with inline forecast strip
 
 - **Customizations**: 
-  - iOS-inspired glassmorphism with backdrop-filter blur (40px) and color saturation
-  - Layered mesh gradients for backgrounds using radial gradients
-  - Enhanced shadows with colored glows (accent/20 for active elements)
-  - Larger border radius (1.25rem base) for modern iOS aesthetic
-  - Smooth 2.5s theme transitions with cubic-bezier easing
-  - Dynamic content display based on time (weather in morning, lights highlighted at night)
-  - Pulsing accent dots for active indicators
-  - Animated icons with weight changes for state feedback
+  - Refined glassmorphism: 30px blur, 15-25% opacity, subtle 8% borders
+  - Full-screen background image with time-based brightness filters
+  - Black gradient overlays (40% top, 20% middle, 60% bottom) for readability
+  - Reduced border radius (0.75rem base) for cleaner, more minimal aesthetic
+  - Fast 400ms theme transitions with ease timing
+  - Large, light typography for maximum legibility over photos
+  - Minimal decorative elements - focus on content and photography
 
 - **States**: 
-  - Cards: Scale 1.02 on hover, lift effect with enhanced shadow, smooth 200ms transitions
-  - Switches: 300ms slide with color fade to accent
-  - Buttons: Scale 1.05 hover, 0.98 active, glow effect on focus
-  - Active lights: Pulsing icon with warm glow shadow
-  - Loading: Rotating border with sparkle icon overlay
+  - Minimal hover states - no aggressive transformations
+  - Smooth opacity transitions for interactive elements
+  - Simple loading indicator with icon
+  - Clean focus states without heavy borders
 
 - **Icon Selection**: 
-  - @phosphor-icons/react throughout (House, Sun, MoonStars, Lightbulb, Lightning, Gear, Sparkle, Drop, Cloud icons)
-  - Weight changes for state (fill for active, regular for inactive, duotone for evening)
-  - Size variations for hierarchy (48px for greeting icons, 20px for controls)
+  - @phosphor-icons/react with duotone weight for visual interest
+  - Larger icons (40px) for weather and status indicators
+  - Minimal use of icons - only where necessary
+  - Check mark for confirmation/status
 
 - **Spacing**: 
-  - Generous spacing with breathing room
-  - Card padding: 5-6 (20-24px)
-  - Section gaps: 6-8 (24-32px)
-  - Widget gaps: 3-4 (12-16px)
-  - Rounded corners: 2xl-3xl (1.25-1.5rem)
+  - Generous whitespace for breathing room
+  - Card padding: 5 (20px)
+  - Section gaps: 6 (24px)
+  - Rounded corners: xl (12px) for cards
+  - Compact inline spacing for forecast elements
 
 - **Mobile**: 
-  - Single column below 768px
-  - Reduced padding (4-5 instead of 5-6)
-  - Larger touch targets (minimum 44px)
-  - Greeting card stacks vertically
-  - Weather hidden on mobile at night
-  - Bottom-aligned time display
+  - Single column stacking
+  - Maintained generous padding
+  - Background image scales appropriately
+  - Same minimal aesthetic on all screen sizes

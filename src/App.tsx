@@ -2,18 +2,22 @@ import { useState, useEffect } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { haService } from '@/lib/homeAssistant'
-import { GreetingWidget } from '@/components/widgets/GreetingWidget'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
-import { Button } from '@/components/ui/button'
 import type { EntityState, WeatherEntity, LightEntity } from '@/lib/types'
-import { House, MoonStars, Sun, Gear, Sparkle } from '@phosphor-icons/react'
+import { Sparkle, Check } from '@phosphor-icons/react'
 
 function DashboardContent() {
-  const { theme, sleepMode, setSleepMode } = useTheme()
+  const { theme } = useTheme()
   const [entities, setEntities] = useState<EntityState[]>([])
   const [loading, setLoading] = useState(true)
   const [userName] = useKV<string>('ha-username', 'Kai')
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const loadEntities = async () => {
     const states = await haService.getStates()
@@ -30,214 +34,89 @@ function DashboardContent() {
   const weatherEntity = entities.find(e => e.entity_id.startsWith('weather.')) as WeatherEntity | undefined
   const lightEntities = entities.filter(e => e.entity_id.startsWith('light.')) as LightEntity[]
 
-  const toggleSleepMode = () => {
-    setSleepMode(!sleepMode)
+  const getGreeting = () => {
+    const hour = currentTime.getHours()
+    if (hour >= 5 && hour < 12) return 'Guten Morgen'
+    if (hour >= 12 && hour < 18) return 'Guten Tag'
+    if (hour >= 18 && hour < 22) return 'Guten Abend'
+    return 'Gute Nacht'
   }
 
-  const getThemeIcon = () => {
-    if (sleepMode) return <MoonStars size={20} weight="fill" />
-    if (theme === 'night') return <MoonStars size={20} />
-    if (theme === 'evening') return <MoonStars size={20} weight="duotone" />
-    return <Sun size={20} weight="fill" />
-  }
-
-  const getTimeBasedContent = () => {
-    const hour = new Date().getHours()
+  const getContextMessage = () => {
+    const hour = currentTime.getHours()
+    const location = weatherEntity?.attributes.friendly_name || 'Kissing'
+    const temp = weatherEntity?.attributes.temperature || 20
     
     if (hour >= 5 && hour < 12) {
-      return {
-        showWeather: true,
-        showCalendar: true,
-        showEnergy: false,
-        highlightLights: false
-      }
+      return `heute ist ein schöner Tag, das Wetter in ${location} beträgt ${Math.round(temp)}°C bei klarem Himmel. Heute sind keine Termine geplant. Ich habe keine weiteren Meldungen.`
     } else if (hour >= 12 && hour < 18) {
-      return {
-        showWeather: true,
-        showCalendar: true,
-        showEnergy: true,
-        highlightLights: false
-      }
+      return `einen angenehmen Nachmittag. Keine anstehenden Termine oder Benachrichtigungen.`
     } else if (hour >= 18 && hour < 22) {
-      return {
-        showWeather: false,
-        showCalendar: false,
-        showEnergy: true,
-        highlightLights: true
-      }
+      return `Zeit zum Entspannen. Die Beleuchtung wurde für den Abend optimiert.`
     } else {
-      return {
-        showWeather: false,
-        showCalendar: false,
-        showEnergy: true,
-        highlightLights: true
-      }
+      return `Ruhige Nacht. Alle Systeme im Standby-Modus.`
     }
   }
 
-  const timeContent = getTimeBasedContent()
-
   return (
-    <div className="min-h-screen theme-transition gradient-bg mesh-gradient">
-      <header className="glass-header sticky top-0 z-50 theme-transition">
-        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-accent to-accent/70 flex items-center justify-center shadow-lg shadow-accent/20">
-              <House size={18} weight="fill" className="text-white" />
-            </div>
-            <h1 className="text-sm font-semibold tracking-tight">Mist Home</h1>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-mono text-muted-foreground mr-2 hidden sm:block">
-              {new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={toggleSleepMode}
-              className="h-9 w-9 rounded-xl hover:bg-accent/10 hover:scale-105 transition-all duration-200"
-            >
-              {getThemeIcon()}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon"
-              className="h-9 w-9 rounded-xl hover:bg-accent/10 hover:scale-105 transition-all duration-200"
-            >
-              <Gear size={20} />
-            </Button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen relative theme-transition overflow-hidden">
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat theme-transition"
+        style={{
+          backgroundImage: `url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=2070')`,
+          filter: theme === 'sleep' ? 'brightness(0.2)' : theme === 'night' ? 'brightness(0.4)' : theme === 'evening' ? 'brightness(0.6)' : 'brightness(0.75)'
+        }}
+      />
+      
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/60"></div>
 
-      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {loading ? (
-          <div className="flex items-center justify-center py-32">
-            <div className="text-center space-y-4">
-              <div className="relative">
-                <div className="animate-spin rounded-full h-12 w-12 border-2 border-accent/20 border-t-accent mx-auto"></div>
-                <Sparkle className="absolute inset-0 m-auto text-accent animate-pulse" size={20} weight="fill" />
-              </div>
-              <p className="text-sm text-muted-foreground font-medium">Dashboard wird geladen...</p>
-            </div>
+      <div className="relative z-10">
+        <header className="glass-header theme-transition">
+          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <h1 className="text-sm font-medium tracking-wide">MDT HOME</h1>
+            <span className="text-sm font-medium">
+              {currentTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+            </span>
           </div>
-        ) : (
-          <div className="space-y-6 sm:space-y-8">
-            <div className="grid lg:grid-cols-[1.5fr_1fr] gap-4 sm:gap-6">
-              <div className="order-2 lg:order-1">
-                <GreetingWidget userName={userName} weatherEntity={weatherEntity} theme={theme} />
+        </header>
+
+        <main className="max-w-7xl mx-auto px-6 py-8">
+          {loading ? (
+            <div className="flex items-center justify-center py-32">
+              <div className="text-center space-y-4">
+                <Sparkle className="mx-auto text-foreground animate-pulse" size={32} weight="fill" />
+                <p className="text-sm text-foreground/80">Dashboard wird geladen...</p>
               </div>
-              {timeContent.showWeather && (
-                <div className="order-1 lg:order-2 lg:justify-self-end w-full lg:max-w-md">
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid lg:grid-cols-[2fr_1fr] gap-6 items-start">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-[2.5rem] leading-tight font-normal text-foreground">
+                      Hallo {userName},
+                    </h2>
+                    <Check size={40} weight="thin" className="text-foreground/60 mt-1" />
+                  </div>
+                  <p className="text-foreground/90 leading-relaxed max-w-2xl text-[15px]">
+                    {getGreeting()}, {getContextMessage()}
+                  </p>
+                </div>
+
+                <div className="lg:justify-self-end w-full">
                   <WeatherWidget entity={weatherEntity} />
                 </div>
-              )}
+              </div>
+
+              <div className="glass-card rounded-2xl p-6 min-h-[400px] theme-transition">
+                <div className="h-full flex items-center justify-center text-foreground/40 text-sm">
+                  Kalenderbereich
+                </div>
+              </div>
             </div>
-
-            {timeContent.highlightLights && lightEntities.length > 0 && (
-              <div className="glass-card p-5 sm:p-6 rounded-3xl theme-transition">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-lg font-semibold flex items-center gap-2.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shadow-lg shadow-accent/50"></div>
-                    Beleuchtung
-                  </h2>
-                  <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full">
-                    {lightEntities.filter(l => l.state === 'on').length} aktiv
-                  </span>
-                </div>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                  {lightEntities.map(light => (
-                    <LightWidget 
-                      key={light.entity_id} 
-                      entity={light}
-                      onUpdate={loadEntities}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!timeContent.highlightLights && lightEntities.length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2.5 px-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent/60"></div>
-                  Beleuchtung
-                </h2>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                  {lightEntities.map(light => (
-                    <LightWidget 
-                      key={light.entity_id} 
-                      entity={light}
-                      onUpdate={loadEntities}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {entities.filter(e => e.entity_id.startsWith('climate.')).length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2.5 px-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent/60"></div>
-                  Klima
-                </h2>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                  {entities
-                    .filter(e => e.entity_id.startsWith('climate.'))
-                    .map(climate => (
-                      <div 
-                        key={climate.entity_id}
-                        className="glass-card p-5 rounded-3xl theme-transition hover:scale-[1.02] transition-transform duration-200"
-                      >
-                        <h3 className="font-medium text-sm mb-3">
-                          {(climate.attributes as {friendly_name?: string}).friendly_name || climate.entity_id}
-                        </h3>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-4xl font-mono font-bold">
-                            {(climate.attributes as {current_temperature?: number}).current_temperature || 0}°
-                          </span>
-                          <span className="text-sm text-muted-foreground font-mono">
-                            → {(climate.attributes as {temperature?: number}).temperature || 0}°
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
-
-            {timeContent.showEnergy && entities.filter(e => e.entity_id.startsWith('sensor.')).length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2.5 px-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent/60"></div>
-                  Sensoren
-                </h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-                  {entities
-                    .filter(e => e.entity_id.startsWith('sensor.'))
-                    .slice(0, 10)
-                    .map(sensor => (
-                      <div 
-                        key={sensor.entity_id}
-                        className="glass-card p-4 rounded-2xl theme-transition hover:scale-[1.02] transition-transform duration-200"
-                      >
-                        <p className="text-[10px] sm:text-xs text-muted-foreground mb-2 line-clamp-1">
-                          {(sensor.attributes as {friendly_name?: string}).friendly_name || sensor.entity_id}
-                        </p>
-                        <p className="text-xl sm:text-2xl font-mono font-semibold line-clamp-1">
-                          {sensor.state}
-                          <span className="text-xs ml-0.5">
-                            {(sensor.attributes as {unit_of_measurement?: string}).unit_of_measurement || ''}
-                          </span>
-                        </p>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
     </div>
   )
 }
