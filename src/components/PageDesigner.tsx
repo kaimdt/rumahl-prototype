@@ -70,6 +70,7 @@ export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerPro
   const [editingPageId, setEditingPageId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editIcon, setEditIcon] = useState<keyof typeof availableIcons>('House')
+  const [editShowInNav, setEditShowInNav] = useState(true)
 
   const handleCreatePage = () => {
     const newPage: DashboardPage = {
@@ -77,6 +78,8 @@ export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerPro
       name: 'Neue Seite',
       icon: 'House',
       widgets: [],
+      showInNav: true,
+      order: pages.length,
     }
     setPages([...pages, newPage])
     toast.success('Neue Seite erstellt')
@@ -86,6 +89,7 @@ export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerPro
     setEditingPageId(page.id)
     setEditName(page.name)
     setEditIcon(page.icon as keyof typeof availableIcons)
+    setEditShowInNav(page.showInNav !== false)
   }
 
   const handleSaveEdit = () => {
@@ -93,7 +97,7 @@ export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerPro
 
     const updatedPages = pages.map(page =>
       page.id === editingPageId
-        ? { ...page, name: editName, icon: editIcon }
+        ? { ...page, name: editName, icon: editIcon, showInNav: editShowInNav }
         : page
     )
     setPages(updatedPages)
@@ -105,6 +109,7 @@ export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerPro
     setEditingPageId(null)
     setEditName('')
     setEditIcon('House')
+    setEditShowInNav(true)
   }
 
   const handleDeletePage = (pageId: string) => {
@@ -222,6 +227,23 @@ export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerPro
                                   )
                                 })}
                               </div>
+                            </div>
+
+                            {/* Show in Navigation Toggle */}
+                            <div className="flex items-center justify-between">
+                              <label className="text-sm text-foreground/80">In Navigation anzeigen</label>
+                              <button
+                                onClick={() => setEditShowInNav(!editShowInNav)}
+                                className={`relative w-12 h-6 rounded-full transition-colors ${
+                                  editShowInNav ? 'bg-accent' : 'bg-foreground/20'
+                                }`}
+                              >
+                                <motion.div
+                                  className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"
+                                  animate={{ x: editShowInNav ? 20 : 0 }}
+                                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                                />
+                              </button>
                             </div>
 
                             {/* Actions */}
