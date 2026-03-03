@@ -1,7 +1,21 @@
 import { createContext, useContext, useState } from 'react'
 import { useLocalStorage } from '@/lib/storage'
 import type { DashboardPage } from '@/lib/types'
-import { House, Lightbulb, Thermometer, PlugsConnected, Gauge, Gear } from '@phosphor-icons/react'
+import {
+  House,
+  Lightbulb,
+  Thermometer,
+  PlugsConnected,
+  Gauge,
+  Gear,
+  FloppyDisk,
+  VideoCamera,
+  SpeakerHigh,
+  Lock,
+  Garage,
+  Fan,
+  Bathtub,
+} from '@phosphor-icons/react'
 
 interface PageNavigationContextType {
   currentPageId: string
@@ -19,36 +33,16 @@ const defaultPages: DashboardPage[] = [
     name: 'Übersicht',
     icon: 'House',
     widgets: [],
-  },
-  {
-    id: 'lights',
-    name: 'Beleuchtung',
-    icon: 'Lightbulb',
-    widgets: [],
-  },
-  {
-    id: 'climate',
-    name: 'Klima',
-    icon: 'Thermometer',
-    widgets: [],
-  },
-  {
-    id: 'switches',
-    name: 'Schalter',
-    icon: 'PlugsConnected',
-    widgets: [],
-  },
-  {
-    id: 'sensors',
-    name: 'Sensoren',
-    icon: 'Gauge',
-    widgets: [],
+    showInNav: true,
+    order: 0,
   },
   {
     id: 'settings',
     name: 'Einstellungen',
     icon: 'Gear',
     widgets: [],
+    showInNav: true,
+    order: 999,
   },
 ]
 
@@ -59,6 +53,13 @@ export const iconMap = {
   PlugsConnected,
   Gauge,
   Gear,
+  FloppyDisk,
+  VideoCamera,
+  SpeakerHigh,
+  Lock,
+  Garage,
+  Fan,
+  Bathtub,
 }
 
 export function PageNavigationProvider({ children }: { children: React.ReactNode }) {
