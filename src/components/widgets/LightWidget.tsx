@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Lightbulb, Gear } from '@phosphor-icons/react'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
 import { LightControlDialog } from './LightControlDialog'
+import { useLongPress } from '@/hooks/use-long-press'
 import { toast } from 'sonner'
 
 interface LightWidgetProps {
@@ -16,77 +17,21 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragBrightness, setDragBrightness] = useState<number | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
   const isOn = entity.state === 'on'
   const brightness = entity.attributes.brightness || 0
   const name = entity.attributes.friendly_name || entity.entity_id
-  const sliderRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
 
   const displayBrightness = dragBrightness !== null ? dragBrightness : brightness
   const displayIsOn = dragBrightness !== null ? dragBrightness > 0 : isOn
 
-  const calculateBrightness = useCallback((clientX: number) => {
-    if (!sliderRef.current) return null
-    const rect = sliderRef.current.getBoundingClientRect()
+  const calculateBrightnessFromX = useCallback((clientX: number) => {
+    if (!cardRef.current) return null
+    const rect = cardRef.current.getBoundingClientRect()
     const x = clientX - rect.left
     const percentage = Math.max(0, Math.min(1, x / rect.width))
     return Math.round(percentage * 255)
   }, [])
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    e.stopPropagation()
-    
-    haptics.impact('light')
-    setIsDragging(true)
-    const newBrightness = calculateBrightness(e.clientX)
-    if (newBrightness !== null) {
-      setDragBrightness(newBrightness)
-    }
-    
-    sliderRef.current?.setPointerCapture(e.pointerId)
-  }, [calculateBrightness])
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging) return
-    e.preventDefault()
-    
-    const newBrightness = calculateBrightness(e.clientX)
-    if (newBrightness !== null && Math.abs(newBrightness - (dragBrightness || 0)) > 3) {
-      haptics.selectionChanged()
-      setDragBrightness(newBrightness)
-    }
-  }, [isDragging, dragBrightness, calculateBrightness])
-
-  const handlePointerUp = useCallback(async (e: React.PointerEvent) => {
-    if (!isDragging) return
-    e.preventDefault()
-    
-    setIsDragging(false)
-    
-    if (dragBrightness === null) return
-
-    haptics.impact('medium')
-    setIsUpdating(true)
-    try {
-      if (dragBrightness === 0) {
-        await haService.turnOff(entity.entity_id)
-        toast.success(`${name} ausgeschaltet`)
-      } else {
-        await haService.turnOn(entity.entity_id, { brightness: dragBrightness })
-        toast.success(`${name} auf ${Math.round((dragBrightness / 255) * 100)}%`)
-      }
-      haptics.notification('success')
-      onUpdate?.()
-    } catch (error) {
-      toast.error('Fehler beim Anpassen der Helligkeit')
-      haptics.notification('error')
-    } finally {
-      setIsUpdating(false)
-      setDragBrightness(null)
-    }
-  }, [isDragging, dragBrightness, entity.entity_id, name, onUpdate])
 
   const handleToggle = useCallback(async () => {
     if (isUpdating) return
@@ -107,13 +52,81 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     }
   }, [entity.entity_id, isUpdating, isOn, name, onUpdate])
 
+  const { handlers, isDragging } = useLongPress({
+    onShortPress: handleToggle,
+    onLongPress: () => {
+      haptics.impact('medium')
+    },
+    onDragStart: () => {
+      haptics.impact('light')
+    },
+    onDrag: (delta, total) => {
+      if (!cardRef.current) return
+      const rect = cardRef.current.getBoundingClientRect()
+      const currentX = total.x + rect.width / 2
+      const newBrightness = calculateBrightnessFromX(currentX)
+      if (newBrightness !== null) {
+        if (dragBrightness === null || Math.abs(newBrightness - dragBrightness) > 3) {
+          haptics.selectionChanged()
+          setDragBrightness(newBrightness)
+        }
+      }
+    },
+    onDragEnd: async () => {
+      if (dragBrightness === null) return
+      
+      haptics.impact('medium')
+      setIsUpdating(true)
+      try {
+        if (dragBrightness === 0) {
+          await haService.turnOff(entity.entity_id)
+          toast.success(`${name} ausgeschaltet`)
+        } else {
+          await haService.turnOn(entity.entity_id, { brightness: dragBrightness })
+          toast.success(`${name} auf ${Math.round((dragBrightness / 255) * 100)}%`)
+        }
+        haptics.notification('success')
+        onUpdate?.()
+      } catch (error) {
+        toast.error('Fehler beim Anpassen der Helligkeit')
+        haptics.notification('error')
+      } finally {
+        setIsUpdating(false)
+        setDragBrightness(null)
+      }
+    },
+    threshold: 500,
+    dragThreshold: 5,
+  })
+
+  const handleSettingsClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDialogOpen(true)
+  }
+
   return (
     <>
       <motion.div
-        className="glass-card rounded-2xl theme-transition relative overflow-hidden"
-        whileHover={{ scale: 1.02 }}
+        ref={cardRef}
+        {...handlers}
+        className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
+        whileHover={{ scale: isDragging ? 1 : 1.02 }}
+        style={{
+          opacity: isDragging ? 0.95 : 1,
+        }}
       >
-        <div className="p-4 sm:p-5 space-y-4">
+        <motion.div
+          className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/40 to-success/20 rounded-2xl pointer-events-none"
+          style={{
+            width: `${(displayBrightness / 255) * 100}%`,
+          }}
+          animate={{
+            opacity: displayIsOn ? 0.8 : 0.2,
+          }}
+          transition={{ duration: 0.2 }}
+        />
+        
+        <div className="relative p-4 sm:p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <motion.div
@@ -151,23 +164,17 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
               </div>
             </div>
             <button
-              onClick={() => setDialogOpen(true)}
-              className="p-2 rounded-lg hover:bg-muted/50 transition-colors"
+              onClick={handleSettingsClick}
+              className="p-2 rounded-lg hover:bg-muted/50 transition-colors z-10"
             >
               <Gear size={20} className="text-muted-foreground" />
             </button>
           </div>
 
-          <div className="space-y-2">
-            <div
-              ref={sliderRef}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              className="relative h-12 bg-muted/50 rounded-xl overflow-hidden cursor-pointer touch-none select-none"
-            >
+          <div className="space-y-2 pointer-events-none">
+            <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden">
               <motion.div
-                className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/60 to-success rounded-xl"
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/60 to-success rounded-full"
                 style={{
                   width: `${(displayBrightness / 255) * 100}%`,
                 }}
@@ -175,11 +182,6 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
                   opacity: displayIsOn ? 1 : 0.3,
                 }}
               />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-sm font-bold font-mono text-foreground drop-shadow-lg">
-                  {Math.round((displayBrightness / 255) * 100)}%
-                </span>
-              </div>
             </div>
             
             <div className="flex justify-between items-center">

@@ -195,7 +195,7 @@ export function LightControlDialog({
               onClick={handleToggle}
               disabled={isUpdating}
               variant={isOn ? 'default' : 'outline'}
-              className="gap-2"
+              className="gap-2 glass-card border-foreground/15"
             >
               <Power size={16} weight="bold" />
               {isOn ? 'Aus' : 'An'}
@@ -231,7 +231,7 @@ export function LightControlDialog({
                       size="sm"
                       onClick={() => presetBrightness(Math.round((percent / 100) * 255))}
                       disabled={isUpdating}
-                      className="text-xs h-8"
+                      className="text-xs h-8 glass-card border-foreground/15"
                     >
                       {percent}%
                     </Button>
@@ -241,7 +241,7 @@ export function LightControlDialog({
 
               {(supportsColor || supportsColorTemp) && (
                 <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
+                  <TabsList className="grid w-full grid-cols-2 glass-card border border-foreground/10">
                     {supportsColor && (
                       <TabsTrigger value="color" className="gap-2">
                         <Palette size={16} weight="fill" />
