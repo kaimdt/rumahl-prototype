@@ -20,7 +20,8 @@ import {
   Lock,
   Garage,
   Fan,
-  Bathtub
+  Bathtub,
+  GridFour,
 } from '@phosphor-icons/react'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import type { DashboardPage } from '@/lib/types'
@@ -29,6 +30,7 @@ import { toast } from 'sonner'
 interface PageDesignerProps {
   isOpen: boolean
   onClose: () => void
+  onEditWidgets?: (pageId: string) => void
 }
 
 const availableIcons = {
@@ -63,7 +65,7 @@ const iconLabels: Record<keyof typeof availableIcons, string> = {
   Bathtub: 'Bad',
 }
 
-export function PageDesigner({ isOpen, onClose }: PageDesignerProps) {
+export function PageDesigner({ isOpen, onClose, onEditWidgets }: PageDesignerProps) {
   const { pages, setPages } = usePageNavigation()
   const [editingPageId, setEditingPageId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -254,6 +256,15 @@ export function PageDesigner({ isOpen, onClose }: PageDesignerProps) {
                             </div>
 
                             <div className="flex items-center gap-1">
+                              {/* Edit Widgets button */}
+                              <button
+                                onClick={() => onEditWidgets?.(page.id)}
+                                className="p-2 rounded-lg hover:bg-accent/10 text-foreground/60 hover:text-accent transition-colors"
+                                title="Widgets bearbeiten"
+                              >
+                                <GridFour size={18} weight="bold" />
+                              </button>
+
                               {/* Move buttons */}
                               {!isSystemPage && (
                                 <>

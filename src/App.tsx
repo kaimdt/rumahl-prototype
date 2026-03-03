@@ -20,6 +20,7 @@ import { SplashScreen } from '@/components/SplashScreen'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 import { PageDesigner } from '@/components/PageDesigner'
+import { PageWidgetEditor } from '@/components/PageWidgetEditor'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
@@ -43,6 +44,8 @@ function DashboardContent() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showSplash, setShowSplash] = useState(true)
   const [showPageDesigner, setShowPageDesigner] = useState(false)
+  const [showWidgetEditor, setShowWidgetEditor] = useState(false)
+  const [editingPageId, setEditingPageId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -490,7 +493,24 @@ function DashboardContent() {
           )}
         </main>
         <NavigationMenu />
-        <PageDesigner isOpen={showPageDesigner} onClose={() => setShowPageDesigner(false)} />
+        <PageDesigner
+          isOpen={showPageDesigner}
+          onClose={() => setShowPageDesigner(false)}
+          onEditWidgets={(pageId) => {
+            setEditingPageId(pageId)
+            setShowWidgetEditor(true)
+            setShowPageDesigner(false)
+          }}
+        />
+        <PageWidgetEditor
+          isOpen={showWidgetEditor}
+          onClose={() => {
+            setShowWidgetEditor(false)
+            setEditingPageId(null)
+          }}
+          pageId={editingPageId || ''}
+          availableEntities={entities}
+        />
       </div>
     </div>
   )
