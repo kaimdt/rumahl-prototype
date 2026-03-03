@@ -68,9 +68,10 @@ const widgetTypeLabels: Record<string, string> = {
 interface SortableWidgetProps {
   widget: DashboardWidget
   onDelete: (id: string) => void
+  onEdit: (id: string) => void
 }
 
-function SortableWidget({ widget, onDelete }: SortableWidgetProps) {
+function SortableWidget({ widget, onDelete, onEdit }: SortableWidgetProps) {
   const {
     attributes,
     listeners,
@@ -108,18 +109,33 @@ function SortableWidget({ widget, onDelete }: SortableWidgetProps) {
             <p className="text-xs text-foreground/60 truncate max-w-[200px]">
               {widget.entity_id || 'Kein Entity'}
             </p>
+            <p className="text-xs text-foreground/40 mt-0.5">
+              Größe: {widget.size.w} × {widget.size.h}
+            </p>
           </div>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete(widget.id)
-          }}
-          className="p-2 rounded-lg hover:bg-red-500/10 text-foreground/60 hover:text-red-500 transition-colors"
-          title="Löschen"
-        >
-          <Trash size={18} weight="bold" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit(widget.id)
+            }}
+            className="p-2 rounded-lg hover:bg-accent/10 text-foreground/60 hover:text-accent transition-colors"
+            title="Bearbeiten"
+          >
+            <ArrowsOutCardinal size={18} weight="bold" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(widget.id)
+            }}
+            className="p-2 rounded-lg hover:bg-red-500/10 text-foreground/60 hover:text-red-500 transition-colors"
+            title="Löschen"
+          >
+            <Trash size={18} weight="bold" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -136,6 +152,10 @@ export function PageWidgetEditor({
   const [showAddWidget, setShowAddWidget] = useState(false)
   const [selectedType, setSelectedType] = useState<DashboardWidget['type']>('light')
   const [selectedEntity, setSelectedEntity] = useState<string>('')
+  const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  const [editWidth, setEditWidth] = useState(1)
+  const [editHeight, setEditHeight] = useState(1)
+  const [editConfig, setEditConfig] = useState<Record<string, unknown>>({})
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -170,6 +190,44 @@ export function PageWidgetEditor({
     )
     setPages(updatedPages)
     toast.success('Widget gelöscht')
+  }
+
+  const handleEditWidget = (widgetId: string) => {
+    const widget = page.widgets.find((w) => w.id === widgetId)
+    if (widget) {
+      setEditingWidgetId(widgetId)
+      setEditWidth(widget.size.w)
+      setEditHeight(widget.size.h)
+      setEditConfig(widget.config || {})
+    }
+  }
+
+  const handleSaveEdit = () => {
+    if (!editingWidgetId) return
+
+    const updatedWidgets = page.widgets.map((w) =>
+      w.id === editingWidgetId
+        ? {
+            ...w,
+            size: { w: editWidth, h: editHeight },
+            config: editConfig,
+          }
+        : w
+    )
+
+    const updatedPages = pages.map((p) =>
+      p.id === pageId ? { ...p, widgets: updatedWidgets } : p
+    )
+    setPages(updatedPages)
+    setEditingWidgetId(null)
+    toast.success('Widget aktualisiert')
+  }
+
+  const handleCancelEdit = () => {
+    setEditingWidgetId(null)
+    setEditWidth(1)
+    setEditHeight(1)
+    setEditConfig({})
   }
 
   const handleAddWidget = () => {
@@ -274,12 +332,107 @@ export function PageWidgetEditor({
                               key={widget.id}
                               widget={widget}
                               onDelete={handleDeleteWidget}
+                              onEdit={handleEditWidget}
                             />
                           ))}
                         </div>
                       </SortableContext>
                     </DndContext>
                   </div>
+                )}
+
+                {/* Edit Widget Section */}
+                {editingWidgetId && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-4 glass-card rounded-xl p-4 border border-accent/20"
+                  >
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
+                      Widget bearbeiten
+                    </h3>
+
+                    <div className="space-y-4">
+                      {/* Size Controls */}
+                      <div>
+                        <label className="text-xs text-foreground/60 mb-2 block">
+                          Breite (Grid-Einheiten)
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <input
+                            type="range"
+                            min="1"
+                            max="4"
+                            value={editWidth}
+                            onChange={(e) => setEditWidth(Number(e.target.value))}
+                            className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                          />
+                          <span className="text-sm font-medium text-foreground min-w-[2rem] text-right">
+                            {editWidth}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-foreground/60 mb-2 block">
+                          Höhe (Grid-Einheiten)
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <input
+                            type="range"
+                            min="1"
+                            max="4"
+                            value={editHeight}
+                            onChange={(e) => setEditHeight(Number(e.target.value))}
+                            className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                          />
+                          <span className="text-sm font-medium text-foreground min-w-[2rem] text-right">
+                            {editHeight}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Preview */}
+                      <div className="p-3 rounded-lg bg-foreground/5">
+                        <p className="text-xs text-foreground/60 mb-2">Vorschau</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {Array.from({ length: 16 }).map((_, i) => {
+                            const col = i % 4
+                            const row = Math.floor(i / 4)
+                            const isInWidget = col < editWidth && row < editHeight
+                            return (
+                              <div
+                                key={i}
+                                className={`aspect-square rounded border-2 transition-colors ${
+                                  isInWidget
+                                    ? 'bg-accent/20 border-accent'
+                                    : 'bg-foreground/5 border-foreground/10'
+                                }`}
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={handleSaveEdit}
+                          className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors flex items-center justify-center gap-2 text-sm"
+                        >
+                          <Check size={16} weight="bold" />
+                          Speichern
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="px-4 py-2 rounded-lg bg-background/50 text-foreground/80 hover:bg-background/70 transition-colors text-sm"
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
                 )}
 
                 {/* Add Widget Section */}
@@ -365,7 +518,7 @@ export function PageWidgetEditor({
 
               {/* Footer */}
               <div className="px-6 py-4 border-t border-white/10 flex justify-between">
-                {!showAddWidget && (
+                {!showAddWidget && !editingWidgetId && (
                   <button
                     onClick={() => setShowAddWidget(true)}
                     className="px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors flex items-center gap-2"
