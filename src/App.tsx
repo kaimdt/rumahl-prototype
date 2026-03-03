@@ -4,7 +4,8 @@ import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
-import type { EntityState, WeatherEntity, LightEntity } from '@/lib/types'
+import { ClimateWidget } from '@/components/widgets/ClimateWidget'
+import type { EntityState, WeatherEntity, LightEntity, ClimateEntity } from '@/lib/types'
 import { Sparkle, Check } from '@phosphor-icons/react'
 
 function DashboardContent() {
@@ -33,6 +34,7 @@ function DashboardContent() {
 
   const weatherEntity = entities.find(e => e.entity_id.startsWith('weather.')) as WeatherEntity | undefined
   const lightEntities = entities.filter(e => e.entity_id.startsWith('light.')) as LightEntity[]
+  const climateEntities = entities.filter(e => e.entity_id.startsWith('climate.')) as ClimateEntity[]
 
   const getGreeting = () => {
     const hour = currentTime.getHours()
@@ -112,6 +114,38 @@ function DashboardContent() {
                 <div className="h-full flex items-center justify-center text-foreground/40 text-sm">
                   Kalenderbereich
                 </div>
+              </div>
+
+              <div className="space-y-4">
+                {lightEntities.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-medium text-foreground/60 px-1">Beleuchtung</h3>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {lightEntities.map((light) => (
+                        <LightWidget
+                          key={light.entity_id}
+                          entity={light}
+                          onUpdate={loadEntities}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {climateEntities.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-medium text-foreground/60 px-1">Klima</h3>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                      {climateEntities.map((climate) => (
+                        <ClimateWidget
+                          key={climate.entity_id}
+                          entity={climate}
+                          onUpdate={loadEntities}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

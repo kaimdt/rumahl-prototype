@@ -146,7 +146,20 @@ class HomeAssistantService {
         attributes: {
           temperature: 21,
           current_temperature: 20.5,
+          hvac_action: 'heating',
           friendly_name: 'Heizung Wohnzimmer',
+        },
+        last_changed: new Date().toISOString(),
+        last_updated: new Date().toISOString(),
+      },
+      {
+        entity_id: 'climate.bedroom',
+        state: 'auto',
+        attributes: {
+          temperature: 19,
+          current_temperature: 19.2,
+          hvac_action: 'idle',
+          friendly_name: 'Heizung Schlafzimmer',
         },
         last_changed: new Date().toISOString(),
         last_updated: new Date().toISOString(),

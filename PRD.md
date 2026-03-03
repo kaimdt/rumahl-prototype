@@ -40,6 +40,20 @@ This is a sophisticated smart home management platform requiring real-time devic
 - Progression: User action → API call to Home Assistant → State update → UI feedback → Confirmation
 - Success criteria: Controls respond instantly with visual feedback, state persists correctly
 
+**Light Control Panels**
+- Functionality: Display all light entities with toggle switches and brightness sliders
+- Purpose: Provides quick access to control all lighting in the home
+- Trigger: Dashboard load and real-time updates
+- Progression: Fetch light entities → Render cards with on/off state → Show brightness slider when on → User adjusts → API call → Update state
+- Success criteria: Lights toggle instantly, brightness adjusts smoothly, visual states match actual device states
+
+**Climate Control Panels**
+- Functionality: Monitor and adjust heating/cooling systems with temperature controls and mode switching
+- Purpose: Enables climate management with current and target temperature display
+- Trigger: Dashboard load and periodic updates
+- Progression: Fetch climate entities → Display current/target temps → User adjusts via +/- buttons or mode selector → API call → Update display
+- Success criteria: Temperature changes are responsive, mode icons update correctly, HVAC action status displays accurately
+
 **Customizable Dashboard Layout**
 - Functionality: Drag-and-drop interface for arranging widgets and components
 - Purpose: Allows users to create personalized dashboard layouts matching their needs
@@ -120,6 +134,8 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Clean header with glassmorphism
   - Simple content layout with generous spacing
   - Weather widget with inline forecast strip
+  - Light control cards with toggle switches and brightness sliders
+  - Climate control cards with temperature displays and mode selectors
 
 - **Customizations**: 
   - Refined glassmorphism: 30px blur, 15-25% opacity, subtle 8% borders
@@ -135,12 +151,19 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Smooth opacity transitions for interactive elements
   - Simple loading indicator with icon
   - Clean focus states without heavy borders
+  - Light cards show active/on state with colored icon backgrounds
+  - Climate cards display heating/cooling states with appropriate colors
+  - Disabled states for controls during API calls
 
 - **Icon Selection**: 
   - @phosphor-icons/react with duotone weight for visual interest
   - Larger icons (40px) for weather and status indicators
   - Minimal use of icons - only where necessary
   - Check mark for confirmation/status
+  - Lightbulb icons for light controls (filled when on, regular when off)
+  - Flame/Snowflake/Fan icons for climate modes (heat/cool/auto)
+  - Lightning bolt for brightness indicators
+  - Thermometer for temperature displays
 
 - **Spacing**: 
   - Generous whitespace for breathing room
