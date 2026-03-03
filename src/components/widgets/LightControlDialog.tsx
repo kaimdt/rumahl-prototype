@@ -1,20 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Lightbulb, Lightning, Power, Palette, Thermometer } from '@phosphor-icons/react'
+import { Lightbulb, Power, SunHorizon, Circle } from '@phosphor-icons/react'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
-import { ColorPicker } from '@/components/ColorPicker'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
+import { X } from '@phosphor-icons/react'
 
 interface LightControlDialogProps {
   entity: LightEntity
@@ -31,25 +29,21 @@ export function LightControlDialog({
 }: LightControlDialogProps) {
   const isOn = entity.state === 'on'
   const [brightness, setBrightness] = useState(entity.attributes.brightness || 255)
-  const [colorTemp, setColorTemp] = useState(entity.attributes.color_temp || 370)
+  const [isDragging, setIsDragging] = useState(false)
   const [rgbColor, setRgbColor] = useState<[number, number, number]>(
-    entity.attributes.rgb_color || [255, 255, 255]
+    entity.attributes.rgb_color || [255, 200, 100]
   )
   const name = entity.attributes.friendly_name || entity.entity_id
   const [isUpdating, setIsUpdating] = useState(false)
+  const sliderRef = useRef<HTMLDivElement>(null)
 
   const supportsColor = entity.attributes.supported_color_modes?.includes('rgb') || 
                         entity.attributes.supported_color_modes?.includes('hs') ||
                         entity.attributes.rgb_color !== undefined
-  const supportsColorTemp = entity.attributes.supported_color_modes?.includes('color_temp') ||
-                           entity.attributes.color_temp !== undefined
 
   useEffect(() => {
     if (entity.attributes.brightness !== undefined) {
       setBrightness(entity.attributes.brightness)
-    }
-    if (entity.attributes.color_temp !== undefined) {
-      setColorTemp(entity.attributes.color_temp)
     }
     if (entity.attributes.rgb_color !== undefined) {
       setRgbColor(entity.attributes.rgb_color)
@@ -72,22 +66,52 @@ export function LightControlDialog({
     }
   }
 
-  const handleBrightnessChange = (values: number[]) => {
-    const newValue = values[0]
-    setBrightness(newValue)
-  }
+  const calculateBrightnessFromY = useCallback((clientY: number) => {
+    if (!sliderRef.current) return null
+    const rect = sliderRef.current.getBoundingClientRect()
+    const y = clientY - rect.top
+    const percentage = Math.max(0, Math.min(1, 1 - (y / rect.height)))
+    return Math.round(percentage * 255)
+  }, [])
 
-  const handleBrightnessCommit = async (values: number[]) => {
-    const newBrightness = values[0]
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!isOn) return
+    e.preventDefault()
+    setIsDragging(true)
+    haptics.impact('light')
+    
+    const newBrightness = calculateBrightnessFromY(e.clientY)
+    if (newBrightness !== null) {
+      setBrightness(newBrightness)
+    }
+
+    const target = e.currentTarget as HTMLElement
+    target.setPointerCapture(e.pointerId)
+  }, [isOn, calculateBrightnessFromY])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging || !isOn) return
+    
+    const newBrightness = calculateBrightnessFromY(e.clientY)
+    if (newBrightness !== null) {
+      setBrightness(newBrightness)
+      haptics.selectionChanged()
+    }
+  }, [isDragging, isOn, calculateBrightnessFromY])
+
+  const handlePointerUp = useCallback(async () => {
+    if (!isDragging) return
+    setIsDragging(false)
+    
     haptics.impact('medium')
     setIsUpdating(true)
     try {
-      if (newBrightness === 0) {
+      if (brightness === 0) {
         await haService.turnOff(entity.entity_id)
         toast.success(`${name} ausgeschaltet`)
       } else {
-        await haService.turnOn(entity.entity_id, { brightness: newBrightness })
-        toast.success(`${name} auf ${Math.round((newBrightness / 255) * 100)}%`)
+        await haService.turnOn(entity.entity_id, { brightness })
+        toast.success(`${name} auf ${Math.round((brightness / 255) * 100)}%`)
       }
       haptics.notification('success')
       onUpdate?.()
@@ -97,42 +121,15 @@ export function LightControlDialog({
     } finally {
       setIsUpdating(false)
     }
-  }
+  }, [isDragging, brightness, entity.entity_id, name, onUpdate])
 
-  const handleColorTempChange = (values: number[]) => {
-    const newValue = values[0]
-    setColorTemp(newValue)
-  }
-
-  const handleColorTempCommit = async (values: number[]) => {
-    const newColorTemp = values[0]
-    haptics.impact('medium')
+  const handleColorSelect = async (color: [number, number, number]) => {
+    setRgbColor(color)
+    haptics.impact('light')
     setIsUpdating(true)
     try {
       await haService.turnOn(entity.entity_id, { 
-        color_temp: newColorTemp,
-        brightness: brightness 
-      })
-      toast.success('Farbtemperatur angepasst')
-      haptics.notification('success')
-      onUpdate?.()
-    } catch (error) {
-      toast.error('Fehler beim Anpassen der Farbtemperatur')
-      haptics.notification('error')
-    } finally {
-      setIsUpdating(false)
-    }
-  }
-
-  const handleColorChange = (rgb: [number, number, number]) => {
-    setRgbColor(rgb)
-  }
-
-  const handleColorCommit = async (rgb: [number, number, number]) => {
-    setIsUpdating(true)
-    try {
-      await haService.turnOn(entity.entity_id, { 
-        rgb_color: rgb,
+        rgb_color: color,
         brightness: brightness 
       })
       toast.success('Farbe angepasst')
@@ -146,172 +143,136 @@ export function LightControlDialog({
     }
   }
 
-  const presetBrightness = async (value: number) => {
-    setBrightness(value)
-    haptics.impact('light')
-    setIsUpdating(true)
-    try {
-      await haService.turnOn(entity.entity_id, { brightness: value })
-      toast.success(`${name} auf ${Math.round((value / 255) * 100)}%`)
-      haptics.notification('success')
-      onUpdate?.()
-    } catch (error) {
-      toast.error('Fehler')
-      haptics.notification('error')
-    } finally {
-      setIsUpdating(false)
-    }
-  }
+  const presetColors: Array<[number, number, number]> = [
+    [255, 159, 90],
+    [255, 255, 255],
+    [255, 230, 200],
+    [200, 200, 255],
+  ]
+
+  const currentColor = `rgb(${rgbColor[0]}, ${rgbColor[1]}, ${rgbColor[2]})`
+  const brightnessPercent = brightness / 255
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md glass-card border-foreground/10">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3 text-foreground">
-            <motion.div
-              className={`p-3 rounded-xl ${
-                isOn
-                  ? 'bg-gradient-to-br from-success/30 to-success/20 text-success'
-                  : 'bg-muted/50 text-muted-foreground'
-              }`}
-              animate={isOn ? { scale: [1, 1.05, 1] } : {}}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              <Lightbulb size={24} weight={isOn ? 'fill' : 'regular'} />
-            </motion.div>
-            <div>
-              <div className="text-foreground font-semibold">{name}</div>
-              <div className="text-sm text-foreground/70 font-normal font-mono">
-                {isOn ? `${Math.round((brightness / 255) * 100)}%` : 'Aus'}
-              </div>
+      <DialogContent className="sm:max-w-[340px] glass-card border-foreground/10 p-0 gap-0 bg-card/95">
+        <DialogHeader className="p-4 pb-3 border-b border-foreground/5">
+          <DialogTitle className="flex items-center justify-between text-foreground">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-foreground/30" />
+              <div className="w-2 h-2 rounded-full bg-foreground/30" />
+              <div className="w-2 h-2 rounded-full bg-foreground/30" />
             </div>
+            <span className="text-sm font-medium">{name}</span>
+            <button
+              onClick={() => onOpenChange(false)}
+              className="text-foreground/60 hover:text-foreground/90 transition-colors"
+            >
+              <X size={20} />
+            </button>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-foreground/80 font-medium">Zustand</span>
-            <Button
-              onClick={handleToggle}
-              disabled={isUpdating}
-              variant="outline"
-              size="sm"
-              className={`gap-2 transition-all backdrop-blur-sm rounded-xl px-4 h-9 ${
-                isOn 
-                  ? 'bg-success/20 border-success/40 text-success hover:bg-success/30 hover:border-success/50' 
-                  : 'bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20'
-              }`}
+        <div className="p-6 space-y-6">
+          <div className="flex flex-col items-center gap-4">
+            <motion.div
+              animate={isOn ? { scale: [1, 1.05, 1] } : {}}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="text-center"
             >
-              <Power size={16} weight="bold" />
-              {isOn ? 'Aus' : 'An'}
-            </Button>
+              <div className="text-xl font-semibold text-foreground mb-1">
+                {isOn ? 'On' : 'Off'}
+              </div>
+              <div className="text-xs text-foreground/50">
+                {isOn ? '1 hour ago' : 'Not active'}
+              </div>
+            </motion.div>
+
+            <div 
+              ref={sliderRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+              className={`relative w-32 h-64 rounded-3xl overflow-hidden ${
+                isOn ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+              }`}
+              style={{
+                background: isOn 
+                  ? `linear-gradient(to bottom, ${currentColor}, #FFFFFF)`
+                  : 'linear-gradient(to bottom, #999, #FFFFFF)',
+                touchAction: 'none',
+              }}
+            >
+              <motion.div
+                className="absolute inset-0 rounded-3xl"
+                style={{
+                  background: 'rgba(0, 0, 0, 0.3)',
+                }}
+                animate={{
+                  clipPath: `inset(${(1 - brightnessPercent) * 100}% 0 0 0)`,
+                }}
+                transition={{ duration: 0.1 }}
+              />
+              
+              {isOn && (
+                <motion.div
+                  className="absolute left-1/2 w-6 h-6 rounded-full bg-white shadow-lg -translate-x-1/2"
+                  style={{
+                    top: `${(1 - brightnessPercent) * 100}%`,
+                    marginTop: '-12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                  }}
+                  transition={{ duration: 0.1 }}
+                />
+              )}
+            </div>
+
+            <div className="flex items-center justify-center gap-4">
+              <button 
+                className="p-2.5 rounded-full bg-foreground/8 hover:bg-foreground/12 transition-colors disabled:opacity-50"
+                disabled={isUpdating || !isOn}
+              >
+                <Lightbulb size={20} className="text-foreground/60" weight="fill" />
+              </button>
+              <button 
+                onClick={handleToggle}
+                disabled={isUpdating}
+                className="p-3 rounded-full bg-foreground/10 hover:bg-foreground/15 transition-colors"
+              >
+                <Power size={24} className="text-foreground" weight="bold" />
+              </button>
+              <button 
+                className="p-2.5 rounded-full bg-foreground/8 hover:bg-foreground/12 transition-colors disabled:opacity-50"
+                disabled={isUpdating || !isOn}
+              >
+                <SunHorizon size={20} className="text-foreground/60" weight="fill" />
+              </button>
+            </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground/80 font-medium flex items-center gap-2">
-                <Lightning size={16} weight="fill" />
-                Helligkeit
-              </span>
-              <span className="text-sm font-mono font-semibold text-foreground">
-                {Math.round((brightness / 255) * 100)}%
-              </span>
-            </div>
-            <div className="space-y-3 px-1">
-              <Slider
-                value={[brightness]}
-                onValueChange={handleBrightnessChange}
-                onValueCommit={handleBrightnessCommit}
-                min={0}
-                max={255}
-                step={1}
-                disabled={isUpdating || !isOn}
-                className="w-full cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                <span>0%</span>
-                <span>100%</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {[25, 50, 75, 100].map((percent) => (
-                <Button
-                  key={percent}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => presetBrightness(Math.round((percent / 100) * 255))}
+          {supportsColor && (
+            <div className="flex items-center justify-center gap-3 pt-2">
+              {presetColors.map((color, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleColorSelect(color)}
                   disabled={isUpdating || !isOn}
-                  className="text-xs h-9 bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20 backdrop-blur-sm transition-all rounded-lg font-medium"
+                  className="relative group disabled:opacity-50"
                 >
-                  {percent}%
-                </Button>
+                  <div
+                    className="w-12 h-12 rounded-full transition-transform group-hover:scale-110 group-active:scale-95"
+                    style={{
+                      backgroundColor: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    }}
+                  />
+                  {rgbColor[0] === color[0] && rgbColor[1] === color[1] && rgbColor[2] === color[2] && (
+                    <div className="absolute inset-0 rounded-full border-2 border-foreground/40" />
+                  )}
+                </button>
               ))}
             </div>
-          </div>
-
-          {(supportsColor || supportsColorTemp) && (
-            <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-foreground/6 border border-foreground/10 p-1 backdrop-blur-sm rounded-xl h-11">
-                {supportsColor && (
-                  <TabsTrigger 
-                    value="color" 
-                    className="gap-2 rounded-lg data-[state=active]:bg-foreground/10 transition-all"
-                  >
-                    <Palette size={16} weight="fill" />
-                    Farbe
-                  </TabsTrigger>
-                )}
-                {supportsColorTemp && (
-                  <TabsTrigger 
-                    value="temp" 
-                    className="gap-2 rounded-lg data-[state=active]:bg-foreground/10 transition-all"
-                  >
-                    <Thermometer size={16} weight="fill" />
-                    Temperatur
-                  </TabsTrigger>
-                )}
-              </TabsList>
-
-              {supportsColor && (
-                <TabsContent value="color" className="space-y-4 mt-4">
-                  <ColorPicker
-                    value={rgbColor}
-                    onChange={handleColorChange}
-                    onChangeComplete={handleColorCommit}
-                    disabled={isUpdating || !isOn}
-                  />
-                </TabsContent>
-              )}
-
-              {supportsColorTemp && (
-                <TabsContent value="temp" className="space-y-3 mt-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-foreground/80 font-medium">
-                      Farbtemperatur
-                    </span>
-                    <span className="text-sm font-mono font-semibold text-foreground">
-                      {colorTemp}K
-                    </span>
-                  </div>
-                  <div className="px-1 space-y-3">
-                    <Slider
-                      value={[colorTemp]}
-                      onValueChange={handleColorTempChange}
-                      onValueCommit={handleColorTempCommit}
-                      min={153}
-                      max={500}
-                      step={1}
-                      disabled={isUpdating || !isOn}
-                      className="w-full cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                      <span>Warm</span>
-                      <span>Kalt</span>
-                    </div>
-                  </div>
-                </TabsContent>
-              )}
-            </Tabs>
           )}
         </div>
       </DialogContent>
