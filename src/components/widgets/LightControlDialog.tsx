@@ -73,13 +73,13 @@ export function LightControlDialog({
   }
 
   const handleBrightnessChange = (values: number[]) => {
-    setBrightness(values[0])
-    haptics.selectionChanged()
+    const newValue = values[0]
+    setBrightness(newValue)
   }
 
   const handleBrightnessCommit = async (values: number[]) => {
     const newBrightness = values[0]
-    haptics.impact('light')
+    haptics.impact('medium')
     setIsUpdating(true)
     try {
       if (newBrightness === 0) {
@@ -100,13 +100,13 @@ export function LightControlDialog({
   }
 
   const handleColorTempChange = (values: number[]) => {
-    setColorTemp(values[0])
-    haptics.selectionChanged()
+    const newValue = values[0]
+    setColorTemp(newValue)
   }
 
   const handleColorTempCommit = async (values: number[]) => {
     const newColorTemp = values[0]
-    haptics.impact('light')
+    haptics.impact('medium')
     setIsUpdating(true)
     try {
       await haService.turnOn(entity.entity_id, { 
@@ -218,17 +218,18 @@ export function LightControlDialog({
                     {Math.round((brightness / 255) * 100)}%
                   </span>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 px-1">
                   <Slider
                     value={[brightness]}
                     onValueChange={handleBrightnessChange}
                     onValueCommit={handleBrightnessCommit}
+                    min={0}
                     max={255}
                     step={1}
                     disabled={isUpdating}
-                    className="w-full"
+                    className="w-full cursor-pointer"
                   />
-                  <div className="flex justify-between text-[10px] text-muted-foreground font-medium px-1">
+                  <div className="flex justify-between text-[10px] text-muted-foreground font-medium">
                     <span>0%</span>
                     <span>100%</span>
                   </div>
@@ -293,17 +294,19 @@ export function LightControlDialog({
                           {colorTemp}K
                         </span>
                       </div>
-                      <Slider
-                        value={[colorTemp]}
-                        onValueChange={handleColorTempChange}
-                        onValueCommit={handleColorTempCommit}
-                        min={153}
-                        max={500}
-                        step={1}
-                        disabled={isUpdating}
-                        className="w-full"
-                      />
-                      <div className="flex justify-between text-xs text-foreground/70 font-medium">
+                      <div className="px-1">
+                        <Slider
+                          value={[colorTemp]}
+                          onValueChange={handleColorTempChange}
+                          onValueCommit={handleColorTempCommit}
+                          min={153}
+                          max={500}
+                          step={1}
+                          disabled={isUpdating}
+                          className="w-full cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex justify-between text-xs text-foreground/70 font-medium px-1">
                         <span>Warm</span>
                         <span>Kalt</span>
                       </div>
