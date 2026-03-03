@@ -251,11 +251,11 @@ export function LightControlDialog({
 
               {(supportsColor || supportsColorTemp) && (
                 <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 bg-foreground/5 border border-foreground/10 p-1 backdrop-blur-sm">
+                  <TabsList className="grid w-full grid-cols-2 bg-foreground/6 border border-foreground/10 p-1 backdrop-blur-sm rounded-xl">
                     {supportsColor && (
                       <TabsTrigger 
                         value="color" 
-                        className="gap-2 data-[state=active]:bg-accent/20 data-[state=active]:text-accent data-[state=active]:border data-[state=active]:border-accent/30 data-[state=active]:font-semibold transition-all"
+                        className="gap-2"
                       >
                         <Palette size={16} weight="fill" />
                         Farbe
@@ -264,7 +264,7 @@ export function LightControlDialog({
                     {supportsColorTemp && (
                       <TabsTrigger 
                         value="temp" 
-                        className="gap-2 data-[state=active]:bg-accent/20 data-[state=active]:text-accent data-[state=active]:border data-[state=active]:border-accent/30 data-[state=active]:font-semibold transition-all"
+                        className="gap-2"
                       >
                         <Thermometer size={16} weight="fill" />
                         Temperatur

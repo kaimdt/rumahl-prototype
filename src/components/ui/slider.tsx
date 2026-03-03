@@ -31,7 +31,7 @@ function Slider({
       min={min}
       max={max}
       className={cn(
-        "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
+        "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col py-2",
         className
       )}
       {...props}
@@ -39,13 +39,13 @@ function Slider({
       <SliderPrimitive.Track
         data-slot="slider-track"
         className={cn(
-          "bg-foreground/10 relative grow overflow-hidden rounded-full data-[orientation=horizontal]:h-2 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-2 backdrop-blur-sm"
+          "bg-foreground/8 relative grow overflow-hidden rounded-full data-[orientation=horizontal]:h-1.5 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1.5 shadow-inner"
         )}
       >
         <SliderPrimitive.Range
           data-slot="slider-range"
           className={cn(
-            "bg-gradient-to-r from-accent/80 to-accent absolute data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
+            "bg-gradient-to-r from-accent via-accent/95 to-accent/90 absolute data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full shadow-sm"
           )}
         />
       </SliderPrimitive.Track>
@@ -53,7 +53,7 @@ function Slider({
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}
-          className="border-2 border-accent bg-card ring-accent/30 block size-5 shrink-0 rounded-full shadow-lg transition-all hover:ring-8 hover:scale-110 focus-visible:ring-8 focus-visible:scale-110 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 active:scale-95"
+          className="block size-6 shrink-0 rounded-full border border-foreground/10 bg-gradient-to-b from-card to-card/95 shadow-[0_2px_8px_rgba(0,0,0,0.15),0_0_0_0.5px_rgba(255,255,255,0.1)_inset,0_1px_2px_rgba(255,255,255,0.2)_inset] backdrop-blur-xl transition-all hover:scale-110 hover:shadow-[0_4px_12px_rgba(0,0,0,0.2),0_0_0_0.5px_rgba(255,255,255,0.15)_inset,0_1px_3px_rgba(255,255,255,0.25)_inset] focus-visible:scale-110 focus-visible:shadow-[0_4px_12px_rgba(0,0,0,0.2),0_0_0_3px_oklch(from_var(--accent)_l_c_h_/_0.3)] focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 active:scale-95"
         />
       ))}
     </SliderPrimitive.Root>

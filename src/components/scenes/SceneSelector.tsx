@@ -203,14 +203,14 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
                     exit={{ opacity: 0, scale: 0.8 }}
                     className="flex-shrink-0"
                   >
-                    <div className="glass-card rounded-xl p-4 min-w-[140px] relative group">
+                    <div className="glass-card rounded-xl p-4 min-w-[140px] relative group hover:shadow-lg transition-shadow duration-300">
                       <button
                         onClick={() => handleApplyScene(scene)}
                         disabled={isApplying}
                         className="w-full text-left space-y-2 disabled:opacity-50"
                       >
-                        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-accent/20 mx-auto">
-                          <SceneIcon size={28} weight="fill" className="text-accent" />
+                        <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-accent/30 to-accent/15 mx-auto shadow-inner border border-accent/20">
+                          <SceneIcon size={28} weight="fill" className="text-accent drop-shadow-sm" />
                         </div>
                         <div>
                           <div className="text-sm font-medium truncate">{scene.name}</div>
@@ -223,13 +223,13 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
                       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                         <button
                           onClick={() => startEdit(scene)}
-                          className="p-1 rounded-lg bg-background/80 hover:bg-accent/20 transition-colors"
+                          className="p-1.5 rounded-lg bg-background/90 hover:bg-accent/20 transition-colors backdrop-blur-sm shadow-sm border border-foreground/10"
                         >
-                          <Pencil size={14} className="text-foreground/60" />
+                          <Pencil size={14} className="text-foreground/70" />
                         </button>
                         <button
                           onClick={() => handleDeleteScene(scene.id, scene.name)}
-                          className="p-1 rounded-lg bg-background/80 hover:bg-destructive/20 transition-colors"
+                          className="p-1.5 rounded-lg bg-background/90 hover:bg-destructive/20 transition-colors backdrop-blur-sm shadow-sm border border-foreground/10"
                         >
                           <Trash size={14} className="text-destructive" />
                         </button>

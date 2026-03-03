@@ -99,14 +99,16 @@ The design embodies modern minimalism with a timeless, sophisticated aesthetic. 
 
 ## Color Selection
 
-A refined, minimal color palette that prioritizes readability over photographic backgrounds with adaptive brightness for time-based themes.
+A refined, vibrant color palette with modern iOS-inspired tones that create depth and visual interest while maintaining readability.
 
 - **Primary Color**: Subtle blue-gray `oklch(0.28 0.04 240)` - Clean, modern, unobtrusive
 - **Foreground (Day)**: Near-white `oklch(0.95 0.005 240)` - High contrast over photography
 - **Foreground (Night)**: Soft white `oklch(0.78 0.015 240)` - Readable but not harsh
-- **Accent Color**: Refined cyan `oklch(0.55 0.15 220)` - Subtle highlights and interactions
+- **Accent Color**: Vibrant cyan-blue `oklch(0.65 0.20 210)` - Eye-catching highlights for interactive elements
+- **Success Color**: Fresh green `oklch(0.68 0.18 140)` - Positive feedback and light controls
 - **Background Treatment**: Full-screen photography with CSS brightness filters (0.75 day, 0.6 evening, 0.4 night, 0.2 sleep)
-- **Glass Effects**: Minimal blur (30px) with very low opacity (15-25%) to preserve background visibility
+- **Glass Effects**: Enhanced blur (40px) with increased opacity (25-35%) and color tinting for depth
+- **Glass Tints**: Dynamic color overlays that shift per theme (cool blue for day, purple-blue for evening/night)
 - **Gradients**: Subtle black gradient overlays (from-black/40 via-black/20 to-black/60) for text legibility
 
 **Foreground/Background Pairings**:
@@ -114,7 +116,7 @@ A refined, minimal color palette that prioritizes readability over photographic 
 - Evening Mode: Soft white `oklch(0.85 0.01 250)` on darker photo (brightness 0.6) - Optimal ✓
 - Night Mode: Muted white `oklch(0.78 0.015 240)` on dark photo (brightness 0.4) - Comfortable ✓
 - Sleep Mode: Dim gray `oklch(0.25 0.015 240)` on black photo (brightness 0.2) - Minimal strain ✓
-- Glass cards: 15-25% opacity with subtle borders for depth
+- Glass cards: 25-35% opacity with gradient color tints and enhanced saturation (1.8x) for vibrancy
 
 ## Font Selection
 
@@ -132,24 +134,26 @@ The typography should feel technical yet approachable, with excellent readabilit
 
 ## Animations
 
-Animations are subtle and purposeful, enhancing usability without calling attention to themselves. Theme transitions use gentle 400ms ease timing for smooth atmospheric shifts between day/evening/night modes. The background image brightness animates fluidly to match time-based themes. Interactive elements have minimal hover states - no aggressive scaling or bouncing. Loading states are simple and unobtrusive. The overall feel is calm, refined, and distraction-free.
+Animations are purposeful and refined, creating a premium iOS-like experience. Theme transitions use gentle 400ms ease timing for smooth atmospheric shifts between day/evening/night modes. The background image brightness animates fluidly to match time-based themes. Interactive elements have iOS-inspired feedback - sliders feature smooth scaling on interaction (110% hover, 95% active), and tab switches animate with subtle glass-effect transitions. Slider thumbs have layered shadow effects that respond to interaction states. The overall feel is polished, fluid, and distinctly Apple-like in its attention to micro-interactions.
 
 ## Component Selection
 
 - **Components**: 
-  - Minimal glass cards with 12px border radius and 15-20% opacity
+  - Vibrant glass cards with 12px border radius, 25-35% opacity, and gradient color tints
+  - iOS-style sliders with refined thumbs featuring inset shadows and subtle glow effects
+  - Modern tab controls with glass-effect active states (gradient backgrounds with borders)
   - Photographic background with CSS filter brightness adjustments
-  - Subtle gradient overlays for text legibility
-  - Clean header with glassmorphism
+  - Enhanced gradient overlays for text legibility with color saturation boost
+  - Clean header with premium glassmorphism
   - Simple content layout with generous spacing
   - Weather widget with inline forecast strip
-  - Light control cards with toggle switches, brightness sliders, and RGB color pickers
+  - Light control cards with toggle switches, iOS-style brightness sliders, and RGB color pickers
   - Interactive color picker with HSV canvas, hue slider, preset swatches, and live preview
-  - Tabbed interface for color vs. temperature control in light dialogs
+  - Premium tabbed interface for color vs. temperature control with glass-effect active states
   - Climate control cards with temperature displays and mode selectors
 
 - **Customizations**: 
-  - Refined glassmorphism: 30px blur, 15-25% opacity, subtle 8% borders
+  - Premium glassmorphism: 40px blur, 25-35% opacity, gradient color tints, 1.8x saturation boost
   - Full-screen background image with time-based brightness filters
   - Black gradient overlays (40% top, 20% middle, 60% bottom) for readability
   - Reduced border radius (0.75rem base) for cleaner, more minimal aesthetic
@@ -158,6 +162,9 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Minimal decorative elements - focus on content and photography
   - Custom HSV color picker with canvas-based saturation/value selector
   - Haptic vibration patterns for different interaction types
+  - iOS-inspired slider thumbs with layered shadows (outer drop shadow + inner highlight)
+  - Gradient-based slider tracks with vibrant accent colors
+  - Active tab states with glass effect (gradient background, borders, inset highlights)
 
 - **States**: 
   - Minimal hover states - no aggressive transformations
