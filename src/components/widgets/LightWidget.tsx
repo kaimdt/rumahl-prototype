@@ -124,12 +124,12 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
       haptics.impact('medium')
       setIsUpdating(true)
       try {
-        await haService.turnOff(entity.entity_id)
-        toast.success(`${name} ausgeschaltet`)
+        await haService.toggleEntity(entity.entity_id)
+        toast.success(isOn ? `${name} ausgeschaltet` : `${name} eingeschaltet`)
         haptics.notification('success')
         onUpdate?.()
       } catch (error) {
-        toast.error('Fehler beim Ausschalten')
+        toast.error('Fehler beim Schalten')
         haptics.notification('error')
       } finally {
         setIsUpdating(false)
@@ -138,7 +138,7 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
 
     isDraggingRef.current = false
     hasMovedRef.current = false
-  }, [dragBrightness, updateBrightness, clearLongPressTimer, entity.entity_id, name, onUpdate])
+  }, [dragBrightness, updateBrightness, clearLongPressTimer, entity.entity_id, name, onUpdate, isOn])
 
   return (
     <>
