@@ -23,6 +23,8 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const longPressTimerRef = useRef<number | undefined>(undefined)
   const isDraggingRef = useRef(false)
+  const hasMovedRef = useRef(false)
+  const startXRef = useRef<number>(0)
 
   const displayBrightness = dragBrightness !== null ? dragBrightness : brightness
   const displayIsOn = dragBrightness !== null ? dragBrightness > 0 : isOn
@@ -73,46 +75,70 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     e.preventDefault()
     clearLongPressTimer()
     isDraggingRef.current = false
+    hasMovedRef.current = false
+    startXRef.current = e.clientX
 
-    const newBrightness = calculateBrightnessFromX(e.clientX)
-    if (newBrightness !== null) {
-      setDragBrightness(newBrightness)
-      haptics.impact('light')
-    }
+    haptics.impact('light')
 
     longPressTimerRef.current = window.setTimeout(() => {
-      if (!isDraggingRef.current) {
+      if (!hasMovedRef.current) {
         haptics.impact('medium')
         setDialogOpen(true)
         setDragBrightness(null)
       }
     }, 500)
-  }, [calculateBrightnessFromX, clearLongPressTimer])
+  }, [clearLongPressTimer])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (dragBrightness === null) return
+    const movementThreshold = 5
+    const distanceMoved = Math.abs(e.clientX - startXRef.current)
     
-    isDraggingRef.current = true
-    setIsDragging(true)
-    clearLongPressTimer()
+    if (distanceMoved > movementThreshold && !hasMovedRef.current) {
+      hasMovedRef.current = true
+      isDraggingRef.current = true
+      setIsDragging(true)
+      clearLongPressTimer()
+      
+      const initialBrightness = calculateBrightnessFromX(startXRef.current)
+      if (initialBrightness !== null) {
+        setDragBrightness(initialBrightness)
+      }
+    }
 
-    const newBrightness = calculateBrightnessFromX(e.clientX)
-    if (newBrightness !== null && Math.abs(newBrightness - dragBrightness) > 3) {
-      setDragBrightness(newBrightness)
-      haptics.selectionChanged()
+    if (hasMovedRef.current) {
+      const newBrightness = calculateBrightnessFromX(e.clientX)
+      if (newBrightness !== null && (dragBrightness === null || Math.abs(newBrightness - dragBrightness) > 3)) {
+        setDragBrightness(newBrightness)
+        haptics.selectionChanged()
+      }
     }
   }, [dragBrightness, calculateBrightnessFromX, clearLongPressTimer])
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback(async () => {
     clearLongPressTimer()
     setIsDragging(false)
 
-    if (dragBrightness !== null) {
+    if (hasMovedRef.current && dragBrightness !== null) {
       updateBrightness(dragBrightness)
+    } else if (!hasMovedRef.current && !isDraggingRef.current) {
+      haptics.impact('medium')
+      setIsUpdating(true)
+      try {
+        await haService.turnOff(entity.entity_id)
+        toast.success(`${name} ausgeschaltet`)
+        haptics.notification('success')
+        onUpdate?.()
+      } catch (error) {
+        toast.error('Fehler beim Ausschalten')
+        haptics.notification('error')
+      } finally {
+        setIsUpdating(false)
+      }
     }
 
     isDraggingRef.current = false
-  }, [dragBrightness, updateBrightness, clearLongPressTimer])
+    hasMovedRef.current = false
+  }, [dragBrightness, updateBrightness, clearLongPressTimer, entity.entity_id, name, onUpdate])
 
   return (
     <>

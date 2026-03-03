@@ -195,7 +195,8 @@ export function LightControlDialog({
               onClick={handleToggle}
               disabled={isUpdating}
               variant="outline"
-              className={`gap-2 transition-all backdrop-blur-sm ${
+              size="sm"
+              className={`gap-2 transition-all backdrop-blur-sm rounded-xl px-4 h-9 ${
                 isOn 
                   ? 'bg-success/20 border-success/40 text-success hover:bg-success/30 hover:border-success/50' 
                   : 'bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20'
@@ -206,115 +207,111 @@ export function LightControlDialog({
             </Button>
           </div>
 
-          {isOn && (
-            <>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground/80 font-medium flex items-center gap-2">
-                    <Lightning size={16} weight="fill" />
-                    Helligkeit
-                  </span>
-                  <span className="text-sm font-mono font-semibold text-foreground">
-                    {Math.round((brightness / 255) * 100)}%
-                  </span>
-                </div>
-                <div className="space-y-2 px-1">
-                  <Slider
-                    value={[brightness]}
-                    onValueChange={handleBrightnessChange}
-                    onValueCommit={handleBrightnessCommit}
-                    min={0}
-                    max={255}
-                    step={1}
-                    disabled={isUpdating}
-                    className="w-full cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground font-medium">
-                    <span>0%</span>
-                    <span>100%</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[25, 50, 75, 100].map((percent) => (
-                    <Button
-                      key={percent}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => presetBrightness(Math.round((percent / 100) * 255))}
-                      disabled={isUpdating}
-                      className="text-xs h-8 bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20 backdrop-blur-sm transition-all"
-                    >
-                      {percent}%
-                    </Button>
-                  ))}
-                </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground/80 font-medium flex items-center gap-2">
+                <Lightning size={16} weight="fill" />
+                Helligkeit
+              </span>
+              <span className="text-sm font-mono font-semibold text-foreground">
+                {Math.round((brightness / 255) * 100)}%
+              </span>
+            </div>
+            <div className="space-y-3 px-1">
+              <Slider
+                value={[brightness]}
+                onValueChange={handleBrightnessChange}
+                onValueCommit={handleBrightnessCommit}
+                min={0}
+                max={255}
+                step={1}
+                disabled={isUpdating || !isOn}
+                className="w-full cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                <span>0%</span>
+                <span>100%</span>
               </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {[25, 50, 75, 100].map((percent) => (
+                <Button
+                  key={percent}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => presetBrightness(Math.round((percent / 100) * 255))}
+                  disabled={isUpdating || !isOn}
+                  className="text-xs h-9 bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20 backdrop-blur-sm transition-all rounded-lg font-medium"
+                >
+                  {percent}%
+                </Button>
+              ))}
+            </div>
+          </div>
 
-              {(supportsColor || supportsColorTemp) && (
-                <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 bg-foreground/6 border border-foreground/10 p-1 backdrop-blur-sm rounded-xl">
-                    {supportsColor && (
-                      <TabsTrigger 
-                        value="color" 
-                        className="gap-2"
-                      >
-                        <Palette size={16} weight="fill" />
-                        Farbe
-                      </TabsTrigger>
-                    )}
-                    {supportsColorTemp && (
-                      <TabsTrigger 
-                        value="temp" 
-                        className="gap-2"
-                      >
-                        <Thermometer size={16} weight="fill" />
-                        Temperatur
-                      </TabsTrigger>
-                    )}
-                  </TabsList>
+          {(supportsColor || supportsColorTemp) && (
+            <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 bg-foreground/6 border border-foreground/10 p-1 backdrop-blur-sm rounded-xl h-11">
+                {supportsColor && (
+                  <TabsTrigger 
+                    value="color" 
+                    className="gap-2 rounded-lg data-[state=active]:bg-foreground/10 transition-all"
+                  >
+                    <Palette size={16} weight="fill" />
+                    Farbe
+                  </TabsTrigger>
+                )}
+                {supportsColorTemp && (
+                  <TabsTrigger 
+                    value="temp" 
+                    className="gap-2 rounded-lg data-[state=active]:bg-foreground/10 transition-all"
+                  >
+                    <Thermometer size={16} weight="fill" />
+                    Temperatur
+                  </TabsTrigger>
+                )}
+              </TabsList>
 
-                  {supportsColor && (
-                    <TabsContent value="color" className="space-y-4 mt-4">
-                      <ColorPicker
-                        value={rgbColor}
-                        onChange={handleColorChange}
-                        onChangeComplete={handleColorCommit}
-                        disabled={isUpdating}
-                      />
-                    </TabsContent>
-                  )}
-
-                  {supportsColorTemp && (
-                    <TabsContent value="temp" className="space-y-3 mt-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-foreground/80 font-medium">
-                          Farbtemperatur
-                        </span>
-                        <span className="text-sm font-mono font-semibold text-foreground">
-                          {colorTemp}K
-                        </span>
-                      </div>
-                      <div className="px-1">
-                        <Slider
-                          value={[colorTemp]}
-                          onValueChange={handleColorTempChange}
-                          onValueCommit={handleColorTempCommit}
-                          min={153}
-                          max={500}
-                          step={1}
-                          disabled={isUpdating}
-                          className="w-full cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between text-xs text-foreground/70 font-medium px-1">
-                        <span>Warm</span>
-                        <span>Kalt</span>
-                      </div>
-                    </TabsContent>
-                  )}
-                </Tabs>
+              {supportsColor && (
+                <TabsContent value="color" className="space-y-4 mt-4">
+                  <ColorPicker
+                    value={rgbColor}
+                    onChange={handleColorChange}
+                    onChangeComplete={handleColorCommit}
+                    disabled={isUpdating || !isOn}
+                  />
+                </TabsContent>
               )}
-            </>
+
+              {supportsColorTemp && (
+                <TabsContent value="temp" className="space-y-3 mt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-foreground/80 font-medium">
+                      Farbtemperatur
+                    </span>
+                    <span className="text-sm font-mono font-semibold text-foreground">
+                      {colorTemp}K
+                    </span>
+                  </div>
+                  <div className="px-1 space-y-3">
+                    <Slider
+                      value={[colorTemp]}
+                      onValueChange={handleColorTempChange}
+                      onValueCommit={handleColorTempCommit}
+                      min={153}
+                      max={500}
+                      step={1}
+                      disabled={isUpdating || !isOn}
+                      className="w-full cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                      <span>Warm</span>
+                      <span>Kalt</span>
+                    </div>
+                  </div>
+                </TabsContent>
+              )}
+            </Tabs>
           )}
         </div>
       </DialogContent>
