@@ -52,6 +52,19 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     }
   }, [entity.entity_id, isUpdating, isOn, name, onUpdate])
 
+  const turnOnLight = useCallback(async (brightness: number) => {
+    setIsUpdating(true)
+    try {
+      await haService.turnOn(entity.entity_id, { brightness })
+      haptics.notification('success')
+      onUpdate?.()
+    } catch (error) {
+      haptics.notification('error')
+    } finally {
+      setIsUpdating(false)
+    }
+  }, [entity.entity_id, onUpdate])
+
   const { handlers, isDragging } = useLongPress({
     onShortPress: handleToggle,
     onLongPress: () => {
@@ -60,6 +73,9 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     },
     onDragStart: () => {
       haptics.impact('light')
+      if (!isOn) {
+        turnOnLight(128)
+      }
     },
     onDrag: (delta, total) => {
       if (!cardRef.current) return
@@ -107,7 +123,14 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         {...handlers}
         className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
         whileHover={{ scale: isDragging ? 1 : 1.02 }}
-        whileTap={{ scale: isDragging ? 1 : 0.98 }}
+        whileTap={{ 
+          scale: isDragging ? 1 : 0.98,
+          transition: {
+            type: "spring",
+            stiffness: 500,
+            damping: 30,
+          }
+        }}
         animate={{
           scale: isDragging ? 1.05 : 1,
         }}

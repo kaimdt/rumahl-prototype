@@ -194,8 +194,12 @@ export function LightControlDialog({
             <Button
               onClick={handleToggle}
               disabled={isUpdating}
-              variant={isOn ? 'default' : 'outline'}
-              className="gap-2 glass-card border-foreground/15"
+              variant="outline"
+              className={`gap-2 transition-all backdrop-blur-sm ${
+                isOn 
+                  ? 'bg-success/20 border-success/40 text-success hover:bg-success/30 hover:border-success/50' 
+                  : 'bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20'
+              }`}
             >
               <Power size={16} weight="bold" />
               {isOn ? 'Aus' : 'An'}
@@ -237,7 +241,7 @@ export function LightControlDialog({
                       size="sm"
                       onClick={() => presetBrightness(Math.round((percent / 100) * 255))}
                       disabled={isUpdating}
-                      className="text-xs h-8 glass-card border-foreground/15"
+                      className="text-xs h-8 bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20 backdrop-blur-sm transition-all"
                     >
                       {percent}%
                     </Button>
@@ -247,11 +251,11 @@ export function LightControlDialog({
 
               {(supportsColor || supportsColorTemp) && (
                 <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 glass-card border border-foreground/10 p-1">
+                  <TabsList className="grid w-full grid-cols-2 bg-foreground/5 border border-foreground/10 p-1 backdrop-blur-sm">
                     {supportsColor && (
                       <TabsTrigger 
                         value="color" 
-                        className="gap-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:font-semibold"
+                        className="gap-2 data-[state=active]:bg-accent/20 data-[state=active]:text-accent data-[state=active]:border data-[state=active]:border-accent/30 data-[state=active]:font-semibold transition-all"
                       >
                         <Palette size={16} weight="fill" />
                         Farbe
@@ -260,7 +264,7 @@ export function LightControlDialog({
                     {supportsColorTemp && (
                       <TabsTrigger 
                         value="temp" 
-                        className="gap-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:font-semibold"
+                        className="gap-2 data-[state=active]:bg-accent/20 data-[state=active]:text-accent data-[state=active]:border data-[state=active]:border-accent/30 data-[state=active]:font-semibold transition-all"
                       >
                         <Thermometer size={16} weight="fill" />
                         Temperatur

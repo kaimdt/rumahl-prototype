@@ -170,7 +170,7 @@ export function ClimateControlDialog({
                   size="sm"
                   onClick={() => presetTemp(temp)}
                   disabled={isUpdating}
-                  className="text-xs h-8"
+                  className="text-xs h-8 bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20 backdrop-blur-sm transition-all"
                 >
                   {temp}°C
                 </Button>
@@ -189,9 +189,19 @@ export function ClimateControlDialog({
               ].map(({ key, label, icon: Icon }) => (
                 <Button
                   key={key}
-                  variant={mode === key ? 'default' : 'outline'}
+                  variant="outline"
                   size="sm"
-                  className="gap-2 h-10"
+                  className={`gap-2 h-10 transition-all backdrop-blur-sm ${
+                    mode === key
+                      ? key === 'heat'
+                        ? 'bg-destructive/20 border-destructive/40 text-destructive hover:bg-destructive/30 hover:border-destructive/50'
+                        : key === 'cool'
+                        ? 'bg-accent/20 border-accent/40 text-accent hover:bg-accent/30 hover:border-accent/50'
+                        : key === 'auto'
+                        ? 'bg-success/20 border-success/40 text-success hover:bg-success/30 hover:border-success/50'
+                        : 'bg-foreground/15 border-foreground/25 hover:bg-foreground/20'
+                      : 'bg-foreground/5 border-foreground/15 hover:bg-foreground/10 hover:border-foreground/20'
+                  }`}
                   onClick={() => handleModeChange(key)}
                   disabled={isUpdating}
                 >
