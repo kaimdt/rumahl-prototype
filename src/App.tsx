@@ -22,14 +22,21 @@ import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotific
 import { PageDesigner } from '@/components/PageDesigner'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { DynamicBackground } from '@/components/DynamicBackground'
+import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
+import { Switch } from '@/components/ui/switch'
+import { useAccentColor } from '@/hooks/useAccentColor'
+import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
-import { Sparkle, Check, Palette } from '@phosphor-icons/react'
+import { Sparkle, Check, Palette, Moon, PaintBucket } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
 
 function DashboardContent() {
   const { theme } = useTheme()
   const { currentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
+  const screensaverSettings = useScreensaverSettings()
+  const accentColorSettings = useAccentColor()
+  const nightModeSettings = useNightModeSettings()
   const [entities, setEntities] = useState<EntityState[]>([])
   const [loading, setLoading] = useState(true)
   const [userName] = useLocalStorage<string>('ha-username', 'Kai')
@@ -96,6 +103,10 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen relative theme-transition overflow-hidden">
+      <Screensaver
+        enabled={screensaverSettings.enabled}
+        timeout={screensaverSettings.timeout}
+      />
       <DynamicBackground />
       <BackendUnavailableOverlay />
       <ConnectionStatus />
@@ -246,6 +257,192 @@ function DashboardContent() {
 
                   {/* Configuration Settings */}
                   <ConfigurationSettings />
+
+                  {/* Screensaver Settings */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Bildschirmschoner</h4>
+                    <p className="text-xs text-foreground/60 mb-4">
+                      Aktivieren Sie den Bildschirmschoner, um nach einer bestimmten Zeit der Inaktivität nur die Uhrzeit anzuzeigen.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Enable/Disable Toggle */}
+                      <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+                            <Moon size={20} weight="fill" className="text-accent" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">Bildschirmschoner aktivieren</p>
+                            <p className="text-xs text-foreground/60">Zeigt nur die Uhrzeit bei Inaktivität</p>
+                          </div>
+                        </div>
+                        <Switch
+                          checked={screensaverSettings.enabled}
+                          onCheckedChange={screensaverSettings.setEnabled}
+                        />
+                      </div>
+
+                      {/* Timeout Setting */}
+                      {screensaverSettings.enabled && (
+                        <div className="p-4 rounded-xl bg-foreground/5">
+                          <label className="text-sm font-medium text-foreground block mb-3">
+                            Inaktivitätsdauer (Minuten)
+                          </label>
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="range"
+                              min="1"
+                              max="30"
+                              value={screensaverSettings.timeout / 60000}
+                              onChange={(e) => screensaverSettings.setTimeout(Number(e.target.value) * 60000)}
+                              className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                            />
+                            <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">
+                              {screensaverSettings.timeout / 60000} min
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Accent Color Settings */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Akzentfarbe</h4>
+                    <p className="text-xs text-foreground/60 mb-4">
+                      Wählen Sie, ob die Akzentfarbe automatisch aus dem Hintergrundbild extrahiert oder statisch festgelegt werden soll.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Mode Selection */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => accentColorSettings.setMode('auto')}
+                          className={`
+                            p-3 rounded-xl border-2 transition-all
+                            ${accentColorSettings.mode === 'auto'
+                              ? 'border-accent bg-accent/10'
+                              : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
+                            }
+                          `}
+                        >
+                          <Sparkle
+                            size={24}
+                            weight="fill"
+                            className={accentColorSettings.mode === 'auto' ? 'text-accent' : 'text-foreground/60'}
+                          />
+                          <p className="text-xs mt-2 font-medium">Automatisch</p>
+                        </button>
+
+                        <button
+                          onClick={() => accentColorSettings.setMode('static')}
+                          className={`
+                            p-3 rounded-xl border-2 transition-all
+                            ${accentColorSettings.mode === 'static'
+                              ? 'border-accent bg-accent/10'
+                              : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
+                            }
+                          `}
+                        >
+                          <PaintBucket
+                            size={24}
+                            weight="fill"
+                            className={accentColorSettings.mode === 'static' ? 'text-accent' : 'text-foreground/60'}
+                          />
+                          <p className="text-xs mt-2 font-medium">Statisch</p>
+                        </button>
+                      </div>
+
+                      {/* Static Color Picker */}
+                      {accentColorSettings.mode === 'static' && (
+                        <div className="p-4 rounded-xl bg-foreground/5">
+                          <label className="text-sm font-medium text-foreground block mb-3">
+                            Farbe auswählen
+                          </label>
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="color"
+                              value={accentColorSettings.staticColor}
+                              onChange={(e) => accentColorSettings.setStaticColor(e.target.value)}
+                              className="w-16 h-16 rounded-lg cursor-pointer border-2 border-foreground/10"
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-mono text-foreground">{accentColorSettings.staticColor}</p>
+                              <p className="text-xs text-foreground/60">Klicken Sie auf das Farbfeld zum Ändern</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Current Color Display */}
+                      <div className="p-4 rounded-xl bg-foreground/5">
+                        <p className="text-xs text-foreground/60 mb-2">Aktuelle Akzentfarbe</p>
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-10 h-10 rounded-lg border-2 border-foreground/10"
+                            style={{ backgroundColor: accentColorSettings.accentColor }}
+                          />
+                          <p className="text-sm font-mono text-foreground">{accentColorSettings.accentColor}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Night Mode Settings */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Nachtmodus</h4>
+                    <p className="text-xs text-foreground/60 mb-4">
+                      Reduzieren Sie blaues Licht für angenehmeres Sehen in der Nacht und verbessern Sie Ihren Schlaf.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Blue Light Reduction Slider */}
+                      <div className="p-4 rounded-xl bg-foreground/5">
+                        <label className="text-sm font-medium text-foreground block mb-3">
+                          Blaulichtfilter-Intensität
+                        </label>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={nightModeSettings.blueLightReduction}
+                              onChange={(e) => nightModeSettings.setBlueLightReduction(Number(e.target.value))}
+                              className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                            />
+                            <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">
+                              {nightModeSettings.blueLightReduction}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs text-foreground/60">
+                            <span>Aus</span>
+                            <span>Maximum</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Auto Brightness Toggle */}
+                      <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
+                        <div>
+                          <p className="font-medium text-sm">Automatische Helligkeit</p>
+                          <p className="text-xs text-foreground/60">Helligkeit basierend auf Blaulichtfilter anpassen</p>
+                        </div>
+                        <Switch
+                          checked={nightModeSettings.autoBrightness}
+                          onCheckedChange={nightModeSettings.setAutoBrightness}
+                        />
+                      </div>
+
+                      {/* Info */}
+                      <div className="p-3 rounded-lg bg-accent/10 border border-accent/20">
+                        <p className="text-xs text-foreground/80">
+                          <strong>Tipp:</strong> Der Blaulichtfilter ist nur im Nacht- und Schlafmodus aktiv und hilft, Ihre Augen zu schonen und die Schlafqualität zu verbessern.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Dashboard Customization */}
                   <div className="glass-card rounded-2xl p-6 theme-transition">
