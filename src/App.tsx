@@ -3,6 +3,7 @@ import { useLocalStorage } from '@/lib/storage'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider } from '@/contexts/ConnectionContext'
+import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
 import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
 import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
@@ -19,6 +20,8 @@ import { SplashScreen } from '@/components/SplashScreen'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 import { PageDesigner } from '@/components/PageDesigner'
+import { ConfigurationSettings } from '@/components/ConfigurationSettings'
+import { DynamicBackground } from '@/components/DynamicBackground'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
 import { Sparkle, Check, Palette } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
@@ -93,6 +96,7 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen relative theme-transition overflow-hidden">
+      <DynamicBackground />
       <BackendUnavailableOverlay />
       <ConnectionStatus />
       <EntityDiscoveryNotification />
@@ -240,6 +244,9 @@ function DashboardContent() {
                 <div className="space-y-6">
                   <h3 className="text-xl font-medium text-foreground px-1">Einstellungen</h3>
 
+                  {/* Configuration Settings */}
+                  <ConfigurationSettings />
+
                   {/* Dashboard Customization */}
                   <div className="glass-card rounded-2xl p-6 theme-transition">
                     <h4 className="text-sm font-medium text-foreground mb-4">Dashboard-Anpassung</h4>
@@ -297,10 +304,12 @@ function App() {
     <ConnectionProvider>
       <ThemeProvider>
         <PageNavigationProvider>
-          <EntityDiscoveryProvider>
-            <DashboardContent />
-            <Toaster />
-          </EntityDiscoveryProvider>
+          <ConfigurationProvider>
+            <EntityDiscoveryProvider>
+              <DashboardContent />
+              <Toaster />
+            </EntityDiscoveryProvider>
+          </ConfigurationProvider>
         </PageNavigationProvider>
       </ThemeProvider>
     </ConnectionProvider>

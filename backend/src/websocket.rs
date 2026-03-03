@@ -6,6 +6,7 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{info, warn};
 
 use crate::EntityState;
+use crate::db::models::SyncMetadata;
 
 /// WebSocket message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +24,9 @@ pub enum WSMessage {
     #[serde(rename = "state_changed")]
     StateChanged { states: Vec<EntityState> },
 
+    #[serde(rename = "config_changed")]
+    ConfigChanged { changes: Vec<SyncMetadata> },
+
     #[serde(rename = "ping")]
     Ping,
 
@@ -34,6 +38,8 @@ pub enum WSMessage {
 pub struct WebSocketManager {
     /// Broadcast channel for state updates
     tx: broadcast::Sender<Vec<EntityState>>,
+    /// Broadcast channel for configuration sync updates
+    config_tx: broadcast::Sender<Vec<SyncMetadata>>,
     /// Connected clients count
     clients: Arc<RwLock<usize>>,
 }
@@ -41,8 +47,10 @@ pub struct WebSocketManager {
 impl WebSocketManager {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(100);
+        let (config_tx, _) = broadcast::channel(100);
         Self {
             tx,
+            config_tx,
             clients: Arc::new(RwLock::new(0)),
         }
     }
@@ -58,9 +66,25 @@ impl WebSocketManager {
         }
     }
 
+    /// Broadcast configuration changes to all connected clients
+    pub async fn broadcast_config_changes(&self, changes: Vec<SyncMetadata>) {
+        if *self.clients.read().await == 0 {
+            return; // No clients connected
+        }
+
+        if let Err(e) = self.config_tx.send(changes) {
+            warn!("Failed to broadcast config changes: {}", e);
+        }
+    }
+
     /// Get a receiver for state updates
     pub fn subscribe(&self) -> broadcast::Receiver<Vec<EntityState>> {
         self.tx.subscribe()
+    }
+
+    /// Get a receiver for config updates
+    pub fn subscribe_config(&self) -> broadcast::Receiver<Vec<SyncMetadata>> {
+        self.config_tx.subscribe()
     }
 
     /// Increment client count
@@ -86,6 +110,11 @@ pub async fn handle_socket(socket: WebSocket, ws_manager: Arc<WebSocketManager>)
 
     let (mut sender, mut receiver) = socket.split();
     let mut rx = ws_manager.subscribe();
+    let mut config_rx = ws_manager.subscribe_config();
+
+    // Clone sender for config updates
+    let config_sender = Arc::new(tokio::sync::Mutex::new(sender));
+    let state_sender = config_sender.clone();
 
     // Spawn task to send state updates to client
     let mut send_task = tokio::spawn(async move {
@@ -99,6 +128,26 @@ pub async fn handle_socket(socket: WebSocket, ws_manager: Arc<WebSocketManager>)
                 }
             };
 
+            let mut sender = state_sender.lock().await;
+            if sender.send(Message::Text(json)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Spawn task to send config updates to client
+    let config_send_task = tokio::spawn(async move {
+        while let Ok(changes) = config_rx.recv().await {
+            let message = WSMessage::ConfigChanged { changes };
+            let json = match serde_json::to_string(&message) {
+                Ok(json) => json,
+                Err(e) => {
+                    warn!("Failed to serialize config message: {}", e);
+                    continue;
+                }
+            };
+
+            let mut sender = config_sender.lock().await;
             if sender.send(Message::Text(json)).await.is_err() {
                 break;
             }
@@ -128,7 +177,7 @@ pub async fn handle_socket(socket: WebSocket, ws_manager: Arc<WebSocketManager>)
         }
     });
 
-    // Wait for either task to finish
+    // Wait for any task to finish
     tokio::select! {
         _ = (&mut send_task) => {
             recv_task.abort();
