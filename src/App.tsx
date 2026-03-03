@@ -5,6 +5,7 @@ import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
+import { SceneSelector } from '@/components/scenes/SceneSelector'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity } from '@/lib/types'
 import { Sparkle, Check } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
@@ -116,6 +117,11 @@ function DashboardContent() {
                   Kalenderbereich
                 </div>
               </div>
+
+              <SceneSelector 
+                lightEntities={lightEntities}
+                onUpdate={loadEntities}
+              />
 
               <div className="space-y-4">
                 {lightEntities.length > 0 && (
