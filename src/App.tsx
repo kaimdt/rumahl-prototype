@@ -23,6 +23,7 @@ import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotific
 import { PageDesigner } from '@/components/PageDesigner'
 import { PageWidgetEditor } from '@/components/PageWidgetEditor'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
+import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 import { Switch } from '@/components/ui/switch'
@@ -274,6 +275,9 @@ function DashboardContent() {
 
                   {/* Configuration Settings */}
                   <ConfigurationSettings />
+
+                  {/* Dynamic Overview Configuration */}
+                  <OverviewConfiguration />
 
                   {/* Screensaver Settings */}
                   <div className="glass-card rounded-2xl p-6 theme-transition">
