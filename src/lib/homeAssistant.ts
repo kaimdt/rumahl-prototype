@@ -82,13 +82,13 @@ class HomeAssistantService {
   }
 
   private async getMockStates(): Promise<EntityState[]> {
-    const stored = await window.spark.kv.get<EntityState[]>('ha-mock-states')
+    const stored = localStorage.getItem('ha-mock-states')
     if (stored) {
-      return stored
+      return JSON.parse(stored)
     }
-    
+
     const mockStates = generateMockStates()
-    await window.spark.kv.set('ha-mock-states', mockStates)
+    localStorage.setItem('ha-mock-states', JSON.stringify(mockStates))
     return mockStates
   }
 
@@ -140,7 +140,7 @@ class HomeAssistantService {
     entity.last_changed = now
     entity.last_updated = now
 
-    await window.spark.kv.set('ha-mock-states', states)
+    localStorage.setItem('ha-mock-states', JSON.stringify(states))
   }
 }
 

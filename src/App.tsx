@@ -3,6 +3,7 @@ import { useLocalStorage } from '@/lib/storage'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider } from '@/contexts/ConnectionContext'
+import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
 import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
@@ -16,6 +17,7 @@ import { SceneSelector } from '@/components/scenes/SceneSelector'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { SplashScreen } from '@/components/SplashScreen'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
+import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
 import { Sparkle, Check } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
@@ -23,6 +25,7 @@ import { Toaster } from '@/components/ui/sonner'
 function DashboardContent() {
   const { theme } = useTheme()
   const { currentPageId } = usePageNavigation()
+  const { checkForNewEntities } = useEntityDiscovery()
   const [entities, setEntities] = useState<EntityState[]>([])
   const [loading, setLoading] = useState(true)
   const [userName] = useLocalStorage<string>('ha-username', 'Kai')
@@ -38,6 +41,7 @@ function DashboardContent() {
     try {
       const states = await haService.getStates()
       setEntities(states)
+      checkForNewEntities(states)
       setLoading(false)
     } catch (error) {
       console.error('Failed to load entities:', error)
@@ -89,6 +93,7 @@ function DashboardContent() {
     <div className="min-h-screen relative theme-transition overflow-hidden">
       <BackendUnavailableOverlay />
       <ConnectionStatus />
+      <EntityDiscoveryNotification />
 
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat theme-transition"
@@ -266,8 +271,10 @@ function App() {
     <ConnectionProvider>
       <ThemeProvider>
         <PageNavigationProvider>
-          <DashboardContent />
-          <Toaster />
+          <EntityDiscoveryProvider>
+            <DashboardContent />
+            <Toaster />
+          </EntityDiscoveryProvider>
         </PageNavigationProvider>
       </ThemeProvider>
     </ConnectionProvider>
