@@ -17,6 +17,7 @@ use tracing::{info, warn};
 mod ha_client;
 mod websocket;
 mod db;
+mod auth;
 
 use ha_client::HomeAssistantClient;
 use db::{init_db, DbPool, repositories::ConfigRepository};
@@ -116,6 +117,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Health check
         .route("/health", get(health_check))
+        // Authentication API
+        .route("/api/auth/register", post(auth_register))
+        .route("/api/auth/login", post(auth_login))
+        .route("/api/auth/verify", get(auth_verify))
         // Home Assistant API proxy
         .route("/api/states", get(get_states))
         .route("/api/states/:entity_id", get(get_state))
@@ -476,6 +481,212 @@ async fn get_sync_changes(
             })
         }
     }
+}
+
+// Authentication API handlers
+
+/// Register a new user
+async fn auth_register(
+    State(state): State<AppState>,
+    Json(request): Json<db::models::RegisterRequest>,
+) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
+    // Validate password length
+    if request.password.len() < 8 {
+        return Err(ErrorResponse {
+            error: "Password must be at least 8 characters".to_string(),
+        });
+    }
+
+    // Check if username already exists
+    match state.config_repo.get_user_by_username(&request.username).await {
+        Ok(Some(_)) => {
+            return Err(ErrorResponse {
+                error: "Username already exists".to_string(),
+            });
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!("Failed to check existing user: {}", e);
+            return Err(ErrorResponse {
+                error: "Failed to register user".to_string(),
+            });
+        }
+    }
+
+    // Hash the password
+    let password_hash = match auth::hash_password(&request.password) {
+        Ok(hash) => hash,
+        Err(e) => {
+            warn!("Failed to hash password: {}", e);
+            return Err(ErrorResponse {
+                error: "Failed to register user".to_string(),
+            });
+        }
+    };
+
+    // Create user with password
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let query_result = sqlx::query(
+        "INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)"
+    )
+    .bind(&user_id)
+    .bind(&request.username)
+    .bind(&request.display_name)
+    .bind(&password_hash)
+    .execute(&state.db_pool)
+    .await;
+
+    if let Err(e) = query_result {
+        warn!("Failed to create user: {}", e);
+        return Err(ErrorResponse {
+            error: "Failed to register user".to_string(),
+        });
+    }
+
+    // Fetch the created user
+    let user = match state.config_repo.get_user_by_username(&request.username).await {
+        Ok(Some(user)) => user,
+        _ => {
+            return Err(ErrorResponse {
+                error: "Failed to register user".to_string(),
+            });
+        }
+    };
+
+    // Generate JWT token
+    let token = match auth::generate_token(&user.id, &user.username) {
+        Ok(token) => token,
+        Err(e) => {
+            warn!("Failed to generate token: {}", e);
+            return Err(ErrorResponse {
+                error: "Failed to generate authentication token".to_string(),
+            });
+        }
+    };
+
+    Ok(Json(db::models::AuthResponse { token, user }))
+}
+
+/// Login an existing user
+async fn auth_login(
+    State(state): State<AppState>,
+    Json(request): Json<db::models::LoginRequest>,
+) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
+    // Get user by username
+    let user = match state.config_repo.get_user_by_username(&request.username).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return Err(ErrorResponse {
+                error: "Invalid username or password".to_string(),
+            });
+        }
+        Err(e) => {
+            warn!("Failed to get user: {}", e);
+            return Err(ErrorResponse {
+                error: "Login failed".to_string(),
+            });
+        }
+    };
+
+    // Check if user has a password set
+    let password_hash = match &user.password_hash {
+        Some(hash) => hash,
+        None => {
+            return Err(ErrorResponse {
+                error: "User has no password set. Please register.".to_string(),
+            });
+        }
+    };
+
+    // Verify password
+    let is_valid = match auth::verify_password(&request.password, password_hash) {
+        Ok(valid) => valid,
+        Err(e) => {
+            warn!("Failed to verify password: {}", e);
+            return Err(ErrorResponse {
+                error: "Login failed".to_string(),
+            });
+        }
+    };
+
+    if !is_valid {
+        return Err(ErrorResponse {
+            error: "Invalid username or password".to_string(),
+        });
+    }
+
+    // Generate JWT token
+    let token = match auth::generate_token(&user.id, &user.username) {
+        Ok(token) => token,
+        Err(e) => {
+            warn!("Failed to generate token: {}", e);
+            return Err(ErrorResponse {
+                error: "Failed to generate authentication token".to_string(),
+            });
+        }
+    };
+
+    Ok(Json(db::models::AuthResponse { token, user }))
+}
+
+/// Verify a JWT token
+async fn auth_verify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<db::models::User>, ErrorResponse> {
+    // Extract token from Authorization header
+    let token = match headers.get(header::AUTHORIZATION) {
+        Some(value) => match value.to_str() {
+            Ok(header_value) => {
+                if let Some(token) = header_value.strip_prefix("Bearer ") {
+                    token
+                } else {
+                    return Err(ErrorResponse {
+                        error: "Invalid authorization header format".to_string(),
+                    });
+                }
+            }
+            Err(_) => {
+                return Err(ErrorResponse {
+                    error: "Invalid authorization header".to_string(),
+                });
+            }
+        },
+        None => {
+            return Err(ErrorResponse {
+                error: "No authorization header provided".to_string(),
+            });
+        }
+    };
+
+    // Verify token
+    let claims = match auth::verify_token(token) {
+        Ok(claims) => claims,
+        Err(e) => {
+            warn!("Token verification failed: {}", e);
+            return Err(ErrorResponse {
+                error: "Invalid or expired token".to_string(),
+            });
+        }
+    };
+
+    // Get user from database
+    let user = match state.config_repo.get_user_by_username(&claims.username).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return Err(ErrorResponse {
+                error: "User not found".to_string(),
+            });
+        }
+        Err(e) => {
+            warn!("Failed to get user: {}", e);
+            return Err(ErrorResponse {
+                error: "Failed to verify token".to_string(),
+            });
+        }
+    };
+
+    Ok(Json(user))
 }
 
 /// Background task to poll Home Assistant and broadcast updates

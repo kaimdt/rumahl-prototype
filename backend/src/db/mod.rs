@@ -27,10 +27,15 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<DbPool> {
 
 /// Run database migrations
 async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
-    // Read and execute the migration file
-    let migration_sql = include_str!("../../migrations/001_initial_schema.sql");
+    // Read and execute the migration files
+    let migration_1 = include_str!("../../migrations/001_initial_schema.sql");
+    let migration_2 = include_str!("../../migrations/002_add_password_hash.sql");
 
-    sqlx::query(migration_sql)
+    sqlx::query(migration_1)
+        .execute(pool)
+        .await?;
+
+    sqlx::query(migration_2)
         .execute(pool)
         .await?;
 

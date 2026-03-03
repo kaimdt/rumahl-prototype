@@ -7,6 +7,8 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub display_name: Option<String>,
+    #[serde(skip_serializing)]  // Never send password hash to client
+    pub password_hash: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -189,3 +191,25 @@ pub struct PageWithWidgets {
     pub page: Page,
     pub widgets: Vec<Widget>,
 }
+
+// Authentication DTOs
+
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub username: String,
+    pub password: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthResponse {
+    pub token: String,
+    pub user: User,
+}
+

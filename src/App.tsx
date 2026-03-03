@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLocalStorage } from '@/lib/storage'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
@@ -18,6 +19,7 @@ import { CalendarWidget } from '@/components/widgets/CalendarWidget'
 import { SceneSelector } from '@/components/scenes/SceneSelector'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { SplashScreen } from '@/components/SplashScreen'
+import { LoginModal } from '@/components/LoginModal'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 import { PageDesigner } from '@/components/PageDesigner'
@@ -35,6 +37,7 @@ import { Toaster } from '@/components/ui/sonner'
 
 function DashboardContent() {
   const { theme } = useTheme()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth()
   const { currentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
@@ -43,12 +46,22 @@ function DashboardContent() {
   const nightModeSettings = useNightModeSettings()
   const [entities, setEntities] = useState<EntityState[]>([])
   const [loading, setLoading] = useState(true)
-  const [userName] = useLocalStorage<string>('ha-username', 'Kai')
+  const userName = user?.displayName || user?.username || 'Benutzer'
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showSplash, setShowSplash] = useState(true)
   const [showPageDesigner, setShowPageDesigner] = useState(false)
   const [showWidgetEditor, setShowWidgetEditor] = useState(false)
   const [editingPageId, setEditingPageId] = useState<string | null>(null)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+
+  // Show login modal if not authenticated and not loading
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      setShowLoginModal(true)
+    } else {
+      setShowLoginModal(false)
+    }
+  }, [authLoading, isAuthenticated])
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -529,6 +542,10 @@ function DashboardContent() {
           pageId={editingPageId || ''}
           availableEntities={entities}
         />
+        <LoginModal
+          open={showLoginModal}
+          onOpenChange={setShowLoginModal}
+        />
       </div>
     </div>
   )
@@ -537,18 +554,20 @@ function DashboardContent() {
 function App() {
   return (
     <ConnectionProvider>
-      <ThemeProvider>
-        <PageNavigationProvider>
-          <ConfigurationProvider>
-            <EntityDiscoveryProvider>
-              <DynamicOverviewProvider>
-                <DashboardContent />
-                <Toaster />
-              </DynamicOverviewProvider>
-            </EntityDiscoveryProvider>
-          </ConfigurationProvider>
-        </PageNavigationProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <ThemeProvider>
+          <PageNavigationProvider>
+            <ConfigurationProvider>
+              <EntityDiscoveryProvider>
+                <DynamicOverviewProvider>
+                  <DashboardContent />
+                  <Toaster />
+                </DynamicOverviewProvider>
+              </EntityDiscoveryProvider>
+            </ConfigurationProvider>
+          </PageNavigationProvider>
+        </ThemeProvider>
+      </AuthProvider>
     </ConnectionProvider>
   )
 }
