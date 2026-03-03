@@ -5,7 +5,6 @@ import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
 import { LightControlDialog } from './LightControlDialog'
-import { useLongPress } from '@/hooks/use-long-press'
 import { toast } from 'sonner'
 
 interface LightWidgetProps {
@@ -17,13 +16,21 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragBrightness, setDragBrightness] = useState<number | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const isOn = entity.state === 'on'
   const brightness = entity.attributes.brightness || 0
   const name = entity.attributes.friendly_name || entity.entity_id
   const cardRef = useRef<HTMLDivElement>(null)
+  const longPressTimerRef = useRef<number | undefined>(undefined)
+  const isDraggingRef = useRef(false)
 
   const displayBrightness = dragBrightness !== null ? dragBrightness : brightness
   const displayIsOn = dragBrightness !== null ? dragBrightness > 0 : isOn
+
+  const rgbColor = entity.attributes.rgb_color
+  const lightColor = rgbColor 
+    ? `rgb(${rgbColor[0]}, ${rgbColor[1]}, ${rgbColor[2]})`
+    : 'oklch(0.68 0.18 140)'
 
   const calculateBrightnessFromX = useCallback((clientX: number) => {
     if (!cardRef.current) return null
@@ -33,94 +40,88 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     return Math.round(percentage * 255)
   }, [])
 
-  const handleToggle = useCallback(async () => {
-    if (isUpdating) return
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== undefined) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = undefined
+    }
+  }, [])
+
+  const updateBrightness = useCallback(async (newBrightness: number) => {
     haptics.impact('medium')
     setIsUpdating(true)
     try {
-      await haService.toggleEntity(entity.entity_id)
-      toast.success(isOn ? `${name} ausgeschaltet` : `${name} eingeschaltet`, {
-        duration: 2000,
-      })
+      if (newBrightness === 0) {
+        await haService.turnOff(entity.entity_id)
+        toast.success(`${name} ausgeschaltet`)
+      } else {
+        await haService.turnOn(entity.entity_id, { brightness: newBrightness })
+        toast.success(`${name} auf ${Math.round((newBrightness / 255) * 100)}%`)
+      }
       haptics.notification('success')
       onUpdate?.()
     } catch (error) {
-      toast.error('Fehler beim Schalten')
+      toast.error('Fehler beim Anpassen der Helligkeit')
       haptics.notification('error')
     } finally {
       setIsUpdating(false)
+      setDragBrightness(null)
     }
-  }, [entity.entity_id, isUpdating, isOn, name, onUpdate])
+  }, [entity.entity_id, name, onUpdate])
 
-  const turnOnLight = useCallback(async (brightness: number) => {
-    setIsUpdating(true)
-    try {
-      await haService.turnOn(entity.entity_id, { brightness })
-      haptics.notification('success')
-      onUpdate?.()
-    } catch (error) {
-      haptics.notification('error')
-    } finally {
-      setIsUpdating(false)
-    }
-  }, [entity.entity_id, onUpdate])
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    clearLongPressTimer()
+    isDraggingRef.current = false
 
-  const { handlers, isDragging } = useLongPress({
-    onShortPress: handleToggle,
-    onLongPress: () => {
-      haptics.impact('medium')
-      setDialogOpen(true)
-    },
-    onDragStart: () => {
+    const newBrightness = calculateBrightnessFromX(e.clientX)
+    if (newBrightness !== null) {
+      setDragBrightness(newBrightness)
       haptics.impact('light')
-      if (!isOn) {
-        turnOnLight(128)
-      }
-    },
-    onDrag: (delta, total) => {
-      if (!cardRef.current) return
-      const rect = cardRef.current.getBoundingClientRect()
-      const currentX = total.x + rect.width / 2
-      const newBrightness = calculateBrightnessFromX(currentX)
-      if (newBrightness !== null) {
-        if (dragBrightness === null || Math.abs(newBrightness - dragBrightness) > 3) {
-          haptics.selectionChanged()
-          setDragBrightness(newBrightness)
-        }
-      }
-    },
-    onDragEnd: async () => {
-      if (dragBrightness === null) return
-      
-      haptics.impact('medium')
-      setIsUpdating(true)
-      try {
-        if (dragBrightness === 0) {
-          await haService.turnOff(entity.entity_id)
-          toast.success(`${name} ausgeschaltet`)
-        } else {
-          await haService.turnOn(entity.entity_id, { brightness: dragBrightness })
-          toast.success(`${name} auf ${Math.round((dragBrightness / 255) * 100)}%`)
-        }
-        haptics.notification('success')
-        onUpdate?.()
-      } catch (error) {
-        toast.error('Fehler beim Anpassen der Helligkeit')
-        haptics.notification('error')
-      } finally {
-        setIsUpdating(false)
+    }
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      if (!isDraggingRef.current) {
+        haptics.impact('medium')
+        setDialogOpen(true)
         setDragBrightness(null)
       }
-    },
-    threshold: 500,
-    dragThreshold: 5,
-  })
+    }, 500)
+  }, [calculateBrightnessFromX, clearLongPressTimer])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (dragBrightness === null) return
+    
+    isDraggingRef.current = true
+    setIsDragging(true)
+    clearLongPressTimer()
+
+    const newBrightness = calculateBrightnessFromX(e.clientX)
+    if (newBrightness !== null && Math.abs(newBrightness - dragBrightness) > 3) {
+      setDragBrightness(newBrightness)
+      haptics.selectionChanged()
+    }
+  }, [dragBrightness, calculateBrightnessFromX, clearLongPressTimer])
+
+  const handlePointerUp = useCallback(() => {
+    clearLongPressTimer()
+    setIsDragging(false)
+
+    if (dragBrightness !== null) {
+      updateBrightness(dragBrightness)
+    }
+
+    isDraggingRef.current = false
+  }, [dragBrightness, updateBrightness, clearLongPressTimer])
 
   return (
     <>
       <motion.div
         ref={cardRef}
-        {...handlers}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
         className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
         whileHover={{ scale: isDragging ? 1 : 1.02 }}
         whileTap={{ 
@@ -141,25 +142,33 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         }}
       >
         <motion.div
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/40 to-success/20 rounded-2xl pointer-events-none"
+          className="absolute inset-0 rounded-2xl pointer-events-none"
           style={{
-            width: `${(displayBrightness / 255) * 100}%`,
+            background: displayIsOn 
+              ? `linear-gradient(to right, ${lightColor} 0%, transparent 100%)`
+              : 'transparent',
+            opacity: displayIsOn ? 0.4 : 0,
           }}
           animate={{
-            opacity: displayIsOn ? 0.8 : 0.2,
+            clipPath: `inset(0 ${100 - (displayBrightness / 255) * 100}% 0 0)`,
           }}
           transition={{ duration: 0.2 }}
         />
         
-        <div className="relative p-4 sm:p-5 space-y-4">
+        <div className="relative p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <motion.div
-                className={`p-2.5 rounded-xl transition-all duration-300 ${
-                  displayIsOn
-                    ? 'bg-gradient-to-br from-success/30 to-success/20 shadow-lg shadow-success/20 text-success'
-                    : 'bg-muted/50 text-muted-foreground'
-                }`}
+                className={`p-2.5 rounded-xl transition-all duration-300`}
+                style={{
+                  backgroundColor: displayIsOn 
+                    ? `color-mix(in oklch, ${lightColor} 30%, transparent)`
+                    : 'oklch(from var(--muted) l c h / 0.5)',
+                  color: displayIsOn ? lightColor : 'var(--muted-foreground)',
+                  boxShadow: displayIsOn 
+                    ? `0 4px 20px color-mix(in oklch, ${lightColor} 20%, transparent)`
+                    : 'none',
+                }}
                 animate={
                   displayIsOn
                     ? {
@@ -189,22 +198,6 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
               </div>
             </div>
           </div>
-
-          {displayIsOn && (
-            <div className="pointer-events-none">
-              <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden">
-                <motion.div
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/60 to-success rounded-full"
-                  style={{
-                    width: `${(displayBrightness / 255) * 100}%`,
-                  }}
-                  animate={{
-                    opacity: displayIsOn ? 1 : 0.3,
-                  }}
-                />
-              </div>
-            </div>
-          )}
         </div>
       </motion.div>
 
