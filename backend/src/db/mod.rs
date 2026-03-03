@@ -27,17 +27,54 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<DbPool> {
 
 /// Run database migrations
 async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
-    // Read and execute the migration files
-    let migration_1 = include_str!("../../migrations/001_initial_schema.sql");
-    let migration_2 = include_str!("../../migrations/002_add_password_hash.sql");
+    // Create migrations tracking table if it doesn't exist
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS _migrations (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
 
-    sqlx::query(migration_1)
-        .execute(pool)
+    // Define migrations
+    let migrations = vec![
+        ("001_initial_schema", include_str!("../../migrations/001_initial_schema.sql")),
+        ("002_add_password_hash", include_str!("../../migrations/002_add_password_hash.sql")),
+    ];
+
+    // Apply each migration if not already applied
+    for (name, sql) in migrations {
+        // Check if migration already applied
+        let result: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM _migrations WHERE name = ?"
+        )
+        .bind(name)
+        .fetch_optional(pool)
         .await?;
 
-    sqlx::query(migration_2)
-        .execute(pool)
-        .await?;
+        if result.is_none() {
+            tracing::info!("Applying migration: {}", name);
+
+            // Execute migration
+            sqlx::query(sql)
+                .execute(pool)
+                .await?;
+
+            // Record migration as applied
+            sqlx::query(
+                "INSERT INTO _migrations (name) VALUES (?)"
+            )
+            .bind(name)
+            .execute(pool)
+            .await?;
+
+            tracing::info!("Migration {} applied successfully", name);
+        } else {
+            tracing::debug!("Migration {} already applied, skipping", name);
+        }
+    }
 
     tracing::info!("Database migrations completed successfully");
 

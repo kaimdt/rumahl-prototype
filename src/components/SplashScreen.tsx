@@ -141,7 +141,7 @@ export function SplashScreen({ onComplete, duration = 1800 }: SplashScreenProps)
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.6 }}
-                className="text-xs text-foreground/30 mt-3 font-light"
+                className="text-xs text-foreground/60 mt-3 font-light"
               >
                 Initialisiere System...
               </motion.p>
