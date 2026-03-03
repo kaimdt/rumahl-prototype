@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { Lightbulb, Gear } from '@phosphor-icons/react'
+import { Lightbulb } from '@phosphor-icons/react'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
@@ -56,6 +56,7 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     onShortPress: handleToggle,
     onLongPress: () => {
       haptics.impact('medium')
+      setDialogOpen(true)
     },
     onDragStart: () => {
       haptics.impact('light')
@@ -98,11 +99,6 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     threshold: 500,
     dragThreshold: 5,
   })
-
-  const handleSettingsClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setDialogOpen(true)
-  }
 
   return (
     <>
@@ -163,32 +159,28 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleSettingsClick}
-              className="p-2 rounded-lg hover:bg-muted/50 transition-colors z-10"
-            >
-              <Gear size={20} className="text-muted-foreground" />
-            </button>
           </div>
 
-          <div className="space-y-2 pointer-events-none">
-            <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden">
-              <motion.div
-                className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/60 to-success rounded-full"
-                style={{
-                  width: `${(displayBrightness / 255) * 100}%`,
-                }}
-                animate={{
-                  opacity: displayIsOn ? 1 : 0.3,
-                }}
-              />
+          {displayIsOn && (
+            <div className="space-y-2 pointer-events-none">
+              <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden">
+                <motion.div
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/60 to-success rounded-full"
+                  style={{
+                    width: `${(displayBrightness / 255) * 100}%`,
+                  }}
+                  animate={{
+                    opacity: displayIsOn ? 1 : 0.3,
+                  }}
+                />
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-muted-foreground">0%</span>
+                <span className="text-[10px] text-muted-foreground">100%</span>
+              </div>
             </div>
-            
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-muted-foreground">0%</span>
-              <span className="text-[10px] text-muted-foreground">100%</span>
-            </div>
-          </div>
+          )}
         </div>
       </motion.div>
 
