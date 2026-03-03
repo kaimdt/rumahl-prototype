@@ -1,0 +1,59 @@
+# Service update_dashboard
+
+# Updates dashboard state or configuration
+update_dashboard:
+  name: Update Dashboard
+  description: Sends an update to the MDT HOME Dashboard
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The entity to update in the dashboard
+      required: true
+      example: "light.living_room"
+      selector:
+        entity:
+    data:
+      name: Data
+      description: Additional data to send with the update
+      required: false
+      example: '{"brightness": 255}'
+      selector:
+        object:
+
+# Service refresh_state
+refresh_state:
+  name: Refresh State
+  description: Requests the dashboard to refresh its state from Home Assistant
+
+# Service send_notification
+send_notification:
+  name: Send Notification
+  description: Sends a notification to the MDT HOME Dashboard
+  fields:
+    message:
+      name: Message
+      description: The notification message
+      required: true
+      example: "System update available"
+      selector:
+        text:
+    title:
+      name: Title
+      description: The notification title
+      required: false
+      example: "MDT HOME Dashboard"
+      selector:
+        text:
+    type:
+      name: Type
+      description: The notification type
+      required: false
+      default: "info"
+      example: "warning"
+      selector:
+        select:
+          options:
+            - "info"
+            - "warning"
+            - "error"
+            - "success"
