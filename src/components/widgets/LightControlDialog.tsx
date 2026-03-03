@@ -214,15 +214,21 @@ export function LightControlDialog({
                     {Math.round((brightness / 255) * 100)}%
                   </span>
                 </div>
-                <Slider
-                  value={[brightness]}
-                  onValueChange={handleBrightnessChange}
-                  onValueCommit={handleBrightnessCommit}
-                  max={255}
-                  step={1}
-                  disabled={isUpdating}
-                  className="w-full"
-                />
+                <div className="space-y-2">
+                  <Slider
+                    value={[brightness]}
+                    onValueChange={handleBrightnessChange}
+                    onValueCommit={handleBrightnessCommit}
+                    max={255}
+                    step={1}
+                    disabled={isUpdating}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground font-medium px-1">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
+                </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[25, 50, 75, 100].map((percent) => (
                     <Button
@@ -241,15 +247,21 @@ export function LightControlDialog({
 
               {(supportsColor || supportsColorTemp) && (
                 <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 glass-card border border-foreground/10">
+                  <TabsList className="grid w-full grid-cols-2 glass-card border border-foreground/10 p-1">
                     {supportsColor && (
-                      <TabsTrigger value="color" className="gap-2">
+                      <TabsTrigger 
+                        value="color" 
+                        className="gap-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:font-semibold"
+                      >
                         <Palette size={16} weight="fill" />
                         Farbe
                       </TabsTrigger>
                     )}
                     {supportsColorTemp && (
-                      <TabsTrigger value="temp" className="gap-2">
+                      <TabsTrigger 
+                        value="temp" 
+                        className="gap-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:font-semibold"
+                      >
                         <Thermometer size={16} weight="fill" />
                         Temperatur
                       </TabsTrigger>

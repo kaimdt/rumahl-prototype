@@ -107,8 +107,14 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         {...handlers}
         className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
         whileHover={{ scale: isDragging ? 1 : 1.02 }}
-        style={{
-          opacity: isDragging ? 0.95 : 1,
+        whileTap={{ scale: isDragging ? 1 : 0.98 }}
+        animate={{
+          scale: isDragging ? 1.05 : 1,
+        }}
+        transition={{
+          type: "spring",
+          stiffness: 400,
+          damping: 25,
         }}
       >
         <motion.div
@@ -162,7 +168,7 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
           </div>
 
           {displayIsOn && (
-            <div className="space-y-2 pointer-events-none">
+            <div className="pointer-events-none">
               <div className="relative h-2 bg-muted/50 rounded-full overflow-hidden">
                 <motion.div
                   className="absolute inset-y-0 left-0 bg-gradient-to-r from-success/60 to-success rounded-full"
@@ -173,11 +179,6 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
                     opacity: displayIsOn ? 1 : 0.3,
                   }}
                 />
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] text-muted-foreground">0%</span>
-                <span className="text-[10px] text-muted-foreground">100%</span>
               </div>
             </div>
           )}

@@ -126,14 +126,17 @@ export function ClimateWidget({ entity, onUpdate }: ClimateWidgetProps) {
   return (
     <>
       <motion.div
-        className={`glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none ${
-          isDragging ? 'scale-105 shadow-2xl' : ''
-        }`}
-        style={{
-          transition: isDragging ? 'none' : 'all 0.3s ease',
+        className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
+        whileHover={{ scale: isDragging ? 1 : 1.02 }}
+        whileTap={{ scale: isDragging ? 1 : 0.98 }}
+        animate={{
+          scale: isDragging ? 1.05 : 1,
         }}
-        whileHover={{ scale: isDragging ? 1.05 : 1.02 }}
-        whileTap={{ scale: isDragging ? 1.05 : 0.98 }}
+        transition={{
+          type: "spring",
+          stiffness: 400,
+          damping: 25,
+        }}
         {...handlers}
       >
         <div className="p-4 sm:p-5">

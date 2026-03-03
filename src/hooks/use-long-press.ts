@@ -67,20 +67,20 @@ export function useLongPress({
 
       const distance = Math.sqrt(totalX * totalX + totalY * totalY)
 
-      if (distance > dragThreshold) {
-        if (!hasDraggedRef.current && !hasLongPressedRef.current) {
+      if (distance > dragThreshold && !hasLongPressedRef.current) {
+        if (!hasDraggedRef.current) {
           hasDraggedRef.current = true
           clearTimer()
           setIsDragging(true)
           onDragStart?.()
         }
+      }
 
-        if (hasDraggedRef.current) {
-          onDrag?.(
-            { x: deltaX, y: deltaY },
-            { x: totalX, y: totalY }
-          )
-        }
+      if (hasDraggedRef.current) {
+        onDrag?.(
+          { x: deltaX, y: deltaY },
+          { x: totalX, y: totalY }
+        )
       }
 
       currentPositionRef.current = { x: clientX, y: clientY }
