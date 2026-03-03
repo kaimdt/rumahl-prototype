@@ -114,5 +114,56 @@ export function generateMockStates(): EntityState[] {
       last_changed: new Date().toISOString(),
       last_updated: new Date().toISOString(),
     },
+    {
+      entity_id: 'switch.living_room_outlet',
+      state: 'on',
+      attributes: {
+        friendly_name: 'Steckdose Wohnzimmer',
+      },
+      last_changed: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+    },
+    {
+      entity_id: 'switch.coffee_maker',
+      state: 'off',
+      attributes: {
+        friendly_name: 'Kaffeemaschine',
+      },
+      last_changed: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+    },
+    {
+      entity_id: 'sensor.living_room_temperature',
+      state: '22.5',
+      attributes: {
+        unit_of_measurement: '°C',
+        device_class: 'temperature',
+        friendly_name: 'Temperatur Wohnzimmer',
+      },
+      last_changed: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+    },
+    {
+      entity_id: 'sensor.living_room_humidity',
+      state: '58',
+      attributes: {
+        unit_of_measurement: '%',
+        device_class: 'humidity',
+        friendly_name: 'Luftfeuchtigkeit Wohnzimmer',
+      },
+      last_changed: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+    },
+    {
+      entity_id: 'sensor.energy_consumption',
+      state: '1.2',
+      attributes: {
+        unit_of_measurement: 'kW',
+        device_class: 'power',
+        friendly_name: 'Energieverbrauch',
+      },
+      last_changed: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+    },
   ]
 }

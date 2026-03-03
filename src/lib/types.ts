@@ -46,6 +46,12 @@ export interface SensorEntity extends EntityState {
   }
 }
 
+export interface SwitchEntity extends EntityState {
+  attributes: {
+    friendly_name?: string
+  }
+}
+
 export interface WeatherEntity extends EntityState {
   attributes: {
     temperature?: number
