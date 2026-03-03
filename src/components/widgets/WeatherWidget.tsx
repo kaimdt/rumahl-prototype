@@ -1,12 +1,12 @@
 import { Card } from '@/components/ui/card'
 import type { WeatherEntity } from '@/lib/types'
-import { Sun, Cloud, CloudRain, CloudSnow, CloudFog, Wind } from '@phosphor-icons/react'
+import { Sun, Cloud, CloudRain, CloudSnow, CloudFog, Wind, Drop } from '@phosphor-icons/react'
 
 interface WeatherWidgetProps {
   entity?: WeatherEntity
 }
 
-function getWeatherIcon(condition: string) {
+function getWeatherIcon(condition: string, size: number = 32) {
   const icons: Record<string, typeof Sun> = {
     sunny: Sun,
     clear: Sun,
@@ -20,11 +20,11 @@ function getWeatherIcon(condition: string) {
   }
   
   const Icon = icons[condition.toLowerCase()] || Sun
-  return <Icon size={32} weight="fill" />
+  return <Icon size={size} weight="fill" />
 }
 
 function getDayName(dateStr: string) {
-  const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag']
+  const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
   const date = new Date(dateStr)
   return days[date.getDay()]
 }
@@ -37,37 +37,44 @@ export function WeatherWidget({ entity }: WeatherWidgetProps) {
   const location = entity.attributes.friendly_name || 'Zuhause'
 
   return (
-    <Card className="glass-card p-6 border-0">
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Derzeit sind es</p>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-6xl font-bold font-mono">{Math.round(temperature)}°C</span>
-              <span className="text-2xl text-muted-foreground">
-                {entity.attributes.humidity ? `${entity.attributes.humidity}%` : ''}
-              </span>
+    <Card className="glass-card p-5 sm:p-6 rounded-3xl theme-transition hover:scale-[1.01] transition-transform duration-500">
+      <div className="space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-[10px] sm:text-xs uppercase tracking-widest text-muted-foreground font-medium mb-3">
+              Wetter
+            </p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-5xl sm:text-6xl font-bold font-mono leading-none">{Math.round(temperature)}°</span>
+              {entity.attributes.humidity && (
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  <Drop size={16} weight="fill" />
+                  <span className="text-base sm:text-lg font-mono">{entity.attributes.humidity}%</span>
+                </div>
+              )}
             </div>
-            <p className="text-sm text-muted-foreground mt-1">{location}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-2 font-medium">{location}</p>
           </div>
-          <div className="text-accent">
-            {getWeatherIcon(entity.state)}
+          <div className="text-accent/80 mt-4">
+            {getWeatherIcon(entity.state, 56)}
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-4 pt-4 border-t border-border/50">
-          {forecast.slice(0, 5).map((day, idx) => (
-            <div key={idx} className="text-center space-y-2">
-              <p className="text-xs text-muted-foreground">
-                {idx === 0 ? 'Heute' : getDayName(day.datetime).slice(0, 2)}
-              </p>
-              <div className="flex justify-center text-accent/80">
-                {getWeatherIcon(day.condition)}
+        {forecast.length > 0 && (
+          <div className="grid grid-cols-5 gap-2 sm:gap-3 pt-4 border-t border-border/30">
+            {forecast.slice(0, 5).map((day, idx) => (
+              <div key={idx} className="text-center space-y-1.5 sm:space-y-2">
+                <p className="text-[10px] sm:text-xs text-muted-foreground font-medium">
+                  {idx === 0 ? 'Jetzt' : getDayName(day.datetime)}
+                </p>
+                <div className="flex justify-center text-accent/70">
+                  {getWeatherIcon(day.condition, 24)}
+                </div>
+                <p className="text-xs sm:text-sm font-mono font-semibold">{Math.round(day.temperature)}°</p>
               </div>
-              <p className="text-sm font-mono font-medium">{Math.round(day.temperature)}°</p>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </Card>
   )

@@ -3,7 +3,7 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
-import { Lightbulb } from '@phosphor-icons/react'
+import { Lightbulb, Lightning } from '@phosphor-icons/react'
 import { useState } from 'react'
 
 interface LightWidgetProps {
@@ -43,18 +43,24 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
   }
 
   return (
-    <Card className="glass-card p-4 border-0 theme-transition">
+    <Card className="glass-card p-4 sm:p-5 rounded-2xl theme-transition hover:scale-[1.02] transition-all duration-200 group">
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg transition-colors ${
-              isOn ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className={`p-2.5 rounded-xl transition-all duration-300 ${
+              isOn 
+                ? 'bg-gradient-to-br from-success/30 to-success/20 shadow-lg shadow-success/20 text-success' 
+                : 'bg-muted/50 text-muted-foreground'
             }`}>
-              <Lightbulb size={24} weight={isOn ? 'fill' : 'regular'} />
+              {isOn ? (
+                <Lightbulb size={20} weight="fill" className="animate-pulse" />
+              ) : (
+                <Lightbulb size={20} weight="regular" />
+              )}
             </div>
-            <div>
-              <h3 className="font-medium">{name}</h3>
-              <p className="text-xs text-muted-foreground">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-medium text-sm truncate">{name}</h3>
+              <p className="text-xs text-muted-foreground font-mono">
                 {isOn ? `${Math.round((brightness / 255) * 100)}%` : 'Aus'}
               </p>
             </div>
@@ -63,18 +69,28 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
             checked={isOn} 
             onCheckedChange={handleToggle}
             disabled={isUpdating}
+            className="ml-2"
           />
         </div>
         
         {entity.attributes.supported_features && isOn && (
-          <Slider
-            value={[brightness]}
-            onValueChange={handleBrightnessChange}
-            max={255}
-            step={1}
-            disabled={isUpdating}
-            className="w-full"
-          />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <Lightning size={12} weight="fill" />
+                Helligkeit
+              </span>
+              <span className="font-mono font-medium">{Math.round((brightness / 255) * 100)}%</span>
+            </div>
+            <Slider
+              value={[brightness]}
+              onValueChange={handleBrightnessChange}
+              max={255}
+              step={1}
+              disabled={isUpdating}
+              className="w-full"
+            />
+          </div>
         )}
       </div>
     </Card>

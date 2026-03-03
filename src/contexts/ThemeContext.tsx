@@ -23,15 +23,15 @@ function getThemeFromTime(): ThemeMode {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [sleepMode, setSleepMode] = useKV<boolean>('ha-sleep-mode', false)
   const [autoTheme, setAutoTheme] = useKV<boolean>('ha-auto-theme', true)
-  const [theme, setTheme] = useState<ThemeMode>(() => sleepMode ? 'sleep' : getThemeFromTime())
+  const [theme, setTheme] = useState<ThemeMode>(() => (sleepMode ?? false) ? 'sleep' : getThemeFromTime())
 
   useEffect(() => {
-    if (sleepMode) {
+    if (sleepMode ?? false) {
       setTheme('sleep')
       return
     }
 
-    if (!autoTheme) return
+    if (!(autoTheme ?? true)) return
 
     const updateTheme = () => {
       setTheme(getThemeFromTime())
@@ -48,7 +48,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme])
 
   return (
-    <ThemeContext.Provider value={{ theme, sleepMode, setSleepMode, autoTheme, setAutoTheme }}>
+    <ThemeContext.Provider value={{ theme, sleepMode: sleepMode ?? false, setSleepMode, autoTheme: autoTheme ?? true, setAutoTheme }}>
       <div className="theme-transition min-h-screen bg-background text-foreground">
         {children}
       </div>

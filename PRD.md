@@ -1,23 +1,30 @@
 # Planning Guide
 
-A fully customizable Home Assistant-compatible dashboard that adapts its visual appearance based on time of day and sleep mode, providing comprehensive control and management of smart home devices.
+A fully customizable Home Assistant-compatible dashboard with iOS 26-inspired glassmorphism design that dynamically adapts its visual appearance and displayed content based on time of day and sleep mode, providing comprehensive control and management of smart home devices.
 
 **Experience Qualities**:
-1. **Adaptive** - The interface seamlessly transitions between light, evening, night, and sleep modes based on time and user preferences
-2. **Intuitive** - Smart home controls are immediately accessible with clear visual feedback for all device states
-3. **Personalized** - Every aspect of the dashboard is customizable, from layout to component placement and configuration
+1. **Adaptive** - The interface seamlessly transitions between light, evening, night, and sleep modes with content that changes based on time of day
+2. **Refined** - Premium glassmorphic design with sophisticated blur effects, smooth animations, and elegant rounded corners creating a modern iOS aesthetic
+3. **Intuitive** - Smart home controls are immediately accessible with clear visual feedback, time-contextual information, and satisfying micro-interactions
 
 **Complexity Level**: Complex Application (advanced functionality, likely with multiple views)
-This is a sophisticated smart home management platform requiring real-time device state management, customizable layouts, multiple view types, Home Assistant API integration, dynamic theming, and persistent configuration storage.
+This is a sophisticated smart home management platform requiring real-time device state management, time-based content adaptation, iOS-inspired glassmorphism UI, Home Assistant API integration, dynamic theming with smooth transitions, and persistent configuration storage.
 
 ## Essential Features
 
 **Time-Based Theme Adaptation**
-- Functionality: Automatically adjusts dashboard brightness and color scheme based on current time
-- Purpose: Reduces eye strain and creates appropriate ambiance for different times of day
-- Trigger: Current system time or Home Assistant time sensor
-- Progression: Time check → Theme calculation (Day/Evening/Night/Sleep) → CSS variable adjustment → Smooth transition
-- Success criteria: Dashboard smoothly transitions between 4 distinct brightness levels without jarring changes
+- Functionality: Automatically adjusts dashboard brightness, color scheme, and displayed content based on current time
+- Purpose: Reduces eye strain, creates appropriate ambiance, and shows contextually relevant information
+- Trigger: Current system time checked every minute
+- Progression: Time check → Theme calculation (Day/Evening/Night/Sleep) → CSS variable adjustment → Content visibility logic → Smooth transition
+- Success criteria: Dashboard smoothly transitions between 4 distinct modes with appropriate content shown (weather in morning, lights highlighted at night)
+
+**Dynamic Content Display**
+- Functionality: Shows different dashboard sections and information based on time of day
+- Purpose: Surfaces most relevant information at the right time (weather in morning, lighting controls in evening)
+- Trigger: Time-based logic evaluated on each render
+- Progression: Get current hour → Evaluate time ranges → Show/hide sections → Highlight priority controls
+- Success criteria: Morning shows weather and calendar, afternoon adds energy, evening highlights lights, night minimizes distractions
 
 **Home Assistant Entity Display**
 - Functionality: Shows all Home Assistant entities (lights, switches, sensors, climate, media players, etc.)
@@ -65,26 +72,27 @@ This is a sophisticated smart home management platform requiring real-time devic
 
 ## Design Direction
 
-The design should evoke a sense of calm sophistication and technological refinement - a premium smart home interface that feels both powerful and serene. The aesthetic should be modern and minimal, with an emphasis on clarity and atmosphere. Time-based theming creates an ambient quality that the interface breathes with the rhythm of the day.
+The design evokes the cutting-edge aesthetic of iOS 26 - a premium interface that feels simultaneously ethereal and substantial. Sophisticated glassmorphism creates layers of translucent depth, with content floating on blurred, vibrant backgrounds. The design breathes with the rhythm of the day, transitioning from bright and energetic during daytime to subdued and calming at night. Every interaction should feel buttery smooth, with micro-animations that delight without distracting.
 
 ## Color Selection
 
-A sophisticated blue-gray color system that transitions through four distinct modes while maintaining excellent readability.
+An advanced blue-based color system with rich glassmorphic effects that creates atmospheric depth through four distinct time modes.
 
-- **Primary Color (Day)**: Deep slate blue `oklch(0.35 0.05 240)` - Communicates technological sophistication and reliability
-- **Primary Color (Evening)**: Warmer muted blue `oklch(0.28 0.04 250)` - Softer transition as day winds down
-- **Primary Color (Night)**: Very dark blue-gray `oklch(0.18 0.03 240)` - Deep but not completely black for comfort
-- **Primary Color (Sleep)**: Near-black `oklch(0.08 0.02 240)` - Maximum darkness while maintaining subtle color
-- **Accent Color**: Vibrant cyan `oklch(0.65 0.15 210)` - High-tech highlight for active controls and important elements
-- **Success/On State**: Warm amber `oklch(0.70 0.12 70)` - Represents active/on devices (like warm lights)
-- **Background Transitions**: Day `oklch(0.98 0.01 240)` → Evening `oklch(0.85 0.02 245)` → Night `oklch(0.22 0.03 240)` → Sleep `oklch(0.10 0.02 240)`
+- **Primary Color (Day)**: Soft blue-gray `oklch(0.32 0.06 240)` - Modern, technological sophistication
+- **Primary Color (Evening)**: Warmer muted slate `oklch(0.26 0.05 255)` - Gentle transition to evening
+- **Primary Color (Night)**: Deep charcoal blue `oklch(0.15 0.035 240)` - Rich darkness with subtle color
+- **Primary Color (Sleep)**: Near-black `oklch(0.06 0.015 240)` - Maximum darkness for night mode
+- **Accent Color**: Vibrant cyan `oklch(0.60 0.18 220)` - High-tech highlight with electric energy
+- **Success/On State**: Warm amber `oklch(0.68 0.14 75)` - Represents active/on devices with warm glow
+- **Background Gradients**: Multi-layered mesh gradients using radial gradients with accent and primary colors at low opacity
+- **Glass Effects**: backdrop-filter blur (40px day, 20px sleep) with 55-65% opacity and subtle border highlights
 
 **Foreground/Background Pairings**:
-- Day Mode: Dark text `oklch(0.20 0.02 240)` on light bg `oklch(0.98 0.01 240)` - Ratio 13.2:1 ✓
-- Evening Mode: Dark text `oklch(0.25 0.02 245)` on medium bg `oklch(0.85 0.02 245)` - Ratio 9.8:1 ✓
-- Night Mode: Light text `oklch(0.85 0.02 240)` on dark bg `oklch(0.22 0.03 240)` - Ratio 11.5:1 ✓
-- Sleep Mode: Dim text `oklch(0.35 0.02 240)` on black bg `oklch(0.10 0.02 240)` - Ratio 4.9:1 ✓
-- Accent: White text `oklch(0.98 0 0)` on cyan `oklch(0.65 0.15 210)` - Ratio 5.2:1 ✓
+- Day Mode: Dark text `oklch(0.18 0.02 240)` on light bg `oklch(0.96 0.015 240)` - Ratio 14.8:1 ✓
+- Evening Mode: Dark text `oklch(0.22 0.025 250)` on medium bg `oklch(0.78 0.03 250)` - Ratio 11.2:1 ✓
+- Night Mode: Light text `oklch(0.88 0.02 240)` on dark bg `oklch(0.18 0.04 240)` - Ratio 13.5:1 ✓
+- Sleep Mode: Dim text `oklch(0.32 0.02 240)` on black bg `oklch(0.08 0.02 240)` - Ratio 5.1:1 ✓
+- Accent: White text `oklch(0.98 0 0)` on cyan `oklch(0.60 0.18 220)` - Ratio 5.8:1 ✓
 
 ## Font Selection
 
@@ -103,54 +111,51 @@ The typography should feel technical yet approachable, with excellent readabilit
 
 ## Animations
 
-Animations should emphasize the fluidity of state changes and theme transitions, creating an ambient, breathing quality to the interface. Smooth transitions between themes (3-5 second fade), instant feedback on control interactions (100ms), gentle pulsing for loading states, and satisfying confirmation animations for successful actions.
+Animations create a premium, iOS-like fluidity throughout the interface. Theme transitions use slow 2.5-second cubic-bezier easing for atmospheric shifts. Card interactions feature subtle scale transforms (1.02 on hover, 0.98 on press). Loading states use pulsing glows rather than spinners. Success states have gentle bounce animations. All transitions maintain 60fps performance with GPU-accelerated properties (transform, opacity). The overall feel should be buttery smooth and delightfully responsive.
 
 ## Component Selection
 
 - **Components**: 
-  - Card (base for all widgets with glassmorphic backdrop-blur effects)
-  - Switch (for on/off controls)
-  - Slider (for dimmers and temperature controls)
-  - Button (for actions and toggles)
-  - Dialog (for entity details and settings)
-  - Tabs (for multi-page navigation)
-  - ScrollArea (for long entity lists)
-  - Popover (for quick settings)
-  - Skeleton (for loading states)
+  - Card (glassmorphic with backdrop-blur, increased border radius to 1.25rem base)
+  - Switch (smooth slide with color transitions)
+  - Slider (for brightness controls with gradient track)
+  - Button (subtle scale and glow effects)
+  - Custom glass header (blurred sticky header with translucent background)
+  - Time-contextual content containers (show/hide based on time of day)
 
 - **Customizations**: 
-  - Custom grid layout component with drag-drop using framer-motion
-  - Entity-specific widgets (LightCard, ClimateCard, MediaCard, SensorCard)
-  - Time-of-day theme provider with smooth CSS variable transitions
-  - Home Assistant connection manager component
-  - Custom weather widget matching reference design
+  - iOS-inspired glassmorphism with backdrop-filter blur (40px) and color saturation
+  - Layered mesh gradients for backgrounds using radial gradients
+  - Enhanced shadows with colored glows (accent/20 for active elements)
+  - Larger border radius (1.25rem base) for modern iOS aesthetic
+  - Smooth 2.5s theme transitions with cubic-bezier easing
+  - Dynamic content display based on time (weather in morning, lights highlighted at night)
+  - Pulsing accent dots for active indicators
+  - Animated icons with weight changes for state feedback
 
 - **States**: 
-  - Buttons: Subtle scale on hover (1.02), pressed state (0.98), glow effect for active states
-  - Switches: Smooth slide transition (200ms), color change to accent when on
-  - Cards: Lift on hover with subtle shadow, highlight border for selected/editing
-  - Inputs: Focus state with accent glow, validation feedback
+  - Cards: Scale 1.02 on hover, lift effect with enhanced shadow, smooth 200ms transitions
+  - Switches: 300ms slide with color fade to accent
+  - Buttons: Scale 1.05 hover, 0.98 active, glow effect on focus
+  - Active lights: Pulsing icon with warm glow shadow
+  - Loading: Rotating border with sparkle icon overlay
 
 - **Icon Selection**: 
-  - @phosphor-icons/react for all UI controls
-  - Sun/MoonStars for time mode indicators
-  - Lightning for power/energy
-  - Thermometer for climate
-  - Speaker for media
-  - Gear for settings
-  - GridFour for layout customization
+  - @phosphor-icons/react throughout (House, Sun, MoonStars, Lightbulb, Lightning, Gear, Sparkle, Drop, Cloud icons)
+  - Weight changes for state (fill for active, regular for inactive, duotone for evening)
+  - Size variations for hierarchy (48px for greeting icons, 20px for controls)
 
 - **Spacing**: 
-  - Base unit: 4px (Tailwind default)
-  - Card padding: 6 (24px)
-  - Section gaps: 6 (24px)
-  - Widget gaps: 4 (16px)
-  - Tight spacing: 2 (8px)
+  - Generous spacing with breathing room
+  - Card padding: 5-6 (20-24px)
+  - Section gaps: 6-8 (24-32px)
+  - Widget gaps: 3-4 (12-16px)
+  - Rounded corners: 2xl-3xl (1.25-1.5rem)
 
 - **Mobile**: 
-  - Single column layout below 768px
-  - Collapsible sidebar for navigation
-  - Larger touch targets (min 44px)
-  - Simplified greeting section
-  - Swipeable between pages
-  - Bottom navigation for primary actions
+  - Single column below 768px
+  - Reduced padding (4-5 instead of 5-6)
+  - Larger touch targets (minimum 44px)
+  - Greeting card stacks vertically
+  - Weather hidden on mobile at night
+  - Bottom-aligned time display
