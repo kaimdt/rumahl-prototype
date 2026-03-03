@@ -5,6 +5,7 @@ import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNaviga
 import { ConnectionProvider } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
 import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
+import { DynamicOverviewProvider, useDynamicOverview } from '@/contexts/DynamicOverviewContext'
 import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
@@ -35,6 +36,7 @@ function DashboardContent() {
   const { theme } = useTheme()
   const { currentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
+  const { evaluateTriggers, currentVariant } = useDynamicOverview()
   const screensaverSettings = useScreensaverSettings()
   const accentColorSettings = useAccentColor()
   const nightModeSettings = useNightModeSettings()
@@ -57,6 +59,7 @@ function DashboardContent() {
       const states = await haService.getStates()
       setEntities(states)
       checkForNewEntities(states)
+      evaluateTriggers(states) // Evaluate dynamic overview triggers
       setLoading(false)
     } catch (error) {
       console.error('Failed to load entities:', error)
@@ -147,37 +150,48 @@ function DashboardContent() {
             <div className="space-y-6">
               {currentPageId === 'home' && (
                 <>
-                  <div className="grid lg:grid-cols-[2fr_1fr] gap-6 items-start">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-4">
-                        <h2 className="text-[2.5rem] leading-tight font-normal text-foreground">
-                          Hallo {userName},
-                        </h2>
-                        <Check size={40} weight="thin" className="text-foreground/60 mt-1" />
+                  {/* Greeting Section */}
+                  {currentVariant.config.showGreeting !== false && (
+                    <div className="grid lg:grid-cols-[2fr_1fr] gap-6 items-start">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-4">
+                          <h2 className="text-[2.5rem] leading-tight font-normal text-foreground">
+                            Hallo {userName},
+                          </h2>
+                          <Check size={40} weight="thin" className="text-foreground/60 mt-1" />
+                        </div>
+                        <p className="text-foreground/90 leading-relaxed max-w-2xl text-[15px]">
+                          {getGreeting()}, {getContextMessage()}
+                        </p>
                       </div>
-                      <p className="text-foreground/90 leading-relaxed max-w-2xl text-[15px]">
-                        {getGreeting()}, {getContextMessage()}
-                      </p>
-                    </div>
 
-                    <div className="lg:justify-self-end w-full">
-                      <WeatherWidget entity={weatherEntity} />
+                      {currentVariant.config.showWeather !== false && (
+                        <div className="lg:justify-self-end w-full">
+                          <WeatherWidget entity={weatherEntity} />
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
 
                   {/* Clock widgets */}
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <DigitalClock showSeconds showDate />
-                    <AnalogClock size={220} />
-                    <CalendarWidget />
-                  </div>
+                  {currentVariant.config.showClock !== false && (
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <DigitalClock showSeconds showDate />
+                      <AnalogClock size={220} />
+                      {currentVariant.config.showCalendar !== false && <CalendarWidget />}
+                    </div>
+                  )}
 
-                  <SceneSelector
-                    lightEntities={lightEntities}
-                    onUpdate={loadEntities}
-                  />
+                  {/* Scenes */}
+                  {currentVariant.config.showScenes !== false && (
+                    <SceneSelector
+                      lightEntities={lightEntities}
+                      onUpdate={loadEntities}
+                    />
+                  )}
 
-                  {sensorEntities.length > 0 && (
+                  {/* Sensors */}
+                  {currentVariant.config.showSensors !== false && sensorEntities.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-medium text-foreground/60 px-1">Sensoren</h3>
                       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -523,8 +537,10 @@ function App() {
         <PageNavigationProvider>
           <ConfigurationProvider>
             <EntityDiscoveryProvider>
-              <DashboardContent />
-              <Toaster />
+              <DynamicOverviewProvider>
+                <DashboardContent />
+                <Toaster />
+              </DynamicOverviewProvider>
             </EntityDiscoveryProvider>
           </ConfigurationProvider>
         </PageNavigationProvider>
