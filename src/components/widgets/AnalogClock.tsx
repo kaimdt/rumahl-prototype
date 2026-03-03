@@ -68,7 +68,7 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
         })}
 
         {/* Hour hand */}
-        <motion.line
+        <line
           x1={centerX}
           y1={centerY}
           x2={centerX + (radius * 0.5) * Math.sin((hourAngle * Math.PI) / 180)}
@@ -76,14 +76,10 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
           stroke="oklch(from var(--foreground) l c h / 0.8)"
           strokeWidth="6"
           strokeLinecap="round"
-          initial={{ rotate: 0 }}
-          animate={{ rotate: hourAngle }}
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          style={{ originX: '50%', originY: '50%' }}
         />
 
         {/* Minute hand */}
-        <motion.line
+        <line
           x1={centerX}
           y1={centerY}
           x2={centerX + (radius * 0.7) * Math.sin((minuteAngle * Math.PI) / 180)}
@@ -91,15 +87,11 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
           stroke="oklch(from var(--foreground) l c h / 0.9)"
           strokeWidth="4"
           strokeLinecap="round"
-          initial={{ rotate: 0 }}
-          animate={{ rotate: minuteAngle }}
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          style={{ originX: '50%', originY: '50%' }}
         />
 
         {/* Second hand */}
         {showSeconds && (
-          <motion.line
+          <line
             x1={centerX}
             y1={centerY}
             x2={centerX + (radius * 0.8) * Math.sin((secondAngle * Math.PI) / 180)}
@@ -107,10 +99,6 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
             stroke="oklch(from var(--accent) l c h)"
             strokeWidth="2"
             strokeLinecap="round"
-            initial={{ rotate: 0 }}
-            animate={{ rotate: secondAngle }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-            style={{ originX: '50%', originY: '50%' }}
           />
         )}
 

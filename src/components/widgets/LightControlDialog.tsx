@@ -82,11 +82,12 @@ export function LightControlDialog({
     haptics.impact('light')
     setIsUpdating(true)
     try {
+      // Always turn on the light when setting a color
       await haService.turnOn(entity.entity_id, {
         rgb_color: color,
         brightness: brightness
       })
-      toast.success('Farbe angepasst')
+      toast.success('Farbe angepasst' + (!isOn ? ' und Licht eingeschaltet' : ''))
       haptics.notification('success')
       onUpdate?.()
     } catch (error) {
@@ -109,11 +110,12 @@ export function LightControlDialog({
     haptics.impact('medium')
     setIsUpdating(true)
     try {
+      // Always turn on the light when setting color temperature
       await haService.turnOn(entity.entity_id, {
         color_temp: newTemp,
         brightness: brightness
       })
-      toast.success(`Farbtemperatur auf ${Math.round(1000000 / newTemp)}K`)
+      toast.success(`Farbtemperatur auf ${Math.round(1000000 / newTemp)}K` + (!isOn ? ' und Licht eingeschaltet' : ''))
       haptics.notification('success')
       onUpdate?.()
     } catch (error) {
@@ -237,39 +239,37 @@ export function LightControlDialog({
           </motion.div>
 
           {/* Brightness Slider */}
-          {isOn && (
-            <motion.div
-              className="space-y-3"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-                  <Lightbulb size={16} weight="fill" />
-                  Helligkeit
-                </label>
-                <span className="text-sm text-foreground/60 font-mono px-2 py-1 rounded bg-foreground/5">
-                  {Math.round((brightness / 255) * 100)}%
-                </span>
-              </div>
-              <Slider
-                value={[brightness]}
-                onValueChange={handleBrightnessChange}
-                onValueCommit={handleBrightnessCommit}
-                min={0}
-                max={255}
-                step={1}
-                disabled={isUpdating}
-                className="w-full"
-                trackGradient="linear-gradient(to right, oklch(0.3 0 0) 0%, oklch(0.95 0.02 ${Math.round((rgbColor[0] * 0.299 + rgbColor[1] * 0.587 + rgbColor[2] * 0.114) / 2.55)}deg) 100%)"
-                rangeGradient={`linear-gradient(to right, oklch(0.4 0.05 ${Math.round((rgbColor[0] * 0.299 + rgbColor[1] * 0.587 + rgbColor[2] * 0.114) / 2.55)}deg) 0%, ${currentColor} 100%)`}
-              />
-            </motion.div>
-          )}
+          <motion.div
+            className="space-y-3"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
+                <Lightbulb size={16} weight="fill" />
+                Helligkeit
+              </label>
+              <span className="text-sm text-foreground/60 font-mono px-2 py-1 rounded bg-foreground/5">
+                {Math.round((brightness / 255) * 100)}%
+              </span>
+            </div>
+            <Slider
+              value={[brightness]}
+              onValueChange={handleBrightnessChange}
+              onValueCommit={handleBrightnessCommit}
+              min={0}
+              max={255}
+              step={1}
+              disabled={isUpdating}
+              className="w-full"
+              trackGradient="linear-gradient(to right, oklch(0.3 0 0) 0%, oklch(0.95 0.02 ${Math.round((rgbColor[0] * 0.299 + rgbColor[1] * 0.587 + rgbColor[2] * 0.114) / 2.55)}deg) 100%)"
+              rangeGradient={`linear-gradient(to right, oklch(0.4 0.05 ${Math.round((rgbColor[0] * 0.299 + rgbColor[1] * 0.587 + rgbColor[2] * 0.114) / 2.55)}deg) 0%, ${currentColor} 100%)`}
+            />
+          </motion.div>
 
           {/* Color Temperature Slider */}
-          {isOn && supportsColorTemp && (
+          {supportsColorTemp && (
             <motion.div
               className="space-y-3"
               initial={{ opacity: 0, y: -10 }}
@@ -305,7 +305,7 @@ export function LightControlDialog({
           )}
 
           {/* Color Controls */}
-          {isOn && supportsColor && (
+          {supportsColor && (
             <motion.div
               className="space-y-4"
               initial={{ opacity: 0, y: -10 }}

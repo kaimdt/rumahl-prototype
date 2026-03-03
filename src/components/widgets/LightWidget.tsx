@@ -93,15 +93,18 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
   }, [clearLongPressTimer])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // Only handle movement if pointer is down (being pressed)
+    if (!isPressed) return
+
     const movementThreshold = 5
     const distanceMoved = Math.abs(e.clientX - startXRef.current)
-    
+
     if (distanceMoved > movementThreshold && !hasMovedRef.current) {
       hasMovedRef.current = true
       isDraggingRef.current = true
       setIsDragging(true)
       clearLongPressTimer()
-      
+
       const initialBrightness = calculateBrightnessFromX(startXRef.current)
       if (initialBrightness !== null) {
         setDragBrightness(initialBrightness)
@@ -115,7 +118,7 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         haptics.selectionChanged()
       }
     }
-  }, [dragBrightness, calculateBrightnessFromX, clearLongPressTimer])
+  }, [isPressed, dragBrightness, calculateBrightnessFromX, clearLongPressTimer])
 
   const handlePointerUp = useCallback(async () => {
     clearLongPressTimer()
