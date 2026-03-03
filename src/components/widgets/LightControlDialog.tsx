@@ -165,9 +165,9 @@ export function LightControlDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md glass-card border-foreground/10">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
+          <DialogTitle className="flex items-center gap-3 text-foreground">
             <motion.div
               className={`p-3 rounded-xl ${
                 isOn
@@ -180,8 +180,8 @@ export function LightControlDialog({
               <Lightbulb size={24} weight={isOn ? 'fill' : 'regular'} />
             </motion.div>
             <div>
-              <div className="text-card-foreground font-semibold">{name}</div>
-              <div className="text-sm text-card-foreground/70 font-normal font-mono">
+              <div className="text-foreground font-semibold">{name}</div>
+              <div className="text-sm text-foreground/70 font-normal font-mono">
                 {isOn ? `${Math.round((brightness / 255) * 100)}%` : 'Aus'}
               </div>
             </div>
@@ -190,7 +190,7 @@ export function LightControlDialog({
 
         <div className="space-y-6 py-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-card-foreground/80 font-medium">Zustand</span>
+            <span className="text-sm text-foreground/80 font-medium">Zustand</span>
             <Button
               onClick={handleToggle}
               disabled={isUpdating}
@@ -206,11 +206,11 @@ export function LightControlDialog({
             <>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-card-foreground/80 font-medium flex items-center gap-2">
+                  <span className="text-sm text-foreground/80 font-medium flex items-center gap-2">
                     <Lightning size={16} weight="fill" />
                     Helligkeit
                   </span>
-                  <span className="text-sm font-mono font-semibold text-card-foreground">
+                  <span className="text-sm font-mono font-semibold text-foreground">
                     {Math.round((brightness / 255) * 100)}%
                   </span>
                 </div>
@@ -270,10 +270,10 @@ export function LightControlDialog({
                   {supportsColorTemp && (
                     <TabsContent value="temp" className="space-y-3 mt-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-card-foreground/80 font-medium">
+                        <span className="text-sm text-foreground/80 font-medium">
                           Farbtemperatur
                         </span>
-                        <span className="text-sm font-mono font-semibold text-card-foreground">
+                        <span className="text-sm font-mono font-semibold text-foreground">
                           {colorTemp}K
                         </span>
                       </div>
@@ -287,7 +287,7 @@ export function LightControlDialog({
                         disabled={isUpdating}
                         className="w-full"
                       />
-                      <div className="flex justify-between text-xs text-card-foreground/70 font-medium">
+                      <div className="flex justify-between text-xs text-foreground/70 font-medium">
                         <span>Warm</span>
                         <span>Kalt</span>
                       </div>

@@ -3,7 +3,11 @@ import { useKV } from '@github/spark/hooks'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Sparkle, Plus, FloppyDisk, Trash, X, Pencil } from '@phosphor-icons/react'
+import { 
+  Sparkle, Plus, FloppyDisk, Trash, X, Pencil,
+  Moon, Lightbulb, Confetti, Sun, CloudSun, Buildings, 
+  CloudMoon, Star, Flame, Snowflake, Rainbow, Meteor
+} from '@phosphor-icons/react'
 import type { ColorScene } from '@/lib/colorScenes'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
@@ -23,7 +27,25 @@ interface SceneSelectorProps {
   onUpdate?: () => void
 }
 
-const EMOJI_OPTIONS = ['🌙', '💡', '🎉', '☀️', '🌅', '🌆', '🌃', '⭐', '🔥', '❄️', '🌈', '💫']
+const ICON_OPTIONS = [
+  { key: 'moon', Icon: Moon },
+  { key: 'lightbulb', Icon: Lightbulb },
+  { key: 'confetti', Icon: Confetti },
+  { key: 'sun', Icon: Sun },
+  { key: 'cloudsun', Icon: CloudSun },
+  { key: 'buildings', Icon: Buildings },
+  { key: 'cloudmoon', Icon: CloudMoon },
+  { key: 'star', Icon: Star },
+  { key: 'flame', Icon: Flame },
+  { key: 'snowflake', Icon: Snowflake },
+  { key: 'rainbow', Icon: Rainbow },
+  { key: 'meteor', Icon: Meteor },
+]
+
+const getIconComponent = (iconKey: string) => {
+  const option = ICON_OPTIONS.find(opt => opt.key === iconKey)
+  return option?.Icon || Lightbulb
+}
 
 export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
   const [scenes, setScenes] = useKV<ColorScene[]>('color-scenes', [])
@@ -31,7 +53,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editingScene, setEditingScene] = useState<ColorScene | null>(null)
   const [newSceneName, setNewSceneName] = useState('')
-  const [newSceneIcon, setNewSceneIcon] = useState('💡')
+  const [newSceneIcon, setNewSceneIcon] = useState('lightbulb')
 
   const captureCurrentState = (): ColorScene['settings'] => {
     const settings: ColorScene['settings'] = {}
@@ -75,7 +97,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
     haptics.notification('success')
     
     setNewSceneName('')
-    setNewSceneIcon('💡')
+    setNewSceneIcon('lightbulb')
     setCreateDialogOpen(false)
   }
 
@@ -102,7 +124,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
     
     setEditingScene(null)
     setNewSceneName('')
-    setNewSceneIcon('💡')
+    setNewSceneIcon('lightbulb')
   }
 
   const handleApplyScene = async (scene: ColorScene) => {
@@ -142,7 +164,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
   const cancelEdit = () => {
     setEditingScene(null)
     setNewSceneName('')
-    setNewSceneIcon('💡')
+    setNewSceneIcon('lightbulb')
   }
 
   if (lightEntities.length === 0) {
@@ -171,46 +193,51 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
         <ScrollArea className="w-full">
           <div className="flex gap-3 pb-2">
             <AnimatePresence mode="popLayout">
-              {scenes.map((scene) => (
-                <motion.div
-                  key={scene.id}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  className="flex-shrink-0"
-                >
-                  <div className="glass-card rounded-xl p-4 min-w-[140px] relative group">
-                    <button
-                      onClick={() => handleApplyScene(scene)}
-                      disabled={isApplying}
-                      className="w-full text-left space-y-2 disabled:opacity-50"
-                    >
-                      <div className="text-3xl">{scene.icon}</div>
-                      <div>
-                        <div className="text-sm font-medium truncate">{scene.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {Object.keys(scene.settings).length} {Object.keys(scene.settings).length === 1 ? 'Licht' : 'Lichter'}
+              {scenes.map((scene) => {
+                const SceneIcon = getIconComponent(scene.icon)
+                return (
+                  <motion.div
+                    key={scene.id}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="flex-shrink-0"
+                  >
+                    <div className="glass-card rounded-xl p-4 min-w-[140px] relative group">
+                      <button
+                        onClick={() => handleApplyScene(scene)}
+                        disabled={isApplying}
+                        className="w-full text-left space-y-2 disabled:opacity-50"
+                      >
+                        <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-accent/20 mx-auto">
+                          <SceneIcon size={28} weight="fill" className="text-accent" />
                         </div>
+                        <div>
+                          <div className="text-sm font-medium truncate">{scene.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {Object.keys(scene.settings).length} {Object.keys(scene.settings).length === 1 ? 'Licht' : 'Lichter'}
+                          </div>
+                        </div>
+                      </button>
+                      
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                        <button
+                          onClick={() => startEdit(scene)}
+                          className="p-1 rounded-lg bg-background/80 hover:bg-accent/20 transition-colors"
+                        >
+                          <Pencil size={14} className="text-foreground/60" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteScene(scene.id, scene.name)}
+                          className="p-1 rounded-lg bg-background/80 hover:bg-destructive/20 transition-colors"
+                        >
+                          <Trash size={14} className="text-destructive" />
+                        </button>
                       </div>
-                    </button>
-                    
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                      <button
-                        onClick={() => startEdit(scene)}
-                        className="p-1 rounded-lg bg-background/80 hover:bg-accent/20 transition-colors"
-                      >
-                        <Pencil size={14} className="text-foreground/60" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteScene(scene.id, scene.name)}
-                        className="p-1 rounded-lg bg-background/80 hover:bg-destructive/20 transition-colors"
-                      >
-                        <Trash size={14} className="text-destructive" />
-                      </button>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                )
+              })}
             </AnimatePresence>
           </div>
         </ScrollArea>
@@ -250,17 +277,17 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
             <div className="space-y-2">
               <Label>Icon</Label>
               <div className="grid grid-cols-6 gap-2">
-                {EMOJI_OPTIONS.map((emoji) => (
+                {ICON_OPTIONS.map(({ key, Icon }) => (
                   <button
-                    key={emoji}
-                    onClick={() => setNewSceneIcon(emoji)}
-                    className={`p-3 rounded-lg text-2xl transition-all ${
-                      newSceneIcon === emoji
+                    key={key}
+                    onClick={() => setNewSceneIcon(key)}
+                    className={`p-3 rounded-lg transition-all flex items-center justify-center ${
+                      newSceneIcon === key
                         ? 'bg-accent/20 scale-110 ring-2 ring-accent'
                         : 'bg-muted/30 hover:bg-muted/50'
                     }`}
                   >
-                    {emoji}
+                    <Icon size={24} weight="fill" className={newSceneIcon === key ? 'text-accent' : 'text-foreground/60'} />
                   </button>
                 ))}
               </div>
@@ -316,17 +343,17 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
             <div className="space-y-2">
               <Label>Icon</Label>
               <div className="grid grid-cols-6 gap-2">
-                {EMOJI_OPTIONS.map((emoji) => (
+                {ICON_OPTIONS.map(({ key, Icon }) => (
                   <button
-                    key={emoji}
-                    onClick={() => setNewSceneIcon(emoji)}
-                    className={`p-3 rounded-lg text-2xl transition-all ${
-                      newSceneIcon === emoji
+                    key={key}
+                    onClick={() => setNewSceneIcon(key)}
+                    className={`p-3 rounded-lg transition-all flex items-center justify-center ${
+                      newSceneIcon === key
                         ? 'bg-accent/20 scale-110 ring-2 ring-accent'
                         : 'bg-muted/30 hover:bg-muted/50'
                     }`}
                   >
-                    {emoji}
+                    <Icon size={24} weight="fill" className={newSceneIcon === key ? 'text-accent' : 'text-foreground/60'} />
                   </button>
                 ))}
               </div>
