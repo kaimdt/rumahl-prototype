@@ -40,6 +40,10 @@ async def async_setup_entry(
         MDTDashboardConnectedClientsSensor(coordinator, entry),
         MDTDashboardLastUpdateSensor(coordinator, entry),
         MDTDashboardStateSensor(coordinator, entry),
+        MDTDashboardActiveThemeSensor(coordinator, entry),
+        MDTDashboardCurrentPageSensor(coordinator, entry),
+        MDTDashboardEntityCountSensor(coordinator, entry),
+        MDTDashboardMemoryUsageSensor(coordinator, entry),
     ]
 
     async_add_entities(sensors)
@@ -67,6 +71,10 @@ class MDTDashboardDataUpdateCoordinator(DataUpdateCoordinator):
             "connected_clients": 0,
             "last_update": datetime.now().isoformat(),
             "state": "active",
+            "active_theme": "auto",
+            "current_page": "home",
+            "entity_count": 0,
+            "memory_usage": 0,
         }
 
 
@@ -163,3 +171,83 @@ class MDTDashboardStateSensor(MDTDashboardSensorBase):
             "connected_clients": self.coordinator.data.get("connected_clients", 0),
             "last_update": self.coordinator.data.get("last_update"),
         }
+
+
+class MDTDashboardActiveThemeSensor(MDTDashboardSensorBase):
+    """Sensor for active dashboard theme."""
+
+    def __init__(
+        self,
+        coordinator: MDTDashboardDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry, "active_theme")
+        self._attr_name = "Active Theme"
+        self._attr_icon = "mdi:theme-light-dark"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state of the sensor."""
+        return self.coordinator.data.get("active_theme", "auto")
+
+
+class MDTDashboardCurrentPageSensor(MDTDashboardSensorBase):
+    """Sensor for current dashboard page."""
+
+    def __init__(
+        self,
+        coordinator: MDTDashboardDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry, "current_page")
+        self._attr_name = "Current Page"
+        self._attr_icon = "mdi:page-layout-body"
+
+    @property
+    def native_value(self) -> str:
+        """Return the state of the sensor."""
+        return self.coordinator.data.get("current_page", "home")
+
+
+class MDTDashboardEntityCountSensor(MDTDashboardSensorBase):
+    """Sensor for dashboard entity count."""
+
+    def __init__(
+        self,
+        coordinator: MDTDashboardDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry, "entity_count")
+        self._attr_name = "Entity Count"
+        self._attr_icon = "mdi:counter"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> int:
+        """Return the state of the sensor."""
+        return self.coordinator.data.get("entity_count", 0)
+
+
+class MDTDashboardMemoryUsageSensor(MDTDashboardSensorBase):
+    """Sensor for dashboard memory usage."""
+
+    def __init__(
+        self,
+        coordinator: MDTDashboardDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry, "memory_usage")
+        self._attr_name = "Memory Usage"
+        self._attr_icon = "mdi:memory"
+        self._attr_native_unit_of_measurement = "MB"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> int:
+        """Return the state of the sensor."""
+        return self.coordinator.data.get("memory_usage", 0)
+

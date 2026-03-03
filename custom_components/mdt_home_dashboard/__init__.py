@@ -17,7 +17,7 @@ import voluptuous as vol
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "mdt_home_dashboard"
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON]
 
 # Configuration schema for configuration.yaml (optional)
 CONFIG_SCHEMA = vol.Schema(
@@ -36,6 +36,11 @@ CONFIG_SCHEMA = vol.Schema(
 SERVICE_UPDATE_DASHBOARD = "update_dashboard"
 SERVICE_REFRESH_STATE = "refresh_state"
 SERVICE_SEND_NOTIFICATION = "send_notification"
+SERVICE_SET_THEME = "set_theme"
+SERVICE_SWITCH_PAGE = "switch_page"
+SERVICE_ACTIVATE_SCENE = "activate_scene"
+SERVICE_SET_BACKGROUND = "set_background"
+SERVICE_TRIGGER_AUTOMATION = "trigger_automation"
 
 SERVICE_UPDATE_DASHBOARD_SCHEMA = vol.Schema(
     {
@@ -49,6 +54,38 @@ SERVICE_SEND_NOTIFICATION_SCHEMA = vol.Schema(
         vol.Required("message"): cv.string,
         vol.Optional("title"): cv.string,
         vol.Optional("type", default="info"): vol.In(["info", "warning", "error", "success"]),
+    }
+)
+
+SERVICE_SET_THEME_SCHEMA = vol.Schema(
+    {
+        vol.Required("theme"): vol.In(["auto", "day", "evening", "night", "sleep"]),
+    }
+)
+
+SERVICE_SWITCH_PAGE_SCHEMA = vol.Schema(
+    {
+        vol.Required("page_id"): cv.string,
+    }
+)
+
+SERVICE_ACTIVATE_SCENE_SCHEMA = vol.Schema(
+    {
+        vol.Required("scene_id"): cv.string,
+    }
+)
+
+SERVICE_SET_BACKGROUND_SCHEMA = vol.Schema(
+    {
+        vol.Required("type"): vol.In(["static", "slideshow", "video", "gradient"]),
+        vol.Optional("config"): dict,
+    }
+)
+
+SERVICE_TRIGGER_AUTOMATION_SCHEMA = vol.Schema(
+    {
+        vol.Required("automation_id"): cv.string,
+        vol.Optional("data"): dict,
     }
 )
 
@@ -135,6 +172,85 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         )
 
+    async def handle_set_theme(call: ServiceCall) -> None:
+        """Handle set_theme service call."""
+        theme = call.data.get("theme")
+
+        _LOGGER.info("Setting dashboard theme to: %s", theme)
+
+        # Fire event for theme change
+        hass.bus.async_fire(
+            f"{DOMAIN}_theme",
+            {
+                "theme": theme,
+                "action": "set",
+            }
+        )
+
+    async def handle_switch_page(call: ServiceCall) -> None:
+        """Handle switch_page service call."""
+        page_id = call.data.get("page_id")
+
+        _LOGGER.info("Switching dashboard page to: %s", page_id)
+
+        # Fire event for page navigation
+        hass.bus.async_fire(
+            f"{DOMAIN}_navigation",
+            {
+                "page_id": page_id,
+                "action": "switch",
+            }
+        )
+
+    async def handle_activate_scene(call: ServiceCall) -> None:
+        """Handle activate_scene service call."""
+        scene_id = call.data.get("scene_id")
+
+        _LOGGER.info("Activating dashboard scene: %s", scene_id)
+
+        # Fire event for scene activation
+        hass.bus.async_fire(
+            f"{DOMAIN}_scene",
+            {
+                "scene_id": scene_id,
+                "action": "activate",
+            }
+        )
+
+    async def handle_set_background(call: ServiceCall) -> None:
+        """Handle set_background service call."""
+        bg_type = call.data.get("type")
+        config = call.data.get("config", {})
+
+        _LOGGER.info("Setting dashboard background type: %s", bg_type)
+
+        # Fire event for background change
+        hass.bus.async_fire(
+            f"{DOMAIN}_background",
+            {
+                "type": bg_type,
+                "config": config,
+                "action": "set",
+            }
+        )
+
+    async def handle_trigger_automation(call: ServiceCall) -> None:
+        """Handle trigger_automation service call."""
+        automation_id = call.data.get("automation_id")
+        data = call.data.get("data", {})
+
+        _LOGGER.info("Triggering dashboard automation: %s", automation_id)
+
+        # Fire event for automation trigger
+        hass.bus.async_fire(
+            f"{DOMAIN}_automation",
+            {
+                "automation_id": automation_id,
+                "data": data,
+                "action": "trigger",
+            }
+        )
+
     # Register services only once
     if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_DASHBOARD):
         hass.services.async_register(
@@ -157,4 +273,44 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_SEND_NOTIFICATION,
             handle_send_notification,
             schema=SERVICE_SEND_NOTIFICATION_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_THEME):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_THEME,
+            handle_set_theme,
+            schema=SERVICE_SET_THEME_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SWITCH_PAGE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SWITCH_PAGE,
+            handle_switch_page,
+            schema=SERVICE_SWITCH_PAGE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_ACTIVATE_SCENE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ACTIVATE_SCENE,
+            handle_activate_scene,
+            schema=SERVICE_ACTIVATE_SCENE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_BACKGROUND):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_BACKGROUND,
+            handle_set_background,
+            schema=SERVICE_SET_BACKGROUND_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_TRIGGER_AUTOMATION):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_TRIGGER_AUTOMATION,
+            handle_trigger_automation,
+            schema=SERVICE_TRIGGER_AUTOMATION_SCHEMA,
         )
