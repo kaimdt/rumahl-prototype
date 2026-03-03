@@ -104,7 +104,7 @@ export function ClimateControlDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md glass-card border-foreground/10">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <motion.div
@@ -115,8 +115,8 @@ export function ClimateControlDialog({
               {getModeIcon(mode)}
             </motion.div>
             <div>
-              <div className="text-foreground">{name}</div>
-              <div className="text-sm text-muted-foreground font-normal capitalize">
+              <div className="text-card-foreground font-semibold">{name}</div>
+              <div className="text-sm text-card-foreground/70 font-normal capitalize">
                 {hvacAction || mode}
               </div>
             </div>
@@ -127,28 +127,28 @@ export function ClimateControlDialog({
           <div className="flex items-center justify-center gap-8">
             <div className="text-center space-y-1">
               <div className="flex items-baseline justify-center gap-1">
-                <ThermometerSimple size={20} weight="fill" className="text-muted-foreground" />
-                <span className="text-3xl font-light">{currentTemp.toFixed(1)}</span>
-                <span className="text-sm text-muted-foreground">°C</span>
+                <ThermometerSimple size={20} weight="fill" className="text-card-foreground/70" />
+                <span className="text-3xl font-light text-card-foreground">{currentTemp.toFixed(1)}</span>
+                <span className="text-sm text-card-foreground/70">°C</span>
               </div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Aktuell</p>
+              <p className="text-xs text-card-foreground/70 uppercase tracking-wide font-medium">Aktuell</p>
             </div>
 
-            <div className="h-16 w-px bg-border"></div>
+            <div className="h-16 w-px bg-border/50"></div>
 
             <div className="text-center space-y-1">
               <div className="flex items-baseline justify-center gap-1">
-                <span className="text-3xl font-light">{targetTemp.toFixed(1)}</span>
-                <span className="text-sm text-muted-foreground">°C</span>
+                <span className="text-3xl font-light text-card-foreground">{targetTemp.toFixed(1)}</span>
+                <span className="text-sm text-card-foreground/70">°C</span>
               </div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Ziel</p>
+              <p className="text-xs text-card-foreground/70 uppercase tracking-wide font-medium">Ziel</p>
             </div>
           </div>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Zieltemperatur</span>
-              <span className="text-sm font-mono font-medium">
+              <span className="text-sm text-card-foreground/80 font-medium">Zieltemperatur</span>
+              <span className="text-sm font-mono font-semibold text-card-foreground">
                 {targetTemp.toFixed(1)}°C
               </span>
             </div>
@@ -179,7 +179,7 @@ export function ClimateControlDialog({
           </div>
 
           <div className="space-y-3">
-            <span className="text-sm text-muted-foreground">Modus</span>
+            <span className="text-sm text-card-foreground/80 font-medium">Modus</span>
             <div className="grid grid-cols-2 gap-2">
               {[
                 { key: 'heat', label: 'Heizen', icon: Flame },
