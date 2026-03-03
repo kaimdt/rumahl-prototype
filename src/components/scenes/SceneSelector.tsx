@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useLocalStorage } from '@/lib/storage'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -48,7 +48,7 @@ const getIconComponent = (iconKey: string) => {
 }
 
 export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
-  const [scenes, setScenes] = useKV<ColorScene[]>('color-scenes', [])
+  const [scenes, setScenes] = useLocalStorage<ColorScene[]>('color-scenes', [])
   const [isApplying, setIsApplying] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editingScene, setEditingScene] = useState<ColorScene | null>(null)

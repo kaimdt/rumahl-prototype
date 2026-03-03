@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useLocalStorage } from '@/lib/storage'
 import type { DashboardPage } from '@/lib/types'
 import { House, Lightbulb, Thermometer, PlugsConnected, Gauge, Gear } from '@phosphor-icons/react'
 
@@ -61,17 +61,17 @@ export const iconMap = {
 }
 
 export function PageNavigationProvider({ children }: { children: React.ReactNode }) {
-  const [pages] = useKV<DashboardPage[]>('ha-dashboard-pages', defaultPages)
+  const [pages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
   const [currentPageId, setCurrentPageId] = useState<string>('home')
 
-  const currentPage = (pages ?? defaultPages).find(p => p.id === currentPageId)
+  const currentPage = pages.find(p => p.id === currentPageId)
 
   return (
     <PageNavigationContext.Provider
       value={{
         currentPageId,
         setCurrentPageId,
-        pages: pages ?? defaultPages,
+        pages,
         currentPage,
       }}
     >

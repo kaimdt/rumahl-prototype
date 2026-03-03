@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useLocalStorage } from '@/lib/storage'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
+import { ConnectionProvider } from '@/contexts/ConnectionContext'
 import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
 import { SwitchWidget } from '@/components/widgets/SwitchWidget'
 import { SensorWidget } from '@/components/widgets/SensorWidget'
+import { AnalogClock } from '@/components/widgets/AnalogClock'
+import { DigitalClock } from '@/components/widgets/DigitalClock'
+import { CalendarWidget } from '@/components/widgets/CalendarWidget'
 import { SceneSelector } from '@/components/scenes/SceneSelector'
 import { NavigationMenu } from '@/components/NavigationMenu'
+import { SplashScreen } from '@/components/SplashScreen'
+import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
 import { Sparkle, Check } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
@@ -19,8 +25,9 @@ function DashboardContent() {
   const { currentPageId } = usePageNavigation()
   const [entities, setEntities] = useState<EntityState[]>([])
   const [loading, setLoading] = useState(true)
-  const [userName] = useKV<string>('ha-username', 'Kai')
+  const [userName] = useLocalStorage<string>('ha-username', 'Kai')
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [showSplash, setShowSplash] = useState(true)
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -28,9 +35,14 @@ function DashboardContent() {
   }, [])
 
   const loadEntities = async () => {
-    const states = await haService.getStates()
-    setEntities(states)
-    setLoading(false)
+    try {
+      const states = await haService.getStates()
+      setEntities(states)
+      setLoading(false)
+    } catch (error) {
+      console.error('Failed to load entities:', error)
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -57,7 +69,7 @@ function DashboardContent() {
     const hour = currentTime.getHours()
     const location = weatherEntity?.attributes.friendly_name || 'Kissing'
     const temp = weatherEntity?.attributes.temperature || 20
-    
+
     if (hour >= 5 && hour < 12) {
       return `heute ist ein schöner Tag, das Wetter in ${location} beträgt ${Math.round(temp)}°C bei klarem Himmel. Heute sind keine Termine geplant. Ich habe keine weiteren Meldungen.`
     } else if (hour >= 12 && hour < 18) {
@@ -69,8 +81,15 @@ function DashboardContent() {
     }
   }
 
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />
+  }
+
   return (
     <div className="min-h-screen relative theme-transition overflow-hidden">
+      <BackendUnavailableOverlay />
+      <ConnectionStatus />
+
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat theme-transition"
         style={{
@@ -121,10 +140,11 @@ function DashboardContent() {
                     </div>
                   </div>
 
-                  <div className="glass-card rounded-2xl p-6 min-h-[400px] theme-transition">
-                    <div className="h-full flex items-center justify-center text-foreground/40 text-sm">
-                      Kalenderbereich
-                    </div>
+                  {/* Clock widgets */}
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <DigitalClock showSeconds showDate />
+                    <AnalogClock size={220} />
+                    <CalendarWidget />
                   </div>
 
                   <SceneSelector
@@ -136,7 +156,7 @@ function DashboardContent() {
                     <div className="space-y-3">
                       <h3 className="text-sm font-medium text-foreground/60 px-1">Sensoren</h3>
                       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {sensorEntities.map((sensor) => (
+                        {sensorEntities.slice(0, 6).map((sensor) => (
                           <SensorWidget
                             key={sensor.entity_id}
                             entity={sensor}
@@ -243,12 +263,14 @@ function DashboardContent() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <PageNavigationProvider>
-        <DashboardContent />
-        <Toaster />
-      </PageNavigationProvider>
-    </ThemeProvider>
+    <ConnectionProvider>
+      <ThemeProvider>
+        <PageNavigationProvider>
+          <DashboardContent />
+          <Toaster />
+        </PageNavigationProvider>
+      </ThemeProvider>
+    </ConnectionProvider>
   )
 }
 
