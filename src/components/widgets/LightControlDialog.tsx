@@ -7,10 +7,14 @@ import {
 } from '@/components/ui/dialog'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
-import { Lightbulb, Lightning, Power, Palette } from '@phosphor-icons/react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Lightbulb, Lightning, Power, Palette, Thermometer } from '@phosphor-icons/react'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
+import { haptics } from '@/lib/haptics'
+import { ColorPicker } from '@/components/ColorPicker'
 import { motion } from 'framer-motion'
+import { toast } from 'sonner'
 
 interface LightControlDialogProps {
   entity: LightEntity
@@ -28,8 +32,17 @@ export function LightControlDialog({
   const isOn = entity.state === 'on'
   const [brightness, setBrightness] = useState(entity.attributes.brightness || 255)
   const [colorTemp, setColorTemp] = useState(entity.attributes.color_temp || 370)
+  const [rgbColor, setRgbColor] = useState<[number, number, number]>(
+    entity.attributes.rgb_color || [255, 255, 255]
+  )
   const name = entity.attributes.friendly_name || entity.entity_id
   const [isUpdating, setIsUpdating] = useState(false)
+
+  const supportsColor = entity.attributes.supported_color_modes?.includes('rgb') || 
+                        entity.attributes.supported_color_modes?.includes('hs') ||
+                        entity.attributes.rgb_color !== undefined
+  const supportsColorTemp = entity.attributes.supported_color_modes?.includes('color_temp') ||
+                           entity.attributes.color_temp !== undefined
 
   useEffect(() => {
     if (entity.attributes.brightness !== undefined) {
@@ -38,42 +51,96 @@ export function LightControlDialog({
     if (entity.attributes.color_temp !== undefined) {
       setColorTemp(entity.attributes.color_temp)
     }
+    if (entity.attributes.rgb_color !== undefined) {
+      setRgbColor(entity.attributes.rgb_color)
+    }
   }, [entity])
 
   const handleToggle = async () => {
+    haptics.impact('medium')
     setIsUpdating(true)
     try {
       await haService.toggleEntity(entity.entity_id)
+      toast.success(isOn ? `${name} ausgeschaltet` : `${name} eingeschaltet`)
+      haptics.notification('success')
       onUpdate?.()
+    } catch (error) {
+      toast.error('Fehler beim Schalten')
+      haptics.notification('error')
     } finally {
       setIsUpdating(false)
     }
+  }
+
+  const handleBrightnessChange = (values: number[]) => {
+    setBrightness(values[0])
+    haptics.selectionChanged()
   }
 
   const handleBrightnessCommit = async (values: number[]) => {
     const newBrightness = values[0]
+    haptics.impact('light')
     setIsUpdating(true)
     try {
       if (newBrightness === 0) {
         await haService.turnOff(entity.entity_id)
+        toast.success(`${name} ausgeschaltet`)
       } else {
         await haService.turnOn(entity.entity_id, { brightness: newBrightness })
+        toast.success(`${name} auf ${Math.round((newBrightness / 255) * 100)}%`)
       }
+      haptics.notification('success')
       onUpdate?.()
+    } catch (error) {
+      toast.error('Fehler beim Anpassen der Helligkeit')
+      haptics.notification('error')
     } finally {
       setIsUpdating(false)
     }
   }
 
+  const handleColorTempChange = (values: number[]) => {
+    setColorTemp(values[0])
+    haptics.selectionChanged()
+  }
+
   const handleColorTempCommit = async (values: number[]) => {
     const newColorTemp = values[0]
+    haptics.impact('light')
     setIsUpdating(true)
     try {
       await haService.turnOn(entity.entity_id, { 
         color_temp: newColorTemp,
         brightness: brightness 
       })
+      toast.success('Farbtemperatur angepasst')
+      haptics.notification('success')
       onUpdate?.()
+    } catch (error) {
+      toast.error('Fehler beim Anpassen der Farbtemperatur')
+      haptics.notification('error')
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const handleColorChange = (rgb: [number, number, number]) => {
+    setRgbColor(rgb)
+  }
+
+  const handleColorCommit = async (rgb: [number, number, number]) => {
+    setIsUpdating(true)
+    try {
+      await haService.turnOn(entity.entity_id, { 
+        rgb_color: rgb,
+        brightness: brightness 
+      })
+      toast.success('Farbe angepasst')
+      haptics.notification('success')
+      onUpdate?.()
+    } catch (error) {
+      toast.error('Fehler beim Anpassen der Farbe')
+      haptics.notification('error')
     } finally {
       setIsUpdating(false)
     }
@@ -81,10 +148,16 @@ export function LightControlDialog({
 
   const presetBrightness = async (value: number) => {
     setBrightness(value)
+    haptics.impact('light')
     setIsUpdating(true)
     try {
       await haService.turnOn(entity.entity_id, { brightness: value })
+      toast.success(`${name} auf ${Math.round((value / 255) * 100)}%`)
+      haptics.notification('success')
       onUpdate?.()
+    } catch (error) {
+      toast.error('Fehler')
+      haptics.notification('error')
     } finally {
       setIsUpdating(false)
     }
@@ -143,7 +216,7 @@ export function LightControlDialog({
                 </div>
                 <Slider
                   value={[brightness]}
-                  onValueChange={(values) => setBrightness(values[0])}
+                  onValueChange={handleBrightnessChange}
                   onValueCommit={handleBrightnessCommit}
                   max={255}
                   step={1}
@@ -166,32 +239,61 @@ export function LightControlDialog({
                 </div>
               </div>
 
-              {entity.attributes.color_temp !== undefined && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                      <Palette size={16} weight="fill" />
-                      Farbtemperatur
-                    </span>
-                    <span className="text-sm font-mono font-medium">
-                      {colorTemp}K
-                    </span>
-                  </div>
-                  <Slider
-                    value={[colorTemp]}
-                    onValueChange={(values) => setColorTemp(values[0])}
-                    onValueCommit={handleColorTempCommit}
-                    min={153}
-                    max={500}
-                    step={1}
-                    disabled={isUpdating}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Warm</span>
-                    <span>Kalt</span>
-                  </div>
-                </div>
+              {(supportsColor || supportsColorTemp) && (
+                <Tabs defaultValue={supportsColor ? "color" : "temp"} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    {supportsColor && (
+                      <TabsTrigger value="color" className="gap-2">
+                        <Palette size={16} weight="fill" />
+                        Farbe
+                      </TabsTrigger>
+                    )}
+                    {supportsColorTemp && (
+                      <TabsTrigger value="temp" className="gap-2">
+                        <Thermometer size={16} weight="fill" />
+                        Temperatur
+                      </TabsTrigger>
+                    )}
+                  </TabsList>
+
+                  {supportsColor && (
+                    <TabsContent value="color" className="space-y-4 mt-4">
+                      <ColorPicker
+                        value={rgbColor}
+                        onChange={handleColorChange}
+                        onChangeComplete={handleColorCommit}
+                        disabled={isUpdating}
+                      />
+                    </TabsContent>
+                  )}
+
+                  {supportsColorTemp && (
+                    <TabsContent value="temp" className="space-y-3 mt-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">
+                          Farbtemperatur
+                        </span>
+                        <span className="text-sm font-mono font-medium">
+                          {colorTemp}K
+                        </span>
+                      </div>
+                      <Slider
+                        value={[colorTemp]}
+                        onValueChange={handleColorTempChange}
+                        onValueCommit={handleColorTempCommit}
+                        min={153}
+                        max={500}
+                        step={1}
+                        disabled={isUpdating}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Warm</span>
+                        <span>Kalt</span>
+                      </div>
+                    </TabsContent>
+                  )}
+                </Tabs>
               )}
             </>
           )}

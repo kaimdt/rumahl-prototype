@@ -41,11 +41,11 @@ This is a sophisticated smart home management platform requiring real-time devic
 - Success criteria: Controls respond instantly with visual feedback, state persists correctly
 
 **Light Control Panels**
-- Functionality: Display all light entities with toggle switches and brightness sliders
-- Purpose: Provides quick access to control all lighting in the home
-- Trigger: Dashboard load and real-time updates
-- Progression: Fetch light entities → Render cards with on/off state → Show brightness slider when on → User adjusts → API call → Update state
-- Success criteria: Lights toggle instantly, brightness adjusts smoothly, visual states match actual device states
+- Functionality: Display all light entities with toggle switches, brightness sliders, and RGB color control
+- Purpose: Provides comprehensive control over all lighting in the home including color customization
+- Trigger: Dashboard load, real-time updates, and long-press gestures
+- Progression: Fetch light entities → Render cards with on/off state → Show brightness slider when on → Tap to toggle → Hold to open full control dialog → Adjust brightness via drag → Select colors via color picker → API call → Update state
+- Success criteria: Lights toggle instantly with haptic feedback, brightness adjusts smoothly with tactile response, color picker enables full RGB selection with real-time preview, visual states match actual device states
 
 **Climate Control Panels**
 - Functionality: Monitor and adjust heating/cooling systems with temperature controls and mode switching
@@ -75,6 +75,13 @@ This is a sophisticated smart home management platform requiring real-time devic
 - Progression: Get user name → Check time → Generate greeting → Fetch relevant info (calendar, weather) → Display
 - Success criteria: Greeting updates based on time of day and shows relevant contextual data
 
+**Haptic Feedback System**
+- Functionality: Provides tactile feedback for different interaction patterns across all controls
+- Purpose: Enhances user experience with physical confirmation of actions on supported devices
+- Trigger: All user interactions with controls (taps, drags, toggles, color selections)
+- Progression: User interaction → Detect interaction type → Trigger appropriate haptic pattern → Provide tactile confirmation
+- Success criteria: Light taps for selections, medium impacts for toggles, heavy impacts for long presses, success/error notifications for API responses, seamless degradation on unsupported devices
+
 ## Edge Case Handling
 
 - **Connection Loss**: Display offline indicator, queue actions, retry connection, show cached state
@@ -83,6 +90,8 @@ This is a sophisticated smart home management platform requiring real-time devic
 - **Sleep Mode Override**: Manual toggle available regardless of time for shift workers or custom schedules
 - **Slow API Response**: Show loading states, implement optimistic updates for controls
 - **Mobile/Tablet Views**: Responsive grid system that adapts to different screen sizes
+- **Unsupported Color Modes**: Automatically detect light capabilities and show appropriate controls (RGB, color temperature, or brightness only)
+- **No Haptic Support**: Gracefully degrade to visual-only feedback on devices without vibration API
 
 ## Design Direction
 
@@ -134,7 +143,9 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Clean header with glassmorphism
   - Simple content layout with generous spacing
   - Weather widget with inline forecast strip
-  - Light control cards with toggle switches and brightness sliders
+  - Light control cards with toggle switches, brightness sliders, and RGB color pickers
+  - Interactive color picker with HSV canvas, hue slider, preset swatches, and live preview
+  - Tabbed interface for color vs. temperature control in light dialogs
   - Climate control cards with temperature displays and mode selectors
 
 - **Customizations**: 
@@ -145,6 +156,8 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Fast 400ms theme transitions with ease timing
   - Large, light typography for maximum legibility over photos
   - Minimal decorative elements - focus on content and photography
+  - Custom HSV color picker with canvas-based saturation/value selector
+  - Haptic vibration patterns for different interaction types
 
 - **States**: 
   - Minimal hover states - no aggressive transformations
@@ -154,6 +167,9 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Light cards show active/on state with colored icon backgrounds
   - Climate cards display heating/cooling states with appropriate colors
   - Disabled states for controls during API calls
+  - Dragging state with visual brightness feedback on light cards
+  - Color picker shows real-time preview during adjustment
+  - Haptic feedback confirms all interactions (light/medium/heavy impacts, success/error notifications)
 
 - **Icon Selection**: 
   - @phosphor-icons/react with duotone weight for visual interest
@@ -164,6 +180,8 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Flame/Snowflake/Fan icons for climate modes (heat/cool/auto)
   - Lightning bolt for brightness indicators
   - Thermometer for temperature displays
+  - Palette icon for color controls
+  - Arrows for drag gesture indicators
 
 - **Spacing**: 
   - Generous whitespace for breathing room
@@ -177,3 +195,5 @@ Animations are subtle and purposeful, enhancing usability without calling attent
   - Maintained generous padding
   - Background image scales appropriately
   - Same minimal aesthetic on all screen sizes
+  - Touch-optimized color picker with drag support
+  - Haptic feedback on all touch interactions

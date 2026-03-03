@@ -18,8 +18,12 @@ export interface LightEntity extends EntityState {
     brightness?: number
     color_temp?: number
     rgb_color?: [number, number, number]
+    hs_color?: [number, number]
+    xy_color?: [number, number]
     friendly_name?: string
     supported_features?: number
+    supported_color_modes?: string[]
+    color_mode?: string
   }
 }
 

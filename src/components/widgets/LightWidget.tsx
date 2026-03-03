@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Lightbulb, ArrowsOutCardinal } from '@phosphor-icons/react'
 import type { LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
+import { haptics } from '@/lib/haptics'
 import { useLongPress } from '@/hooks/use-long-press'
 import { LightControlDialog } from './LightControlDialog'
 import { toast } from 'sonner'
@@ -26,25 +27,30 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
 
   const handleToggle = useCallback(async () => {
     if (isUpdating) return
+    haptics.impact('medium')
     setIsUpdating(true)
     try {
       await haService.toggleEntity(entity.entity_id)
       toast.success(isOn ? `${name} ausgeschaltet` : `${name} eingeschaltet`, {
         duration: 2000,
       })
+      haptics.notification('success')
       onUpdate?.()
     } catch (error) {
       toast.error('Fehler beim Schalten')
+      haptics.notification('error')
     } finally {
       setIsUpdating(false)
     }
   }, [entity.entity_id, isUpdating, isOn, name, onUpdate])
 
   const handleLongPress = useCallback(() => {
+    haptics.impact('heavy')
     setDialogOpen(true)
   }, [])
 
   const handleDragStart = useCallback(() => {
+    haptics.impact('light')
     startBrightnessRef.current = currentBrightnessRef.current
     setDragBrightness(currentBrightnessRef.current)
   }, [])
@@ -57,14 +63,19 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         0,
         Math.min(255, startBrightnessRef.current + change)
       )
-      setDragBrightness(Math.round(newBrightness))
+      const rounded = Math.round(newBrightness)
+      if (Math.abs(rounded - (dragBrightness || 0)) > 5) {
+        haptics.selectionChanged()
+      }
+      setDragBrightness(rounded)
     },
-    []
+    [dragBrightness]
   )
 
   const handleDragEnd = useCallback(async () => {
     if (dragBrightness === null) return
 
+    haptics.impact('medium')
     setIsUpdating(true)
     try {
       if (dragBrightness === 0) {
@@ -74,9 +85,11 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         await haService.turnOn(entity.entity_id, { brightness: dragBrightness })
         toast.success(`${name} auf ${Math.round((dragBrightness / 255) * 100)}%`)
       }
+      haptics.notification('success')
       onUpdate?.()
     } catch (error) {
       toast.error('Fehler beim Anpassen der Helligkeit')
+      haptics.notification('error')
     } finally {
       setIsUpdating(false)
       setDragBrightness(null)
