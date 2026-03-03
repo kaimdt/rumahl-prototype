@@ -18,8 +18,9 @@ import { NavigationMenu } from '@/components/NavigationMenu'
 import { SplashScreen } from '@/components/SplashScreen'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
+import { PageDesigner } from '@/components/PageDesigner'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
-import { Sparkle, Check } from '@phosphor-icons/react'
+import { Sparkle, Check, Palette } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
 
 function DashboardContent() {
@@ -31,6 +32,7 @@ function DashboardContent() {
   const [userName] = useLocalStorage<string>('ha-username', 'Kai')
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showSplash, setShowSplash] = useState(true)
+  const [showPageDesigner, setShowPageDesigner] = useState(false)
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -237,18 +239,41 @@ function DashboardContent() {
               {currentPageId === 'settings' && (
                 <div className="space-y-6">
                   <h3 className="text-xl font-medium text-foreground px-1">Einstellungen</h3>
+
+                  {/* Dashboard Customization */}
                   <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Dashboard-Anpassung</h4>
+                    <button
+                      onClick={() => setShowPageDesigner(true)}
+                      className="w-full px-4 py-3 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent transition-colors flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+                          <Palette size={20} weight="fill" />
+                        </div>
+                        <div className="text-left">
+                          <p className="font-medium">Seiten-Designer</p>
+                          <p className="text-xs text-foreground/60">Dashboard-Seiten anpassen und organisieren</p>
+                        </div>
+                      </div>
+                      <Sparkle size={20} weight="fill" className="group-hover:rotate-12 transition-transform" />
+                    </button>
+                  </div>
+
+                  {/* System Information */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">System-Information</h4>
                     <div className="space-y-4">
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">Benutzername</h4>
+                        <h5 className="text-sm font-medium text-foreground mb-2">Benutzername</h5>
                         <p className="text-foreground/60 text-sm">{userName}</p>
                       </div>
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">Theme</h4>
+                        <h5 className="text-sm font-medium text-foreground mb-2">Theme</h5>
                         <p className="text-foreground/60 text-sm capitalize">{theme}</p>
                       </div>
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">Entitäten</h4>
+                        <h5 className="text-sm font-medium text-foreground mb-2">Entitäten</h5>
                         <p className="text-foreground/60 text-sm">
                           {entities.length} Entitäten geladen
                         </p>
@@ -261,6 +286,7 @@ function DashboardContent() {
           )}
         </main>
         <NavigationMenu />
+        <PageDesigner isOpen={showPageDesigner} onClose={() => setShowPageDesigner(false)} />
       </div>
     </div>
   )

@@ -7,6 +7,7 @@ interface PageNavigationContextType {
   currentPageId: string
   setCurrentPageId: (id: string) => void
   pages: DashboardPage[]
+  setPages: (pages: DashboardPage[]) => void
   currentPage: DashboardPage | undefined
 }
 
@@ -61,7 +62,7 @@ export const iconMap = {
 }
 
 export function PageNavigationProvider({ children }: { children: React.ReactNode }) {
-  const [pages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
+  const [pages, setPages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
   const [currentPageId, setCurrentPageId] = useState<string>('home')
 
   const currentPage = pages.find(p => p.id === currentPageId)
@@ -72,6 +73,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
         currentPageId,
         setCurrentPageId,
         pages,
+        setPages,
         currentPage,
       }}
     >
