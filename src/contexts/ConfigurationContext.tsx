@@ -39,6 +39,30 @@ export interface ThemeSettings {
   updated_at: string
 }
 
+export interface StaticBackgroundConfig {
+  type: 'static'
+  url?: string
+}
+
+export interface SlideshowBackgroundConfig {
+  type: 'slideshow'
+  urls?: string[]
+  interval?: number
+}
+
+export interface VideoBackgroundConfig {
+  type: 'video'
+  url?: string
+  loop?: boolean
+}
+
+export interface GradientBackgroundConfig {
+  type: 'gradient'
+  colors?: string[]
+  angle?: number
+  animated?: boolean
+}
+
 export interface BackgroundConfig {
   id: string
   profile_id: string
@@ -50,10 +74,10 @@ export interface BackgroundConfig {
 }
 
 export type BackgroundConfigData =
-  | { type: 'static'; url: string }
-  | { type: 'slideshow'; urls: string[]; interval: number }
-  | { type: 'video'; url: string; loop: boolean }
-  | { type: 'gradient'; colors: string[]; angle: number }
+  | StaticBackgroundConfig
+  | SlideshowBackgroundConfig
+  | VideoBackgroundConfig
+  | GradientBackgroundConfig
 
 export interface UserPreference {
   id: string
