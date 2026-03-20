@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
-import type { BackgroundConfig, BackgroundConfigData } from '@/contexts/ConfigurationContext'
+import type {
+  BackgroundConfig,
+  StaticBackgroundConfig,
+  SlideshowBackgroundConfig,
+  VideoBackgroundConfig,
+  GradientBackgroundConfig
+} from '@/contexts/ConfigurationContext'
 
 export function DynamicBackground() {
   const { background } = useConfiguration()
@@ -32,7 +38,7 @@ export function DynamicBackground() {
   )
 }
 
-function StaticBackground({ config }: { config: any }) {
+function StaticBackground({ config }: { config: StaticBackgroundConfig }) {
   return (
     <div
       className="absolute inset-0 bg-cover bg-center bg-no-repeat"
@@ -41,7 +47,7 @@ function StaticBackground({ config }: { config: any }) {
   )
 }
 
-function SlideshowBackground({ config }: { config: any }) {
+function SlideshowBackground({ config }: { config: SlideshowBackgroundConfig }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const urls = config.urls || []
   const interval = (config.interval || 5) * 1000
@@ -73,7 +79,7 @@ function SlideshowBackground({ config }: { config: any }) {
   )
 }
 
-function VideoBackground({ config }: { config: any }) {
+function VideoBackground({ config }: { config: VideoBackgroundConfig }) {
   return (
     <video
       className="absolute inset-0 w-full h-full object-cover"
@@ -86,7 +92,7 @@ function VideoBackground({ config }: { config: any }) {
   )
 }
 
-function GradientBackground({ config }: { config: any }) {
+function GradientBackground({ config }: { config: GradientBackgroundConfig }) {
   const colors = config.colors || ['#667eea', '#764ba2']
   const angle = config.angle || 135
 
@@ -94,5 +100,10 @@ function GradientBackground({ config }: { config: any }) {
     background: `linear-gradient(${angle}deg, ${colors.join(', ')})`,
   }
 
-  return <div className="absolute inset-0" style={gradientStyle} />
+  return (
+    <div
+      className={`absolute inset-0 ${config.animated ? 'animate-gradient-slow' : ''}`}
+      style={gradientStyle}
+    />
+  )
 }
