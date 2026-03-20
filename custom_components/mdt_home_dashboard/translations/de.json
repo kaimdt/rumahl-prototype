@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MDT HOME Dashboard konfigurieren",
+        "description": "Richten Sie Ihre MDT HOME Dashboard Integration ein",
+        "data": {
+          "name": "Name",
+          "dashboard_url": "Dashboard URL (optional)",
+          "enable_webhooks": "Webhooks aktivieren",
+          "enable_sensors": "Sensoren aktivieren"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Dashboard fehlgeschlagen",
+      "invalid_url": "Ungültige Dashboard URL",
+      "unknown": "Unerwarteter Fehler"
+    },
+    "abort": {
+      "already_configured": "Dashboard ist bereits konfiguriert"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MDT HOME Dashboard Optionen",
+        "description": "Aktualisieren Sie Ihre MDT HOME Dashboard Einstellungen",
+        "data": {
+          "dashboard_url": "Dashboard URL",
+          "enable_webhooks": "Webhooks aktivieren",
+          "enable_sensors": "Sensoren aktivieren"
+        }
+      }
+    }
+  }
+}

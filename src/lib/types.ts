@@ -94,6 +94,8 @@ export interface DashboardPage {
   name: string
   icon: string
   widgets: DashboardWidget[]
+  showInNav?: boolean // Whether to show in navigation bar
+  order?: number // Display order in navigation
 }
 
 export interface DashboardConfig {

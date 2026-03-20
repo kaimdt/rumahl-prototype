@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useLocalStorage } from '@/lib/storage'
 import type { ThemeMode } from '@/lib/types'
 
 interface ThemeContextType {
@@ -21,17 +21,17 @@ function getThemeFromTime(): ThemeMode {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [sleepMode, setSleepMode] = useKV<boolean>('ha-sleep-mode', false)
-  const [autoTheme, setAutoTheme] = useKV<boolean>('ha-auto-theme', true)
-  const [theme, setTheme] = useState<ThemeMode>(() => (sleepMode ?? false) ? 'sleep' : getThemeFromTime())
+  const [sleepMode, setSleepMode] = useLocalStorage<boolean>('ha-sleep-mode', false)
+  const [autoTheme, setAutoTheme] = useLocalStorage<boolean>('ha-auto-theme', true)
+  const [theme, setTheme] = useState<ThemeMode>(() => sleepMode ? 'sleep' : getThemeFromTime())
 
   useEffect(() => {
-    if (sleepMode ?? false) {
+    if (sleepMode) {
       setTheme('sleep')
       return
     }
 
-    if (!(autoTheme ?? true)) return
+    if (!autoTheme) return
 
     const updateTheme = () => {
       setTheme(getThemeFromTime())
@@ -48,7 +48,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme])
 
   return (
-    <ThemeContext.Provider value={{ theme, sleepMode: sleepMode ?? false, setSleepMode, autoTheme: autoTheme ?? true, setAutoTheme }}>
+    <ThemeContext.Provider value={{ theme, sleepMode, setSleepMode, autoTheme, setAutoTheme }}>
       <div className="theme-transition min-h-screen bg-background text-foreground">
         {children}
       </div>

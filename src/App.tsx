@@ -1,26 +1,67 @@
 import { useState, useEffect } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useLocalStorage } from '@/lib/storage'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
+import { ConnectionProvider } from '@/contexts/ConnectionContext'
+import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
+import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
+import { DynamicOverviewProvider, useDynamicOverview } from '@/contexts/DynamicOverviewContext'
 import { haService } from '@/lib/homeAssistant'
 import { WeatherWidget } from '@/components/widgets/WeatherWidget'
 import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
 import { SwitchWidget } from '@/components/widgets/SwitchWidget'
 import { SensorWidget } from '@/components/widgets/SensorWidget'
+import { AnalogClock } from '@/components/widgets/AnalogClock'
+import { DigitalClock } from '@/components/widgets/DigitalClock'
+import { CalendarWidget } from '@/components/widgets/CalendarWidget'
 import { SceneSelector } from '@/components/scenes/SceneSelector'
 import { NavigationMenu } from '@/components/NavigationMenu'
+import { SplashScreen } from '@/components/SplashScreen'
+import { LoginModal } from '@/components/LoginModal'
+import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
+import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
+import { PageDesigner } from '@/components/PageDesigner'
+import { PageWidgetEditor } from '@/components/PageWidgetEditor'
+import { ConfigurationSettings } from '@/components/ConfigurationSettings'
+import { OverviewConfiguration } from '@/components/OverviewConfiguration'
+import { DynamicBackground } from '@/components/DynamicBackground'
+import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
+import { Switch } from '@/components/ui/switch'
+import { useAccentColor } from '@/hooks/useAccentColor'
+import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import type { EntityState, WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
-import { Sparkle, Check } from '@phosphor-icons/react'
+import { Sparkle, Check, Palette, Moon, PaintBucket } from '@phosphor-icons/react'
 import { Toaster } from '@/components/ui/sonner'
 
 function DashboardContent() {
   const { theme } = useTheme()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth()
   const { currentPageId } = usePageNavigation()
+  const { checkForNewEntities } = useEntityDiscovery()
+  const { evaluateTriggers, currentVariant } = useDynamicOverview()
+  const screensaverSettings = useScreensaverSettings()
+  const accentColorSettings = useAccentColor()
+  const nightModeSettings = useNightModeSettings()
   const [entities, setEntities] = useState<EntityState[]>([])
   const [loading, setLoading] = useState(true)
-  const [userName] = useKV<string>('ha-username', 'Kai')
+  const userName = user?.displayName || user?.username || 'Benutzer'
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [showSplash, setShowSplash] = useState(true)
+  const [showPageDesigner, setShowPageDesigner] = useState(false)
+  const [showWidgetEditor, setShowWidgetEditor] = useState(false)
+  const [editingPageId, setEditingPageId] = useState<string | null>(null)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+
+  // Show login modal if not authenticated and not loading
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      setShowLoginModal(true)
+    } else {
+      setShowLoginModal(false)
+    }
+  }, [authLoading, isAuthenticated])
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
@@ -28,9 +69,16 @@ function DashboardContent() {
   }, [])
 
   const loadEntities = async () => {
-    const states = await haService.getStates()
-    setEntities(states)
-    setLoading(false)
+    try {
+      const states = await haService.getStates()
+      setEntities(states)
+      checkForNewEntities(states)
+      evaluateTriggers(states) // Evaluate dynamic overview triggers
+      setLoading(false)
+    } catch (error) {
+      console.error('Failed to load entities:', error)
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -57,7 +105,7 @@ function DashboardContent() {
     const hour = currentTime.getHours()
     const location = weatherEntity?.attributes.friendly_name || 'Kissing'
     const temp = weatherEntity?.attributes.temperature || 20
-    
+
     if (hour >= 5 && hour < 12) {
       return `heute ist ein schöner Tag, das Wetter in ${location} beträgt ${Math.round(temp)}°C bei klarem Himmel. Heute sind keine Termine geplant. Ich habe keine weiteren Meldungen.`
     } else if (hour >= 12 && hour < 18) {
@@ -69,8 +117,21 @@ function DashboardContent() {
     }
   }
 
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />
+  }
+
   return (
     <div className="min-h-screen relative theme-transition overflow-hidden">
+      <Screensaver
+        enabled={screensaverSettings.enabled}
+        timeout={screensaverSettings.timeout}
+      />
+      <DynamicBackground />
+      <BackendUnavailableOverlay />
+      <ConnectionStatus />
+      <EntityDiscoveryNotification />
+
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat theme-transition"
         style={{
@@ -103,40 +164,52 @@ function DashboardContent() {
             <div className="space-y-6">
               {currentPageId === 'home' && (
                 <>
-                  <div className="grid lg:grid-cols-[2fr_1fr] gap-6 items-start">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-4">
-                        <h2 className="text-[2.5rem] leading-tight font-normal text-foreground">
-                          Hallo {userName},
-                        </h2>
-                        <Check size={40} weight="thin" className="text-foreground/60 mt-1" />
+                  {/* Greeting Section */}
+                  {currentVariant.config.showGreeting !== false && (
+                    <div className="grid lg:grid-cols-[2fr_1fr] gap-6 items-start">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-4">
+                          <h2 className="text-[2.5rem] leading-tight font-normal text-foreground">
+                            Hallo {userName},
+                          </h2>
+                          <Check size={40} weight="thin" className="text-foreground/60 mt-1" />
+                        </div>
+                        <p className="text-foreground/90 leading-relaxed max-w-2xl text-[15px]">
+                          {getGreeting()}, {getContextMessage()}
+                        </p>
                       </div>
-                      <p className="text-foreground/90 leading-relaxed max-w-2xl text-[15px]">
-                        {getGreeting()}, {getContextMessage()}
-                      </p>
+
+                      {currentVariant.config.showWeather !== false && (
+                        <div className="lg:justify-self-end w-full">
+                          <WeatherWidget entity={weatherEntity} />
+                        </div>
+                      )}
                     </div>
+                  )}
 
-                    <div className="lg:justify-self-end w-full">
-                      <WeatherWidget entity={weatherEntity} />
+                  {/* Clock widgets */}
+                  {currentVariant.config.showClock !== false && (
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <DigitalClock showSeconds showDate />
+                      <AnalogClock size={220} />
+                      {currentVariant.config.showCalendar !== false && <CalendarWidget />}
                     </div>
-                  </div>
+                  )}
 
-                  <div className="glass-card rounded-2xl p-6 min-h-[400px] theme-transition">
-                    <div className="h-full flex items-center justify-center text-foreground/40 text-sm">
-                      Kalenderbereich
-                    </div>
-                  </div>
+                  {/* Scenes */}
+                  {currentVariant.config.showScenes !== false && (
+                    <SceneSelector
+                      lightEntities={lightEntities}
+                      onUpdate={loadEntities}
+                    />
+                  )}
 
-                  <SceneSelector
-                    lightEntities={lightEntities}
-                    onUpdate={loadEntities}
-                  />
-
-                  {sensorEntities.length > 0 && (
+                  {/* Sensors */}
+                  {currentVariant.config.showSensors !== false && sensorEntities.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-medium text-foreground/60 px-1">Sensoren</h3>
                       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {sensorEntities.map((sensor) => (
+                        {sensorEntities.slice(0, 6).map((sensor) => (
                           <SensorWidget
                             key={sensor.entity_id}
                             entity={sensor}
@@ -212,18 +285,233 @@ function DashboardContent() {
               {currentPageId === 'settings' && (
                 <div className="space-y-6">
                   <h3 className="text-xl font-medium text-foreground px-1">Einstellungen</h3>
+
+                  {/* Configuration Settings */}
+                  <ConfigurationSettings />
+
+                  {/* Dynamic Overview Configuration */}
+                  <OverviewConfiguration />
+
+                  {/* Screensaver Settings */}
                   <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Bildschirmschoner</h4>
+                    <p className="text-xs text-foreground/60 mb-4">
+                      Aktivieren Sie den Bildschirmschoner, um nach einer bestimmten Zeit der Inaktivität nur die Uhrzeit anzuzeigen.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Enable/Disable Toggle */}
+                      <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+                            <Moon size={20} weight="fill" className="text-accent" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">Bildschirmschoner aktivieren</p>
+                            <p className="text-xs text-foreground/60">Zeigt nur die Uhrzeit bei Inaktivität</p>
+                          </div>
+                        </div>
+                        <Switch
+                          checked={screensaverSettings.enabled}
+                          onCheckedChange={screensaverSettings.setEnabled}
+                        />
+                      </div>
+
+                      {/* Timeout Setting */}
+                      {screensaverSettings.enabled && (
+                        <div className="p-4 rounded-xl bg-foreground/5">
+                          <label className="text-sm font-medium text-foreground block mb-3">
+                            Inaktivitätsdauer (Minuten)
+                          </label>
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="range"
+                              min="1"
+                              max="30"
+                              value={screensaverSettings.timeout / 60000}
+                              onChange={(e) => screensaverSettings.setTimeout(Number(e.target.value) * 60000)}
+                              className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                            />
+                            <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">
+                              {screensaverSettings.timeout / 60000} min
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Accent Color Settings */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Akzentfarbe</h4>
+                    <p className="text-xs text-foreground/60 mb-4">
+                      Wählen Sie, ob die Akzentfarbe automatisch aus dem Hintergrundbild extrahiert oder statisch festgelegt werden soll.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Mode Selection */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => accentColorSettings.setMode('auto')}
+                          className={`
+                            p-3 rounded-xl border-2 transition-all
+                            ${accentColorSettings.mode === 'auto'
+                              ? 'border-accent bg-accent/10'
+                              : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
+                            }
+                          `}
+                        >
+                          <Sparkle
+                            size={24}
+                            weight="fill"
+                            className={accentColorSettings.mode === 'auto' ? 'text-accent' : 'text-foreground/60'}
+                          />
+                          <p className="text-xs mt-2 font-medium">Automatisch</p>
+                        </button>
+
+                        <button
+                          onClick={() => accentColorSettings.setMode('static')}
+                          className={`
+                            p-3 rounded-xl border-2 transition-all
+                            ${accentColorSettings.mode === 'static'
+                              ? 'border-accent bg-accent/10'
+                              : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
+                            }
+                          `}
+                        >
+                          <PaintBucket
+                            size={24}
+                            weight="fill"
+                            className={accentColorSettings.mode === 'static' ? 'text-accent' : 'text-foreground/60'}
+                          />
+                          <p className="text-xs mt-2 font-medium">Statisch</p>
+                        </button>
+                      </div>
+
+                      {/* Static Color Picker */}
+                      {accentColorSettings.mode === 'static' && (
+                        <div className="p-4 rounded-xl bg-foreground/5">
+                          <label className="text-sm font-medium text-foreground block mb-3">
+                            Farbe auswählen
+                          </label>
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="color"
+                              value={accentColorSettings.staticColor}
+                              onChange={(e) => accentColorSettings.setStaticColor(e.target.value)}
+                              className="w-16 h-16 rounded-lg cursor-pointer border-2 border-foreground/10"
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-mono text-foreground">{accentColorSettings.staticColor}</p>
+                              <p className="text-xs text-foreground/60">Klicken Sie auf das Farbfeld zum Ändern</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Current Color Display */}
+                      <div className="p-4 rounded-xl bg-foreground/5">
+                        <p className="text-xs text-foreground/60 mb-2">Aktuelle Akzentfarbe</p>
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-10 h-10 rounded-lg border-2 border-foreground/10"
+                            style={{ backgroundColor: accentColorSettings.accentColor }}
+                          />
+                          <p className="text-sm font-mono text-foreground">{accentColorSettings.accentColor}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Night Mode Settings */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Nachtmodus</h4>
+                    <p className="text-xs text-foreground/60 mb-4">
+                      Reduzieren Sie blaues Licht für angenehmeres Sehen in der Nacht und verbessern Sie Ihren Schlaf.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Blue Light Reduction Slider */}
+                      <div className="p-4 rounded-xl bg-foreground/5">
+                        <label className="text-sm font-medium text-foreground block mb-3">
+                          Blaulichtfilter-Intensität
+                        </label>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={nightModeSettings.blueLightReduction}
+                              onChange={(e) => nightModeSettings.setBlueLightReduction(Number(e.target.value))}
+                              className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+                            />
+                            <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">
+                              {nightModeSettings.blueLightReduction}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs text-foreground/60">
+                            <span>Aus</span>
+                            <span>Maximum</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Auto Brightness Toggle */}
+                      <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
+                        <div>
+                          <p className="font-medium text-sm">Automatische Helligkeit</p>
+                          <p className="text-xs text-foreground/60">Helligkeit basierend auf Blaulichtfilter anpassen</p>
+                        </div>
+                        <Switch
+                          checked={nightModeSettings.autoBrightness}
+                          onCheckedChange={nightModeSettings.setAutoBrightness}
+                        />
+                      </div>
+
+                      {/* Info */}
+                      <div className="p-3 rounded-lg bg-accent/10 border border-accent/20">
+                        <p className="text-xs text-foreground/80">
+                          <strong>Tipp:</strong> Der Blaulichtfilter ist nur im Nacht- und Schlafmodus aktiv und hilft, Ihre Augen zu schonen und die Schlafqualität zu verbessern.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dashboard Customization */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">Dashboard-Anpassung</h4>
+                    <button
+                      onClick={() => setShowPageDesigner(true)}
+                      className="w-full px-4 py-3 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent transition-colors flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+                          <Palette size={20} weight="fill" />
+                        </div>
+                        <div className="text-left">
+                          <p className="font-medium">Seiten-Designer</p>
+                          <p className="text-xs text-foreground/60">Dashboard-Seiten anpassen und organisieren</p>
+                        </div>
+                      </div>
+                      <Sparkle size={20} weight="fill" className="group-hover:rotate-12 transition-transform" />
+                    </button>
+                  </div>
+
+                  {/* System Information */}
+                  <div className="glass-card rounded-2xl p-6 theme-transition">
+                    <h4 className="text-sm font-medium text-foreground mb-4">System-Information</h4>
                     <div className="space-y-4">
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">Benutzername</h4>
+                        <h5 className="text-sm font-medium text-foreground mb-2">Benutzername</h5>
                         <p className="text-foreground/60 text-sm">{userName}</p>
                       </div>
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">Theme</h4>
+                        <h5 className="text-sm font-medium text-foreground mb-2">Theme</h5>
                         <p className="text-foreground/60 text-sm capitalize">{theme}</p>
                       </div>
                       <div>
-                        <h4 className="text-sm font-medium text-foreground mb-2">Entitäten</h4>
+                        <h5 className="text-sm font-medium text-foreground mb-2">Entitäten</h5>
                         <p className="text-foreground/60 text-sm">
                           {entities.length} Entitäten geladen
                         </p>
@@ -236,6 +524,28 @@ function DashboardContent() {
           )}
         </main>
         <NavigationMenu />
+        <PageDesigner
+          isOpen={showPageDesigner}
+          onClose={() => setShowPageDesigner(false)}
+          onEditWidgets={(pageId) => {
+            setEditingPageId(pageId)
+            setShowWidgetEditor(true)
+            setShowPageDesigner(false)
+          }}
+        />
+        <PageWidgetEditor
+          isOpen={showWidgetEditor}
+          onClose={() => {
+            setShowWidgetEditor(false)
+            setEditingPageId(null)
+          }}
+          pageId={editingPageId || ''}
+          availableEntities={entities}
+        />
+        <LoginModal
+          open={showLoginModal}
+          onOpenChange={setShowLoginModal}
+        />
       </div>
     </div>
   )
@@ -243,12 +553,22 @@ function DashboardContent() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <PageNavigationProvider>
-        <DashboardContent />
-        <Toaster />
-      </PageNavigationProvider>
-    </ThemeProvider>
+    <ConnectionProvider>
+      <AuthProvider>
+        <ThemeProvider>
+          <PageNavigationProvider>
+            <ConfigurationProvider>
+              <EntityDiscoveryProvider>
+                <DynamicOverviewProvider>
+                  <DashboardContent />
+                  <Toaster />
+                </DynamicOverviewProvider>
+              </EntityDiscoveryProvider>
+            </ConfigurationProvider>
+          </PageNavigationProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </ConnectionProvider>
   )
 }
 

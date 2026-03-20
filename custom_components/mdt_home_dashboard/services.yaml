@@ -1,0 +1,149 @@
+# Service update_dashboard
+
+# Updates dashboard state or configuration
+update_dashboard:
+  name: Update Dashboard
+  description: Sends an update to the MDT HOME Dashboard
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The entity to update in the dashboard
+      required: true
+      example: "light.living_room"
+      selector:
+        entity:
+    data:
+      name: Data
+      description: Additional data to send with the update
+      required: false
+      example: '{"brightness": 255}'
+      selector:
+        object:
+
+# Service refresh_state
+refresh_state:
+  name: Refresh State
+  description: Requests the dashboard to refresh its state from Home Assistant
+
+# Service send_notification
+send_notification:
+  name: Send Notification
+  description: Sends a notification to the MDT HOME Dashboard
+  fields:
+    message:
+      name: Message
+      description: The notification message
+      required: true
+      example: "System update available"
+      selector:
+        text:
+    title:
+      name: Title
+      description: The notification title
+      required: false
+      example: "MDT HOME Dashboard"
+      selector:
+        text:
+    type:
+      name: Type
+      description: The notification type
+      required: false
+      default: "info"
+      example: "warning"
+      selector:
+        select:
+          options:
+            - "info"
+            - "warning"
+            - "error"
+            - "success"
+
+# Service set_theme
+set_theme:
+  name: Set Theme
+  description: Sets the active theme for the MDT HOME Dashboard
+  fields:
+    theme:
+      name: Theme
+      description: The theme to activate
+      required: true
+      example: "night"
+      selector:
+        select:
+          options:
+            - "auto"
+            - "day"
+            - "evening"
+            - "night"
+            - "sleep"
+
+# Service switch_page
+switch_page:
+  name: Switch Page
+  description: Switches to a specific page in the MDT HOME Dashboard
+  fields:
+    page_id:
+      name: Page ID
+      description: The ID of the page to switch to
+      required: true
+      example: "living_room"
+      selector:
+        text:
+
+# Service activate_scene
+activate_scene:
+  name: Activate Scene
+  description: Activates a specific scene in the MDT HOME Dashboard
+  fields:
+    scene_id:
+      name: Scene ID
+      description: The ID of the scene to activate
+      required: true
+      example: "movie_time"
+      selector:
+        text:
+
+# Service set_background
+set_background:
+  name: Set Background
+  description: Changes the background type and configuration of the dashboard
+  fields:
+    type:
+      name: Background Type
+      description: The type of background to use
+      required: true
+      example: "slideshow"
+      selector:
+        select:
+          options:
+            - "static"
+            - "slideshow"
+            - "video"
+            - "gradient"
+    config:
+      name: Configuration
+      description: Additional configuration for the background type
+      required: false
+      example: '{"interval": 30, "images": ["bg1.jpg", "bg2.jpg"]}'
+      selector:
+        object:
+
+# Service trigger_automation
+trigger_automation:
+  name: Trigger Automation
+  description: Triggers a specific automation in the MDT HOME Dashboard
+  fields:
+    automation_id:
+      name: Automation ID
+      description: The ID of the automation to trigger
+      required: true
+      example: "sunset_routine"
+      selector:
+        text:
+    data:
+      name: Data
+      description: Additional data to pass to the automation
+      required: false
+      example: '{"brightness": 128}'
+      selector:
+        object:

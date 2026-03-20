@@ -1,12 +1,27 @@
 import { createContext, useContext, useState } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useLocalStorage } from '@/lib/storage'
 import type { DashboardPage } from '@/lib/types'
-import { House, Lightbulb, Thermometer, PlugsConnected, Gauge, Gear } from '@phosphor-icons/react'
+import {
+  House,
+  Lightbulb,
+  Thermometer,
+  PlugsConnected,
+  Gauge,
+  Gear,
+  FloppyDisk,
+  VideoCamera,
+  SpeakerHigh,
+  Lock,
+  Garage,
+  Fan,
+  Bathtub,
+} from '@phosphor-icons/react'
 
 interface PageNavigationContextType {
   currentPageId: string
   setCurrentPageId: (id: string) => void
   pages: DashboardPage[]
+  setPages: (pages: DashboardPage[]) => void
   currentPage: DashboardPage | undefined
 }
 
@@ -18,36 +33,16 @@ const defaultPages: DashboardPage[] = [
     name: 'Übersicht',
     icon: 'House',
     widgets: [],
-  },
-  {
-    id: 'lights',
-    name: 'Beleuchtung',
-    icon: 'Lightbulb',
-    widgets: [],
-  },
-  {
-    id: 'climate',
-    name: 'Klima',
-    icon: 'Thermometer',
-    widgets: [],
-  },
-  {
-    id: 'switches',
-    name: 'Schalter',
-    icon: 'PlugsConnected',
-    widgets: [],
-  },
-  {
-    id: 'sensors',
-    name: 'Sensoren',
-    icon: 'Gauge',
-    widgets: [],
+    showInNav: true,
+    order: 0,
   },
   {
     id: 'settings',
     name: 'Einstellungen',
     icon: 'Gear',
     widgets: [],
+    showInNav: true,
+    order: 999,
   },
 ]
 
@@ -58,20 +53,28 @@ export const iconMap = {
   PlugsConnected,
   Gauge,
   Gear,
+  FloppyDisk,
+  VideoCamera,
+  SpeakerHigh,
+  Lock,
+  Garage,
+  Fan,
+  Bathtub,
 }
 
 export function PageNavigationProvider({ children }: { children: React.ReactNode }) {
-  const [pages] = useKV<DashboardPage[]>('ha-dashboard-pages', defaultPages)
+  const [pages, setPages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
   const [currentPageId, setCurrentPageId] = useState<string>('home')
 
-  const currentPage = (pages ?? defaultPages).find(p => p.id === currentPageId)
+  const currentPage = pages.find(p => p.id === currentPageId)
 
   return (
     <PageNavigationContext.Provider
       value={{
         currentPageId,
         setCurrentPageId,
-        pages: pages ?? defaultPages,
+        pages,
+        setPages,
         currentPage,
       }}
     >

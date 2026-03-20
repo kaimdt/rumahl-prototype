@@ -99,12 +99,16 @@
 :root[data-theme="night"] {
   --background: oklch(0.22 0.05 240);
   --foreground: oklch(0.78 0.015 240);
-  
+
   --card: oklch(0.28 0.045 240);
   --card-foreground: oklch(0.78 0.015 240);
-  
+
   --glass-opacity: 0.32;
   --glass-tint: oklch(0.35 0.10 230);
+
+  /* Blue light reduction */
+  --night-filter: sepia(0.15) saturate(0.9);
+  --night-brightness: 0.92;
 }
 
 :root[data-theme="sleep"] {
@@ -122,6 +126,10 @@
   --glass-tint: oklch(0.10 0.05 240);
 
   --border: oklch(0.12 0.01 240);
+
+  /* Strong blue light reduction */
+  --night-filter: sepia(0.3) saturate(0.8);
+  --night-brightness: 0.75;
 }
 
 @theme {
@@ -226,4 +234,16 @@
   -webkit-backdrop-filter: blur(20px) !important;
   border: 1px solid var(--accent) !important;
   box-shadow: 0 8px 32px oklch(from var(--accent) l c h / 0.3) !important;
+}
+/* Blue light reduction for night modes */
+:root[data-theme="night"] body,
+:root[data-theme="sleep"] body {
+  filter: var(--night-filter, none);
+  brightness: var(--night-brightness, 1);
+}
+
+/* Ensure smooth transitions for theme changes */
+body {
+  transition: filter var(--transition-duration) ease,
+              brightness var(--transition-duration) ease;
 }

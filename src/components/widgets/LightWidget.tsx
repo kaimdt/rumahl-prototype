@@ -17,6 +17,7 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragBrightness, setDragBrightness] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isPressed, setIsPressed] = useState(false)
   const isOn = entity.state === 'on'
   const brightness = entity.attributes.brightness || 0
   const name = entity.attributes.friendly_name || entity.entity_id
@@ -77,6 +78,7 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
     isDraggingRef.current = false
     hasMovedRef.current = false
     startXRef.current = e.clientX
+    setIsPressed(true)
 
     haptics.impact('light')
 
@@ -85,20 +87,24 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         haptics.impact('medium')
         setDialogOpen(true)
         setDragBrightness(null)
+        setIsPressed(false)
       }
     }, 500)
   }, [clearLongPressTimer])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // Only handle movement if pointer is down (being pressed)
+    if (!isPressed) return
+
     const movementThreshold = 5
     const distanceMoved = Math.abs(e.clientX - startXRef.current)
-    
+
     if (distanceMoved > movementThreshold && !hasMovedRef.current) {
       hasMovedRef.current = true
       isDraggingRef.current = true
       setIsDragging(true)
       clearLongPressTimer()
-      
+
       const initialBrightness = calculateBrightnessFromX(startXRef.current)
       if (initialBrightness !== null) {
         setDragBrightness(initialBrightness)
@@ -112,11 +118,12 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         haptics.selectionChanged()
       }
     }
-  }, [dragBrightness, calculateBrightnessFromX, clearLongPressTimer])
+  }, [isPressed, dragBrightness, calculateBrightnessFromX, clearLongPressTimer])
 
   const handlePointerUp = useCallback(async () => {
     clearLongPressTimer()
     setIsDragging(false)
+    setIsPressed(false)
 
     if (hasMovedRef.current && dragBrightness !== null) {
       updateBrightness(dragBrightness)
@@ -149,22 +156,15 @@ export function LightWidget({ entity, onUpdate }: LightWidgetProps) {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
-        whileHover={{ scale: isDragging ? 1 : 1.02 }}
-        whileTap={{ 
-          scale: isDragging ? 1 : 0.98,
-          transition: {
-            type: "spring",
-            stiffness: 500,
-            damping: 30,
-          }
-        }}
+        initial={{ scale: 1 }}
         animate={{
-          scale: isDragging ? 1.05 : 1,
+          scale: isDragging ? 1.02 : isPressed ? 0.98 : 1,
         }}
+        whileHover={!isDragging && !isPressed ? { scale: 1.01 } : {}}
         transition={{
           type: "spring",
-          stiffness: 400,
-          damping: 25,
+          stiffness: 500,
+          damping: 30,
         }}
       >
         <motion.div
