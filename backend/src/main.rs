@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::CorsLayer,
     trace::TraceLayer,
 };
 use tracing::{info, warn};
@@ -18,6 +18,9 @@ mod ha_client;
 mod websocket;
 mod db;
 mod auth;
+
+#[cfg(test)]
+mod cors_tests;
 
 use ha_client::HomeAssistantClient;
 use db::{init_db, DbPool, repositories::ConfigRepository};
@@ -107,6 +110,20 @@ async fn main() -> anyhow::Result<()> {
         config_repo,
     };
 
+    // Configure CORS
+    let cors_origins = std::env::var("CORS_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:5000".to_string());
+
+    let allowed_origins: Vec<header::HeaderValue> = cors_origins
+        .split(',')
+        .map(|s| s.trim().parse().expect("Invalid CORS origin"))
+        .collect();
+
+    let cors = CorsLayer::new()
+        .allow_origin(allowed_origins)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
+
     // Start background task to poll Home Assistant
     tokio::spawn(poll_home_assistant(
         ha_client.clone(),
@@ -145,12 +162,7 @@ async fn main() -> anyhow::Result<()> {
         // WebSocket endpoint
         .route("/ws", get(websocket_handler))
         // CORS layer
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer(cors)
         // Tracing layer
         .layer(TraceLayer::new_for_http())
         // Add state
