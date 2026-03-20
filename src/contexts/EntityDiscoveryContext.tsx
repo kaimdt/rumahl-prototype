@@ -24,10 +24,11 @@ export function EntityDiscoveryProvider({ children }: { children: React.ReactNod
 
   const checkForNewEntities = useCallback((entities: EntityState[]) => {
     const currentEntityIds = entities.map(e => e.entity_id)
+    const knownSet = new Set(knownEntityIds)
 
     // Find entities that are not in the known list
     const discovered: DiscoveredEntity[] = entities
-      .filter(entity => !knownEntityIds.includes(entity.entity_id))
+      .filter(entity => !knownSet.has(entity.entity_id))
       .map(entity => ({
         entity_id: entity.entity_id,
         domain: entity.entity_id.split('.')[0],
