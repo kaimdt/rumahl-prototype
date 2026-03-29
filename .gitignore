@@ -12,6 +12,7 @@ dist
 dist-ssr
 *-dist
 *.local
+**/target/
 
 # Editor directories and files
 .vscode/*
@@ -32,3 +33,7 @@ pids
 .devcontainer/
 
 .spark-workbench-id
+
+# Temp files from Claude/AI sessions
+tmpclaude-*
+nul

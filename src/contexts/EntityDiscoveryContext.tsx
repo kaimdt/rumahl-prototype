@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocalStorage } from '@/lib/storage'
 import type { EntityState } from '@/lib/types'
 
@@ -23,11 +23,12 @@ export function EntityDiscoveryProvider({ children }: { children: React.ReactNod
   const [newEntities, setNewEntities] = useState<DiscoveredEntity[]>([])
 
   const checkForNewEntities = useCallback((entities: EntityState[]) => {
+    const knownSet = new Set(knownEntityIds)
     const currentEntityIds = entities.map(e => e.entity_id)
 
     // Find entities that are not in the known list
     const discovered: DiscoveredEntity[] = entities
-      .filter(entity => !knownEntityIds.includes(entity.entity_id))
+      .filter(entity => !knownSet.has(entity.entity_id))
       .map(entity => ({
         entity_id: entity.entity_id,
         domain: entity.entity_id.split('.')[0],
@@ -53,24 +54,24 @@ export function EntityDiscoveryProvider({ children }: { children: React.ReactNod
 
   const acknowledgeEntity = useCallback((entity_id: string) => {
     setNewEntities(prev => prev.filter(e => e.entity_id !== entity_id))
-    setKnownEntityIds(prev => [...prev, entity_id])
-  }, [setKnownEntityIds])
+    setKnownEntityIds([...knownEntityIds, entity_id])
+  }, [knownEntityIds, setKnownEntityIds])
 
   const acknowledgeAll = useCallback(() => {
     const entityIds = newEntities.map(e => e.entity_id)
-    setKnownEntityIds(prev => [...prev, ...entityIds])
+    setKnownEntityIds([...knownEntityIds, ...entityIds])
     setNewEntities([])
-  }, [newEntities, setKnownEntityIds])
+  }, [knownEntityIds, newEntities, setKnownEntityIds])
+
+  const contextValue = useMemo(() => ({
+    newEntities,
+    acknowledgeEntity,
+    acknowledgeAll,
+    checkForNewEntities,
+  }), [newEntities, acknowledgeEntity, acknowledgeAll, checkForNewEntities])
 
   return (
-    <EntityDiscoveryContext.Provider
-      value={{
-        newEntities,
-        acknowledgeEntity,
-        acknowledgeAll,
-        checkForNewEntities,
-      }}
-    >
+    <EntityDiscoveryContext.Provider value={contextValue}>
       {children}
     </EntityDiscoveryContext.Provider>
   )

@@ -108,6 +108,15 @@ pub struct UserPreference {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SystemPreference {
+    pub id: String,
+    pub preference_key: String,
+    pub preference_value: String, // JSON string
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SyncMetadata {
     pub id: String,
     pub table_name: String,
@@ -122,6 +131,12 @@ pub struct SyncMetadata {
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
     pub username: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRequest {
+    pub username: Option<String>,
     pub display_name: Option<String>,
 }
 
@@ -178,6 +193,12 @@ pub struct SavePreferenceRequest {
     pub preference_value: serde_json::Value,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SaveSystemPreferenceRequest {
+    pub preference_key: String,
+    pub preference_value: serde_json::Value,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ProfileWithData {
     pub profile: ConfigurationProfile,
@@ -198,6 +219,7 @@ pub struct PageWithWidgets {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    pub remember_me: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

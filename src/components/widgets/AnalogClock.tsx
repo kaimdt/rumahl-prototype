@@ -17,6 +17,11 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
   const hours = time.getHours() % 12
   const minutes = time.getMinutes()
   const seconds = time.getSeconds()
+  const digitalTime = time.toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(showSeconds ? { second: '2-digit' } : {}),
+  })
 
   const hourAngle = (hours + minutes / 60) * 30 // 360 / 12 = 30 degrees per hour
   const minuteAngle = (minutes + seconds / 60) * 6 // 360 / 60 = 6 degrees per minute
@@ -28,7 +33,7 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
 
   return (
     <motion.div
-      className="glass-card rounded-2xl p-6 flex items-center justify-center"
+      className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center gap-3"
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       whileHover={{ scale: 1.02 }}
@@ -110,6 +115,7 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
           fill="oklch(from var(--accent) l c h)"
         />
       </svg>
+      <p className="text-xs text-foreground/55 font-mono tracking-wide">{digitalTime}</p>
     </motion.div>
   )
 }

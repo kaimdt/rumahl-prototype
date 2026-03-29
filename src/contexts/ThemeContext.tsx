@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react'
 import { useLocalStorage } from '@/lib/storage'
 import type { ThemeMode } from '@/lib/types'
 
@@ -47,8 +47,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
+  const contextValue = useMemo(() => ({
+    theme, sleepMode, setSleepMode, autoTheme, setAutoTheme,
+  }), [theme, sleepMode, setSleepMode, autoTheme, setAutoTheme])
+
   return (
-    <ThemeContext.Provider value={{ theme, sleepMode, setSleepMode, autoTheme, setAutoTheme }}>
+    <ThemeContext.Provider value={contextValue}>
       <div className="theme-transition min-h-screen bg-background text-foreground">
         {children}
       </div>

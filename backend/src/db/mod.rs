@@ -19,6 +19,14 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<DbPool> {
     // Create connection pool
     let pool = SqlitePool::connect(database_url).await?;
 
+    // Enable WAL mode for better concurrent read/write performance
+    sqlx::query("PRAGMA journal_mode=WAL")
+        .execute(&pool)
+        .await?;
+    sqlx::query("PRAGMA synchronous=NORMAL")
+        .execute(&pool)
+        .await?;
+
     // Run migrations
     run_migrations(&pool).await?;
 
@@ -42,6 +50,9 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
     let migrations = vec![
         ("001_initial_schema", include_str!("../../migrations/001_initial_schema.sql")),
         ("002_add_password_hash", include_str!("../../migrations/002_add_password_hash.sql")),
+        ("003_entity_history", include_str!("../../migrations/003_entity_history.sql")),
+        ("004_system_preferences", include_str!("../../migrations/004_system_preferences.sql")),
+        ("005_weather_forecast_cache", include_str!("../../migrations/005_weather_forecast_cache.sql")),
     ];
 
     // Apply each migration if not already applied

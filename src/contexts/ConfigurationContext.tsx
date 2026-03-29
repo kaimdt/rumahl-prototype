@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import type { DashboardPage } from '@/lib/types'
 
 // Types
@@ -50,10 +50,42 @@ export interface BackgroundConfig {
 }
 
 export type BackgroundConfigData =
-  | { type: 'static'; url: string }
-  | { type: 'slideshow'; urls: string[]; interval: number }
-  | { type: 'video'; url: string; loop: boolean }
-  | { type: 'gradient'; colors: string[]; angle: number }
+  | {
+      type: 'static'
+      url: string
+      position?: 'center' | 'top' | 'bottom' | 'left' | 'right'
+      size?: 'cover' | 'contain' | 'auto'
+      fixed?: boolean
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
+  | {
+      type: 'slideshow'
+      urls: string[]
+      interval: number
+      position?: 'center' | 'top' | 'bottom' | 'left' | 'right'
+      size?: 'cover' | 'contain' | 'auto'
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
+  | {
+      type: 'video'
+      url: string
+      loop: boolean
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
+  | {
+      type: 'gradient'
+      colors: string[]
+      angle: number
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
 
 export interface UserPreference {
   id: string
@@ -251,11 +283,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
           widgets: p.widgets.map((w: any) => ({
             id: w.id,
             type: w.widget_type,
-            entityId: w.entity_id,
-            x: w.position_x,
-            y: w.position_y,
-            width: w.width,
-            height: w.height,
+            entity_id: w.entity_id ?? undefined,
+            position: { x: w.position_x, y: w.position_y },
+            size: { w: w.width, h: w.height },
             config: w.config ? JSON.parse(w.config) : undefined,
           })),
         })))
@@ -283,11 +313,11 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
         position: index,
         widgets: page.widgets.map(widget => ({
           widget_type: widget.type,
-          entity_id: widget.entityId,
-          position_x: widget.x || 0,
-          position_y: widget.y || 0,
-          width: widget.width || 1,
-          height: widget.height || 1,
+          entity_id: widget.entity_id || null,
+          position_x: widget.position?.x ?? 0,
+          position_y: widget.position?.y ?? 0,
+          width: widget.size?.w ?? 1,
+          height: widget.size?.h ?? 1,
           config: widget.config,
         })),
       }))
@@ -411,28 +441,28 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [device])
 
+  const contextValue = useMemo(() => ({
+    user,
+    device,
+    profile,
+    pages,
+    theme,
+    background,
+    designMode,
+    setUser,
+    setDevice,
+    setDesignMode,
+    savePages,
+    saveTheme,
+    saveBackground,
+    savePreference,
+    getPreference,
+    isLoading,
+    error,
+  }), [user, device, profile, pages, theme, background, designMode, savePages, saveTheme, saveBackground, savePreference, getPreference, isLoading, error])
+
   return (
-    <ConfigurationContext.Provider
-      value={{
-        user,
-        device,
-        profile,
-        pages,
-        theme,
-        background,
-        designMode,
-        setUser,
-        setDevice,
-        setDesignMode,
-        savePages,
-        saveTheme,
-        saveBackground,
-        savePreference,
-        getPreference,
-        isLoading,
-        error,
-      }}
-    >
+    <ConfigurationContext.Provider value={contextValue}>
       {children}
     </ConfigurationContext.Provider>
   )

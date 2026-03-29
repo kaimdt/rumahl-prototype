@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface SplashScreenProps {
   onComplete: () => void
@@ -9,6 +9,8 @@ interface SplashScreenProps {
 export function SplashScreen({ onComplete, duration = 1800 }: SplashScreenProps) {
   const [show, setShow] = useState(true)
   const [progress, setProgress] = useState(0)
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
 
   useEffect(() => {
     // Smooth progress animation
@@ -24,14 +26,14 @@ export function SplashScreen({ onComplete, duration = 1800 }: SplashScreenProps)
 
     const timer = setTimeout(() => {
       setShow(false)
-      setTimeout(onComplete, 400) // Wait for exit animation
+      setTimeout(() => onCompleteRef.current(), 400) // Wait for exit animation
     }, duration)
 
     return () => {
       clearTimeout(timer)
       clearInterval(progressInterval)
     }
-  }, [duration, onComplete])
+  }, [duration])
 
   return (
     <AnimatePresence>
@@ -40,7 +42,7 @@ export function SplashScreen({ onComplete, duration = 1800 }: SplashScreenProps)
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.4, ease: 'easeOut' }}
-          className="fixed inset-0 z-[9999] bg-background flex items-center justify-center"
+          className="fixed inset-0 z-[9999] bg-background/95 backdrop-blur-2xl flex items-center justify-center"
         >
           <div className="text-center space-y-12">
             {/* Minimalist Logo */}

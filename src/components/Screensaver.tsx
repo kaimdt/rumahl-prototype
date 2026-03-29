@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useIdleTimer } from 'react-idle-timer'
 
@@ -166,10 +166,10 @@ export function useScreensaverSettings() {
     localStorage.setItem('screensaver-timeout', timeout.toString())
   }, [timeout])
 
-  return {
+  return useMemo(() => ({
     enabled,
     setEnabled,
     timeout,
     setTimeout,
-  }
+  }), [enabled, setEnabled, timeout, setTimeout])
 }

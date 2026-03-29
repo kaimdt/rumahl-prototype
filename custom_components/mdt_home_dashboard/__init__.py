@@ -1,25 +1,60 @@
 """MDT HOME Dashboard Integration for Home Assistant.
 
-This integration provides a connection interface between Home Assistant and the MDT HOME Dashboard,
-enabling bidirectional communication, state synchronization, and enhanced functionality.
+Provides real-time connectivity between Home Assistant and the MDT HOME
+Dashboard backend (Rust/Axum).  Sensors are backed by ``/api/integration/status``
+so every metric shown in HA reflects actual dashboard state.
 """
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
+import aiohttp
+import voluptuous as vol
+
+try:
+    from homeassistant.components import frontend as ha_frontend
+except ImportError:
+    ha_frontend = None  # type: ignore[assignment]
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
-import voluptuous as vol
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+from .const import (
+    CONF_DASHBOARD_URL,
+    CONF_PANEL_ENABLED,
+    DATA_CLIENT,
+    DATA_COORDINATOR,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    SERVICE_ACTIVATE_SCENE,
+    SERVICE_REFRESH_STATE,
+    SERVICE_SEND_NOTIFICATION,
+    SERVICE_SET_BACKGROUND,
+    SERVICE_SET_THEME,
+    SERVICE_SWITCH_PAGE,
+    SERVICE_TRIGGER_AUTOMATION,
+    SERVICE_UPDATE_DASHBOARD,
+    VERSION,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "mdt_home_dashboard"
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON]
+PLATFORMS = [
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SELECT,
+]
 
-# Configuration schema for configuration.yaml (optional)
+# Optional YAML configuration (backwards-compat, config-flow is preferred)
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
@@ -32,15 +67,7 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-# Service schemas
-SERVICE_UPDATE_DASHBOARD = "update_dashboard"
-SERVICE_REFRESH_STATE = "refresh_state"
-SERVICE_SEND_NOTIFICATION = "send_notification"
-SERVICE_SET_THEME = "set_theme"
-SERVICE_SWITCH_PAGE = "switch_page"
-SERVICE_ACTIVATE_SCENE = "activate_scene"
-SERVICE_SET_BACKGROUND = "set_background"
-SERVICE_TRIGGER_AUTOMATION = "trigger_automation"
+# ---------- Service schemas ----------
 
 SERVICE_UPDATE_DASHBOARD_SCHEMA = vol.Schema(
     {
@@ -53,31 +80,33 @@ SERVICE_SEND_NOTIFICATION_SCHEMA = vol.Schema(
     {
         vol.Required("message"): cv.string,
         vol.Optional("title"): cv.string,
-        vol.Optional("type", default="info"): vol.In(["info", "warning", "error", "success"]),
+        vol.Optional("type", default="info"): vol.In(
+            ["info", "warning", "error", "success"]
+        ),
     }
 )
 
 SERVICE_SET_THEME_SCHEMA = vol.Schema(
     {
-        vol.Required("theme"): vol.In(["auto", "day", "evening", "night", "sleep"]),
+        vol.Required("theme"): vol.In(
+            ["auto", "day", "evening", "night", "sleep"]
+        ),
     }
 )
 
 SERVICE_SWITCH_PAGE_SCHEMA = vol.Schema(
-    {
-        vol.Required("page_id"): cv.string,
-    }
+    {vol.Required("page_id"): cv.string}
 )
 
 SERVICE_ACTIVATE_SCENE_SCHEMA = vol.Schema(
-    {
-        vol.Required("scene_id"): cv.string,
-    }
+    {vol.Required("scene_id"): cv.string}
 )
 
 SERVICE_SET_BACKGROUND_SCHEMA = vol.Schema(
     {
-        vol.Required("type"): vol.In(["static", "slideshow", "video", "gradient"]),
+        vol.Required("type"): vol.In(
+            ["static", "slideshow", "video", "gradient"]
+        ),
         vol.Optional("config"): dict,
     }
 )
@@ -90,25 +119,146 @@ SERVICE_TRIGGER_AUTOMATION_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
-    """Set up the MDT HOME Dashboard integration from configuration.yaml."""
-    hass.data.setdefault(DOMAIN, {})
+# ---------- Helpers ----------
 
+class DashboardClient:
+    """Thin HTTP wrapper around the dashboard backend API."""
+
+    def __init__(self, url: str, session: aiohttp.ClientSession) -> None:
+        self._base = url.rstrip("/")
+        self._session = session
+
+    async def get_status(self) -> dict[str, Any]:
+        """GET /api/integration/status – used by the coordinator."""
+        async with self._session.get(
+            f"{self._base}/api/integration/status", timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def send_command(self, command: str, data: dict | None = None) -> dict:
+        """POST /api/integration/command."""
+        payload: dict[str, Any] = {"command": command}
+        if data:
+            payload["data"] = data
+        async with self._session.post(
+            f"{self._base}/api/integration/command",
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def health(self) -> dict:
+        """GET /health."""
+        async with self._session.get(
+            f"{self._base}/health", timeout=aiohttp.ClientTimeout(total=5)
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def get_settings(self) -> dict[str, Any]:
+        """GET /api/integration/settings."""
+        async with self._session.get(
+            f"{self._base}/api/integration/settings", timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            return data.get("settings", {})
+
+    async def set_settings(self, settings: dict[str, Any]) -> dict:
+        """POST /api/integration/settings."""
+        async with self._session.post(
+            f"{self._base}/api/integration/settings",
+            json=settings,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+# ---------- Setup ----------
+
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
+    """Set up from configuration.yaml (optional)."""
+    hass.data.setdefault(DOMAIN, {})
     if DOMAIN in config:
         hass.data[DOMAIN]["config"] = config[DOMAIN]
-
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up MDT HOME Dashboard from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
 
-    # Register services
+    dashboard_url = entry.data.get(CONF_DASHBOARD_URL, "")
+    session = async_get_clientsession(hass, verify_ssl=False)
+    client = DashboardClient(dashboard_url, session) if dashboard_url else None
+
+    hass.data[DOMAIN][entry.entry_id] = {
+        DATA_CLIENT: client,
+        "url": dashboard_url,
+    }
+
+    # Create the data coordinator here so ALL platforms (sensor, binary_sensor,
+    # etc.) can use it even when async_forward_entry_setups runs concurrently.
+    async def _async_update_data() -> dict[str, Any]:
+        """Poll the dashboard backend for live metrics."""
+        if client is None:
+            return {
+                "status": "not_configured",
+                "online": False,
+                "ha_connected": False,
+                "connected_clients": 0,
+                "entity_count": 0,
+                "version": VERSION,
+                "timestamp": None,
+            }
+        try:
+            data = await client.get_status()
+            data["online"] = True
+            return data
+        except Exception as err:
+            _LOGGER.debug("Dashboard unreachable: %s", err)
+            return {
+                "status": "offline",
+                "online": False,
+                "ha_connected": False,
+                "connected_clients": 0,
+                "entity_count": 0,
+                "version": "unknown",
+                "timestamp": None,
+            }
+
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name=f"{DOMAIN}_{entry.entry_id}",
+        update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+        update_method=_async_update_data,
+    )
+    await coordinator.async_config_entry_first_refresh()
+    hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR] = coordinator
+
+    # Register sidebar panel (iframe pointing at the dashboard)
+    if dashboard_url and entry.data.get(CONF_PANEL_ENABLED, True) and ha_frontend:
+        try:
+            ha_frontend.async_register_built_in_panel(
+                hass,
+                "iframe",
+                entry.data.get(CONF_NAME, "MDT HOME"),
+                "mdi:monitor-dashboard",
+                DOMAIN,
+                {"url": dashboard_url},
+                require_admin=False,
+            )
+        except Exception:
+            _LOGGER.debug("Could not register sidebar panel")
+
+    # Register services (idempotent)
     await _async_register_services(hass)
 
-    # Forward setup to platforms
+    # Forward platform setup
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
@@ -117,200 +267,134 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        # Remove sidebar panel
+        try:
+            ha_frontend.async_remove_panel(hass, DOMAIN)
+        except Exception:
+            _LOGGER.debug("Could not remove sidebar panel")
     return unload_ok
 
 
+# ---------- Services ----------
+
 async def _async_register_services(hass: HomeAssistant) -> None:
-    """Register services for the integration."""
+    """Register all dashboard services (idempotent)."""
+
+    def _get_client() -> DashboardClient | None:
+        """Return the first available DashboardClient."""
+        for eid, data in hass.data.get(DOMAIN, {}).items():
+            if isinstance(data, dict) and data.get(DATA_CLIENT):
+                return data[DATA_CLIENT]
+        return None
 
     async def handle_update_dashboard(call: ServiceCall) -> None:
-        """Handle update_dashboard service call."""
         entity_id = call.data.get("entity_id")
         data = call.data.get("data", {})
-
-        _LOGGER.info(
-            "Dashboard update requested for %s with data: %s",
-            entity_id,
-            data
-        )
-
-        # Fire event that dashboard can listen to
-        hass.bus.async_fire(
-            f"{DOMAIN}_update",
-            {
-                "entity_id": entity_id,
-                "data": data,
-            }
-        )
+        hass.bus.async_fire(f"{DOMAIN}_update", {"entity_id": entity_id, "data": data})
 
     async def handle_refresh_state(call: ServiceCall) -> None:
-        """Handle refresh_state service call."""
-        _LOGGER.info("Dashboard state refresh requested")
-
-        # Fire event for dashboard to refresh
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("refresh")
+            except Exception:
+                _LOGGER.warning("Could not reach dashboard for refresh")
         hass.bus.async_fire(f"{DOMAIN}_refresh")
 
     async def handle_send_notification(call: ServiceCall) -> None:
-        """Handle send_notification service call."""
-        message = call.data.get("message")
+        message = call.data["message"]
         title = call.data.get("title", "MDT HOME Dashboard")
         notif_type = call.data.get("type", "info")
-
-        _LOGGER.info("Sending notification: %s", message)
-
-        # Fire event that dashboard can listen to
-        hass.bus.async_fire(
-            f"{DOMAIN}_notification",
-            {
-                "message": message,
-                "title": title,
-                "type": notif_type,
-            }
-        )
+        payload = {"message": message, "title": title, "type": notif_type}
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("notify", payload)
+            except Exception:
+                _LOGGER.warning("Could not send notification to dashboard")
+        hass.bus.async_fire(f"{DOMAIN}_notification", payload)
 
     async def handle_set_theme(call: ServiceCall) -> None:
-        """Handle set_theme service call."""
-        theme = call.data.get("theme")
-
-        _LOGGER.info("Setting dashboard theme to: %s", theme)
-
-        # Fire event for theme change
-        hass.bus.async_fire(
-            f"{DOMAIN}_theme",
-            {
-                "theme": theme,
-                "action": "set",
-            }
-        )
+        theme = call.data["theme"]
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("set_theme", {"theme": theme})
+            except Exception:
+                _LOGGER.warning("Could not set theme on dashboard")
+        hass.bus.async_fire(f"{DOMAIN}_theme", {"theme": theme, "action": "set"})
 
     async def handle_switch_page(call: ServiceCall) -> None:
-        """Handle switch_page service call."""
-        page_id = call.data.get("page_id")
-
-        _LOGGER.info("Switching dashboard page to: %s", page_id)
-
-        # Fire event for page navigation
+        page_id = call.data["page_id"]
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("switch_page", {"page_id": page_id})
+            except Exception:
+                _LOGGER.warning("Could not switch page on dashboard")
         hass.bus.async_fire(
-            f"{DOMAIN}_navigation",
-            {
-                "page_id": page_id,
-                "action": "switch",
-            }
+            f"{DOMAIN}_navigation", {"page_id": page_id, "action": "switch"}
         )
 
     async def handle_activate_scene(call: ServiceCall) -> None:
-        """Handle activate_scene service call."""
-        scene_id = call.data.get("scene_id")
-
-        _LOGGER.info("Activating dashboard scene: %s", scene_id)
-
-        # Fire event for scene activation
+        scene_id = call.data["scene_id"]
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("set_setting", {"active_scene": scene_id})
+            except Exception:
+                _LOGGER.warning("Could not activate scene on dashboard")
         hass.bus.async_fire(
-            f"{DOMAIN}_scene",
-            {
-                "scene_id": scene_id,
-                "action": "activate",
-            }
+            f"{DOMAIN}_scene", {"scene_id": scene_id, "action": "activate"}
         )
 
     async def handle_set_background(call: ServiceCall) -> None:
-        """Handle set_background service call."""
-        bg_type = call.data.get("type")
-        config = call.data.get("config", {})
-
-        _LOGGER.info("Setting dashboard background type: %s", bg_type)
-
-        # Fire event for background change
+        bg_type = call.data["type"]
+        bg_config = call.data.get("config", {})
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("set_setting", {
+                    "background_type": bg_type,
+                    "background_config": bg_config,
+                })
+            except Exception:
+                _LOGGER.warning("Could not set background on dashboard")
         hass.bus.async_fire(
             f"{DOMAIN}_background",
-            {
-                "type": bg_type,
-                "config": config,
-                "action": "set",
-            }
+            {"type": bg_type, "config": bg_config, "action": "set"},
         )
 
     async def handle_trigger_automation(call: ServiceCall) -> None:
-        """Handle trigger_automation service call."""
-        automation_id = call.data.get("automation_id")
+        automation_id = call.data["automation_id"]
         data = call.data.get("data", {})
-
-        _LOGGER.info("Triggering dashboard automation: %s", automation_id)
-
-        # Fire event for automation trigger
+        client = _get_client()
+        if client:
+            try:
+                await client.send_command("set_setting", {
+                    "trigger_automation": automation_id,
+                    "automation_data": data,
+                })
+            except Exception:
+                _LOGGER.warning("Could not trigger automation on dashboard")
         hass.bus.async_fire(
             f"{DOMAIN}_automation",
-            {
-                "automation_id": automation_id,
-                "data": data,
-                "action": "trigger",
-            }
+            {"automation_id": automation_id, "data": data, "action": "trigger"},
         )
 
-    # Register services only once
-    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_DASHBOARD):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_UPDATE_DASHBOARD,
-            handle_update_dashboard,
-            schema=SERVICE_UPDATE_DASHBOARD_SCHEMA,
-        )
+    _svc = [
+        (SERVICE_UPDATE_DASHBOARD, handle_update_dashboard, SERVICE_UPDATE_DASHBOARD_SCHEMA),
+        (SERVICE_REFRESH_STATE, handle_refresh_state, None),
+        (SERVICE_SEND_NOTIFICATION, handle_send_notification, SERVICE_SEND_NOTIFICATION_SCHEMA),
+        (SERVICE_SET_THEME, handle_set_theme, SERVICE_SET_THEME_SCHEMA),
+        (SERVICE_SWITCH_PAGE, handle_switch_page, SERVICE_SWITCH_PAGE_SCHEMA),
+        (SERVICE_ACTIVATE_SCENE, handle_activate_scene, SERVICE_ACTIVATE_SCENE_SCHEMA),
+        (SERVICE_SET_BACKGROUND, handle_set_background, SERVICE_SET_BACKGROUND_SCHEMA),
+        (SERVICE_TRIGGER_AUTOMATION, handle_trigger_automation, SERVICE_TRIGGER_AUTOMATION_SCHEMA),
+    ]
 
-    if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_STATE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_REFRESH_STATE,
-            handle_refresh_state,
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_SEND_NOTIFICATION):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SEND_NOTIFICATION,
-            handle_send_notification,
-            schema=SERVICE_SEND_NOTIFICATION_SCHEMA,
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_THEME):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SET_THEME,
-            handle_set_theme,
-            schema=SERVICE_SET_THEME_SCHEMA,
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_SWITCH_PAGE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SWITCH_PAGE,
-            handle_switch_page,
-            schema=SERVICE_SWITCH_PAGE_SCHEMA,
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_ACTIVATE_SCENE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_ACTIVATE_SCENE,
-            handle_activate_scene,
-            schema=SERVICE_ACTIVATE_SCENE_SCHEMA,
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_BACKGROUND):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SET_BACKGROUND,
-            handle_set_background,
-            schema=SERVICE_SET_BACKGROUND_SCHEMA,
-        )
-
-    if not hass.services.has_service(DOMAIN, SERVICE_TRIGGER_AUTOMATION):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_TRIGGER_AUTOMATION,
-            handle_trigger_automation,
-            schema=SERVICE_TRIGGER_AUTOMATION_SCHEMA,
-        )
+    for name, handler, schema in _svc:
+        if not hass.services.has_service(DOMAIN, name):
+            hass.services.async_register(DOMAIN, name, handler, schema=schema)

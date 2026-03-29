@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { useLocalStorage } from '@/lib/storage'
-import type { EntityState } from '@/lib/types'
+import type { EntityState, WidgetType } from '@/lib/types'
 
 /**
  * Trigger types for dynamic overview changes
@@ -182,23 +182,23 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
 
   const currentVariant = variants.find((v) => v.id === activeVariantId) || defaultVariant
 
-  const addVariant = (variant: OverviewVariant) => {
+  const addVariant = useCallback((variant: OverviewVariant) => {
     setVariants([...variants, variant])
-  }
+  }, [variants, setVariants])
 
-  const updateVariant = (id: string, updates: Partial<OverviewVariant>) => {
+  const updateVariant = useCallback((id: string, updates: Partial<OverviewVariant>) => {
     setVariants(
       variants.map((v) => (v.id === id ? { ...v, ...updates } : v))
     )
-  }
+  }, [variants, setVariants])
 
-  const deleteVariant = (id: string) => {
+  const deleteVariant = useCallback((id: string) => {
     if (id === 'default') return // Cannot delete default variant
     setVariants(variants.filter((v) => v.id !== id))
     if (activeVariantId === id) {
       setActiveVariantId('default')
     }
-  }
+  }, [variants, setVariants, activeVariantId, setActiveVariantId])
 
   const checkTimeTrigger = (trigger: TimeTrigger): boolean => {
     const now = new Date()
@@ -268,7 +268,7 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
     return false
   }
 
-  const evaluateTriggers = (entities: EntityState[]) => {
+  const evaluateTriggers = useCallback((entities: EntityState[]) => {
     if (!enabled) return
 
     // Sort variants by priority (descending)
@@ -309,24 +309,24 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
     if (activeVariantId !== 'default') {
       setActiveVariantId('default')
     }
-  }
+  }, [enabled, variants, activeVariantId, setActiveVariantId])
+
+  const contextValue = useMemo(() => ({
+    variants,
+    setVariants,
+    currentVariant,
+    activeVariantId,
+    setActiveVariantId,
+    addVariant,
+    updateVariant,
+    deleteVariant,
+    evaluateTriggers,
+    enabled,
+    setEnabled,
+  }), [variants, setVariants, currentVariant, activeVariantId, setActiveVariantId, addVariant, updateVariant, deleteVariant, evaluateTriggers, enabled, setEnabled])
 
   return (
-    <DynamicOverviewContext.Provider
-      value={{
-        variants,
-        setVariants,
-        currentVariant,
-        activeVariantId,
-        setActiveVariantId,
-        addVariant,
-        updateVariant,
-        deleteVariant,
-        evaluateTriggers,
-        enabled,
-        setEnabled,
-      }}
-    >
+    <DynamicOverviewContext.Provider value={contextValue}>
       {children}
     </DynamicOverviewContext.Provider>
   )
@@ -338,4 +338,32 @@ export function useDynamicOverview() {
     throw new Error('useDynamicOverview must be used within DynamicOverviewProvider')
   }
   return context
+}
+
+export function getVisibleWidgetTypes(config: OverviewVariant['config']): Set<WidgetType> {
+  const visible = new Set<WidgetType>([
+    // Entity widgets always visible
+    'light', 'climate', 'switch', 'media_player',
+    // HA Helpers always visible
+    'input_boolean', 'input_number', 'input_select', 'binary_sensor', 'cover',
+    // New entity widgets always visible
+    'fan', 'lock', 'automation', 'script', 'button', 'scene_entity',
+    'number', 'select', 'input_text', 'text', 'input_datetime',
+    'person', 'device_tracker', 'timer', 'counter', 'group', 'camera',
+    'vacuum', 'humidifier', 'alarm_control_panel',
+    // Layout elements always visible
+    'spacer', 'section_header', 'custom',
+  ] as WidgetType[])
+
+  if (config.showGreeting !== false) visible.add('greeting')
+  if (config.showWeather !== false) visible.add('weather')
+  if (config.showClock !== false) {
+    visible.add('analog_clock')
+    visible.add('digital_clock')
+  }
+  if (config.showCalendar !== false) visible.add('calendar')
+  if (config.showScenes !== false) visible.add('scene_selector')
+  if (config.showSensors !== false) visible.add('sensor')
+
+  return visible
 }

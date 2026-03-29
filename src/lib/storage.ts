@@ -1,7 +1,10 @@
 /**
  * Local Storage utility to replace GitHub Spark KV
- * Provides a similar API but uses browser localStorage
+ * Provides a similar API but uses browser localStorage.
+ * Settings marked for sync are also pushed to the backend.
  */
+
+import { scheduleSyncToBackend } from '@/lib/settingsSync'
 
 type StorageListener<T> = (value: T) => void
 
@@ -27,8 +30,11 @@ class LocalStorageManager {
    */
   set<T>(key: string, value: T): void {
     try {
-      localStorage.setItem(key, JSON.stringify(value))
+      const serialized = JSON.stringify(value)
+      localStorage.setItem(key, serialized)
       this.notifyListeners(key, value)
+      // Debounce-push synced keys to backend
+      scheduleSyncToBackend(key, serialized)
     } catch (error) {
       console.error(`Error writing to localStorage (${key}):`, error)
     }

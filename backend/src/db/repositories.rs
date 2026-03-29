@@ -44,6 +44,58 @@ impl ConfigRepository {
         Ok(user)
     }
 
+    pub async fn get_user_by_id(&self, user_id: &str) -> anyhow::Result<Option<User>> {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(user)
+    }
+
+    pub async fn update_user(&self, user_id: &str, req: UpdateUserRequest) -> anyhow::Result<Option<User>> {
+        let existing = match self.get_user_by_id(user_id).await? {
+            Some(user) => user,
+            None => return Ok(None),
+        };
+
+        let target_username = req
+            .username
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&existing.username)
+            .to_string();
+
+        if target_username != existing.username {
+            if let Some(conflict) = self.get_user_by_username(&target_username).await? {
+                if conflict.id != existing.id {
+                    anyhow::bail!("USERNAME_CONFLICT");
+                }
+            }
+        }
+
+        let target_display_name = req.display_name.or(existing.display_name);
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let updated = sqlx::query_as::<_, User>(
+            r#"
+            UPDATE users
+            SET username = ?, display_name = ?, updated_at = ?
+            WHERE id = ?
+            RETURNING *
+            "#,
+        )
+        .bind(&target_username)
+        .bind(&target_display_name)
+        .bind(&now)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(Some(updated))
+    }
+
     // Device operations
     pub async fn register_device(&self, req: RegisterDeviceRequest) -> anyhow::Result<Device> {
         let id = Uuid::new_v4().to_string();
@@ -91,6 +143,14 @@ impl ConfigRepository {
 
     // Configuration Profile operations
     pub async fn create_profile(&self, req: CreateProfileRequest) -> anyhow::Result<ConfigurationProfile> {
+        // Reuse the existing default profile for this owner/type instead of creating duplicates.
+        if let Some(existing) = self
+            .get_profile_by_owner(&req.owner_id, &req.profile_type)
+            .await?
+        {
+            return Ok(existing);
+        }
+
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -115,7 +175,7 @@ impl ConfigRepository {
 
     pub async fn get_profile_by_owner(&self, owner_id: &str, profile_type: &str) -> anyhow::Result<Option<ConfigurationProfile>> {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
-            "SELECT * FROM configuration_profiles WHERE owner_id = ? AND profile_type = ? AND is_default = 1"
+            "SELECT * FROM configuration_profiles WHERE owner_id = ? AND profile_type = ? AND is_default = 1 ORDER BY updated_at DESC LIMIT 1"
         )
         .bind(owner_id)
         .bind(profile_type)
@@ -411,6 +471,76 @@ impl ConfigRepository {
         )
         .bind(user_id)
         .bind(device_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(prefs)
+    }
+
+    // Global system preferences
+    pub async fn save_system_preference(&self, req: SaveSystemPreferenceRequest) -> anyhow::Result<SystemPreference> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let value_json = req.preference_value.to_string();
+
+        let updated = sqlx::query(
+            r#"
+            UPDATE system_preferences
+            SET preference_value = ?, updated_at = ?
+            WHERE preference_key = ?
+            "#,
+        )
+        .bind(&value_json)
+        .bind(&now)
+        .bind(&req.preference_key)
+        .execute(&self.pool)
+        .await?;
+
+        if updated.rows_affected() == 0 {
+            let id = Uuid::new_v4().to_string();
+
+            let pref = sqlx::query_as::<_, SystemPreference>(
+                r#"
+                INSERT INTO system_preferences (id, preference_key, preference_value, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                RETURNING *
+                "#,
+            )
+            .bind(&id)
+            .bind(&req.preference_key)
+            .bind(&value_json)
+            .bind(&now)
+            .bind(&now)
+            .fetch_one(&self.pool)
+            .await?;
+
+            return Ok(pref);
+        }
+
+        let pref = sqlx::query_as::<_, SystemPreference>(
+            "SELECT * FROM system_preferences WHERE preference_key = ?"
+        )
+        .bind(&req.preference_key)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(pref)
+    }
+
+    pub async fn get_system_preference(&self, key: &str) -> anyhow::Result<Option<SystemPreference>> {
+        let pref = sqlx::query_as::<_, SystemPreference>(
+            "SELECT * FROM system_preferences WHERE preference_key = ?"
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(pref)
+    }
+
+    pub async fn get_all_system_preferences(&self) -> anyhow::Result<Vec<SystemPreference>> {
+        let prefs = sqlx::query_as::<_, SystemPreference>(
+            "SELECT * FROM system_preferences ORDER BY preference_key"
+        )
         .fetch_all(&self.pool)
         .await?;
 

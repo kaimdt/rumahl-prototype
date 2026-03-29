@@ -55,10 +55,10 @@ export function DigitalClock({
       whileHover={{ scale: 1.01 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
     >
-      <div className="text-center space-y-3">
+      <div className="text-center space-y-3 overflow-hidden">
         {/* Time display */}
         <motion.div
-          className="text-6xl font-light tabular-nums tracking-tight text-foreground"
+          className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2rem,7vw,3.75rem)] leading-none font-light tabular-nums tracking-tight text-foreground"
           animate={{ opacity: [0.9, 1, 0.9] }}
           transition={{ duration: 2, repeat: Infinity }}
         >

@@ -24,14 +24,14 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::Bcryp
 }
 
 /// Generate a JWT token for a user
-pub fn generate_token(user_id: &str, username: &str) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn generate_token(user_id: &str, username: &str, expiration_days: i64) -> Result<String, jsonwebtoken::errors::Error> {
     let secret = env::var(JWT_SECRET_ENV).unwrap_or_else(|_| {
         tracing::warn!("JWT_SECRET not set, using default (INSECURE for production!)");
         DEFAULT_JWT_SECRET.to_string()
     });
 
     let expiration = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(30))
+        .checked_add_signed(chrono::Duration::days(expiration_days.clamp(1, 90)))
         .expect("valid timestamp")
         .timestamp() as usize;
 

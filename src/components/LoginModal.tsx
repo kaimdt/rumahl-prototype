@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { User, Lock, UserPlus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { Switch } from '@/components/ui/switch'
 
 interface LoginModalProps {
   open: boolean
@@ -28,6 +29,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   // Login form state
   const [loginUsername, setLoginUsername] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
 
   // Register form state
   const [registerUsername, setRegisterUsername] = useState('')
@@ -45,7 +47,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
     setIsLoading(true)
     try {
-      await login(loginUsername.trim(), loginPassword)
+      await login(loginUsername.trim(), loginPassword, rememberMe)
       toast.success('Erfolgreich angemeldet')
       onOpenChange(false)
       // Reset form
@@ -100,8 +102,13 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl">
+    <Dialog open={open} onOpenChange={() => {}}>
+      <DialogContent
+        className="sm:max-w-[440px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl"
+        hideCloseButton
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader className="p-6 pb-4 border-b border-foreground/10">
           <DialogTitle className="flex items-center gap-3 text-foreground">
             <div className="p-2 rounded-xl bg-primary/10">
@@ -116,12 +123,12 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
         <div className="p-6">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'login' | 'register')}>
-            <TabsList className="w-full grid grid-cols-2 mb-6">
-              <TabsTrigger value="login">
+            <TabsList className="w-full grid grid-cols-2 mb-6 rounded-xl bg-foreground/5 p-1 h-auto">
+              <TabsTrigger value="login" className="rounded-lg data-[state=active]:bg-accent/15 data-[state=active]:text-accent">
                 <Lock size={16} weight="bold" />
                 Anmelden
               </TabsTrigger>
-              <TabsTrigger value="register">
+              <TabsTrigger value="register" className="rounded-lg data-[state=active]:bg-accent/15 data-[state=active]:text-accent">
                 <UserPlus size={16} weight="bold" />
                 Registrieren
               </TabsTrigger>
@@ -135,7 +142,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-xl bg-foreground/5 p-3.5">
                   <Label htmlFor="login-username">Benutzername</Label>
                   <Input
                     id="login-username"
@@ -149,7 +156,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-xl bg-foreground/5 p-3.5">
                   <Label htmlFor="login-password">Passwort</Label>
                   <Input
                     id="login-password"
@@ -161,6 +168,14 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                     autoComplete="current-password"
                     required
                   />
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl bg-foreground/5 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Angemeldet bleiben</p>
+                    <p className="text-xs text-foreground/60">Wenn aus, endet die Anmeldung beim Schliessen des Browsers.</p>
+                  </div>
+                  <Switch checked={rememberMe} onCheckedChange={setRememberMe} disabled={isLoading} />
                 </div>
 
                 <Button
@@ -181,7 +196,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-xl bg-foreground/5 p-3.5">
                   <Label htmlFor="register-username">Benutzername</Label>
                   <Input
                     id="register-username"
@@ -195,7 +210,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-xl bg-foreground/5 p-3.5">
                   <Label htmlFor="register-display-name">
                     Anzeigename (optional)
                   </Label>
@@ -210,7 +225,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-xl bg-foreground/5 p-3.5">
                   <Label htmlFor="register-password">Passwort</Label>
                   <Input
                     id="register-password"
@@ -224,7 +239,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-xl bg-foreground/5 p-3.5">
                   <Label htmlFor="register-password-confirm">
                     Passwort bestätigen
                   </Label>

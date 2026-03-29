@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import * as ColorThiefModule from 'colorthief'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
 
@@ -118,21 +118,21 @@ export function useAccentColor() {
     }
   }
 
-  const setMode = (mode: 'auto' | 'static') => {
+  const setMode = useCallback((mode: 'auto' | 'static') => {
     setSettings(prev => ({ ...prev, mode }))
-  }
+  }, [])
 
-  const setStaticColor = (color: string) => {
+  const setStaticColor = useCallback((color: string) => {
     setSettings(prev => ({ ...prev, staticColor: color }))
-  }
+  }, [])
 
-  return {
+  return useMemo(() => ({
     accentColor,
     mode: settings.mode,
     staticColor: settings.staticColor,
     setMode,
     setStaticColor,
-  }
+  }), [accentColor, settings.mode, settings.staticColor, setMode, setStaticColor])
 }
 
 // Helper functions

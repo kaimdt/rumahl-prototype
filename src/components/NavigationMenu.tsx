@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { Moon, Sun, DotsThree } from '@phosphor-icons/react'
 import { useState } from 'react'
 
-export function NavigationMenu() {
+export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const { currentPageId, setCurrentPageId, pages } = usePageNavigation()
   const { sleepMode, setSleepMode } = useTheme()
   const [showAllPages, setShowAllPages] = useState(false)
@@ -17,6 +17,8 @@ export function NavigationMenu() {
   const compactPageLimit = 5
   const displayPages = showAllPages ? visiblePages : visiblePages.slice(0, compactPageLimit)
   const hasMorePages = visiblePages.length > compactPageLimit
+
+  if (hidden) return null
 
   return (
     <>
