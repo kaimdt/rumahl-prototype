@@ -221,9 +221,9 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
 
   const checkEntityStateTrigger = (
     trigger: EntityStateTrigger,
-    entities: EntityState[]
+    entityMap: Map<string, EntityState>
   ): boolean => {
-    const entity = entities.find((e) => e.entity_id === trigger.entity_id)
+    const entity = entityMap.get(trigger.entity_id)
     if (!entity) return false
 
     // If no specific state is specified, any entity existence triggers it
@@ -271,6 +271,8 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
   const evaluateTriggers = useCallback((entities: EntityState[]) => {
     if (!enabled) return
 
+    const entityMap = new Map(entities.map(e => [e.entity_id, e]))
+
     // Sort variants by priority (descending)
     const sortedVariants = [...variants].sort((a, b) => b.priority - a.priority)
 
@@ -284,7 +286,7 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
         if (trigger.type === 'time') {
           triggerMatches = checkTimeTrigger(trigger)
         } else if (trigger.type === 'entity_state') {
-          triggerMatches = checkEntityStateTrigger(trigger, entities)
+          triggerMatches = checkEntityStateTrigger(trigger, entityMap)
         } else if (trigger.type === 'manual') {
           // Manual triggers never auto-activate
           triggerMatches = false
