@@ -190,7 +190,6 @@ function HistoryFullDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="sm:max-w-[600px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden max-h-[92vh]"
-        hideCloseButton
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{entityName} Verlauf</DialogTitle>

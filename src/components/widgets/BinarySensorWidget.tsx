@@ -7,6 +7,7 @@ import { GenericEntityDialog } from './GenericEntityDialog'
 interface BinarySensorWidgetProps {
   entity: EntityState
   onUpdate?: () => void
+  config?: Record<string, unknown>
 }
 
 function toLabel(rawState: string): string {
@@ -16,7 +17,7 @@ function toLabel(rawState: string): string {
   return rawState
 }
 
-export function BinarySensorWidget({ entity }: BinarySensorWidgetProps) {
+export function BinarySensorWidget({ entity, config }: BinarySensorWidgetProps) {
   const name = String(entity.attributes.friendly_name || entity.entity_id)
   const label = toLabel(entity.state)
   const isActive = label === 'Aktiv'
@@ -79,6 +80,7 @@ export function BinarySensorWidget({ entity }: BinarySensorWidgetProps) {
       color={statusColor}
       open={dialogOpen}
       onOpenChange={setDialogOpen}
+      modalSize={config?.modalSize as string | undefined}
     />
     </>
   )

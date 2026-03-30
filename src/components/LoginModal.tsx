@@ -106,6 +106,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
       <DialogContent
         className="sm:max-w-[440px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl"
         hideCloseButton
+        hideExpandButton
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >

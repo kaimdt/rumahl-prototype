@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { WeatherEntity } from '@/lib/types'
 import { Sun, Cloud, CloudRain, CloudSnow, CloudFog, Wind, Drop, ThermometerSimple } from '@phosphor-icons/react'
 import { haptics } from '@/lib/haptics'
@@ -123,13 +123,53 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
     setDialogOpen(true)
   }
 
+  // Pointer gesture system: tap → open dialog, hold → open dialog with haptic
+  const longPressTimerRef = useRef<number | undefined>(undefined)
+  const dialogOpenedRef = useRef(false)
+  const pointerActiveRef = useRef(false)
+
+  const clearTimers = useCallback(() => {
+    if (longPressTimerRef.current !== undefined) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = undefined
+    }
+  }, [])
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    clearTimers()
+    dialogOpenedRef.current = false
+    pointerActiveRef.current = true
+
+    haptics.impact('light')
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      haptics.impact('medium')
+      dialogOpenedRef.current = true
+      setDialogOpen(true)
+    }, 500)
+  }, [clearTimers])
+
+  const handlePointerUp = useCallback(() => {
+    if (!pointerActiveRef.current) return
+    pointerActiveRef.current = false
+    clearTimers()
+
+    if (!dialogOpenedRef.current) {
+      haptics.impact('light')
+      setDialogOpen(true)
+    }
+  }, [clearTimers])
+
   // Compact variant - single line with icon + temp
   if (variant === 'compact') {
     return (
       <>
         <div
-          className="glass-card rounded-2xl theme-transition p-2.5 cursor-pointer select-none"
-          onClick={handleTap}
+          className="glass-card rounded-2xl theme-transition p-2.5 cursor-pointer select-none touch-none"
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
@@ -151,8 +191,10 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
     return (
       <>
         <div
-          className="glass-card rounded-xl p-5 theme-transition cursor-pointer select-none"
-          onClick={handleTap}
+          className="glass-card glass-card-shimmer ambient-glow-card rounded-xl p-5 theme-transition cursor-pointer select-none touch-none"
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
           <div className="flex items-start gap-4">
             <div className="flex-1">
@@ -160,47 +202,47 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
                 {getWeatherIcon(condition, 40)}
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-foreground/60 uppercase tracking-wide">{getConditionText(condition)}</p>
-                <p className="text-5xl font-light text-foreground">{Math.round(temperature)}°C</p>
+                <p className="text-xs text-foreground/60 uppercase tracking-widest font-medium">{getConditionText(condition)}</p>
+                <p className="text-5xl font-extralight text-foreground number-display tracking-tight">{Math.round(temperature)}°C</p>
               </div>
             </div>
           </div>
 
           {/* Stats grid */}
-          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-foreground/10">
+          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-foreground/8">
             {humidity !== undefined && (
               <div className="flex items-center gap-1.5">
                 <Drop size={14} weight="fill" className="text-foreground/40" />
-                <span className="text-xs text-foreground/60">{humidity}%</span>
+                <span className="text-xs text-foreground/60 number-display">{humidity}%</span>
               </div>
             )}
             {windSpeed !== undefined && (
               <div className="flex items-center gap-1.5">
                 <Wind size={14} weight="fill" className="text-foreground/40" />
-                <span className="text-xs text-foreground/60">{windSpeed} km/h</span>
+                <span className="text-xs text-foreground/60 number-display">{windSpeed} km/h</span>
               </div>
             )}
             {pressure !== undefined && (
               <div className="flex items-center gap-1.5">
                 <ThermometerSimple size={14} weight="fill" className="text-foreground/40" />
-                <span className="text-xs text-foreground/60">{pressure} hPa</span>
+                <span className="text-xs text-foreground/60 number-display">{pressure} hPa</span>
               </div>
             )}
           </div>
 
           {forecast.length > 0 && (
-            <div className="grid grid-cols-6 gap-1 mt-4 pt-4 border-t border-foreground/10">
+            <div className="grid grid-cols-6 gap-1.5 mt-4 pt-4 border-t border-foreground/8">
               {forecast.slice(0, 6).map((day, idx) => (
-                <div key={idx} className="text-center space-y-1 min-w-0">
+                <div key={idx} className="text-center space-y-1.5 p-2 min-w-0">
                   <p className="text-[9px] text-foreground/50 font-medium uppercase tracking-wider truncate">
                     {getDayName(day.datetime)}
                   </p>
                   <div className="flex justify-center text-foreground/60">
                     {getWeatherIcon(day.condition, 18)}
                   </div>
-                  <p className="text-xs font-medium text-foreground/90">{Math.round(day.temperature)}°</p>
+                  <p className="text-xs font-medium text-foreground/90 number-display">{Math.round(day.temperature)}°</p>
                   {day.templow !== undefined && (
-                    <p className="text-[10px] text-foreground/40">{Math.round(day.templow)}°</p>
+                    <p className="text-[10px] text-foreground/40 number-display">{Math.round(day.templow)}°</p>
                   )}
                 </div>
               ))}
@@ -217,16 +259,26 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
     return (
       <>
         <div
-          className="glass-card rounded-xl p-5 theme-transition cursor-pointer select-none"
-          onClick={handleTap}
+          className="glass-card glass-card-shimmer rounded-xl p-5 theme-transition cursor-pointer select-none touch-none"
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
-          <h4 className="text-xs font-semibold text-foreground/50 mb-3 uppercase tracking-wide">Vorhersage</h4>
+          <h4 className="text-xs font-semibold text-foreground/50 mb-3 uppercase tracking-widest">Vorhersage</h4>
           {forecastLoading ? (
-            <p className="text-xs text-foreground/40">Laden...</p>
+            <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="text-center space-y-2">
+                  <div className="skeleton-premium h-3 w-8 mx-auto" />
+                  <div className="skeleton-premium h-5 w-5 mx-auto rounded-full" />
+                  <div className="skeleton-premium h-3 w-6 mx-auto" />
+                </div>
+              ))}
+            </div>
           ) : forecast.length > 0 ? (
             <div className="grid grid-cols-7 gap-2">
               {forecast.slice(0, 7).map((day, idx) => (
-                <div key={idx} className="text-center space-y-1.5">
+                <div key={idx} className="text-center space-y-1.5 p-2">
                   <p className="text-[10px] text-foreground/50 font-medium">
                     {getDayName(day.datetime)}
                   </p>
@@ -234,9 +286,9 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
                     {getWeatherIcon(day.condition, 20)}
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-foreground/90">{Math.round(day.temperature)}°</p>
+                    <p className="text-xs font-semibold text-foreground/90 number-display">{Math.round(day.temperature)}°</p>
                     {day.templow !== undefined && (
-                      <p className="text-[10px] text-foreground/40">{Math.round(day.templow)}°</p>
+                      <p className="text-[10px] text-foreground/40 number-display">{Math.round(day.templow)}°</p>
                     )}
                   </div>
                 </div>
@@ -255,8 +307,10 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
   return (
     <>
       <div
-        className="glass-card rounded-xl p-5 theme-transition cursor-pointer select-none"
-        onClick={handleTap}
+        className="glass-card glass-card-shimmer ambient-glow-card rounded-xl p-5 theme-transition cursor-pointer select-none touch-none"
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
       >
         <div className="flex items-start gap-4">
           <div className="flex-1">
@@ -264,25 +318,25 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
               {getWeatherIcon(condition, 40)}
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-foreground/60 uppercase tracking-wide">{getConditionText(condition)}</p>
-              <p className="text-5xl font-light text-foreground">{Math.round(temperature)}°C</p>
+              <p className="text-xs text-foreground/60 uppercase tracking-widest font-medium">{getConditionText(condition)}</p>
+              <p className="text-5xl font-extralight text-foreground number-display tracking-tight">{Math.round(temperature)}°C</p>
             </div>
           </div>
         </div>
 
         {forecast.length > 0 && (
-          <div className="grid grid-cols-6 gap-1 mt-5 pt-5 border-t border-foreground/10">
+          <div className="grid grid-cols-6 gap-1.5 mt-5 pt-5 border-t border-foreground/8">
             {forecast.slice(0, 6).map((day, idx) => (
-              <div key={idx} className="text-center space-y-1 min-w-0">
+              <div key={idx} className="text-center space-y-1.5 p-2 min-w-0">
                 <p className="text-[9px] text-foreground/50 font-medium uppercase tracking-wider truncate">
                   {getDayName(day.datetime)}
                 </p>
                 <div className="flex justify-center text-foreground/60">
                   {getWeatherIcon(day.condition, 18)}
                 </div>
-                <p className="text-xs font-medium text-foreground/90">{Math.round(day.temperature)}°</p>
+                <p className="text-xs font-medium text-foreground/90 number-display">{Math.round(day.temperature)}°</p>
                 {day.templow !== undefined && (
-                  <p className="text-[10px] text-foreground/40">{Math.round(day.templow)}°</p>
+                  <p className="text-[10px] text-foreground/40 number-display">{Math.round(day.templow)}°</p>
                 )}
               </div>
             ))}

@@ -16,6 +16,25 @@ export default defineConfig({
       '@': resolve(projectRoot, 'src')
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-switch',
+            '@radix-ui/react-select',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-tooltip',
+          ],
+          'vendor-icons': ['@phosphor-icons/react'],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': {

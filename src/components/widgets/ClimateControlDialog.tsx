@@ -12,12 +12,14 @@ import { motion } from 'framer-motion'
 
 import { ArcSlider } from '@/components/ui/arc-slider'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
+import { getModalSizeClass } from '@/lib/utils'
 
 interface ClimateControlDialogProps {
   entity: ClimateEntity
   open: boolean
   onOpenChange: (open: boolean) => void
   onUpdate?: () => void
+  modalSize?: string
 }
 
 export function ClimateControlDialog({
@@ -25,6 +27,7 @@ export function ClimateControlDialog({
   open,
   onOpenChange,
   onUpdate,
+  modalSize,
 }: ClimateControlDialogProps) {
   const currentTemp = entity.attributes.current_temperature || 0
   const minTemp = Number(entity.attributes.min_temp ?? 7)
@@ -119,8 +122,7 @@ export function ClimateControlDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[380px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden"
-        hideCloseButton
+        className={`${getModalSizeClass(modalSize)} glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden`}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{name} Klima Steuerung</DialogTitle>

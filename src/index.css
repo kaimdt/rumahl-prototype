@@ -9,10 +9,43 @@
   body {
     font-family: 'Inter', sans-serif;
     overflow-x: hidden;
+    /* Prevent text size adjustment on orientation change */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Prevent pull-to-refresh and overscroll bounce on mobile */
+  html {
+    overscroll-behavior: none;
   }
   
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ─── Mobile touch optimizations ─── */
+  @media (hover: none) and (pointer: coarse) {
+    /* Disable hover effects on touch devices */
+    .glass-card-interactive:hover {
+      box-shadow: none;
+      border-color: unset;
+    }
+    
+    /* Ensure tap targets are accessible */
+    button, a, [role="button"] {
+      min-height: 36px;
+    }
+
+    /* Smoother scrolling on touch */
+    * {
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Disable text selection on interactive elements */
+    button, [role="button"], nav {
+      -webkit-user-select: none;
+      user-select: none;
+    }
   }
 
   *::-webkit-scrollbar {
@@ -155,34 +188,57 @@
 }
 
 :root[data-theme="sleep"] {
+  /* OLED black — true black background for maximum contrast & power saving */
   --background: oklch(0.00 0 0);
-  --foreground: oklch(0.45 0.015 250);
+  --foreground: oklch(0.32 0.008 250);
 
-  --card: oklch(0.06 0.01 250);
-  --card-foreground: oklch(0.45 0.015 250);
+  --card: oklch(0.04 0.005 250);
+  --card-foreground: oklch(0.32 0.008 250);
 
-  --muted: oklch(0.10 0.01 250);
-  --muted-foreground: oklch(0.35 0.012 250);
+  --popover: oklch(0.04 0.005 250);
+  --popover-foreground: oklch(0.32 0.008 250);
 
-  --accent: oklch(0.40 0.08 250);
-  --accent-foreground: oklch(0.50 0.015 250);
+  --primary: oklch(0.20 0.02 250);
+  --primary-foreground: oklch(0.35 0.01 250);
 
-  --glass-blur: 20px;
-  --glass-opacity: 0.15;
-  --glass-tint: oklch(0.12 0.04 250);
-  --glass-backdrop-blur: blur(20px);
-  --glass-bg: oklch(0.12 0.04 250 / 0.15);
-  --glass-bg-end: oklch(0.06 0.01 250 / 0.12);
-  --glass-border-color: oklch(0.30 0.01 250 / 0.15);
-  --glass-shadow-1: oklch(0.30 0.01 250 / 0.08);
-  --glass-shadow-2: oklch(0.30 0.01 250 / 0.04);
+  --secondary: oklch(0.06 0.005 250);
+  --secondary-foreground: oklch(0.30 0.008 250);
 
-  --border: oklch(0.15 0.01 250);
+  --muted: oklch(0.06 0.005 250);
+  --muted-foreground: oklch(0.24 0.006 250);
 
-  /* Strong blue light reduction (individual functions to avoid Lightning CSS mangling) */
-  --night-filter-sepia: sepia(0.3);
-  --night-filter-saturate: saturate(0.8);
-  --night-filter-brightness: brightness(0.75);
+  --accent: oklch(0.30 0.06 250);
+  --accent-foreground: oklch(0.40 0.01 250);
+
+  --success: oklch(0.30 0.08 140);
+  --success-foreground: oklch(0.40 0.01 0);
+
+  --destructive: oklch(0.30 0.10 25);
+  --destructive-foreground: oklch(0.40 0.01 0);
+
+  --glass-blur: 12px;
+  --glass-opacity: 0.06;
+  --glass-tint: oklch(0.06 0.005 250);
+  --glass-backdrop-blur: blur(12px);
+  --glass-backdrop-saturate: saturate(1.0);
+  --glass-header-blur: blur(10px);
+  --glass-header-saturate: saturate(1.0);
+  --glass-bg: oklch(0.06 0.005 250 / 0.06);
+  --glass-bg-end: oklch(0.04 0.005 250 / 0.04);
+  --glass-border-color: oklch(0.20 0.005 250 / 0.08);
+  --glass-shadow-1: oklch(0 0 0 / 0.0);
+  --glass-shadow-2: oklch(0 0 0 / 0.0);
+
+  --border: oklch(0.10 0.005 250);
+  --input: oklch(0.08 0.005 250);
+  --ring: oklch(0.30 0.06 250);
+
+  --transition-duration: 0.6s;
+
+  /* Strong blue light reduction */
+  --night-filter-sepia: sepia(0.15);
+  --night-filter-saturate: saturate(0.6);
+  --night-filter-brightness: brightness(0.55);
 }
 
 @theme {
@@ -222,17 +278,45 @@
               border-color var(--transition-duration) ease;
 }
 
+/* ─── OLED Sleep Mode overrides ─── */
+:root[data-theme="sleep"] .glass-card {
+  background: oklch(0.03 0.002 250 / 0.5) !important;
+  border-color: oklch(0.14 0.005 250 / 0.06) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="sleep"] .glass-header {
+  background: oklch(0.02 0.002 250 / 0.6) !important;
+  border-bottom-color: oklch(0.12 0.005 250 / 0.05) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="sleep"] .glass-toast {
+  background: oklch(0.04 0.003 250 / 0.9) !important;
+  border-color: oklch(0.14 0.005 250 / 0.1) !important;
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.4) !important;
+}
+
+:root[data-theme="sleep"] img:not([data-no-dim]) {
+  filter: brightness(0.35) saturate(0.3);
+  transition: filter 0.6s ease;
+}
+
+:root[data-theme="sleep"] .widget-enter {
+  animation: none;
+}
+
 .glass-card {
   background:
     linear-gradient(
       180deg,
-      oklch(from var(--foreground) l c h / 0.07) 0%,
-      transparent 42%
+      oklch(from var(--foreground) l c h / 0.08) 0%,
+      transparent 38%
     ),
     linear-gradient(
       165deg,
       var(--glass-bg) 0%,
-      var(--glass-bg-end) 58%,
+      var(--glass-bg-end) 55%,
       oklch(from var(--card) l c h / 0.18) 100%
     );
   backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
@@ -240,7 +324,7 @@
   box-shadow:
     0 10px 30px var(--glass-shadow-1),
     0 2px 8px var(--glass-shadow-2),
-    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.12),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.10),
     inset 0 -1px 0 var(--glass-shadow-2);
 }
 
@@ -334,4 +418,571 @@
 /* Ensure smooth transitions for theme changes */
 body {
   transition: filter var(--transition-duration) ease;
+}
+
+/* ─── GPU acceleration & performance hints ─── */
+.glass-card,
+.glass-header {
+  will-change: backdrop-filter, background;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* ─── Premium typography refinements ─── */
+@layer base {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+/* ─── Widget entrance animations ─── */
+@keyframes widget-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.widget-animate-in {
+  animation: widget-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.widget-animate-in:nth-child(1) { animation-delay: 0.02s; }
+.widget-animate-in:nth-child(2) { animation-delay: 0.04s; }
+.widget-animate-in:nth-child(3) { animation-delay: 0.06s; }
+.widget-animate-in:nth-child(4) { animation-delay: 0.08s; }
+.widget-animate-in:nth-child(5) { animation-delay: 0.10s; }
+.widget-animate-in:nth-child(6) { animation-delay: 0.12s; }
+.widget-animate-in:nth-child(7) { animation-delay: 0.14s; }
+.widget-animate-in:nth-child(8) { animation-delay: 0.16s; }
+.widget-animate-in:nth-child(9) { animation-delay: 0.18s; }
+.widget-animate-in:nth-child(10) { animation-delay: 0.20s; }
+
+/* ─── Refined glass-card hover states ─── */
+.glass-card-interactive {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s ease,
+              border-color 0.3s ease;
+}
+
+.glass-card-interactive:hover {
+  box-shadow:
+    0 14px 40px var(--glass-shadow-1),
+    0 4px 12px var(--glass-shadow-2),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.14),
+    inset 0 -1px 0 var(--glass-shadow-2);
+  border-color: oklch(from var(--foreground) l c h / 0.18);
+}
+
+/* ─── Universal press feedback for all interactive glass cards ─── */
+.glass-card[class*="cursor-pointer"] {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s ease,
+              border-color 0.3s ease,
+              background 0.3s ease;
+}
+
+.glass-card[class*="cursor-pointer"]:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+}
+
+.glass-card[class*="cursor-pointer"]:active {
+  transform: scale(0.985);
+  transition-duration: 0.1s;
+}
+
+/* ─── Premium loading skeleton ─── */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-premium {
+  background: linear-gradient(
+    90deg,
+    oklch(from var(--foreground) l c h / 0.04) 0%,
+    oklch(from var(--foreground) l c h / 0.08) 40%,
+    oklch(from var(--foreground) l c h / 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+
+/* ─── Ambient glow for active entities ─── */
+.entity-glow {
+  position: relative;
+}
+
+.entity-glow::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    oklch(from var(--accent) l c h / 0.12) 0%,
+    transparent 70%
+  );
+}
+
+.entity-glow[data-active="true"]::after {
+  opacity: 1;
+}
+
+/* ─── Smooth page transitions ─── */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition-enter {
+  animation: page-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Premium separator lines ─── */
+.separator-gradient {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(from var(--foreground) l c h / 0.12) 20%,
+    oklch(from var(--foreground) l c h / 0.12) 80%,
+    transparent 100%
+  );
+}
+
+/* ─── Focus ring for accessibility ─── */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ─── Premium text selection ─── */
+::selection {
+  background: oklch(from var(--accent) l c h / 0.25);
+  color: var(--foreground);
+}
+
+/* ─── Widget glow aura for active entities ─── */
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.widget-glow-active {
+  position: relative;
+}
+
+.widget-glow-active::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse at 30% 50%,
+    oklch(from var(--accent) l c h / 0.08) 0%,
+    transparent 60%
+  );
+  animation: glow-breathe 4s ease-in-out infinite;
+}
+
+/* ─── Animated shimmer sweep on glass cards ─── */
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(200%) skewX(-15deg); }
+}
+
+.glass-card-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(from var(--foreground) l c h / 0.03) 45%,
+    oklch(from var(--foreground) l c h / 0.06) 50%,
+    oklch(from var(--foreground) l c h / 0.03) 55%,
+    transparent 100%
+  );
+  transform: translateX(-100%) skewX(-15deg);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass-card-shimmer:hover::after {
+  animation: shimmer-sweep 0.8s ease-out;
+}
+
+/* ─── Premium icon container with ring ─── */
+.icon-container-premium {
+  position: relative;
+}
+
+.icon-container-premium::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1.5px solid transparent;
+  pointer-events: none;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.icon-container-premium[data-active="true"]::after {
+  border-color: oklch(from var(--accent) l c h / 0.3);
+  box-shadow: 0 0 12px oklch(from var(--accent) l c h / 0.15);
+}
+
+/* ─── Status dot pulse ─── */
+@keyframes status-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.6); opacity: 0; }
+}
+
+.status-dot {
+  position: relative;
+}
+
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  animation: status-pulse 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ─── Greeting widget gradient text ─── */
+.text-gradient-greeting {
+  background: linear-gradient(
+    135deg,
+    var(--foreground) 0%,
+    oklch(from var(--accent) l c h / 0.9) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ─── Weather forecast card micro-glass ─── */
+.forecast-card {
+  background: oklch(from var(--foreground) l c h / 0.04);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 12px;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.forecast-card:hover {
+  background: oklch(from var(--foreground) l c h / 0.07);
+  border-color: oklch(from var(--foreground) l c h / 0.10);
+  transform: translateY(-1px);
+}
+
+/* ─── Value change flash ─── */
+@keyframes value-flash {
+  0% { opacity: 0.6; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.value-update {
+  animation: value-flash 0.3s ease-out;
+}
+
+/* ─── Ambient card glow for hero widgets ─── */
+.ambient-glow-card {
+  position: relative;
+}
+
+.ambient-glow-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background: radial-gradient(
+    ellipse at 20% 30%,
+    oklch(from var(--accent) l c h / 0.06) 0%,
+    transparent 50%
+  ),
+  radial-gradient(
+    ellipse at 80% 70%,
+    oklch(from var(--accent) l c h / 0.04) 0%,
+    transparent 50%
+  );
+  transition: opacity 0.5s ease;
+}
+
+.ambient-glow-card:hover::before {
+  opacity: 0.8;
+}
+
+/* ─── Connection overlay breathing ring ─── */
+@keyframes breathe-ring {
+  0%, 100% { transform: scale(1); opacity: 0.15; }
+  50% { transform: scale(1.3); opacity: 0.05; }
+}
+
+.breathe-ring {
+  animation: breathe-ring 3s ease-in-out infinite;
+}
+
+/* ─── Premium number display ─── */
+.number-display {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  font-feature-settings: 'tnum', 'cv02', 'cv03';
+}
+
+/* ─── Smooth state transition for widget icons ─── */
+.icon-container-premium {
+  transition: background-color 0.4s ease, color 0.4s ease, box-shadow 0.5s ease;
+}
+
+/* ─── Card style presets: ensure shimmer/glow still work on top ─── */
+[class*="card-style-"] .glass-card-shimmer::after {
+  z-index: 2;
+}
+
+[class*="card-style-"] .widget-glow-active::before {
+  z-index: 0;
+}
+
+/* ═══════════════════════════════════════════
+   Card Style Presets
+   Applied via wrapper class card-style-{id} → targets child .glass-card
+   ═══════════════════════════════════════════ */
+
+/* Subtle – lighter glass, softer presence */
+.card-style-subtle .glass-card {
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--foreground) l c h / 0.03) 0%,
+      transparent 40%
+    ),
+    oklch(from var(--card) l c h / 0.08);
+  backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  box-shadow:
+    0 2px 12px oklch(from var(--foreground) l c h / 0.03),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.04);
+}
+
+/* Solid – opaque, clean, modern */
+.card-style-solid .glass-card {
+  background: oklch(from var(--card) l c h / 0.88);
+  backdrop-filter: blur(4px);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  box-shadow:
+    0 1px 3px oklch(from var(--foreground) l c h / 0.04),
+    0 4px 16px oklch(from var(--foreground) l c h / 0.03);
+}
+
+/* Outline – clean wire-frame, transparent */
+.card-style-outline .glass-card {
+  background: oklch(from var(--foreground) l c h / 0.015);
+  backdrop-filter: blur(6px);
+  border: 1.5px solid oklch(from var(--foreground) l c h / 0.14);
+  box-shadow: none;
+}
+
+/* Neon – vibrant glowing accent edge */
+.card-style-neon .glass-card {
+  background:
+    linear-gradient(
+      160deg,
+      oklch(from var(--accent) l c h / 0.08) 0%,
+      oklch(from var(--accent) l c h / 0.02) 40%,
+      transparent 70%
+    );
+  backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid oklch(from var(--accent) l c h / 0.40);
+  box-shadow:
+    0 0 15px oklch(from var(--accent) l c h / 0.15),
+    0 0 40px oklch(from var(--accent) l c h / 0.06),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.12);
+}
+
+/* Minimal – ultra-clean, nearly invisible */
+.card-style-minimal .glass-card {
+  background: oklch(from var(--foreground) l c h / 0.015);
+  backdrop-filter: blur(6px);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+  box-shadow: none;
+}
+
+/* Elevated – floating card with depth */
+.card-style-elevated .glass-card {
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--foreground) l c h / 0.08) 0%,
+      transparent 25%
+    ),
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 55%,
+      oklch(from var(--card) l c h / 0.20) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.10);
+  box-shadow:
+    0 16px 48px oklch(from var(--foreground) l c h / 0.10),
+    0 6px 16px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.12);
+  transform: translateY(-2px);
+}
+
+/* Frosted – heavy frosted glass, milky */
+.card-style-frosted .glass-card {
+  background: oklch(from var(--card) l c h / 0.35);
+  backdrop-filter: blur(50px) saturate(1.8);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.10);
+  box-shadow:
+    0 6px 24px oklch(from var(--foreground) l c h / 0.06),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.12),
+    inset 0 -1px 0 oklch(from var(--foreground) l c h / 0.03);
+}
+
+/* Gradient – accent tinted gradient */
+.card-style-gradient .glass-card {
+  background:
+    linear-gradient(
+      135deg,
+      oklch(from var(--accent) l c h / 0.12) 0%,
+      oklch(from var(--accent) l c h / 0.04) 35%,
+      oklch(from var(--card) l c h / 0.15) 100%
+    );
+  backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid oklch(from var(--accent) l c h / 0.14);
+  box-shadow:
+    0 6px 20px oklch(from var(--accent) l c h / 0.07),
+    0 1px 4px oklch(from var(--foreground) l c h / 0.03),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.10);
+}
+
+/* Flat – modern flat design, no depth */
+.card-style-flat .glass-card {
+  background: oklch(from var(--card) l c h / 0.55);
+  backdrop-filter: none;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  box-shadow: none;
+  border-radius: 16px;
+}
+
+/* Aurora – shimmering multi-tone accent */
+.card-style-aurora .glass-card {
+  background:
+    linear-gradient(
+      135deg,
+      oklch(from var(--accent) l c h / 0.10) 0%,
+      oklch(from var(--accent) calc(l + 0.08) calc(c * 0.7) calc(h + 35) / 0.08) 45%,
+      oklch(from var(--accent) calc(l - 0.05) c calc(h - 20) / 0.06) 100%
+    );
+  backdrop-filter: blur(32px) saturate(1.7);
+  border: 1px solid oklch(from var(--accent) l c h / 0.18);
+  box-shadow:
+    0 6px 20px oklch(from var(--accent) l c h / 0.08),
+    0 0 40px oklch(from var(--accent) l c h / 0.04),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.08);
+}
+
+/* Dark Glass – deep tinted glass */
+.card-style-dark-glass .glass-card {
+  background:
+    linear-gradient(
+      175deg,
+      oklch(0 0 0 / 0.20) 0%,
+      oklch(0 0 0 / 0.12) 100%
+    );
+  backdrop-filter: blur(36px) saturate(1.4) brightness(0.88);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  box-shadow:
+    0 8px 24px oklch(0 0 0 / 0.12),
+    0 1px 4px oklch(0 0 0 / 0.08),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.05);
+}
+
+/* Metallic – brushed-metal shimmer */
+.card-style-metallic .glass-card {
+  background:
+    linear-gradient(
+      170deg,
+      oklch(from var(--foreground) l c h / 0.10) 0%,
+      oklch(from var(--foreground) l c h / 0.03) 25%,
+      oklch(from var(--foreground) l c h / 0.07) 55%,
+      oklch(from var(--foreground) l c h / 0.02) 100%
+    );
+  backdrop-filter: blur(28px) saturate(1.2);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.12);
+  box-shadow:
+    0 2px 12px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.18),
+    inset 0 -1px 0 oklch(from var(--foreground) l c h / 0.04);
+}
+
+/* Soft Glow – gentle ambient glow aura */
+.card-style-soft-glow .glass-card {
+  background:
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid oklch(from var(--accent) l c h / 0.10);
+  box-shadow:
+    0 0 24px oklch(from var(--accent) l c h / 0.10),
+    0 0 50px oklch(from var(--accent) l c h / 0.05),
+    0 6px 18px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.08);
+}
+
+/* Bordered – double-border elegant frame */
+.card-style-bordered .glass-card {
+  background:
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.14);
+  box-shadow:
+    0 0 0 4px oklch(from var(--foreground) l c h / 0.04),
+    0 6px 20px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.08);
 }

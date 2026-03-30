@@ -11,9 +11,10 @@ import { toast } from 'sonner'
 interface CounterWidgetProps {
   entity: EntityState
   onUpdate?: () => void
+  config?: Record<string, unknown>
 }
 
-export function CounterWidget({ entity, onUpdate }: CounterWidgetProps) {
+export function CounterWidget({ entity, onUpdate, config }: CounterWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const name = (entity.attributes.friendly_name as string) || entity.entity_id
   const value = entity.state
@@ -111,6 +112,7 @@ export function CounterWidget({ entity, onUpdate }: CounterWidgetProps) {
       color={'var(--accent)'}
       open={dialogOpen}
       onOpenChange={setDialogOpen}
+      modalSize={config?.modalSize as string | undefined}
     />
     </>
   )

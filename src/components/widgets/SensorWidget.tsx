@@ -130,7 +130,7 @@ export const SensorWidget = memo(function SensorWidget({ entity, config }: Senso
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerLeave}
-        className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
+        className="glass-card glass-card-shimmer rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
         whileHover={{ scale: 1.02 }}
         transition={{
           type: 'spring',
@@ -142,11 +142,12 @@ export const SensorWidget = memo(function SensorWidget({ entity, config }: Senso
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div
-                className="p-2.5 rounded-xl transition-all duration-300"
+                className="icon-container-premium p-2.5 rounded-xl transition-all duration-300"
+                data-active="true"
                 style={{
                   backgroundColor: `color-mix(in oklch, ${color} 30%, transparent)`,
                   color: color,
-                  boxShadow: `0 4px 20px color-mix(in oklch, ${color} 15%, transparent)`,
+                  boxShadow: `0 4px 20px color-mix(in oklch, ${color} 15%, transparent), 0 0 30px color-mix(in oklch, ${color} 06%, transparent)`,
                 }}
               >
                 {getIcon()}
@@ -158,7 +159,7 @@ export const SensorWidget = memo(function SensorWidget({ entity, config }: Senso
             </div>
             <div className="text-right max-w-[55%]">
               <div
-                className={`font-semibold truncate ${
+                className={`font-semibold truncate number-display ${
                   displayValue.length > 12 ? 'text-sm' : displayValue.length > 8 ? 'text-lg' : 'text-2xl'
                 } ${isDateValue ? '' : 'font-mono'}`}
                 style={{ color }}

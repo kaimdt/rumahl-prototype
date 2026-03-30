@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import * as ColorThiefModule from 'colorthief'
+import { getPalette } from 'colorthief'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
-
-// Handle both default and named export
-const ColorThief = (ColorThiefModule as any).default || ColorThiefModule
 
 interface AccentColorSettings {
   mode: 'auto' | 'static'
@@ -15,6 +12,7 @@ const DEFAULT_ACCENT = '#3b82f6' // Default blue accent
 export function useAccentColor() {
   const { background } = useConfiguration()
   const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT)
+  const [extractedPalette, setExtractedPalette] = useState<string[]>([])
   const [settings, setSettings] = useState<AccentColorSettings>(() => {
     const stored = localStorage.getItem('accent-color-settings')
     return stored ? JSON.parse(stored) : { mode: 'auto', staticColor: DEFAULT_ACCENT }
@@ -34,6 +32,7 @@ export function useAccentColor() {
     // Auto mode - extract from background
     if (!background || !background.is_active) {
       setAccentColor(DEFAULT_ACCENT)
+      setExtractedPalette([])
       updateCSSVariable(DEFAULT_ACCENT)
       return
     }
@@ -45,50 +44,47 @@ export function useAccentColor() {
     if (background.background_type === 'static' && config.url) {
       extractColorFromImage(config.url)
     } else if (background.background_type === 'slideshow' && config.urls && config.urls.length > 0) {
-      // Extract from first image in slideshow
       extractColorFromImage(config.urls[0])
     } else if (background.background_type === 'gradient' && config.colors && config.colors.length > 0) {
-      // Use first gradient color
       const color = config.colors[0]
       setAccentColor(color)
+      setExtractedPalette(config.colors)
       updateCSSVariable(color)
     } else {
       setAccentColor(DEFAULT_ACCENT)
+      setExtractedPalette([])
       updateCSSVariable(DEFAULT_ACCENT)
     }
   }, [background, settings.mode, settings.staticColor])
 
   const extractColorFromImage = async (imageUrl: string) => {
     try {
-      const colorThief = new ColorThief()
       const img = new Image()
       img.crossOrigin = 'Anonymous'
 
-      img.onload = () => {
+      img.onload = async () => {
         try {
-          const palette = colorThief.getPalette(img, 5)
+          const palette = await getPalette(img, { colorCount: 8 })
           if (palette && palette.length > 0) {
-            // Find the most vibrant color
-            let mostVibrant = palette[0]
-            let maxSaturation = 0
-
-            palette.forEach((color) => {
-              const [r, g, b] = color
-              const saturation = calculateSaturation(r, g, b)
-              if (saturation > maxSaturation) {
-                maxSaturation = saturation
-                mostVibrant = color
-              }
+            // Extract all hex colors sorted by saturation
+            const paletteWithSaturation = palette.map((color) => {
+              const { r, g, b } = color.rgb()
+              return { hex: color.hex(), saturation: calculateSaturation(r, g, b) }
             })
+            paletteWithSaturation.sort((a, b) => b.saturation - a.saturation)
 
-            const [r, g, b] = mostVibrant
-            const hexColor = rgbToHex(r, g, b)
+            const allColors = paletteWithSaturation.map(c => c.hex)
+            setExtractedPalette(allColors)
+
+            // Auto-select the most vibrant
+            const hexColor = allColors[0]
             setAccentColor(hexColor)
             updateCSSVariable(hexColor)
           }
         } catch (error) {
           console.error('Failed to extract color:', error)
           setAccentColor(DEFAULT_ACCENT)
+          setExtractedPalette([])
           updateCSSVariable(DEFAULT_ACCENT)
         }
       }
@@ -96,6 +92,7 @@ export function useAccentColor() {
       img.onerror = () => {
         console.error('Failed to load image for color extraction')
         setAccentColor(DEFAULT_ACCENT)
+        setExtractedPalette([])
         updateCSSVariable(DEFAULT_ACCENT)
       }
 
@@ -103,6 +100,7 @@ export function useAccentColor() {
     } catch (error) {
       console.error('Failed to extract color from image:', error)
       setAccentColor(DEFAULT_ACCENT)
+      setExtractedPalette([])
       updateCSSVariable(DEFAULT_ACCENT)
     }
   }
@@ -126,13 +124,22 @@ export function useAccentColor() {
     setSettings(prev => ({ ...prev, staticColor: color }))
   }, [])
 
+  const selectFromPalette = useCallback((color: string) => {
+    setAccentColor(color)
+    updateCSSVariable(color)
+    // Switch to static mode when user manually selects a palette color
+    setSettings(prev => ({ ...prev, mode: 'static', staticColor: color }))
+  }, [])
+
   return useMemo(() => ({
     accentColor,
+    extractedPalette,
     mode: settings.mode,
     staticColor: settings.staticColor,
     setMode,
     setStaticColor,
-  }), [accentColor, settings.mode, settings.staticColor, setMode, setStaticColor])
+    selectFromPalette,
+  }), [accentColor, extractedPalette, settings.mode, settings.staticColor, setMode, setStaticColor, selectFromPalette])
 }
 
 // Helper functions

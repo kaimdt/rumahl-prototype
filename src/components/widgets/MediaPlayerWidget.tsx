@@ -370,7 +370,7 @@ export function MediaPlayerWidget({ entity, onUpdate }: MediaPlayerWidgetProps) 
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-3xl p-0 overflow-hidden" hideCloseButton>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden">
           <DialogTitle className="sr-only">Now Playing</DialogTitle>
           <div className="relative">
             {resolvedCoverUrl ? (

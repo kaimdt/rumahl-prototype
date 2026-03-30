@@ -1,10 +1,11 @@
-import { GearSix, Trash, Plus, Minus, ArrowsHorizontal, ArrowsVertical } from '@phosphor-icons/react'
+import { GearSix, Trash, Plus, Minus, ArrowsHorizontal, ArrowsVertical, CopySimple } from '@phosphor-icons/react'
 
 interface FloatingToolbarProps {
   onConfigure?: () => void
   onResizeWidth?: (delta: number) => void
   onResizeHeight?: (delta: number) => void
   onDelete: () => void
+  onDuplicate?: () => void
   widgetSize: { w: number; h: number }
   maxWidth?: number
   maxHeight?: number
@@ -15,6 +16,7 @@ export function FloatingToolbar({
   onResizeWidth,
   onResizeHeight,
   onDelete,
+  onDuplicate,
   widgetSize,
   maxWidth = 6,
   maxHeight = 12,
@@ -75,11 +77,22 @@ export function FloatingToolbar({
         </button>
       )}
 
+      {/* Duplicate */}
+      {onDuplicate && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDuplicate() }}
+          className="p-1 rounded hover:bg-accent/10 text-foreground/50 hover:text-accent"
+          title="Duplizieren (Strg+D)"
+        >
+          <CopySimple size={12} weight="bold" />
+        </button>
+      )}
+
       {/* Delete */}
       <button
         onClick={(e) => { e.stopPropagation(); onDelete() }}
         className="p-1 rounded hover:bg-red-500/10 text-foreground/50 hover:text-red-400"
-        title="Löschen"
+        title="Löschen (Entf)"
       >
         <Trash size={12} weight="bold" />
       </button>

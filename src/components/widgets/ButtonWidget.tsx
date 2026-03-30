@@ -11,9 +11,10 @@ import { toast } from 'sonner'
 interface ButtonWidgetProps {
   entity: EntityState
   onUpdate?: () => void
+  config?: Record<string, unknown>
 }
 
-export function ButtonWidget({ entity, onUpdate }: ButtonWidgetProps) {
+export function ButtonWidget({ entity, onUpdate, config }: ButtonWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const name = (entity.attributes.friendly_name as string) || entity.entity_id
 
@@ -94,6 +95,7 @@ export function ButtonWidget({ entity, onUpdate }: ButtonWidgetProps) {
       color={'var(--accent)'}
       open={dialogOpen}
       onOpenChange={setDialogOpen}
+      modalSize={config?.modalSize as string | undefined}
     />
     </>
   )

@@ -65,7 +65,6 @@ export function SwitchControlDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="sm:max-w-[380px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden"
-        hideCloseButton
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{name} Schalter Steuerung</DialogTitle>

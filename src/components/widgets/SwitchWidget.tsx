@@ -104,7 +104,7 @@ export const SwitchWidget = memo(function SwitchWidget({ entity, onUpdate, confi
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerLeave}
-        className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
+        className={`glass-card glass-card-shimmer rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none ${isOn ? 'widget-glow-active' : ''}`}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         transition={{
@@ -117,14 +117,15 @@ export const SwitchWidget = memo(function SwitchWidget({ entity, onUpdate, confi
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div
-                className="p-2.5 rounded-xl transition-all duration-300"
+                className="icon-container-premium p-2.5 rounded-xl transition-all duration-300"
+                data-active={isOn}
                 style={{
                   backgroundColor: isOn
                     ? 'oklch(from var(--accent) l c h / 0.3)'
                     : 'oklch(from var(--muted) l c h / 0.5)',
                   color: isOn ? 'var(--accent)' : 'var(--muted-foreground)',
                   boxShadow: isOn
-                    ? '0 4px 20px oklch(from var(--accent) l c h / 0.2)'
+                    ? '0 4px 20px oklch(from var(--accent) l c h / 0.25), 0 0 40px oklch(from var(--accent) l c h / 0.08)'
                     : 'none',
                 }}
               >
@@ -137,15 +138,18 @@ export const SwitchWidget = memo(function SwitchWidget({ entity, onUpdate, confi
                 </p>
               </div>
             </div>
-            <div
-              className={`p-2 rounded-full transition-all duration-300 ${
-                isOn
-                  ? 'bg-accent/20 text-accent'
-                  : 'bg-muted/50 text-muted-foreground'
-              }`}
+            <motion.div
+              className="p-2 rounded-full transition-colors duration-300"
+              animate={{
+                backgroundColor: isOn
+                  ? 'oklch(from var(--accent) l c h / 0.2)'
+                  : 'oklch(from var(--muted) l c h / 0.5)',
+                color: isOn ? 'var(--accent)' : 'var(--muted-foreground)',
+              }}
+              transition={{ duration: 0.3 }}
             >
               <Power size={18} weight={isOn ? 'fill' : 'regular'} />
-            </div>
+            </motion.div>
           </div>
         </div>
       </motion.div>

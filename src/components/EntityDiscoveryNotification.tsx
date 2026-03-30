@@ -34,38 +34,46 @@ export function EntityDiscoveryNotification() {
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -20, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -20, scale: 0.97 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 25 }}
         className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4"
       >
-        <div className="glass-card rounded-2xl p-4 shadow-2xl border border-white/10">
-          <div className="flex items-start justify-between mb-3">
+        <div className="glass-card rounded-2xl p-4 shadow-2xl border border-white/10 relative overflow-hidden">
+          {/* Subtle ambient glow */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ background: 'radial-gradient(ellipse at 50% 0%, oklch(from var(--accent) l c h / 0.06) 0%, transparent 60%)' }}
+          />
+          
+          <div className="relative flex items-start justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-accent status-dot" />
               <h3 className="font-medium text-foreground">
                 {newEntities.length} neue Entität{newEntities.length > 1 ? 'en' : ''} gefunden
               </h3>
             </div>
             <button
               onClick={handleAcknowledgeAll}
-              className="text-xs px-2 py-1 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-colors flex items-center gap-1"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-all duration-200 flex items-center gap-1 hover:scale-105 active:scale-95"
             >
               <Check size={14} weight="bold" />
               Alle bestätigen
             </button>
           </div>
 
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {newEntities.slice(0, 5).map((entity) => (
+          <div className="relative space-y-1.5 max-h-64 overflow-y-auto">
+            {newEntities.slice(0, 5).map((entity, idx) => (
               <motion.div
                 key={entity.entity_id}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="flex items-center justify-between p-2 rounded-lg bg-background/30 hover:bg-background/50 transition-colors"
+                transition={{ delay: idx * 0.05 }}
+                className="flex items-center justify-between p-2.5 rounded-xl bg-background/30 hover:bg-background/50 transition-all duration-200"
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 border border-accent/10">
                     <Plus size={16} weight="bold" className="text-accent" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -79,7 +87,7 @@ export function EntityDiscoveryNotification() {
                 </div>
                 <button
                   onClick={() => handleAcknowledgeSingle(entity.entity_id, entity.friendly_name)}
-                  className="p-1.5 rounded-lg hover:bg-background/50 text-foreground/60 hover:text-foreground transition-colors flex-shrink-0"
+                  className="p-1.5 rounded-lg hover:bg-accent/15 text-foreground/60 hover:text-accent transition-all duration-200 flex-shrink-0 hover:scale-110 active:scale-90"
                   aria-label="Bestätigen"
                 >
                   <Check size={16} weight="bold" />

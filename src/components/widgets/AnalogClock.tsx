@@ -1,35 +1,68 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
+
+export type ClockSecondsMode = 'tick' | 'sweep' | 'hidden'
+export type ClockFaceStyle = 'numbers' | 'ticks' | 'minimal' | 'none'
 
 interface AnalogClockProps {
   showSeconds?: boolean
   size?: number
+  secondsMode?: ClockSecondsMode
+  faceStyle?: ClockFaceStyle
+  showDigitalTime?: boolean
 }
 
-export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps) {
+export function AnalogClock({
+  showSeconds = true,
+  size = 200,
+  secondsMode = 'tick',
+  faceStyle = 'ticks',
+  showDigitalTime = true,
+}: AnalogClockProps) {
   const [time, setTime] = useState(new Date())
+  const rafRef = useRef<number | undefined>(undefined)
+
+  // Sweep mode needs requestAnimationFrame for smooth motion
+  const isSweep = showSeconds && secondsMode === 'sweep'
+  const effectiveShowSeconds = showSeconds && secondsMode !== 'hidden'
 
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(timer)
-  }, [])
+    if (isSweep) {
+      const tick = () => {
+        setTime(new Date())
+        rafRef.current = requestAnimationFrame(tick)
+      }
+      rafRef.current = requestAnimationFrame(tick)
+      return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+    } else {
+      const timer = setInterval(() => setTime(new Date()), 1000)
+      return () => clearInterval(timer)
+    }
+  }, [isSweep])
 
   const hours = time.getHours() % 12
   const minutes = time.getMinutes()
   const seconds = time.getSeconds()
-  const digitalTime = time.toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(showSeconds ? { second: '2-digit' } : {}),
-  })
+  const ms = time.getMilliseconds()
 
-  const hourAngle = (hours + minutes / 60) * 30 // 360 / 12 = 30 degrees per hour
-  const minuteAngle = (minutes + seconds / 60) * 6 // 360 / 60 = 6 degrees per minute
-  const secondAngle = seconds * 6 // 360 / 60 = 6 degrees per second
+  const digitalTime = showDigitalTime
+    ? time.toLocaleTimeString('de-DE', {
+        hour: '2-digit',
+        minute: '2-digit',
+        ...(effectiveShowSeconds ? { second: '2-digit' } : {}),
+      })
+    : null
+
+  const hourAngle = (hours + minutes / 60) * 30
+  const minuteAngle = (minutes + seconds / 60) * 6
+  const secondAngle = isSweep
+    ? (seconds + ms / 1000) * 6
+    : seconds * 6
 
   const radius = size / 2
-  const centerX = radius
-  const centerY = radius
+  const cx = radius
+  const cy = radius
+  const isMinimal = faceStyle === 'minimal'
 
   return (
     <motion.div
@@ -42,80 +75,113 @@ export function AnalogClock({ showSeconds = true, size = 200 }: AnalogClockProps
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {/* Clock face */}
         <circle
-          cx={centerX}
-          cy={centerY}
+          cx={cx}
+          cy={cy}
           r={radius - 10}
           fill="oklch(from var(--card) l c h / 0.5)"
           stroke="oklch(from var(--foreground) l c h / 0.1)"
-          strokeWidth="2"
+          strokeWidth={isMinimal ? '1' : '2'}
         />
 
-        {/* Hour markers */}
-        {[...Array(12)].map((_, i) => {
-          const angle = (i * 30 - 90) * (Math.PI / 180)
-          const x1 = centerX + (radius - 25) * Math.cos(angle)
-          const y1 = centerY + (radius - 25) * Math.sin(angle)
-          const x2 = centerX + (radius - 15) * Math.cos(angle)
-          const y2 = centerY + (radius - 15) * Math.sin(angle)
+        {/* Face markers */}
+        {faceStyle === 'numbers' && [...Array(12)].map((_, i) => {
+          const angle = ((i + 1) * 30 - 90) * (Math.PI / 180)
+          const textR = radius - 28
+          const x = cx + textR * Math.cos(angle)
+          const y = cy + textR * Math.sin(angle)
+          return (
+            <text
+              key={i}
+              x={x}
+              y={y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill="oklch(from var(--foreground) l c h / 0.6)"
+              fontSize={size < 160 ? 10 : 13}
+              fontWeight={i % 3 === 2 ? '600' : '400'}
+              fontFamily="inherit"
+            >
+              {i + 1}
+            </text>
+          )
+        })}
 
+        {faceStyle === 'ticks' && [...Array(12)].map((_, i) => {
+          const angle = (i * 30 - 90) * (Math.PI / 180)
+          const x1 = cx + (radius - 25) * Math.cos(angle)
+          const y1 = cy + (radius - 25) * Math.sin(angle)
+          const x2 = cx + (radius - 15) * Math.cos(angle)
+          const y2 = cy + (radius - 15) * Math.sin(angle)
           return (
             <line
               key={i}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
+              x1={x1} y1={y1} x2={x2} y2={y2}
               stroke="oklch(from var(--foreground) l c h / 0.4)"
-              strokeWidth={i % 3 === 0 ? "3" : "2"}
+              strokeWidth={i % 3 === 0 ? '3' : '2'}
               strokeLinecap="round"
+            />
+          )
+        })}
+
+        {faceStyle === 'minimal' && [0, 3, 6, 9].map((i) => {
+          const angle = (i * 30 - 90) * (Math.PI / 180)
+          const dotR = radius - 18
+          const dotX = cx + dotR * Math.cos(angle)
+          const dotY = cy + dotR * Math.sin(angle)
+          return (
+            <circle
+              key={i}
+              cx={dotX}
+              cy={dotY}
+              r={3}
+              fill="oklch(from var(--foreground) l c h / 0.3)"
             />
           )
         })}
 
         {/* Hour hand */}
         <line
-          x1={centerX}
-          y1={centerY}
-          x2={centerX + (radius * 0.5) * Math.sin((hourAngle * Math.PI) / 180)}
-          y2={centerY - (radius * 0.5) * Math.cos((hourAngle * Math.PI) / 180)}
+          x1={cx} y1={cy}
+          x2={cx + (radius * 0.5) * Math.sin((hourAngle * Math.PI) / 180)}
+          y2={cy - (radius * 0.5) * Math.cos((hourAngle * Math.PI) / 180)}
           stroke="oklch(from var(--foreground) l c h / 0.8)"
-          strokeWidth="6"
+          strokeWidth={isMinimal ? '4' : '6'}
           strokeLinecap="round"
         />
 
         {/* Minute hand */}
         <line
-          x1={centerX}
-          y1={centerY}
-          x2={centerX + (radius * 0.7) * Math.sin((minuteAngle * Math.PI) / 180)}
-          y2={centerY - (radius * 0.7) * Math.cos((minuteAngle * Math.PI) / 180)}
+          x1={cx} y1={cy}
+          x2={cx + (radius * 0.7) * Math.sin((minuteAngle * Math.PI) / 180)}
+          y2={cy - (radius * 0.7) * Math.cos((minuteAngle * Math.PI) / 180)}
           stroke="oklch(from var(--foreground) l c h / 0.9)"
-          strokeWidth="4"
+          strokeWidth={isMinimal ? '2.5' : '4'}
           strokeLinecap="round"
         />
 
         {/* Second hand */}
-        {showSeconds && (
+        {effectiveShowSeconds && (
           <line
-            x1={centerX}
-            y1={centerY}
-            x2={centerX + (radius * 0.8) * Math.sin((secondAngle * Math.PI) / 180)}
-            y2={centerY - (radius * 0.8) * Math.cos((secondAngle * Math.PI) / 180)}
+            x1={cx} y1={cy}
+            x2={cx + (radius * 0.8) * Math.sin((secondAngle * Math.PI) / 180)}
+            y2={cy - (radius * 0.8) * Math.cos((secondAngle * Math.PI) / 180)}
             stroke="oklch(from var(--accent) l c h)"
-            strokeWidth="2"
+            strokeWidth={isMinimal ? '1' : '2'}
             strokeLinecap="round"
           />
         )}
 
         {/* Center dot */}
         <circle
-          cx={centerX}
-          cy={centerY}
-          r="6"
+          cx={cx}
+          cy={cy}
+          r={isMinimal ? 4 : 6}
           fill="oklch(from var(--accent) l c h)"
         />
       </svg>
-      <p className="text-xs text-foreground/55 font-mono tracking-wide">{digitalTime}</p>
+      {digitalTime && (
+        <p className="text-xs text-foreground/55 font-mono tracking-wide">{digitalTime}</p>
+      )}
     </motion.div>
   )
 }

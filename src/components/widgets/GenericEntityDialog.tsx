@@ -9,6 +9,7 @@ import { motion } from 'framer-motion'
 import { ClockCounterClockwise } from '@phosphor-icons/react'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
 import { isIsoDateTime, formatDateTime } from '@/lib/formatValue'
+import { getModalSizeClass } from '@/lib/utils'
 
 interface GenericEntityDialogProps {
   entityId: string
@@ -21,6 +22,7 @@ interface GenericEntityDialogProps {
   onOpenChange: (open: boolean) => void
   /** Extra content to show in the details tab */
   children?: React.ReactNode
+  modalSize?: string
 }
 
 export function GenericEntityDialog({
@@ -33,6 +35,7 @@ export function GenericEntityDialog({
   open,
   onOpenChange,
   children,
+  modalSize,
 }: GenericEntityDialogProps) {
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details')
 
@@ -41,8 +44,7 @@ export function GenericEntityDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[400px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden"
-        hideCloseButton
+        className={`${getModalSizeClass(modalSize)} glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden`}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{entityName}</DialogTitle>

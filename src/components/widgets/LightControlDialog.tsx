@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ColorPicker } from '@/components/ui/color-picker'
-import { Lightbulb, Power, SunHorizon, Palette, Sun, Sparkle, Plus, Snowflake, Flame, Rainbow, ArrowLeft, X } from '@phosphor-icons/react'
+import { Lightbulb, Power, SunHorizon, Palette, Sun, Sparkle, Plus, Snowflake, Flame, Rainbow, ArrowLeft, X, Timer, Thermometer } from '@phosphor-icons/react'
 import type { EntityState, LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { LightGroupMemberRow } from './LightGroupMemberRow'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
+import { getModalSizeClass } from '@/lib/utils'
 import { getLightEnhancementSettings, isTwoZoneSyncEntity } from '@/lib/lightEnhancements'
 
 // --- Color favorites helpers (per entity_id, localStorage) ---
@@ -53,6 +54,7 @@ interface LightControlDialogProps {
   isSubModal?: boolean
   onNavigateBack?: () => void
   onCloseAll?: () => void
+  modalSize?: string
 }
 
 const safeRgb = (color: [number, number, number] | null | undefined): [number, number, number] =>
@@ -479,6 +481,7 @@ export function LightControlDialog({
   isSubModal = false,
   onNavigateBack,
   onCloseAll,
+  modalSize,
 }: LightControlDialogProps) {
   const [optimisticOn, setOptimisticOn] = useState<boolean | null>(null)
   const [activeTab, setActiveTab] = useState<'controls' | 'history'>('controls')
@@ -556,6 +559,9 @@ export function LightControlDialog({
     }
     return 255
   })
+
+  // Transition time state (seconds)
+  const [transitionTime, setTransitionTime] = useState<number>(0)
 
   useEffect(() => {
     setOptimisticOn(null)
@@ -648,7 +654,7 @@ export function LightControlDialog({
   const handleBrightnessCommit = (value: number) => {
     lastChangeRef.current.brightness = Date.now()
     const finalValue = Math.max(1, value)
-    haService.turnOnFireAndForget(entity.entity_id, { brightness: finalValue })
+    haService.turnOnFireAndForget(entity.entity_id, { brightness: finalValue, ...(transitionTime > 0 ? { transition: transitionTime } : {}) })
     haptics.notification('success')
   }
 
@@ -658,7 +664,7 @@ export function LightControlDialog({
     setBrightness(val)
     if (!isOn) setOptimisticOn(true)
     haptics.impact('medium')
-    haService.turnOnFireAndForget(entity.entity_id, { brightness: val })
+    haService.turnOnFireAndForget(entity.entity_id, { brightness: val, ...(transitionTime > 0 ? { transition: transitionTime } : {}) })
     haptics.notification('success')
   }
 
@@ -765,7 +771,7 @@ export function LightControlDialog({
     setRgbColor(color)
     lastChangeRef.current.rgb = Date.now()
     haptics.impact('light')
-    haService.turnOnFireAndForget(entity.entity_id, { rgb_color: color })
+    haService.turnOnFireAndForget(entity.entity_id, { rgb_color: color, ...(transitionTime > 0 ? { transition: transitionTime } : {}) })
     haptics.notification('success')
   }
 
@@ -875,8 +881,7 @@ export function LightControlDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[400px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden"
-        hideCloseButton
+        className={`${getModalSizeClass(modalSize)} glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl overflow-y-auto overflow-x-hidden`}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{name} Lichtsteuerung</DialogTitle>
@@ -913,7 +918,7 @@ export function LightControlDialog({
         )}
 
         {/* Header */}
-        <div className={`relative flex items-center justify-between px-5 ${isSubModal && lightEnhancements.showSubModalNavButtons ? 'pt-2' : 'pt-5'} pb-3`}>
+        <div className={`relative flex items-center justify-between pl-5 pr-14 sm:pr-24 ${isSubModal && lightEnhancements.showSubModalNavButtons ? 'pt-2' : 'pt-5'} pb-3`}>
           <div className="flex items-center gap-3 min-w-0">
             <div
               className="p-2 rounded-xl shrink-0 transition-all duration-300"
@@ -1050,6 +1055,12 @@ export function LightControlDialog({
                         <span className="text-foreground/60 font-medium capitalize">{entity.attributes.color_mode}</span>
                       </div>
                     )}
+                    {isOn && supportsColorTemp && entity.attributes.color_temp_kelvin && (
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-foreground/40">Farbtemperatur</span>
+                        <span className="text-foreground/60 font-medium">{entity.attributes.color_temp_kelvin} K</span>
+                      </div>
+                    )}
                     {isOn && supportsColor && (
                       <div className="flex justify-between items-center text-[11px]">
                         <span className="text-foreground/40">Farbe</span>
@@ -1057,6 +1068,37 @@ export function LightControlDialog({
                           className="w-4 h-4 rounded-full border border-foreground/10"
                           style={{ backgroundColor: currentColor }}
                         />
+                      </div>
+                    )}
+                    {entity.attributes.supported_color_modes && entity.attributes.supported_color_modes.length > 0 && (
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-foreground/40">Farbmodi</span>
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {entity.attributes.supported_color_modes.map(mode => (
+                            <span
+                              key={mode}
+                              className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase"
+                              style={{
+                                backgroundColor: entity.attributes.color_mode === mode
+                                  ? `color-mix(in oklch, ${currentColor} 20%, transparent)`
+                                  : 'oklch(from var(--foreground) l c h / 0.06)',
+                                color: entity.attributes.color_mode === mode
+                                  ? currentColor
+                                  : 'oklch(from var(--foreground) l c h / 0.4)',
+                              }}
+                            >
+                              {mode}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {entity.last_changed && (
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-foreground/40">Letzte Änderung</span>
+                        <span className="text-foreground/60 font-medium">
+                          {new Date(entity.last_changed).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1083,6 +1125,14 @@ export function LightControlDialog({
                   <div className="flex justify-between text-[11px]">
                     <span className="text-foreground/40">Modus</span>
                     <span className="text-foreground/60 font-medium capitalize">{entity.attributes.color_mode}</span>
+                  </div>
+                )}
+                {entity.last_changed && (
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground/40">Letzte Änderung</span>
+                    <span className="text-foreground/60 font-medium">
+                      {new Date(entity.last_changed).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1459,6 +1509,44 @@ export function LightControlDialog({
                     </motion.button>
                   )
                 })}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Transition time control */}
+          {supportsBrightness && (
+            <motion.div
+              className="space-y-3"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+            >
+              <label className="text-xs font-semibold text-foreground/70 flex items-center gap-1.5">
+                <Timer size={14} weight="fill" />
+                Übergangszeit
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={30}
+                  step={0.5}
+                  value={transitionTime}
+                  onChange={(e) => setTransitionTime(parseFloat(e.target.value))}
+                  className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: transitionTime > 0
+                      ? `linear-gradient(to right, ${currentColor} ${(transitionTime / 30) * 100}%, oklch(from var(--foreground) l c h / 0.1) ${(transitionTime / 30) * 100}%)`
+                      : 'oklch(from var(--foreground) l c h / 0.1)',
+                    accentColor: currentColor,
+                  }}
+                />
+                <span
+                  className="text-xs font-medium min-w-[3rem] text-right tabular-nums"
+                  style={{ color: transitionTime > 0 ? currentColor : 'oklch(from var(--foreground) l c h / 0.4)' }}
+                >
+                  {transitionTime > 0 ? `${transitionTime}s` : 'Sofort'}
+                </span>
               </div>
             </motion.div>
           )}

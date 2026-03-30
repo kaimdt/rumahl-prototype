@@ -32,21 +32,50 @@ import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
 import { Sparkle, Palette, Moon, PaintBucket, SignOut, User, GearSix, CheckCircle, ShieldCheck, House } from '@phosphor-icons/react'
+import { motion } from 'framer-motion'
 import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
 import { toast } from 'sonner'
 
-// Isolated clock component -- re-renders every second without affecting the rest of the dashboard
+// Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
   const [time, setTime] = useState(new Date())
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(timer)
+    // Sync to the next full minute, then tick every 60 s
+    const msToNextMinute = (60 - new Date().getSeconds()) * 1000
+    const boot = setTimeout(() => {
+      setTime(new Date())
+      const iv = setInterval(() => setTime(new Date()), 60_000)
+      ;(boot as unknown as { _iv: ReturnType<typeof setInterval> })._iv = iv
+    }, msToNextMinute)
+    // Also tick once per second for the first minute so we don't miss it
+    const fastTick = setInterval(() => setTime(new Date()), 1000)
+    return () => {
+      clearTimeout(boot)
+      clearInterval(fastTick)
+      clearInterval((boot as unknown as { _iv: ReturnType<typeof setInterval> })?._iv)
+    }
   }, [])
   return (
-    <span className="text-sm font-medium">
+    <span className="text-sm font-medium tabular-nums tracking-wide">
       {time.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
     </span>
+  )
+}
+
+// Premium loading skeletons for the dashboard
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 page-transition-enter">
+      {/* Title skeleton */}
+      <div className="skeleton-premium h-6 w-40 ml-1" />
+      {/* Widget grid skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="skeleton-premium h-[76px] rounded-2xl" style={{ animationDelay: `${i * 0.08}s` }} />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -267,10 +296,14 @@ function DashboardContent() {
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{
             backgroundImage: `url('${DEFAULT_DASHBOARD_BACKGROUND_URL}')`,
-            filter: 'brightness(0.3)',
+            filter: 'brightness(0.2) saturate(0.8)',
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/60" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-black/70" />
+        {/* Brand watermark */}
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
+          <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">MDT HOME</p>
+        </div>
         <LoginModal open onOpenChange={() => {}} />
       </div>
     )
@@ -279,8 +312,16 @@ function DashboardContent() {
   // Still verifying token — show nothing
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <Sparkle className="text-foreground animate-pulse" size={32} weight="fill" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'oklch(0.08 0.02 250)' }}>
+        <div className="flex flex-col items-center gap-4">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+          >
+            <Sparkle className="text-foreground/60" size={28} weight="fill" />
+          </motion.div>
+          <p className="text-xs text-foreground/40 tracking-wider font-light">Authentifiziere...</p>
+        </div>
       </div>
     )
   }
@@ -305,40 +346,66 @@ function DashboardContent() {
             style={{
               backgroundImage: `url('${DEFAULT_DASHBOARD_BACKGROUND_URL}')`,
               backgroundAttachment: 'fixed',
-              filter: theme === 'sleep' ? 'brightness(0.05) grayscale(0.8)' : theme === 'night' ? 'brightness(0.4)' : theme === 'evening' ? 'brightness(0.5)' : 'brightness(0.75)',
+              filter: theme === 'sleep'
+                ? 'brightness(0.02) grayscale(1) saturate(0)'
+                : theme === 'night' ? 'brightness(0.4)'
+                : theme === 'evening' ? 'brightness(0.5)'
+                : 'brightness(0.75)',
+              opacity: theme === 'sleep' ? 0.15 : 1,
               transform: 'translateZ(0)',
+              transition: 'filter var(--transition-duration) ease, opacity var(--transition-duration) ease',
             }}
           />
         )}
 
-        <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-b from-black/40 via-black/20 to-black/60"></div>
+        <div
+          className="absolute inset-0 z-10 pointer-events-none"
+          style={{
+            background: theme === 'sleep'
+              ? 'black'
+              : 'linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.2), rgba(0,0,0,0.6))',
+            opacity: theme === 'sleep' ? 0.92 : 1,
+            transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
+          }}
+        />
         {(theme === 'night' || theme === 'sleep') && nightModeSettings.nightFilterEnabled && (
           <div
             className="absolute inset-0 z-10 pointer-events-none"
             style={{
-              background: theme === 'sleep' ? 'rgba(8, 8, 14, 1)' : 'rgba(35, 22, 12, 1)',
-              opacity: (theme === 'sleep' ? 0.65 : 0.45) * (nightModeSettings.overlayStrength / 100),
+              background: theme === 'sleep' ? 'rgba(0, 0, 0, 1)' : 'rgba(35, 22, 12, 1)',
+              opacity: theme === 'sleep'
+                ? 0.88 * (nightModeSettings.overlayStrength / 100)
+                : 0.45 * (nightModeSettings.overlayStrength / 100),
               transition: 'opacity var(--transition-duration) ease',
             }}
           />
         )}
 
-        <div className="relative z-20">
+        <div
+          className="relative z-20"
+          style={{
+            filter: theme === 'sleep' ? 'saturate(0.25) brightness(0.65)' : 'none',
+            transition: 'filter var(--transition-duration) ease',
+          }}
+        >
           <header className="glass-header theme-transition">
             <div className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
-              <h1 className="text-sm font-medium tracking-wide">MDT HOME</h1>
-              <HeaderClock />
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
+                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">MDT HOME</h1>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[11px] text-foreground/40 font-light tracking-wider hidden sm:block">
+                  {entities.length > 0 ? `${entities.length} Entitäten` : ''}
+                </span>
+                <HeaderClock />
+              </div>
             </div>
           </header>
 
-          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 pb-24 sm:pb-28">
           {loading ? (
-            <div className="flex items-center justify-center py-32">
-              <div className="text-center space-y-4">
-                <Sparkle className="mx-auto text-foreground animate-pulse" size={32} weight="fill" />
-                <p className="text-sm text-foreground/80">Dashboard wird geladen...</p>
-              </div>
-            </div>
+            <DashboardSkeleton />
           ) : (
             <div className="space-y-6">
               {currentPageId === 'home' && filteredHomePage && (
@@ -354,61 +421,65 @@ function DashboardContent() {
               )}
 
               {currentPageId === 'lights' && lightEntities.length > 0 && (
-                <div className="space-y-3">
+                <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Beleuchtung</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
-                    {lightEntities.map((light) => (
-                      <LightWidget
-                        key={light.entity_id}
-                        entity={light}
-                        onUpdate={refresh}
-                        allEntities={entities}
-                      />
+                    {lightEntities.map((light, i) => (
+                      <div key={light.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
+                        <LightWidget
+                          entity={light}
+                          onUpdate={refresh}
+                          allEntities={entities}
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
 
               {currentPageId === 'climate' && climateEntities.length > 0 && (
-                <div className="space-y-3">
+                <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Klima</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
-                    {climateEntities.map((climate) => (
-                      <ClimateWidget
-                        key={climate.entity_id}
-                        entity={climate}
-                        onUpdate={refresh}
-                      />
+                    {climateEntities.map((climate, i) => (
+                      <div key={climate.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
+                        <ClimateWidget
+                          entity={climate}
+                          onUpdate={refresh}
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
 
               {currentPageId === 'switches' && switchEntities.length > 0 && (
-                <div className="space-y-3">
+                <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Schalter</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
-                    {switchEntities.map((switchEntity) => (
-                      <SwitchWidget
-                        key={switchEntity.entity_id}
-                        entity={switchEntity}
-                        onUpdate={refresh}
-                      />
+                    {switchEntities.map((switchEntity, i) => (
+                      <div key={switchEntity.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
+                        <SwitchWidget
+                          entity={switchEntity}
+                          onUpdate={refresh}
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
 
               {currentPageId === 'sensors' && sensorEntities.length > 0 && (
-                <div className="space-y-3">
+                <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Sensoren</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
-                    {sensorEntities.map((sensor) => (
-                      <SensorWidget
-                        key={sensor.entity_id}
-                        entity={sensor}
-                        onUpdate={refresh}
-                      />
+                    {sensorEntities.map((sensor, i) => (
+                      <div key={sensor.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
+                        <SensorWidget
+                          entity={sensor}
+                          onUpdate={refresh}
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -420,10 +491,10 @@ function DashboardContent() {
 
                   <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as 'home' | 'user' | 'design' | 'system')}>
                     <TabsList className="grid grid-cols-4 w-full rounded-xl bg-foreground/5 p-1 h-auto">
-                      <TabsTrigger value="home" className="gap-2 rounded-lg data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><House size={14} /> Home</TabsTrigger>
-                      <TabsTrigger value="user" className="gap-2 rounded-lg data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><User size={14} /> Benutzer</TabsTrigger>
-                      <TabsTrigger value="design" className="gap-2 rounded-lg data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><Palette size={14} /> Design</TabsTrigger>
-                      <TabsTrigger value="system" className="gap-2 rounded-lg data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><GearSix size={14} /> System</TabsTrigger>
+                      <TabsTrigger value="home" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><House size={14} /> <span className="hidden sm:inline">Home</span><span className="sm:hidden">Home</span></TabsTrigger>
+                      <TabsTrigger value="user" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><User size={14} /> <span className="hidden xs:inline">Benutzer</span><span className="xs:hidden">User</span></TabsTrigger>
+                      <TabsTrigger value="design" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><Palette size={14} /> Design</TabsTrigger>
+                      <TabsTrigger value="system" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><GearSix size={14} /> System</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="home" className="space-y-4 mt-4">
@@ -598,9 +669,33 @@ function DashboardContent() {
                               </button>
                             </div>
 
+                            {/* Extracted palette from background */}
+                            {accentColorSettings.extractedPalette.length > 0 && (
+                              <div className="p-4 rounded-xl bg-foreground/5">
+                                <p className="text-xs text-foreground/60 mb-3">Extrahierte Farben aus dem Hintergrund</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {accentColorSettings.extractedPalette.map((color, i) => (
+                                    <button
+                                      key={`${color}-${i}`}
+                                      onClick={() => accentColorSettings.selectFromPalette(color)}
+                                      className={`
+                                        w-10 h-10 rounded-xl transition-all border-2
+                                        ${accentColorSettings.accentColor === color
+                                          ? 'border-white scale-110 shadow-lg ring-2 ring-accent/50'
+                                          : 'border-foreground/10 hover:scale-105 hover:border-foreground/30'
+                                        }
+                                      `}
+                                      style={{ backgroundColor: color }}
+                                      title={color}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {accentColorSettings.mode === 'static' && (
                               <div className="p-4 rounded-xl bg-foreground/5">
-                                <label className="text-sm font-medium text-foreground block mb-3">Farbe auswaehlen</label>
+                                <label className="text-sm font-medium text-foreground block mb-3">Eigene Farbe waehlen</label>
                                 <div className="flex items-center gap-4">
                                   <input type="color" value={accentColorSettings.staticColor} onChange={(e) => accentColorSettings.setStaticColor(e.target.value)} className="w-16 h-16 rounded-lg cursor-pointer border-2 border-foreground/10" />
                                   <div className="flex-1">
@@ -806,7 +901,7 @@ function DashboardContent() {
         </div>
       </div>
       <Dialog open={showUnlockDialog} onOpenChange={setShowUnlockDialog}>
-        <DialogContent className="sm:max-w-[420px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl" hideCloseButton>
+        <DialogContent className="sm:max-w-[420px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10">
             <DialogTitle className="flex items-center gap-2"><ShieldCheck size={18} /> Einstellungen entsperren</DialogTitle>
             <DialogDescription>

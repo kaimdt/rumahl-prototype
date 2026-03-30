@@ -219,6 +219,7 @@ export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEnti
           onOpenChange={setDialogOpen}
           onUpdate={onUpdate}
           allEntities={allEntities}
+          modalSize={config?.modalSize as string | undefined}
         />
       </>
     )
@@ -232,7 +233,7 @@ export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEnti
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
-        className="glass-card rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
+        className={`glass-card glass-card-shimmer rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none ${displayIsOn ? 'widget-glow-active' : ''}`}
         initial={{ scale: 1 }}
         animate={{
           scale: isDragging ? 1.02 : isPressed ? 0.98 : 1,
@@ -248,28 +249,29 @@ export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEnti
           className="absolute inset-0 rounded-2xl pointer-events-none"
           style={{
             background: displayIsOn 
-              ? `linear-gradient(to right, ${lightColor} 0%, transparent 100%)`
+              ? `linear-gradient(to right, ${lightColor} 0%, color-mix(in oklch, ${lightColor} 40%, transparent) 60%, transparent 100%)`
               : 'transparent',
-            opacity: displayIsOn ? 0.4 : 0,
+            opacity: displayIsOn ? 0.35 : 0,
           }}
           animate={{
             clipPath: `inset(0 ${100 - (displayBrightness / 255) * 100}% 0 0)`,
           }}
-          transition={{ duration: 0.2 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         />
         
         <div className="relative p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div
-                className="p-2.5 rounded-xl transition-all duration-300"
+                className="icon-container-premium p-2.5 rounded-xl transition-all duration-300"
+                data-active={displayIsOn}
                 style={{
                   backgroundColor: displayIsOn
                     ? `color-mix(in oklch, ${lightColor} 30%, transparent)`
                     : 'oklch(from var(--muted) l c h / 0.5)',
                   color: displayIsOn ? lightColor : 'var(--muted-foreground)',
                   boxShadow: displayIsOn
-                    ? `0 4px 20px color-mix(in oklch, ${lightColor} 20%, transparent)`
+                    ? `0 4px 20px color-mix(in oklch, ${lightColor} 25%, transparent), 0 0 40px color-mix(in oklch, ${lightColor} 10%, transparent)`
                     : 'none',
                 }}
               >
@@ -280,7 +282,7 @@ export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEnti
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="font-medium text-sm truncate">{name}</h3>
-                <p className="text-xs text-muted-foreground font-mono">
+                <p className="text-xs text-muted-foreground font-mono number-display">
                   {displayIsOn
                     ? `${Math.round((displayBrightness / 255) * 100)}%`
                     : 'Aus'}
@@ -297,6 +299,7 @@ export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEnti
         onOpenChange={setDialogOpen}
         onUpdate={onUpdate}
         allEntities={allEntities}
+        modalSize={config?.modalSize as string | undefined}
       />
     </>
   )

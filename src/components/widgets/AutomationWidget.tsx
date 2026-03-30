@@ -11,9 +11,10 @@ import { toast } from 'sonner'
 interface AutomationWidgetProps {
   entity: EntityState
   onUpdate?: () => void
+  config?: Record<string, unknown>
 }
 
-export function AutomationWidget({ entity, onUpdate }: AutomationWidgetProps) {
+export function AutomationWidget({ entity, onUpdate, config }: AutomationWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const name = (entity.attributes.friendly_name as string) || entity.entity_id
   const isOn = entity.state === 'on'
@@ -127,6 +128,7 @@ export function AutomationWidget({ entity, onUpdate }: AutomationWidgetProps) {
       color={'var(--accent)'}
       open={dialogOpen}
       onOpenChange={setDialogOpen}
+      modalSize={config?.modalSize as string | undefined}
     />
     </>
   )

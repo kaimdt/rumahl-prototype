@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 interface AlarmWidgetProps {
   entity: EntityState
   onUpdate?: () => void
+  config?: Record<string, unknown>
 }
 
 const stateLabels: Record<string, string> = {
@@ -54,7 +55,7 @@ function getStateColor(state: string): {
   }
 }
 
-export function AlarmWidget({ entity, onUpdate }: AlarmWidgetProps) {
+export function AlarmWidget({ entity, onUpdate, config }: AlarmWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [code, setCode] = useState('')
   const name = (entity.attributes.friendly_name as string) || entity.entity_id
@@ -178,6 +179,7 @@ export function AlarmWidget({ entity, onUpdate }: AlarmWidgetProps) {
       color={colors.fg}
       open={dialogOpen}
       onOpenChange={setDialogOpen}
+      modalSize={config?.modalSize as string | undefined}
     />
     </>
   )

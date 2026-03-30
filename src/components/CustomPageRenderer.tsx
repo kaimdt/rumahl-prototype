@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { GridFour } from '@phosphor-icons/react'
 import { LightWidget } from '@/components/widgets/LightWidget'
@@ -33,6 +33,7 @@ import { AlarmWidget } from '@/components/widgets/AlarmWidget'
 import { SceneSelector } from '@/components/scenes/SceneSelector'
 import { ChatCardWidget } from '@/components/widgets/ChatCardWidget'
 import { DynamicTextWidget } from '@/components/widgets/DynamicTextWidget'
+import { getCardStyleClass } from '@/lib/defaults'
 import type {
   DashboardPage,
   DashboardWidget,
@@ -348,6 +349,9 @@ export function RenderWidget({
         <AnalogClock
           showSeconds={(widget.config?.showSeconds as boolean) ?? true}
           size={(widget.config?.size as number) ?? 200}
+          secondsMode={(widget.config?.secondsMode as 'tick' | 'sweep' | 'hidden') ?? 'tick'}
+          faceStyle={(widget.config?.faceStyle as 'numbers' | 'ticks' | 'minimal' | 'none') ?? 'ticks'}
+          showDigitalTime={(widget.config?.showDigitalTime as boolean) ?? true}
         />
       )
     case 'digital_clock':
@@ -384,7 +388,7 @@ export function RenderWidget({
       )
     case 'binary_sensor':
       return entity ? (
-        <BinarySensorWidget entity={entity} onUpdate={onUpdate} />
+        <BinarySensorWidget entity={entity} onUpdate={onUpdate} config={widget.config} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
@@ -408,7 +412,7 @@ export function RenderWidget({
       )
     case 'automation':
       return entity ? (
-        <AutomationWidget entity={entity} onUpdate={onUpdate} />
+        <AutomationWidget entity={entity} onUpdate={onUpdate} config={widget.config} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
@@ -420,7 +424,7 @@ export function RenderWidget({
       )
     case 'button':
       return entity ? (
-        <ButtonWidget entity={entity} onUpdate={onUpdate} />
+        <ButtonWidget entity={entity} onUpdate={onUpdate} config={widget.config} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
@@ -470,7 +474,7 @@ export function RenderWidget({
       )
     case 'counter':
       return entity ? (
-        <CounterWidget entity={entity} onUpdate={onUpdate} />
+        <CounterWidget entity={entity} onUpdate={onUpdate} config={widget.config} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
@@ -500,7 +504,7 @@ export function RenderWidget({
       )
     case 'alarm_control_panel':
       return entity ? (
-        <AlarmWidget entity={entity} onUpdate={onUpdate} />
+        <AlarmWidget entity={entity} onUpdate={onUpdate} config={widget.config} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
@@ -571,6 +575,23 @@ export function RenderWidget({
   }
 }
 
+function getPageLayoutFromStorage(pageId: string): { cols: number; gap: number; rows: number } {
+  try {
+    const raw = localStorage.getItem('ha-page-designer-layouts')
+    if (!raw) return { cols: 6, gap: 10, rows: 6 }
+    const layouts = JSON.parse(raw) as Record<string, { cols?: number; gap?: number; rows?: number }>
+    const layout = layouts[pageId]
+    if (!layout) return { cols: 6, gap: 10, rows: 6 }
+    return {
+      cols: Math.max(2, Math.min(8, layout.cols ?? 6)),
+      gap: Math.max(0, Math.min(24, layout.gap ?? 10)),
+      rows: Math.max(6, layout.rows ?? 6),
+    }
+  } catch {
+    return { cols: 6, gap: 10, rows: 6 }
+  }
+}
+
 export function CustomPageRenderer({
   page,
   entities,
@@ -580,30 +601,14 @@ export function CustomPageRenderer({
   lightEntities,
   hideTitle,
 }: CustomPageRendererProps) {
-  const [columns, setColumns] = useState(4)
+  const { cols: designerCols, gap: designerGap, rows: designerRows } = getPageLayoutFromStorage(page.id)
   const [, setVisibilityTick] = useState(0)
+  const [viewportWidth, setViewportWidth] = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200)
 
   useEffect(() => {
-    const updateColumns = () => {
-      const width = window.innerWidth
-      if (width < 640) {
-        setColumns(1)
-      } else if (width < 1024) {
-        setColumns(2)
-      } else if (width < 1280) {
-        setColumns(3)
-      } else if (width < 1536) {
-        setColumns(4)
-      } else if (width < 1920) {
-        setColumns(5)
-      } else {
-        setColumns(6)
-      }
-    }
-
-    updateColumns()
-    window.addEventListener('resize', updateColumns)
-    return () => window.removeEventListener('resize', updateColumns)
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
   useEffect(() => {
@@ -613,12 +618,55 @@ export function CustomPageRenderer({
     return () => window.clearInterval(timer)
   }, [])
 
+  // Mobile-responsive column calculation:
+  // On small screens, collapse columns proportionally but keep widget ratio
+  const mobileColumns = useMemo(() => {
+    if (viewportWidth >= 1024) return designerCols // Desktop: exact designer columns
+    if (viewportWidth >= 768) return Math.max(2, Math.min(designerCols, Math.ceil(designerCols * 0.66))) // Tablet: ~66%
+    if (viewportWidth >= 640) return Math.max(2, Math.min(designerCols, Math.ceil(designerCols * 0.5))) // Small tablet: ~50%
+    return Math.min(designerCols, 2) // Phone: max 2 columns
+  }, [viewportWidth, designerCols])
+
+  // Responsive gap
+  const mobileGap = viewportWidth < 640 ? Math.min(designerGap, 8) : designerGap
+
   const sortedWidgets = [...page.widgets].sort((a, b) => {
     if (a.position.y !== b.position.y) return a.position.y - b.position.y
     return a.position.x - b.position.x
   })
 
   const visibleWidgets = sortedWidgets.filter((widget) => isWidgetVisible(widget, entities))
+
+  // On mobile (reduced columns): use auto-flow to prevent overlap
+  // On desktop: use exact designer positions
+  const isReduced = mobileColumns < designerCols
+
+  const reflowedWidgets = useMemo(() => {
+    if (!isReduced) {
+      // No reflow needed, use exact designer positions
+      return visibleWidgets.map(w => ({
+        widget: w,
+        col: w.position.x,
+        colSpan: Math.min(w.size.w, designerCols - w.position.x),
+        row: w.position.y,
+        rowSpan: w.size.h,
+        useAutoFlow: false,
+      }))
+    }
+
+    // Mobile: auto-flow — just cap the column span, let CSS grid place items
+    return visibleWidgets.map(w => {
+      const scaledW = Math.max(1, Math.min(mobileColumns, Math.round(w.size.w * (mobileColumns / designerCols))))
+      return {
+        widget: w,
+        col: 0,
+        colSpan: Math.min(scaledW, mobileColumns),
+        row: 0,
+        rowSpan: 1, // flatten height on mobile for even flow
+        useAutoFlow: true,
+      }
+    })
+  }, [visibleWidgets, mobileColumns, designerCols, isReduced])
 
   return (
     <div className="space-y-4">
@@ -641,23 +689,36 @@ export function CustomPageRenderer({
           </p>
         </motion.div>
       ) : (
-        <div className="grid gap-3 sm:gap-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-          {visibleWidgets.map((widget) => {
-            const clampedX = Math.min(widget.position.x, columns - 1)
-            const clampedW = Math.max(1, Math.min(widget.size.w, columns - clampedX))
+        <div
+          className="grid w-full"
+          style={{
+            gridTemplateColumns: `repeat(${mobileColumns}, minmax(0, 1fr))`,
+            ...(isReduced
+              ? { gridAutoRows: 'auto' }
+              : { gridTemplateRows: `repeat(${Math.max(designerRows, maxWidgetRow(visibleWidgets))}, minmax(0, auto))` }),
+            gap: `${mobileGap}px`,
+          }}
+        >
+          {reflowedWidgets.map(({ widget, col, colSpan, row, rowSpan, useAutoFlow }) => {
             const alignment = (widget.config?.alignment as 'left' | 'center' | 'right' | undefined) || 'left'
 
             return (
               <motion.div
                 key={widget.id}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={widget.config?.transparentBackground ? 'widget-transparent' : undefined}
-                style={{
-                  gridColumnStart: clampedX + 1,
-                  gridColumnEnd: `span ${clampedW}`,
-                  gridRowStart: widget.position.y + 1,
-                  gridRowEnd: `span ${widget.size.h}`,
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className={[
+                  widget.config?.transparentBackground ? 'widget-transparent' : '',
+                  getCardStyleClass(widget.config?.cardStyle as string | undefined),
+                ].filter(Boolean).join(' ') || undefined}
+                style={useAutoFlow ? {
+                  gridColumn: `span ${colSpan}`,
+                } : {
+                  gridColumnStart: col + 1,
+                  gridColumnEnd: `span ${colSpan}`,
+                  gridRowStart: row + 1,
+                  gridRowEnd: `span ${rowSpan}`,
                 }}
               >
                 <div
@@ -683,4 +744,8 @@ export function CustomPageRenderer({
       )}
     </div>
   )
+}
+
+function maxWidgetRow(widgets: DashboardWidget[]): number {
+  return widgets.reduce((max, w) => Math.max(max, w.position.y + w.size.h), 0)
 }

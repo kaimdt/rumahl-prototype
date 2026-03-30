@@ -13,6 +13,7 @@ import {
   MagnifyingGlass,
   DotsSixVertical,
   MapPin,
+  CopySimple,
 } from '@phosphor-icons/react'
 import { useDraggable } from '@dnd-kit/core'
 import {
@@ -26,6 +27,7 @@ import {
 } from '@/lib/widgetRegistry'
 import type { DashboardWidget, EntityState, WidgetType } from '@/lib/types'
 import { SearchableSelect } from '@/components/ui/searchable-select'
+import { CARD_STYLE_PRESETS } from '@/lib/defaults'
 
 type VisibilityMode =
   | 'always'
@@ -88,6 +90,7 @@ interface WidgetPaletteProps {
   onUpdateWidget: (widgetId: string, updates: Partial<DashboardWidget>) => void
   onResizeWidget: (widgetId: string, dimension: 'w' | 'h', delta: number) => void
   onDeleteWidget: (widgetId: string) => void
+  onDuplicateWidget?: (widgetId: string) => void
   onMoveWidget?: (widgetId: string, col: number, row: number) => void
   onOpenWidgetGroupDesigner?: (widgetId: string) => void
 }
@@ -356,15 +359,18 @@ function WidgetProperties({
   onUpdateWidget,
   onResizeWidget,
   onDeleteWidget,
+  onDuplicateWidget,
   onMoveWidget,
   onOpenWidgetGroupDesigner,
 }: {
   widget: DashboardWidget
   availableEntities: EntityState[]
   allWidgets: DashboardWidget[]
+  gridCols: number
   onUpdateWidget: (widgetId: string, updates: Partial<DashboardWidget>) => void
   onResizeWidget: (widgetId: string, dimension: 'w' | 'h', delta: number) => void
   onDeleteWidget: (widgetId: string) => void
+  onDuplicateWidget?: (widgetId: string) => void
   onMoveWidget?: (widgetId: string, col: number, row: number) => void
   onOpenWidgetGroupDesigner?: (widgetId: string) => void
 }) {
@@ -589,6 +595,51 @@ function WidgetProperties({
         </div>
       )}
 
+      {/* Custom display label override */}
+      <div>
+        <label className="text-xs text-foreground/50 mb-1.5 block">Anzeigename</label>
+        <input
+          type="text"
+          value={(widget.config?.customLabel as string) || ''}
+          onChange={(e) => onUpdateWidget(widget.id, {
+            config: { ...widget.config, customLabel: e.target.value }
+          })}
+          placeholder={def.label}
+          className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50 placeholder:text-foreground/30"
+        />
+      </div>
+
+      {/* Icon size selector */}
+      {def.requiresEntity && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">Icon-Größe</label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {([
+              { value: 'small', label: 'Klein' },
+              { value: 'medium', label: 'Mittel' },
+              { value: 'large', label: 'Groß' },
+            ] as const).map(({ value, label }) => {
+              const current = (widget.config?.iconSize as string) || 'medium'
+              return (
+                <button
+                  key={value}
+                  onClick={() => onUpdateWidget(widget.id, {
+                    config: { ...widget.config, iconSize: value }
+                  })}
+                  className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-center ${
+                    current === value
+                      ? 'bg-accent/15 text-accent border border-accent/25'
+                      : 'bg-foreground/5 text-foreground/50 border border-transparent hover:bg-foreground/10'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Card variant picker */}
       {def.variants && def.variants.length > 0 && (
         <div>
@@ -615,6 +666,556 @@ function WidgetProperties({
                 </button>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Card style preset picker */}
+      <div>
+        <label className="text-xs text-foreground/50 mb-2 block">Kartenstil</label>
+        <div className="grid grid-cols-3 gap-1.5">
+          {CARD_STYLE_PRESETS.map(({ id, label, description }) => {
+            const current = (widget.config?.cardStyle as string) || 'default'
+            const isActive = current === id
+            /* Mini-swatch styling per card style for visual hint */
+            const swatchStyle: Record<string, React.CSSProperties> = {
+              default:    { background: 'linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))', border: '1px solid rgba(255,255,255,0.15)' },
+              subtle:     { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' },
+              solid:      { background: 'rgba(40,40,50,0.85)', border: '1px solid rgba(255,255,255,0.10)' },
+              outline:    { background: 'transparent', border: '1.5px solid rgba(255,255,255,0.20)' },
+              neon:       { background: 'linear-gradient(135deg, rgba(var(--accent-rgb,100,200,255),0.15), transparent)', border: '1px solid rgba(var(--accent-rgb,100,200,255),0.5)', boxShadow: '0 0 6px rgba(var(--accent-rgb,100,200,255),0.3)' },
+              minimal:    { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' },
+              elevated:   { background: 'linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' },
+              frosted:    { background: 'rgba(200,210,230,0.25)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(4px)' },
+              gradient:   { background: 'linear-gradient(135deg, rgba(var(--accent-rgb,100,200,255),0.18), rgba(40,40,60,0.15))', border: '1px solid rgba(var(--accent-rgb,100,200,255),0.2)' },
+              flat:       { background: 'rgba(60,60,70,0.55)', border: '1px solid rgba(255,255,255,0.06)' },
+              aurora:     { background: 'linear-gradient(135deg, rgba(var(--accent-rgb,100,200,255),0.15), rgba(160,120,255,0.10), rgba(100,220,200,0.08))', border: '1px solid rgba(var(--accent-rgb,100,200,255),0.2)' },
+              'dark-glass': { background: 'linear-gradient(175deg, rgba(0,0,0,0.25), rgba(0,0,0,0.15))', border: '1px solid rgba(255,255,255,0.08)' },
+              metallic:   { background: 'linear-gradient(170deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04), rgba(255,255,255,0.10))', border: '1px solid rgba(255,255,255,0.15)' },
+              'soft-glow': { background: 'linear-gradient(165deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04))', border: '1px solid rgba(var(--accent-rgb,100,200,255),0.15)', boxShadow: '0 0 8px rgba(var(--accent-rgb,100,200,255),0.15)' },
+              bordered:   { background: 'linear-gradient(165deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04))', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 0 0 3px rgba(255,255,255,0.06)' },
+            }
+            return (
+              <button
+                key={id}
+                onClick={() => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, cardStyle: id }
+                })}
+                className={`
+                  group relative flex flex-col items-center gap-1.5 px-2 py-2 rounded-xl text-[10px] font-medium transition-all
+                  ${isActive
+                    ? 'bg-accent/12 text-accent ring-1 ring-accent/30'
+                    : 'bg-foreground/4 text-foreground/50 hover:bg-foreground/8'
+                  }
+                `}
+                title={description}
+              >
+                {/* Mini swatch preview */}
+                <div
+                  className="w-full h-5 rounded-md shrink-0"
+                  style={swatchStyle[id] || swatchStyle.default}
+                />
+                <span className="truncate w-full text-center leading-tight">{label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ─── Modal / Dialog width per widget ─── */}
+      {def.requiresEntity && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">Dialog-Breite</label>
+          <div className="grid grid-cols-4 gap-1.5">
+            {([
+              { value: 'default', label: 'Normal' },
+              { value: 'wide', label: 'Breit' },
+              { value: 'full', label: 'Voll' },
+              { value: 'auto', label: 'Auto' },
+            ] as const).map(({ value, label }) => {
+              const current = (widget.config?.modalSize as string) || 'default'
+              return (
+                <button
+                  key={value}
+                  onClick={() => onUpdateWidget(widget.id, {
+                    config: { ...widget.config, modalSize: value }
+                  })}
+                  className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-center ${
+                    current === value
+                      ? 'bg-accent/15 text-accent border border-accent/25'
+                      : 'bg-foreground/5 text-foreground/50 border border-transparent hover:bg-foreground/10'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Widget-specific config sections ─── */}
+
+      {/* Analog Clock config */}
+      {widget.type === 'analog_clock' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Uhr-Einstellungen</label>
+
+          {/* Face style */}
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Ziffernblatt</span>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([
+                { value: 'ticks', label: 'Striche' },
+                { value: 'numbers', label: 'Ziffern' },
+                { value: 'minimal', label: 'Minimal' },
+                { value: 'none', label: 'Leer' },
+              ] as const).map(({ value, label }) => {
+                const current = (widget.config?.faceStyle as string) || 'ticks'
+                return (
+                  <button
+                    key={value}
+                    onClick={() => onUpdateWidget(widget.id, {
+                      config: { ...widget.config, faceStyle: value }
+                    })}
+                    className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-center ${
+                      current === value
+                        ? 'bg-accent/15 text-accent border border-accent/25'
+                        : 'bg-foreground/5 text-foreground/50 border border-transparent hover:bg-foreground/10'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Seconds mode */}
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Sekundenzeiger</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {([
+                { value: 'tick', label: 'Ticken' },
+                { value: 'sweep', label: 'Fließen' },
+                { value: 'hidden', label: 'Aus' },
+              ] as const).map(({ value, label }) => {
+                const current = (widget.config?.secondsMode as string) || 'tick'
+                return (
+                  <button
+                    key={value}
+                    onClick={() => onUpdateWidget(widget.id, {
+                      config: { ...widget.config, secondsMode: value, showSeconds: value !== 'hidden' }
+                    })}
+                    className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-center ${
+                      current === value
+                        ? 'bg-accent/15 text-accent border border-accent/25'
+                        : 'bg-foreground/5 text-foreground/50 border border-transparent hover:bg-foreground/10'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Digital time toggle */}
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showDigitalTime: !(widget.config?.showDigitalTime ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showDigitalTime ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Digitalzeit anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showDigitalTime ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showDigitalTime ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Digital Clock config */}
+      {widget.type === 'digital_clock' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Uhr-Einstellungen</label>
+
+          {([
+            { key: 'showSeconds', label: 'Sekunden anzeigen', defaultVal: true },
+            { key: 'show24Hour', label: '24-Stunden-Format', defaultVal: true },
+            { key: 'showDate', label: 'Datum anzeigen', defaultVal: true },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Weather Widget config */}
+      {widget.type === 'weather' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Wetter-Einstellungen</label>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showForecast: !(widget.config?.showForecast ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showForecast ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Vorhersage anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showForecast ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showForecast ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Sensor Widget config */}
+      {widget.type === 'sensor' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Sensor-Einstellungen</label>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showGraph: !(widget.config?.showGraph ?? false) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showGraph ?? false)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Mini-Graph anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showGraph ?? false) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showGraph ?? false) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Greeting Widget config */}
+      {widget.type === 'greeting' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Begrüßungs-Einstellungen</label>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showWeather: !(widget.config?.showWeather ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showWeather ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Wetter anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showWeather ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showWeather ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showMessage: !(widget.config?.showMessage ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showMessage ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Nachricht anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showMessage ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showMessage ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Light Widget config */}
+      {widget.type === 'light' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Licht-Einstellungen</label>
+          {([
+            { key: 'showBrightness', label: 'Helligkeit anzeigen', defaultVal: true },
+            { key: 'showColorTemp', label: 'Farbtemperatur anzeigen', defaultVal: true },
+            { key: 'showColorPicker', label: 'Farbauswahl anzeigen', defaultVal: true },
+            { key: 'showEffects', label: 'Effekte anzeigen', defaultVal: true },
+            { key: 'quickToggle', label: 'Schnell-Toggle (Tap)', defaultVal: false },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Climate Widget config */}
+      {widget.type === 'climate' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Klima-Einstellungen</label>
+          {([
+            { key: 'showHumidity', label: 'Luftfeuchtigkeit anzeigen', defaultVal: true },
+            { key: 'showPresetModes', label: 'Voreinstellungen anzeigen', defaultVal: true },
+            { key: 'showFanModes', label: 'Lüfter-Modi anzeigen', defaultVal: true },
+            { key: 'showSwingModes', label: 'Schwenk-Modi anzeigen', defaultVal: false },
+            { key: 'compactMode', label: 'Kompakt-Ansicht', defaultVal: false },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Media Player Widget config */}
+      {widget.type === 'media_player' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Media Player-Einstellungen</label>
+          {([
+            { key: 'showArtwork', label: 'Cover-Bild anzeigen', defaultVal: true },
+            { key: 'showVolume', label: 'Lautstärke anzeigen', defaultVal: true },
+            { key: 'showProgress', label: 'Fortschritt anzeigen', defaultVal: true },
+            { key: 'showSource', label: 'Quelle anzeigen', defaultVal: false },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Cover Widget config */}
+      {widget.type === 'cover' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Abdeckung-Einstellungen</label>
+          {([
+            { key: 'showPosition', label: 'Position anzeigen', defaultVal: true },
+            { key: 'showTilt', label: 'Neigung anzeigen', defaultVal: false },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Fan Widget config */}
+      {widget.type === 'fan' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Lüfter-Einstellungen</label>
+          {([
+            { key: 'showSpeed', label: 'Geschwindigkeit anzeigen', defaultVal: true },
+            { key: 'showOscillation', label: 'Oszillation anzeigen', defaultVal: false },
+            { key: 'showDirection', label: 'Richtung anzeigen', defaultVal: false },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Switch Widget config */}
+      {widget.type === 'switch' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Schalter-Einstellungen</label>
+          {([
+            { key: 'showLastChanged', label: 'Letzte Änderung anzeigen', defaultVal: false },
+            { key: 'confirmToggle', label: 'Toggle bestätigen', defaultVal: false },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Camera Widget config */}
+      {widget.type === 'camera' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Kamera-Einstellungen</label>
+          {([
+            { key: 'showControls', label: 'Steuerung anzeigen', defaultVal: true },
+            { key: 'autoRefresh', label: 'Auto-Aktualisierung', defaultVal: true },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Aktualisierungsintervall (Sek.)</span>
+            <input
+              type="number"
+              min={1}
+              max={300}
+              value={(widget.config?.refreshInterval as number) || 10}
+              onChange={(e) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, refreshInterval: Math.max(1, Number(e.target.value) || 10) }
+              })}
+              className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
           </div>
         </div>
       )}
@@ -971,14 +1572,25 @@ function WidgetProperties({
         </button>
       </div>
 
-      {/* Delete */}
-      <button
-        onClick={() => onDeleteWidget(widget.id)}
-        className="w-full px-3 py-2 rounded-xl text-red-400 hover:bg-red-500/10 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
-      >
-        <Trash size={14} weight="bold" />
-        Widget löschen
-      </button>
+      {/* Duplicate & Delete */}
+      <div className="flex gap-2">
+        {onDuplicateWidget && (
+          <button
+            onClick={() => onDuplicateWidget(widget.id)}
+            className="flex-1 px-3 py-2 rounded-xl text-accent hover:bg-accent/10 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+          >
+            <CopySimple size={14} weight="bold" />
+            Duplizieren
+          </button>
+        )}
+        <button
+          onClick={() => onDeleteWidget(widget.id)}
+          className="flex-1 px-3 py-2 rounded-xl text-red-400 hover:bg-red-500/10 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+        >
+          <Trash size={14} weight="bold" />
+          Löschen
+        </button>
+      </div>
     </div>
   )
 }
@@ -992,6 +1604,7 @@ export function WidgetPalette({
   onUpdateWidget,
   onResizeWidget,
   onDeleteWidget,
+  onDuplicateWidget,
   onMoveWidget,
   onOpenWidgetGroupDesigner,
 }: WidgetPaletteProps) {
@@ -1013,6 +1626,7 @@ export function WidgetPalette({
               onUpdateWidget={onUpdateWidget}
               onResizeWidget={onResizeWidget}
               onDeleteWidget={onDeleteWidget}
+              onDuplicateWidget={onDuplicateWidget}
               onMoveWidget={onMoveWidget}
               onOpenWidgetGroupDesigner={onOpenWidgetGroupDesigner}
             />

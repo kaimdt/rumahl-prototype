@@ -321,7 +321,7 @@ function BackgroundEditor({ open, onClose, settingsLocked }: { open: boolean; on
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-[760px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl" hideCloseButton>
+      <DialogContent className="sm:max-w-[760px] glass-card border-foreground/10 p-0 gap-0 bg-card/95 backdrop-blur-2xl">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10">
           <DialogTitle>Hintergrund konfigurieren</DialogTitle>
           <DialogDescription>

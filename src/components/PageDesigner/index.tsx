@@ -43,6 +43,15 @@ import {
   FireSimple,
   Swatches,
   DotsSixVertical,
+  MagnifyingGlassMinus,
+  MagnifyingGlassPlus,
+  ArrowCounterClockwise,
+  ArrowClockwise,
+  Eye,
+  EyeSlash,
+  ArrowsOutSimple,
+  Command,
+  Copy,
 } from '@phosphor-icons/react'
 import {
   DndContext,
@@ -65,6 +74,7 @@ import { FloatingToolbar } from './FloatingToolbar'
 import { DragOverlayPreview } from './DragOverlayPreview'
 import { UnconfiguredOverlay } from './UnconfiguredOverlay'
 import { getWidgetDef } from '@/lib/widgetRegistry'
+import { getCardStyleClass } from '@/lib/defaults'
 import type { DashboardPage, DashboardWidget, EntityState, WidgetType, LightEntity, WeatherEntity } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -82,10 +92,12 @@ const MIN_ROWS = 6
 const MIN_COLS = 2
 const MAX_COLS = 8
 const MAX_WIDGET_HEIGHT = 12
+const MAX_UNDO_HISTORY = 30
 
 interface PageLayoutSettings {
   cols: number
   rows: number
+  gap: number
 }
 
 const availableIcons = {
@@ -207,7 +219,7 @@ function EmptyCell({ col, row, onClick }: { col: number; row: number; onClick: (
       className={`
         rounded-xl border border-dashed transition-all cursor-pointer min-h-[64px]
         ${isOver
-          ? 'border-accent/50 bg-accent/10'
+          ? 'border-accent/50 bg-accent/10 scale-[1.02]'
           : 'border-foreground/8 hover:border-foreground/20 hover:bg-foreground/3'
         }
       `}
@@ -223,8 +235,10 @@ function EmptyCell({ col, row, onClick }: { col: number; row: number; onClick: (
 function CanvasWidget({
   widget,
   isSelected,
+  previewMode,
   onSelect,
   onDelete,
+  onDuplicate,
   onResizeWidth,
   onResizeHeight,
   onConfigure,
@@ -238,8 +252,10 @@ function CanvasWidget({
 }: {
   widget: DashboardWidget
   isSelected: boolean
+  previewMode: boolean
   onSelect: () => void
   onDelete: () => void
+  onDuplicate: () => void
   onResizeWidth: (delta: number) => void
   onResizeHeight: (delta: number) => void
   onConfigure?: () => void
@@ -271,7 +287,37 @@ function CanvasWidget({
   } = useDraggable({
     id: `canvas-${widget.id}`,
     data: { origin: 'canvas', widgetId: widget.id },
+    disabled: previewMode,
   })
+
+  if (previewMode) {
+    return (
+      <div
+        className="min-h-[64px]"
+        style={{
+          gridColumnStart: widget.position.x + 1,
+          gridColumnEnd: `span ${Math.min(widget.size.w, maxCols - widget.position.x)}`,
+          gridRowStart: widget.position.y + 1,
+          gridRowEnd: `span ${widget.size.h}`,
+        }}
+      >
+        <div className={[
+          'h-full',
+          widget.config?.transparentBackground ? 'widget-transparent' : '',
+          getCardStyleClass(widget.config?.cardStyle as string | undefined),
+        ].filter(Boolean).join(' ')}>
+          <RenderWidget
+            widget={widget}
+            entities={entities}
+            onUpdate={() => {}}
+            userName={userName}
+            weatherEntity={weatherEntity}
+            lightEntities={lightEntities}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -283,10 +329,10 @@ function CanvasWidget({
       className={`
         relative transition-all group min-h-[64px]
         ${isSelected
-          ? 'ring-2 ring-accent rounded-2xl'
+          ? 'ring-2 ring-accent rounded-2xl z-10'
           : 'hover:ring-1 hover:ring-foreground/20 rounded-2xl'
         }
-        ${isDragging ? 'opacity-50' : ''}
+        ${isDragging ? 'opacity-40 scale-95' : ''}
       `}
       style={{
         gridColumnStart: widget.position.x + 1,
@@ -313,6 +359,7 @@ function CanvasWidget({
           onResizeWidth={onResizeWidth}
           onResizeHeight={onResizeHeight}
           onDelete={onDelete}
+          onDuplicate={onDuplicate}
           widgetSize={widget.size}
           maxWidth={Math.max(1, maxCols - widget.position.x)}
           maxHeight={maxRows}
@@ -324,11 +371,10 @@ function CanvasWidget({
           <button
             type="button"
             aria-label="Breite ziehen"
-            className="absolute top-1/2 -right-1.5 -translate-y-1/2 h-12 w-2 rounded-full bg-accent/70 shadow-sm cursor-ew-resize"
+            className="absolute top-1/2 -right-1.5 -translate-y-1/2 h-12 w-2 rounded-full bg-accent/70 shadow-sm cursor-ew-resize hover:bg-accent transition-colors"
             onPointerDown={(e) => {
               e.stopPropagation()
-              const target = e.currentTarget
-              const parent = target.parentElement
+              const parent = e.currentTarget.parentElement
               if (!parent || !onResizeTo) return
               const rect = parent.getBoundingClientRect()
               resizeStateRef.current = {
@@ -344,13 +390,9 @@ function CanvasWidget({
               const onMove = (event: PointerEvent) => {
                 if (!resizeStateRef.current) return
                 const dx = event.clientX - resizeStateRef.current.startX
-                const dy = event.clientY - resizeStateRef.current.startY
-                const widthDelta = Math.round(dx / resizeStateRef.current.unitW)
-                const heightDelta = Math.round(dy / resizeStateRef.current.unitH)
                 const maxWidth = Math.max(1, maxCols - widget.position.x)
-                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + (resizeStateRef.current.mode !== 'bottom' ? widthDelta : 0)))
-                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + (resizeStateRef.current.mode !== 'right' ? heightDelta : 0)))
-                onResizeTo(nextW, nextH)
+                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + Math.round(dx / resizeStateRef.current.unitW)))
+                onResizeTo(nextW, resizeStateRef.current.startH)
               }
 
               const onUp = () => {
@@ -365,12 +407,11 @@ function CanvasWidget({
           />
           <button
             type="button"
-            aria-label="Hoehe ziehen"
-            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-2 w-12 rounded-full bg-accent/70 shadow-sm cursor-ns-resize"
+            aria-label="Höhe ziehen"
+            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-2 w-12 rounded-full bg-accent/70 shadow-sm cursor-ns-resize hover:bg-accent transition-colors"
             onPointerDown={(e) => {
               e.stopPropagation()
-              const target = e.currentTarget
-              const parent = target.parentElement
+              const parent = e.currentTarget.parentElement
               if (!parent || !onResizeTo) return
               const rect = parent.getBoundingClientRect()
               resizeStateRef.current = {
@@ -385,14 +426,9 @@ function CanvasWidget({
 
               const onMove = (event: PointerEvent) => {
                 if (!resizeStateRef.current) return
-                const dx = event.clientX - resizeStateRef.current.startX
                 const dy = event.clientY - resizeStateRef.current.startY
-                const widthDelta = Math.round(dx / resizeStateRef.current.unitW)
-                const heightDelta = Math.round(dy / resizeStateRef.current.unitH)
-                const maxWidth = Math.max(1, maxCols - widget.position.x)
-                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + (resizeStateRef.current.mode !== 'bottom' ? widthDelta : 0)))
-                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + (resizeStateRef.current.mode !== 'right' ? heightDelta : 0)))
-                onResizeTo(nextW, nextH)
+                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + Math.round(dy / resizeStateRef.current.unitH)))
+                onResizeTo(resizeStateRef.current.startW, nextH)
               }
 
               const onUp = () => {
@@ -407,12 +443,11 @@ function CanvasWidget({
           />
           <button
             type="button"
-            aria-label="Breite und Hoehe ziehen"
-            className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 rounded bg-accent shadow-sm cursor-nwse-resize"
+            aria-label="Breite und Höhe ziehen"
+            className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 rounded bg-accent shadow-sm cursor-nwse-resize hover:bg-accent/80 transition-colors"
             onPointerDown={(e) => {
               e.stopPropagation()
-              const target = e.currentTarget
-              const parent = target.parentElement
+              const parent = e.currentTarget.parentElement
               if (!parent || !onResizeTo) return
               const rect = parent.getBoundingClientRect()
               resizeStateRef.current = {
@@ -429,11 +464,9 @@ function CanvasWidget({
                 if (!resizeStateRef.current) return
                 const dx = event.clientX - resizeStateRef.current.startX
                 const dy = event.clientY - resizeStateRef.current.startY
-                const widthDelta = Math.round(dx / resizeStateRef.current.unitW)
-                const heightDelta = Math.round(dy / resizeStateRef.current.unitH)
                 const maxWidth = Math.max(1, maxCols - widget.position.x)
-                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + (resizeStateRef.current.mode !== 'bottom' ? widthDelta : 0)))
-                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + (resizeStateRef.current.mode !== 'right' ? heightDelta : 0)))
+                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + Math.round(dx / resizeStateRef.current.unitW)))
+                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + Math.round(dy / resizeStateRef.current.unitH)))
                 onResizeTo(nextW, nextH)
               }
 
@@ -451,16 +484,31 @@ function CanvasWidget({
       )}
 
       {/* WYSIWYG preview (pointer-events disabled) */}
-      <div className={`pointer-events-none h-full ${widget.config?.transparentBackground ? 'widget-transparent' : ''}`}>
-        <RenderWidget
-          widget={widget}
-          entities={entities}
-          onUpdate={() => {}}
-          userName={userName}
-          weatherEntity={weatherEntity}
-          lightEntities={lightEntities}
-        />
-      </div>
+      {(() => {
+        const alignment = (widget.config?.alignment as 'left' | 'center' | 'right' | undefined) || 'left'
+        return (
+          <div className={[
+            'pointer-events-none h-full',
+            widget.config?.transparentBackground ? 'widget-transparent' : '',
+            getCardStyleClass(widget.config?.cardStyle as string | undefined),
+          ].filter(Boolean).join(' ')}>
+            <div className={[
+              alignment === 'center' ? 'mx-auto' : '',
+              alignment === 'right' ? 'ml-auto' : '',
+              alignment === 'left' ? 'w-full' : 'w-fit max-w-full',
+            ].filter(Boolean).join(' ')}>
+              <RenderWidget
+                widget={widget}
+                entities={entities}
+                onUpdate={() => {}}
+                userName={userName}
+                weatherEntity={weatherEntity}
+                lightEntities={lightEntities}
+              />
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Unconfigured overlay */}
       {isUnconfigured && (
@@ -495,11 +543,53 @@ function CanvasWidget({
             : 'opacity-0 group-hover:opacity-60 bg-black/20 text-white/60'
           }
         `}>
-          {widget.position.x},{widget.position.y}
+          {widget.position.x},{widget.position.y} &middot; {widget.size.w}&times;{widget.size.h}
         </div>
       </div>
     </div>
   )
+}
+
+// Undo/redo history hook
+function useUndoHistory(pages: DashboardPage[], setPages: (pages: DashboardPage[]) => void) {
+  const undoStack = useRef<DashboardPage[][]>([])
+  const redoStack = useRef<DashboardPage[][]>([])
+  const lastSnapshot = useRef<string>('')
+
+  const snapshot = useCallback(() => {
+    const json = JSON.stringify(pages)
+    if (json !== lastSnapshot.current) {
+      undoStack.current.push(JSON.parse(lastSnapshot.current || json))
+      if (undoStack.current.length > MAX_UNDO_HISTORY) undoStack.current.shift()
+      redoStack.current = []
+      lastSnapshot.current = json
+    }
+  }, [pages])
+
+  // Take initial snapshot
+  useEffect(() => {
+    if (!lastSnapshot.current) {
+      lastSnapshot.current = JSON.stringify(pages)
+    }
+  }, [pages])
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return
+    const prev = undoStack.current.pop()!
+    redoStack.current.push(JSON.parse(lastSnapshot.current))
+    lastSnapshot.current = JSON.stringify(prev)
+    setPages(prev)
+  }, [setPages])
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return
+    const next = redoStack.current.pop()!
+    undoStack.current.push(JSON.parse(lastSnapshot.current))
+    lastSnapshot.current = JSON.stringify(next)
+    setPages(next)
+  }, [setPages])
+
+  return { snapshot, undo, redo, canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 }
 }
 
 export function PageDesigner({
@@ -511,6 +601,7 @@ export function PageDesigner({
   lightEntities,
 }: PageDesignerProps) {
   const { pages, setPages } = usePageNavigation()
+  const { snapshot, undo, redo, canUndo, canRedo } = useUndoHistory(pages, setPages)
 
   // Page management
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null)
@@ -535,14 +626,18 @@ export function PageDesigner({
   const [activeDragType, setActiveDragType] = useState<WidgetType | null>(null)
   const [activeDragWidgetId, setActiveDragWidgetId] = useState<string | null>(null)
   const [editingGroupWidgetId, setEditingGroupWidgetId] = useState<string | null>(null)
+  const [canvasZoom, setCanvasZoom] = useState(100)
+  const [previewMode, setPreviewMode] = useState(false)
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
 
   const selectedPage = pages.find((p) => p.id === selectedPageId)
   const selectedWidget = selectedPage?.widgets.find((w) => w.id === selectedWidgetId)
   const editingGroupWidget = selectedPage?.widgets.find((w) => w.id === editingGroupWidgetId)
   const currentLayout = selectedPage
-    ? (pageLayouts[selectedPage.id] ?? { cols: GRID_COLS, rows: MIN_ROWS })
-    : { cols: GRID_COLS, rows: MIN_ROWS }
+    ? (pageLayouts[selectedPage.id] ?? { cols: GRID_COLS, rows: MIN_ROWS, gap: 10 })
+    : { cols: GRID_COLS, rows: MIN_ROWS, gap: 10 }
   const currentGridCols = Math.max(MIN_COLS, Math.min(MAX_COLS, currentLayout.cols))
+  const currentGap = currentLayout.gap ?? 10
 
   // Lock body scroll when designer is open
   useEffect(() => {
@@ -576,12 +671,97 @@ export function PageDesigner({
     return buildOccupancyMap(selectedPage.widgets, currentGridCols, gridRows)
   }, [selectedPage, currentGridCols, gridRows])
 
+  // Delete a widget
+  const handleDeleteWidget = useCallback((widgetId: string) => {
+    if (!selectedPageId) return
+    snapshot()
+    const updatedPages = pages.map((p) =>
+      p.id === selectedPageId
+        ? { ...p, widgets: p.widgets.filter((w) => w.id !== widgetId) }
+        : p
+    )
+    setPages(updatedPages)
+    if (selectedWidgetId === widgetId) setSelectedWidgetId(null)
+    toast.success('Widget gelöscht')
+  }, [selectedPageId, pages, setPages, selectedWidgetId, snapshot])
+
+  // Duplicate a widget
+  const handleDuplicateWidget = useCallback((widgetId: string) => {
+    if (!selectedPageId) return
+    snapshot()
+    const page = pages.find((p) => p.id === selectedPageId)
+    if (!page) return
+    const source = page.widgets.find((w) => w.id === widgetId)
+    if (!source) return
+
+    const position = findFirstAvailablePosition(
+      page.widgets,
+      source.size,
+      currentGridCols,
+      gridRows
+    )
+
+    const newWidget: DashboardWidget = {
+      ...source,
+      id: `widget-${Date.now()}`,
+      position,
+      config: source.config ? { ...source.config } : {},
+    }
+
+    const updatedPages = pages.map((p) =>
+      p.id === selectedPageId ? { ...p, widgets: [...p.widgets, newWidget] } : p
+    )
+    setPages(updatedPages)
+    setSelectedWidgetId(newWidget.id)
+    toast.success('Widget dupliziert')
+  }, [selectedPageId, pages, currentGridCols, gridRows, setPages, snapshot])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => {
+      // Ignore when typing in inputs/textareas
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      if (e.key === 'Delete' && selectedWidgetId) {
+        e.preventDefault()
+        handleDeleteWidget(selectedWidgetId)
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        if (selectedWidgetId) {
+          setSelectedWidgetId(null)
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedWidgetId) {
+        e.preventDefault()
+        handleDuplicateWidget(selectedWidgetId)
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+        e.preventDefault()
+        redo()
+      }
+      if (e.key === 'p' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        setPreviewMode(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isOpen, selectedWidgetId, handleDuplicateWidget, handleDeleteWidget, undo, redo])
+
   // Page CRUD
   const handleCreatePage = () => {
     setShowTemplatePicker(true)
   }
 
   const handleTemplateSelect = (newPage: DashboardPage) => {
+    snapshot()
     setPages([...pages, newPage])
     setSelectedPageId(newPage.id)
     setShowTemplatePicker(false)
@@ -597,6 +777,7 @@ export function PageDesigner({
 
   const handleSavePageEdit = () => {
     if (!editingPageId) return
+    snapshot()
     const updatedPages = pages.map((page) =>
       page.id === editingPageId
         ? { ...page, name: editName, icon: editIcon, showInNav: editShowInNav }
@@ -612,6 +793,7 @@ export function PageDesigner({
       toast.error('Systemseiten können nicht gelöscht werden')
       return
     }
+    snapshot()
     const updatedPages = pages.filter((p) => p.id !== pageId)
     setPages(updatedPages)
     if (selectedPageId === pageId) setSelectedPageId(null)
@@ -623,6 +805,7 @@ export function PageDesigner({
     if (currentIndex === -1) return
     const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
     if (newIndex < 0 || newIndex >= pages.length) return
+    snapshot()
     const updatedPages = [...pages]
     const [movedPage] = updatedPages.splice(currentIndex, 1)
     updatedPages.splice(newIndex, 0, movedPage)
@@ -632,12 +815,13 @@ export function PageDesigner({
   const updateSelectedPageLayout = useCallback((updates: Partial<PageLayoutSettings>) => {
     if (!selectedPage) return
     setPageLayouts((prev) => {
-      const current = prev[selectedPage.id] ?? { cols: GRID_COLS, rows: MIN_ROWS }
+      const current = prev[selectedPage.id] ?? { cols: GRID_COLS, rows: MIN_ROWS, gap: 10 }
       return {
         ...prev,
         [selectedPage.id]: {
           cols: Math.max(MIN_COLS, Math.min(MAX_COLS, updates.cols ?? current.cols)),
           rows: Math.max(MIN_ROWS, updates.rows ?? current.rows),
+          gap: Math.max(0, Math.min(24, updates.gap ?? current.gap)),
         },
       }
     })
@@ -647,6 +831,7 @@ export function PageDesigner({
     if (!selectedPage) return
     const nextCols = Math.max(MIN_COLS, Math.min(MAX_COLS, currentGridCols + delta))
 
+    snapshot()
     const updatedPages = pages.map((page) => {
       if (page.id !== selectedPage.id) return page
       return {
@@ -664,7 +849,7 @@ export function PageDesigner({
 
     setPages(updatedPages)
     updateSelectedPageLayout({ cols: nextCols })
-  }, [selectedPage, currentGridCols, pages, setPages, updateSelectedPageLayout])
+  }, [selectedPage, currentGridCols, pages, setPages, updateSelectedPageLayout, snapshot])
 
   const adjustSelectedPageRows = useCallback((delta: number) => {
     if (!selectedPage) return
@@ -675,6 +860,7 @@ export function PageDesigner({
   const handleAddWidget = useCallback((type: WidgetType, entityId?: string) => {
     if (!selectedPageId) return
 
+    snapshot()
     const page = pages.find((p) => p.id === selectedPageId)
     if (!page) return
 
@@ -697,11 +883,12 @@ export function PageDesigner({
     setPages(updatedPages)
     setSelectedWidgetId(newWidget.id)
     toast.success('Widget hinzugefügt')
-  }, [selectedPageId, pages, gridRows, setPages, currentGridCols])
+  }, [selectedPageId, pages, gridRows, setPages, currentGridCols, snapshot])
 
   const handleAddWidgetAtCell = useCallback((type: WidgetType, col: number, row: number, entityId?: string) => {
     if (!selectedPageId) return
 
+    snapshot()
     const def = getWidgetDef(type)
     const defaultSize = def?.defaultSize || { w: 1, h: 1 }
 
@@ -720,10 +907,11 @@ export function PageDesigner({
     setPages(updatedPages)
     setSelectedWidgetId(newWidget.id)
     toast.success('Widget platziert')
-  }, [selectedPageId, pages, setPages, currentGridCols])
+  }, [selectedPageId, pages, setPages, currentGridCols, snapshot])
 
   const handleUpdateWidget = (widgetId: string, updates: Partial<DashboardWidget>) => {
     if (!selectedPageId) return
+    snapshot()
     const updatedPages = pages.map((p) =>
       p.id === selectedPageId
         ? {
@@ -737,20 +925,9 @@ export function PageDesigner({
     setPages(updatedPages)
   }
 
-  const handleDeleteWidget = (widgetId: string) => {
-    if (!selectedPageId) return
-    const updatedPages = pages.map((p) =>
-      p.id === selectedPageId
-        ? { ...p, widgets: p.widgets.filter((w) => w.id !== widgetId) }
-        : p
-    )
-    setPages(updatedPages)
-    if (selectedWidgetId === widgetId) setSelectedWidgetId(null)
-    toast.success('Widget gelöscht')
-  }
-
   const handleResizeWidget = (widgetId: string, dimension: 'w' | 'h', delta: number) => {
     if (!selectedPageId) return
+    snapshot()
     const updatedPages = pages.map((p) =>
       p.id === selectedPageId
         ? {
@@ -796,6 +973,7 @@ export function PageDesigner({
 
   const handleMoveWidget = useCallback((widgetId: string, newCol: number, newRow: number) => {
     if (!selectedPageId) return
+    snapshot()
     const updatedPages = pages.map((p) =>
       p.id === selectedPageId
         ? {
@@ -812,7 +990,7 @@ export function PageDesigner({
         : p
     )
     setPages(updatedPages)
-  }, [selectedPageId, pages, setPages, currentGridCols])
+  }, [selectedPageId, pages, setPages, currentGridCols, snapshot])
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event
@@ -865,7 +1043,6 @@ export function PageDesigner({
 
   // Handle clicking an empty cell
   const handleCellClick = useCallback((_col: number, _row: number) => {
-    // Deselect widget when clicking empty cell
     setSelectedWidgetId(null)
   }, [])
 
@@ -883,8 +1060,10 @@ export function PageDesigner({
           key={widget.id}
           widget={widget}
           isSelected={selectedWidgetId === widget.id}
+          previewMode={previewMode}
           onSelect={() => setSelectedWidgetId(widget.id)}
           onDelete={() => handleDeleteWidget(widget.id)}
+          onDuplicate={() => handleDuplicateWidget(widget.id)}
           onResizeWidth={(delta) => handleResizeWidget(widget.id, 'w', delta)}
           onResizeHeight={(delta) => handleResizeWidget(widget.id, 'h', delta)}
           onResizeTo={(nextW, nextH) => handleResizeWidgetTo(widget.id, nextW, nextH)}
@@ -899,18 +1078,20 @@ export function PageDesigner({
       )
     }
 
-    // Render empty cells for unoccupied positions
-    for (let row = 0; row < gridRows; row++) {
-      for (let col = 0; col < currentGridCols; col++) {
-        if (occupancyMap[row]?.[col] === null) {
-          cells.push(
-            <EmptyCell
-              key={`empty-${col}-${row}`}
-              col={col}
-              row={row}
-              onClick={() => handleCellClick(col, row)}
-            />
-          )
+    // Render empty cells for unoccupied positions (not in preview mode)
+    if (!previewMode) {
+      for (let row = 0; row < gridRows; row++) {
+        for (let col = 0; col < currentGridCols; col++) {
+          if (occupancyMap[row]?.[col] === null) {
+            cells.push(
+              <EmptyCell
+                key={`empty-${col}-${row}`}
+                col={col}
+                row={row}
+                onClick={() => handleCellClick(col, row)}
+              />
+            )
+          }
         }
       }
     }
@@ -929,17 +1110,58 @@ export function PageDesigner({
         >
           <div className="h-full flex flex-col overflow-hidden">
             {/* Top bar */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-foreground/10">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-foreground/10 bg-background/80 backdrop-blur-sm">
               <div className="flex items-center gap-3">
-                <GridFour size={24} weight="fill" className="text-accent" />
-                <h1 className="text-lg font-semibold text-foreground">Seiten-Designer</h1>
+                <GridFour size={22} weight="fill" className="text-accent" />
+                <h1 className="text-base font-semibold text-foreground hidden sm:block">Seiten-Designer</h1>
+                {/* Undo/Redo */}
+                <div className="flex items-center gap-0.5 ml-2">
+                  <button
+                    onClick={undo}
+                    disabled={!canUndo}
+                    className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/50 disabled:opacity-20 transition-colors"
+                    title="Rückgängig (Strg+Z)"
+                  >
+                    <ArrowCounterClockwise size={16} weight="bold" />
+                  </button>
+                  <button
+                    onClick={redo}
+                    disabled={!canRedo}
+                    className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/50 disabled:opacity-20 transition-colors"
+                    title="Wiederherstellen (Strg+Y)"
+                  >
+                    <ArrowClockwise size={16} weight="bold" />
+                  </button>
+                </div>
+                {/* Preview toggle */}
+                <button
+                  onClick={() => setPreviewMode(!previewMode)}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    previewMode
+                      ? 'bg-accent/15 text-accent'
+                      : 'hover:bg-foreground/10 text-foreground/50'
+                  }`}
+                  title={previewMode ? 'Bearbeitungsmodus (P)' : 'Vorschau-Modus (P)'}
+                >
+                  {previewMode ? <Eye size={16} weight="fill" /> : <EyeSlash size={16} weight="regular" />}
+                </button>
               </div>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"
-              >
-                <X size={24} weight="bold" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Keyboard shortcut hints */}
+                <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-foreground/25">
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10">Entf</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">Strg+D</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">Strg+Z</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">P</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">Esc</kbd>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"
+                >
+                  <X size={22} weight="bold" />
+                </button>
+              </div>
             </div>
 
             {/* Main content: 3-panel layout */}
@@ -951,157 +1173,195 @@ export function PageDesigner({
             >
             <div className="flex-1 flex overflow-hidden min-h-0">
               {/* Left sidebar - Page list */}
-              <div className="w-72 border-r border-foreground/10 flex flex-col overflow-hidden min-h-0">
-                <div className="px-4 py-3 border-b border-foreground/5">
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-sm font-medium text-foreground/70">Seiten</h2>
+              <div className={`${leftPanelCollapsed ? 'w-12' : 'w-64 xl:w-72'} border-r border-foreground/10 flex flex-col overflow-hidden min-h-0 transition-all duration-200`}>
+                {leftPanelCollapsed ? (
+                  <div className="flex flex-col items-center py-3 gap-2">
                     <button
-                      onClick={handleCreatePage}
-                      className="p-1.5 rounded-lg hover:bg-accent/10 text-accent transition-colors"
-                      title="Neue Seite"
+                      onClick={() => setLeftPanelCollapsed(false)}
+                      className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/50"
+                      title="Seitenleiste öffnen"
                     >
-                      <Plus size={16} weight="bold" />
+                      <ArrowsOutSimple size={16} weight="bold" />
                     </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-                  {pages.map((page, index) => {
-                    const Icon = availableIcons[page.icon as keyof typeof availableIcons] || House
-                    const isSelected = selectedPageId === page.id
-                    const isEditing = editingPageId === page.id
-                    const isHome = page.id === 'home'
-                    const isSystemPage = page.id === 'settings'
-
-                    if (isEditing) {
+                    <div className="w-px h-4 bg-foreground/10" />
+                    {pages.map((page) => {
+                      const Icon = availableIcons[page.icon as keyof typeof availableIcons] || House
+                      const isSelected = selectedPageId === page.id
                       return (
-                        <div key={page.id} className="rounded-xl p-3 bg-foreground/5 border border-accent/20 space-y-3">
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="w-full px-2 py-1.5 rounded-lg bg-background/50 border border-foreground/10 text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent/50"
-                            placeholder="Seitenname"
-                          />
-                          <div className="grid grid-cols-7 gap-1">
-                            {Object.entries(availableIcons).map(([key, IconComponent]) => {
-                              const iconKey = key as keyof typeof availableIcons
-                              return (
-                                <button
-                                  key={key}
-                                  onClick={() => setEditIcon(iconKey)}
-                                  className={`p-1.5 rounded-md transition-all ${
-                                    editIcon === iconKey
-                                      ? 'bg-accent/20 text-accent'
-                                      : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/5'
-                                  }`}
-                                  title={iconLabels[iconKey]}
-                                >
-                                  <IconComponent size={14} weight={editIcon === iconKey ? 'fill' : 'regular'} />
-                                </button>
-                              )
-                            })}
-                          </div>
-                          {!isHome && (
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-foreground/50">In Navigation</span>
-                              <button
-                                onClick={() => setEditShowInNav(!editShowInNav)}
-                                className={`relative w-8 h-4 rounded-full transition-colors ${
-                                  editShowInNav ? 'bg-accent' : 'bg-foreground/20'
-                                }`}
-                              >
-                                <div
-                                  className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
-                                    editShowInNav ? 'translate-x-4' : ''
-                                  }`}
-                                />
-                              </button>
-                            </div>
-                          )}
-                          <div className="flex gap-1.5">
-                            <button
-                              onClick={handleSavePageEdit}
-                              className="flex-1 px-2 py-1 rounded-md bg-accent text-white text-xs hover:bg-accent/90 transition-colors"
-                            >
-                              Speichern
-                            </button>
-                            <button
-                              onClick={() => setEditingPageId(null)}
-                              className="px-2 py-1 rounded-md bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors"
-                            >
-                              Abbrechen
-                            </button>
-                          </div>
-                        </div>
+                        <button
+                          key={page.id}
+                          onClick={() => { setSelectedPageId(page.id); setSelectedWidgetId(null) }}
+                          className={`p-1.5 rounded-lg transition-colors ${isSelected ? 'bg-accent/15 text-accent' : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/5'}`}
+                          title={page.name}
+                        >
+                          <Icon size={16} weight={isSelected ? 'fill' : 'regular'} />
+                        </button>
                       )
-                    }
-
-                    return (
-                      <div
-                        key={page.id}
-                        onClick={() => {
-                          setSelectedPageId(page.id)
-                          setSelectedWidgetId(null)
-                        }}
-                        className={`
-                          flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group
-                          ${isSelected
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-foreground/60 hover:bg-foreground/5 hover:text-foreground'
-                          }
-                        `}
-                      >
-                        <Icon size={18} weight={isSelected ? 'fill' : 'regular'} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-sm font-medium truncate">{page.name}</p>
-                            {isHome && (
-                              <Star size={10} weight="fill" className="text-accent shrink-0" />
-                            )}
-                          </div>
-                          <p className="text-[10px] opacity-50">
-                            {page.widgets.length} Widget{page.widgets.length !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {!isHome && !isSystemPage && (
-                            <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'up') }}
-                                disabled={index === 0}
-                                className="p-1 rounded hover:bg-foreground/10 disabled:opacity-20"
-                              >
-                                <ArrowUp size={12} weight="bold" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'down') }}
-                                disabled={index === pages.length - 1}
-                                className="p-1 rounded hover:bg-foreground/10 disabled:opacity-20"
-                              >
-                                <ArrowDown size={12} weight="bold" />
-                              </button>
-                            </>
-                          )}
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-3 py-3 border-b border-foreground/5">
+                      <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-sm font-medium text-foreground/70">Seiten</h2>
+                        <div className="flex items-center gap-1">
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleEditPage(page) }}
-                            className="p-1 rounded hover:bg-foreground/10"
+                            onClick={handleCreatePage}
+                            className="p-1.5 rounded-lg hover:bg-accent/10 text-accent transition-colors"
+                            title="Neue Seite"
                           >
-                            <PencilSimple size={12} weight="bold" />
+                            <Plus size={16} weight="bold" />
                           </button>
-                          {!isHome && !isSystemPage && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeletePage(page.id) }}
-                              className="p-1 rounded hover:bg-red-500/10 hover:text-red-400"
-                            >
-                              <Trash size={12} weight="bold" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setLeftPanelCollapsed(true)}
+                            className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/40 transition-colors"
+                            title="Seitenleiste einklappen"
+                          >
+                            <CaretLeft size={14} weight="bold" />
+                          </button>
                         </div>
                       </div>
-                    )
-                  })}
-                </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+                      {pages.map((page, index) => {
+                        const Icon = availableIcons[page.icon as keyof typeof availableIcons] || House
+                        const isSelected = selectedPageId === page.id
+                        const isEditing = editingPageId === page.id
+                        const isHome = page.id === 'home'
+                        const isSystemPage = page.id === 'settings'
+
+                        if (isEditing) {
+                          return (
+                            <div key={page.id} className="rounded-xl p-3 bg-foreground/5 border border-accent/20 space-y-2.5">
+                              <input
+                                type="text"
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                className="w-full px-2 py-1.5 rounded-lg bg-background/50 border border-foreground/10 text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent/50"
+                                placeholder="Seitenname"
+                              />
+                              <div className="grid grid-cols-7 gap-0.5">
+                                {Object.entries(availableIcons).map(([key, IconComponent]) => {
+                                  const iconKey = key as keyof typeof availableIcons
+                                  return (
+                                    <button
+                                      key={key}
+                                      onClick={() => setEditIcon(iconKey)}
+                                      className={`p-1 rounded-md transition-all ${
+                                        editIcon === iconKey
+                                          ? 'bg-accent/20 text-accent'
+                                          : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/5'
+                                      }`}
+                                      title={iconLabels[iconKey]}
+                                    >
+                                      <IconComponent size={13} weight={editIcon === iconKey ? 'fill' : 'regular'} />
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                              {!isHome && (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-foreground/50">In Navigation</span>
+                                  <button
+                                    onClick={() => setEditShowInNav(!editShowInNav)}
+                                    className={`relative w-8 h-4 rounded-full transition-colors ${
+                                      editShowInNav ? 'bg-accent' : 'bg-foreground/20'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                                        editShowInNav ? 'translate-x-4' : ''
+                                      }`}
+                                    />
+                                  </button>
+                                </div>
+                              )}
+                              <div className="flex gap-1.5">
+                                <button
+                                  onClick={handleSavePageEdit}
+                                  className="flex-1 px-2 py-1 rounded-md bg-accent text-white text-xs hover:bg-accent/90 transition-colors"
+                                >
+                                  Speichern
+                                </button>
+                                <button
+                                  onClick={() => setEditingPageId(null)}
+                                  className="px-2 py-1 rounded-md bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors"
+                                >
+                                  Abbrechen
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        }
+
+                        return (
+                          <div
+                            key={page.id}
+                            onClick={() => {
+                              setSelectedPageId(page.id)
+                              setSelectedWidgetId(null)
+                            }}
+                            className={`
+                              flex items-center gap-2.5 px-2.5 py-2 rounded-xl cursor-pointer transition-all group
+                              ${isSelected
+                                ? 'bg-accent/10 text-accent'
+                                : 'text-foreground/60 hover:bg-foreground/5 hover:text-foreground'
+                              }
+                            `}
+                          >
+                            <Icon size={16} weight={isSelected ? 'fill' : 'regular'} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-medium truncate">{page.name}</p>
+                                {isHome && (
+                                  <Star size={9} weight="fill" className="text-accent shrink-0" />
+                                )}
+                              </div>
+                              <p className="text-[9px] opacity-50">
+                                {page.widgets.length} Widget{page.widgets.length !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {!isHome && !isSystemPage && (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'up') }}
+                                    disabled={index === 0}
+                                    className="p-0.5 rounded hover:bg-foreground/10 disabled:opacity-20"
+                                  >
+                                    <ArrowUp size={11} weight="bold" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'down') }}
+                                    disabled={index === pages.length - 1}
+                                    className="p-0.5 rounded hover:bg-foreground/10 disabled:opacity-20"
+                                  >
+                                    <ArrowDown size={11} weight="bold" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleEditPage(page) }}
+                                className="p-0.5 rounded hover:bg-foreground/10"
+                              >
+                                <PencilSimple size={11} weight="bold" />
+                              </button>
+                              {!isHome && !isSystemPage && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeletePage(page.id) }}
+                                  className="p-0.5 rounded hover:bg-red-500/10 hover:text-red-400"
+                                >
+                                  <Trash size={11} weight="bold" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Center - Grid Canvas */}
@@ -1117,92 +1377,139 @@ export function PageDesigner({
                   </div>
                 ) : (
                   <>
-                    {/* Canvas header */}
-                    <div className="px-6 py-3 border-b border-foreground/5 flex items-center justify-between">
-                      <div>
-                        <h2 className="text-base font-semibold text-foreground">{selectedPage.name}</h2>
-                        <p className="text-xs text-foreground/40">
-                          {selectedPage.widgets.length} Widget{selectedPage.widgets.length !== 1 ? 's' : ''} &mdash; {currentGridCols} Spalten &times; {gridRows} Zeilen
+                    {/* Canvas header with controls */}
+                    <div className="px-4 sm:px-5 py-2.5 border-b border-foreground/5 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <h2 className="text-sm font-semibold text-foreground truncate">{selectedPage.name}</h2>
+                        <p className="text-[10px] text-foreground/40">
+                          {selectedPage.widgets.length} Widgets &middot; {currentGridCols}&times;{gridRows} &middot; Gap {currentGap}px
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 rounded-lg bg-foreground/5 px-2 py-1">
-                          <span className="text-[10px] text-foreground/50">Cols</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Columns */}
+                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
+                          <span className="text-[9px] text-foreground/40">Sp.</span>
                           <button
                             onClick={() => adjustSelectedPageColumns(-1)}
                             disabled={currentGridCols <= MIN_COLS}
                             className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                            title="Spalte entfernen"
                           >
-                            <Minus size={12} weight="bold" />
+                            <Minus size={11} weight="bold" />
                           </button>
-                          <span className="text-xs font-medium text-foreground min-w-4 text-center">{currentGridCols}</span>
+                          <span className="text-[10px] font-medium text-foreground min-w-3 text-center">{currentGridCols}</span>
                           <button
                             onClick={() => adjustSelectedPageColumns(1)}
                             disabled={currentGridCols >= MAX_COLS}
                             className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                            title="Spalte hinzufuegen"
                           >
-                            <Plus size={12} weight="bold" />
+                            <Plus size={11} weight="bold" />
                           </button>
                         </div>
 
-                        <div className="flex items-center gap-1 rounded-lg bg-foreground/5 px-2 py-1">
-                          <span className="text-[10px] text-foreground/50">Rows</span>
+                        {/* Rows */}
+                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
+                          <span className="text-[9px] text-foreground/40">Zl.</span>
                           <button
                             onClick={() => adjustSelectedPageRows(-1)}
                             disabled={currentLayout.rows <= MIN_ROWS}
                             className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                            title="Zeile entfernen"
                           >
-                            <Minus size={12} weight="bold" />
+                            <Minus size={11} weight="bold" />
                           </button>
-                          <span className="text-xs font-medium text-foreground min-w-4 text-center">{currentLayout.rows}</span>
+                          <span className="text-[10px] font-medium text-foreground min-w-3 text-center">{currentLayout.rows}</span>
                           <button
                             onClick={() => adjustSelectedPageRows(1)}
                             className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60"
-                            title="Zeile hinzufuegen"
                           >
-                            <Plus size={12} weight="bold" />
+                            <Plus size={11} weight="bold" />
                           </button>
                         </div>
 
+                        {/* Gap */}
+                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
+                          <span className="text-[9px] text-foreground/40">Gap</span>
+                          <button
+                            onClick={() => updateSelectedPageLayout({ gap: Math.max(0, currentGap - 2) })}
+                            disabled={currentGap <= 0}
+                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
+                          >
+                            <Minus size={11} weight="bold" />
+                          </button>
+                          <span className="text-[10px] font-medium text-foreground min-w-3 text-center">{currentGap}</span>
+                          <button
+                            onClick={() => updateSelectedPageLayout({ gap: Math.min(24, currentGap + 2) })}
+                            disabled={currentGap >= 24}
+                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
+                          >
+                            <Plus size={11} weight="bold" />
+                          </button>
+                        </div>
+
+                        {/* Zoom */}
+                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
+                          <button
+                            onClick={() => setCanvasZoom(Math.max(50, canvasZoom - 10))}
+                            disabled={canvasZoom <= 50}
+                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
+                          >
+                            <MagnifyingGlassMinus size={11} weight="bold" />
+                          </button>
+                          <button
+                            onClick={() => setCanvasZoom(100)}
+                            className="text-[10px] font-medium text-foreground/50 hover:text-foreground min-w-6 text-center"
+                            title="Zoom zurücksetzen"
+                          >
+                            {canvasZoom}%
+                          </button>
+                          <button
+                            onClick={() => setCanvasZoom(Math.min(200, canvasZoom + 10))}
+                            disabled={canvasZoom >= 200}
+                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
+                          >
+                            <MagnifyingGlassPlus size={11} weight="bold" />
+                          </button>
+                        </div>
+
+                        {/* Template */}
                         <button
                           onClick={() => setTemplateApplyMode(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium
                             bg-foreground/5 text-foreground/60 hover:bg-foreground/10 hover:text-foreground transition-colors"
                           title="Vorlage anwenden"
                         >
-                          <Swatches size={14} weight="bold" />
-                          Vorlage
+                          <Swatches size={12} weight="bold" />
+                          <span className="hidden xl:inline">Vorlage</span>
                         </button>
-                        {/* Column labels */}
-                        <div className="flex gap-1">
-                          {Array.from({ length: currentGridCols }, (_, i) => (
-                            <div key={i} className="w-6 h-6 rounded flex items-center justify-center text-[10px] font-mono text-foreground/25">
-                              {i + 1}
-                            </div>
-                          ))}
-                        </div>
                       </div>
                     </div>
 
                     {/* WYSIWYG Grid Canvas */}
                     <div
-                      className="flex-1 overflow-y-auto p-4 sm:p-5"
+                      className="flex-1 overflow-auto p-3 sm:p-5"
                       onClick={() => setSelectedWidgetId(null)}
                       style={{
-                        background: 'linear-gradient(180deg, oklch(0.2 0.01 260 / 0.3) 0%, transparent 100%)',
+                        background: previewMode
+                          ? 'transparent'
+                          : 'linear-gradient(180deg, oklch(0.2 0.01 260 / 0.3) 0%, transparent 100%)',
                       }}
                     >
                       <div
-                        className="grid gap-2.5"
+                        className="max-w-[1500px] mx-auto origin-top transition-transform"
                         style={{
-                          gridTemplateColumns: `repeat(${currentGridCols}, 1fr)`,
-                          gridTemplateRows: `repeat(${gridRows}, minmax(64px, auto))`,
+                          transform: canvasZoom !== 100 ? `scale(${canvasZoom / 100})` : undefined,
+                          width: canvasZoom !== 100 ? `${10000 / canvasZoom}%` : undefined,
                         }}
                       >
-                        {renderGridCanvas()}
+                        <div
+                          className="grid w-full"
+                          style={{
+                            gridTemplateColumns: `repeat(${currentGridCols}, minmax(0, 1fr))`,
+                            gridTemplateRows: `repeat(${gridRows}, minmax(64px, auto))`,
+                            gap: `${currentGap}px`,
+                          }}
+                        >
+                          {renderGridCanvas()}
+                        </div>
                       </div>
                     </div>
                   </>
@@ -1210,7 +1517,7 @@ export function PageDesigner({
               </div>
 
               {/* Right sidebar - Widget palette / properties */}
-              {selectedPage && (
+              {selectedPage && !previewMode && (
                 <WidgetPalette
                   selectedWidget={selectedWidget}
                   availableEntities={availableEntities}
@@ -1220,6 +1527,7 @@ export function PageDesigner({
                   onUpdateWidget={handleUpdateWidget}
                   onResizeWidget={handleResizeWidget}
                   onDeleteWidget={handleDeleteWidget}
+                  onDuplicateWidget={handleDuplicateWidget}
                   onMoveWidget={handleMoveWidget}
                   onOpenWidgetGroupDesigner={setEditingGroupWidgetId}
                 />
@@ -1251,6 +1559,7 @@ export function PageDesigner({
             onClose={() => setTemplateApplyMode(false)}
             onSelect={(newPage) => {
               if (selectedPageId) {
+                snapshot()
                 const updatedPages = pages.map((p) =>
                   p.id === selectedPageId ? { ...p, widgets: newPage.widgets } : p
                 )

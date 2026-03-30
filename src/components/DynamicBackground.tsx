@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
 
 function normalizePosition(raw: unknown): string {
@@ -34,6 +35,8 @@ function buildOpacity(config: Record<string, unknown>): number {
 
 export function DynamicBackground() {
   const { background } = useConfiguration()
+  const { theme } = useTheme()
+  const isSleep = theme === 'sleep'
 
   if (!background || !background.is_active) {
     return null
@@ -58,7 +61,14 @@ export function DynamicBackground() {
   }
 
   return (
-    <div className="fixed inset-0 z-0 pointer-events-none">
+    <div
+      className="fixed inset-0 z-0 pointer-events-none"
+      style={{
+        filter: isSleep ? 'brightness(0.03) grayscale(1) saturate(0)' : 'none',
+        opacity: isSleep ? 0.1 : 1,
+        transition: 'filter 0.6s ease, opacity 0.6s ease',
+      }}
+    >
       {background.background_type === 'static' && (
         <StaticBackground config={config} />
       )}
