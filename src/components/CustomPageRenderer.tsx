@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { GridFour } from '@phosphor-icons/react'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
 import { SwitchWidget } from '@/components/widgets/SwitchWidget'
@@ -33,7 +34,25 @@ import { AlarmWidget } from '@/components/widgets/AlarmWidget'
 import { SceneSelector } from '@/components/scenes/SceneSelector'
 import { ChatCardWidget } from '@/components/widgets/ChatCardWidget'
 import { DynamicTextWidget } from '@/components/widgets/DynamicTextWidget'
+import EntityHistoryWidget from '@/components/widgets/EntityHistoryWidget'
+import StatisticsChartWidget from '@/components/widgets/StatisticsChartWidget'
+import EnergyMonitorWidget from '@/components/widgets/EnergyMonitorWidget'
+import EntityStatisticsWidget from '@/components/widgets/EntityStatisticsWidget'
+import QuickActionsWidget from '@/components/widgets/QuickActionsWidget'
+import SystemMonitorWidget from '@/components/widgets/SystemMonitorWidget'
+import SceneManagerWidget from '@/components/widgets/SceneManagerWidget'
+import RoomSummaryWidget from '@/components/widgets/RoomSummaryWidget'
+import NotificationLogWidget from '@/components/widgets/NotificationLogWidget'
+import WaterUsageWidget from '@/components/widgets/WaterUsageWidget'
+import PageLinkWidget from '@/components/widgets/PageLinkWidget'
+import WasteCollectionWidget from '@/components/widgets/WasteCollectionWidget'
+import WidgetCarouselWidget from '@/components/widgets/WidgetCarouselWidget'
+import NinaWarningWidget from '@/components/widgets/NinaWarningWidget'
+import MapWidget from '@/components/widgets/MapWidget'
+import IFrameWidget from '@/components/widgets/IFrameWidget'
+import StreamWidget from '@/components/widgets/StreamWidget'
 import { getCardStyleClass } from '@/lib/defaults'
+import { useLocalStorage } from '@/lib/storage'
 import type {
   DashboardPage,
   DashboardWidget,
@@ -289,6 +308,7 @@ export function RenderWidget({
   userName,
   weatherEntity,
   lightEntities,
+  widgetSize,
 }: {
   widget: DashboardWidget
   entities: EntityState[]
@@ -296,7 +316,9 @@ export function RenderWidget({
   userName?: string
   weatherEntity?: WeatherEntity
   lightEntities?: LightEntity[]
+  widgetSize?: { w: number; h: number }
 }) {
+  const resolvedSize = widgetSize || widget.size
   const entity = widget.entity_id
     ? entities.find((e) => e.entity_id === widget.entity_id)
     : undefined
@@ -304,13 +326,13 @@ export function RenderWidget({
   switch (widget.type) {
     case 'light':
       return entity ? (
-        <LightWidget entity={entity as LightEntity} onUpdate={onUpdate} allEntities={entities} config={widget.config} />
+        <LightWidget entity={entity as LightEntity} onUpdate={onUpdate} allEntities={entities} config={widget.config} widgetSize={resolvedSize} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
     case 'climate':
       return entity ? (
-        <ClimateWidget entity={entity as ClimateEntity} onUpdate={onUpdate} config={widget.config} />
+        <ClimateWidget entity={entity as ClimateEntity} onUpdate={onUpdate} config={widget.config} widgetSize={resolvedSize} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
@@ -322,14 +344,14 @@ export function RenderWidget({
       )
     case 'sensor':
       return entity ? (
-        <SensorWidget entity={entity as SensorEntity} onUpdate={onUpdate} config={widget.config} />
+        <SensorWidget entity={entity as SensorEntity} onUpdate={onUpdate} config={widget.config} widgetSize={resolvedSize} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
     case 'weather':
-      return <WeatherWidget entity={(entity as WeatherEntity) || weatherEntity} config={widget.config} />
+      return <WeatherWidget entity={(entity as WeatherEntity) || weatherEntity} config={widget.config} widgetSize={resolvedSize} />
     case 'greeting':
-      return <GreetingWidget userName={userName} weatherEntity={weatherEntity} />
+      return <GreetingWidget userName={userName} weatherEntity={weatherEntity} config={widget.config} />
     case 'chat_card':
       return (
         <ChatCardWidget
@@ -363,7 +385,7 @@ export function RenderWidget({
         />
       )
     case 'calendar':
-      return <CalendarWidget />
+      return <CalendarWidget config={widget.config} />
     case 'scene_selector': {
       const lights = lightEntities || entities.filter(e => e.entity_id.startsWith('light.')) as LightEntity[]
       return <SceneSelector lightEntities={lights} onUpdate={onUpdate} />
@@ -556,6 +578,7 @@ export function RenderWidget({
                   userName={userName}
                   weatherEntity={weatherEntity}
                   lightEntities={lightEntities}
+                  widgetSize={childWidget.size}
                 />
               </div>
             )
@@ -565,10 +588,56 @@ export function RenderWidget({
     }
     case 'media_player':
       return entity ? (
-        <MediaPlayerWidget entity={entity as MediaPlayerEntity} onUpdate={onUpdate} />
+        <MediaPlayerWidget entity={entity as MediaPlayerEntity} onUpdate={onUpdate} widgetSize={resolvedSize} />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
+    case 'entity_history':
+      return entity ? (
+        <EntityHistoryWidget entityId={entity.entity_id} config={widget.config} />
+      ) : (
+        <WidgetPlaceholder widget={widget} />
+      )
+    case 'statistics_chart':
+      return entity ? (
+        <StatisticsChartWidget entityId={entity.entity_id} config={widget.config} />
+      ) : (
+        <WidgetPlaceholder widget={widget} />
+      )
+    case 'energy_monitor':
+      return <EnergyMonitorWidget config={widget.config} />
+    case 'entity_statistics':
+      return entity ? (
+        <EntityStatisticsWidget entityId={entity.entity_id} />
+      ) : (
+        <WidgetPlaceholder widget={widget} />
+      )
+    case 'quick_actions':
+      return <QuickActionsWidget config={widget.config} />
+    case 'system_monitor':
+      return <SystemMonitorWidget config={widget.config} />
+    case 'scene_manager':
+      return <SceneManagerWidget config={widget.config} />
+    case 'room_summary':
+      return <RoomSummaryWidget config={widget.config} />
+    case 'notification_log':
+      return <NotificationLogWidget config={widget.config} />
+    case 'water_usage':
+      return <WaterUsageWidget />
+    case 'waste_collection':
+      return <WasteCollectionWidget config={widget.config} />
+    case 'widget_carousel':
+      return <WidgetCarouselWidget widget={widget} entities={entities} onUpdate={onUpdate} />
+    case 'page_link':
+      return <PageLinkWidget config={widget.config} widgetSize={resolvedSize} />
+    case 'nina_warnings':
+      return <NinaWarningWidget config={widget.config} />
+    case 'map':
+      return <MapWidget config={widget.config} />
+    case 'iframe':
+      return <IFrameWidget config={widget.config} />
+    case 'stream':
+      return <StreamWidget config={widget.config} widgetSize={resolvedSize} />
     case 'custom':
     default:
       return <WidgetPlaceholder widget={widget} />
@@ -601,7 +670,13 @@ export function CustomPageRenderer({
   lightEntities,
   hideTitle,
 }: CustomPageRendererProps) {
-  const { cols: designerCols, gap: designerGap, rows: designerRows } = getPageLayoutFromStorage(page.id)
+  const { pageLayouts, pageSettings, globalCustomCss, userCustomCss } = usePageNavigation()
+  const layout = pageLayouts[page.id]
+  const ps = pageSettings[page.id]
+  const [globalCardStyle] = useLocalStorage('ha-global-card-style', 'default')
+  const designerCols = Math.max(2, Math.min(8, layout?.cols ?? 6))
+  const designerGap = Math.max(0, Math.min(24, layout?.gap ?? 10))
+  const designerRows = Math.max(6, layout?.rows ?? 6)
   const [, setVisibilityTick] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200)
 
@@ -668,9 +743,28 @@ export function CustomPageRenderer({
     })
   }, [visibleWidgets, mobileColumns, designerCols, isReduced])
 
+  // Per-page settings: determine effective card style for widgets without explicit card style
+  const pageCardStyle = ps?.card_style && ps.card_style !== 'default' ? ps.card_style : undefined
+  const effectiveDefaultCardStyle = pageCardStyle || (globalCardStyle !== 'default' ? globalCardStyle : undefined)
+  const effectivePadding = ps?.padding ?? undefined
+  const effectiveHideHeader = ps?.hide_header || false
+
   return (
-    <div className="space-y-4">
-      {!hideTitle && (
+    <div className="space-y-4" style={effectivePadding !== undefined ? { padding: `0 ${effectivePadding}px` } : undefined}>
+      {/* Inject global custom CSS (all pages) */}
+      {globalCustomCss && (
+        <style dangerouslySetInnerHTML={{ __html: globalCustomCss }} />
+      )}
+      {/* Inject per-user custom CSS (overrides global) */}
+      {userCustomCss && (
+        <style dangerouslySetInnerHTML={{ __html: userCustomCss }} />
+      )}
+      {/* Inject per-page custom CSS (overrides global + user) */}
+      {ps?.custom_css && (
+        <style dangerouslySetInnerHTML={{ __html: ps.custom_css }} />
+      )}
+
+      {!hideTitle && !effectiveHideHeader && (
         <h3 className="text-xl font-medium text-foreground px-1">{page.name}</h3>
       )}
 
@@ -701,6 +795,7 @@ export function CustomPageRenderer({
         >
           {reflowedWidgets.map(({ widget, col, colSpan, row, rowSpan, useAutoFlow }) => {
             const alignment = (widget.config?.alignment as 'left' | 'center' | 'right' | undefined) || 'left'
+            const fillHeight = !!widget.config?.fillHeight
 
             return (
               <motion.div
@@ -709,8 +804,9 @@ export function CustomPageRenderer({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}
                 className={[
+                  fillHeight ? 'h-full' : '',
                   widget.config?.transparentBackground ? 'widget-transparent' : '',
-                  getCardStyleClass(widget.config?.cardStyle as string | undefined),
+                  getCardStyleClass((widget.config?.cardStyle as string | undefined) || effectiveDefaultCardStyle),
                 ].filter(Boolean).join(' ') || undefined}
                 style={useAutoFlow ? {
                   gridColumn: `span ${colSpan}`,
@@ -723,6 +819,7 @@ export function CustomPageRenderer({
               >
                 <div
                   className={[
+                    fillHeight ? 'h-full' : '',
                     alignment === 'center' ? 'mx-auto' : '',
                     alignment === 'right' ? 'ml-auto' : '',
                     alignment === 'left' ? 'w-full' : 'w-fit max-w-full',
@@ -735,6 +832,7 @@ export function CustomPageRenderer({
                     userName={userName}
                     weatherEntity={weatherEntity}
                     lightEntities={lightEntities}
+                    widgetSize={fillHeight ? { w: colSpan, h: rowSpan } : undefined}
                   />
                 </div>
               </motion.div>

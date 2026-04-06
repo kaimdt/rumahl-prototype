@@ -1,4 +1,5 @@
 import { storage } from '@/lib/storage'
+import { authFetch } from '@/lib/authHelpers'
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
 
@@ -68,7 +69,7 @@ export function setLightEnhancementSettings(settings: LightEnhancementSettings):
   storage.set(LIGHT_ENHANCEMENTS_STORAGE_KEY, normalized)
 
   // Persist globally for all users/devices.
-  void fetch(`${API_BASE}/api/config/system/preferences`, {
+  void authFetch(`/api/config/system/preferences`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -108,7 +109,7 @@ export async function loadLightEnhancementSettingsFromBackend(): Promise<void> {
 
   globalLoadInFlight = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/config/system/preferences`)
+      const res = await authFetch(`/api/config/system/preferences`)
       if (!res.ok) return
 
       const prefs = await res.json() as Array<{ preference_key: string; preference_value: unknown }>

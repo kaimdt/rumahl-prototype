@@ -8,6 +8,7 @@
  */
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { authFetch } from '@/lib/authHelpers'
 
 // Keys that should be synced to backend for cross-device use
 const SYNCED_KEYS = [
@@ -16,23 +17,33 @@ const SYNCED_KEYS = [
   'ha-dynamic-overview-enabled',
   'ha-sleep-mode',
   'ha-auto-theme',
+  'ha-selected-theme',
   'night-mode-settings',
   'accent-color-settings',
   'screensaver-enabled',
   'screensaver-timeout',
+  'screensaver-schedules',
   'color-scenes',
   'glass-settings',
+  'ha-haptic-feedback',
+  'ha-nav-labels',
+  'ha-nav-style',
+  'ha-animations-reduced',
+  'ha-font-size',
+  'ha-widget-compact',
+  'ha-global-card-style',
 ]
 
 let syncUserId: string | null = null
-let saveTimer: number | undefined
+// Per-key debounce timers to avoid cancelling saves for different keys
+const saveTimers = new Map<string, number>()
 
 async function getUserId(): Promise<string | null> {
   if (syncUserId) return syncUserId
 
   const username = localStorage.getItem('ha-username') || 'default'
   try {
-    const res = await fetch(`${API_BASE}/api/config/users/${username}`)
+    const res = await authFetch(`/api/config/users/${username}`)
     if (res.ok) {
       const u = await res.json()
       syncUserId = u.id
@@ -44,24 +55,32 @@ async function getUserId(): Promise<string | null> {
   return null
 }
 
+/** Safely convert a backend preference_value to a localStorage string */
+function toLocalStorageValue(val: unknown): string {
+  if (typeof val === 'string') return val
+  return JSON.stringify(val)
+}
+
 /** Load all preferences from backend and populate localStorage for missing/stale keys */
 export async function loadSettingsFromBackend() {
   try {
     const userId = await getUserId()
     if (!userId) return
 
-    const res = await fetch(`${API_BASE}/api/config/preferences/${userId}`)
+    const res = await authFetch(`/api/config/preferences/${userId}`)
     if (!res.ok) return
 
-    const prefs: Array<{ preference_key: string; preference_value: string }> = await res.json()
+    const prefs: Array<{ preference_key: string; preference_value: unknown }> = await res.json()
 
     for (const pref of prefs) {
       if (!SYNCED_KEYS.includes(pref.preference_key)) continue
 
+      const backendVal = toLocalStorageValue(pref.preference_value)
       const localVal = localStorage.getItem(pref.preference_key)
-      if (localVal === null) {
-        // localStorage doesn't have this key — restore from backend
-        localStorage.setItem(pref.preference_key, pref.preference_value)
+
+      if (localVal === null || localVal !== backendVal) {
+        // Restore from backend (missing locally or backend has newer value)
+        localStorage.setItem(pref.preference_key, backendVal)
         console.log('[SettingsSync] Restored', pref.preference_key, 'from backend')
       }
     }
@@ -81,7 +100,7 @@ async function pushSetting(key: string, value: string) {
     let parsed: unknown
     try { parsed = JSON.parse(value) } catch { parsed = value }
 
-    await fetch(`${API_BASE}/api/config/preferences/${userId}`, {
+    await authFetch(`/api/config/preferences/${userId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -108,10 +127,12 @@ export async function pushAllSettingsToBackend() {
 export function scheduleSyncToBackend(key: string, value: string) {
   if (!SYNCED_KEYS.includes(key)) return
 
-  if (saveTimer !== undefined) {
-    window.clearTimeout(saveTimer)
+  const existingTimer = saveTimers.get(key)
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer)
   }
-  saveTimer = window.setTimeout(() => {
+  saveTimers.set(key, window.setTimeout(() => {
+    saveTimers.delete(key)
     pushSetting(key, value)
-  }, 2000)
+  }, 2000))
 }

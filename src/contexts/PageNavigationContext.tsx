@@ -5,6 +5,7 @@ import { DEFAULT_HOME_WIDGETS } from '@/lib/layoutTemplates'
 import { wsOnMessage } from '@/lib/wsConnection'
 import { loadSettingsFromBackend, pushAllSettingsToBackend } from '@/lib/settingsSync'
 import { loadLightEnhancementSettingsFromBackend } from '@/lib/lightEnhancements'
+import { parseStoredToken, authFetch } from '@/lib/authHelpers'
 import {
   House,
   Lightbulb,
@@ -36,14 +37,97 @@ import {
   Sun,
   Moon,
   FireSimple,
+  Warehouse,
+  Buildings,
+  Armchair,
+  Shower,
+  Stairs,
+  SwimmingPool,
+  CloudSun,
+  CloudRain,
+  Snowflake,
+  Wind,
+  Umbrella,
+  Rainbow,
+  Television,
+  Lamp,
+  WashingMachine,
+  Cat,
+  Bird,
+  Fish,
+  PawPrint,
+  Flower,
+  Leaf,
+  Plant,
+  Bicycle,
+  Airplane,
+  Train,
+  Bluetooth,
+  Cpu,
+  HardDrive,
+  Robot,
+  Heartbeat,
+  FirstAid,
+  Siren,
+  Coffee,
+  Wine,
+  ForkKnife,
+  Bell,
+  Calendar,
+  ChatCircle,
+  Clock,
+  MapPin,
+  Star,
+  Gift,
+  Wrench,
+  Eye,
+  Phone,
+  EnvelopeSimple,
+  Alarm,
+  Timer,
+  Power,
+  Plug,
+  Toolbox,
+  Palette,
+  MusicNote,
+  GameController,
+  BookOpen,
+  Heart,
+  Trophy,
+  Megaphone,
 } from '@phosphor-icons/react'
+
+export interface PageSettings {
+  page_id: string
+  card_style: string
+  background_type: string | null
+  background_config: any | null
+  custom_css: string | null
+  hide_header: boolean
+  padding: number
+}
 
 interface PageNavigationContextType {
   currentPageId: string
   setCurrentPageId: (id: string) => void
   pages: DashboardPage[]
   setPages: (pages: DashboardPage[]) => void
+  forceSavePages: (pages: DashboardPage[]) => void
   currentPage: DashboardPage | undefined
+  modalPageId: string | null
+  openModalPage: (id: string) => void
+  closeModalPage: () => void
+  getSubPages: (parentId: string) => DashboardPage[]
+  profileId: string | null
+  pageLayouts: Record<string, { cols: number; rows: number; gap: number }>
+  savePageLayout: (pageId: string, layout: { cols: number; rows: number; gap: number }) => void
+  pageSettings: Record<string, PageSettings>
+  savePageSettings: (pageId: string, settings: Partial<Omit<PageSettings, 'page_id'>>) => void
+  deletePageSettings: (pageId: string) => void
+  globalCustomCss: string
+  setGlobalCustomCss: (css: string) => void
+  userCustomCss: string
+  setUserCustomCss: (css: string) => void
 }
 
 const PageNavigationContext = createContext<PageNavigationContextType | undefined>(undefined)
@@ -64,6 +148,22 @@ const defaultPages: DashboardPage[] = [
     widgets: [],
     showInNav: true,
     order: 999,
+  },
+  {
+    id: 'docs',
+    name: 'Dokumentation',
+    icon: 'BookOpen',
+    widgets: [],
+    showInNav: true,
+    order: 998,
+  },
+  {
+    id: 'streaming',
+    name: 'Streaming',
+    icon: 'VideoCamera',
+    widgets: [],
+    showInNav: true,
+    order: 997,
   },
 ]
 
@@ -98,9 +198,67 @@ export const iconMap = {
   Sun,
   Moon,
   FireSimple,
+  Warehouse,
+  Buildings,
+  Armchair,
+  Shower,
+  Stairs,
+  SwimmingPool,
+  CloudSun,
+  CloudRain,
+  Snowflake,
+  Wind,
+  Umbrella,
+  Rainbow,
+  Television,
+  Lamp,
+  WashingMachine,
+  Cat,
+  Bird,
+  Fish,
+  PawPrint,
+  Flower,
+  Leaf,
+  Plant,
+  Bicycle,
+  Airplane,
+  Train,
+  Bluetooth,
+  Cpu,
+  HardDrive,
+  Robot,
+  Heartbeat,
+  FirstAid,
+  Siren,
+  Coffee,
+  Wine,
+  ForkKnife,
+  Bell,
+  Calendar,
+  ChatCircle,
+  Clock,
+  MapPin,
+  Star,
+  Gift,
+  Wrench,
+  Eye,
+  Phone,
+  EnvelopeSimple,
+  Alarm,
+  Timer,
+  Power,
+  Plug,
+  Toolbox,
+  Palette,
+  MusicNote,
+  GameController,
+  BookOpen,
+  Heart,
+  Trophy,
+  Megaphone,
 }
 
-const builtInPages = ['lights', 'climate', 'switches', 'sensors', 'settings']
+const builtInPages = ['lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
 
 function pageIdToPath(id: string): string {
   if (id === 'home') return '/'
@@ -135,6 +293,10 @@ interface BackendPageWithWidgets {
     name: string
     icon: string
     position: number
+    show_in_nav?: boolean | number
+    display_mode?: string
+    parent_page_id?: string | null
+    modal_settings?: string | null
   }
   widgets: BackendPageWidget[]
 }
@@ -145,8 +307,11 @@ function backendToFrontend(backendPages: BackendPageWithWidgets[]): DashboardPag
     id: p.page.page_id,
     name: p.page.name,
     icon: p.page.icon,
-    showInNav: true,
+    showInNav: p.page.show_in_nav == null ? true : !!p.page.show_in_nav,
     order: p.page.position,
+    displayMode: (p.page.display_mode as 'page' | 'modal') || 'page',
+    parentPageId: p.page.parent_page_id || undefined,
+    modalSettings: p.page.modal_settings ? JSON.parse(p.page.modal_settings) : undefined,
     widgets: p.widgets.map((w): DashboardWidget => ({
       id: w.id,
       type: w.widget_type as DashboardWidget['type'],
@@ -165,6 +330,10 @@ function frontendToBackend(pages: DashboardPage[]) {
     name: page.name,
     icon: page.icon,
     position: page.order ?? index,
+    show_in_nav: page.showInNav === false ? false : true,
+    display_mode: page.displayMode || 'page',
+    parent_page_id: page.parentPageId || null,
+    modal_settings: page.modalSettings || null,
     widgets: page.widgets.map(widget => ({
       widget_type: widget.type,
       entity_id: widget.entity_id || null,
@@ -177,22 +346,7 @@ function frontendToBackend(pages: DashboardPage[]) {
   }))
 }
 
-function parseStoredToken(raw: string | null): string | null {
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw)
-    if (typeof parsed === 'string') return parsed
-    if (parsed && typeof parsed === 'object') {
-      const token = (parsed as Record<string, unknown>).token
-      const accessToken = (parsed as Record<string, unknown>).access_token
-      if (typeof token === 'string') return token
-      if (typeof accessToken === 'string') return accessToken
-    }
-  } catch {
-    return raw
-  }
-  return null
-}
+// parseStoredToken and authFetch imported from @/lib/authHelpers
 
 async function resolveUsername(): Promise<string> {
   const localUsername = localStorage.getItem('ha-username')
@@ -203,9 +357,7 @@ async function resolveUsername(): Promise<string> {
 
   if (token) {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/verify`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const res = await authFetch(`/api/auth/verify`)
       if (res.ok) {
         const user = await res.json() as { username?: string }
         if (user.username && user.username.trim()) {
@@ -225,12 +377,12 @@ async function resolveUsername(): Promise<string> {
 /** Ensure a backend user exists and return its id */
 async function ensureUser(): Promise<string> {
   const username = await resolveUsername()
-  let res = await fetch(`${API_BASE}/api/config/users/${username}`)
+  let res = await authFetch(`/api/config/users/${username}`)
   if (res.ok) {
     const u = await res.json()
     return u.id
   }
-  res = await fetch(`${API_BASE}/api/config/users`, {
+  res = await authFetch(`/api/config/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, display_name: username }),
@@ -247,10 +399,10 @@ async function ensureUser(): Promise<string> {
 async function ensureDevice(): Promise<string> {
   let deviceId = localStorage.getItem('ha-device-id')
   if (deviceId) {
-    const res = await fetch(`${API_BASE}/api/config/devices/${deviceId}`)
+    const res = await authFetch(`/api/config/devices/${deviceId}`)
     if (res.ok) return deviceId
   }
-  const res = await fetch(`${API_BASE}/api/config/devices`, {
+  const res = await authFetch(`/api/config/devices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -269,7 +421,7 @@ async function ensureDevice(): Promise<string> {
 
 /** Get or create a profile and return its id */
 async function ensureProfile(userId: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/config/profiles`, {
+  const res = await authFetch(`/api/config/profiles`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -287,7 +439,7 @@ async function ensureProfile(userId: string): Promise<string> {
 
 /** Load pages from backend profile */
 async function loadPagesFromBackend(profileId: string): Promise<DashboardPage[] | null> {
-  const res = await fetch(`${API_BASE}/api/config/profiles/${profileId}`)
+  const res = await authFetch(`/api/config/profiles/${profileId}`)
   if (!res.ok) return null
   const data = await res.json()
   if (!data.pages || data.pages.length === 0) return null
@@ -296,11 +448,22 @@ async function loadPagesFromBackend(profileId: string): Promise<DashboardPage[] 
 
 /** Save pages to backend profile (fire-and-forget) */
 async function savePagesToBackend(profileId: string, pages: DashboardPage[]) {
-  await fetch(`${API_BASE}/api/config/profiles/${profileId}/pages`, {
+  await authFetch(`/api/config/profiles/${profileId}/pages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(frontendToBackend(pages)),
   })
+}
+
+/** Ensure all default pages exist in the array (backend might not have them yet) */
+function ensureDefaultPages(backendPages: DashboardPage[]): DashboardPage[] {
+  const merged = [...backendPages]
+  for (const dp of defaultPages) {
+    if (!merged.find(p => p.id === dp.id)) {
+      merged.push(dp)
+    }
+  }
+  return merged
 }
 
 // ── Provider ──────────────────────────────────────────────────────────
@@ -310,20 +473,45 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   const [currentPageId, setCurrentPageIdState] = useState<string>(() =>
     pathToPageId(window.location.pathname)
   )
+  const [modalPageId, setModalPageId] = useState<string | null>(null)
+  const [pageLayouts, setPageLayoutsState] = useState<Record<string, { cols: number; rows: number; gap: number }>>({})
+  const [pageSettingsState, setPageSettingsState] = useState<Record<string, PageSettings>>({})
+  const [globalCustomCss, setGlobalCustomCssState] = useState<string>('')
+  const [userCustomCss, setUserCustomCssState] = useState<string>('')
 
   // Backend profile id (set once on init)
   const profileIdRef = useRef<string | null>(null)
+  const userIdRef = useRef<string | null>(null)
   const saveTimerRef = useRef<number | undefined>(undefined)
   // Skip saving to backend during initial load from backend
   const skipNextSaveRef = useRef(false)
 
   const setCurrentPageId = useCallback((id: string) => {
+    // Check if the target page is a modal page
+    const targetPage = pages.find(p => p.id === id)
+    if (targetPage?.displayMode === 'modal') {
+      setModalPageId(id)
+      return
+    }
+    setModalPageId(null) // Close any open modal
     setCurrentPageIdState(id)
     const path = pageIdToPath(id)
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
+  }, [pages])
+
+  const openModalPage = useCallback((id: string) => {
+    setModalPageId(id)
   }, [])
+
+  const closeModalPage = useCallback(() => {
+    setModalPageId(null)
+  }, [])
+
+  const getSubPages = useCallback((parentId: string) => {
+    return pages.filter(p => p.parentPageId === parentId)
+  }, [pages])
 
   // Handle browser back/forward navigation
   useEffect(() => {
@@ -346,15 +534,81 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
         if (cancelled) return
 
         profileIdRef.current = profileId
+        userIdRef.current = userId
+
+        // Load page layouts from backend
+        try {
+          const layoutRes = await authFetch(`/api/config/profiles/${profileId}/layouts`)
+          if (layoutRes.ok) {
+            const layouts = await layoutRes.json() as Array<{ page_id: string; cols: number; rows: number; gap: number }>
+            const layoutMap: Record<string, { cols: number; rows: number; gap: number }> = {}
+            for (const l of layouts) {
+              layoutMap[l.page_id] = { cols: l.cols, rows: l.rows, gap: l.gap }
+            }
+            if (!cancelled) setPageLayoutsState(layoutMap)
+            // Also sync to localStorage for CustomPageRenderer fallback
+            localStorage.setItem('ha-page-designer-layouts', JSON.stringify(layoutMap))
+          }
+        } catch {
+          // Layout loading is non-critical
+        }
+
+        // Load page settings from backend
+        try {
+          const psRes = await authFetch(`/api/config/profiles/${profileId}/page-settings`)
+          if (psRes.ok) {
+            const psArr = await psRes.json() as Array<{ page_id: string; card_style: string; background_type: string | null; background_config: string | null; custom_css: string | null; hide_header: number; padding: number }>
+            const psMap: Record<string, PageSettings> = {}
+            for (const ps of psArr) {
+              psMap[ps.page_id] = {
+                page_id: ps.page_id,
+                card_style: ps.card_style || 'default',
+                background_type: ps.background_type || null,
+                background_config: ps.background_config ? JSON.parse(ps.background_config) : null,
+                custom_css: ps.custom_css || null,
+                hide_header: !!ps.hide_header,
+                padding: ps.padding ?? 16,
+              }
+            }
+            if (!cancelled) setPageSettingsState(psMap)
+          }
+        } catch {
+          // Page settings loading is non-critical
+        }
+
+        // Load global custom CSS from system preferences
+        try {
+          const cssRes = await authFetch(`/api/config/system/preferences`)
+          if (cssRes.ok) {
+            const prefs = await cssRes.json() as Array<{ preference_key: string; preference_value: string }>
+            const cssPref = prefs.find(p => p.preference_key === 'global_custom_css')
+            if (cssPref && !cancelled) setGlobalCustomCssState(cssPref.preference_value)
+          }
+        } catch {
+          // Global CSS loading is non-critical
+        }
+
+        // Load per-user custom CSS from user preferences
+        try {
+          const userCssRes = await authFetch(`/api/config/preferences/${userId}`)
+          if (userCssRes.ok) {
+            const prefs = await userCssRes.json() as Array<{ preference_key: string; preference_value: string }>
+            const cssPref = prefs.find(p => p.preference_key === 'user_custom_css')
+            if (cssPref && !cancelled) setUserCustomCssState(cssPref.preference_value)
+          }
+        } catch {
+          // User CSS loading is non-critical
+        }
 
         // Try loading pages from backend
         const backendPages = await loadPagesFromBackend(profileId)
         if (cancelled) return
 
         if (backendPages && backendPages.length > 0) {
-          // Backend has pages → use them (overrides localStorage)
+          // Backend has pages → use them, ensuring built-in pages exist
+          const withDefaults = ensureDefaultPages(backendPages)
           // Migrate home page default widgets if needed
-          const migrated = backendPages.map(p => {
+          const migrated = withDefaults.map(p => {
             if (p.id === 'home' && p.widgets.length === 0) {
               return { ...p, widgets: DEFAULT_HOME_WIDGETS }
             }
@@ -415,6 +669,22 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     }, 1000)
   }, [setLocalPages])
 
+  // ── Immediate save (for page metadata changes like showInNav) ──────
+  const forceSavePages = useCallback((newPages: DashboardPage[]) => {
+    setLocalPages(newPages)
+    // Clear any pending debounce
+    if (saveTimerRef.current !== undefined) {
+      window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = undefined
+    }
+    const profileId = profileIdRef.current
+    if (profileId) {
+      savePagesToBackend(profileId, newPages).catch(err => {
+        console.warn('[PageSync] Failed to force-save pages to backend:', err)
+      })
+    }
+  }, [setLocalPages])
+
   // ── Listen for config_changed WebSocket events (cross-device sync) ─
   useEffect(() => {
     const unsub = wsOnMessage(async (data: unknown) => {
@@ -432,7 +702,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
         const backendPages = await loadPagesFromBackend(profileId)
         if (backendPages && backendPages.length > 0) {
           skipNextSaveRef.current = true
-          setLocalPages(backendPages)
+          setLocalPages(ensureDefaultPages(backendPages))
         }
       } catch (err) {
         console.warn('[PageSync] Failed to reload pages after config_changed:', err)
@@ -441,15 +711,138 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     return unsub
   }, [setLocalPages])
 
+  // ── Periodic sync: poll backend for changes every 30 seconds ──────
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const profileId = profileIdRef.current
+      if (!profileId) return
+
+      try {
+        const backendPages = await loadPagesFromBackend(profileId)
+        if (backendPages && backendPages.length > 0) {
+          const withDefaults = ensureDefaultPages(backendPages)
+          // Only update if pages actually changed
+          const currentJson = JSON.stringify(pages.map(p => ({ id: p.id, name: p.name, icon: p.icon, showInNav: p.showInNav, order: p.order })))
+          const newJson = JSON.stringify(withDefaults.map(p => ({ id: p.id, name: p.name, icon: p.icon, showInNav: p.showInNav, order: p.order })))
+          if (currentJson !== newJson) {
+            console.log('[PageSync] Periodic sync detected changes, updating pages')
+            skipNextSaveRef.current = true
+            setLocalPages(withDefaults)
+          }
+        }
+      } catch {
+        // Periodic sync is non-critical
+      }
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [pages, setLocalPages])
+
   const currentPage = pages.find(p => p.id === currentPageId)
+
+  const savePageLayout = useCallback((pageId: string, layout: { cols: number; rows: number; gap: number }) => {
+    setPageLayoutsState(prev => {
+      const updated = { ...prev, [pageId]: layout }
+      // Sync to localStorage as fallback
+      localStorage.setItem('ha-page-designer-layouts', JSON.stringify(updated))
+      return updated
+    })
+
+    // Save to backend
+    const profileId = profileIdRef.current
+    if (profileId) {
+      authFetch(`/api/config/profiles/${profileId}/layouts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page_id: pageId, cols: layout.cols, rows: layout.rows, gap: layout.gap }),
+      }).catch(err => {
+        console.warn('[PageSync] Failed to save page layout to backend:', err)
+      })
+    }
+  }, [])
+
+  const savePageSettings = useCallback((pageId: string, settings: Partial<Omit<PageSettings, 'page_id'>>) => {
+    setPageSettingsState(prev => {
+      const existing = prev[pageId] || { page_id: pageId, card_style: 'default', background_type: null, background_config: null, custom_css: null, hide_header: false, padding: 16 }
+      return { ...prev, [pageId]: { ...existing, ...settings } }
+    })
+
+    const profileId = profileIdRef.current
+    if (profileId) {
+      authFetch(`/api/config/profiles/${profileId}/page-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page_id: pageId, ...settings }),
+      }).catch(err => {
+        console.warn('[PageSync] Failed to save page settings:', err)
+      })
+    }
+  }, [])
+
+  const deletePageSettings = useCallback((pageId: string) => {
+    setPageSettingsState(prev => {
+      const next = { ...prev }
+      delete next[pageId]
+      return next
+    })
+
+    const profileId = profileIdRef.current
+    if (profileId) {
+      authFetch(`/api/config/profiles/${profileId}/page-settings/${pageId}`, {
+        method: 'DELETE',
+      }).catch(err => {
+        console.warn('[PageSync] Failed to delete page settings:', err)
+      })
+    }
+  }, [])
+
+  const setGlobalCustomCss = useCallback((css: string) => {
+    setGlobalCustomCssState(css)
+    // Save to system preferences
+    authFetch(`/api/config/system/preferences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preference_key: 'global_custom_css', preference_value: css }),
+    }).catch(err => {
+      console.warn('[PageSync] Failed to save global CSS:', err)
+    })
+  }, [])
+
+  const setUserCustomCss = useCallback((css: string) => {
+    setUserCustomCssState(css)
+    const userId = userIdRef.current
+    if (userId) {
+      authFetch(`/api/config/preferences/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preference_key: 'user_custom_css', preference_value: css }),
+      }).catch(err => {
+        console.warn('[PageSync] Failed to save user CSS:', err)
+      })
+    }
+  }, [])
 
   const contextValue = useMemo(() => ({
     currentPageId,
     setCurrentPageId,
     pages,
     setPages,
+    forceSavePages,
     currentPage,
-  }), [currentPageId, setCurrentPageId, pages, setPages, currentPage])
+    modalPageId,
+    openModalPage,
+    closeModalPage,
+    getSubPages,
+    profileId: profileIdRef.current,
+    pageLayouts,
+    savePageLayout,
+    pageSettings: pageSettingsState,
+    savePageSettings,
+    deletePageSettings,
+    globalCustomCss,
+    setGlobalCustomCss,
+    userCustomCss,
+    setUserCustomCss,
+  }), [currentPageId, setCurrentPageId, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
 
   return (
     <PageNavigationContext.Provider value={contextValue}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
 import { useTheme } from '@/contexts/ThemeContext'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
 
 function normalizePosition(raw: unknown): string {
@@ -36,7 +37,34 @@ function buildOpacity(config: Record<string, unknown>): number {
 export function DynamicBackground() {
   const { background } = useConfiguration()
   const { theme } = useTheme()
+  const { currentPageId, pageSettings } = usePageNavigation()
   const isSleep = theme === 'sleep'
+
+  // Check for per-page background override
+  const ps = pageSettings[currentPageId]
+  const hasPageBg = ps?.background_type === 'static' && ps?.background_config
+  const pageHidesBackground = ps?.background_type === 'none'
+
+  // Per-page background: render page-specific static image instead of global
+  if (pageHidesBackground) {
+    return null
+  }
+
+  if (hasPageBg) {
+    const pageConfig = typeof ps.background_config === 'string' ? JSON.parse(ps.background_config) : ps.background_config
+    return (
+      <div
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          filter: isSleep ? 'brightness(0.03) grayscale(1) saturate(0)' : 'none',
+          opacity: isSleep ? 0.1 : 1,
+          transition: 'filter 0.6s ease, opacity 0.6s ease',
+        }}
+      >
+        <StaticBackground config={pageConfig} />
+      </div>
+    )
+  }
 
   if (!background || !background.is_active) {
     return null

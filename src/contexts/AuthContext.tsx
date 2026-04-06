@@ -4,12 +4,16 @@ interface User {
   id: string
   username: string
   displayName?: string
+  role: string
+  isAdmin: boolean
 }
 
 interface ApiUser {
   id: string
   username: string
   display_name?: string
+  role?: string
+  is_admin: boolean
 }
 
 interface AuthContextType {
@@ -17,6 +21,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
+  loginWithPin: (userId: string, pin: string) => Promise<void>
   register: (username: string, password: string, displayName?: string) => Promise<void>
   updateProfile: (payload: { username?: string; displayName?: string }) => Promise<void>
   logout: () => void
@@ -30,6 +35,8 @@ function mapApiUser(user: ApiUser): User {
     id: user.id,
     username: user.username,
     displayName: user.display_name,
+    role: user.role || 'user',
+    isAdmin: user.is_admin ?? false,
   }
 }
 
@@ -65,6 +72,8 @@ function writePersistedToken(token: string | null, rememberMe: boolean) {
   }
 }
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(() => readPersistedToken())
@@ -79,14 +88,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const response = await fetch('/api/auth/verify', {
+        const response = await fetch(`${API_BASE}/api/auth/verify`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         })
 
         if (response.ok) {
-          const userData = await response.json() as ApiUser
+          const userData = await response.json() as ApiUser & { refreshed_token?: string }
+          // If the backend issued a fresh token (e.g. admin status changed), update it
+          if (userData.refreshed_token) {
+            const fresh = userData.refreshed_token
+            writePersistedToken(fresh, !!localStorage.getItem('ha-auth-token'))
+            setToken(fresh)
+          }
           const mapped = mapApiUser(userData)
           setUser(mapped)
           localStorage.setItem('ha-username', mapped.username)
@@ -112,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string, rememberMe = false) => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -136,10 +151,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const loginWithPin = useCallback(async (userId: string, pin: string) => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/pin-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_id: userId, pin }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'PIN login failed')
+      }
+
+      const data = await response.json()
+      writePersistedToken(data.token, true)
+      setToken(data.token)
+      const mapped = mapApiUser(data.user as ApiUser)
+      setUser(mapped)
+      localStorage.setItem('ha-username', mapped.username)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
   const register = useCallback(async (username: string, password: string, displayName?: string) => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/auth/register', {
+      const response = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -168,7 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('Nicht angemeldet')
     }
 
-    const response = await fetch(`/api/config/users/by-id/${user.id}`, {
+    const response = await fetch(`${API_BASE}/api/config/users/by-id/${user.id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -204,11 +246,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated,
     isLoading,
     login,
+    loginWithPin,
     register,
     updateProfile,
     logout,
     token,
-  }), [user, isAuthenticated, isLoading, login, register, updateProfile, logout, token])
+  }), [user, isAuthenticated, isLoading, login, loginWithPin, register, updateProfile, logout, token])
 
   return (
     <AuthContext.Provider value={contextValue}>

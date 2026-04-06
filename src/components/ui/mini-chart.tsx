@@ -1,4 +1,29 @@
-import { useId, useMemo, useState, useCallback, useRef } from 'react'
+import { useId, useMemo, useState, useCallback, useRef, useEffect } from 'react'
+
+/** Measure the actual pixel width of a container so SVG charts can re-render
+ *  instead of stretching when their parent resizes (e.g. dialog expand). */
+function useContainerWidth(fallback = 400) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(fallback)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width)
+        if (w > 0) setWidth(w)
+      }
+    })
+    ro.observe(el)
+    // Initial measurement
+    const w = Math.round(el.getBoundingClientRect().width)
+    if (w > 0) setWidth(w)
+    return () => ro.disconnect()
+  }, [])
+
+  return { containerRef, width }
+}
 
 interface MiniChartProps {
   data: { time: number; value: number }[]
@@ -113,8 +138,7 @@ export function MiniChart({
   const gradientId = `chart-grad-${id.replace(/:/g, '')}`
   const svgRef = useRef<SVGSVGElement>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; value: number; time: number } | null>(null)
-
-  const viewW = 400
+  const { containerRef, width: viewW } = useContainerWidth(400)
   const padLeft = 0
   const padRight = 0
   const padTop = 12
@@ -158,7 +182,7 @@ export function MiniChart({
       valueMin: min,
       valueRange: range,
     }
-  }, [data, height, usableW, usableH, padLeft, padTop])
+  }, [data, height, usableW, usableH, padLeft, padTop, viewW])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!svgRef.current || data.length < 2) return
@@ -201,7 +225,7 @@ export function MiniChart({
   const formatVal = (v: number) => (v % 1 === 0 ? String(v) : v.toFixed(1))
 
   return (
-    <div className={className}>
+    <div className={className} ref={containerRef}>
       <div className="flex justify-between mb-1">
         <span className="text-[10px] text-foreground/30">
           Min: {formatVal(minVal)}{unit ? ` ${unit}` : ''}
@@ -216,7 +240,7 @@ export function MiniChart({
         viewBox={`0 0 ${viewW} ${height}`}
         width="100%"
         height={height}
-        preserveAspectRatio="none"
+        preserveAspectRatio="xMidYMid meet"
         className="overflow-visible touch-none"
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
@@ -368,8 +392,7 @@ export function StateTimeline({
 }: StateTimelineProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [tooltip, setTooltip] = useState<{ x: number; state: string; from: number; to: number } | null>(null)
-
-  const viewW = 400
+  const { containerRef, width: viewW } = useContainerWidth(400)
 
   const { segments, timeLabels } = useMemo(() => {
     if (data.length === 0) return { segments: [] as { x: number; width: number; state: string; color: string; from: number; to: number }[], timeLabels: [] as { x: number; label: string; isBold: boolean }[] }
@@ -390,7 +413,7 @@ export function StateTimeline({
     const labels = generateTimeLabels(tMinVal, tEndVal, viewW, 0, viewW)
 
     return { segments: segs, timeLabels: labels }
-  }, [data])
+  }, [data, viewW])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!svgRef.current || segments.length === 0) return
@@ -443,13 +466,13 @@ export function StateTimeline({
         ))}
       </div>
 
-      <div className="relative">
+      <div className="relative" ref={containerRef}>
         <svg
           ref={svgRef}
           viewBox={`0 0 ${viewW} ${totalH}`}
           width="100%"
           height={totalH}
-          preserveAspectRatio="none"
+          preserveAspectRatio="xMidYMid meet"
           className="overflow-visible touch-none"
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}

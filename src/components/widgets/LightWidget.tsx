@@ -11,9 +11,10 @@ interface LightWidgetProps {
   onUpdate?: () => void
   allEntities?: EntityState[]
   config?: Record<string, unknown>
+  widgetSize?: { w: number; h: number }
 }
 
-export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEntities, config }: LightWidgetProps) {
+export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEntities, config, widgetSize }: LightWidgetProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragBrightness, setDragBrightness] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)

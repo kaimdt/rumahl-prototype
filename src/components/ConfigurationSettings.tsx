@@ -18,8 +18,10 @@ import {
   CaretRight,
   Check,
   UploadSimple,
+  Globe,
 } from '@phosphor-icons/react'
-import { DEFAULT_BACKGROUND_PRESETS, DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
+import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS, DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
+import { useLocalStorage } from '@/lib/storage'
 import { toast } from 'sonner'
 
 interface ConfigurationSettingsProps {
@@ -38,8 +40,37 @@ function getAuthToken(): string {
 }
 
 export function ConfigurationSettings({ settingsLocked = false }: ConfigurationSettingsProps) {
-  const { designMode, setDesignMode, user, device, background } = useConfiguration()
+  const { designMode, setDesignMode, user, device, background, savePreference, getPreference } = useConfiguration()
   const [showBackgroundEditor, setShowBackgroundEditor] = useState(false)
+  const [globalCardStyle, setGlobalCardStyle] = useLocalStorage('ha-global-card-style', 'default')
+
+  // Load global card style from backend on mount (populate localStorage)
+  useEffect(() => {
+    getPreference('global_card_style').then((val) => {
+      if (val && val !== globalCardStyle) setGlobalCardStyle(val)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getPreference])
+
+  const handleCardStyleChange = (styleId: string) => {
+    setGlobalCardStyle(styleId)
+    savePreference('global_card_style', styleId)
+  }
+
+  const ScopeBadge = ({ scope }: { scope: 'global' | 'user' | 'device' }) => {
+    const config = {
+      global: { bg: 'bg-blue-500/10 text-blue-400', icon: <Globe size={8} weight="fill" />, label: 'Alle' },
+      user: { bg: 'bg-purple-500/10 text-purple-400', icon: <User size={8} weight="fill" />, label: 'User' },
+      device: { bg: 'bg-orange-500/10 text-orange-400', icon: <Monitor size={8} weight="fill" />, label: 'Gerät' },
+    }[scope]
+    return (
+      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-semibold uppercase tracking-wider ${config.bg}`}
+        title={{ global: 'Gilt für alle Benutzer', user: 'Gilt pro Benutzer', device: 'Gilt nur für dieses Gerät' }[scope]}>
+        {config.icon}
+        {config.label}
+      </span>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -143,7 +174,10 @@ export function ConfigurationSettings({ settingsLocked = false }: ConfigurationS
       </div>
 
       <div className="glass-card rounded-2xl p-6 theme-transition">
-        <h4 className="text-sm font-medium text-foreground mb-2">Hintergrund</h4>
+        <div className="flex items-center gap-2 mb-2">
+          <h4 className="text-sm font-medium text-foreground">Hintergrund</h4>
+          <ScopeBadge scope={designMode === 'device' ? 'device' : 'user'} />
+        </div>
         <p className="text-xs text-foreground/60 mb-4">
           Mehr Kontrolle ueber Position, Fixierung, Transparenz, Blur und Helligkeit.
         </p>
@@ -177,6 +211,67 @@ export function ConfigurationSettings({ settingsLocked = false }: ConfigurationS
           </div>
           <CaretRight size={20} className="text-foreground/40 group-hover:translate-x-1 transition-transform" />
         </motion.button>
+      </div>
+
+      {/* Global Card Style */}
+      <div className="glass-card rounded-2xl p-6 theme-transition">
+        <div className="flex items-center gap-2 mb-2">
+          <h4 className="text-sm font-medium text-foreground">Kartenstil (Global)</h4>
+          <ScopeBadge scope={designMode === 'device' ? 'device' : 'user'} />
+        </div>
+        <p className="text-xs text-foreground/60 mb-4">
+          Standard-Kartenstil fuer alle Widgets. Kann pro Seite ueberschrieben werden.
+        </p>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[420px] overflow-y-auto pr-1">
+          {CARD_STYLE_PRESETS.map((preset) => (
+            <motion.button
+              key={preset.id}
+              onClick={() => !settingsLocked && handleCardStyleChange(preset.id)}
+              disabled={settingsLocked}
+              className={`
+                relative rounded-xl border-2 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden
+                ${globalCardStyle === preset.id
+                  ? 'border-accent bg-accent/10'
+                  : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
+                }
+              `}
+              whileHover={{ scale: settingsLocked ? 1 : 1.02 }}
+              whileTap={{ scale: settingsLocked ? 1 : 0.98 }}
+            >
+              {/* Preview card */}
+              <div className={`px-3 pt-3 pb-2 ${getCardStyleClass(preset.id)}`}>
+                <div
+                  className="glass-card rounded-xl p-3 space-y-1.5"
+                  style={{ minHeight: 56 }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center shrink-0">
+                      <div className="w-3 h-3 rounded-full bg-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="h-2 w-2/3 rounded bg-foreground/20" />
+                      <div className="h-1.5 w-1/2 rounded bg-foreground/10 mt-1" />
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <div className="h-1.5 flex-1 rounded bg-foreground/8" />
+                    <div className="h-1.5 w-1/4 rounded bg-accent/30" />
+                  </div>
+                </div>
+              </div>
+              <div className="px-3 pb-2.5">
+                <p className="text-xs font-medium truncate">{preset.label}</p>
+                <p className="text-[10px] text-foreground/50 mt-0.5 line-clamp-1">{preset.description}</p>
+              </div>
+              {globalCardStyle === preset.id && (
+                <div className="absolute top-1.5 right-1.5">
+                  <Check size={14} weight="bold" className="text-accent" />
+                </div>
+              )}
+            </motion.button>
+          ))}
+        </div>
       </div>
 
       <BackgroundEditor open={showBackgroundEditor} onClose={() => setShowBackgroundEditor(false)} settingsLocked={settingsLocked} />

@@ -14,6 +14,7 @@ import {
   DotsSixVertical,
   MapPin,
   CopySimple,
+  ArrowsVertical,
 } from '@phosphor-icons/react'
 import { useDraggable } from '@dnd-kit/core'
 import {
@@ -27,6 +28,8 @@ import {
 } from '@/lib/widgetRegistry'
 import type { DashboardWidget, EntityState, WidgetType } from '@/lib/types'
 import { SearchableSelect } from '@/components/ui/searchable-select'
+import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { CARD_STYLE_PRESETS } from '@/lib/defaults'
 
 type VisibilityMode =
@@ -351,6 +354,117 @@ function CategorySection({
   )
 }
 
+// Page Link Widget configuration
+function PageLinkConfig({
+  widget,
+  onUpdateWidget,
+}: {
+  widget: DashboardWidget
+  onUpdateWidget: (widgetId: string, updates: Partial<DashboardWidget>) => void
+}) {
+  const { pages } = usePageNavigation()
+  const targetPageId = widget.config?.targetPageId as string | undefined
+  const variant = (widget.config?.variant as string) || 'filled'
+
+  // All pages except home/settings that can be linked to
+  const linkablePages = pages.filter(p => p.id !== 'home' && p.id !== 'settings')
+
+  return (
+    <div className="space-y-3">
+      <label className="text-xs text-foreground/50 block">Seitenlink-Einstellungen</label>
+
+      {/* Target Page Selector */}
+      <div>
+        <span className="text-[11px] text-foreground/40 block mb-1.5">Zielseite</span>
+        <select
+          value={targetPageId || ''}
+          onChange={(e) => onUpdateWidget(widget.id, {
+            config: { ...widget.config, targetPageId: e.target.value || undefined }
+          })}
+          className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+        >
+          <option value="">– Seite wählen –</option>
+          {linkablePages.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.parentPageId ? '  ↳ ' : ''}{p.name}
+              {p.displayMode === 'modal' ? ' (Modal)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Custom Label */}
+      <div>
+        <span className="text-[11px] text-foreground/40 block mb-1.5">Beschriftung (optional)</span>
+        <input
+          type="text"
+          value={(widget.config?.label as string) || ''}
+          onChange={(e) => onUpdateWidget(widget.id, {
+            config: { ...widget.config, label: e.target.value || undefined }
+          })}
+          placeholder="Standard: Seitenname"
+          className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+        />
+      </div>
+
+      {/* Variant */}
+      <div>
+        <span className="text-[11px] text-foreground/40 block mb-1.5">Stil</span>
+        <div className="grid grid-cols-4 gap-1">
+          {([
+            ['filled', 'Gefüllt'],
+            ['outlined', 'Umriss'],
+            ['ghost', 'Transparent'],
+            ['card', 'Karte'],
+            ['gradient', 'Gradient'],
+            ['icon_only', 'Nur Icon'],
+            ['tile', 'Leiste'],
+            ['mini', 'Mini'],
+          ] as const).map(([v, vLabel]) => (
+            <button
+              key={v}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, variant: v }
+              })}
+              className={`px-2 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${
+                variant === v
+                  ? 'bg-accent/20 text-accent border border-accent/30'
+                  : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10 border border-transparent'
+              }`}
+            >
+              {vLabel}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Custom Color */}
+      <div>
+        <span className="text-[11px] text-foreground/40 block mb-1.5">Farbe (optional)</span>
+        <div className="flex gap-1.5 items-center">
+          <input
+            type="color"
+            value={(widget.config?.color as string) || '#6366f1'}
+            onChange={(e) => onUpdateWidget(widget.id, {
+              config: { ...widget.config, color: e.target.value }
+            })}
+            className="w-8 h-8 rounded-lg border border-foreground/10 cursor-pointer"
+          />
+          <button
+            onClick={() => {
+              const { color: _, ...rest } = (widget.config || {}) as Record<string, unknown>
+              onUpdateWidget(widget.id, { config: rest })
+            }}
+            className="px-2 py-1 rounded-md text-[10px] text-foreground/40 hover:text-foreground/60 bg-foreground/5 hover:bg-foreground/10"
+          >
+            Zurücksetzen
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function WidgetProperties({
   widget,
   availableEntities,
@@ -453,7 +567,7 @@ function WidgetProperties({
           </button>
         </div>
 
-        {(['when_entity_state', 'when_entity_not_state', 'when_entity_state_in', 'when_entity_numeric', 'when_recently_changed'] as const).includes(mode) && (
+        {(['when_entity_state', 'when_entity_not_state', 'when_entity_state_in', 'when_entity_numeric', 'when_recently_changed'] as readonly string[]).includes(mode) && (
           <SearchableSelect
             value={rule.entityId || ''}
             onValueChange={(value) => updateRule(key, index, { entityId: value })}
@@ -468,7 +582,7 @@ function WidgetProperties({
           />
         )}
 
-        {(['when_entity_state', 'when_entity_not_state'] as const).includes(mode) && (
+        {(['when_entity_state', 'when_entity_not_state'] as readonly string[]).includes(mode) && (
           <input
             type="text"
             value={rule.state || ''}
@@ -1220,6 +1334,816 @@ function WidgetProperties({
         </div>
       )}
 
+      {/* Room Summary config */}
+      {widget.type === 'room_summary' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Raum-Einstellungen</label>
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Raumname</span>
+            <input
+              type="text"
+              value={(widget.config?.roomName as string) || ''}
+              onChange={(e) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, roomName: e.target.value }
+              })}
+              placeholder="z.B. Wohnzimmer, Schlafzimmer"
+              className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+            <p className="text-[10px] text-foreground/35 mt-1">
+              Filtert Entities nach Bereich/Area
+            </p>
+          </div>
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Entities auswählen (optional)</span>
+            <SearchableMultiSelect
+              values={Array.isArray(widget.config?.entityIds) ? (widget.config?.entityIds as string[]) : []}
+              onValuesChange={(ids) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, entityIds: ids }
+              })}
+              placeholder="Entities suchen & auswählen..."
+              searchPlaceholder="Entity suchen..."
+              emptyMessage="Keine Entities gefunden."
+              options={availableEntities.map(entity => ({
+                value: entity.entity_id,
+                label: (entity.attributes?.friendly_name as string) || entity.entity_id,
+                description: entity.entity_id,
+              }))}
+            />
+            <p className="text-[10px] text-foreground/35 mt-1">
+              Wenn ausgewählt, werden nur diese Entities angezeigt
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Entity History config */}
+      {widget.type === 'entity_history' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Verlaufs-Einstellungen</label>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showCurrentValue: !(widget.config?.showCurrentValue ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showCurrentValue ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Aktuellen Wert anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showCurrentValue ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showCurrentValue ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Energy Monitor config */}
+      {widget.type === 'energy_monitor' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Energie-Einstellungen</label>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showSolar: !(widget.config?.showSolar ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showSolar ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Solar-Produktion anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showSolar ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showSolar ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* System Monitor config */}
+      {widget.type === 'system_monitor' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Systemmonitor-Einstellungen</label>
+          {([
+            { key: 'showCpu', label: 'CPU anzeigen', defaultVal: true },
+            { key: 'showMemory', label: 'Speicher anzeigen', defaultVal: true },
+            { key: 'showDisk', label: 'Festplatte anzeigen', defaultVal: true },
+            { key: 'showCache', label: 'Cache-Statistik anzeigen', defaultVal: true },
+          ] as const).map(({ key, label, defaultVal }) => (
+            <button
+              key={key}
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, [key]: !(widget.config?.[key] ?? defaultVal) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.[key] ?? defaultVal)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>{label}</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.[key] ?? defaultVal) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.[key] ?? defaultVal) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          ))}
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Aktualisierungsintervall (Sek.)</span>
+            <input
+              type="number"
+              min={5}
+              max={300}
+              value={(widget.config?.refreshInterval as number) || 15}
+              onChange={(e) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, refreshInterval: Math.max(5, Number(e.target.value) || 15) }
+              })}
+              className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Scene Manager config */}
+      {widget.type === 'scene_manager' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Szenen-Manager Einstellungen</label>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, showEntityCount: !(widget.config?.showEntityCount ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.showEntityCount ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Entity-Anzahl anzeigen</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.showEntityCount ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.showEntityCount ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+          <button
+            onClick={() => onUpdateWidget(widget.id, {
+              config: { ...widget.config, groupByArea: !(widget.config?.groupByArea ?? true) }
+            })}
+            className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+              (widget.config?.groupByArea ?? true)
+                ? 'bg-accent/10 text-accent border border-accent/20'
+                : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }`}
+          >
+            <span>Nach Bereich gruppieren</span>
+            <div className={`relative w-8 h-4 rounded-full transition-colors ${
+              (widget.config?.groupByArea ?? true) ? 'bg-accent' : 'bg-foreground/20'
+            }`}>
+              <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                (widget.config?.groupByArea ?? true) ? 'translate-x-4' : ''
+              }`} />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Quick Actions config */}
+      {widget.type === 'quick_actions' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Schnellaktionen-Einstellungen</label>
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Max. Szenen anzeigen</span>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={(widget.config?.maxScenes as number) || 6}
+              onChange={(e) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, maxScenes: Math.max(1, Math.min(12, Number(e.target.value) || 6)) }
+              })}
+              className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+          </div>
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Max. Skripte anzeigen</span>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={(widget.config?.maxScripts as number) || 4}
+              onChange={(e) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, maxScripts: Math.max(1, Math.min(12, Number(e.target.value) || 4)) }
+              })}
+              className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Notification Log config */}
+      {widget.type === 'notification_log' && (
+        <div className="space-y-3">
+          <label className="text-xs text-foreground/50 block">Benachrichtigungs-Einstellungen</label>
+          <div>
+            <span className="text-[11px] text-foreground/40 block mb-1.5">Max. Einträge</span>
+            <input
+              type="number"
+              min={5}
+              max={100}
+              value={(widget.config?.maxEntries as number) || 50}
+              onChange={(e) => onUpdateWidget(widget.id, {
+                config: { ...widget.config, maxEntries: Math.max(5, Math.min(100, Number(e.target.value) || 50)) }
+              })}
+              className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Page Link config */}
+      {widget.type === 'page_link' && <PageLinkConfig widget={widget} onUpdateWidget={onUpdateWidget} />}
+
+      {/* Waste Collection config */}
+      {widget.type === 'waste_collection' && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">Müllabfuhr-Einstellungen</label>
+          <div className="rounded-xl border border-foreground/10 p-2.5 space-y-2.5">
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Titel</span>
+              <input
+                type="text"
+                value={(widget.config?.title as string) || ''}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, title: e.target.value || undefined }
+                })}
+                placeholder="Müllabfuhr"
+                className="w-full px-2.5 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-accent/50"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Haupt-Entity (z.B. sensor.all_waste_types)</span>
+              <SearchableSelect
+                value={(widget.config?.entityId as string) || ''}
+                onValueChange={(val) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, entityId: val || undefined }
+                })}
+                placeholder="-- Auto-Erkennung --"
+                searchPlaceholder="Entity suchen..."
+                options={availableEntities
+                  .filter(e => e.entity_id.startsWith('sensor.') || e.entity_id.startsWith('binary_sensor.') || e.entity_id.startsWith('calendar.'))
+                  .map(e => ({
+                    value: e.entity_id,
+                    label: (e.attributes?.friendly_name as string) || e.entity_id,
+                    description: e.entity_id,
+                  }))}
+              />
+            </div>
+            {['restmuell', 'gelbe_tonne', 'bio', 'papier'].map((wasteId) => {
+              const labels: Record<string, string> = { restmuell: 'Restmüll', gelbe_tonne: 'Gelbe Tonne', bio: 'Biotonne', papier: 'Papiertonne' }
+              return (
+                <div key={wasteId}>
+                  <span className="text-[11px] text-foreground/40 block mb-1.5">{labels[wasteId]} Entity (optional)</span>
+                  <SearchableSelect
+                    value={(widget.config?.[`entity_${wasteId}`] as string) || ''}
+                    onValueChange={(val) => onUpdateWidget(widget.id, {
+                      config: { ...widget.config, [`entity_${wasteId}`]: val || undefined }
+                    })}
+                    placeholder="-- Über Haupt-Entity --"
+                    searchPlaceholder="Entity suchen..."
+                    options={availableEntities
+                      .filter(e => e.entity_id.startsWith('sensor.') || e.entity_id.startsWith('binary_sensor.') || e.entity_id.startsWith('calendar.'))
+                      .map(e => ({
+                        value: e.entity_id,
+                        label: (e.attributes?.friendly_name as string) || e.entity_id,
+                        description: e.entity_id,
+                      }))}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* NINA Warnings config */}
+      {widget.type === 'nina_warnings' && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">NINA-Einstellungen</label>
+          <div className="rounded-xl border border-foreground/10 p-2.5 space-y-2.5">
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Titel (optional)</span>
+              <input
+                type="text"
+                value={(typeof widget.config?.title === 'string' ? widget.config.title : '') as string}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, title: e.target.value || undefined }
+                })}
+                placeholder="NINA Warnungen"
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Max. Warnungen</span>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={(widget.config?.maxWarnings as number) ?? 10}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, maxWarnings: parseInt(e.target.value) || 10 }
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Aktualisierung (Sekunden)</span>
+              <input
+                type="number"
+                min={10}
+                max={600}
+                step={10}
+                value={(widget.config?.autoRefreshSeconds as number) ?? 60}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, autoRefreshSeconds: parseInt(e.target.value) || 60 }
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
+              />
+            </div>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showMap: !(widget.config?.showMap ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showMap ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Karte anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showMap ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showMap ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showRegion: !(widget.config?.showRegion ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showRegion ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Region anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showRegion ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showRegion ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showSeverityBadge: !(widget.config?.showSeverityBadge ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showSeverityBadge ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Schweregrad-Badge</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showSeverityBadge ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showSeverityBadge ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Map config */}
+      {widget.type === 'map' && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">Karten-Einstellungen</label>
+          <div className="rounded-xl border border-foreground/10 p-2.5 space-y-2.5">
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Titel (optional)</span>
+              <input
+                type="text"
+                value={(typeof widget.config?.title === 'string' ? widget.config.title : '') as string}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, title: e.target.value || undefined }
+                })}
+                placeholder="Karte"
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+              />
+            </div>
+
+            {/* Tracked entities */}
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Verfolgte Entities (leer = alle Personen)</span>
+              {(Array.isArray(widget.config?.entities) ? widget.config.entities as string[] : []).map((eid: string, idx: number) => (
+                <div key={idx} className="flex items-center gap-1.5 mb-1.5">
+                  <SearchableSelect
+                    value={eid}
+                    onValueChange={(val) => {
+                      const ents = [...(Array.isArray(widget.config?.entities) ? widget.config.entities as string[] : [])]
+                      ents[idx] = val
+                      onUpdateWidget(widget.id, { config: { ...widget.config, entities: ents } })
+                    }}
+                    placeholder="Entity wählen..."
+                    searchPlaceholder="Person/Tracker suchen..."
+                    options={availableEntities
+                      .filter(e => e.entity_id.startsWith('person.') || e.entity_id.startsWith('device_tracker.'))
+                      .map(e => ({
+                        value: e.entity_id,
+                        label: (e.attributes?.friendly_name as string) || e.entity_id,
+                        description: e.entity_id,
+                      }))}
+                  />
+                  <button
+                    onClick={() => {
+                      const ents = (Array.isArray(widget.config?.entities) ? widget.config.entities as string[] : []).filter((_: string, i: number) => i !== idx)
+                      onUpdateWidget(widget.id, { config: { ...widget.config, entities: ents.length ? ents : undefined } })
+                    }}
+                    className="p-1.5 rounded-lg bg-foreground/5 hover:bg-red-500/15 text-foreground/40 hover:text-red-400 transition-colors shrink-0"
+                  >
+                    <Minus size={12} />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  const ents = [...(Array.isArray(widget.config?.entities) ? widget.config.entities as string[] : []), '']
+                  onUpdateWidget(widget.id, { config: { ...widget.config, entities: ents } })
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-foreground/5 hover:bg-foreground/10 text-foreground/60 text-[11px] font-medium transition-colors"
+              >
+                <Plus size={11} weight="bold" /> Entity hinzufügen
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <span className="text-[11px] text-foreground/40 block mb-1.5">Breitengrad</span>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={(widget.config?.latitude as number) ?? ''}
+                  onChange={(e) => onUpdateWidget(widget.id, {
+                    config: { ...widget.config, latitude: e.target.value ? parseFloat(e.target.value) : undefined }
+                  })}
+                  placeholder="Auto"
+                  className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <span className="text-[11px] text-foreground/40 block mb-1.5">Längengrad</span>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={(widget.config?.longitude as number) ?? ''}
+                  onChange={(e) => onUpdateWidget(widget.id, {
+                    config: { ...widget.config, longitude: e.target.value ? parseFloat(e.target.value) : undefined }
+                  })}
+                  placeholder="Auto"
+                  className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Zoom (2-18)</span>
+              <input
+                type="range"
+                min={2}
+                max={18}
+                value={(widget.config?.zoom as number) ?? 10}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, zoom: parseInt(e.target.value) }
+                })}
+                className="w-full accent-accent"
+              />
+              <span className="text-[10px] text-foreground/40">{(widget.config?.zoom as number) ?? 10}</span>
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Marker-Beschriftung (optional)</span>
+              <input
+                type="text"
+                value={(typeof widget.config?.markerLabel === 'string' ? widget.config.markerLabel : '') as string}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, markerLabel: e.target.value || undefined }
+                })}
+                placeholder="z.B. Zuhause"
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+              />
+            </div>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showZones: !(widget.config?.showZones ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showZones ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Zonen anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showZones ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showZones ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showEntityList: !(widget.config?.showEntityList ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showEntityList ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Entity-Liste anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showEntityList ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showEntityList ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, autoFitEntities: !(widget.config?.autoFitEntities ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.autoFitEntities ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Auto-Zoom auf Entities</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.autoFitEntities ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.autoFitEntities ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showHeader: !(widget.config?.showHeader ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showHeader ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Header anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showHeader ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showHeader ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, darkMode: !(widget.config?.darkMode ?? false) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.darkMode ?? false)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Dunkler Kartenmodus</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.darkMode ?? false) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.darkMode ?? false) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showAttribution: !(widget.config?.showAttribution ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showAttribution ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Attribution anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showAttribution ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showAttribution ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* IFrame config */}
+      {widget.type === 'iframe' && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">IFrame-Einstellungen</label>
+          <div className="rounded-xl border border-foreground/10 p-2.5 space-y-2.5">
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">URL</span>
+              <input
+                type="url"
+                value={(typeof widget.config?.url === 'string' ? widget.config.url : '') as string}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, url: e.target.value || undefined }
+                })}
+                placeholder="https://example.com"
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Titel (optional)</span>
+              <input
+                type="text"
+                value={(typeof widget.config?.title === 'string' ? widget.config.title : '') as string}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, title: e.target.value || undefined }
+                })}
+                placeholder="Webseite"
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Auto-Aktualisierung (Sekunden, 0 = aus)</span>
+              <input
+                type="number"
+                min={0}
+                max={3600}
+                step={10}
+                value={(widget.config?.refreshIntervalSeconds as number) ?? 0}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, refreshIntervalSeconds: parseInt(e.target.value) || 0 }
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
+              />
+            </div>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, showHeader: !(widget.config?.showHeader ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.showHeader ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Header anzeigen</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.showHeader ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.showHeader ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, allowFullscreen: !(widget.config?.allowFullscreen ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.allowFullscreen ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Vollbild erlauben</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.allowFullscreen ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.allowFullscreen ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+            <button
+              onClick={() => onUpdateWidget(widget.id, {
+                config: { ...widget.config, scrolling: !(widget.config?.scrolling ?? true) }
+              })}
+              className={`w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between ${
+                (widget.config?.scrolling ?? true)
+                  ? 'bg-accent/10 text-accent border border-accent/20'
+                  : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+              }`}
+            >
+              <span>Scrollen erlauben</span>
+              <div className={`relative w-8 h-4 rounded-full transition-colors ${
+                (widget.config?.scrolling ?? true) ? 'bg-accent' : 'bg-foreground/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                  (widget.config?.scrolling ?? true) ? 'translate-x-4' : ''
+                }`} />
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Calendar config */}
+      {widget.type === 'calendar' && (
+        <div>
+          <label className="text-xs text-foreground/50 mb-2 block">Kalender-Einstellungen</label>
+          <div className="rounded-xl border border-foreground/10 p-2.5 space-y-2.5">
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Titel (optional)</span>
+              <input
+                type="text"
+                value={(typeof widget.config?.title === 'string' ? widget.config.title : '') as string}
+                onChange={(e) => onUpdateWidget(widget.id, {
+                  config: { ...widget.config, title: e.target.value || undefined }
+                })}
+                placeholder="Automatisch (Monatsname)"
+                className="w-full px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] text-foreground/40 block mb-1.5">Kalender-Entities (leer = alle)</span>
+              {(Array.isArray(widget.config?.calendars) ? widget.config.calendars as string[] : []).map((cal: string, idx: number) => (
+                <div key={idx} className="flex items-center gap-1.5 mb-1.5">
+                  <SearchableSelect
+                    value={cal}
+                    onValueChange={(val) => {
+                      const cals = [...(Array.isArray(widget.config?.calendars) ? widget.config.calendars as string[] : [])]
+                      cals[idx] = val
+                      onUpdateWidget(widget.id, { config: { ...widget.config, calendars: cals } })
+                    }}
+                    placeholder="Kalender wählen..."
+                    searchPlaceholder="Kalender suchen..."
+                    options={availableEntities
+                      .filter(e => e.entity_id.startsWith('calendar.'))
+                      .map(e => ({
+                        value: e.entity_id,
+                        label: (e.attributes?.friendly_name as string) || e.entity_id,
+                        description: e.entity_id,
+                      }))}
+                  />
+                  <button
+                    onClick={() => {
+                      const cals = (Array.isArray(widget.config?.calendars) ? widget.config.calendars as string[] : []).filter((_: string, i: number) => i !== idx)
+                      onUpdateWidget(widget.id, { config: { ...widget.config, calendars: cals.length ? cals : undefined } })
+                    }}
+                    className="p-1.5 rounded-lg bg-foreground/5 hover:bg-red-500/15 text-foreground/40 hover:text-red-400 transition-colors shrink-0"
+                  >
+                    <Minus size={12} />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  const cals = [...(Array.isArray(widget.config?.calendars) ? widget.config.calendars as string[] : []), '']
+                  onUpdateWidget(widget.id, { config: { ...widget.config, calendars: cals } })
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-foreground/5 hover:bg-foreground/10 text-foreground/60 text-[11px] font-medium transition-colors"
+              >
+                <Plus size={11} weight="bold" /> Kalender hinzufügen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Visibility rules */}
       <div>
         <label className="text-xs text-foreground/50 mb-2 block">Sichtbarkeit (Regeln)</label>
@@ -1572,6 +2496,39 @@ function WidgetProperties({
         </button>
       </div>
 
+      {/* Fill Height toggle */}
+      <div>
+        <label className="text-xs text-foreground/50 mb-2 block flex items-center gap-1.5">
+          <ArrowsVertical size={12} />
+          Höhe
+        </label>
+        <button
+          onClick={() => onUpdateWidget(widget.id, {
+            config: { ...widget.config, fillHeight: !widget.config?.fillHeight }
+          })}
+          className={`
+            w-full px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center justify-between
+            ${widget.config?.fillHeight
+              ? 'bg-accent/10 text-accent border border-accent/20'
+              : 'bg-foreground/5 text-foreground/60 border border-foreground/10'
+            }
+          `}
+        >
+          <span>{widget.config?.fillHeight ? 'Volle Höhe' : 'Automatisch'}</span>
+          <div
+            className={`relative w-8 h-4 rounded-full transition-colors ${
+              widget.config?.fillHeight ? 'bg-accent' : 'bg-foreground/20'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                widget.config?.fillHeight ? 'translate-x-4' : ''
+              }`}
+            />
+          </div>
+        </button>
+      </div>
+
       {/* Duplicate & Delete */}
       <div className="flex gap-2">
         {onDuplicateWidget && (
@@ -1611,11 +2568,11 @@ export function WidgetPalette({
   const [searchQuery, setSearchQuery] = useState('')
 
   return (
-    <div className="w-56 xl:w-60 border-l border-foreground/10 flex flex-col overflow-hidden min-h-0">
+    <div className="w-64 xl:w-72 border-l border-foreground/8 flex flex-col overflow-hidden min-h-0 bg-background/40">
       {selectedWidget ? (
         <>
-          <div className="px-4 py-3 border-b border-foreground/5">
-            <h3 className="text-xs font-semibold text-foreground/70">Eigenschaften</h3>
+          <div className="px-3 py-2 border-b border-foreground/5">
+            <span className="text-xs font-semibold text-foreground/50 uppercase tracking-wider">Eigenschaften</span>
           </div>
           <div className="flex-1 overflow-y-auto">
             <WidgetProperties
@@ -1634,8 +2591,8 @@ export function WidgetPalette({
         </>
       ) : (
         <>
-          <div className="px-4 py-3 border-b border-foreground/5">
-            <h3 className="text-xs font-semibold text-foreground/70 mb-2">Widgets hinzufügen</h3>
+          <div className="px-3 py-2 border-b border-foreground/5">
+            <span className="text-xs font-semibold text-foreground/50 uppercase tracking-wider mb-2 block">Widgets</span>
             <div className="relative">
               <MagnifyingGlass size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground/30" />
               <input

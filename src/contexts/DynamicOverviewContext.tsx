@@ -221,9 +221,9 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
 
   const checkEntityStateTrigger = (
     trigger: EntityStateTrigger,
-    entityMap: Map<string, EntityState>
+    entities: EntityState[]
   ): boolean => {
-    const entity = entityMap.get(trigger.entity_id)
+    const entity = entities.find((e) => e.entity_id === trigger.entity_id)
     if (!entity) return false
 
     // If no specific state is specified, any entity existence triggers it
@@ -271,8 +271,6 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
   const evaluateTriggers = useCallback((entities: EntityState[]) => {
     if (!enabled) return
 
-    const entityMap = new Map(entities.map(e => [e.entity_id, e]))
-
     // Sort variants by priority (descending)
     const sortedVariants = [...variants].sort((a, b) => b.priority - a.priority)
 
@@ -286,7 +284,7 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
         if (trigger.type === 'time') {
           triggerMatches = checkTimeTrigger(trigger)
         } else if (trigger.type === 'entity_state') {
-          triggerMatches = checkEntityStateTrigger(trigger, entityMap)
+          triggerMatches = checkEntityStateTrigger(trigger, entities)
         } else if (trigger.type === 'manual') {
           // Manual triggers never auto-activate
           triggerMatches = false
@@ -354,7 +352,14 @@ export function getVisibleWidgetTypes(config: OverviewVariant['config']): Set<Wi
     'person', 'device_tracker', 'timer', 'counter', 'group', 'camera',
     'vacuum', 'humidifier', 'alarm_control_panel',
     // Layout elements always visible
-    'spacer', 'section_header', 'custom',
+    'spacer', 'section_header', 'custom', 'page_link',
+    // Composite / special widgets
+    'chat_card', 'dynamic_text', 'widget_group',
+    // Premium widgets
+    'entity_history', 'energy_monitor', 'entity_statistics',
+    'quick_actions', 'system_monitor', 'scene_manager',
+    'room_summary', 'notification_log', 'water_usage',
+    'statistics_chart',
   ] as WidgetType[])
 
   if (config.showGreeting !== false) visible.add('greeting')

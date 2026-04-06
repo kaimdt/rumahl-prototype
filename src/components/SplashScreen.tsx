@@ -7,10 +7,10 @@ interface SplashScreenProps {
 }
 
 const STATUS_MESSAGES = [
-  'Verbinde mit System...',
-  'Lade Entitäten...',
-  'Initialisiere Dashboard...',
-  'Bereit.',
+  'IORA Core wird geladen...',
+  'IORA Home verbindet...',
+  'IORA Assist initialisiert...',
+  'System bereit.',
 ]
 
 export function SplashScreen({ onComplete, duration = 2200 }: SplashScreenProps) {
@@ -201,13 +201,13 @@ export function SplashScreen({ onComplete, duration = 2200 }: SplashScreenProps)
                   className="text-[1.75rem] font-extralight tracking-[0.3em] uppercase"
                   style={{ color: 'oklch(0.92 0.01 250)' }}
                 >
-                  MDT HOME
+                  IORA
                 </h1>
                 <p
                   className="text-[10px] font-medium tracking-[0.5em] uppercase"
                   style={{ color: 'oklch(0.55 0.02 250)' }}
                 >
-                  Smart Ecosystem
+                  Interface for Optimized Residential Autonomy
                 </p>
               </motion.div>
             </motion.div>

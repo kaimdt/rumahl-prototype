@@ -53,6 +53,15 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("003_entity_history", include_str!("../../migrations/003_entity_history.sql")),
         ("004_system_preferences", include_str!("../../migrations/004_system_preferences.sql")),
         ("005_weather_forecast_cache", include_str!("../../migrations/005_weather_forecast_cache.sql")),
+        ("006_page_subpages", include_str!("../../migrations/006_page_subpages.sql")),
+        ("007_modal_settings", include_str!("../../migrations/007_modal_settings.sql")),
+        ("008_pin_auth_and_page_layouts", include_str!("../../migrations/008_pin_auth_and_page_layouts.sql")),
+        ("009_page_settings", include_str!("../../migrations/009_page_settings.sql")),
+        ("010_admin_api_keys", include_str!("../../migrations/010_admin_api_keys.sql")),
+        ("011_warning_log", include_str!("../../migrations/011_warning_log.sql")),
+        ("012_notifications", include_str!("../../migrations/012_notifications.sql")),
+        ("013_nina_warning_cache", include_str!("../../migrations/013_nina_warning_cache.sql")),
+        ("014_webhooks", include_str!("../../migrations/014_webhooks.sql")),
     ];
 
     // Apply each migration if not already applied

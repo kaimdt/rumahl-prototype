@@ -1,4 +1,4 @@
-export type ThemeMode = 'day' | 'evening' | 'night' | 'sleep'
+export type ThemeMode = 'day' | 'day-classic' | 'light' | 'evening' | 'night' | 'sleep'
 
 export interface EntityState {
   entity_id: string
@@ -27,6 +27,8 @@ export interface LightEntity extends EntityState {
     supported_color_modes?: string[]
     color_mode?: string
     entity_id?: string[] // Present when this is a light group
+    entities?: string[] | string
+    members?: string[] | string
     effect_list?: string[]
     effect?: string
   }
@@ -109,6 +111,18 @@ export type WidgetType =
   | 'spacer' | 'section_header'
   | 'widget_group'
   | 'custom'
+  // Premium widgets
+  | 'entity_history' | 'energy_monitor' | 'entity_statistics'
+  | 'quick_actions' | 'system_monitor' | 'scene_manager'
+  | 'room_summary' | 'notification_log' | 'water_usage'
+  | 'statistics_chart'
+  | 'waste_collection'
+  | 'widget_carousel'
+  | 'page_link'
+  | 'nina_warnings'
+  | 'map'
+  | 'iframe'
+  | 'stream'
 
 export interface DashboardWidget {
   id: string
@@ -120,6 +134,14 @@ export interface DashboardWidget {
   label?: string
 }
 
+export interface ModalSettings {
+  size?: 'small' | 'medium' | 'large' | 'fullscreen'
+  backdropBlur?: boolean
+  closeOnBackdropClick?: boolean
+  showCloseButton?: boolean
+  rounded?: boolean
+}
+
 export interface DashboardPage {
   id: string
   name: string
@@ -127,6 +149,9 @@ export interface DashboardPage {
   widgets: DashboardWidget[]
   showInNav?: boolean // Whether to show in navigation bar
   order?: number // Display order in navigation
+  displayMode?: 'page' | 'modal' // full page or modal overlay
+  parentPageId?: string // If set, this is a sub-page of the parent
+  modalSettings?: ModalSettings // Configuration when displayMode is 'modal'
 }
 
 export interface DashboardConfig {

@@ -16,6 +16,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 _LOGGER = logging.getLogger(__name__)
 
 from .const import (
+    CONF_API_KEY,
     CONF_DASHBOARD_URL,
     CONF_ENABLE_SENSORS,
     CONF_ENABLE_WEBHOOKS,
@@ -45,8 +46,13 @@ async def _test_dashboard_url(hass: HomeAssistant, url: str) -> bool:
             if resp.status == 200:
                 data = await resp.json()
                 return data.get("status") == "ok"
+            _LOGGER.warning(
+                "Dashboard health check returned HTTP %s for %s", resp.status, url
+            )
     except Exception as err:
-        _LOGGER.debug("Dashboard connection test failed for %s: %s", url, err)
+        _LOGGER.warning(
+            "Dashboard connection test failed for %s: %s", url, err
+        )
     return False
 
 
@@ -85,7 +91,8 @@ class MDTHomeDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not reachable:
                         _LOGGER.warning(
                             "Dashboard at %s is not reachable right now. "
-                            "The integration will keep retrying in the background.",
+                            "The integration will keep retrying in the background. "
+                            "Check that the backend is running and HA can reach this address.",
                             dashboard_url,
                         )
 
@@ -98,6 +105,7 @@ class MDTHomeDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
                 vol.Optional(CONF_DASHBOARD_URL, default=""): str,
+                vol.Optional(CONF_API_KEY, default=""): str,
                 vol.Optional(CONF_PANEL_ENABLED, default=True): bool,
                 vol.Optional(CONF_ENABLE_WEBHOOKS, default=True): bool,
                 vol.Optional(CONF_ENABLE_SENSORS, default=True): bool,
@@ -156,6 +164,10 @@ class MDTHomeDashboardOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_DASHBOARD_URL,
                         default=self.config_entry.data.get(CONF_DASHBOARD_URL, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_API_KEY,
+                        default=self.config_entry.data.get(CONF_API_KEY, ""),
                     ): str,
                     vol.Optional(
                         CONF_PANEL_ENABLED,

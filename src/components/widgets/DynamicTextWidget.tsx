@@ -16,7 +16,7 @@ function renderTemplate(template: string, userName: string): string {
     '{datetime}': now.toLocaleString('de-DE'),
   }
 
-  return Object.entries(map).reduce((acc, [token, value]) => acc.replaceAll(token, value), template)
+  return Object.entries(map).reduce((acc, [token, value]) => acc.split(token).join(value), template)
 }
 
 export function DynamicTextWidget({ template, userName = 'Benutzer' }: DynamicTextWidgetProps) {

@@ -10,9 +10,10 @@ interface SensorWidgetProps {
   entity: SensorEntity
   onUpdate?: () => void
   config?: Record<string, unknown>
+  widgetSize?: { w: number; h: number }
 }
 
-export const SensorWidget = memo(function SensorWidget({ entity, config }: SensorWidgetProps) {
+export const SensorWidget = memo(function SensorWidget({ entity, config, widgetSize }: SensorWidgetProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const name = entity.attributes.friendly_name || entity.entity_id
   const value = entity.state
@@ -124,25 +125,30 @@ export const SensorWidget = memo(function SensorWidget({ entity, config }: Senso
     )
   }
 
+  const sensorW = widgetSize?.w ?? 1
+  const sensorH = widgetSize?.h ?? 1
+  const isSensorLarge = sensorW >= 2 && sensorH >= 3
+
   return (
     <>
       <motion.div
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerLeave}
-        className="glass-card glass-card-shimmer rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none"
+        className="glass-card glass-card-shimmer rounded-2xl theme-transition relative overflow-hidden cursor-pointer select-none touch-none h-full"
         whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
         transition={{
           type: 'spring',
           stiffness: 400,
           damping: 25,
         }}
       >
-        <div className="relative p-4 sm:p-5">
-          <div className="flex items-center justify-between">
+        <div className={`relative ${isSensorLarge ? 'p-5 h-full flex flex-col' : 'p-4 sm:p-5'}`}>
+          <div className={`flex items-center ${isSensorLarge ? 'gap-3' : 'justify-between'}`}>
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div
-                className="icon-container-premium p-2.5 rounded-xl transition-all duration-300"
+                className={`icon-container-premium ${isSensorLarge ? 'p-3' : 'p-2.5'} rounded-xl transition-all duration-300`}
                 data-active="true"
                 style={{
                   backgroundColor: `color-mix(in oklch, ${color} 30%, transparent)`,
@@ -153,25 +159,41 @@ export const SensorWidget = memo(function SensorWidget({ entity, config }: Senso
                 {getIcon()}
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="font-medium text-sm truncate">{name}</h3>
+                <h3 className={`font-medium ${isSensorLarge ? 'text-base' : 'text-sm'} truncate`}>{name}</h3>
                 <p className="text-xs text-muted-foreground">Sensor</p>
               </div>
             </div>
-            <div className="text-right max-w-[55%]">
+            {!isSensorLarge && (
+              <div className="text-right max-w-[55%]">
+                <div
+                  className={`font-semibold truncate number-display ${
+                    displayValue.length > 12 ? 'text-sm' : displayValue.length > 8 ? 'text-lg' : 'text-2xl'
+                  } ${isDateValue ? '' : 'font-mono'}`}
+                  style={{ color }}
+                  title={isDateValue ? value : undefined}
+                >
+                  {displayValue}
+                </div>
+                {unit && !isDateValue && (
+                  <div className="text-xs text-muted-foreground font-mono truncate">{unit}</div>
+                )}
+              </div>
+            )}
+          </div>
+          {isSensorLarge && (
+            <div className="flex-1 flex flex-col items-center justify-center">
               <div
-                className={`font-semibold truncate number-display ${
-                  displayValue.length > 12 ? 'text-sm' : displayValue.length > 8 ? 'text-lg' : 'text-2xl'
-                } ${isDateValue ? '' : 'font-mono'}`}
-                style={{ color }}
+                className={`font-semibold number-display text-center ${isDateValue ? '' : 'font-mono'}`}
+                style={{ color, fontSize: displayValue.length > 12 ? '1.5rem' : displayValue.length > 8 ? '2rem' : '3rem', lineHeight: 1.1 }}
                 title={isDateValue ? value : undefined}
               >
                 {displayValue}
               </div>
               {unit && !isDateValue && (
-                <div className="text-xs text-muted-foreground font-mono truncate">{unit}</div>
+                <div className="text-sm text-muted-foreground font-mono mt-1">{unit}</div>
               )}
             </div>
-          </div>
+          )}
         </div>
       </motion.div>
       <SensorDetailDialog entity={entity} open={dialogOpen} onOpenChange={setDialogOpen} />

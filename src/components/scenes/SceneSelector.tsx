@@ -92,7 +92,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
       createdAt: new Date().toISOString(),
     }
 
-    setScenes((currentScenes) => [...(currentScenes || []), newScene])
+    setScenes([...(scenes || []), newScene])
     toast.success(`Szene "${newSceneName}" gespeichert`)
     haptics.notification('success')
     
@@ -111,8 +111,8 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
       return
     }
 
-    setScenes((currentScenes) =>
-      (currentScenes || []).map(scene =>
+    setScenes(
+      (scenes || []).map(scene =>
         scene.id === editingScene.id
           ? { ...scene, name: newSceneName.trim(), icon: newSceneIcon, settings }
           : scene
@@ -150,7 +150,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
   }
 
   const handleDeleteScene = (sceneId: string, sceneName: string) => {
-    setScenes((currentScenes) => (currentScenes || []).filter(s => s.id !== sceneId))
+    setScenes((scenes || []).filter(s => s.id !== sceneId))
     toast.success(`Szene "${sceneName}" gelöscht`)
     haptics.impact('light')
   }
@@ -168,7 +168,21 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
   }
 
   if (lightEntities.length === 0) {
-    return null
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="text-sm font-medium text-foreground/60 flex items-center gap-2">
+            <Sparkle size={16} weight="fill" className="text-accent" />
+            Farbszenen
+          </h3>
+        </div>
+        <div className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center gap-2 text-center">
+          <Lightbulb size={32} className="text-foreground/20" />
+          <p className="text-xs text-foreground/40">Keine Licht-Entitäten verfügbar</p>
+          <p className="text-[10px] text-foreground/30">Schalten Sie mindestens ein Licht ein, um Szenen zu erstellen</p>
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -37,3 +37,4 @@ pids
 # Temp files from Claude/AI sessions
 tmpclaude-*
 nul
+/backend/target

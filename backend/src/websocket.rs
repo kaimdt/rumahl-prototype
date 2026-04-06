@@ -2,6 +2,7 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{info, warn};
 
@@ -11,6 +12,9 @@ use crate::db::models::SyncMetadata;
 use crate::ha_websocket::HAWebSocket;
 use crate::ha_client::HomeAssistantClient;
 use crate::ServiceCallBuffer;
+
+/// Max commands per second per client (rate limiting)
+const MAX_COMMANDS_PER_SECOND: u32 = 30;
 
 /// WebSocket message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +47,13 @@ pub enum WSMessage {
         data: serde_json::Value,
     },
 
+    #[serde(rename = "error")]
+    Error {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<u64>,
+        message: String,
+    },
+
     #[serde(rename = "ping")]
     Ping,
 
@@ -56,6 +67,10 @@ pub struct WebSocketManager {
     tx: broadcast::Sender<Vec<EntityState>>,
     /// Broadcast channel for configuration sync updates
     config_tx: broadcast::Sender<Vec<SyncMetadata>>,
+    /// Broadcast channel for error messages from HA
+    error_tx: broadcast::Sender<(u64, String)>,
+    /// Broadcast channel for generic JSON events (watchdog, anomaly, health, etc.)
+    event_tx: broadcast::Sender<serde_json::Value>,
     /// Connected clients count
     clients: Arc<RwLock<usize>>,
 }
@@ -64,9 +79,13 @@ impl WebSocketManager {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(100);
         let (config_tx, _) = broadcast::channel(100);
+        let (error_tx, _) = broadcast::channel(50);
+        let (event_tx, _) = broadcast::channel(100);
         Self {
             tx,
             config_tx,
+            error_tx,
+            event_tx,
             clients: Arc::new(RwLock::new(0)),
         }
     }
@@ -101,6 +120,32 @@ impl WebSocketManager {
     /// Get a receiver for config updates
     pub fn subscribe_config(&self) -> broadcast::Receiver<Vec<SyncMetadata>> {
         self.config_tx.subscribe()
+    }
+
+    /// Get a receiver for error messages
+    pub fn subscribe_errors(&self) -> broadcast::Receiver<(u64, String)> {
+        self.error_tx.subscribe()
+    }
+
+    /// Broadcast an error from HA to all connected frontend clients
+    pub async fn broadcast_error(&self, id: u64, message: &str) {
+        if *self.clients.read().await == 0 {
+            return;
+        }
+        let _ = self.error_tx.send((id, message.to_string()));
+    }
+
+    /// Broadcast a generic JSON event to all connected clients
+    pub async fn broadcast_json(&self, event: &serde_json::Value) {
+        if *self.clients.read().await == 0 {
+            return;
+        }
+        let _ = self.event_tx.send(event.clone());
+    }
+
+    /// Get a receiver for generic events
+    pub fn subscribe_events(&self) -> broadcast::Receiver<serde_json::Value> {
+        self.event_tx.subscribe()
     }
 
     /// Increment client count
@@ -141,52 +186,84 @@ pub async fn handle_socket(
     // Wrap sender in Arc<Mutex> so multiple tasks can share it.
     let sender = Arc::new(tokio::sync::Mutex::new(sender));
 
+    // Rate limiter state
+    let rate_limit_sender = sender.clone();
+
     // ── Spawn recv_task FIRST ─────────────────────────────────────
-    // This must start BEFORE the initial snapshot is sent so that
-    // commands arriving while we serialise hundreds of entities are
-    // not stuck in the TCP buffer waiting for recv_task to start.
     let mut recv_task = tokio::spawn(async move {
+        let mut command_count: u32 = 0;
+        let mut rate_window_start = Instant::now();
+
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
-                if let Ok(ws_msg) = serde_json::from_str::<WSMessage>(&text) {
-                    match ws_msg {
-                        WSMessage::Ping => {
-                            // Respond with pong (handled automatically by axum)
-                        }
-                        WSMessage::Auth { token: _ } => {
-                            info!("WebSocket client authenticated");
-                        }
-                        WSMessage::CallService { domain, service, entity_id, data } => {
-                            // Dispatch service call — same logic as the HTTP handler
-                            // but without the HTTP/proxy round-trip.
-                            info!("[WS-cmd] {}.{} entity={}", domain, service, entity_id);
-                            if ha_ws.is_connected() {
-                                // Build service_data from data + entity_id
-                                let mut service_data = data;
-                                if let Some(obj) = service_data.as_object_mut() {
-                                    obj.remove("entity_id");
-                                }
-                                ha_ws.call_service(&domain, &service, &entity_id, service_data);
-                            } else {
-                                // REST fallback
-                                info!("[WS-cmd] HA-WS not connected, REST fallback for {}.{}", domain, service);
-                                let client = ha_client.clone();
-                                let d = domain;
-                                let s = service;
-                                let mut call_data = data;
-                                if !entity_id.is_empty() {
-                                    if let Some(obj) = call_data.as_object_mut() {
-                                        obj.insert("entity_id".to_string(), serde_json::Value::String(entity_id));
-                                    }
-                                }
-                                tokio::spawn(async move {
-                                    if let Err(e) = client.call_service_fast(&d, &s, call_data).await {
-                                        warn!("WS REST fallback failed: {}", e);
-                                    }
-                                });
+                match serde_json::from_str::<WSMessage>(&text) {
+                    Ok(ws_msg) => {
+                        match ws_msg {
+                            WSMessage::Ping => {
+                                // Respond with pong
                             }
+                            WSMessage::Auth { token: _ } => {
+                                info!("WebSocket client authenticated");
+                            }
+                            WSMessage::CallService { domain, service, entity_id, data } => {
+                                // Rate limiting check
+                                let now = Instant::now();
+                                if now.duration_since(rate_window_start).as_secs() >= 1 {
+                                    command_count = 0;
+                                    rate_window_start = now;
+                                }
+                                command_count += 1;
+                                if command_count > MAX_COMMANDS_PER_SECOND {
+                                    warn!("WebSocket client rate limited ({} cmds/sec)", command_count);
+                                    let error_msg = WSMessage::Error {
+                                        id: None,
+                                        message: "Rate limit exceeded. Max 30 commands per second.".to_string(),
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&error_msg) {
+                                        let mut s = rate_limit_sender.lock().await;
+                                        let _ = s.send(Message::Text(json)).await;
+                                    }
+                                    continue;
+                                }
+
+                                info!("[WS-cmd] {}.{} entity={}", domain, service, entity_id);
+                                if ha_ws.is_connected() {
+                                    let mut service_data = data;
+                                    if let Some(obj) = service_data.as_object_mut() {
+                                        obj.remove("entity_id");
+                                    }
+                                    ha_ws.call_service(&domain, &service, &entity_id, service_data);
+                                } else {
+                                    info!("[WS-cmd] HA-WS not connected, REST fallback for {}.{}", domain, service);
+                                    let client = ha_client.clone();
+                                    let d = domain;
+                                    let s = service;
+                                    let mut call_data = data;
+                                    if !entity_id.is_empty() {
+                                        if let Some(obj) = call_data.as_object_mut() {
+                                            obj.insert("entity_id".to_string(), serde_json::Value::String(entity_id));
+                                        }
+                                    }
+                                    tokio::spawn(async move {
+                                        if let Err(e) = client.call_service_fast(&d, &s, call_data).await {
+                                            warn!("WS REST fallback failed: {}", e);
+                                        }
+                                    });
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                    }
+                    Err(_e) => {
+                        // Send error back to client for invalid JSON
+                        let error_msg = WSMessage::Error {
+                            id: None,
+                            message: "Invalid JSON message format".to_string(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&error_msg) {
+                            let mut s = rate_limit_sender.lock().await;
+                            let _ = s.send(Message::Text(json)).await;
+                        }
                     }
                 }
             } else if let Message::Close(_) = msg {
@@ -216,9 +293,13 @@ pub async fn handle_socket(
     // we don't miss any updates that arrive while serializing/sending.
     let mut rx = ws_manager.subscribe();
     let mut config_rx = ws_manager.subscribe_config();
+    let mut error_rx = ws_manager.subscribe_errors();
+    let mut event_rx = ws_manager.subscribe_events();
 
     let state_sender = sender.clone();
-    let config_sender = sender;
+    let config_sender = sender.clone();
+    let error_sender = sender.clone();
+    let event_sender = sender;
 
     // Spawn task to send state updates to client
     let mut send_task = tokio::spawn(async move {
@@ -279,6 +360,50 @@ pub async fn handle_socket(
                 Err(broadcast::error::RecvError::Closed) => {
                     break;
                 }
+            }
+        }
+    });
+
+    // Spawn task to forward HA errors to client
+    let _error_send_task = tokio::spawn(async move {
+        loop {
+            match error_rx.recv().await {
+                Ok((id, message)) => {
+                    let error_msg = WSMessage::Error {
+                        id: Some(id),
+                        message,
+                    };
+                    let json = match serde_json::to_string(&error_msg) {
+                        Ok(json) => json,
+                        Err(_) => continue,
+                    };
+                    let mut s = error_sender.lock().await;
+                    if s.send(Message::Text(json)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
+    // Spawn task to forward generic JSON events (watchdog, anomaly, health) to client
+    let _event_send_task = tokio::spawn(async move {
+        loop {
+            match event_rx.recv().await {
+                Ok(event) => {
+                    let json = match serde_json::to_string(&event) {
+                        Ok(json) => json,
+                        Err(_) => continue,
+                    };
+                    let mut s = event_sender.lock().await;
+                    if s.send(Message::Text(json)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
             }
         }
     });

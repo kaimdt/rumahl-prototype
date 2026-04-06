@@ -8,6 +8,8 @@ interface ThemeContextType {
   setSleepMode: (enabled: boolean) => void
   autoTheme: boolean
   setAutoTheme: (enabled: boolean) => void
+  selectedTheme: ThemeMode | 'auto'
+  setSelectedTheme: (theme: ThemeMode | 'auto') => void
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
@@ -23,11 +25,22 @@ function getThemeFromTime(): ThemeMode {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [sleepMode, setSleepMode] = useLocalStorage<boolean>('ha-sleep-mode', false)
   const [autoTheme, setAutoTheme] = useLocalStorage<boolean>('ha-auto-theme', true)
-  const [theme, setTheme] = useState<ThemeMode>(() => sleepMode ? 'sleep' : getThemeFromTime())
+  const [selectedTheme, setSelectedTheme] = useLocalStorage<ThemeMode | 'auto'>('ha-selected-theme', 'auto')
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (sleepMode) return 'sleep'
+    if (selectedTheme !== 'auto') return selectedTheme
+    return getThemeFromTime()
+  })
 
   useEffect(() => {
     if (sleepMode) {
       setTheme('sleep')
+      return
+    }
+
+    // If user has a specific theme selected, use that
+    if (selectedTheme !== 'auto') {
+      setTheme(selectedTheme)
       return
     }
 
@@ -41,15 +54,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const interval = setInterval(updateTheme, 60000)
 
     return () => clearInterval(interval)
-  }, [sleepMode, autoTheme])
+  }, [sleepMode, autoTheme, selectedTheme])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
   const contextValue = useMemo(() => ({
-    theme, sleepMode, setSleepMode, autoTheme, setAutoTheme,
-  }), [theme, sleepMode, setSleepMode, autoTheme, setAutoTheme])
+    theme, sleepMode, setSleepMode, autoTheme, setAutoTheme, selectedTheme, setSelectedTheme,
+  }), [theme, sleepMode, setSleepMode, autoTheme, setAutoTheme, selectedTheme, setSelectedTheme])
 
   return (
     <ThemeContext.Provider value={contextValue}>

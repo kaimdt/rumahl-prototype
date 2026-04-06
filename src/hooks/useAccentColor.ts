@@ -66,14 +66,19 @@ export function useAccentColor() {
         try {
           const palette = await getPalette(img, { colorCount: 8 })
           if (palette && palette.length > 0) {
-            // Extract all hex colors sorted by saturation
-            const paletteWithSaturation = palette.map((color) => {
+            // Score colors by vibrancy: prefer saturated + not too dark/light
+            const paletteWithScore = palette.map((color) => {
               const { r, g, b } = color.rgb()
-              return { hex: color.hex(), saturation: calculateSaturation(r, g, b) }
+              const sat = calculateSaturation(r, g, b)
+              const oklch = rgbToOklch(r, g, b)
+              // Penalize very dark (l < 0.4) and very light (l > 0.9) colors
+              const lightnessPenalty = oklch.l < 0.4 ? (0.4 - oklch.l) * 2 : oklch.l > 0.9 ? (oklch.l - 0.9) * 2 : 0
+              const score = sat - lightnessPenalty
+              return { hex: color.hex(), score, saturation: sat }
             })
-            paletteWithSaturation.sort((a, b) => b.saturation - a.saturation)
+            paletteWithScore.sort((a, b) => b.score - a.score)
 
-            const allColors = paletteWithSaturation.map(c => c.hex)
+            const allColors = paletteWithScore.map(c => c.hex)
             setExtractedPalette(allColors)
 
             // Auto-select the most vibrant
@@ -111,8 +116,12 @@ export function useAccentColor() {
     const rgb = hexToRgb(color)
     if (rgb) {
       const oklch = rgbToOklch(rgb.r, rgb.g, rgb.b)
-      document.documentElement.style.setProperty('--accent', `oklch(${oklch.l} ${oklch.c} ${oklch.h})`)
-      document.documentElement.style.setProperty('--ring', `oklch(${oklch.l} ${oklch.c} ${oklch.h})`)
+      // Ensure accent color is never too dark (min lightness 0.55) or too light (max 0.85)
+      // and has enough chroma to be visible as an accent
+      const l = Math.max(0.55, Math.min(0.85, oklch.l))
+      const c = Math.max(0.06, oklch.c) // ensure minimum vibrancy
+      document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${oklch.h})`)
+      document.documentElement.style.setProperty('--ring', `oklch(${l} ${c} ${oklch.h})`)
     }
   }
 

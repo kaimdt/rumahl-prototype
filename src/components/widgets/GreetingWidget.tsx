@@ -6,6 +6,7 @@ interface GreetingWidgetProps {
   userName?: string
   weatherEntity?: WeatherEntity
   theme?: ThemeMode
+  config?: Record<string, unknown>
 }
 
 function getGreeting() {
@@ -33,11 +34,13 @@ function getTimeSpecificMessage(theme?: ThemeMode, location?: string) {
   }
 }
 
-export function GreetingWidget({ userName = 'Kai', weatherEntity, theme }: GreetingWidgetProps) {
+export function GreetingWidget({ userName = 'Kai', weatherEntity, theme, config }: GreetingWidgetProps) {
   const greeting = getGreeting()
   const temperature = weatherEntity?.attributes.temperature || 20
   const location = weatherEntity?.attributes.friendly_name || 'Kissing'
   const hour = new Date().getHours()
+  const showWeather = (config?.showWeather ?? true) as boolean
+  const showMessage = (config?.showMessage ?? true) as boolean
   
   const getThemeIcon = () => {
     if (theme === 'sleep' || hour < 5 || hour >= 22) {
@@ -86,7 +89,7 @@ export function GreetingWidget({ userName = 'Kai', weatherEntity, theme }: Greet
               >
                 {greeting}, {userName}
               </motion.h1>
-              {weatherEntity && (
+              {showWeather && weatherEntity && (
                 <motion.p
                   className="text-sm text-muted-foreground mt-2 font-mono number-display"
                   initial={{ opacity: 0 }}
@@ -98,14 +101,16 @@ export function GreetingWidget({ userName = 'Kai', weatherEntity, theme }: Greet
               )}
             </div>
           </div>
-          <motion.p
-            className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xl"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.5 }}
-          >
-            {getTimeSpecificMessage(theme, location)}
-          </motion.p>
+          {showMessage && (
+            <motion.p
+              className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xl"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4, duration: 0.5 }}
+            >
+              {getTimeSpecificMessage(theme, location)}
+            </motion.p>
+          )}
         </div>
         <motion.div
           className="sm:hidden flex justify-end"

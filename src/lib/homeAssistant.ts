@@ -1,6 +1,8 @@
 import type { EntityState } from '@/lib/types'
 import { wsSend } from '@/lib/wsConnection'
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+
 class HomeAssistantService {
   private generateIntent(): string {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -25,7 +27,7 @@ class HomeAssistantService {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const response = await fetch('/api/states', { headers })
+    const response = await fetch(`${API_BASE}/api/states`, { headers })
 
     if (!response.ok) {
       throw new Error(`Failed to fetch states: ${response.status} ${response.statusText}`)
@@ -338,7 +340,7 @@ class HomeAssistantService {
 
     for (const payload of payloadVariants) {
       try {
-        const response = await fetch('/api/services/weather/get_forecasts?return_response', {
+        const response = await fetch(`${API_BASE}/api/services/weather/get_forecasts?return_response`, {
           method: 'POST',
           headers,
           body: JSON.stringify(payload),

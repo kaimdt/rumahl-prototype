@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { motion } from 'framer-motion'
 import type { WeatherEntity } from '@/lib/types'
 import { Sun, Cloud, CloudRain, CloudSnow, CloudFog, Wind, Drop, ThermometerSimple } from '@phosphor-icons/react'
 import { haptics } from '@/lib/haptics'
@@ -8,6 +9,7 @@ import { haService, type ForecastEntry } from '@/lib/homeAssistant'
 interface WeatherWidgetProps {
   entity?: WeatherEntity
   config?: Record<string, unknown>
+  widgetSize?: { w: number; h: number }
 }
 
 function getWeatherIcon(condition: string, size: number = 32) {
@@ -62,7 +64,7 @@ function getDayName(dateStr: string) {
   return dayNames[date.getDay()]
 }
 
-export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
+export function WeatherWidget({ entity, config, widgetSize }: WeatherWidgetProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [forecast, setForecast] = useState<ForecastEntry[]>([])
   const [forecastLoading, setForecastLoading] = useState(false)
@@ -165,11 +167,13 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
   if (variant === 'compact') {
     return (
       <>
-        <div
+        <motion.div
           className="glass-card rounded-2xl theme-transition p-2.5 cursor-pointer select-none touch-none"
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
+          whileTap={{ scale: 0.98 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
@@ -180,7 +184,7 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
               {Math.round(temperature)}°C
             </span>
           </div>
-        </div>
+        </motion.div>
         <WeatherDetailDialog entity={entity} open={dialogOpen} onOpenChange={setDialogOpen} />
       </>
     )
@@ -190,11 +194,13 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
   if (variant === 'detailed') {
     return (
       <>
-        <div
+        <motion.div
           className="glass-card glass-card-shimmer ambient-glow-card rounded-xl p-5 theme-transition cursor-pointer select-none touch-none"
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
+          whileTap={{ scale: 0.98 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
         >
           <div className="flex items-start gap-4">
             <div className="flex-1">
@@ -248,7 +254,7 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
               ))}
             </div>
           )}
-        </div>
+        </motion.div>
         <WeatherDetailDialog entity={entity} open={dialogOpen} onOpenChange={setDialogOpen} />
       </>
     )
@@ -258,11 +264,13 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
   if (variant === 'forecast') {
     return (
       <>
-        <div
+        <motion.div
           className="glass-card glass-card-shimmer rounded-xl p-5 theme-transition cursor-pointer select-none touch-none"
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
+          whileTap={{ scale: 0.98 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
         >
           <h4 className="text-xs font-semibold text-foreground/50 mb-3 uppercase tracking-widest">Vorhersage</h4>
           {forecastLoading ? (
@@ -297,36 +305,66 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
           ) : (
             <p className="text-xs text-foreground/40">Keine Vorhersage verfügbar</p>
           )}
-        </div>
+        </motion.div>
         <WeatherDetailDialog entity={entity} open={dialogOpen} onOpenChange={setDialogOpen} />
       </>
     )
   }
 
+  const weatherW = widgetSize?.w ?? 2
+  const weatherH = widgetSize?.h ?? 2
+  const showExtraStats = weatherW >= 3 || weatherH >= 3
+  const forecastDays = weatherW >= 4 ? 7 : 6
+
   // Standard variant (default)
   return (
     <>
-      <div
-        className="glass-card glass-card-shimmer ambient-glow-card rounded-xl p-5 theme-transition cursor-pointer select-none touch-none"
+      <motion.div
+        className="glass-card glass-card-shimmer ambient-glow-card rounded-xl p-5 theme-transition cursor-pointer select-none touch-none h-full"
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        whileTap={{ scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       >
         <div className="flex items-start gap-4">
           <div className="flex-1">
             <div className="text-foreground/80 mb-2">
-              {getWeatherIcon(condition, 40)}
+              {getWeatherIcon(condition, weatherH >= 3 ? 48 : 40)}
             </div>
             <div className="space-y-1">
               <p className="text-xs text-foreground/60 uppercase tracking-widest font-medium">{getConditionText(condition)}</p>
-              <p className="text-5xl font-extralight text-foreground number-display tracking-tight">{Math.round(temperature)}°C</p>
+              <p className={`${weatherH >= 3 ? 'text-6xl' : 'text-5xl'} font-extralight text-foreground number-display tracking-tight`}>{Math.round(temperature)}°C</p>
             </div>
           </div>
         </div>
 
+        {showExtraStats && (
+          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-foreground/8">
+            {humidity !== undefined && (
+              <div className="flex items-center gap-1.5">
+                <Drop size={14} weight="fill" className="text-foreground/40" />
+                <span className="text-xs text-foreground/60 number-display">{humidity}%</span>
+              </div>
+            )}
+            {windSpeed !== undefined && (
+              <div className="flex items-center gap-1.5">
+                <Wind size={14} weight="fill" className="text-foreground/40" />
+                <span className="text-xs text-foreground/60 number-display">{windSpeed} km/h</span>
+              </div>
+            )}
+            {pressure !== undefined && (
+              <div className="flex items-center gap-1.5">
+                <ThermometerSimple size={14} weight="fill" className="text-foreground/40" />
+                <span className="text-xs text-foreground/60 number-display">{pressure} hPa</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {forecast.length > 0 && (
-          <div className="grid grid-cols-6 gap-1.5 mt-5 pt-5 border-t border-foreground/8">
-            {forecast.slice(0, 6).map((day, idx) => (
+          <div className={`grid gap-1.5 mt-5 pt-5 border-t border-foreground/8`} style={{ gridTemplateColumns: `repeat(${forecastDays}, minmax(0, 1fr))` }}>
+            {forecast.slice(0, forecastDays).map((day, idx) => (
               <div key={idx} className="text-center space-y-1.5 p-2 min-w-0">
                 <p className="text-[9px] text-foreground/50 font-medium uppercase tracking-wider truncate">
                   {getDayName(day.datetime)}
@@ -342,7 +380,7 @@ export function WeatherWidget({ entity, config }: WeatherWidgetProps) {
             ))}
           </div>
         )}
-      </div>
+      </motion.div>
       <WeatherDetailDialog entity={entity} open={dialogOpen} onOpenChange={setDialogOpen} />
     </>
   )

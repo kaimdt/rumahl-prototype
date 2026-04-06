@@ -4,6 +4,8 @@
 // IMMEDIATELY at module load time so commands can flow as soon as
 // the user interacts — no waiting for React to mount.
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+
 let wsInstance: WebSocket | null = null
 let reconnectTimeout: number | undefined
 let reconnectDelay = 1000
@@ -22,12 +24,19 @@ function connectWebSocket() {
     reconnectTimeout = undefined
   }
 
-  // In dev mode, bypass the Vite proxy entirely and connect directly
-  // to the backend. The Vite WS proxy buffers messages (especially
-  // the large initial state snapshot) which delays ALL subsequent
-  // messages by seconds. Direct connection = zero proxy overhead.
+  // Derive WebSocket URL from VITE_BACKEND_URL if set,
+  // otherwise fall back to current host (works when served by backend).
+  // In dev mode, bypass Vite proxy to avoid message buffering.
   let wsUrl: string
-  if (import.meta.env.DEV) {
+  if (API_BASE) {
+    try {
+      const url = new URL(API_BASE)
+      const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+      wsUrl = `${protocol}//${url.host}/ws`
+    } catch {
+      wsUrl = `ws://${window.location.hostname}:3001/ws`
+    }
+  } else if (import.meta.env.DEV) {
     wsUrl = `ws://${window.location.hostname}:3001/ws`
   } else {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'

@@ -6,6 +6,8 @@
   "documentation": "https://github.com/kaimdt/mdt-home-integration",
   "issue_tracker": "https://github.com/kaimdt/mdt-home-integration/issues",
   "requirements": [],
-  "version": "2.1.0",
-  "iot_class": "local_polling"
+  "version": "2.2.0",
+  "iot_class": "local_polling",
+  "integration_type": "hub",
+  "dependencies": ["frontend"]
 }

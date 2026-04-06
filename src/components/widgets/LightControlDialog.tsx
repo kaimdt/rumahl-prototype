@@ -511,7 +511,7 @@ export function LightControlDialog({
   const childEntities = isGroup
     ? childIds
         .map((id) => entitiesById.get(id.trim().toLowerCase()))
-        .filter((child): child is LightEntity => Boolean(child) && child.entity_id.startsWith('light.'))
+        .filter((child): child is LightEntity => child != null && child.entity_id.startsWith('light.'))
     : []
   const missingChildCount = isGroup ? Math.max(0, childIds.length - childEntities.length) : 0
 

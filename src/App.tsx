@@ -19,41 +19,44 @@ import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/Connec
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 import { PageDesigner } from '@/components/PageDesigner'
 import { CustomPageRenderer } from '@/components/CustomPageRenderer'
-import { ConfigurationSettings } from '@/components/ConfigurationSettings'
-import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
-import { OverviewConfiguration } from '@/components/OverviewConfiguration'
+import { SettingsPage } from '@/components/SettingsPage'
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AdminPanel } from '@/components/AdminPanel'
+import { DocsPage } from '@/components/DocsPage'
+import { StreamSender } from '@/components/StreamSender'
+import { NotificationProvider } from '@/contexts/NotificationContext'
+import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
+import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
-import { Sparkle, Palette, Moon, PaintBucket, SignOut, User, GearSix, CheckCircle, ShieldCheck, House } from '@phosphor-icons/react'
-import { motion } from 'framer-motion'
+import { Sparkle, ShieldCheck, Wrench } from '@phosphor-icons/react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster } from '@/components/ui/sonner'
-import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
+import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
+import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
   const [time, setTime] = useState(new Date())
   useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | undefined
     // Sync to the next full minute, then tick every 60 s
     const msToNextMinute = (60 - new Date().getSeconds()) * 1000
     const boot = setTimeout(() => {
       setTime(new Date())
-      const iv = setInterval(() => setTime(new Date()), 60_000)
-      ;(boot as unknown as { _iv: ReturnType<typeof setInterval> })._iv = iv
+      intervalId = setInterval(() => setTime(new Date()), 60_000)
     }, msToNextMinute)
     // Also tick once per second for the first minute so we don't miss it
     const fastTick = setInterval(() => setTime(new Date()), 1000)
     return () => {
       clearTimeout(boot)
       clearInterval(fastTick)
-      clearInterval((boot as unknown as { _iv: ReturnType<typeof setInterval> })?._iv)
+      if (intervalId) clearInterval(intervalId)
     }
   }, [])
   return (
@@ -91,18 +94,35 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile } = useAuth()
-  const { currentPageId, currentPage } = usePageNavigation()
+  const { currentPageId, currentPage, modalPageId, closeModalPage, pages } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
   const screensaverSettings = useScreensaverSettings()
   const accentColorSettings = useAccentColor()
   const nightModeSettings = useNightModeSettings()
   const glassSettings = useGlassSettings()
+  const [fontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
+  const [reducedAnimations] = useLocalStorage('ha-animations-reduced', false)
+  const [compactWidgets] = useLocalStorage('ha-widget-compact', false)
+  const [globalCardStyle] = useLocalStorage('ha-global-card-style', 'default')
   const { entities, loading, refresh } = useEntityStore()
+  const warningLevel = useWarningLevel()
+
+  // Apply global card style class on <html> so it covers portals/modals/dialogs
+  useEffect(() => {
+    const root = document.documentElement
+    // Remove any existing card-style-* classes
+    root.classList.forEach(cls => {
+      if (cls.startsWith('card-style-')) root.classList.remove(cls)
+    })
+    const styleClass = getCardStyleClass(globalCardStyle !== 'default' ? globalCardStyle : undefined)
+    if (styleClass) root.classList.add(styleClass)
+  }, [globalCardStyle])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
   const [showSplash, setShowSplash] = useState(true)
   const [showPageDesigner, setShowPageDesigner] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'home' | 'user' | 'design' | 'system'>('home')
+  const [maintenanceMode, setMaintenanceMode] = useState(false)
+  const [maintenanceMessage, setMaintenanceMessage] = useState('')
   const [deviceLockMode, setDeviceLockMode] = useState(false)
   const [lockLoading, setLockLoading] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
@@ -115,6 +135,32 @@ function DashboardContent() {
   const [showUnlockDialog, setShowUnlockDialog] = useState(false)
   const lastEvalRef = useRef(0)
   const hasActiveCustomBackground = Boolean(background?.is_active)
+
+  // Check if current user can bypass maintenance mode
+  const canBypassMaintenance = user?.isAdmin || user?.role === 'maintenance' || user?.role === 'admin'
+
+  // Fetch maintenance status on mount + listen for WebSocket events
+  useEffect(() => {
+    let mounted = true
+    // Initial fetch
+    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/maintenance/status`)
+      .then(r => r.json())
+      .then((data: { active: boolean; message: string }) => {
+        if (!mounted) return
+        setMaintenanceMode(data.active)
+        setMaintenanceMessage(data.message || '')
+      })
+      .catch(() => {})
+    // WebSocket listener
+    const unsub = wsOnMessage((data: unknown) => {
+      const msg = data as Record<string, unknown>
+      if (msg.type === 'maintenance_mode') {
+        setMaintenanceMode(msg.active as boolean)
+        setMaintenanceMessage((msg.message as string) || '')
+      }
+    })
+    return () => { mounted = false; unsub() }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -302,7 +348,7 @@ function DashboardContent() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-black/70" />
         {/* Brand watermark */}
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
-          <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">MDT HOME</p>
+          <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">IORA</p>
         </div>
         <LoginModal open onOpenChange={() => {}} />
       </div>
@@ -329,7 +375,7 @@ function DashboardContent() {
   return (
     <>
       <div
-        className="min-h-screen relative theme-transition overflow-x-hidden"
+        className={`min-h-screen relative theme-transition overflow-x-hidden font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
       >
         <Screensaver
           enabled={screensaverSettings.enabled}
@@ -339,6 +385,52 @@ function DashboardContent() {
         <BackendUnavailableOverlay />
         <ConnectionStatus />
         <EntityDiscoveryNotification />
+
+        {/* Persistent warning bar for weather/safety warnings from HA entities */}
+        <WarningBar />
+
+        {/* Emergency alert bar at top */}
+        <AnimatePresence>
+          <EmergencyNavbarBar />
+        </AnimatePresence>
+
+        {/* Full-screen emergency overlay for extreme alerts */}
+        <AnimatePresence>
+          <EmergencyOverlay />
+        </AnimatePresence>
+
+        {/* Maintenance mode overlay – blocks non-admin/non-maintenance users */}
+        <AnimatePresence>
+          {maintenanceMode && !canBypassMaintenance && (
+            <motion.div
+              key="maintenance-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xl"
+            >
+              <div className="text-center max-w-md px-6 space-y-6">
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                  className="mx-auto w-20 h-20 rounded-full bg-amber-500/15 flex items-center justify-center"
+                >
+                  <Wrench size={40} weight="duotone" className="text-amber-400" />
+                </motion.div>
+                <div className="space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Wartungsmodus</h2>
+                  <p className="text-sm text-white/60 leading-relaxed">
+                    {maintenanceMessage || 'IORA befindet sich im Wartungsmodus.'}
+                  </p>
+                </div>
+                <p className="text-xs text-white/30">
+                  Bitte warten Sie, bis der Administrator den Wartungsmodus beendet.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {!hasActiveCustomBackground && (
           <div
@@ -350,6 +442,9 @@ function DashboardContent() {
                 ? 'brightness(0.02) grayscale(1) saturate(0)'
                 : theme === 'night' ? 'brightness(0.4)'
                 : theme === 'evening' ? 'brightness(0.5)'
+                : theme === 'light' ? 'brightness(1.15) saturate(0.9)'
+                : theme === 'day' ? 'brightness(0.95) saturate(0.95)'
+                : theme === 'day-classic' ? 'brightness(0.75)'
                 : 'brightness(0.75)',
               opacity: theme === 'sleep' ? 0.15 : 1,
               transform: 'translateZ(0)',
@@ -359,18 +454,20 @@ function DashboardContent() {
         )}
 
         <div
-          className="absolute inset-0 z-10 pointer-events-none"
+          className="fixed inset-0 z-10 pointer-events-none"
           style={{
             background: theme === 'sleep'
               ? 'black'
+              : (theme === 'day' || theme === 'light')
+              ? 'linear-gradient(to bottom, rgba(255,255,255,0.50), rgba(255,255,255,0.30), rgba(255,255,255,0.55))'
               : 'linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.2), rgba(0,0,0,0.6))',
-            opacity: theme === 'sleep' ? 0.92 : 1,
+            opacity: theme === 'sleep' ? 0.92 : hasActiveCustomBackground ? 0.5 : 1,
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}
         />
         {(theme === 'night' || theme === 'sleep') && nightModeSettings.nightFilterEnabled && (
           <div
-            className="absolute inset-0 z-10 pointer-events-none"
+            className="fixed inset-0 z-10 pointer-events-none"
             style={{
               background: theme === 'sleep' ? 'rgba(0, 0, 0, 1)' : 'rgba(35, 22, 12, 1)',
               opacity: theme === 'sleep'
@@ -388,11 +485,23 @@ function DashboardContent() {
             transition: 'filter var(--transition-duration) ease',
           }}
         >
-          <header className="glass-header theme-transition">
+          <header
+            className="glass-header theme-transition"
+            style={{
+              ...(warningLevel === 'emergency' ? { background: 'linear-gradient(to right, rgba(127,29,29,0.95), rgba(153,27,27,0.95))', borderBottom: '1px solid rgba(248,113,113,0.4)' }
+                : warningLevel === 'critical' ? { background: 'linear-gradient(to right, rgba(154,52,18,0.85), rgba(185,28,28,0.85))', borderBottom: '1px solid rgba(248,113,113,0.3)' }
+                : warningLevel === 'warning' ? { background: 'linear-gradient(to right, rgba(180,83,9,0.75), rgba(194,65,12,0.75))', borderBottom: '1px solid rgba(251,191,36,0.3)' }
+                : {}),
+              transition: 'background 0.5s ease, border-bottom 0.5s ease',
+            }}
+          >
             <div className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
-                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">MDT HOME</h1>
+                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
+                <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
+                  {currentPageId === 'settings' ? 'Core' : currentPageId === 'admin' ? 'Core' : currentPageId === 'docs' ? 'Docs' : currentPageId === 'streaming' ? 'Stream' : 'Home'}
+                </span>
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-[11px] text-foreground/40 font-light tracking-wider hidden sm:block">
@@ -486,398 +595,43 @@ function DashboardContent() {
               )}
 
               {currentPageId === 'settings' && (
-                <div className="space-y-6">
-                  <h3 className="text-xl font-medium text-foreground px-1">Einstellungen</h3>
-
-                  <Tabs value={settingsTab} onValueChange={(v) => setSettingsTab(v as 'home' | 'user' | 'design' | 'system')}>
-                    <TabsList className="grid grid-cols-4 w-full rounded-xl bg-foreground/5 p-1 h-auto">
-                      <TabsTrigger value="home" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><House size={14} /> <span className="hidden sm:inline">Home</span><span className="sm:hidden">Home</span></TabsTrigger>
-                      <TabsTrigger value="user" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><User size={14} /> <span className="hidden xs:inline">Benutzer</span><span className="xs:hidden">User</span></TabsTrigger>
-                      <TabsTrigger value="design" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><Palette size={14} /> Design</TabsTrigger>
-                      <TabsTrigger value="system" className="gap-1.5 sm:gap-2 rounded-lg text-xs sm:text-sm px-2 sm:px-3 py-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent"><GearSix size={14} /> System</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="home" className="space-y-4 mt-4">
-                      {deviceLockMode && (
-                        <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 text-xs text-foreground/80">
-                          Einstellungen sind durch Geraete-Modus gesperrt. Entsperren im Tab "Benutzer".
-                        </div>
-                      )}
-                      <div className={deviceLockMode ? 'opacity-60 pointer-events-none select-none' : ''}>
-                        <LightEnhancementsSettings settingsLocked={deviceLockMode} />
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="user" className="space-y-4 mt-4">
-                      <div className="glass-card rounded-2xl p-6 theme-transition">
-                        <h4 className="text-sm font-medium text-foreground mb-4">Benutzerprofil</h4>
-                        <div className="space-y-4">
-                          <div className="p-4 rounded-xl bg-foreground/5">
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center">
-                                <User size={24} weight="fill" className="text-accent" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm truncate">{user?.displayName || user?.username || 'Benutzer'}</p>
-                                {user?.displayName && user?.username && (
-                                  <p className="text-xs text-foreground/60 truncate">@{user.username}</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="p-4 rounded-xl bg-foreground/5 space-y-3">
-                            <p className="font-medium text-sm">Benutzer bearbeiten</p>
-                            <div className="grid sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="text-xs text-foreground/60 block mb-1">Benutzername</label>
-                                <input
-                                  type="text"
-                                  value={profileUsername}
-                                  onChange={(e) => setProfileUsername(e.target.value)}
-                                  className="w-full px-3 py-2 rounded-lg bg-card/60 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
-                                  disabled={isSavingProfile}
-                                />
-                              </div>
-                              <div>
-                                <label className="text-xs text-foreground/60 block mb-1">Anzeigename</label>
-                                <input
-                                  type="text"
-                                  value={profileDisplayName}
-                                  onChange={(e) => setProfileDisplayName(e.target.value)}
-                                  className="w-full px-3 py-2 rounded-lg bg-card/60 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
-                                  disabled={isSavingProfile}
-                                />
-                              </div>
-                            </div>
-                            <button
-                              onClick={saveUserProfile}
-                              disabled={isSavingProfile}
-                              className="w-full px-4 py-2.5 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground text-sm font-medium transition-colors disabled:opacity-60"
-                            >
-                              {isSavingProfile ? 'Speichern...' : 'Profil speichern'}
-                            </button>
-                          </div>
-
-                          <div className="p-4 rounded-xl bg-foreground/5 space-y-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <p className="font-medium text-sm">PIN fuer Einstellungen</p>
-                                <p className="text-xs text-foreground/60">Sichert das Entsperren des Geraete-Modus ab.</p>
-                              </div>
-                              {pinHash && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-1 text-[11px]">
-                                  <CheckCircle size={12} weight="fill" /> Aktiv
-                                </span>
-                              )}
-                            </div>
-                            <div className="grid sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="text-xs text-foreground/60 block mb-1">Neue PIN (4-8 Ziffern)</label>
-                                <input
-                                  type="password"
-                                  inputMode="numeric"
-                                  value={pinCode}
-                                  onChange={(e) => setPinCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                                  className="w-full px-3 py-2 rounded-lg bg-card/60 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
-                                  placeholder="1234"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-xs text-foreground/60 block mb-1">PIN bestaetigen</label>
-                                <input
-                                  type="password"
-                                  inputMode="numeric"
-                                  value={pinConfirm}
-                                  onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                                  className="w-full px-3 py-2 rounded-lg bg-card/60 border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent"
-                                  placeholder="1234"
-                                />
-                              </div>
-                            </div>
-                            <button
-                              onClick={savePin}
-                              className="w-full px-4 py-2.5 rounded-xl bg-foreground/10 hover:bg-foreground/15 text-foreground text-sm font-medium transition-colors"
-                            >
-                              PIN speichern
-                            </button>
-                          </div>
-
-                          <div className="p-4 rounded-xl bg-foreground/5 flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-medium text-sm">Geraete-Modus (Einstellungen sperren)</p>
-                              <p className="text-xs text-foreground/60">Sperrt Anpassungen auf Design- und System-Tab fuer dieses Konto. Beim Entsperren kann optional eine PIN verlangt werden.</p>
-                            </div>
-                            <Switch checked={deviceLockMode} onCheckedChange={updateDeviceLockMode} disabled={lockLoading} />
-                          </div>
-
-                          <button
-                            onClick={logout}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
-                          >
-                            <SignOut size={18} weight="bold" />
-                            <span className="text-sm font-medium">Abmelden</span>
-                          </button>
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="design" className="space-y-4 mt-4">
-                      {deviceLockMode && (
-                        <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 text-xs text-foreground/80">
-                          Einstellungen sind durch Geraete-Modus gesperrt. Entsperren im Tab "Benutzer".
-                        </div>
-                      )}
-                      <div className={deviceLockMode ? 'opacity-60 pointer-events-none select-none' : ''}>
-                        <ConfigurationSettings settingsLocked={deviceLockMode} />
-                        <OverviewConfiguration />
-
-                        <div className="glass-card rounded-2xl p-6 theme-transition mt-6">
-                          <h4 className="text-sm font-medium text-foreground mb-4">Akzentfarbe</h4>
-                          <p className="text-xs text-foreground/60 mb-4">
-                            Waehlen Sie, ob die Akzentfarbe automatisch aus dem Hintergrundbild extrahiert oder statisch festgelegt werden soll.
-                          </p>
-
-                          <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-3">
-                              <button
-                                onClick={() => accentColorSettings.setMode('auto')}
-                                className={`
-                                  p-3 rounded-xl border-2 transition-all
-                                  ${accentColorSettings.mode === 'auto'
-                                    ? 'border-accent bg-accent/10'
-                                    : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
-                                  }
-                                `}
-                              >
-                                <Sparkle size={24} weight="fill" className={accentColorSettings.mode === 'auto' ? 'text-accent' : 'text-foreground/60'} />
-                                <p className="text-xs mt-2 font-medium">Automatisch</p>
-                              </button>
-
-                              <button
-                                onClick={() => accentColorSettings.setMode('static')}
-                                className={`
-                                  p-3 rounded-xl border-2 transition-all
-                                  ${accentColorSettings.mode === 'static'
-                                    ? 'border-accent bg-accent/10'
-                                    : 'border-foreground/10 bg-foreground/5 hover:border-foreground/20'
-                                  }
-                                `}
-                              >
-                                <PaintBucket size={24} weight="fill" className={accentColorSettings.mode === 'static' ? 'text-accent' : 'text-foreground/60'} />
-                                <p className="text-xs mt-2 font-medium">Statisch</p>
-                              </button>
-                            </div>
-
-                            {/* Extracted palette from background */}
-                            {accentColorSettings.extractedPalette.length > 0 && (
-                              <div className="p-4 rounded-xl bg-foreground/5">
-                                <p className="text-xs text-foreground/60 mb-3">Extrahierte Farben aus dem Hintergrund</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {accentColorSettings.extractedPalette.map((color, i) => (
-                                    <button
-                                      key={`${color}-${i}`}
-                                      onClick={() => accentColorSettings.selectFromPalette(color)}
-                                      className={`
-                                        w-10 h-10 rounded-xl transition-all border-2
-                                        ${accentColorSettings.accentColor === color
-                                          ? 'border-white scale-110 shadow-lg ring-2 ring-accent/50'
-                                          : 'border-foreground/10 hover:scale-105 hover:border-foreground/30'
-                                        }
-                                      `}
-                                      style={{ backgroundColor: color }}
-                                      title={color}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {accentColorSettings.mode === 'static' && (
-                              <div className="p-4 rounded-xl bg-foreground/5">
-                                <label className="text-sm font-medium text-foreground block mb-3">Eigene Farbe waehlen</label>
-                                <div className="flex items-center gap-4">
-                                  <input type="color" value={accentColorSettings.staticColor} onChange={(e) => accentColorSettings.setStaticColor(e.target.value)} className="w-16 h-16 rounded-lg cursor-pointer border-2 border-foreground/10" />
-                                  <div className="flex-1">
-                                    <p className="text-sm font-mono text-foreground">{accentColorSettings.staticColor}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="p-4 rounded-xl bg-foreground/5">
-                              <p className="text-xs text-foreground/60 mb-2">Aktuelle Akzentfarbe</p>
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg border-2 border-foreground/10" style={{ backgroundColor: accentColorSettings.accentColor }} />
-                                <p className="text-sm font-mono text-foreground">{accentColorSettings.accentColor}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="system" className="space-y-4 mt-4">
-                      {deviceLockMode && (
-                        <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 text-xs text-foreground/80">
-                          Einstellungen sind durch Geraete-Modus gesperrt. Entsperren im Tab "Benutzer".
-                        </div>
-                      )}
-                      <div className={`space-y-4 ${deviceLockMode ? 'opacity-60 pointer-events-none select-none' : ''}`}>
-                        <div className="glass-card rounded-2xl p-6 theme-transition">
-                          <h4 className="text-sm font-medium text-foreground mb-4">Bildschirmschoner</h4>
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
-                                  <Moon size={20} weight="fill" className="text-accent" />
-                                </div>
-                                <div>
-                                  <p className="font-medium text-sm">Bildschirmschoner aktivieren</p>
-                                  <p className="text-xs text-foreground/60">Zeigt nur die Uhrzeit bei Inaktivitaet</p>
-                                </div>
-                              </div>
-                              <Switch checked={screensaverSettings.enabled} onCheckedChange={screensaverSettings.setEnabled} />
-                            </div>
-
-                            {screensaverSettings.enabled && (
-                              <div className="p-4 rounded-xl bg-foreground/5">
-                                <label className="text-sm font-medium text-foreground block mb-3">Inaktivitaetsdauer (Minuten)</label>
-                                <div className="flex items-center gap-4">
-                                  <input type="range" min="1" max="30" value={screensaverSettings.timeout / 60000} onChange={(e) => screensaverSettings.setTimeout(Number(e.target.value) * 60000)} className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0" />
-                                  <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">{screensaverSettings.timeout / 60000} min</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="glass-card rounded-2xl p-6 theme-transition">
-                          <h4 className="text-sm font-medium text-foreground mb-4">Glaseffekt</h4>
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
-                              <div>
-                                <p className="font-medium text-sm">Glaseffekt aktivieren</p>
-                                <p className="text-xs text-foreground/60">Deaktiviert alle Frosted-Glass Layer global</p>
-                              </div>
-                              <Switch checked={glassSettings.enabled} onCheckedChange={glassSettings.setEnabled} />
-                            </div>
-                            <div className="p-4 rounded-xl bg-foreground/5 space-y-3">
-                              <label className="text-sm font-medium text-foreground block">Unschaerfe-Intensitaet</label>
-                              <div className="flex items-center gap-4">
-                                <input type="range" min="0" max="60" value={glassSettings.blurIntensity} onChange={(e) => glassSettings.setBlurIntensity(Number(e.target.value))} disabled={!glassSettings.enabled} className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0" />
-                                <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">{glassSettings.blurIntensity}px</span>
-                              </div>
-                            </div>
-                            <div className="p-4 rounded-xl bg-foreground/5 space-y-3">
-                              <label className="text-sm font-medium text-foreground block">Card-Radius</label>
-                              <div className="flex items-center gap-4">
-                                <input type="range" min="8" max="28" value={glassSettings.cardRadius} onChange={(e) => glassSettings.setCardRadius(Number(e.target.value))} disabled={!glassSettings.enabled} className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0" />
-                                <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">{glassSettings.cardRadius}px</span>
-                              </div>
-                            </div>
-                            <div className="p-4 rounded-xl bg-foreground/5 space-y-3">
-                              <label className="text-sm font-medium text-foreground block">Rahmen-Sichtbarkeit</label>
-                              <div className="flex items-center gap-4">
-                                <input type="range" min="0" max="30" value={Math.round(glassSettings.borderAlpha * 100)} onChange={(e) => glassSettings.setBorderAlpha(Number(e.target.value) / 100)} disabled={!glassSettings.enabled} className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0" />
-                                <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">{Math.round(glassSettings.borderAlpha * 100)}%</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="glass-card rounded-2xl p-6 theme-transition">
-                          <h4 className="text-sm font-medium text-foreground mb-4">Nachtmodus</h4>
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
-                              <div>
-                                <p className="font-medium text-sm">Nachtfilter</p>
-                                <p className="text-xs text-foreground/60">Sepia- und Abdunkelungseffekt</p>
-                              </div>
-                              <Switch checked={nightModeSettings.nightFilterEnabled} onCheckedChange={nightModeSettings.setNightFilterEnabled} />
-                            </div>
-
-                            {nightModeSettings.nightFilterEnabled && (
-                              <>
-                                <div className="p-4 rounded-xl bg-foreground/5">
-                                  <label className="text-sm font-medium text-foreground block mb-3">Blaulichtfilter-Intensitaet</label>
-                                  <div className="flex items-center gap-4">
-                                    <input
-                                      type="range"
-                                      min="0"
-                                      max="100"
-                                      value={nightModeSettings.blueLightReduction}
-                                      onChange={(e) => nightModeSettings.setBlueLightReduction(Number(e.target.value))}
-                                      className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
-                                    />
-                                    <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">{nightModeSettings.blueLightReduction}%</span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center justify-between p-4 rounded-xl bg-foreground/5">
-                                  <div>
-                                    <p className="font-medium text-sm">Automatische Helligkeit</p>
-                                    <p className="text-xs text-foreground/60">Helligkeit basierend auf Blaulichtfilter anpassen</p>
-                                  </div>
-                                  <Switch checked={nightModeSettings.autoBrightness} onCheckedChange={nightModeSettings.setAutoBrightness} />
-                                </div>
-
-                                <div className="p-4 rounded-xl bg-foreground/5">
-                                  <label className="text-sm font-medium text-foreground block mb-3">Nacht-Overlay (Lesbarkeit)</label>
-                                  <div className="flex items-center gap-4">
-                                    <input
-                                      type="range"
-                                      min="0"
-                                      max="100"
-                                      value={nightModeSettings.overlayStrength}
-                                      onChange={(e) => nightModeSettings.setOverlayStrength(Number(e.target.value))}
-                                      className="flex-1 h-2 bg-foreground/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
-                                    />
-                                    <span className="text-sm font-medium text-foreground min-w-[3rem] text-right">{nightModeSettings.overlayStrength}%</span>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="glass-card rounded-2xl p-6 theme-transition">
-                          <h4 className="text-sm font-medium text-foreground mb-4">Dashboard-Anpassung</h4>
-                          <button onClick={() => setShowPageDesigner(true)} className="w-full px-4 py-3 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent transition-colors flex items-center justify-between group">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
-                                <Palette size={20} weight="fill" />
-                              </div>
-                              <div className="text-left">
-                                <p className="font-medium">Seiten-Designer</p>
-                                <p className="text-xs text-foreground/60">Dashboard-Seiten anpassen und organisieren</p>
-                              </div>
-                            </div>
-                            <Sparkle size={20} weight="fill" className="group-hover:rotate-12 transition-transform" />
-                          </button>
-                        </div>
-
-                        <div className="glass-card rounded-2xl p-6 theme-transition">
-                          <h4 className="text-sm font-medium text-foreground mb-4">System-Information</h4>
-                          <div className="space-y-4">
-                            <div>
-                              <h5 className="text-sm font-medium text-foreground mb-2">Benutzername</h5>
-                              <p className="text-foreground/60 text-sm">{userName}</p>
-                            </div>
-                            <div>
-                              <h5 className="text-sm font-medium text-foreground mb-2">Theme</h5>
-                              <p className="text-foreground/60 text-sm capitalize">{theme}</p>
-                            </div>
-                            <div>
-                              <h5 className="text-sm font-medium text-foreground mb-2">Entitaeten</h5>
-                              <p className="text-foreground/60 text-sm">{entities.length} Entitaeten geladen</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                </div>
+                <SettingsPage
+                  user={user}
+                  userName={userName}
+                  logout={logout}
+                  updateProfile={updateProfile}
+                  deviceLockMode={deviceLockMode}
+                  lockLoading={lockLoading}
+                  updateDeviceLockMode={updateDeviceLockMode}
+                  pinHash={pinHash}
+                  savePin={savePin}
+                  pinCode={pinCode}
+                  setPinCode={setPinCode}
+                  pinConfirm={pinConfirm}
+                  setPinConfirm={setPinConfirm}
+                  isSavingProfile={isSavingProfile}
+                  profileUsername={profileUsername}
+                  setProfileUsername={setProfileUsername}
+                  profileDisplayName={profileDisplayName}
+                  setProfileDisplayName={setProfileDisplayName}
+                  saveUserProfile={saveUserProfile}
+                  accentColorSettings={accentColorSettings}
+                  glassSettings={glassSettings}
+                  nightModeSettings={nightModeSettings}
+                  screensaverSettings={screensaverSettings}
+                  setShowPageDesigner={setShowPageDesigner}
+                  entities={entities}
+                  theme={theme}
+                />
+              )}
+              {currentPageId === 'admin' && user?.isAdmin && (
+                <AdminPanel />
+              )}
+              {currentPageId === 'docs' && (
+                <DocsPage />
+              )}
+              {currentPageId === 'streaming' && (
+                <StreamSender />
               )}
               {/* TODO: Music Player Page */}
               {currentPageId === 'music' && (
@@ -885,7 +639,7 @@ function DashboardContent() {
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
                 </div>
               )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings'].includes(currentPageId) && currentPage && (
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming'].includes(currentPageId) && currentPage && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}
@@ -942,6 +696,71 @@ function DashboardContent() {
         weatherEntity={weatherEntity}
         lightEntities={lightEntities}
       />
+      {/* Modal Page Overlay */}
+      <AnimatePresence>
+        {modalPageId && (() => {
+          const modalPage = pages.find(p => p.id === modalPageId)
+          if (!modalPage) return null
+          const ms = modalPage.modalSettings || {}
+          const size = ms.size || 'large'
+          const backdropBlur = ms.backdropBlur !== false
+          const closeOnClick = ms.closeOnBackdropClick !== false
+          const showClose = ms.showCloseButton !== false
+          const rounded = ms.rounded !== false
+
+          const sizeClasses: Record<string, string> = {
+            small: 'inset-[15%] sm:inset-[20%] lg:inset-[25%]',
+            medium: 'inset-[8%] sm:inset-[12%] lg:inset-[16%]',
+            large: 'inset-4 sm:inset-8 lg:inset-12',
+            fullscreen: 'inset-0',
+          }
+
+          return (
+            <>
+              <motion.div
+                key="modal-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                onClick={closeOnClick ? closeModalPage : undefined}
+                className={`fixed inset-0 bg-black/60 z-[60] ${backdropBlur ? 'backdrop-blur-lg' : ''}`}
+              />
+              <motion.div
+                key="modal-page"
+                initial={{ opacity: 0, y: 40, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 24, scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                className={`fixed ${sizeClasses[size]} z-[61] glass-card overflow-hidden flex flex-col ${rounded ? 'rounded-2xl' : ''}`}
+                style={{ boxShadow: '0 25px 80px oklch(0 0 0 / 0.5)' }}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-foreground/8">
+                  <h2 className="text-lg font-semibold text-foreground">{modalPage.name}</h2>
+                  {showClose && (
+                    <button
+                      onClick={closeModalPage}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-foreground/50 hover:text-foreground hover:bg-foreground/10 transition-all"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                  <CustomPageRenderer
+                    page={modalPage}
+                    entities={entities}
+                    onUpdate={refresh}
+                    userName={userName}
+                    weatherEntity={weatherEntity}
+                    lightEntities={lightEntities}
+                  />
+                </div>
+              </motion.div>
+            </>
+          )
+        })()}
+      </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
     </>
   )
@@ -956,7 +775,9 @@ function App() {
             <ConfigurationProvider>
               <EntityDiscoveryProvider>
                 <DynamicOverviewProvider>
-                  <DashboardContent />
+                  <NotificationProvider>
+                    <DashboardContent />
+                  </NotificationProvider>
                   <Toaster />
                 </DynamicOverviewProvider>
               </EntityDiscoveryProvider>

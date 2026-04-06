@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useIdleTimer } from 'react-idle-timer'
+import { Warning, ShieldWarning, Siren, CloudWarning } from '@phosphor-icons/react'
+import { useActiveWarnings, type ActiveWarning } from '@/components/NotificationCenter'
+import { useLocalStorage } from '@/lib/storage'
 
 interface ScreensaverProps {
   timeout?: number // in milliseconds, default 5 minutes
@@ -10,6 +13,7 @@ interface ScreensaverProps {
 export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverProps) {
   const [isActive, setIsActive] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const activeWarnings = useActiveWarnings()
 
   // Update time every second when screensaver is active
   useEffect(() => {
@@ -192,6 +196,11 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
               {date}
             </motion.div>
 
+            {/* Active warnings */}
+            {activeWarnings.length > 0 && (
+              <ScreensaverWarnings warnings={activeWarnings} />
+            )}
+
             {/* Wake hint - appears after a delay */}
             <motion.div
               className="mt-16 text-sm tracking-[0.2em] uppercase font-light"
@@ -209,30 +218,142 @@ export function Screensaver({ timeout = 300000, enabled = true }: ScreensaverPro
   )
 }
 
+// ── Screensaver Warning Display ──────────────────────────────────────
+
+const screensaverWarningStyles = {
+  info: { color: 'oklch(0.70 0.15 220)', icon: CloudWarning },
+  warning: { color: 'oklch(0.75 0.16 70)', icon: Warning },
+  critical: { color: 'oklch(0.65 0.20 25)', icon: ShieldWarning },
+  emergency: { color: 'oklch(0.60 0.25 15)', icon: Siren },
+}
+
+function ScreensaverWarnings({ warnings }: { warnings: ActiveWarning[] }) {
+  const topWarning = warnings[0]
+  const style = screensaverWarningStyles[topWarning.level] || screensaverWarningStyles.warning
+  const TopIcon = style.icon
+  const isSevere = topWarning.level === 'critical' || topWarning.level === 'emergency'
+
+  return (
+    <motion.div
+      className="mt-10 max-w-lg mx-auto"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.8, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <div
+        className="rounded-2xl px-5 py-4 backdrop-blur-sm"
+        style={{
+          background: `color-mix(in oklch, ${style.color} 8%, transparent)`,
+          border: `1px solid color-mix(in oklch, ${style.color} 15%, transparent)`,
+          boxShadow: isSevere ? `0 0 30px color-mix(in oklch, ${style.color} 10%, transparent)` : undefined,
+        }}
+      >
+        {/* Top warning */}
+        <div className="flex items-start gap-3">
+          {isSevere ? (
+            <motion.div
+              animate={{ scale: [1, 1.12, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+              className="flex-shrink-0 mt-0.5"
+            >
+              <TopIcon size={20} weight="fill" style={{ color: style.color }} />
+            </motion.div>
+          ) : (
+            <TopIcon size={20} weight="fill" style={{ color: style.color }} className="flex-shrink-0 mt-0.5" />
+          )}
+          <div className="min-w-0">
+            <p
+              className="text-sm font-medium truncate"
+              style={{ color: style.color }}
+            >
+              {topWarning.title}
+            </p>
+            {topWarning.message && (
+              <p
+                className="text-xs mt-1 line-clamp-2 leading-relaxed"
+                style={{ color: `color-mix(in oklch, ${style.color} 60%, oklch(0.5 0 0))` }}
+              >
+                {topWarning.message}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Additional warnings count */}
+        {warnings.length > 1 && (
+          <div
+            className="mt-3 pt-2 text-xs font-medium"
+            style={{
+              color: `color-mix(in oklch, ${style.color} 50%, oklch(0.4 0 0))`,
+              borderTop: `1px solid color-mix(in oklch, ${style.color} 10%, transparent)`,
+            }}
+          >
+            +{warnings.length - 1} weitere Warnung{warnings.length > 2 ? 'en' : ''}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+// Screensaver schedule entry
+export interface ScreensaverSchedule {
+  id: string
+  days: number[] // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime: string // "HH:MM" e.g. "22:00"
+  endTime: string // "HH:MM" e.g. "06:00"
+  timeout: number // inactivity timeout in milliseconds
+  enabled: boolean
+}
+
+// Check if a schedule is currently active
+function isScheduleActive(schedule: ScreensaverSchedule): boolean {
+  if (!schedule.enabled) return false
+  const now = new Date()
+  const day = now.getDay() // 0=Sun
+  if (!schedule.days.includes(day)) return false
+
+  const [startH, startM] = schedule.startTime.split(':').map(Number)
+  const [endH, endM] = schedule.endTime.split(':').map(Number)
+  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const startMins = startH * 60 + startM
+  const endMins = endH * 60 + endM
+
+  // Handle overnight spans (e.g. 22:00 → 06:00)
+  if (startMins <= endMins) {
+    return nowMins >= startMins && nowMins < endMins
+  } else {
+    return nowMins >= startMins || nowMins < endMins
+  }
+}
+
 // Screensaver settings hook
 export function useScreensaverSettings() {
-  const [enabled, setEnabled] = useState(() => {
-    const stored = localStorage.getItem('screensaver-enabled')
-    return stored ? JSON.parse(stored) : true
-  })
+  const [enabled, setEnabled] = useLocalStorage<boolean>('screensaver-enabled', true)
+  const [timeout, setTimeout] = useLocalStorage<number>('screensaver-timeout', 300000)
+  const [schedules, setSchedules] = useLocalStorage<ScreensaverSchedule[]>('screensaver-schedules', [])
 
-  const [timeout, setTimeout] = useState(() => {
-    const stored = localStorage.getItem('screensaver-timeout')
-    return stored ? parseInt(stored) : 300000 // 5 minutes default
-  })
-
-  useEffect(() => {
-    localStorage.setItem('screensaver-enabled', JSON.stringify(enabled))
-  }, [enabled])
-
-  useEffect(() => {
-    localStorage.setItem('screensaver-timeout', timeout.toString())
-  }, [timeout])
+  // Determine effective enabled state and timeout based on schedules
+  const effective = useMemo(() => {
+    if (schedules.length === 0) {
+      return { enabled, timeout }
+    }
+    // Check if any schedule is currently active
+    const activeSchedule = schedules.find(isScheduleActive)
+    if (activeSchedule) {
+      return { enabled: true, timeout: activeSchedule.timeout }
+    }
+    // If schedules exist but none active, fall back to global setting
+    // (schedules only override when active)
+    return { enabled, timeout }
+  }, [enabled, timeout, schedules])
 
   return useMemo(() => ({
-    enabled,
+    enabled: effective.enabled,
     setEnabled,
-    timeout,
+    timeout: effective.timeout,
     setTimeout,
-  }), [enabled, setEnabled, timeout, setTimeout])
+    schedules,
+    setSchedules,
+  }), [effective.enabled, effective.timeout, setEnabled, setTimeout, schedules, setSchedules])
 }

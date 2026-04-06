@@ -11,9 +11,10 @@ interface ClimateWidgetProps {
   entity: ClimateEntity
   onUpdate?: () => void
   config?: Record<string, unknown>
+  widgetSize?: { w: number; h: number }
 }
 
-export const ClimateWidget = memo(function ClimateWidget({ entity, onUpdate, config }: ClimateWidgetProps) {
+export const ClimateWidget = memo(function ClimateWidget({ entity, onUpdate, config, widgetSize }: ClimateWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragTemp, setDragTemp] = useState<number | null>(null)

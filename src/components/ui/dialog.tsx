@@ -38,7 +38,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/70 backdrop-blur-sm",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm",
         className
       )}
       {...props}
@@ -70,7 +70,7 @@ function DialogContent({
         aria-describedby={undefined}
         className={cn(
           // Base: mobile-first fullscreen sheet
-          "bg-card/95 backdrop-blur-2xl fixed z-50 grid gap-4 border border-foreground/20 shadow-2xl duration-200",
+          "bg-card/95 backdrop-blur-2xl text-foreground fixed z-[70] grid gap-4 border border-foreground/20 shadow-2xl duration-200",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           // Mobile: bottom sheet style
           "inset-x-0 bottom-0 rounded-t-2xl max-h-[92vh] overflow-y-auto p-5 pt-3",
@@ -100,14 +100,14 @@ function DialogContent({
             <button
               type="button"
               onClick={toggleExpand}
-              className="hidden sm:flex items-center justify-center w-8 h-8 rounded-xl bg-foreground/8 text-foreground/60 transition-all duration-200 hover:bg-accent/15 hover:text-accent hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden"
+              className="hidden sm:flex items-center justify-center w-8 h-8 rounded-xl bg-black/20 backdrop-blur-md text-foreground/80 transition-all duration-200 hover:bg-accent/20 hover:text-accent hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden shadow-sm"
               title={expanded ? 'Verkleinern' : 'Vergrößern'}
             >
               {expanded ? <ArrowsInSimple size={15} weight="bold" /> : <ArrowsOutSimple size={15} weight="bold" />}
             </button>
           )}
           {!hideCloseButton && (
-            <DialogPrimitive.Close className="flex items-center justify-center w-8 h-8 rounded-xl bg-foreground/8 text-foreground/60 transition-all duration-200 hover:bg-destructive/15 hover:text-destructive hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
+            <DialogPrimitive.Close className="flex items-center justify-center w-8 h-8 rounded-xl bg-black/20 backdrop-blur-md text-foreground/80 transition-all duration-200 hover:bg-destructive/20 hover:text-destructive hover:scale-105 active:scale-95 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 shadow-sm">
               <XIcon />
               <span className="sr-only">Close</span>
             </DialogPrimitive.Close>
@@ -148,7 +148,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-none font-semibold", className)}
+      className={cn("text-lg leading-none font-semibold text-foreground", className)}
       {...props}
     />
   )

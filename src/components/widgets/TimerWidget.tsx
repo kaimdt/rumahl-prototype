@@ -54,6 +54,7 @@ export function TimerWidget({ entity, onUpdate }: TimerWidgetProps) {
       {...longPressHandlers}
       className="glass-card rounded-2xl theme-transition relative overflow-hidden select-none touch-none"
       whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
     >
       <div

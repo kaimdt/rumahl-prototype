@@ -7,10 +7,14 @@ import { haptics } from '@/lib/haptics'
 import { toBackendImageUrl } from '@/lib/imageUrl'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { useTheme } from '@/contexts/ThemeContext'
+
+const LIGHT_THEMES = new Set(['day', 'light'])
 
 interface MediaPlayerWidgetProps {
   entity: MediaPlayerEntity
   onUpdate?: () => void
+  widgetSize?: { w: number; h: number }
 }
 
 const ACTIVE_STATES = new Set(['playing', 'buffering'])
@@ -47,11 +51,13 @@ function toSafeTimestamp(raw: unknown): number {
   return Number.isFinite(parsed) ? parsed : Date.now()
 }
 
-export function MediaPlayerWidget({ entity, onUpdate }: MediaPlayerWidgetProps) {
+export function MediaPlayerWidget({ entity, onUpdate, widgetSize }: MediaPlayerWidgetProps) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [liveNow, setLiveNow] = useState(Date.now())
   const [detailOpen, setDetailOpen] = useState(false)
   const [resolvedCoverUrl, setResolvedCoverUrl] = useState<string | null>(null)
+  const { theme: currentTheme } = useTheme()
+  const isLightTheme = LIGHT_THEMES.has(currentTheme)
 
   const name = String(entity.attributes.friendly_name || entity.entity_id)
   const mediaTitle = String(entity.attributes.media_title || '')
@@ -301,25 +307,29 @@ export function MediaPlayerWidget({ entity, onUpdate }: MediaPlayerWidgetProps) 
     <motion.div
       className="glass-card rounded-2xl theme-transition relative overflow-hidden"
       whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
     >
       {resolvedCoverUrl && (
         <div
-          className="absolute inset-0 opacity-45 pointer-events-none"
+          className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: `url(${resolvedCoverUrl})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
-            filter: 'blur(22px) saturate(1.3) brightness(0.7)',
+            filter: isLightTheme
+              ? 'blur(22px) saturate(1.2) brightness(1.15)'
+              : 'blur(22px) saturate(1.3) brightness(0.7)',
+            opacity: isLightTheme ? 0.35 : 0.45,
             transform: 'scale(1.14)',
           }}
         />
       )}
 
-      <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/25 via-black/10 to-black/45" />
+      <div className={`absolute inset-0 pointer-events-none bg-gradient-to-b ${isLightTheme ? 'from-white/30 via-white/15 to-white/40' : 'from-black/25 via-black/10 to-black/45'}`} />
 
       <div className="relative p-4 sm:p-5 space-y-3">
-        <div className="rounded-2xl bg-black/15 border border-white/10 backdrop-blur-md p-3">
+        <div className={`rounded-2xl backdrop-blur-md p-3 ${isLightTheme ? 'bg-white/20 border border-black/8' : 'bg-black/15 border border-white/10'}`}>
           <div className="flex items-center gap-3">
             <div
               className="p-2.5 rounded-xl transition-all duration-300"
@@ -385,13 +395,7 @@ export function MediaPlayerWidget({ entity, onUpdate }: MediaPlayerWidgetProps) 
             ) : (
               <div className="h-64 sm:h-80 w-full bg-gradient-to-br from-accent/25 via-foreground/10 to-transparent" />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-black/10" />
-            <button
-              onClick={() => setDetailOpen(false)}
-              className="absolute top-4 right-4 w-9 h-9 rounded-xl bg-black/35 hover:bg-black/55 text-white transition-colors"
-            >
-              x
-            </button>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-black/5" />
             <div className="absolute left-5 right-5 bottom-5 flex items-end gap-4">
               {resolvedCoverUrl && (
                 <img

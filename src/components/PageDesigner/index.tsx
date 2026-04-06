@@ -9,38 +9,9 @@ import {
   ArrowUp,
   ArrowDown,
   House,
-  Lightbulb,
-  Thermometer,
-  PlugsConnected,
-  Gauge,
-  Gear,
-  FloppyDisk,
-  VideoCamera,
-  SpeakerHigh,
-  Lock,
-  Garage,
-  Fan,
-  Bathtub,
   GridFour,
   CaretLeft,
   Star,
-  Bed,
-  CookingPot,
-  Couch,
-  Desktop,
-  Tree,
-  Door,
-  ShieldCheck,
-  Drop,
-  Lightning,
-  WifiHigh,
-  Broadcast,
-  Baby,
-  Dog,
-  Car,
-  Sun,
-  Moon,
-  FireSimple,
   Swatches,
   DotsSixVertical,
   MagnifyingGlassMinus,
@@ -50,13 +21,14 @@ import {
   Eye,
   EyeSlash,
   ArrowsOutSimple,
-  Command,
   Copy,
+  Sliders,
 } from '@phosphor-icons/react'
 import {
   DndContext,
   DragOverlay,
-  closestCenter,
+  pointerWithin,
+  rectIntersection,
   PointerSensor,
   useSensor,
   useSensors,
@@ -64,9 +36,13 @@ import {
   DragStartEvent,
   useDroppable,
   useDraggable,
+  type CollisionDetection,
 } from '@dnd-kit/core'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { RenderWidget } from '@/components/CustomPageRenderer'
+import { PageSettingsDialog } from '@/components/PageSettingsDialog'
+import { PageEditDialog, availableIcons, iconLabels } from './PageEditDialog'
 import { WidgetPalette } from './WidgetPalette'
 import { WidgetGroupDesignerDialog } from './WidgetGroupDesignerDialog'
 import { TemplatePickerModal } from './TemplatePickerModal'
@@ -75,7 +51,7 @@ import { DragOverlayPreview } from './DragOverlayPreview'
 import { UnconfiguredOverlay } from './UnconfiguredOverlay'
 import { getWidgetDef } from '@/lib/widgetRegistry'
 import { getCardStyleClass } from '@/lib/defaults'
-import type { DashboardPage, DashboardWidget, EntityState, WidgetType, LightEntity, WeatherEntity } from '@/lib/types'
+import type { DashboardPage, DashboardWidget, EntityState, WidgetType, LightEntity, WeatherEntity, ModalSettings } from '@/lib/types'
 import { toast } from 'sonner'
 
 interface PageDesignerProps {
@@ -98,72 +74,6 @@ interface PageLayoutSettings {
   cols: number
   rows: number
   gap: number
-}
-
-const availableIcons = {
-  House,
-  Lightbulb,
-  Thermometer,
-  PlugsConnected,
-  Gauge,
-  Gear,
-  FloppyDisk,
-  VideoCamera,
-  SpeakerHigh,
-  Lock,
-  Garage,
-  Fan,
-  Bathtub,
-  Bed,
-  CookingPot,
-  Couch,
-  Desktop,
-  Tree,
-  Door,
-  ShieldCheck,
-  Drop,
-  Lightning,
-  WifiHigh,
-  Broadcast,
-  Baby,
-  Dog,
-  Car,
-  Sun,
-  Moon,
-  FireSimple,
-} as const
-
-const iconLabels: Record<keyof typeof availableIcons, string> = {
-  House: 'Haus',
-  Lightbulb: 'Licht',
-  Thermometer: 'Temperatur',
-  PlugsConnected: 'Stecker',
-  Gauge: 'Sensor',
-  Gear: 'Einstellungen',
-  FloppyDisk: 'Speicher',
-  VideoCamera: 'Kamera',
-  SpeakerHigh: 'Lautsprecher',
-  Lock: 'Schloss',
-  Garage: 'Garage',
-  Fan: 'Lüfter',
-  Bathtub: 'Bad',
-  Bed: 'Schlafzimmer',
-  CookingPot: 'Küche',
-  Couch: 'Wohnzimmer',
-  Desktop: 'Büro',
-  Tree: 'Garten',
-  Door: 'Eingang',
-  ShieldCheck: 'Sicherheit',
-  Drop: 'Wasser',
-  Lightning: 'Energie',
-  WifiHigh: 'Netzwerk',
-  Broadcast: 'Medien',
-  Baby: 'Kinderzimmer',
-  Dog: 'Haustier',
-  Car: 'Fahrzeug',
-  Sun: 'Sonne',
-  Moon: 'Mond',
-  FireSimple: 'Heizung',
 }
 
 // Build an occupancy map: for each cell (row, col), which widget occupies it
@@ -313,6 +223,7 @@ function CanvasWidget({
             userName={userName}
             weatherEntity={weatherEntity}
             lightEntities={lightEntities}
+            widgetSize={widget.size}
           />
         </div>
       </div>
@@ -345,9 +256,10 @@ function CanvasWidget({
       <div
         {...attributes}
         {...listeners}
-        className="absolute top-2 left-2 z-10 p-1 rounded-md cursor-grab active:cursor-grabbing
+        className="absolute top-2 left-2 z-20 p-1.5 rounded-md cursor-grab active:cursor-grabbing
           opacity-0 group-hover:opacity-100 transition-opacity
           bg-black/30 text-white/80 backdrop-blur-sm hover:bg-black/50"
+        style={{ touchAction: 'none' }}
       >
         <DotsSixVertical size={14} weight="bold" />
       </div>
@@ -371,9 +283,12 @@ function CanvasWidget({
           <button
             type="button"
             aria-label="Breite ziehen"
-            className="absolute top-1/2 -right-1.5 -translate-y-1/2 h-12 w-2 rounded-full bg-accent/70 shadow-sm cursor-ew-resize hover:bg-accent transition-colors"
+            className="absolute top-1/2 -right-1.5 -translate-y-1/2 h-12 w-3 rounded-full bg-accent/70 shadow-sm cursor-ew-resize hover:bg-accent transition-colors z-20"
+            style={{ touchAction: 'none' }}
             onPointerDown={(e) => {
               e.stopPropagation()
+              e.preventDefault()
+              e.currentTarget.setPointerCapture(e.pointerId)
               const parent = e.currentTarget.parentElement
               if (!parent || !onResizeTo) return
               const rect = parent.getBoundingClientRect()
@@ -386,31 +301,28 @@ function CanvasWidget({
                 unitW: rect.width / Math.max(1, widget.size.w),
                 unitH: rect.height / Math.max(1, widget.size.h),
               }
-
-              const onMove = (event: PointerEvent) => {
-                if (!resizeStateRef.current) return
-                const dx = event.clientX - resizeStateRef.current.startX
-                const maxWidth = Math.max(1, maxCols - widget.position.x)
-                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + Math.round(dx / resizeStateRef.current.unitW)))
-                onResizeTo(nextW, resizeStateRef.current.startH)
-              }
-
-              const onUp = () => {
-                resizeStateRef.current = null
-                window.removeEventListener('pointermove', onMove)
-                window.removeEventListener('pointerup', onUp)
-              }
-
-              window.addEventListener('pointermove', onMove)
-              window.addEventListener('pointerup', onUp)
+            }}
+            onPointerMove={(e) => {
+              if (!resizeStateRef.current || resizeStateRef.current.mode !== 'right') return
+              const dx = e.clientX - resizeStateRef.current.startX
+              const maxWidth = Math.max(1, maxCols - widget.position.x)
+              const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + Math.round(dx / resizeStateRef.current.unitW)))
+              onResizeTo?.(nextW, resizeStateRef.current.startH)
+            }}
+            onPointerUp={(e) => {
+              resizeStateRef.current = null
+              e.currentTarget.releasePointerCapture(e.pointerId)
             }}
           />
           <button
             type="button"
             aria-label="Höhe ziehen"
-            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-2 w-12 rounded-full bg-accent/70 shadow-sm cursor-ns-resize hover:bg-accent transition-colors"
+            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-3 w-12 rounded-full bg-accent/70 shadow-sm cursor-ns-resize hover:bg-accent transition-colors z-20"
+            style={{ touchAction: 'none' }}
             onPointerDown={(e) => {
               e.stopPropagation()
+              e.preventDefault()
+              e.currentTarget.setPointerCapture(e.pointerId)
               const parent = e.currentTarget.parentElement
               if (!parent || !onResizeTo) return
               const rect = parent.getBoundingClientRect()
@@ -423,30 +335,27 @@ function CanvasWidget({
                 unitW: rect.width / Math.max(1, widget.size.w),
                 unitH: rect.height / Math.max(1, widget.size.h),
               }
-
-              const onMove = (event: PointerEvent) => {
-                if (!resizeStateRef.current) return
-                const dy = event.clientY - resizeStateRef.current.startY
-                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + Math.round(dy / resizeStateRef.current.unitH)))
-                onResizeTo(resizeStateRef.current.startW, nextH)
-              }
-
-              const onUp = () => {
-                resizeStateRef.current = null
-                window.removeEventListener('pointermove', onMove)
-                window.removeEventListener('pointerup', onUp)
-              }
-
-              window.addEventListener('pointermove', onMove)
-              window.addEventListener('pointerup', onUp)
+            }}
+            onPointerMove={(e) => {
+              if (!resizeStateRef.current || resizeStateRef.current.mode !== 'bottom') return
+              const dy = e.clientY - resizeStateRef.current.startY
+              const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + Math.round(dy / resizeStateRef.current.unitH)))
+              onResizeTo?.(resizeStateRef.current.startW, nextH)
+            }}
+            onPointerUp={(e) => {
+              resizeStateRef.current = null
+              e.currentTarget.releasePointerCapture(e.pointerId)
             }}
           />
           <button
             type="button"
             aria-label="Breite und Höhe ziehen"
-            className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 rounded bg-accent shadow-sm cursor-nwse-resize hover:bg-accent/80 transition-colors"
+            className="absolute -right-1.5 -bottom-1.5 h-4 w-4 rounded bg-accent shadow-sm cursor-nwse-resize hover:bg-accent/80 transition-colors z-20"
+            style={{ touchAction: 'none' }}
             onPointerDown={(e) => {
               e.stopPropagation()
+              e.preventDefault()
+              e.currentTarget.setPointerCapture(e.pointerId)
               const parent = e.currentTarget.parentElement
               if (!parent || !onResizeTo) return
               const rect = parent.getBoundingClientRect()
@@ -459,25 +368,19 @@ function CanvasWidget({
                 unitW: rect.width / Math.max(1, widget.size.w),
                 unitH: rect.height / Math.max(1, widget.size.h),
               }
-
-              const onMove = (event: PointerEvent) => {
-                if (!resizeStateRef.current) return
-                const dx = event.clientX - resizeStateRef.current.startX
-                const dy = event.clientY - resizeStateRef.current.startY
-                const maxWidth = Math.max(1, maxCols - widget.position.x)
-                const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + Math.round(dx / resizeStateRef.current.unitW)))
-                const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + Math.round(dy / resizeStateRef.current.unitH)))
-                onResizeTo(nextW, nextH)
-              }
-
-              const onUp = () => {
-                resizeStateRef.current = null
-                window.removeEventListener('pointermove', onMove)
-                window.removeEventListener('pointerup', onUp)
-              }
-
-              window.addEventListener('pointermove', onMove)
-              window.addEventListener('pointerup', onUp)
+            }}
+            onPointerMove={(e) => {
+              if (!resizeStateRef.current || resizeStateRef.current.mode !== 'corner') return
+              const dx = e.clientX - resizeStateRef.current.startX
+              const dy = e.clientY - resizeStateRef.current.startY
+              const maxWidth = Math.max(1, maxCols - widget.position.x)
+              const nextW = Math.max(1, Math.min(maxWidth, resizeStateRef.current.startW + Math.round(dx / resizeStateRef.current.unitW)))
+              const nextH = Math.max(1, Math.min(maxRows, resizeStateRef.current.startH + Math.round(dy / resizeStateRef.current.unitH)))
+              onResizeTo?.(nextW, nextH)
+            }}
+            onPointerUp={(e) => {
+              resizeStateRef.current = null
+              e.currentTarget.releasePointerCapture(e.pointerId)
             }}
           />
         </>
@@ -504,6 +407,7 @@ function CanvasWidget({
                 userName={userName}
                 weatherEntity={weatherEntity}
                 lightEntities={lightEntities}
+                widgetSize={widget.size}
               />
             </div>
           </div>
@@ -600,27 +504,17 @@ export function PageDesigner({
   weatherEntity,
   lightEntities,
 }: PageDesignerProps) {
-  const { pages, setPages } = usePageNavigation()
+  const { pages, setPages, forceSavePages, pageLayouts, savePageLayout } = usePageNavigation()
+  const { theme } = useTheme()
+  const isLightTheme = theme === 'day' || theme === 'light'
   const { snapshot, undo, redo, canUndo, canRedo } = useUndoHistory(pages, setPages)
 
   // Page management
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null)
-  const [editingPageId, setEditingPageId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editIcon, setEditIcon] = useState<keyof typeof availableIcons>('House')
-  const [editShowInNav, setEditShowInNav] = useState(true)
+  const [editingPage, setEditingPage] = useState<DashboardPage | null>(null)
   const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [templateApplyMode, setTemplateApplyMode] = useState(false)
-  const [pageLayouts, setPageLayouts] = useState<Record<string, PageLayoutSettings>>(() => {
-    try {
-      const raw = localStorage.getItem('ha-page-designer-layouts')
-      if (!raw) return {}
-      return JSON.parse(raw) as Record<string, PageLayoutSettings>
-    } catch {
-      return {}
-    }
-  })
-
+  const [showPageSettings, setShowPageSettings] = useState(false)
   // Widget management
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null)
   const [activeDragType, setActiveDragType] = useState<WidgetType | null>(null)
@@ -647,13 +541,17 @@ export function PageDesigner({
     }
   }, [isOpen])
 
-  useEffect(() => {
-    localStorage.setItem('ha-page-designer-layouts', JSON.stringify(pageLayouts))
-  }, [pageLayouts])
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   )
+
+  // Custom collision detection: prefer pointerWithin (exact mouse position),
+  // fall back to rectIntersection for edge cases
+  const pointerFirstCollision: CollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args)
+    if (pointerCollisions.length > 0) return pointerCollisions
+    return rectIntersection(args)
+  }, [])
 
   // Calculate grid rows needed
   const gridRows = useMemo(() => {
@@ -769,22 +667,34 @@ export function PageDesigner({
   }
 
   const handleEditPage = (page: DashboardPage) => {
-    setEditingPageId(page.id)
-    setEditName(page.name)
-    setEditIcon(page.icon as keyof typeof availableIcons)
-    setEditShowInNav(page.showInNav !== false)
+    setEditingPage(page)
   }
 
-  const handleSavePageEdit = () => {
-    if (!editingPageId) return
+  const handleSavePageEdit = (updates: {
+    name: string
+    icon: string
+    showInNav: boolean
+    displayMode: 'page' | 'modal'
+    parentPageId?: string
+    modalSettings?: ModalSettings
+  }) => {
+    if (!editingPage) return
     snapshot()
     const updatedPages = pages.map((page) =>
-      page.id === editingPageId
-        ? { ...page, name: editName, icon: editIcon, showInNav: editShowInNav }
+      page.id === editingPage.id
+        ? {
+            ...page,
+            name: updates.name,
+            icon: updates.icon,
+            showInNav: updates.showInNav,
+            displayMode: updates.displayMode,
+            parentPageId: updates.parentPageId || undefined,
+            modalSettings: updates.displayMode === 'modal' ? updates.modalSettings : undefined,
+          }
         : page
     )
-    setPages(updatedPages)
-    setEditingPageId(null)
+    forceSavePages(updatedPages)
+    setEditingPage(null)
     toast.success('Seite aktualisiert')
   }
 
@@ -795,9 +705,30 @@ export function PageDesigner({
     }
     snapshot()
     const updatedPages = pages.filter((p) => p.id !== pageId)
-    setPages(updatedPages)
+    forceSavePages(updatedPages)
     if (selectedPageId === pageId) setSelectedPageId(null)
     toast.success('Seite gelöscht')
+  }
+
+  const handleCopyPage = (pageId: string) => {
+    const sourcePage = pages.find(p => p.id === pageId)
+    if (!sourcePage) return
+    snapshot()
+    const newId = `page_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+    const copiedPage: DashboardPage = {
+      ...sourcePage,
+      id: newId,
+      name: `${sourcePage.name} (Kopie)`,
+      widgets: sourcePage.widgets.map(w => ({
+        ...w,
+        id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      })),
+      showInNav: sourcePage.showInNav,
+      parentPageId: sourcePage.parentPageId,
+    }
+    setPages([...pages, copiedPage])
+    setSelectedPageId(newId)
+    toast.success('Seite kopiert')
   }
 
   const handleMovePage = (pageId: string, direction: 'up' | 'down') => {
@@ -809,23 +740,18 @@ export function PageDesigner({
     const updatedPages = [...pages]
     const [movedPage] = updatedPages.splice(currentIndex, 1)
     updatedPages.splice(newIndex, 0, movedPage)
-    setPages(updatedPages)
+    forceSavePages(updatedPages)
   }
 
   const updateSelectedPageLayout = useCallback((updates: Partial<PageLayoutSettings>) => {
     if (!selectedPage) return
-    setPageLayouts((prev) => {
-      const current = prev[selectedPage.id] ?? { cols: GRID_COLS, rows: MIN_ROWS, gap: 10 }
-      return {
-        ...prev,
-        [selectedPage.id]: {
-          cols: Math.max(MIN_COLS, Math.min(MAX_COLS, updates.cols ?? current.cols)),
-          rows: Math.max(MIN_ROWS, updates.rows ?? current.rows),
-          gap: Math.max(0, Math.min(24, updates.gap ?? current.gap)),
-        },
-      }
+    const current = pageLayouts[selectedPage.id] ?? { cols: GRID_COLS, rows: MIN_ROWS, gap: 10 }
+    savePageLayout(selectedPage.id, {
+      cols: Math.max(MIN_COLS, Math.min(MAX_COLS, updates.cols ?? current.cols)),
+      rows: Math.max(MIN_ROWS, updates.rows ?? current.rows),
+      gap: Math.max(0, Math.min(24, updates.gap ?? current.gap)),
     })
-  }, [selectedPage])
+  }, [selectedPage, pageLayouts, savePageLayout])
 
   const adjustSelectedPageColumns = useCallback((delta: number) => {
     if (!selectedPage) return
@@ -1109,375 +1035,206 @@ export function PageDesigner({
           className="fixed inset-0 h-[100dvh] max-h-[100dvh] bg-background/95 backdrop-blur-2xl z-50 overflow-hidden"
         >
           <div className="h-full flex flex-col overflow-hidden">
-            {/* Top bar */}
-            <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-foreground/10 bg-background/80 backdrop-blur-sm">
-              <div className="flex items-center gap-3">
-                <GridFour size={22} weight="fill" className="text-accent" />
-                <h1 className="text-base font-semibold text-foreground hidden sm:block">Seiten-Designer</h1>
+            {/* ── Compact Top Bar ── */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-foreground/10 bg-background/60 backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pr-3 border-r border-foreground/10">
+                  <GridFour size={18} weight="fill" className="text-accent" />
+                  <h1 className="text-sm font-semibold text-foreground hidden sm:block">Designer</h1>
+                </div>
                 {/* Undo/Redo */}
-                <div className="flex items-center gap-0.5 ml-2">
-                  <button
-                    onClick={undo}
-                    disabled={!canUndo}
-                    className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/50 disabled:opacity-20 transition-colors"
-                    title="Rückgängig (Strg+Z)"
-                  >
-                    <ArrowCounterClockwise size={16} weight="bold" />
+                <div className="flex items-center gap-0.5">
+                  <button onClick={undo} disabled={!canUndo} className="p-1.5 rounded-md hover:bg-foreground/8 text-foreground/40 disabled:opacity-20 transition-colors" title="Rückgängig (Strg+Z)">
+                    <ArrowCounterClockwise size={15} weight="bold" />
                   </button>
-                  <button
-                    onClick={redo}
-                    disabled={!canRedo}
-                    className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/50 disabled:opacity-20 transition-colors"
-                    title="Wiederherstellen (Strg+Y)"
-                  >
-                    <ArrowClockwise size={16} weight="bold" />
+                  <button onClick={redo} disabled={!canRedo} className="p-1.5 rounded-md hover:bg-foreground/8 text-foreground/40 disabled:opacity-20 transition-colors" title="Wiederherstellen (Strg+Y)">
+                    <ArrowClockwise size={15} weight="bold" />
                   </button>
                 </div>
+                <div className="w-px h-5 bg-foreground/8" />
                 {/* Preview toggle */}
                 <button
                   onClick={() => setPreviewMode(!previewMode)}
-                  className={`p-1.5 rounded-lg transition-colors ${
-                    previewMode
-                      ? 'bg-accent/15 text-accent'
-                      : 'hover:bg-foreground/10 text-foreground/50'
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    previewMode ? 'bg-accent/15 text-accent' : 'hover:bg-foreground/8 text-foreground/40'
                   }`}
-                  title={previewMode ? 'Bearbeitungsmodus (P)' : 'Vorschau-Modus (P)'}
+                  title={previewMode ? 'Bearbeitungsmodus (P)' : 'Vorschau (P)'}
                 >
-                  {previewMode ? <Eye size={16} weight="fill" /> : <EyeSlash size={16} weight="regular" />}
+                  {previewMode ? <Eye size={14} weight="fill" /> : <EyeSlash size={14} />}
+                  <span className="hidden lg:inline">{previewMode ? 'Vorschau' : 'Bearbeiten'}</span>
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                {/* Keyboard shortcut hints */}
-                <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-foreground/25">
-                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10">Entf</kbd>
-                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">Strg+D</kbd>
-                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">Strg+Z</kbd>
-                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">P</kbd>
-                  <kbd className="px-1 py-0.5 rounded bg-foreground/5 border border-foreground/10 ml-1">Esc</kbd>
+                <div className="hidden xl:flex items-center gap-1 text-[9px] text-foreground/20 font-mono">
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5">Entf</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5">⌘D</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5">⌘Z</kbd>
+                  <kbd className="px-1 py-0.5 rounded bg-foreground/5">P</kbd>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="p-2 rounded-lg hover:bg-foreground/10 text-foreground/60 hover:text-foreground transition-colors"
-                >
-                  <X size={22} weight="bold" />
+                <button onClick={onClose} className="p-1.5 rounded-md hover:bg-foreground/10 text-foreground/50 hover:text-foreground transition-colors">
+                  <X size={20} weight="bold" />
                 </button>
               </div>
             </div>
 
-            {/* Main content: 3-panel layout */}
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-            >
+            {/* ── Main 3-Panel Layout ── */}
+            <DndContext sensors={sensors} collisionDetection={pointerFirstCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex-1 flex overflow-hidden min-h-0">
-              {/* Left sidebar - Page list */}
-              <div className={`${leftPanelCollapsed ? 'w-12' : 'w-64 xl:w-72'} border-r border-foreground/10 flex flex-col overflow-hidden min-h-0 transition-all duration-200`}>
+
+              {/* ── Left: Page List ── */}
+              <div className={`${leftPanelCollapsed ? 'w-12' : 'w-64 xl:w-80'} border-r border-foreground/8 flex flex-col overflow-hidden min-h-0 transition-all duration-200 bg-background/40`}>
                 {leftPanelCollapsed ? (
-                  <div className="flex flex-col items-center py-3 gap-2">
-                    <button
-                      onClick={() => setLeftPanelCollapsed(false)}
-                      className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/50"
-                      title="Seitenleiste öffnen"
-                    >
-                      <ArrowsOutSimple size={16} weight="bold" />
+                  <div className="flex flex-col items-center py-3 gap-1.5">
+                    <button onClick={() => setLeftPanelCollapsed(false)} className="p-1.5 rounded-md hover:bg-foreground/8 text-foreground/40" title="Öffnen">
+                      <ArrowsOutSimple size={18} weight="bold" />
                     </button>
-                    <div className="w-px h-4 bg-foreground/10" />
-                    {pages.map((page) => {
+                    <div className="w-6 h-px bg-foreground/8 my-1" />
+                    {pages.filter(p => !p.parentPageId && p.id !== 'settings').map((page) => {
                       const Icon = availableIcons[page.icon as keyof typeof availableIcons] || House
                       const isSelected = selectedPageId === page.id
                       return (
                         <button
                           key={page.id}
                           onClick={() => { setSelectedPageId(page.id); setSelectedWidgetId(null) }}
-                          className={`p-1.5 rounded-lg transition-colors ${isSelected ? 'bg-accent/15 text-accent' : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/5'}`}
+                          className={`p-2 rounded-lg transition-colors ${isSelected ? 'bg-accent/15 text-accent' : 'text-foreground/35 hover:text-foreground/55 hover:bg-foreground/5'}`}
                           title={page.name}
                         >
-                          <Icon size={16} weight={isSelected ? 'fill' : 'regular'} />
+                          <Icon size={18} weight={isSelected ? 'fill' : 'regular'} />
                         </button>
                       )
                     })}
                   </div>
                 ) : (
                   <>
-                    <div className="px-3 py-3 border-b border-foreground/5">
-                      <div className="flex items-center justify-between mb-2">
-                        <h2 className="text-sm font-medium text-foreground/70">Seiten</h2>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={handleCreatePage}
-                            className="p-1.5 rounded-lg hover:bg-accent/10 text-accent transition-colors"
-                            title="Neue Seite"
-                          >
-                            <Plus size={16} weight="bold" />
-                          </button>
-                          <button
-                            onClick={() => setLeftPanelCollapsed(true)}
-                            className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground/40 transition-colors"
-                            title="Seitenleiste einklappen"
-                          >
-                            <CaretLeft size={14} weight="bold" />
-                          </button>
-                        </div>
+                    <div className="px-4 py-3 border-b border-foreground/5 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-foreground/50 uppercase tracking-wider">Seiten</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={handleCreatePage} className="p-1.5 rounded-lg hover:bg-accent/10 text-accent transition-colors" title="Neue Seite">
+                          <Plus size={16} weight="bold" />
+                        </button>
+                        <button onClick={() => setLeftPanelCollapsed(true)} className="p-1.5 rounded-lg hover:bg-foreground/8 text-foreground/30" title="Einklappen">
+                          <CaretLeft size={14} weight="bold" />
+                        </button>
                       </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-                      {pages.map((page, index) => {
-                        const Icon = availableIcons[page.icon as keyof typeof availableIcons] || House
-                        const isSelected = selectedPageId === page.id
-                        const isEditing = editingPageId === page.id
-                        const isHome = page.id === 'home'
-                        const isSystemPage = page.id === 'settings'
+                      {(() => {
+                        const topLevel = pages.filter(p => !p.parentPageId && p.id !== 'settings')
+                        const getChildren = (parentId: string) => pages.filter(p => p.parentPageId === parentId)
 
-                        if (isEditing) {
+                        const renderPageItem = (page: DashboardPage, index: number, isChild = false) => {
+                          const Icon = availableIcons[page.icon as keyof typeof availableIcons] || House
+                          const isSelected = selectedPageId === page.id
+                          const isHome = page.id === 'home'
+                          const isSystemPage = page.id === 'settings'
+                          const children = getChildren(page.id)
+
                           return (
-                            <div key={page.id} className="rounded-xl p-3 bg-foreground/5 border border-accent/20 space-y-2.5">
-                              <input
-                                type="text"
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                className="w-full px-2 py-1.5 rounded-lg bg-background/50 border border-foreground/10 text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent/50"
-                                placeholder="Seitenname"
-                              />
-                              <div className="grid grid-cols-7 gap-0.5">
-                                {Object.entries(availableIcons).map(([key, IconComponent]) => {
-                                  const iconKey = key as keyof typeof availableIcons
-                                  return (
-                                    <button
-                                      key={key}
-                                      onClick={() => setEditIcon(iconKey)}
-                                      className={`p-1 rounded-md transition-all ${
-                                        editIcon === iconKey
-                                          ? 'bg-accent/20 text-accent'
-                                          : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/5'
-                                      }`}
-                                      title={iconLabels[iconKey]}
-                                    >
-                                      <IconComponent size={13} weight={editIcon === iconKey ? 'fill' : 'regular'} />
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                              {!isHome && (
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-foreground/50">In Navigation</span>
-                                  <button
-                                    onClick={() => setEditShowInNav(!editShowInNav)}
-                                    className={`relative w-8 h-4 rounded-full transition-colors ${
-                                      editShowInNav ? 'bg-accent' : 'bg-foreground/20'
-                                    }`}
-                                  >
-                                    <div
-                                      className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
-                                        editShowInNav ? 'translate-x-4' : ''
-                                      }`}
-                                    />
-                                  </button>
+                            <div key={page.id}>
+                              <div
+                                onClick={() => { setSelectedPageId(page.id); setSelectedWidgetId(null) }}
+                                className={`
+                                  flex items-center gap-2.5 py-2 px-3 rounded-xl cursor-pointer transition-all group
+                                  ${isChild ? 'ml-5' : ''}
+                                  ${isSelected
+                                    ? 'bg-accent/12 text-accent'
+                                    : 'text-foreground/55 hover:bg-foreground/5 hover:text-foreground/80'
+                                  }
+                                `}
+                              >
+                                <Icon size={18} weight={isSelected ? 'fill' : 'regular'} className="shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-medium truncate">{page.name}</span>
+                                    {isHome && <Star size={10} weight="fill" className="text-accent shrink-0" />}
+                                    {page.displayMode === 'modal' && (
+                                      <span className="text-[8px] px-1 py-0.5 rounded bg-foreground/8 text-foreground/35 shrink-0 uppercase font-medium">M</span>
+                                    )}
+                                    {page.showInNav === false && (
+                                      <EyeSlash size={11} className="text-foreground/25 shrink-0" />
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-foreground/30">{page.widgets.length} Widget{page.widgets.length !== 1 ? 's' : ''}{children.length > 0 ? ` · ${children.length} Unter` : ''}</span>
                                 </div>
-                              )}
-                              <div className="flex gap-1.5">
-                                <button
-                                  onClick={handleSavePageEdit}
-                                  className="flex-1 px-2 py-1 rounded-md bg-accent text-white text-xs hover:bg-accent/90 transition-colors"
-                                >
-                                  Speichern
-                                </button>
-                                <button
-                                  onClick={() => setEditingPageId(null)}
-                                  className="px-2 py-1 rounded-md bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors"
-                                >
-                                  Abbrechen
-                                </button>
+                                {/* Quick actions */}
+                                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                  {!isHome && !isSystemPage && (
+                                    <>
+                                      <button onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'up') }} disabled={index === 0} className="p-1 rounded-md hover:bg-foreground/10 disabled:opacity-20"><ArrowUp size={12} weight="bold" /></button>
+                                      <button onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'down') }} disabled={index === pages.length - 1} className="p-1 rounded-md hover:bg-foreground/10 disabled:opacity-20"><ArrowDown size={12} weight="bold" /></button>
+                                    </>
+                                  )}
+                                  <button onClick={(e) => { e.stopPropagation(); handleEditPage(page) }} className="p-1 rounded-md hover:bg-foreground/10" title="Bearbeiten"><PencilSimple size={12} weight="bold" /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); setSelectedPageId(page.id); setShowPageSettings(true) }} className="p-1 rounded-md hover:bg-foreground/10" title="Einstellungen"><Sliders size={12} weight="bold" /></button>
+                                  {!isHome && (
+                                    <button onClick={(e) => { e.stopPropagation(); handleCopyPage(page.id) }} className="p-1 rounded-md hover:bg-foreground/10" title="Seite kopieren"><Copy size={12} weight="bold" /></button>
+                                  )}
+                                  {!isHome && !isSystemPage && (
+                                    <button onClick={(e) => { e.stopPropagation(); handleDeletePage(page.id) }} className="p-1 rounded-md hover:bg-red-500/15 hover:text-red-400"><Trash size={12} weight="bold" /></button>
+                                  )}
+                                </div>
                               </div>
+                              {/* Render children directly under parent */}
+                              {children.length > 0 && children.map((child, ci) => renderPageItem(child, ci, true))}
                             </div>
                           )
                         }
 
-                        return (
-                          <div
-                            key={page.id}
-                            onClick={() => {
-                              setSelectedPageId(page.id)
-                              setSelectedWidgetId(null)
-                            }}
-                            className={`
-                              flex items-center gap-2.5 px-2.5 py-2 rounded-xl cursor-pointer transition-all group
-                              ${isSelected
-                                ? 'bg-accent/10 text-accent'
-                                : 'text-foreground/60 hover:bg-foreground/5 hover:text-foreground'
-                              }
-                            `}
-                          >
-                            <Icon size={16} weight={isSelected ? 'fill' : 'regular'} />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-medium truncate">{page.name}</p>
-                                {isHome && (
-                                  <Star size={9} weight="fill" className="text-accent shrink-0" />
-                                )}
-                              </div>
-                              <p className="text-[9px] opacity-50">
-                                {page.widgets.length} Widget{page.widgets.length !== 1 ? 's' : ''}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {!isHome && !isSystemPage && (
-                                <>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'up') }}
-                                    disabled={index === 0}
-                                    className="p-0.5 rounded hover:bg-foreground/10 disabled:opacity-20"
-                                  >
-                                    <ArrowUp size={11} weight="bold" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleMovePage(page.id, 'down') }}
-                                    disabled={index === pages.length - 1}
-                                    className="p-0.5 rounded hover:bg-foreground/10 disabled:opacity-20"
-                                  >
-                                    <ArrowDown size={11} weight="bold" />
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleEditPage(page) }}
-                                className="p-0.5 rounded hover:bg-foreground/10"
-                              >
-                                <PencilSimple size={11} weight="bold" />
-                              </button>
-                              {!isHome && !isSystemPage && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleDeletePage(page.id) }}
-                                  className="p-0.5 rounded hover:bg-red-500/10 hover:text-red-400"
-                                >
-                                  <Trash size={11} weight="bold" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
+                        return topLevel.map((page, index) => renderPageItem(page, index))
+                      })()}
                     </div>
                   </>
                 )}
               </div>
 
-              {/* Center - Grid Canvas */}
+              {/* ── Center: Grid Canvas ── */}
               <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                 {!selectedPage ? (
                   <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center space-y-3">
-                      <CaretLeft size={48} weight="light" className="mx-auto text-foreground/15" />
-                      <p className="text-foreground/40 text-sm">
-                        Seite auswählen oder neue erstellen
-                      </p>
+                    <div className="text-center space-y-2">
+                      <GridFour size={40} weight="light" className="mx-auto text-foreground/10" />
+                      <p className="text-foreground/30 text-xs">Seite auswählen oder neue erstellen</p>
                     </div>
                   </div>
                 ) : (
                   <>
-                    {/* Canvas header with controls */}
-                    <div className="px-4 sm:px-5 py-2.5 border-b border-foreground/5 flex items-center justify-between gap-2 flex-wrap">
-                      <div className="min-w-0">
-                        <h2 className="text-sm font-semibold text-foreground truncate">{selectedPage.name}</h2>
-                        <p className="text-[10px] text-foreground/40">
-                          {selectedPage.widgets.length} Widgets &middot; {currentGridCols}&times;{gridRows} &middot; Gap {currentGap}px
-                        </p>
+                    {/* Canvas toolbar */}
+                    <div className="px-3 py-1.5 border-b border-foreground/5 flex items-center justify-between gap-2 bg-background/30">
+                      <div className="min-w-0 flex items-center gap-2">
+                        <h2 className="text-xs font-semibold text-foreground truncate">{selectedPage.name}</h2>
+                        <span className="text-[9px] text-foreground/30 font-mono shrink-0">
+                          {selectedPage.widgets.length}W · {currentGridCols}×{gridRows}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Columns */}
-                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
-                          <span className="text-[9px] text-foreground/40">Sp.</span>
-                          <button
-                            onClick={() => adjustSelectedPageColumns(-1)}
-                            disabled={currentGridCols <= MIN_COLS}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <Minus size={11} weight="bold" />
-                          </button>
-                          <span className="text-[10px] font-medium text-foreground min-w-3 text-center">{currentGridCols}</span>
-                          <button
-                            onClick={() => adjustSelectedPageColumns(1)}
-                            disabled={currentGridCols >= MAX_COLS}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <Plus size={11} weight="bold" />
-                          </button>
-                        </div>
-
-                        {/* Rows */}
-                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
-                          <span className="text-[9px] text-foreground/40">Zl.</span>
-                          <button
-                            onClick={() => adjustSelectedPageRows(-1)}
-                            disabled={currentLayout.rows <= MIN_ROWS}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <Minus size={11} weight="bold" />
-                          </button>
-                          <span className="text-[10px] font-medium text-foreground min-w-3 text-center">{currentLayout.rows}</span>
-                          <button
-                            onClick={() => adjustSelectedPageRows(1)}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60"
-                          >
-                            <Plus size={11} weight="bold" />
-                          </button>
-                        </div>
-
-                        {/* Gap */}
-                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
-                          <span className="text-[9px] text-foreground/40">Gap</span>
-                          <button
-                            onClick={() => updateSelectedPageLayout({ gap: Math.max(0, currentGap - 2) })}
-                            disabled={currentGap <= 0}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <Minus size={11} weight="bold" />
-                          </button>
-                          <span className="text-[10px] font-medium text-foreground min-w-3 text-center">{currentGap}</span>
-                          <button
-                            onClick={() => updateSelectedPageLayout({ gap: Math.min(24, currentGap + 2) })}
-                            disabled={currentGap >= 24}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <Plus size={11} weight="bold" />
-                          </button>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {/* Grid controls group */}
+                        <div className="flex items-center rounded-md bg-foreground/4 border border-foreground/6 overflow-hidden">
+                          <span className="text-[8px] text-foreground/35 px-1.5 font-medium uppercase">Sp</span>
+                          <button onClick={() => adjustSelectedPageColumns(-1)} disabled={currentGridCols <= MIN_COLS} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><Minus size={10} weight="bold" /></button>
+                          <span className="text-[10px] font-semibold text-foreground w-4 text-center">{currentGridCols}</span>
+                          <button onClick={() => adjustSelectedPageColumns(1)} disabled={currentGridCols >= MAX_COLS} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><Plus size={10} weight="bold" /></button>
+                          <div className="w-px h-4 bg-foreground/8" />
+                          <span className="text-[8px] text-foreground/35 px-1.5 font-medium uppercase">Zl</span>
+                          <button onClick={() => adjustSelectedPageRows(-1)} disabled={currentLayout.rows <= MIN_ROWS} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><Minus size={10} weight="bold" /></button>
+                          <span className="text-[10px] font-semibold text-foreground w-4 text-center">{currentLayout.rows}</span>
+                          <button onClick={() => adjustSelectedPageRows(1)} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50"><Plus size={10} weight="bold" /></button>
+                          <div className="w-px h-4 bg-foreground/8" />
+                          <span className="text-[8px] text-foreground/35 px-1.5 font-medium uppercase">Gap</span>
+                          <button onClick={() => updateSelectedPageLayout({ gap: Math.max(0, currentGap - 2) })} disabled={currentGap <= 0} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><Minus size={10} weight="bold" /></button>
+                          <span className="text-[10px] font-semibold text-foreground w-4 text-center">{currentGap}</span>
+                          <button onClick={() => updateSelectedPageLayout({ gap: Math.min(24, currentGap + 2) })} disabled={currentGap >= 24} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><Plus size={10} weight="bold" /></button>
                         </div>
 
                         {/* Zoom */}
-                        <div className="flex items-center gap-0.5 rounded-lg bg-foreground/5 px-1.5 py-0.5">
-                          <button
-                            onClick={() => setCanvasZoom(Math.max(50, canvasZoom - 10))}
-                            disabled={canvasZoom <= 50}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <MagnifyingGlassMinus size={11} weight="bold" />
-                          </button>
-                          <button
-                            onClick={() => setCanvasZoom(100)}
-                            className="text-[10px] font-medium text-foreground/50 hover:text-foreground min-w-6 text-center"
-                            title="Zoom zurücksetzen"
-                          >
-                            {canvasZoom}%
-                          </button>
-                          <button
-                            onClick={() => setCanvasZoom(Math.min(200, canvasZoom + 10))}
-                            disabled={canvasZoom >= 200}
-                            className="p-0.5 rounded hover:bg-foreground/10 text-foreground/60 disabled:opacity-30"
-                          >
-                            <MagnifyingGlassPlus size={11} weight="bold" />
-                          </button>
+                        <div className="flex items-center rounded-md bg-foreground/4 border border-foreground/6 overflow-hidden">
+                          <button onClick={() => setCanvasZoom(Math.max(50, canvasZoom - 10))} disabled={canvasZoom <= 50} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><MagnifyingGlassMinus size={11} weight="bold" /></button>
+                          <button onClick={() => setCanvasZoom(100)} className="text-[9px] font-medium text-foreground/40 hover:text-foreground w-7 text-center" title="Zurücksetzen">{canvasZoom}%</button>
+                          <button onClick={() => setCanvasZoom(Math.min(200, canvasZoom + 10))} disabled={canvasZoom >= 200} className="px-1 py-0.5 hover:bg-foreground/8 text-foreground/50 disabled:opacity-20"><MagnifyingGlassPlus size={11} weight="bold" /></button>
                         </div>
 
-                        {/* Template */}
-                        <button
-                          onClick={() => setTemplateApplyMode(true)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium
-                            bg-foreground/5 text-foreground/60 hover:bg-foreground/10 hover:text-foreground transition-colors"
-                          title="Vorlage anwenden"
-                        >
-                          <Swatches size={12} weight="bold" />
+                        <button onClick={() => setTemplateApplyMode(true)} className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-foreground/4 border border-foreground/6 text-foreground/50 hover:bg-foreground/8 hover:text-foreground transition-colors" title="Vorlage anwenden">
+                          <Swatches size={11} weight="bold" />
                           <span className="hidden xl:inline">Vorlage</span>
                         </button>
                       </div>
@@ -1485,11 +1242,13 @@ export function PageDesigner({
 
                     {/* WYSIWYG Grid Canvas */}
                     <div
-                      className="flex-1 overflow-auto p-3 sm:p-5"
+                      className="flex-1 overflow-auto p-3 sm:p-4"
                       onClick={() => setSelectedWidgetId(null)}
                       style={{
                         background: previewMode
                           ? 'transparent'
+                          : isLightTheme
+                          ? 'linear-gradient(180deg, oklch(0.92 0.008 240 / 0.5) 0%, oklch(0.96 0.005 240 / 0.2) 100%)'
                           : 'linear-gradient(180deg, oklch(0.2 0.01 260 / 0.3) 0%, transparent 100%)',
                       }}
                     >
@@ -1582,6 +1341,25 @@ export function PageDesigner({
               weatherEntity={weatherEntity}
               lightEntities={lightEntities}
               onUpdateGroupWidget={handleUpdateWidget}
+            />
+          )}
+
+          {editingPage && (
+            <PageEditDialog
+              open={!!editingPage}
+              onClose={() => setEditingPage(null)}
+              page={editingPage}
+              pages={pages}
+              onSave={handleSavePageEdit}
+            />
+          )}
+
+          {selectedPage && (
+            <PageSettingsDialog
+              open={showPageSettings}
+              onClose={() => setShowPageSettings(false)}
+              pageId={selectedPage.id}
+              pageName={selectedPage.name}
             />
           )}
         </motion.div>

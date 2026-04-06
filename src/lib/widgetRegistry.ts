@@ -36,6 +36,21 @@ import {
   Robot,
   Drop,
   ShieldWarning,
+  ChartLine,
+  BatteryCharging,
+  ChartBar,
+  Rows,
+  Cpu,
+  Palette,
+  House,
+  Bell,
+  WaveSawtooth,
+  ArrowSquareOut,
+  Recycle,
+  CardsThree,
+  MapTrifold,
+  Globe,
+  Warning,
 } from '@phosphor-icons/react'
 import type { WidgetType } from '@/lib/types'
 
@@ -47,6 +62,7 @@ export type WidgetSubcategory =
   | 'inputs'
   | 'security'
   | 'status_tracking'
+  | 'premium'
 
 export interface WidgetDefinition {
   type: WidgetType
@@ -99,18 +115,37 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
   { type: 'counter',        label: 'Zähler',         icon: HashStraight,   category: 'entity', subcategory: 'status_tracking', requiresEntity: true,  entityDomain: 'counter',        defaultSize: { w: 1, h: 1 } },
   { type: 'group',          label: 'Gruppe',         icon: UsersThree,     category: 'entity', subcategory: 'status_tracking', requiresEntity: true,  entityDomain: 'group',          defaultSize: { w: 1, h: 1 } },
   { type: 'vacuum',         label: 'Staubsauger',    icon: Robot,          category: 'entity', subcategory: 'status_tracking', requiresEntity: true,  entityDomain: 'vacuum',         defaultSize: { w: 2, h: 1 } },
+  // Premium
+  { type: 'entity_history', label: 'Verlaufsdiagramm', icon: ChartLine,   category: 'entity', subcategory: 'premium', requiresEntity: true,  defaultSize: { w: 3, h: 2 }, variants: [{ key: 'line', label: 'Linie' }, { key: 'bar', label: 'Balken' }, { key: 'area', label: 'Fläche' }] },
+  { type: 'statistics_chart', label: 'Statistik-Graph', icon: ChartBar, category: 'entity', subcategory: 'premium', requiresEntity: true,  defaultSize: { w: 3, h: 3 }, variants: [{ key: 'line', label: 'Linie' }, { key: 'area', label: 'Fläche' }, { key: 'bar', label: 'Balken' }] },
+  { type: 'energy_monitor', label: 'Energie-Monitor', icon: BatteryCharging, category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 3, h: 2 }, variants: [{ key: 'overview', label: 'Übersicht' }, { key: 'detailed', label: 'Detailliert' }] },
+  { type: 'entity_statistics', label: 'Statistiken', icon: ChartBar,     category: 'entity', subcategory: 'premium', requiresEntity: true,  defaultSize: { w: 2, h: 2 } },
+  { type: 'quick_actions', label: 'Schnellaktionen', icon: Rows,         category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 2, h: 1 } },
+  { type: 'system_monitor', label: 'Systemmonitor',  icon: Cpu,          category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 2, h: 2 } },
+  { type: 'scene_manager', label: 'Szenen-Manager',  icon: Palette,      category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 3, h: 2 } },
+  { type: 'room_summary',  label: 'Raumübersicht',   icon: House,        category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 2, h: 2 } },
+  { type: 'notification_log', label: 'Benachrichtigungen', icon: Bell,   category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 2, h: 2 } },
+  { type: 'water_usage',   label: 'Wasserverbrauch', icon: WaveSawtooth, category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 2, h: 2 } },
   // Standalone
   { type: 'greeting',       label: 'Begrüßung',      icon: ChatText,       category: 'standalone', requiresEntity: false, defaultSize: { w: 3, h: 1 } },
   { type: 'chat_card',      label: 'Chat Card',      icon: ChatText,       category: 'standalone', requiresEntity: false, defaultSize: { w: 2, h: 2 } },
   { type: 'dynamic_text',   label: 'Dynamischer Text', icon: TextAa,       category: 'standalone', requiresEntity: false, defaultSize: { w: 2, h: 1 } },
   { type: 'analog_clock',   label: 'Analoge Uhr',    icon: Clock,          category: 'standalone', requiresEntity: false, defaultSize: { w: 1, h: 2 } },
   { type: 'digital_clock',  label: 'Digitale Uhr',   icon: Timer,          category: 'standalone', requiresEntity: false, defaultSize: { w: 1, h: 1 } },
-  { type: 'calendar',       label: 'Kalender',        icon: CalendarBlank,  category: 'standalone', requiresEntity: false, defaultSize: { w: 1, h: 2 } },
+  { type: 'calendar',       label: 'Kalender',        icon: CalendarBlank,  category: 'standalone', requiresEntity: false, defaultSize: { w: 1, h: 2 }, variants: [{ key: 'calendar', label: 'Kalender' }, { key: 'agenda', label: 'Agenda' }, { key: 'minimal', label: 'Minimal' }] },
   { type: 'scene_selector', label: 'Szenen-Auswahl',  icon: Lightning,      category: 'standalone', requiresEntity: false, defaultSize: { w: 4, h: 1 } },
   // Layout
   { type: 'spacer',         label: 'Abstand',         icon: Minus,          category: 'layout',     requiresEntity: false, defaultSize: { w: 1, h: 1 } },
   { type: 'section_header', label: 'Überschrift',     icon: TextAa,         category: 'layout',     requiresEntity: false, defaultSize: { w: 4, h: 1 } },
   { type: 'widget_group',   label: 'Widget-Gruppe',   icon: Stack,          category: 'layout',     requiresEntity: false, defaultSize: { w: 2, h: 1 } },
+  { type: 'page_link',      label: 'Seitenlink',      icon: ArrowSquareOut,  category: 'layout',     requiresEntity: false, defaultSize: { w: 1, h: 1 } },
+  // Utilities
+  { type: 'waste_collection', label: 'Müllabfuhr',       icon: Recycle,        category: 'standalone', subcategory: 'premium', requiresEntity: false, defaultSize: { w: 2, h: 2 } },
+  { type: 'widget_carousel',  label: 'Widget-Karussell', icon: CardsThree,     category: 'layout',     requiresEntity: false, defaultSize: { w: 3, h: 2 } },
+  { type: 'nina_warnings',  label: 'NINA Warnungen',  icon: Warning,        category: 'standalone', requiresEntity: false, defaultSize: { w: 2, h: 2 }, variants: [{ key: 'detailed', label: 'Detailliert' }, { key: 'compact', label: 'Kompakt' }] },
+  { type: 'map',             label: 'Karte',           icon: MapTrifold,     category: 'standalone', requiresEntity: false, defaultSize: { w: 2, h: 2 }, variants: [{ key: 'standard', label: 'Standard' }, { key: 'fullscreen', label: 'Vollbild' }, { key: 'compact', label: 'Kompakt' }, { key: 'list', label: 'Nur Liste' }] },
+  { type: 'iframe',          label: 'IFrame',          icon: Globe,          category: 'standalone', requiresEntity: false, defaultSize: { w: 2, h: 2 }, variants: [{ key: 'standard', label: 'Standard' }, { key: 'borderless', label: 'Rahmenlos' }, { key: 'compact', label: 'Kompakt' }] },
+  { type: 'stream',          label: 'Live Stream',     icon: VideoCamera,    category: 'standalone', subcategory: 'media', requiresEntity: false, defaultSize: { w: 2, h: 2 }, variants: [{ key: 'standard', label: 'Standard' }, { key: 'fullscreen', label: 'Vollbild' }, { key: 'compact', label: 'Kompakt' }] },
   { type: 'custom',         label: 'Benutzerdefiniert', icon: GridFour,     category: 'standalone', requiresEntity: false, defaultSize: { w: 1, h: 1 } },
 ]
 
@@ -122,6 +157,7 @@ export const WIDGET_SUBCATEGORIES: Record<WidgetSubcategory, { label: string; or
   inputs:           { label: 'Eingaben',            order: 4 },
   security:         { label: 'Sicherheit',          order: 5 },
   status_tracking:  { label: 'Status & Tracking',   order: 6 },
+  premium:          { label: 'Premium',             order: 7 },
 }
 
 export const WIDGET_CATEGORIES = {

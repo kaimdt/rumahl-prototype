@@ -290,4 +290,157 @@ impl HomeAssistantClient {
         let path = relative_path.trim_start_matches('/');
         self.proxy_api_get(&format!("image/serve/{}", path), query, true).await
     }
+
+    /// Render a Jinja2 template in Home Assistant
+    pub async fn render_template(&self, template: &str) -> Result<String> {
+        let url = format!("{}/api/template", self.base_url);
+        let response = self
+            .cmd_client
+            .post(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(&serde_json::json!({ "template": template }))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.text().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
+
+    /// Get logbook entries for a time period
+    pub async fn get_logbook(&self, start_time: &str, query: &str) -> Result<Value> {
+        let url = if query.is_empty() {
+            format!("{}/api/logbook/{}", self.base_url, start_time)
+        } else {
+            format!("{}/api/logbook/{}?{}", self.base_url, start_time, query)
+        };
+
+        let response = self
+            .poll_client
+            .get(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
+
+    /// Get available calendars
+    pub async fn get_calendars(&self) -> Result<Value> {
+        let url = format!("{}/api/calendars", self.base_url);
+        let response = self
+            .cmd_client
+            .get(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
+
+    /// Get calendar events for a specific calendar
+    pub async fn get_calendar_events(
+        &self,
+        entity_id: &str,
+        start: &str,
+        end: &str,
+    ) -> Result<Value> {
+        // HA calendar API requires URL-encoded ISO datetime params
+        let url = format!(
+            "{}/api/calendars/{}",
+            self.base_url, entity_id
+        );
+        let response = self
+            .cmd_client
+            .get(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .query(&[("start", start), ("end", end)])
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
+
+    /// Fire an event on Home Assistant
+    pub async fn fire_event(&self, event_type: &str, data: Value) -> Result<Value> {
+        let url = format!("{}/api/events/{}", self.base_url, event_type);
+        let response = self
+            .cmd_client
+            .post(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(&data)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
+
+    /// Get HA error log as plain text
+    pub async fn get_error_log(&self) -> Result<String> {
+        let url = format!("{}/api/error_log", self.base_url);
+        let response = self
+            .cmd_client
+            .get(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.text().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
+
+    /// Generic GET to any HA REST API path, returning JSON
+    pub async fn api_get(&self, path: &str) -> Result<Value> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .cmd_client
+            .get(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::CONTENT_TYPE, "application/json")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+    }
 }

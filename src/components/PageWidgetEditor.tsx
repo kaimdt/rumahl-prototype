@@ -488,7 +488,7 @@ export function PageWidgetEditor({
                             <option value="">-- Bitte wählen --</option>
                             {entitiesForSelectedType.map((entity) => (
                               <option key={entity.entity_id} value={entity.entity_id}>
-                                {entity.attributes?.friendly_name || entity.entity_id}
+                                {(entity.attributes?.friendly_name as string) || entity.entity_id}
                               </option>
                             ))}
                           </select>
