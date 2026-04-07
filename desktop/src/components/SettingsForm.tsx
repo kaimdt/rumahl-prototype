@@ -71,7 +71,7 @@ export function SettingsForm({
             type="password"
             value={form.lm_studio_api_key}
             onChange={field("lm_studio_api_key")}
-            placeholder="Leer lassen wenn nicht benötigt"
+            placeholder="Leer lassen, wenn nicht benötigt"
             style={styles.input}
           />
         </div>
