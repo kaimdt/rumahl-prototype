@@ -20,7 +20,7 @@ impl ConfigRepository {
         let user = sqlx::query_as::<_, User>(
             r#"
             INSERT INTO users (id, username, display_name, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             "#,
         )
@@ -36,7 +36,7 @@ impl ConfigRepository {
     }
 
     pub async fn get_user_by_username(&self, username: &str) -> anyhow::Result<Option<User>> {
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
             .bind(username)
             .fetch_optional(&self.pool)
             .await?;
@@ -45,7 +45,7 @@ impl ConfigRepository {
     }
 
     pub async fn get_user_by_id(&self, user_id: &str) -> anyhow::Result<Option<User>> {
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -81,8 +81,8 @@ impl ConfigRepository {
         let updated = sqlx::query_as::<_, User>(
             r#"
             UPDATE users
-            SET username = ?, display_name = ?, updated_at = ?
-            WHERE id = ?
+            SET username = $1, display_name = $2, updated_at = $3
+            WHERE id = $4
             RETURNING *
             "#,
         )
@@ -104,7 +104,7 @@ impl ConfigRepository {
         let device = sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO devices (id, device_name, device_type, user_agent, last_seen, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             "#,
         )
@@ -121,7 +121,7 @@ impl ConfigRepository {
     }
 
     pub async fn get_device(&self, device_id: &str) -> anyhow::Result<Option<Device>> {
-        let device = sqlx::query_as::<_, Device>("SELECT * FROM devices WHERE id = ?")
+        let device = sqlx::query_as::<_, Device>("SELECT * FROM devices WHERE id = $1")
             .bind(device_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -132,7 +132,7 @@ impl ConfigRepository {
     pub async fn update_device_last_seen(&self, device_id: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
 
-        sqlx::query("UPDATE devices SET last_seen = ? WHERE id = ?")
+        sqlx::query("UPDATE devices SET last_seen = $1 WHERE id = $2")
             .bind(&now)
             .bind(device_id)
             .execute(&self.pool)
@@ -157,7 +157,7 @@ impl ConfigRepository {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
             r#"
             INSERT INTO configuration_profiles (id, name, profile_type, owner_id, is_default, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 1, ?, ?)
+            VALUES ($1, $2, $3, $4, TRUE, $5, $6)
             RETURNING *
             "#,
         )
@@ -175,7 +175,7 @@ impl ConfigRepository {
 
     pub async fn get_profile_by_owner(&self, owner_id: &str, profile_type: &str) -> anyhow::Result<Option<ConfigurationProfile>> {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
-            "SELECT * FROM configuration_profiles WHERE owner_id = ? AND profile_type = ? AND is_default = 1 ORDER BY updated_at DESC LIMIT 1"
+            "SELECT * FROM configuration_profiles WHERE owner_id = $1 AND profile_type = $2 AND is_default = TRUE ORDER BY updated_at DESC LIMIT 1"
         )
         .bind(owner_id)
         .bind(profile_type)
@@ -187,7 +187,7 @@ impl ConfigRepository {
 
     pub async fn get_profile(&self, profile_id: &str) -> anyhow::Result<Option<ConfigurationProfile>> {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
-            "SELECT * FROM configuration_profiles WHERE id = ?"
+            "SELECT * FROM configuration_profiles WHERE id = $1"
         )
         .bind(profile_id)
         .fetch_optional(&self.pool)
@@ -201,7 +201,7 @@ impl ConfigRepository {
         let mut tx = self.pool.begin().await?;
 
         // Delete existing pages for this profile
-        sqlx::query("DELETE FROM pages WHERE profile_id = ?")
+        sqlx::query("DELETE FROM pages WHERE profile_id = $1")
             .bind(profile_id)
             .execute(&mut *tx)
             .await?;
@@ -215,7 +215,7 @@ impl ConfigRepository {
             sqlx::query(
                 r#"
                 INSERT INTO pages (id, profile_id, page_id, name, icon, position, show_in_nav, display_mode, parent_page_id, modal_settings, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 "#,
             )
             .bind(&page_db_id)
@@ -241,7 +241,7 @@ impl ConfigRepository {
                 sqlx::query(
                     r#"
                     INSERT INTO widgets (id, page_id, widget_type, entity_id, position_x, position_y, width, height, config, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                     "#,
                 )
                 .bind(&widget_id)
@@ -267,7 +267,7 @@ impl ConfigRepository {
 
     pub async fn get_pages(&self, profile_id: &str) -> anyhow::Result<Vec<PageWithWidgets>> {
         let pages = sqlx::query_as::<_, Page>(
-            "SELECT * FROM pages WHERE profile_id = ? ORDER BY position"
+            "SELECT * FROM pages WHERE profile_id = $1 ORDER BY position"
         )
         .bind(profile_id)
         .fetch_all(&self.pool)
@@ -277,7 +277,7 @@ impl ConfigRepository {
 
         for page in pages {
             let widgets = sqlx::query_as::<_, Widget>(
-                "SELECT * FROM widgets WHERE page_id = ? ORDER BY position_y, position_x"
+                "SELECT * FROM widgets WHERE page_id = $1 ORDER BY position_y, position_x"
             )
             .bind(&page.id)
             .fetch_all(&self.pool)
@@ -297,8 +297,8 @@ impl ConfigRepository {
         let updated = sqlx::query(
             r#"
             UPDATE theme_settings
-            SET sleep_mode = ?, auto_theme = ?, selected_theme = ?, updated_at = ?
-            WHERE profile_id = ?
+            SET sleep_mode = $1, auto_theme = $2, selected_theme = $3, updated_at = $4
+            WHERE profile_id = $5
             "#,
         )
         .bind(req.sleep_mode)
@@ -316,7 +316,7 @@ impl ConfigRepository {
             let theme = sqlx::query_as::<_, ThemeSettings>(
                 r#"
                 INSERT INTO theme_settings (id, profile_id, sleep_mode, auto_theme, selected_theme, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING *
                 "#,
             )
@@ -335,7 +335,7 @@ impl ConfigRepository {
 
         // Fetch the updated theme
         let theme = sqlx::query_as::<_, ThemeSettings>(
-            "SELECT * FROM theme_settings WHERE profile_id = ?"
+            "SELECT * FROM theme_settings WHERE profile_id = $1"
         )
         .bind(profile_id)
         .fetch_one(&self.pool)
@@ -346,7 +346,7 @@ impl ConfigRepository {
 
     pub async fn get_theme(&self, profile_id: &str) -> anyhow::Result<Option<ThemeSettings>> {
         let theme = sqlx::query_as::<_, ThemeSettings>(
-            "SELECT * FROM theme_settings WHERE profile_id = ?"
+            "SELECT * FROM theme_settings WHERE profile_id = $1"
         )
         .bind(profile_id)
         .fetch_optional(&self.pool)
@@ -362,7 +362,7 @@ impl ConfigRepository {
         let config_json = req.config.to_string();
 
         // Deactivate all backgrounds for this profile
-        sqlx::query("UPDATE background_configs SET is_active = 0 WHERE profile_id = ?")
+        sqlx::query("UPDATE background_configs SET is_active = FALSE WHERE profile_id = $1")
             .bind(profile_id)
             .execute(&self.pool)
             .await?;
@@ -371,7 +371,7 @@ impl ConfigRepository {
         let background = sqlx::query_as::<_, BackgroundConfig>(
             r#"
             INSERT INTO background_configs (id, profile_id, background_type, config, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 1, ?, ?)
+            VALUES ($1, $2, $3, $4, TRUE, $5, $6)
             RETURNING *
             "#,
         )
@@ -389,7 +389,7 @@ impl ConfigRepository {
 
     pub async fn get_active_background(&self, profile_id: &str) -> anyhow::Result<Option<BackgroundConfig>> {
         let background = sqlx::query_as::<_, BackgroundConfig>(
-            "SELECT * FROM background_configs WHERE profile_id = ? AND is_active = 1"
+            "SELECT * FROM background_configs WHERE profile_id = $1 AND is_active = TRUE"
         )
         .bind(profile_id)
         .fetch_optional(&self.pool)
@@ -407,8 +407,8 @@ impl ConfigRepository {
         let updated = sqlx::query(
             r#"
             UPDATE user_preferences
-            SET preference_value = ?, updated_at = ?
-            WHERE user_id = ? AND device_id IS ? AND preference_key = ?
+            SET preference_value = $1, updated_at = $2
+            WHERE user_id = $3 AND device_id IS NOT DISTINCT FROM $4 AND preference_key = $5
             "#,
         )
         .bind(&value_json)
@@ -426,7 +426,7 @@ impl ConfigRepository {
             let pref = sqlx::query_as::<_, UserPreference>(
                 r#"
                 INSERT INTO user_preferences (id, user_id, device_id, preference_key, preference_value, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING *
                 "#,
             )
@@ -445,7 +445,7 @@ impl ConfigRepository {
 
         // Fetch the updated preference
         let pref = sqlx::query_as::<_, UserPreference>(
-            "SELECT * FROM user_preferences WHERE user_id = ? AND device_id IS ? AND preference_key = ?"
+            "SELECT * FROM user_preferences WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 AND preference_key = $3"
         )
         .bind(user_id)
         .bind(device_id)
@@ -458,7 +458,7 @@ impl ConfigRepository {
 
     pub async fn get_preference(&self, user_id: &str, device_id: Option<&str>, key: &str) -> anyhow::Result<Option<UserPreference>> {
         let pref = sqlx::query_as::<_, UserPreference>(
-            "SELECT * FROM user_preferences WHERE user_id = ? AND device_id IS ? AND preference_key = ?"
+            "SELECT * FROM user_preferences WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 AND preference_key = $3"
         )
         .bind(user_id)
         .bind(device_id)
@@ -471,7 +471,7 @@ impl ConfigRepository {
 
     pub async fn get_all_preferences(&self, user_id: &str, device_id: Option<&str>) -> anyhow::Result<Vec<UserPreference>> {
         let prefs = sqlx::query_as::<_, UserPreference>(
-            "SELECT * FROM user_preferences WHERE user_id = ? AND device_id IS ?"
+            "SELECT * FROM user_preferences WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2"
         )
         .bind(user_id)
         .bind(device_id)
@@ -489,8 +489,8 @@ impl ConfigRepository {
         let updated = sqlx::query(
             r#"
             UPDATE system_preferences
-            SET preference_value = ?, updated_at = ?
-            WHERE preference_key = ?
+            SET preference_value = $1, updated_at = $2
+            WHERE preference_key = $3
             "#,
         )
         .bind(&value_json)
@@ -505,7 +505,7 @@ impl ConfigRepository {
             let pref = sqlx::query_as::<_, SystemPreference>(
                 r#"
                 INSERT INTO system_preferences (id, preference_key, preference_value, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5)
                 RETURNING *
                 "#,
             )
@@ -521,7 +521,7 @@ impl ConfigRepository {
         }
 
         let pref = sqlx::query_as::<_, SystemPreference>(
-            "SELECT * FROM system_preferences WHERE preference_key = ?"
+            "SELECT * FROM system_preferences WHERE preference_key = $1"
         )
         .bind(&req.preference_key)
         .fetch_one(&self.pool)
@@ -532,7 +532,7 @@ impl ConfigRepository {
 
     pub async fn get_system_preference(&self, key: &str) -> anyhow::Result<Option<SystemPreference>> {
         let pref = sqlx::query_as::<_, SystemPreference>(
-            "SELECT * FROM system_preferences WHERE preference_key = ?"
+            "SELECT * FROM system_preferences WHERE preference_key = $1"
         )
         .bind(key)
         .fetch_optional(&self.pool)
@@ -578,7 +578,7 @@ impl ConfigRepository {
         sqlx::query(
             r#"
             INSERT INTO sync_metadata (id, table_name, record_id, operation, changed_at, changed_by_device)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(&id)
@@ -595,7 +595,7 @@ impl ConfigRepository {
 
     pub async fn get_changes_since(&self, since: &str) -> anyhow::Result<Vec<SyncMetadata>> {
         let changes = sqlx::query_as::<_, SyncMetadata>(
-            "SELECT * FROM sync_metadata WHERE changed_at > ? ORDER BY changed_at"
+            "SELECT * FROM sync_metadata WHERE changed_at > $1 ORDER BY changed_at"
         )
         .bind(since)
         .fetch_all(&self.pool)
@@ -617,7 +617,7 @@ impl ConfigRepository {
 
     pub async fn set_user_pin(&self, user_id: &str, pin_hash: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE users SET pin_hash = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET pin_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(pin_hash)
             .bind(&now)
             .bind(user_id)
@@ -628,7 +628,7 @@ impl ConfigRepository {
 
     pub async fn remove_user_pin(&self, user_id: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE users SET pin_hash = NULL, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET pin_hash = NULL, updated_at = $1 WHERE id = $2")
             .bind(&now)
             .bind(user_id)
             .execute(&self.pool)
@@ -638,7 +638,7 @@ impl ConfigRepository {
 
     pub async fn set_user_avatar(&self, user_id: &str, avatar_url: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET avatar_url = $1, updated_at = $2 WHERE id = $3")
             .bind(avatar_url)
             .bind(&now)
             .bind(user_id)
@@ -649,7 +649,7 @@ impl ConfigRepository {
 
     // ── Terminal/kiosk device management ────────────────────────────────
     pub async fn set_terminal_mode(&self, device_id: &str, is_terminal: bool, terminal_name: Option<&str>) -> anyhow::Result<()> {
-        sqlx::query("UPDATE devices SET is_terminal = ?, terminal_name = ? WHERE id = ?")
+        sqlx::query("UPDATE devices SET is_terminal = $1, terminal_name = $2 WHERE id = $3")
             .bind(is_terminal)
             .bind(terminal_name)
             .bind(device_id)
@@ -663,7 +663,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now().to_rfc3339();
 
         let updated = sqlx::query(
-            "UPDATE page_layouts SET cols = ?, rows = ?, gap = ?, updated_at = ? WHERE profile_id = ? AND page_id = ?"
+            "UPDATE page_layouts SET cols = $1, rows = $2, gap = $3, updated_at = $4 WHERE profile_id = $5 AND page_id = $6"
         )
         .bind(req.cols)
         .bind(req.rows)
@@ -677,7 +677,7 @@ impl ConfigRepository {
         if updated.rows_affected() == 0 {
             let id = Uuid::new_v4().to_string();
             sqlx::query(
-                "INSERT INTO page_layouts (id, profile_id, page_id, cols, rows, gap, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO page_layouts (id, profile_id, page_id, cols, rows, gap, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
             )
             .bind(&id)
             .bind(profile_id)
@@ -692,7 +692,7 @@ impl ConfigRepository {
         }
 
         let layout = sqlx::query_as::<_, PageLayout>(
-            "SELECT * FROM page_layouts WHERE profile_id = ? AND page_id = ?"
+            "SELECT * FROM page_layouts WHERE profile_id = $1 AND page_id = $2"
         )
         .bind(profile_id)
         .bind(&req.page_id)
@@ -704,7 +704,7 @@ impl ConfigRepository {
 
     pub async fn get_page_layout(&self, profile_id: &str, page_id: &str) -> anyhow::Result<Option<PageLayout>> {
         let layout = sqlx::query_as::<_, PageLayout>(
-            "SELECT * FROM page_layouts WHERE profile_id = ? AND page_id = ?"
+            "SELECT * FROM page_layouts WHERE profile_id = $1 AND page_id = $2"
         )
         .bind(profile_id)
         .bind(page_id)
@@ -716,7 +716,7 @@ impl ConfigRepository {
 
     pub async fn get_all_page_layouts(&self, profile_id: &str) -> anyhow::Result<Vec<PageLayout>> {
         let layouts = sqlx::query_as::<_, PageLayout>(
-            "SELECT * FROM page_layouts WHERE profile_id = ? ORDER BY page_id"
+            "SELECT * FROM page_layouts WHERE profile_id = $1 ORDER BY page_id"
         )
         .bind(profile_id)
         .fetch_all(&self.pool)
@@ -732,7 +732,7 @@ impl ConfigRepository {
         let bg_config_json = req.background_config.as_ref().map(|v| v.to_string());
 
         let existing = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = ? AND page_id = ?"
+            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2"
         )
         .bind(profile_id)
         .bind(&req.page_id)
@@ -741,7 +741,7 @@ impl ConfigRepository {
 
         if let Some(ex) = existing {
             sqlx::query(
-                "UPDATE page_settings SET card_style = ?, background_type = ?, background_config = ?, custom_css = ?, hide_header = ?, padding = ?, updated_at = ? WHERE id = ?"
+                "UPDATE page_settings SET card_style = $1, background_type = $2, background_config = $3, custom_css = $4, hide_header = $5, padding = $6, updated_at = $7 WHERE id = $8"
             )
             .bind(req.card_style.as_deref().or(ex.card_style.as_deref()))
             .bind(req.background_type.as_deref().or(ex.background_type.as_deref()))
@@ -756,7 +756,7 @@ impl ConfigRepository {
         } else {
             let id = uuid::Uuid::new_v4().to_string();
             sqlx::query(
-                "INSERT INTO page_settings (id, profile_id, page_id, card_style, background_type, background_config, custom_css, hide_header, padding, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO page_settings (id, profile_id, page_id, card_style, background_type, background_config, custom_css, hide_header, padding, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
             )
             .bind(&id)
             .bind(profile_id)
@@ -774,7 +774,7 @@ impl ConfigRepository {
         }
 
         let settings = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = ? AND page_id = ?"
+            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2"
         )
         .bind(profile_id)
         .bind(&req.page_id)
@@ -786,7 +786,7 @@ impl ConfigRepository {
 
     pub async fn get_page_settings(&self, profile_id: &str, page_id: &str) -> anyhow::Result<Option<PageSettings>> {
         let settings = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = ? AND page_id = ?"
+            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2"
         )
         .bind(profile_id)
         .bind(page_id)
@@ -798,7 +798,7 @@ impl ConfigRepository {
 
     pub async fn get_all_page_settings(&self, profile_id: &str) -> anyhow::Result<Vec<PageSettings>> {
         let settings = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = ? ORDER BY page_id"
+            "SELECT * FROM page_settings WHERE profile_id = $1 ORDER BY page_id"
         )
         .bind(profile_id)
         .fetch_all(&self.pool)
@@ -808,7 +808,7 @@ impl ConfigRepository {
     }
 
     pub async fn delete_page_settings(&self, profile_id: &str, page_id: &str) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM page_settings WHERE profile_id = ? AND page_id = ?")
+        sqlx::query("DELETE FROM page_settings WHERE profile_id = $1 AND page_id = $2")
             .bind(profile_id)
             .bind(page_id)
             .execute(&self.pool)
@@ -827,7 +827,7 @@ impl ConfigRepository {
 
     pub async fn set_user_admin(&self, user_id: &str, is_admin: bool) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET is_admin = $1, updated_at = $2 WHERE id = $3")
             .bind(is_admin)
             .bind(&now)
             .bind(user_id)
@@ -838,7 +838,7 @@ impl ConfigRepository {
 
     pub async fn set_user_role(&self, user_id: &str, role: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE users SET role = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET role = $1, updated_at = $2 WHERE id = $3")
             .bind(role)
             .bind(&now)
             .bind(user_id)
@@ -849,7 +849,7 @@ impl ConfigRepository {
 
     pub async fn set_user_password(&self, user_id: &str, password_hash: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(password_hash)
             .bind(&now)
             .bind(user_id)
@@ -859,7 +859,7 @@ impl ConfigRepository {
     }
 
     pub async fn delete_user(&self, user_id: &str) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM users WHERE id = ?")
+        sqlx::query("DELETE FROM users WHERE id = $1")
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -869,7 +869,7 @@ impl ConfigRepository {
     /// Ensure at least one admin exists. If no admin found, promote the oldest user.
     pub async fn ensure_admin_exists(&self) -> anyhow::Result<Option<String>> {
         let admin: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM users WHERE is_admin = 1 LIMIT 1"
+            "SELECT id FROM users WHERE is_admin = TRUE LIMIT 1"
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -906,7 +906,7 @@ impl ConfigRepository {
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, permissions, rate_limit, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, permissions, rate_limit, expires_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
         )
         .bind(&id)
         .bind(user_id)
@@ -921,7 +921,7 @@ impl ConfigRepository {
         .execute(&self.pool)
         .await?;
 
-        let key = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = ?")
+        let key = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
             .bind(&id)
             .fetch_one(&self.pool)
             .await?;
@@ -930,7 +930,7 @@ impl ConfigRepository {
 
     pub async fn list_api_keys(&self, user_id: &str) -> anyhow::Result<Vec<ApiKey>> {
         let keys = sqlx::query_as::<_, ApiKey>(
-            "SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC"
+            "SELECT * FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC"
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -949,7 +949,7 @@ impl ConfigRepository {
 
     pub async fn get_api_key_by_prefix(&self, prefix: &str) -> anyhow::Result<Option<ApiKey>> {
         let key = sqlx::query_as::<_, ApiKey>(
-            "SELECT * FROM api_keys WHERE key_prefix = ? AND is_active = 1"
+            "SELECT * FROM api_keys WHERE key_prefix = $1 AND is_active = TRUE"
         )
         .bind(prefix)
         .fetch_optional(&self.pool)
@@ -959,7 +959,7 @@ impl ConfigRepository {
 
     pub async fn update_api_key_last_used(&self, key_id: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+        sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
             .bind(&now)
             .bind(key_id)
             .execute(&self.pool)
@@ -968,7 +968,7 @@ impl ConfigRepository {
     }
 
     pub async fn update_api_key(&self, key_id: &str, req: &UpdateApiKeyRequest) -> anyhow::Result<Option<ApiKey>> {
-        let existing = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = ?")
+        let existing = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
             .bind(key_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -987,7 +987,7 @@ impl ConfigRepository {
         let is_active = req.is_active.unwrap_or(existing.is_active);
 
         sqlx::query(
-            "UPDATE api_keys SET name = ?, permissions = ?, rate_limit = ?, is_active = ?, updated_at = ? WHERE id = ?"
+            "UPDATE api_keys SET name = $1, permissions = $2, rate_limit = $3, is_active = $4, updated_at = $5 WHERE id = $6"
         )
         .bind(name)
         .bind(&permissions)
@@ -998,7 +998,7 @@ impl ConfigRepository {
         .execute(&self.pool)
         .await?;
 
-        let key = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = ?")
+        let key = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
             .bind(key_id)
             .fetch_one(&self.pool)
             .await?;
@@ -1006,7 +1006,7 @@ impl ConfigRepository {
     }
 
     pub async fn delete_api_key(&self, key_id: &str) -> anyhow::Result<bool> {
-        let result = sqlx::query("DELETE FROM api_keys WHERE id = ?")
+        let result = sqlx::query("DELETE FROM api_keys WHERE id = $1")
             .bind(key_id)
             .execute(&self.pool)
             .await?;
@@ -1018,7 +1018,7 @@ impl ConfigRepository {
 
         // Try to increment or insert
         let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT request_count FROM api_key_rate_limits WHERE key_id = ? AND window_start = ?"
+            "SELECT request_count FROM api_key_rate_limits WHERE key_id = $1 AND window_start = $2"
         )
         .bind(key_id)
         .bind(&window)
@@ -1031,7 +1031,7 @@ impl ConfigRepository {
                     return Ok(false); // Rate limited
                 }
                 sqlx::query(
-                    "UPDATE api_key_rate_limits SET request_count = request_count + 1 WHERE key_id = ? AND window_start = ?"
+                    "UPDATE api_key_rate_limits SET request_count = request_count + 1 WHERE key_id = $1 AND window_start = $2"
                 )
                 .bind(key_id)
                 .bind(&window)
@@ -1040,13 +1040,13 @@ impl ConfigRepository {
             }
             None => {
                 // Clean old windows and insert new
-                sqlx::query("DELETE FROM api_key_rate_limits WHERE key_id = ? AND window_start < ?")
+                sqlx::query("DELETE FROM api_key_rate_limits WHERE key_id = $1 AND window_start < $2")
                     .bind(key_id)
                     .bind(&window)
                     .execute(&self.pool)
                     .await?;
                 sqlx::query(
-                    "INSERT INTO api_key_rate_limits (key_id, window_start, request_count) VALUES (?, ?, 1)"
+                    "INSERT INTO api_key_rate_limits (key_id, window_start, request_count) VALUES ($1, $2, 1)"
                 )
                 .bind(key_id)
                 .bind(&window)
