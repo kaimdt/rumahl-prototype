@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "IORA Desktop – background client connecting IORA to LM Studio"
 
+[package.metadata.bundle]
+identifier = "de.iora.desktop"
+icon = ["icons/icon.png", "icons/icon.ico"]
+
 [lib]
 name = "iora_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
@@ -23,6 +27,7 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 panic = "abort"

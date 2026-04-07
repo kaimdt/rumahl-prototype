@@ -32,7 +32,12 @@ export function SettingsForm({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setForm((prev) => ({
         ...prev,
-        [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value,
+        [key]:
+          e.target.type === "checkbox"
+            ? e.target.checked
+            : e.target.type === "number"
+            ? Number(e.target.value)
+            : e.target.value,
       }));
     };
 
@@ -85,7 +90,7 @@ export function SettingsForm({
         />
       </section>
 
-      {/* IORA section */}
+      {/* IORA Backend section */}
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>IORA Backend</h2>
 
@@ -126,6 +131,45 @@ export function SettingsForm({
         </div>
       </section>
 
+      {/* Client section */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Dieser Client</h2>
+
+        <div style={styles.field}>
+          <label style={styles.label}>Client-Name</label>
+          <input
+            type="text"
+            value={form.client_name}
+            onChange={field("client_name")}
+            placeholder="z.B. Wohnzimmer-PC"
+            style={styles.input}
+          />
+          <span style={styles.hint}>
+            Anzeigename in IORA Assist (bei mehreren Clients)
+          </span>
+        </div>
+
+        <div style={styles.field}>
+          <label style={styles.label}>Prüfintervall (Sekunden)</label>
+          <input
+            type="number"
+            value={form.health_poll_interval_secs}
+            onChange={field("health_poll_interval_secs")}
+            min={5}
+            max={300}
+            style={{ ...styles.input, width: "100px" }}
+          />
+          <span style={styles.hint}>
+            Wie oft der Hintergrundprozess die Verbindung prüft
+          </span>
+        </div>
+
+        <div style={styles.readonlyField}>
+          <span style={styles.label}>Client-ID</span>
+          <code style={styles.clientId}>{form.client_id}</code>
+        </div>
+      </section>
+
       <button type="submit" disabled={saving} style={styles.saveBtn}>
         {saving ? "Speichern…" : saved ? "✓ Gespeichert" : "Einstellungen speichern"}
       </button>
@@ -154,7 +198,11 @@ const styles = {
     borderBottom: "1px solid var(--color-border)",
   } as React.CSSProperties,
   field: { display: "flex", flexDirection: "column", gap: "5px" } as React.CSSProperties,
-  label: { fontSize: "13px", fontWeight: 500, color: "var(--color-muted)" } as React.CSSProperties,
+  label: {
+    fontSize: "13px",
+    fontWeight: 500,
+    color: "var(--color-muted)",
+  } as React.CSSProperties,
   input: {
     padding: "8px 12px",
     borderRadius: "var(--radius)",
@@ -165,13 +213,40 @@ const styles = {
     width: "100%",
     outline: "none",
   } as React.CSSProperties,
+  hint: {
+    fontSize: "11px",
+    color: "var(--color-muted)",
+  } as React.CSSProperties,
   checkboxField: {
     display: "flex",
     alignItems: "center",
     gap: "10px",
   } as React.CSSProperties,
-  checkbox: { width: "16px", height: "16px", accentColor: "var(--color-primary)" } as React.CSSProperties,
-  checkboxLabel: { fontSize: "14px", color: "var(--color-text)", cursor: "pointer" } as React.CSSProperties,
+  checkbox: {
+    width: "16px",
+    height: "16px",
+    accentColor: "var(--color-primary)",
+  } as React.CSSProperties,
+  checkboxLabel: {
+    fontSize: "14px",
+    color: "var(--color-text)",
+    cursor: "pointer",
+  } as React.CSSProperties,
+  readonlyField: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  } as React.CSSProperties,
+  clientId: {
+    fontSize: "11px",
+    color: "var(--color-muted)",
+    background: "var(--color-bg)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "4px",
+    padding: "4px 8px",
+    userSelect: "all" as const,
+    overflowX: "auto" as const,
+  } as React.CSSProperties,
   saveBtn: {
     padding: "10px 20px",
     borderRadius: "var(--radius)",

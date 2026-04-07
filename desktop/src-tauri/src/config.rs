@@ -3,9 +3,14 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// Unique identifier for this desktop client instance (used for multi-client routing)
+    pub client_id: String,
+    /// Human-readable name for this client (shown in iora-assist client list)
+    pub client_name: String,
     /// LM Studio base URL (OpenAI-compatible endpoint)
     pub lm_studio_url: String,
     /// Optional LM Studio API key (most local instances don't require one)
@@ -18,19 +23,31 @@ pub struct AppConfig {
     pub auto_start_proxy: bool,
     /// Local port for the IORA→LM Studio proxy
     pub proxy_port: u16,
+    /// Poll interval in seconds to check LM Studio availability
+    pub health_poll_interval_secs: u64,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            client_id: Uuid::new_v4().to_string(),
+            client_name: hostname(),
             lm_studio_url: "http://localhost:1234".to_string(),
             lm_studio_api_key: String::new(),
             selected_model: String::new(),
             iora_backend_url: "http://localhost:8092".to_string(),
             auto_start_proxy: true,
             proxy_port: 11435,
+            health_poll_interval_secs: 30,
         }
     }
+}
+
+/// Returns the machine hostname as a default client name, falling back to "IORA Desktop".
+fn hostname() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "IORA Desktop".to_string())
 }
 
 fn config_path() -> PathBuf {
@@ -42,12 +59,20 @@ pub fn load() -> AppConfig {
     let path = config_path();
     if path.exists() {
         if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(cfg) = serde_json::from_str(&content) {
+            if let Ok(mut cfg) = serde_json::from_str::<AppConfig>(&content) {
+                // Ensure every existing config file gets a client_id if it was saved before this field existed
+                if cfg.client_id.is_empty() {
+                    cfg.client_id = Uuid::new_v4().to_string();
+                    let _ = save(&cfg);
+                }
                 return cfg;
             }
         }
     }
-    AppConfig::default()
+    let cfg = AppConfig::default();
+    // Persist immediately so the client_id is stable across restarts
+    let _ = save(&cfg);
+    cfg
 }
 
 pub fn save(cfg: &AppConfig) -> Result<()> {

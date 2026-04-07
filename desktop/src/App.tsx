@@ -8,18 +8,24 @@ export default function App() {
     config,
     models,
     status,
+    clientInfo,
     loading,
     modelsLoading,
     error,
+    lastChecked,
     testConnection,
     loadModels,
     saveConfig,
   } = useLmStudio();
 
-  // Auto-test connection on mount
+  // Perform a live connection test on first open
   useEffect(() => {
     testConnection();
   }, [testConnection]);
+
+  const lastCheckedLabel = lastChecked
+    ? `Zuletzt geprüft: ${lastChecked.toLocaleTimeString("de-DE")}`
+    : "";
 
   return (
     <div style={styles.root}>
@@ -29,15 +35,18 @@ export default function App() {
           <span style={styles.logoText}>IORA</span>
           <span style={styles.logoSub}>Desktop</span>
         </div>
-        <ConnectionStatus status={status} loading={loading} />
+        <div style={styles.headerRight}>
+          {clientInfo && (
+            <span style={styles.clientBadge} title={`Client-ID: ${clientInfo.client_id}`}>
+              {clientInfo.client_name}
+            </span>
+          )}
+          <ConnectionStatus status={status} loading={loading} />
+        </div>
       </header>
 
       {/* Error banner */}
-      {error && (
-        <div style={styles.errorBanner}>
-          ⚠ {error}
-        </div>
-      )}
+      {error && <div style={styles.errorBanner}>⚠ {error}</div>}
 
       {/* Main content */}
       <main style={styles.main}>
@@ -59,7 +68,12 @@ export default function App() {
         <button onClick={testConnection} disabled={loading} style={styles.testBtn}>
           {loading ? "Teste…" : "Verbindung testen"}
         </button>
-        <span style={styles.version}>v0.1.0</span>
+        <div style={styles.footerRight}>
+          {lastCheckedLabel && (
+            <span style={styles.lastChecked}>{lastCheckedLabel}</span>
+          )}
+          <span style={styles.version}>v0.1.0</span>
+        </div>
       </footer>
     </div>
   );
@@ -77,7 +91,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "16px 20px",
+    padding: "14px 20px",
     borderBottom: "1px solid var(--color-border)",
     background: "var(--color-surface)",
     flexShrink: 0,
@@ -96,6 +110,20 @@ const styles = {
     fontWeight: 500,
     letterSpacing: "0.1em",
     textTransform: "uppercase" as const,
+  } as React.CSSProperties,
+  headerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  } as React.CSSProperties,
+  clientBadge: {
+    fontSize: "11px",
+    color: "var(--color-muted)",
+    background: "var(--color-bg)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "4px",
+    padding: "2px 8px",
+    cursor: "default",
   } as React.CSSProperties,
   errorBanner: {
     background: "rgba(239,68,68,0.1)",
@@ -132,6 +160,15 @@ const styles = {
     color: "var(--color-text)",
     cursor: "pointer",
     fontSize: "13px",
+  } as React.CSSProperties,
+  footerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+  } as React.CSSProperties,
+  lastChecked: {
+    fontSize: "11px",
+    color: "var(--color-muted)",
   } as React.CSSProperties,
   version: { fontSize: "12px", color: "var(--color-muted)" } as React.CSSProperties,
 };
