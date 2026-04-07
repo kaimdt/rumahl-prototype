@@ -82,7 +82,9 @@ REST + WebSocket API consumed by the IORA OS dashboard.
 - In-memory entity-state cache with real-time push
 - JWT + PIN authentication and user/profile management
 - Device integrations: MQTT, Zigbee, Z-Wave, BLE, Matter, HomeKit
-- SQLite database (14 migrations) for history, preferences, webhooks, etc.
+- PostgreSQL database (16 migrations) for history, preferences, webhooks, etc.
+- Person movement tracker: polls HA `person.*` entities every 30 s, stores location history, computes daily summaries
+- Presence-based automation engine: fires HA service calls on arrival/departure events
 - File uploads, SSE event streams, Swagger UI
 
 **Key endpoints:**
@@ -96,6 +98,10 @@ GET  /api/events/stream        ← SSE entity updates
 GET  /api/docs                 ← Swagger UI
 ```
 
+**Background services (always-on):**
+- `PersonTracker` – polls HA every 30 s for all `person.*` entities, writes location transitions to `person_location_history`, aggregates into `person_daily_summary`
+- `AutomationEngine` – evaluates `arrival_light` / `departure_light` rules on each person state change and calls HA services automatically
+
 ### `iora-core` – Central Orchestrator (port 8090)
 
 The system-wide command centre. All other IORA programs register themselves here on
@@ -107,6 +113,7 @@ ecosystem.
 - Background health polling (every 30 s)
 - Plugin registry (`PluginRegistry` from `iora-shared`)
 - System-wide SSE event bus
+- Optional PostgreSQL storage for analytics snapshots and system event log
 
 **Key endpoints:**
 ```
@@ -233,6 +240,78 @@ impl IPlugin for MyPlugin {
 }
 
 // Register with iora-core via POST /api/core/plugins
+```
+
+---
+
+## Person Tracking & Presence Automation
+
+`iora-home` runs a `PersonTracker` background service that provides long-term analytics
+and autonomous device control based on person movements.
+
+### How it works
+
+```
+Home Assistant (person.* entities)
+  │  polled every 30 s via REST API
+  ▼
+PersonTracker (iora-home background task)
+  │  detects location changes
+  ├──► person_location_history (PostgreSQL)
+  │       → who, where, when, how long
+  ├──► person_daily_summary (aggregated per day)
+  │       → time at home, most visited locations, departure/return times
+  └──► AutomationEngine
+           → evaluates automation_rules
+           → calls HA services (e.g. turn_on lights)
+```
+
+### Location States
+
+Person entities in HA report a `state` that can be:
+- `home` – at home
+- `not_home` – away, location unknown
+- A named zone (e.g. `work`, `gym`, `school`)
+
+### Automation Rule Types
+
+| Rule type | Trigger | Example action |
+|-----------|---------|----------------|
+| `arrival_light` | Person arrives home (within 2 min) | Turn on lights in their room |
+| `departure_light` | Person leaves home (within 2 min) | Turn off all their lights |
+| `presence_light` | Custom presence condition | Dim lights when person is in living room after 22:00 |
+
+### Creating an Automation Rule (API)
+
+```json
+POST /api/automation-rules
+{
+  "name": "Alice arrives home – turn on bedroom light",
+  "rule_type": "arrival_light",
+  "trigger_config": {
+    "person_entity_id": "person.alice"
+  },
+  "action_config": {
+    "entity_id": "light.alice_bedroom",
+    "service": "light/turn_on",
+    "data": { "brightness": 200, "color_temp": 4000 }
+  },
+  "cooldown_seconds": 300
+}
+```
+
+### Person Analytics API
+
+```
+GET /api/persons                           ← list all tracked persons
+GET /api/persons/:entity_id/history        ← location history (paginated)
+GET /api/persons/:entity_id/daily-summary  ← daily summaries
+GET /api/persons/:entity_id/weekly-report  ← weekly stats
+GET /api/automation-rules                  ← list automation rules
+POST /api/automation-rules                 ← create rule
+PUT /api/automation-rules/:id              ← update rule
+DELETE /api/automation-rules/:id           ← delete rule
+GET /api/automation-rules/:id/executions   ← execution history
 ```
 
 ---
@@ -386,10 +465,79 @@ cargo build --release -p iora-assist
 |-----------|-------|
 | In-memory entity state cache | iora-home |
 | ServiceCallBuffer (coalesces slider drags) | iora-home |
-| WAL mode SQLite | iora-home |
-| Connection pooling (sqlx) | iora-home |
+| PostgreSQL connection pooling (sqlx) | iora-home, iora-core |
+| JSONB columns for flexible attributes | person_location_history |
+| Partial index on open location records | person_location_history |
 | Broadcast channel for SSE / WS | iora-home, iora-core |
 | Separate poll/cmd HTTP clients | iora-home HA client |
+
+---
+
+## Database
+
+Both `iora-home` and `iora-core` use **PostgreSQL**. SQLite is no longer used.
+
+### iora-home database (`iora_home`)
+
+| Migration | Tables created/altered |
+|-----------|------------------------|
+| 001 | users, devices, user_devices, configuration_profiles, pages, widgets, theme_settings, background_configs, background_triggers, user_preferences, sync_metadata |
+| 002 | `users.password_hash` |
+| 003 | entity_history |
+| 004 | system_preferences |
+| 005 | weather_forecast_cache |
+| 006 | `pages.show_in_nav`, `display_mode`, `parent_page_id` |
+| 007 | `pages.modal_settings` |
+| 008 | `users.pin_hash`, `avatar_url`, `role`; `devices.is_terminal`, `terminal_name`, `assigned_profile_id`; page_layouts |
+| 009 | page_settings |
+| 010 | `users.is_admin`; api_keys, api_key_rate_limits |
+| 011 | warning_log |
+| 012 | notifications |
+| 013 | nina_warning_cache |
+| 014 | webhooks, webhook_deliveries |
+| **015** | **person_location_history**, **person_daily_summary** |
+| **016** | **automation_rules**, **automation_executions** |
+
+### iora-core database (`iora_core`)
+
+| Migration | Tables |
+|-----------|--------|
+| 001 | background_tasks, analytics_snapshots, system_events_log |
+
+### Docker Compose (quick-start with PostgreSQL)
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: iora
+      POSTGRES_PASSWORD: iora_password
+      POSTGRES_DB: iora_home
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  iora-home:
+    build: { context: ./backend, target: iora-home }
+    ports: ["8080:8080"]
+    environment:
+      DATABASE_URL: postgres://iora:iora_password@postgres:5432/iora_home
+      HA_URL: http://homeassistant.local:8123
+      HA_TOKEN: ${HA_TOKEN}
+    depends_on: [postgres]
+
+  iora-core:
+    build: { context: ./backend, target: iora-core }
+    ports: ["8090:8090"]
+    environment:
+      DATABASE_URL: postgres://iora:iora_password@postgres:5432/iora_core
+    depends_on: [postgres]
+
+volumes:
+  pgdata:
+```
 
 ---
 
