@@ -38,3 +38,4 @@ pids
 tmpclaude-*
 nul
 /backend/target
+/desktop/src-tauri/target

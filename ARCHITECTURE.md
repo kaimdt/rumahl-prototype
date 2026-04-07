@@ -10,40 +10,35 @@ dependency.
 ## High-Level System Map
 
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │                  IORA OS (UI)                   │
-                    │                                                 │
-                    │   ┌─────────────────┐   ┌──────────────────┐   │
-                    │   │  IORA Dashboard  │   │  IORA Control    │   │
-                    │   │  (Smart Home)    │   │  (Admin Panel)   │   │
-                    │   └────────┬────────┘   └────────┬─────────┘   │
-                    │            │                      │             │
-                    │   ┌────────┴──────────────────────┴──────────┐  │
-                    │   │            IORA Assist (future)           │  │
-                    │   │         (AI assistant – chat, insights)   │  │
-                    │   └───────────────────────────────────────────┘  │
-                    └──────────────────┬──────────────────────────────┘
-                                       │  HTTP / WebSocket / SSE
-          ┌────────────────────────────┼───────────────────────────────┐
-          │                            │                               │
-  ┌───────┴────────┐        ┌──────────┴──────────┐        ┌──────────┴──────────┐
-  │  iora-home     │        │   iora-core          │        │  iora-control       │
-  │  :8080         │◄───────┤   :8090              ├───────►│  :8091              │
-  │                │        │                      │        │                     │
-  │ Smart Home     │        │ Central Orchestrator │        │ Admin Panel API     │
-  │ HA Integration │        │ Service Registry     │        │ System Stats        │
-  │ Entity Cache   │        │ Plugin Registry      │        │ Config Management   │
-  │ WebSocket/SSE  │        │ SSE Event Bus        │        │ Log Aggregation     │
-  └───────┬────────┘        └──────────────────────┘        └─────────────────────┘
-          │
-  ┌───────┴────────┐        ┌──────────────────────┐
-  │  iora-assist   │        │  Home Assistant       │
-  │  :8092         │        │  (Optional)           │
-  │                │        │                       │
-  │  AI Assistant  │        │  REST + WebSocket     │
-  │  Chat, Insights│        │  Integrated via       │
-  │  Automation    │        │  iora-home only       │
-  └────────────────┘        └──────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                         IORA OS (Browser UI)                         │
+  │                                                                       │
+  │   ┌─────────────────┐   ┌──────────────────┐   ┌───────────────┐    │
+  │   │  IORA Dashboard  │   │  IORA Control    │   │  IORA Assist  │    │
+  │   │  (Smart Home)    │   │  (Admin Panel)   │   │  (AI Chat)    │    │
+  │   └────────┬────────┘   └────────┬─────────┘   └───────┬───────┘    │
+  └────────────┼────────────────────┼──────────────────────┼────────────┘
+               │          HTTP / WebSocket / SSE            │
+  ┌────────────┼────────────────────┼────────────┐         │
+  │ iora-home  │  iora-core  iora-  │  iora-     │         │ AI requests
+  │  :8080     │  :8090     control │  assist    │         │
+  │            │            :8091   │  :8092     │         │
+  └────────────┴────────────────────┴────────────┘         │
+                                                            ▼
+  ┌────────────────────────────────────────────────────────────────────┐
+  │                    IORA Desktop (Tauri v2)                          │
+  │                                                                      │
+  │  System Tray App (background)  ·  Settings Window (React)           │
+  │  ┌──────────────────────────────────────────────────────────────┐   │
+  │  │  LM Studio Proxy  →  http://localhost:11435  →  LM Studio    │   │
+  │  │                          (OpenAI-compatible REST API)         │   │
+  │  └──────────────────────────────────────────────────────────────┘   │
+  └────────────────────────────────────────────────────────────────────┘
+               │
+  ┌────────────┴────────────┐
+  │  Home Assistant          │
+  │  (Optional integration)  │
+  └──────────────────────────┘
 ```
 
 ---
@@ -470,6 +465,85 @@ cargo build --release -p iora-assist
 | Partial index on open location records | person_location_history |
 | Broadcast channel for SSE / WS | iora-home, iora-core |
 | Separate poll/cmd HTTP clients | iora-home HA client |
+| Native OS APIs via Tauri (no Electron overhead) | iora-desktop |
+
+---
+
+## IORA Desktop
+
+IORA Desktop is a **Tauri v2** application that runs silently in the system tray and acts
+as a bridge between IORA and a locally running **LM Studio** instance.
+
+### Why a desktop client?
+
+- **Local AI processing** — LM Studio runs AI models fully on-device. IORA Desktop proxies
+  requests from `iora-assist` to LM Studio, keeping all data local.
+- **Background service** — the app runs invisibly after login; no terminal required.
+- **Settings window** — a small React UI is shown/hidden by clicking the tray icon.
+
+### Directory structure
+
+```
+desktop/
+├── package.json            # npm – Vite + React + @tauri-apps/api
+├── vite.config.ts
+├── tsconfig.json
+├── index.html
+├── src/
+│   ├── main.tsx
+│   ├── App.tsx             # Root component (settings window)
+│   ├── index.css
+│   ├── components/
+│   │   ├── ConnectionStatus.tsx    # green/red indicator
+│   │   ├── ModelSelector.tsx       # model dropdown + refresh
+│   │   └── SettingsForm.tsx        # LM Studio + IORA settings
+│   ├── hooks/
+│   │   └── useLmStudio.ts          # config, models, connection state
+│   └── lib/
+│       └── tauri.ts                # typed invoke() wrappers
+└── src-tauri/
+    ├── Cargo.toml
+    ├── tauri.conf.json     # window, tray, bundle config
+    ├── build.rs
+    ├── icons/icon.png
+    └── src/
+        ├── main.rs         # tray setup, window management
+        ├── lib.rs
+        ├── commands.rs     # #[tauri::command] handlers
+        ├── lm_studio.rs    # OpenAI-compatible HTTP client
+        └── config.rs       # persist settings to OS app-data dir
+```
+
+### Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `lm_studio_url` | `http://localhost:1234` | LM Studio base URL |
+| `lm_studio_api_key` | *(empty)* | API key (optional for local instances) |
+| `selected_model` | *(empty)* | Model identifier selected from LM Studio |
+| `iora_backend_url` | `http://localhost:8092` | iora-assist URL |
+| `auto_start_proxy` | `true` | Start proxy on desktop app startup |
+| `proxy_port` | `11435` | Local port for the IORA→LM Studio proxy |
+
+Settings are persisted as JSON in the OS app-config directory:
+- **Linux**: `~/.config/iora-desktop/config.json`
+- **macOS**: `~/Library/Application Support/iora-desktop/config.json`
+- **Windows**: `%APPDATA%\iora-desktop\config.json`
+
+### Building
+
+```bash
+cd desktop
+npm install
+npm run tauri build
+```
+
+Or for development (live-reload):
+```bash
+cd desktop
+npm install
+npm run tauri dev
+```
 
 ---
 
