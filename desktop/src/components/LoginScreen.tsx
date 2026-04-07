@@ -24,7 +24,7 @@ export function LoginScreen({ onLogin, error, loading }: Props) {
           <span style={styles.logoText}>IORA</span>
           <span style={styles.logoSub}>Desktop</span>
         </div>
-        <p style={styles.subtitle}>Anmelden um fortzufahren</p>
+        <p style={styles.subtitle}>Anmelden, um fortzufahren</p>
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.field}>

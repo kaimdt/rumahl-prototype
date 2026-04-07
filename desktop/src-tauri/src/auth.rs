@@ -116,7 +116,10 @@ pub async fn get_current_user(state: State<'_, AppState>) -> Result<Option<AuthU
         return Ok(Some(user));
     }
 
-    // Reconstruct from persisted config if a token exists
+    // Reconstruct from persisted config if a token exists.
+    // role and is_admin default to "user"/false because the full user object
+    // is only available after a live login response. These fields are informational
+    // in the UI and a fresh login will restore the correct values.
     let cfg = state.config.lock().await.clone();
     if !cfg.auth_token.is_empty() {
         let user = AuthUser {

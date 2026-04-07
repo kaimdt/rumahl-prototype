@@ -81,7 +81,10 @@ pub async fn get_iora_home_status(state: State<'_, AppState>) -> Result<IoraHome
     }
     let (online, ha_connected) = match ha_req.send().await {
         Ok(resp) if resp.status().is_success() => {
-            let json: serde_json::Value = resp.json().await.unwrap_or_default();
+            let json: serde_json::Value = resp.json().await.unwrap_or_else(|e| {
+                tracing::warn!("Failed to parse ha-info response: {}", e);
+                serde_json::Value::default()
+            });
             let connected = json
                 .get("connected")
                 .and_then(|v| v.as_bool())
@@ -99,7 +102,10 @@ pub async fn get_iora_home_status(state: State<'_, AppState>) -> Result<IoraHome
     }
     let (entity_count, person_count) = match counts_req.send().await {
         Ok(resp) if resp.status().is_success() => {
-            let json: serde_json::Value = resp.json().await.unwrap_or_default();
+            let json: serde_json::Value = resp.json().await.unwrap_or_else(|e| {
+                tracing::warn!("Failed to parse entities/count response: {}", e);
+                serde_json::Value::default()
+            });
             let total = json.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
             let persons = json.get("persons").and_then(|v| v.as_i64()).unwrap_or(0);
             (total, persons)
