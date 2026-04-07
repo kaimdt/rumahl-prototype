@@ -10,6 +10,10 @@ export interface AppConfig {
   auto_start_proxy: boolean;
   proxy_port: number;
   health_poll_interval_secs: number;
+  iora_home_url: string;
+  auth_token: string;
+  auth_username: string;
+  auth_user_id: string;
 }
 
 export interface Model {
@@ -36,6 +40,22 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  display_name?: string;
+  role: string;
+  is_admin: boolean;
+}
+
+export interface IoraHomeStatus {
+  online: boolean;
+  ha_connected: boolean;
+  entity_count: number;
+  person_count: number;
+  url: string;
+}
+
 export const tauriApi = {
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) =>
@@ -51,4 +71,15 @@ export const tauriApi = {
   getStatus: () => invoke<ConnectionResult>("get_status"),
   /** Returns this client's identity — used for multi-client routing. */
   getClientInfo: () => invoke<ClientInfo>("get_client_info"),
+  /** Log in with username and password; returns the authenticated user. */
+  login: (username: string, password: string) =>
+    invoke<AuthUser>("login", { username, password }),
+  /** Log out and clear stored credentials. */
+  logout: () => invoke<void>("logout"),
+  /** Returns the current user from memory or persisted config. Null if not logged in. */
+  getCurrentUser: () => invoke<AuthUser | null>("get_current_user"),
+  /** Quick reachability check for IORA Home backend. */
+  pingIoraHome: () => invoke<boolean>("ping_iora_home"),
+  /** Fetch HA connection info and entity counts from IORA Home. */
+  getIoraHomeStatus: () => invoke<IoraHomeStatus>("get_iora_home_status"),
 };

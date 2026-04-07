@@ -1,5 +1,6 @@
 //! Tauri commands exposed to the frontend.
 
+use crate::auth::AuthUser;
 use crate::config::{self, AppConfig};
 use crate::lm_studio::{ChatMessage, ChatRequest, LmStudioClient, Model};
 use serde::Serialize;
@@ -15,6 +16,8 @@ pub struct AppState {
     pub config: Mutex<AppConfig>,
     /// Cached connectivity flag – updated by the background health monitor.
     pub lm_online: Arc<AtomicBool>,
+    /// Currently authenticated user (None if not logged in).
+    pub auth_user: Mutex<Option<AuthUser>>,
 }
 
 impl AppState {
@@ -22,6 +25,7 @@ impl AppState {
         Self {
             config: Mutex::new(config::load()),
             lm_online: Arc::new(AtomicBool::new(false)),
+            auth_user: Mutex::new(None),
         }
     }
 }

@@ -1,8 +1,10 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auth;
 mod commands;
 mod config;
+mod iora_home;
 mod lm_studio;
 
 use commands::AppState;
@@ -141,6 +143,11 @@ fn main() {
             commands::send_chat,
             commands::get_status,
             commands::get_client_info,
+            auth::login,
+            auth::logout,
+            auth::get_current_user,
+            iora_home::ping_iora_home,
+            iora_home::get_iora_home_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IORA Desktop");

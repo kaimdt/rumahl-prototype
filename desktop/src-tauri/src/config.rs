@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+fn default_iora_home_url() -> String {
+    "http://localhost:8080".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Unique identifier for this desktop client instance (used for multi-client routing)
@@ -25,6 +29,18 @@ pub struct AppConfig {
     pub proxy_port: u16,
     /// Poll interval in seconds to check LM Studio availability
     pub health_poll_interval_secs: u64,
+    /// IORA Home URL (iora-home backend)
+    #[serde(default = "default_iora_home_url")]
+    pub iora_home_url: String,
+    /// JWT auth token (empty = not logged in)
+    #[serde(default)]
+    pub auth_token: String,
+    /// Username for display
+    #[serde(default)]
+    pub auth_username: String,
+    /// User ID
+    #[serde(default)]
+    pub auth_user_id: String,
 }
 
 impl Default for AppConfig {
@@ -39,6 +55,10 @@ impl Default for AppConfig {
             auto_start_proxy: true,
             proxy_port: 11435,
             health_poll_interval_secs: 30,
+            iora_home_url: default_iora_home_url(),
+            auth_token: String::new(),
+            auth_username: String::new(),
+            auth_user_id: String::new(),
         }
     }
 }

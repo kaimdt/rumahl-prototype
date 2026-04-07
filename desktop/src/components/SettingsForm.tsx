@@ -106,6 +106,17 @@ export function SettingsForm({
         </div>
 
         <div style={styles.field}>
+          <label style={styles.label}>IORA Home URL</label>
+          <input
+            type="url"
+            value={form.iora_home_url}
+            onChange={field("iora_home_url")}
+            placeholder="http://localhost:8080"
+            style={styles.input}
+          />
+        </div>
+
+        <div style={styles.field}>
           <label style={styles.label}>Proxy Port</label>
           <input
             type="number"
