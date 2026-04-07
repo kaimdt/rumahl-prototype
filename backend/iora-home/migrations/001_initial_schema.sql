@@ -3,8 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     display_name TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Devices table
@@ -13,16 +13,16 @@ CREATE TABLE IF NOT EXISTS devices (
     device_name TEXT NOT NULL,
     device_type TEXT, -- 'browser', 'tablet', 'mobile', etc.
     user_agent TEXT,
-    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- User-Device associations (for multi-user support)
 CREATE TABLE IF NOT EXISTS user_devices (
     user_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
-    is_primary BOOLEAN NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, device_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -34,9 +34,9 @@ CREATE TABLE IF NOT EXISTS configuration_profiles (
     name TEXT NOT NULL,
     profile_type TEXT NOT NULL CHECK(profile_type IN ('user', 'device')), -- 'user' or 'device'
     owner_id TEXT NOT NULL, -- user_id or device_id depending on profile_type
-    is_default BOOLEAN NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Pages configuration
@@ -47,8 +47,8 @@ CREATE TABLE IF NOT EXISTS pages (
     name TEXT NOT NULL,
     icon TEXT NOT NULL,
     position INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     FOREIGN KEY (profile_id) REFERENCES configuration_profiles(id) ON DELETE CASCADE,
     UNIQUE(profile_id, page_id)
 );
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS widgets (
     width INTEGER NOT NULL DEFAULT 1,
     height INTEGER NOT NULL DEFAULT 1,
     config TEXT, -- JSON configuration for the widget
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE
 );
 
@@ -73,11 +73,11 @@ CREATE TABLE IF NOT EXISTS widgets (
 CREATE TABLE IF NOT EXISTS theme_settings (
     id TEXT PRIMARY KEY,
     profile_id TEXT NOT NULL,
-    sleep_mode BOOLEAN NOT NULL DEFAULT 0,
-    auto_theme BOOLEAN NOT NULL DEFAULT 1,
+    sleep_mode BOOLEAN NOT NULL DEFAULT FALSE,
+    auto_theme BOOLEAN NOT NULL DEFAULT TRUE,
     selected_theme TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     FOREIGN KEY (profile_id) REFERENCES configuration_profiles(id) ON DELETE CASCADE,
     UNIQUE(profile_id)
 );
@@ -88,9 +88,9 @@ CREATE TABLE IF NOT EXISTS background_configs (
     profile_id TEXT NOT NULL,
     background_type TEXT NOT NULL CHECK(background_type IN ('static', 'slideshow', 'video', 'gradient')),
     config TEXT NOT NULL, -- JSON with type-specific configuration
-    is_active BOOLEAN NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     FOREIGN KEY (profile_id) REFERENCES configuration_profiles(id) ON DELETE CASCADE
 );
 
@@ -102,9 +102,9 @@ CREATE TABLE IF NOT EXISTS background_triggers (
     trigger_config TEXT NOT NULL, -- JSON with trigger-specific configuration
     background_config_id TEXT NOT NULL,
     priority INTEGER NOT NULL DEFAULT 0,
-    is_enabled BOOLEAN NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     FOREIGN KEY (profile_id) REFERENCES configuration_profiles(id) ON DELETE CASCADE,
     FOREIGN KEY (background_config_id) REFERENCES background_configs(id) ON DELETE CASCADE
 );
@@ -116,8 +116,8 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     device_id TEXT,
     preference_key TEXT NOT NULL,
     preference_value TEXT NOT NULL, -- JSON value
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
     UNIQUE(user_id, device_id, preference_key)
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS sync_metadata (
     table_name TEXT NOT NULL,
     record_id TEXT NOT NULL,
     operation TEXT NOT NULL CHECK(operation IN ('INSERT', 'UPDATE', 'DELETE')),
-    changed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     changed_by_device TEXT,
     FOREIGN KEY (changed_by_device) REFERENCES devices(id)
 );

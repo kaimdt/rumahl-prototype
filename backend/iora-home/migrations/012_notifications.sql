@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     source TEXT NOT NULL DEFAULT '',
     icon TEXT NOT NULL DEFAULT '',
     entity_id TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    read INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    read BOOLEAN NOT NULL DEFAULT FALSE,
     auto_dismiss_secs INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);

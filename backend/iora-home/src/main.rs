@@ -36,6 +36,7 @@ mod zwave_client;
 mod ble_client;
 mod homekit_client;
 mod streaming;
+mod person_tracker;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -365,7 +366,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Get database configuration
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:./data/ha-dashboard.db".to_string());
+        .unwrap_or_else(|_| "postgres://iora:iora_password@localhost:5432/iora_home".to_string());
 
     info!("Starting Home Assistant Dashboard Backend");
     info!("Home Assistant URL: {}", ha_url);
@@ -376,6 +377,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize Home Assistant client (REST – used for history/forecasts)
     let ha_client = Arc::new(HomeAssistantClient::new(ha_url.clone(), ha_token.clone()));
+
+    // Start person tracker background service
+    let person_tracker = person_tracker::PersonTracker::new(db_pool.clone(), ha_client.clone());
+    person_tracker.start();
 
     // Initialize WebSocket manager (frontend-facing)
     let ws_manager = Arc::new(websocket::WebSocketManager::new());

@@ -16,11 +16,14 @@ use iora_shared::{
     types::{HealthStatus, IoraEvent, ServiceHealth},
 };
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use tokio::sync::{broadcast, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt as _;
 use tower_http::cors::CorsLayer;
 use tracing::info;
+
+type DbPool = PgPool;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +33,7 @@ struct AppState {
     plugins: Arc<PluginRegistry>,
     events_tx: broadcast::Sender<IoraEvent>,
     started_at: Arc<Instant>,
+    db: Option<Arc<DbPool>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +72,20 @@ struct PluginListResponse {
     total: usize,
 }
 
+#[derive(Debug, Serialize)]
+struct BackgroundTaskEntry {
+    id: String,
+    name: String,
+    task_type: String,
+    enabled: bool,
+    interval_seconds: Option<i32>,
+    last_run_at: Option<String>,
+    last_success_at: Option<String>,
+    last_error: Option<String>,
+    run_count: i32,
+    error_count: i32,
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -77,6 +95,7 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
         "status": "healthy",
         "uptime_seconds": uptime,
         "timestamp": Utc::now().to_rfc3339(),
+        "db_connected": state.db.is_some(),
     }))
 }
 
@@ -238,6 +257,132 @@ async fn broadcast_event(
     Json(serde_json::json!({ "message": "Event broadcast", "type": event.event_type }))
 }
 
+// ─── Task management handlers ─────────────────────────────────────────────────
+
+async fn list_tasks(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let Some(db) = &state.db else {
+        return Json(serde_json::json!({ "tasks": [], "total": 0, "db": false }));
+    };
+
+    let rows: Vec<(String, String, String, bool, Option<i32>, i32, i32)> =
+        match sqlx::query_as(
+            "SELECT id, name, task_type, enabled, interval_seconds, run_count, error_count FROM background_tasks ORDER BY name",
+        )
+        .fetch_all(db.as_ref())
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return Json(serde_json::json!({ "error": e.to_string() }));
+            }
+        };
+
+    let tasks: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, name, task_type, enabled, interval_seconds, run_count, error_count)| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "task_type": task_type,
+                "enabled": enabled,
+                "interval_seconds": interval_seconds,
+                "run_count": run_count,
+                "error_count": error_count,
+            })
+        })
+        .collect();
+
+    let total = tasks.len();
+    Json(serde_json::json!({ "tasks": tasks, "total": total }))
+}
+
+async fn trigger_task(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<serde_json::Value> {
+    let Some(db) = &state.db else {
+        return Json(serde_json::json!({ "error": "database not connected" }));
+    };
+
+    let exists: Option<(String,)> =
+        match sqlx::query_as("SELECT id FROM background_tasks WHERE id = $1")
+            .bind(&id)
+            .fetch_optional(db.as_ref())
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => return Json(serde_json::json!({ "error": e.to_string() })),
+        };
+
+    if exists.is_none() {
+        return Json(serde_json::json!({ "error": format!("task '{}' not found", id) }));
+    }
+
+    // Record the manual trigger in analytics
+    let _ = sqlx::query(
+        "INSERT INTO analytics_snapshots (snapshot_type, data) VALUES ($1, $2)",
+    )
+    .bind("task_trigger")
+    .bind(sqlx::types::Json(serde_json::json!({ "task_id": id, "triggered_by": "api" })))
+    .execute(db.as_ref())
+    .await;
+
+    Json(serde_json::json!({ "message": "task triggered", "id": id }))
+}
+
+async fn get_person_analytics(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let Some(db) = &state.db else {
+        return Json(serde_json::json!({ "error": "database not connected" }));
+    };
+
+    // Fetch latest analytics snapshot of type 'persons'
+    let row: Option<(serde_json::Value,)> = match sqlx::query_as(
+        "SELECT data FROM analytics_snapshots WHERE snapshot_type = $1 ORDER BY captured_at DESC LIMIT 1",
+    )
+    .bind("persons")
+    .fetch_optional(db.as_ref())
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return Json(serde_json::json!({ "error": e.to_string() })),
+    };
+
+    match row {
+        Some((data,)) => Json(data),
+        None => Json(serde_json::json!({ "message": "no person analytics snapshots yet" })),
+    }
+}
+
+async fn list_analytics_snapshots(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let Some(db) = &state.db else {
+        return Json(serde_json::json!({ "snapshots": [], "db": false }));
+    };
+
+    let rows: Vec<(i64, String, serde_json::Value, String)> = match sqlx::query_as(
+        "SELECT id, snapshot_type, data, captured_at::text FROM analytics_snapshots ORDER BY captured_at DESC LIMIT 100",
+    )
+    .fetch_all(db.as_ref())
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return Json(serde_json::json!({ "error": e.to_string() })),
+    };
+
+    let snapshots: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, snapshot_type, data, captured_at)| {
+            serde_json::json!({
+                "id": id,
+                "snapshot_type": snapshot_type,
+                "data": data,
+                "captured_at": captured_at,
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({ "snapshots": snapshots, "total": snapshots.len() }))
+}
+
 // ─── Background health poller ─────────────────────────────────────────────────
 
 async fn poll_service_health(state: AppState) {
@@ -270,6 +415,44 @@ async fn poll_service_health(state: AppState) {
     }
 }
 
+// ─── Core migration runner ─────────────────────────────────────────────────────
+
+async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS _core_migrations (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    let migrations = vec![(
+        "001_core_schema",
+        include_str!("../migrations/001_core_schema.sql"),
+    )];
+
+    for (name, sql) in migrations {
+        let result: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM _core_migrations WHERE name = $1")
+                .bind(name)
+                .fetch_optional(pool)
+                .await?;
+
+        if result.is_none() {
+            tracing::info!("iora-core: applying migration {}", name);
+            sqlx::query(sql).execute(pool).await?;
+            sqlx::query("INSERT INTO _core_migrations (name) VALUES ($1)")
+                .bind(name)
+                .execute(pool)
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -282,6 +465,28 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    let db = if let Ok(db_url) = std::env::var("DATABASE_URL") {
+        match sqlx::PgPool::connect(&db_url).await {
+            Ok(pool) => {
+                tracing::info!("iora-core: connected to PostgreSQL");
+                if let Err(e) = run_core_migrations(&pool).await {
+                    tracing::warn!("iora-core: migration warning: {}", e);
+                }
+                Some(Arc::new(pool))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "iora-core: could not connect to PostgreSQL ({}), running without DB",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        tracing::info!("iora-core: DATABASE_URL not set, running without persistent storage");
+        None
+    };
+
     let (events_tx, _) = broadcast::channel(256);
 
     let state = AppState {
@@ -289,9 +494,15 @@ async fn main() -> anyhow::Result<()> {
         plugins: Arc::new(PluginRegistry::new()),
         events_tx,
         started_at: Arc::new(Instant::now()),
+        db,
     };
 
     tokio::spawn(poll_service_health(state.clone()));
+
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8090);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -301,10 +512,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/plugins", get(list_plugins).post(install_plugin))
         .route("/api/core/plugins/:id", delete(uninstall_plugin))
         .route("/api/core/events", get(events_sse).post(broadcast_event))
+        .route("/api/core/tasks", get(list_tasks))
+        .route("/api/core/tasks/:id/trigger", post(trigger_task))
+        .route("/api/core/analytics/persons", get(get_person_analytics))
+        .route("/api/core/analytics/snapshots", get(list_analytics_snapshots))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8090));
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("iora-core listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

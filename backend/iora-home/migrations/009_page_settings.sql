@@ -7,10 +7,10 @@ CREATE TABLE IF NOT EXISTS page_settings (
     background_type TEXT,           -- NULL = use global, 'static' | 'gradient' | 'slideshow' | 'video'
     background_config TEXT,         -- JSON blob for background (same schema as global background)
     custom_css TEXT,                -- optional per-page custom CSS
-    hide_header INTEGER NOT NULL DEFAULT 0,
+    hide_header BOOLEAN NOT NULL DEFAULT FALSE,
     padding INTEGER DEFAULT 16,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(profile_id, page_id)
 );
 

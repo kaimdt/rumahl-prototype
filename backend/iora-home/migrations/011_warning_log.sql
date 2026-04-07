@@ -1,15 +1,15 @@
 -- Warning log: tracks when warnings were active and displayed
 CREATE TABLE IF NOT EXISTS warning_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGSERIAL PRIMARY KEY,
     entity_id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '',
     message TEXT NOT NULL DEFAULT '',
     level TEXT NOT NULL DEFAULT 'info',
     source TEXT NOT NULL DEFAULT '',
-    started_at TEXT NOT NULL DEFAULT (datetime('now')),
-    ended_at TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMPTZ,
     attributes_json TEXT NOT NULL DEFAULT '{}',
-    acknowledged INTEGER NOT NULL DEFAULT 0
+    acknowledged BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_warning_log_entity ON warning_log(entity_id);
