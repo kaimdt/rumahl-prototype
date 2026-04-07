@@ -1,412 +1,406 @@
-# Architecture Overview
+# IORA Architecture Overview
 
-## System Design
+**IORA – Interface for Optimized Residential Autonomy** is an autonomous AI system designed
+to manage and support both a smart home and the people living in it. The system is fully
+independent of external services: Home Assistant is an optional integration, not a
+dependency.
 
-The Home Assistant Dashboard is designed with extensibility and modularity as core principles. The architecture supports multiple backends, custom plugins, and flexible configuration.
+---
+
+## High-Level System Map
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                        Frontend (React)                        │
-├───────────────────────────────────────────────────────────────┤
-│                                                                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │
-│  │   Widgets    │  │   Plugins    │  │    Themes    │        │
-│  │  (Built-in)  │  │   (Custom)   │  │   (Custom)   │        │
-│  └──────────────┘  └──────────────┘  └──────────────┘        │
-│         │                  │                  │                │
-│         └──────────────────┴──────────────────┘                │
-│                            │                                   │
-│                  ┌─────────┴─────────┐                         │
-│                  │  Plugin Registry  │                         │
-│                  └─────────┬─────────┘                         │
-│                            │                                   │
-│         ┌──────────────────┴──────────────────┐                │
-│         │      Backend Abstraction Layer      │                │
-│         │    (Provider Pattern - Swappable)   │                │
-│         └──────────────────┬──────────────────┘                │
-│                            │                                   │
-└────────────────────────────┼───────────────────────────────────┘
-                             │
-            ┌────────────────┴────────────────┐
-            │                                 │
-   ┌────────┴────────┐              ┌────────┴────────┐
-   │  Direct Mode    │              │   Proxy Mode    │
-   │  (Browser API)  │              │  (Rust Server)  │
-   └────────┬────────┘              └────────┬────────┘
-            │                                 │
-            └────────────┬────────────────────┘
-                         │
-                ┌────────┴────────┐
-                │ Home Assistant  │
-                │  (REST + WS)    │
-                └─────────────────┘
+                    ┌─────────────────────────────────────────────────┐
+                    │                  IORA OS (UI)                   │
+                    │                                                 │
+                    │   ┌─────────────────┐   ┌──────────────────┐   │
+                    │   │  IORA Dashboard  │   │  IORA Control    │   │
+                    │   │  (Smart Home)    │   │  (Admin Panel)   │   │
+                    │   └────────┬────────┘   └────────┬─────────┘   │
+                    │            │                      │             │
+                    │   ┌────────┴──────────────────────┴──────────┐  │
+                    │   │            IORA Assist (future)           │  │
+                    │   │         (AI assistant – chat, insights)   │  │
+                    │   └───────────────────────────────────────────┘  │
+                    └──────────────────┬──────────────────────────────┘
+                                       │  HTTP / WebSocket / SSE
+          ┌────────────────────────────┼───────────────────────────────┐
+          │                            │                               │
+  ┌───────┴────────┐        ┌──────────┴──────────┐        ┌──────────┴──────────┐
+  │  iora-home     │        │   iora-core          │        │  iora-control       │
+  │  :8080         │◄───────┤   :8090              ├───────►│  :8091              │
+  │                │        │                      │        │                     │
+  │ Smart Home     │        │ Central Orchestrator │        │ Admin Panel API     │
+  │ HA Integration │        │ Service Registry     │        │ System Stats        │
+  │ Entity Cache   │        │ Plugin Registry      │        │ Config Management   │
+  │ WebSocket/SSE  │        │ SSE Event Bus        │        │ Log Aggregation     │
+  └───────┬────────┘        └──────────────────────┘        └─────────────────────┘
+          │
+  ┌───────┴────────┐        ┌──────────────────────┐
+  │  iora-assist   │        │  Home Assistant       │
+  │  :8092         │        │  (Optional)           │
+  │                │        │                       │
+  │  AI Assistant  │        │  REST + WebSocket     │
+  │  Chat, Insights│        │  Integrated via       │
+  │  Automation    │        │  iora-home only       │
+  └────────────────┘        └──────────────────────┘
 ```
 
-## Core Components
+---
 
-### 1. Plugin System
+## Backend Programs (Cargo Workspace)
 
-The plugin system allows extending functionality without modifying core code.
+The entire backend lives in the `backend/` directory as a Cargo workspace. Each program is
+an independent Rust binary that can be deployed and scaled separately.
 
-**Registry Pattern:**
-- Centralized plugin registration
-- Type-safe plugin definitions
-- Lifecycle management (init, destroy)
-- Configuration persistence
-
-**Plugin Types:**
-1. **Widget Plugins** - UI components
-2. **API Plugins** - Custom endpoints
-3. **Service Plugins** - Background tasks
-4. **Theme Plugins** - Styling customization
-
-**Example Flow:**
 ```
-Plugin Registration → Validation → Configuration → Activation → Usage
+backend/
+├── Cargo.toml          ← workspace manifest
+├── iora-shared/        ← shared library (plugin system, types)
+├── iora-home/          ← Smart Home server (port 8080)
+├── iora-core/          ← Central orchestrator (port 8090)
+├── iora-control/       ← Admin panel backend (port 8091)
+└── iora-assist/        ← AI assistant skeleton (port 8092)
 ```
 
-### 2. Backend Abstraction Layer
+### `iora-shared` – Shared Library
 
-Allows switching between different backend implementations:
+Common types and infrastructure used by every IORA program.
 
-**Providers:**
-- `DirectHAProvider` - Direct browser-to-HA communication
-- `ProxyBackendProvider` - Through Rust/Axum server
-- `CustomProvider` - User-defined backends
+| Module | Contents |
+|--------|----------|
+| `types` | `EntityState`, `IoraEvent`, `ServiceHealth`, `HealthStatus` |
+| `plugin` | `IPlugin`, `IApiPlugin`, `IServicePlugin`, `IIntegrationPlugin` traits; `PluginRegistry` |
 
-**Features:**
-- Transparent switching
-- WebSocket support
-- Connection pooling
-- Error handling
-- Retry logic
+### `iora-home` – Smart Home (port 8080)
 
-### 3. State Management
+The core Smart Home server. Manages the connection to Home Assistant and exposes a full
+REST + WebSocket API consumed by the IORA OS dashboard.
 
-**React Context API:**
-- `ThemeContext` - Theme state
-- `PageNavigationContext` - Navigation state
-- Plugin contexts - Plugin-specific state
+**Responsibilities:**
+- Home Assistant REST / WebSocket client
+- In-memory entity-state cache with real-time push
+- JWT + PIN authentication and user/profile management
+- Device integrations: MQTT, Zigbee, Z-Wave, BLE, Matter, HomeKit
+- SQLite database (14 migrations) for history, preferences, webhooks, etc.
+- File uploads, SSE event streams, Swagger UI
 
-**Data Flow:**
+**Key endpoints:**
 ```
-Backend Provider → State Update → Context → Components → UI
+GET  /health
+POST /api/auth/login
+GET  /api/states
+POST /api/services/{domain}/{service}
+GET  /ws                       ← WebSocket real-time
+GET  /api/events/stream        ← SSE entity updates
+GET  /api/docs                 ← Swagger UI
 ```
 
-### 4. Widget System
+### `iora-core` – Central Orchestrator (port 8090)
 
-**Built-in Widgets:**
-- LightWidget (with color picker, brightness)
-- ClimateWidget (temperature control)
-- SwitchWidget (toggle)
-- SensorWidget (display)
-- WeatherWidget (forecast)
+The system-wide command centre. All other IORA programs register themselves here on
+startup so the dashboard and admin panel have a single source of truth for the whole
+ecosystem.
 
-**Widget Lifecycle:**
-1. Entity data received
-2. Widget component renders
-3. User interaction
-4. Service call through backend
-5. State update
-6. Re-render
+**Responsibilities:**
+- Service registry (other IORA programs self-register)
+- Background health polling (every 30 s)
+- Plugin registry (`PluginRegistry` from `iora-shared`)
+- System-wide SSE event bus
 
-### 5. Rust Backend (Optional)
+**Key endpoints:**
+```
+GET  /health
+GET  /api/core/services                    ← list registered services
+POST /api/core/services/register           ← self-registration endpoint
+GET  /api/core/services/:name/health       ← proxy health check
+GET  /api/core/plugins                     ← list installed plugins
+POST /api/core/plugins                     ← install plugin
+DELETE /api/core/plugins/:id               ← remove plugin
+GET  /api/core/events                      ← SSE event bus
+POST /api/core/events                      ← broadcast event
+```
 
-**Technology Stack:**
-- Axum - Web framework
-- Tokio - Async runtime
-- Reqwest - HTTP client
-- Serde - Serialization
+### `iora-control` – Admin Panel Backend (port 8091)
 
-**Components:**
-- HTTP Router (REST API)
-- WebSocket Manager (Real-time)
-- HA Client (API wrapper)
-- State Broadcaster
+The backend for the IORA Control admin dashboard. Aggregates data from `iora-core` and
+`iora-home` to provide a single admin API.
 
-**Advantages:**
-- High performance
-- Low resource usage
-- Type safety
-- Concurrent connections
-- Real-time updates
+**Responsibilities:**
+- System stats (CPU, RAM, OS info via `sysinfo`)
+- Proxied service and plugin management (via iora-core)
+- Proxied user management (via iora-home)
+- System-wide configuration store
+
+**Key endpoints:**
+```
+GET  /health
+GET  /api/control/dashboard    ← overview (services + plugins)
+GET  /api/control/system       ← CPU / memory / OS stats
+GET  /api/control/services     ← all IORA services (via iora-core)
+GET  /api/control/logs         ← aggregated logs (placeholder)
+GET  /api/control/plugins      ← plugin list (via iora-core)
+POST /api/control/plugins      ← install plugin
+DELETE /api/control/plugins/:id
+GET  /api/control/users        ← users (via iora-home)
+GET  /api/control/config       ← system config
+PUT  /api/control/config       ← update system config
+```
+
+### `iora-assist` – AI Assistant (port 8092)
+
+Skeleton service for the future IORA Assist AI component. All AI endpoints return
+`501 Not Implemented` with instructions for connecting an AI backend.
+
+**Responsibilities (future):**
+- Natural-language chat interface
+- Automation suggestions based on entity history
+- Home insights and anomaly detection
+- Natural-language automation creation
+
+**Key endpoints:**
+```
+GET  /health
+POST /api/assist/chat          ← chat with AI (requires AI backend)
+GET  /api/assist/history       ← chat history
+GET  /api/assist/suggestions   ← automation suggestions
+POST /api/assist/automate      ← create automation from description
+GET  /api/assist/insights      ← home insights
+```
+
+To enable AI features set `ASSIST_AI_BACKEND_URL` and `ASSIST_AI_API_KEY` in the
+environment.
+
+---
+
+## Plugin System
+
+Every IORA program can be extended with plugins using the traits defined in
+`iora-shared::plugin`.
+
+### Plugin Types
+
+| Type | Trait | Purpose |
+|------|-------|---------|
+| Widget | *(frontend)* | UI components on the dashboard |
+| Service | `IServicePlugin` | Background workers |
+| API | `IApiPlugin` | Additional HTTP endpoints |
+| Integration | `IIntegrationPlugin` | External device/service connections |
+| Theme | *(frontend)* | Visual customisation |
+
+### Plugin Lifecycle
+
+```
+Load manifest → Validate metadata & permissions
+    → IPlugin::on_load()
+    → Register in PluginRegistry
+    → (active)
+    → IPlugin::on_config_changed()  ← when config updates
+    → IPlugin::on_unload()
+    → Remove from PluginRegistry
+```
+
+### Plugin Permissions
+
+```rust
+pub enum PluginPermission {
+    ReadEntities,      // read HA entity states
+    ControlEntities,   // call HA services
+    Storage,           // persistent key-value storage
+    Network,           // outbound HTTP requests
+    Notifications,     // push notifications to users
+    SystemInfo,        // CPU / memory data
+    PluginManager,     // manage other plugins
+}
+```
+
+### Writing a Plugin (Rust)
+
+```rust
+use iora_shared::plugin::{IPlugin, PluginMetadata, PluginType, PluginPermission};
+use async_trait::async_trait;
+
+struct MyPlugin { meta: PluginMetadata }
+
+#[async_trait]
+impl IPlugin for MyPlugin {
+    fn metadata(&self) -> &PluginMetadata { &self.meta }
+
+    async fn on_load(&self) -> anyhow::Result<()> {
+        tracing::info!("MyPlugin loaded");
+        Ok(())
+    }
+}
+
+// Register with iora-core via POST /api/core/plugins
+```
+
+---
+
+## Frontend (IORA OS)
+
+The React frontend is the IORA OS user interface. It is served by `iora-home` and
+communicates with all backend programs.
+
+```
+src/
+├── components/
+│   ├── AdminPanel.tsx        ← IORA Control UI
+│   ├── PageDesigner.tsx      ← drag-and-drop dashboard editor
+│   └── widgets/              ← smart-home widget library
+├── hooks/                    ← data-fetching hooks
+└── lib/                      ← shared utilities
+```
+
+**IORA OS sections:**
+
+| Section | Description | Backend |
+|---------|-------------|---------|
+| Dashboard | Smart Home widget grid | iora-home |
+| IORA Control | Admin panel (users, system, plugins) | iora-control + iora-core |
+| IORA Assist | AI chat interface *(future)* | iora-assist |
+
+---
 
 ## Data Flow
 
 ### Entity State Updates
 
-**Direct Mode:**
 ```
-1. Frontend polls HA API (every 5s)
-2. Parse response
-3. Update context
-4. Components re-render
-```
-
-**Proxy Mode:**
-```
-1. Backend polls HA API (every 2s)
-2. Broadcast via WebSocket
-3. Frontend receives update
-4. Update context
-5. Components re-render
+Home Assistant
+  │  WebSocket event_state_changed
+  ▼
+iora-home (EntityStateCache)
+  │  in-memory update
+  ├──► WebSocket broadcast → connected browsers
+  └──► SSE /api/events/stream → browsers
 ```
 
-### Service Calls
-
-**Direct Mode:**
-```
-User Action → Widget → Backend Provider → HA API → Response → Widget Update
-```
-
-**Proxy Mode:**
-```
-User Action → Widget → Proxy API → HA API → Response → Widget Update
-                                  ↓
-                            WebSocket Broadcast → All Clients
-```
-
-## Plugin Architecture
-
-### Plugin Registration
-
-```typescript
-// 1. Define plugin
-const myPlugin: WidgetPlugin = {
-  metadata: { id, name, version, ... },
-  component: MyComponent,
-}
-
-// 2. Register
-pluginRegistry.registerWidget(myPlugin)
-
-// 3. Use
-const widget = pluginRegistry.getWidget('my-plugin')
-```
-
-### Plugin Context
-
-Plugins receive a context object:
-
-```typescript
-interface PluginContext {
-  callService()   // HA service calls
-  getStates()     // Entity states
-  storage         // Persistent storage
-  notify()        // Toast notifications
-  subscribe()     // Entity subscriptions
-}
-```
-
-### Plugin Communication
-
-**Widget → Backend:**
-```
-Widget calls onCallService()
-  ↓
-Registry routes to active backend provider
-  ↓
-Provider makes API call
-  ↓
-Response handled
-```
-
-**Backend → Widget:**
-```
-State change detected
-  ↓
-Context updated
-  ↓
-Component receives new props
-  ↓
-Re-renders with new data
-```
-
-## Configuration System
-
-### Storage Layers
-
-1. **Environment Variables** - Backend configuration
-2. **LocalStorage** - User preferences
-3. **GitHub Spark KV** - Persistent app state
-4. **Plugin Configs** - Plugin-specific settings
-
-### Configuration Flow
+### Service Calls (e.g. toggle a light)
 
 ```
-User edits settings → Validate → Save to storage → Update context → Apply changes
+Browser → POST /api/services/light/turn_on
+  → iora-home (ServiceCallBuffer coalesces rapid calls)
+  → HA REST API
+  → SSE/WS state-changed broadcast
+  → Browser updates UI
 ```
+
+### Plugin Installation
+
+```
+Admin Panel → POST /api/control/plugins
+  → iora-control proxies to iora-core
+  → iora-core: PluginRegistry::register()
+  → SSE event "plugin.installed" broadcast
+```
+
+---
 
 ## Security Model
 
 ### Authentication
 
-**Direct Mode:**
-- HA token stored in browser
-- Sent with each request
-- HTTPS required in production
-
-**Proxy Mode:**
-- Token stored in backend env
-- Frontend uses proxy auth
-- More secure for public deployments
+- JWT tokens issued by `iora-home` (`/api/auth/login`)
+- Optional short PIN for kiosk / terminal devices
+- API keys for machine-to-machine access
+- Admin endpoints protected by `is_admin` flag
 
 ### Plugin Security
 
-**Permissions System:**
-```typescript
-permissions: ['storage', 'network', 'notifications', 'homeassistant']
+Plugins declare required permissions in their metadata. `iora-core` validates these
+before registration and enforces them at runtime. Plugins with `PluginManager` permission
+can install/remove other plugins.
+
+---
+
+## Port Map
+
+| Service | Default Port | Protocol |
+|---------|-------------|----------|
+| iora-home | 8080 | HTTP, WebSocket, SSE |
+| iora-core | 8090 | HTTP, SSE |
+| iora-control | 8091 | HTTP |
+| iora-assist | 8092 | HTTP |
+
+Ports can be overridden with the `PORT` environment variable in each service.
+
+---
+
+## Deployment
+
+### Development (run all services)
+
+```bash
+cd backend
+cargo run -p iora-core    &   # start orchestrator first
+cargo run -p iora-home    &   # smart home service
+cargo run -p iora-control &   # admin panel backend
+cargo run -p iora-assist  &   # AI assistant (optional)
 ```
 
-**Sandboxing:**
-- Plugins isolated from core
-- No direct DOM access
-- Controlled API surface
-- Resource limits
+### Docker Compose (recommended)
 
-## Performance Optimizations
+```yaml
+services:
+  iora-core:
+    build: { context: ./backend, target: iora-core }
+    ports: ["8090:8090"]
 
-### Frontend
+  iora-home:
+    build: { context: ./backend, target: iora-home }
+    ports: ["8080:8080"]
+    environment:
+      - HA_URL=http://homeassistant.local:8123
+      - HA_TOKEN=${HA_TOKEN}
+    depends_on: [iora-core]
 
-1. **React Memoization** - Prevent unnecessary re-renders
-2. **Code Splitting** - Load plugins on demand
-3. **Virtual Scrolling** - Large entity lists
-4. **Debounced Updates** - Throttle API calls
-5. **Service Workers** - Offline capability
+  iora-control:
+    build: { context: ./backend, target: iora-control }
+    ports: ["8091:8091"]
+    depends_on: [iora-core, iora-home]
 
-### Backend
-
-1. **Connection Pooling** - Reuse HTTP connections
-2. **Response Caching** - Cache static data
-3. **Batch Updates** - Group state changes
-4. **Async I/O** - Non-blocking operations
-5. **Binary Protocol** - Efficient WebSocket messages
-
-## Extensibility Points
-
-### Adding New Entity Types
-
-1. Define TypeScript interface
-2. Create widget component
-3. Register in plugin system
-4. Add icon mapping
-5. Update documentation
-
-### Adding Backend Provider
-
-1. Implement `BackendProvider` interface
-2. Register with `backendManager`
-3. Configure connection
-4. Test integration
-
-### Creating Custom Themes
-
-1. Define CSS variables
-2. Create theme plugin
-3. Register with registry
-4. Apply theme
-
-### External Integrations
-
-1. **REST APIs** - Via API plugins
-2. **WebSocket Services** - Via service plugins
-3. **OAuth Providers** - Via auth plugins
-4. **Third-party Libraries** - NPM imports
-
-## Deployment Scenarios
-
-### 1. Static Frontend + Direct HA
-
-```
-Browser → Home Assistant (Direct)
+  iora-assist:
+    build: { context: ./backend, target: iora-assist }
+    ports: ["8092:8092"]
+    environment:
+      - ASSIST_AI_BACKEND_URL=${AI_URL}
+      - ASSIST_AI_API_KEY=${AI_KEY}
 ```
 
-**Use case:** Simple setup, home network only
+### Build individual programs
 
-### 2. Frontend + Rust Proxy
-
-```
-Browser → Rust Backend → Home Assistant
-```
-
-**Use case:** Better performance, public access
-
-### 3. Full Stack + Reverse Proxy
-
-```
-Browser → Nginx → Frontend + Backend → Home Assistant
+```bash
+cd backend
+cargo build --release -p iora-home
+cargo build --release -p iora-core
+cargo build --release -p iora-control
+cargo build --release -p iora-assist
 ```
 
-**Use case:** Production deployment with SSL
+---
 
-### 4. Docker Compose
+## Performance
 
-```
-Browser → Docker Network → Frontend + Backend + HA
-```
+| Technique | Where |
+|-----------|-------|
+| In-memory entity state cache | iora-home |
+| ServiceCallBuffer (coalesces slider drags) | iora-home |
+| WAL mode SQLite | iora-home |
+| Connection pooling (sqlx) | iora-home |
+| Broadcast channel for SSE / WS | iora-home, iora-core |
+| Separate poll/cmd HTTP clients | iora-home HA client |
 
-**Use case:** Containerized deployment
-
-## Testing Strategy
-
-### Unit Tests
-- Component rendering
-- State management
-- Plugin registration
-- Backend providers
-
-### Integration Tests
-- API endpoints
-- WebSocket connections
-- HA service calls
-- Plugin loading
-
-### E2E Tests
-- User workflows
-- Multi-page navigation
-- Entity interactions
-- Real-time updates
-
-## Monitoring & Debugging
-
-### Logging
-
-**Frontend:**
-- Console logs (dev mode)
-- Error tracking
-- Performance metrics
-
-**Backend:**
-- Structured logging (tracing)
-- Request/response logs
-- Error stack traces
-- Connection statistics
-
-### Health Checks
-
-- `/health` endpoint
-- WebSocket connection status
-- HA API connectivity
-- Plugin health status
-
-## Future Enhancements
-
-1. **Plugin Marketplace** - Discover and install plugins
-2. **Mobile App** - Native iOS/Android apps
-3. **Voice Control** - Integrate voice assistants
-4. **AI Automation** - Smart home suggestions
-5. **Multi-HA Support** - Connect multiple instances
-6. **Offline Mode** - Full PWA capabilities
-7. **Analytics** - Usage insights and optimization
-8. **GraphQL API** - More flexible data fetching
+---
 
 ## Contributing
 
-See [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md) for plugin development.
+- See [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md) for plugin development.
+- Add new IORA programs as additional workspace members in `backend/Cargo.toml`.
+- Shared types belong in `iora-shared`; program-specific logic stays in the program crate.
 
 For core contributions:
 1. Fork repository
 2. Create feature branch
 3. Write tests
 4. Submit pull request
-5. Wait for review

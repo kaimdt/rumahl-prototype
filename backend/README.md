@@ -1,31 +1,35 @@
-# Rust Backend for Home Assistant Dashboard
+# IORA Backend – Cargo Workspace
 
-A high-performance Rust backend using Axum framework to proxy Home Assistant API calls and provide real-time WebSocket updates.
+This directory is a **Cargo workspace** containing all IORA backend programs, each a
+separate Rust binary that can be built and deployed independently.
 
-## Features
+## Programs
 
-- ✅ **REST API Proxy** - Proxies all Home Assistant API calls
-- ✅ **WebSocket Support** - Real-time entity state updates
-- ✅ **CORS Enabled** - Secure cross-origin requests
-- ✅ **High Performance** - Written in Rust with async/await
-- ✅ **Type Safe** - Full type safety with Rust
-- ✅ **Easy Deployment** - Single binary, no dependencies
+| Crate | Port | Purpose |
+|-------|------|---------|
+| `iora-home` | 8080 | Smart Home – HA integration, entity cache, dashboard API |
+| `iora-core` | 8090 | Central orchestrator – service registry, plugin registry, event bus |
+| `iora-control` | 8091 | Admin panel backend – system stats, config, proxied management APIs |
+| `iora-assist` | 8092 | AI assistant skeleton – chat, insights, automation (future) |
+| `iora-shared` | lib | Shared library – plugin traits, common types |
+
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full system design.
 
 ## Prerequisites
 
 - Rust 1.70+ (install from [rustup.rs](https://rustup.rs))
-- Home Assistant instance with access token
+- Home Assistant instance with access token (for iora-home)
 
 ## Quick Start
 
 ### 1. Configure Environment
 
 ```bash
-# Copy example environment file
-cp .env.example .env
+# Copy example environment file for iora-home
+cp iora-home/.env.example iora-home/.env
 
-# Edit .env with your Home Assistant details
-nano .env
+# Edit with your Home Assistant details
+nano iora-home/.env
 ```
 
 Required configuration:
