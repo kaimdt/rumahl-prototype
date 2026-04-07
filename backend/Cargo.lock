@@ -834,42 +834,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ha-dashboard-backend"
-version = "2.0.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "axum",
- "bcrypt",
- "chrono",
- "dotenv",
- "futures-util",
- "hex",
- "hmac",
- "jsonwebtoken",
- "native-tls",
- "rand 0.8.5",
- "reqwest 0.11.27",
- "rumqttc",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "sysinfo",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite 0.21.0",
- "tower 0.4.13",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber",
- "utoipa",
- "utoipa-swagger-ui",
- "uuid",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,6 +1238,117 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "iora-assist"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "dotenv",
+ "iora-shared",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "iora-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "dotenv",
+ "iora-shared",
+ "jsonwebtoken",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "iora-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "dotenv",
+ "iora-shared",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "iora-home"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "bcrypt",
+ "chrono",
+ "dotenv",
+ "futures-util",
+ "hex",
+ "hmac",
+ "jsonwebtoken",
+ "native-tls",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite 0.21.0",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-swagger-ui",
+ "uuid",
+]
+
+[[package]]
+name = "iora-shared"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3164,6 +3239,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
