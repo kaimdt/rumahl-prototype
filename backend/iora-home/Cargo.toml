@@ -61,8 +61,3 @@ rumqttc = "0.24"
 utoipa = { version = "4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
