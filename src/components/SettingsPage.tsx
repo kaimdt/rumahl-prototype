@@ -55,6 +55,7 @@ import { useLocalStorage } from '@/lib/storage'
 import { useTheme } from '@/contexts/ThemeContext'
 import type { ThemeMode } from '@/lib/types'
 import { toast } from 'sonner'
+import { Tip } from '@/components/ui/tip'
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
 
@@ -913,17 +914,17 @@ export function SettingsPage(props: SettingsPageProps) {
                   <p className="text-[11px] text-foreground/50 mb-2">Extrahierte Farbpalette</p>
                   <div className="flex flex-wrap gap-2">
                     {accentColorSettings.extractedPalette.map((color, i) => (
-                      <button
-                        key={`${color}-${i}`}
-                        onClick={() => accentColorSettings.selectFromPalette(color)}
-                        className={`w-9 h-9 rounded-xl transition-all border-2 ${
-                          accentColorSettings.accentColor === color
-                            ? 'border-white scale-110 shadow-lg ring-2 ring-accent/40'
-                            : 'border-foreground/10 hover:scale-105 hover:border-foreground/25'
-                        }`}
-                        style={{ backgroundColor: color }}
-                        title={color}
-                      />
+                      <Tip content={color} key={`${color}-${i}`}>
+                        <button
+                          onClick={() => accentColorSettings.selectFromPalette(color)}
+                          className={`w-9 h-9 rounded-xl transition-all border-2 ${
+                            accentColorSettings.accentColor === color
+                              ? 'border-white scale-110 shadow-lg ring-2 ring-accent/40'
+                              : 'border-foreground/10 hover:scale-105 hover:border-foreground/25'
+                          }`}
+                          style={{ backgroundColor: color }}
+                        />
+                      </Tip>
                     ))}
                   </div>
                 </div>

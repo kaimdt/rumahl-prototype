@@ -5,6 +5,7 @@ import type { EntityState } from '@/lib/types'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { getModalSizeClass } from '@/lib/utils'
+import { Tip } from '@/components/ui/tip'
 
 interface WasteType {
   id: string
@@ -124,13 +125,13 @@ export default function WasteCollectionWidget({ config }: WasteCollectionWidgetP
         {wasteTypesWithStatus.map(wt => {
           const Icon = wt.icon
           return (
-            <div
-              key={wt.id}
-              className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all ${
-                wt.isActive ? wt.bgColor : 'bg-foreground/5'
-              }`}
-              title={wt.label}
-            >
+            <Tip content={wt.label}>
+              <div
+                key={wt.id}
+                className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all ${
+                  wt.isActive ? wt.bgColor : 'bg-foreground/5'
+                }`}
+              >
               <Icon
                 size={16}
                 weight={wt.isActive ? 'fill' : 'regular'}
@@ -151,6 +152,7 @@ export default function WasteCollectionWidget({ config }: WasteCollectionWidgetP
                 }
               </span>
             </div>
+            </Tip>
           )
         })}
       </div>

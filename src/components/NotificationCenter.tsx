@@ -6,6 +6,7 @@ import { useNotifications, type Notification, type EmergencyAlert } from '@/cont
 import { useEntityStore } from '@/hooks/useEntityStore'
 import { wsOnMessage } from '@/lib/wsConnection'
 import type { EntityState } from '@/lib/types'
+import { Tip } from '@/components/ui/tip'
 
 // ── Notification Bell (for NavigationMenu) ──────────────────────────
 
@@ -61,15 +62,15 @@ export function NotificationBell() {
 
   return (
     <div className="relative">
-      <motion.button
-        ref={bellRef}
-        onClick={() => setOpen(!open)}
-        className={`min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-all duration-300 focus-ring flex items-center justify-center ${bellColor}`}
-        whileHover={{ scale: 1.06 }}
-        whileTap={{ scale: 0.92 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-        title={`${unreadCount} ungelesene Benachrichtigungen`}
-      >
+      <Tip content={`${unreadCount} ungelesene Benachrichtigungen`}>
+        <motion.button
+          ref={bellRef}
+          onClick={() => setOpen(!open)}
+          className={`min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-all duration-300 focus-ring flex items-center justify-center ${bellColor}`}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.92 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+        >
         <div className="relative">
           {hasEmergency ? (
             <motion.div
@@ -92,6 +93,7 @@ export function NotificationBell() {
           )}
         </div>
       </motion.button>
+      </Tip>
 
       {/* Portal to document.body so backdrop-filter works (not nested under navbar's backdrop-filter) */}
       {createPortal(
@@ -158,13 +160,14 @@ function NotificationPanel({
         </div>
         <div className="flex items-center gap-1">
           {sorted.length > 0 && (
-            <button
-              onClick={clearAll}
-              className="p-1.5 rounded-lg text-foreground/40 hover:text-foreground/70 hover:bg-foreground/5 transition-colors"
-              title="Alle löschen"
-            >
-              <Trash size={14} />
-            </button>
+            <Tip content="Alle löschen">
+              <button
+                onClick={clearAll}
+                className="p-1.5 rounded-lg text-foreground/40 hover:text-foreground/70 hover:bg-foreground/5 transition-colors"
+              >
+                <Trash size={14} />
+              </button>
+            </Tip>
           )}
           <button
             onClick={onClose}
@@ -259,21 +262,23 @@ function NotificationItem({
       {/* Quick actions on hover */}
       <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
         {!notification.read && (
-          <button
-            onClick={onRead}
-            className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-accent transition-colors"
-            title="Als gelesen markieren"
-          >
-            <Check size={12} />
-          </button>
+          <Tip content="Als gelesen markieren">
+            <button
+              onClick={onRead}
+              className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-accent transition-colors"
+            >
+              <Check size={12} />
+            </button>
+          </Tip>
         )}
-        <button
-          onClick={onDismiss}
-          className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-red-400 transition-colors"
-          title="Entfernen"
-        >
-          <X size={12} />
-        </button>
+        <Tip content="Entfernen">
+          <button
+            onClick={onDismiss}
+            className="p-1 rounded bg-foreground/5 hover:bg-foreground/10 text-foreground/50 hover:text-red-400 transition-colors"
+          >
+            <X size={12} />
+          </button>
+        </Tip>
       </div>
     </motion.div>
   )
@@ -320,13 +325,14 @@ export function EmergencyNavbarBar() {
             <p className="text-xs text-white/70 truncate">{emergencyAlert.message}</p>
           )}
         </div>
-        <button
-          onClick={dismissEmergencyAlert}
-          className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
-          title="Schließen"
-        >
-          <X size={16} />
-        </button>
+        <Tip content="Schließen">
+          <button
+            onClick={dismissEmergencyAlert}
+            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
+          >
+            <X size={16} />
+          </button>
+        </Tip>
       </div>
     </motion.div>
   )
@@ -752,17 +758,17 @@ export function WarningBar() {
     const RestoreIcon = restoreStyle.icon
 
     return (
-      <motion.button
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-        onClick={restoreAll}
-        className={`fixed top-3 right-3 z-[65] w-10 h-10 rounded-full bg-gradient-to-br ${restoreStyle.bg} ${restoreStyle.border} border shadow-lg flex items-center justify-center cursor-pointer`}
-        title={`${dismissedActiveCount} aktive Warnung(en) — klicken zum Anzeigen`}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-      >
+      <Tip content={`${dismissedActiveCount} aktive Warnung(en) — klicken zum Anzeigen`}>
+        <motion.button
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          onClick={restoreAll}
+          className={`fixed top-3 right-3 z-[65] w-10 h-10 rounded-full bg-gradient-to-br ${restoreStyle.bg} ${restoreStyle.border} border shadow-lg flex items-center justify-center cursor-pointer`}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+        >
         <RestoreIcon size={18} weight="fill" className={restoreStyle.iconColor} />
         {dismissedActiveCount > 1 && (
           <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-white/20 text-[9px] font-bold text-white flex items-center justify-center">
@@ -770,6 +776,7 @@ export function WarningBar() {
           </span>
         )}
       </motion.button>
+      </Tip>
     )
   }
 
@@ -852,13 +859,14 @@ export function WarningBar() {
                 {expanded ? <CaretUp size={12} weight="bold" /> : <CaretDown size={12} weight="bold" />}
               </button>
             )}
-            <button
-              onClick={() => dismissWarning(topWarning.entity_id)}
-              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all"
-              title="Ausblenden"
-            >
-              <X size={16} />
-            </button>
+            <Tip content="Ausblenden">
+              <button
+                onClick={() => dismissWarning(topWarning.entity_id)}
+                className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <X size={16} />
+              </button>
+            </Tip>
           </div>
         </div>
       </motion.div>

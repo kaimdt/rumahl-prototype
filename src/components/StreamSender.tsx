@@ -15,9 +15,12 @@ import {
   CheckCircle,
   Gear,
   Broadcast,
+  Monitor,
 } from '@phosphor-icons/react'
+import { Tip } from '@/components/ui/tip'
 
 type StreamMode = 'av' | 'video' | 'audio'
+type VideoSourceType = 'camera' | 'screen'
 type StreamState = 'idle' | 'connecting' | 'live' | 'error'
 
 interface StreamInfo {
@@ -30,6 +33,8 @@ interface StreamInfo {
 export function StreamSender() {
   const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
   const [mode, setMode] = useState<StreamMode>('av')
+  const [videoSource, setVideoSource] = useState<VideoSourceType>('camera')
+  const [useMicAudio, setUseMicAudio] = useState(false)
   const [state, setState] = useState<StreamState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([])
@@ -44,6 +49,7 @@ export function StreamSender() {
   const [uptime, setUptime] = useState(0)
   const [audioLevel, setAudioLevel] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
+  const [hasPreview, setHasPreview] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -97,49 +103,144 @@ export function StreamSender() {
       analyserRef.current = null
     }
 
-    const constraints: MediaStreamConstraints = {}
-    if (mode !== 'audio') {
-      const resMap: Record<string, { w: number; h: number }> = { '480': { w: 854, h: 480 }, '720': { w: 1280, h: 720 }, '1080': { w: 1920, h: 1080 }, '1440': { w: 2560, h: 1440 }, '2160': { w: 3840, h: 2160 } }
-      const res = resMap[quality] || resMap['720']
-      constraints.video = {
-        deviceId: selectedVideo ? { exact: selectedVideo } : undefined,
-        width: { ideal: res.w },
-        height: { ideal: res.h },
-        frameRate: { ideal: fps },
-      }
-    }
-    if (mode !== 'video') {
-      constraints.audio = {
-        deviceId: selectedAudio ? { exact: selectedAudio } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-      }
-    }
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      let stream: MediaStream
+
+      if (mode === 'audio') {
+        // Audio-only: just mic
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: selectedAudio ? { exact: selectedAudio } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        })
+      } else if (videoSource === 'screen') {
+        // Screen/window capture
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true, // request system audio — browser may or may not provide it
+        })
+
+        // Combine with selected mic audio if requested, or if mode is 'av'
+        if (mode === 'av' || useMicAudio) {
+          try {
+            const micStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                deviceId: selectedAudio ? { exact: selectedAudio } : undefined,
+                echoCancellation: true,
+                noiseSuppression: true,
+              },
+            })
+            // Merge: screen video + screen audio (if any) + mic audio
+            const tracks = [...displayStream.getVideoTracks()]
+            // Keep system audio tracks from display if present
+            tracks.push(...displayStream.getAudioTracks())
+            tracks.push(...micStream.getAudioTracks())
+            stream = new MediaStream(tracks)
+            // Stop original display stream's references (tracks are now in our combined stream)
+          } catch {
+            // Mic not available — fall back to screen-only
+            stream = displayStream
+          }
+        } else {
+          stream = displayStream
+        }
+
+        // When user stops sharing via browser UI, reset to idle
+        displayStream.getVideoTracks().forEach(track => {
+          track.addEventListener('ended', () => {
+            if (stateRef.current === 'live') stopStream()
+            else {
+              if (mediaStreamRef.current) {
+                mediaStreamRef.current.getTracks().forEach(t => t.stop())
+                mediaStreamRef.current = null
+              }
+              if (videoRef.current) videoRef.current.srcObject = null
+              setHasPreview(false)
+            }
+          })
+        })
+      } else {
+        // Camera capture
+        const resMap: Record<string, { w: number; h: number }> = { '480': { w: 854, h: 480 }, '720': { w: 1280, h: 720 }, '1080': { w: 1920, h: 1080 }, '1440': { w: 2560, h: 1440 }, '2160': { w: 3840, h: 2160 } }
+        const res = resMap[quality] || resMap['720']
+        const constraints: MediaStreamConstraints = {
+          video: {
+            deviceId: selectedVideo ? { exact: selectedVideo } : undefined,
+            width: { ideal: res.w },
+            height: { ideal: res.h },
+            frameRate: { ideal: fps },
+          },
+        }
+        if (mode !== 'video') {
+          constraints.audio = {
+            deviceId: selectedAudio ? { exact: selectedAudio } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        }
+
+        const camStream = await navigator.mediaDevices.getUserMedia(constraints)
+
+        // If useMicAudio is enabled and we have a separate mic selected, add it
+        if (useMicAudio && selectedAudio && mode !== 'video') {
+          try {
+            const micStream = await navigator.mediaDevices.getUserMedia({
+              audio: { deviceId: { exact: selectedAudio }, echoCancellation: true, noiseSuppression: true },
+            })
+            // Replace camera audio with selected mic audio
+            const tracks = [...camStream.getVideoTracks(), ...micStream.getAudioTracks()]
+            stream = new MediaStream(tracks)
+            camStream.getAudioTracks().forEach(t => t.stop())
+          } catch {
+            stream = camStream
+          }
+        } else {
+          stream = camStream
+        }
+      }
+
       mediaStreamRef.current = stream
+      setHasPreview(true)
       if (videoRef.current) videoRef.current.srcObject = stream
 
       // Audio meter
-      if (mode !== 'video' && stream.getAudioTracks().length > 0) {
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length > 0) {
         const ctx = new AudioContext()
         audioCtxRef.current = ctx
-        const source = ctx.createMediaStreamSource(stream)
+        const source = ctx.createMediaStreamSource(new MediaStream(audioTracks))
         const analyser = ctx.createAnalyser()
         analyser.fftSize = 256
         source.connect(analyser)
         analyserRef.current = analyser
         updateAudioLevel()
       }
-    } catch {
-      setError('Kamera/Mikrofon-Zugriff verweigert')
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'NotAllowedError') {
+        setError(videoSource === 'screen' ? 'Bildschirmfreigabe abgelehnt' : 'Kamera/Mikrofon-Zugriff verweigert')
+      } else {
+        setError('Medienquelle nicht verfügbar')
+      }
+      setHasPreview(false)
     }
-  }, [mode, selectedVideo, selectedAudio, quality, fps])
+  }, [mode, videoSource, useMicAudio, selectedVideo, selectedAudio, quality, fps])
 
   useEffect(() => {
+    // Screen capture requires user gesture — don't auto-preview.
+    // Instead, stop the old camera stream so the preview area is blank.
+    if (state === 'idle' && videoSource === 'screen') {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(t => t.stop())
+        mediaStreamRef.current = null
+      }
+      if (videoRef.current) videoRef.current.srcObject = null
+      setHasPreview(false)
+      return
+    }
     if (state === 'idle') refreshPreview()
-  }, [refreshPreview, state])
+  }, [refreshPreview, state, videoSource])
 
   function updateAudioLevel() {
     if (!analyserRef.current) return
@@ -169,7 +270,7 @@ export function StreamSender() {
       const res = await fetch(`${API_BASE}/api/streams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: streamName, description: `${mode} stream`, source_type: 'websocket_relay' }),
+        body: JSON.stringify({ name: streamName, description: `${videoSource === 'screen' ? 'screen' : mode} stream`, source_type: 'websocket_relay' }),
       })
       if (!res.ok) throw new Error('Stream konnte nicht erstellt werden')
       const data = await res.json()
@@ -235,7 +336,7 @@ export function StreamSender() {
       setState('error')
       setError(e instanceof Error ? e.message : 'Unbekannter Fehler')
     }
-  }, [mode, streamName, refreshPreview])
+  }, [mode, streamName, refreshPreview, videoSource])
 
   function startCapture() {
     if (!mediaStreamRef.current) return
@@ -373,6 +474,7 @@ export function StreamSender() {
     setFrameCount(0)
     setViewerCount(0)
     setUptime(0)
+    setHasPreview(false)
   }, [])
 
   // Cleanup on unmount
@@ -400,7 +502,8 @@ export function StreamSender() {
     return `${m}:${ss}`
   }
 
-  const modeLabel = mode === 'av' ? 'Video + Audio' : mode === 'video' ? 'Nur Video' : 'Nur Audio'
+  const sourceLabel = videoSource === 'screen' ? 'Bildschirm' : 'Kamera'
+  const modeLabel = mode === 'av' ? `${sourceLabel} + Audio` : mode === 'video' ? `Nur ${sourceLabel}` : 'Nur Audio'
 
   return (
     <div className="glass-card rounded-2xl p-5 sm:p-6 page-transition-enter">
@@ -414,14 +517,15 @@ export function StreamSender() {
             </h3>
             <p className="text-xs text-foreground/40 mt-1">Kamera & Mikrofon direkt über IORA streamen</p>
           </div>
-          <button
-            onClick={() => window.open('/api/streams/sender', '_blank')}
-            className="flex items-center gap-1.5 text-[10px] text-foreground/40 hover:text-foreground/60 transition-colors"
-            title="Standalone Sender-Seite öffnen (z.B. für OBS)"
-          >
-            <ArrowSquareOut size={14} />
-            Standalone
-          </button>
+          <Tip content="Standalone Sender-Seite öffnen (z.B. für OBS)">
+            <button
+              onClick={() => window.open('/api/streams/sender', '_blank')}
+              className="flex items-center gap-1.5 text-[10px] text-foreground/40 hover:text-foreground/60 transition-colors"
+            >
+              <ArrowSquareOut size={14} />
+              Standalone
+            </button>
+          </Tip>
         </div>
 
         {/* Status Bar */}
@@ -474,6 +578,54 @@ export function StreamSender() {
           ))}
         </div>
 
+        {/* Video Source (Camera vs Screen) */}
+        {mode !== 'audio' && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => state === 'idle' && setVideoSource('camera')}
+              disabled={state !== 'idle'}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border transition-all text-xs font-medium ${
+                videoSource === 'camera' ? 'border-accent/40 bg-accent/10 text-accent' : 'border-foreground/8 bg-foreground/[0.03] text-foreground/50 hover:bg-foreground/[0.06]'
+              } disabled:opacity-50`}
+            >
+              <VideoCamera size={16} weight={videoSource === 'camera' ? 'duotone' : 'regular'} />
+              Kamera
+            </button>
+            <button
+              onClick={() => state === 'idle' && setVideoSource('screen')}
+              disabled={state !== 'idle'}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border transition-all text-xs font-medium ${
+                videoSource === 'screen' ? 'border-accent/40 bg-accent/10 text-accent' : 'border-foreground/8 bg-foreground/[0.03] text-foreground/50 hover:bg-foreground/[0.06]'
+              } disabled:opacity-50`}
+            >
+              <Monitor size={16} weight={videoSource === 'screen' ? 'duotone' : 'regular'} />
+              Bildschirm / Fenster
+            </button>
+          </div>
+        )}
+
+        {/* Separate Mic Audio toggle */}
+        {mode !== 'video' && mode !== 'audio' && (
+          <label className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-foreground/8 bg-foreground/[0.03] cursor-pointer hover:bg-foreground/[0.05] transition-all">
+            <input
+              type="checkbox"
+              checked={useMicAudio}
+              onChange={e => state === 'idle' && setUseMicAudio(e.target.checked)}
+              disabled={state !== 'idle'}
+              className="accent-accent w-4 h-4"
+            />
+            <div className="flex-1">
+              <span className="text-xs font-medium text-foreground/70">Separates Mikrofon verwenden</span>
+              <p className="text-[10px] text-foreground/40 mt-0.5">
+                {videoSource === 'screen'
+                  ? 'Zusätzlich zum System-Audio ein Mikrofon einbinden'
+                  : 'Mikrofon statt Kamera-Audio verwenden'}
+              </p>
+            </div>
+            <Microphone size={16} className="text-foreground/30" />
+          </label>
+        )}
+
         {/* Preview */}
         {mode !== 'audio' && (
           <div className="rounded-xl overflow-hidden bg-black/40 border border-foreground/8 aspect-video relative">
@@ -489,6 +641,19 @@ export function StreamSender() {
               <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-600/90 text-white text-[10px] font-bold">
                 <Circle size={8} weight="fill" className="animate-pulse" />
                 LIVE
+              </div>
+            )}
+            {/* Screen mode: show prompt to select screen/window */}
+            {videoSource === 'screen' && state === 'idle' && !hasPreview && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
+                <Monitor size={32} weight="duotone" className="text-foreground/30" />
+                <button
+                  onClick={refreshPreview}
+                  className="px-4 py-2 rounded-lg bg-accent/20 hover:bg-accent/30 text-accent text-xs font-medium transition-all border border-accent/20"
+                >
+                  Bildschirm auswählen
+                </button>
+                <p className="text-[10px] text-foreground/30">Wähle ein Fenster oder Bildschirm zum Streamen</p>
               </div>
             )}
           </div>
@@ -541,8 +706,8 @@ export function StreamSender() {
                 />
               </div>
 
-              {/* Video Device */}
-              {mode !== 'audio' && videoDevices.length > 0 && (
+              {/* Video Device — only for camera mode */}
+              {mode !== 'audio' && videoSource === 'camera' && videoDevices.length > 0 && (
                 <div>
                   <label className="text-[11px] text-foreground/50 block mb-1">Kamera</label>
                   <select
@@ -573,8 +738,8 @@ export function StreamSender() {
                 </div>
               )}
 
-              {/* Quality & FPS */}
-              {mode !== 'audio' && (
+              {/* Quality & FPS — only for camera mode */}
+              {mode !== 'audio' && videoSource === 'camera' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-[11px] text-foreground/50 block mb-1">Qualität</label>

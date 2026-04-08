@@ -442,7 +442,22 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
 
         if result.is_none() {
             tracing::info!("iora-core: applying migration {}", name);
-            sqlx::query(sql).execute(pool).await?;
+            // Split by semicolons and execute each statement individually
+            // because prepared statements cannot contain multiple commands
+            for statement in sql.split(';') {
+                let trimmed: String = statement
+                    .lines()
+                    .filter(|line| {
+                        let t = line.trim();
+                        !t.is_empty() && !t.starts_with("--")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if trimmed.is_empty() {
+                    continue;
+                }
+                sqlx::query(&trimmed).execute(pool).await?;
+            }
             sqlx::query("INSERT INTO _core_migrations (name) VALUES ($1)")
                 .bind(name)
                 .execute(pool)
@@ -499,7 +514,7 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::spawn(poll_service_health(state.clone()));
 
-    let port: u16 = std::env::var("PORT")
+    let port: u16 = std::env::var("CORE_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8090);

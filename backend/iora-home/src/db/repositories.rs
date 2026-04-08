@@ -15,7 +15,7 @@ impl ConfigRepository {
     // User operations
     pub async fn create_user(&self, req: CreateUserRequest) -> anyhow::Result<User> {
         let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let user = sqlx::query_as::<_, User>(
             r#"
@@ -76,7 +76,7 @@ impl ConfigRepository {
         }
 
         let target_display_name = req.display_name.or(existing.display_name);
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let updated = sqlx::query_as::<_, User>(
             r#"
@@ -99,7 +99,7 @@ impl ConfigRepository {
     // Device operations
     pub async fn register_device(&self, req: RegisterDeviceRequest) -> anyhow::Result<Device> {
         let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let device = sqlx::query_as::<_, Device>(
             r#"
@@ -130,7 +130,7 @@ impl ConfigRepository {
     }
 
     pub async fn update_device_last_seen(&self, device_id: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         sqlx::query("UPDATE devices SET last_seen = $1 WHERE id = $2")
             .bind(&now)
@@ -152,7 +152,7 @@ impl ConfigRepository {
         }
 
         let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
             r#"
@@ -206,7 +206,7 @@ impl ConfigRepository {
             .execute(&mut *tx)
             .await?;
 
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         // Insert new pages
         for page_req in pages {
@@ -291,7 +291,7 @@ impl ConfigRepository {
 
     // Theme operations
     pub async fn save_theme(&self, profile_id: &str, req: SaveThemeRequest) -> anyhow::Result<ThemeSettings> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         // Try to update existing theme
         let updated = sqlx::query(
@@ -358,7 +358,7 @@ impl ConfigRepository {
     // Background operations
     pub async fn save_background(&self, profile_id: &str, req: SaveBackgroundRequest) -> anyhow::Result<BackgroundConfig> {
         let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let config_json = req.config.to_string();
 
         // Deactivate all backgrounds for this profile
@@ -400,7 +400,7 @@ impl ConfigRepository {
 
     // User preferences
     pub async fn save_preference(&self, user_id: &str, device_id: Option<&str>, req: SavePreferenceRequest) -> anyhow::Result<UserPreference> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let value_json = req.preference_value.to_string();
 
         // Try to update existing preference
@@ -483,7 +483,7 @@ impl ConfigRepository {
 
     // Global system preferences
     pub async fn save_system_preference(&self, req: SaveSystemPreferenceRequest) -> anyhow::Result<SystemPreference> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let value_json = req.preference_value.to_string();
 
         let updated = sqlx::query(
@@ -573,7 +573,7 @@ impl ConfigRepository {
     // Sync operations
     pub async fn record_change(&self, table_name: &str, record_id: &str, operation: &str, device_id: Option<&str>) -> anyhow::Result<()> {
         let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         sqlx::query(
             r#"
@@ -616,7 +616,7 @@ impl ConfigRepository {
     }
 
     pub async fn set_user_pin(&self, user_id: &str, pin_hash: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET pin_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(pin_hash)
             .bind(&now)
@@ -627,7 +627,7 @@ impl ConfigRepository {
     }
 
     pub async fn remove_user_pin(&self, user_id: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET pin_hash = NULL, updated_at = $1 WHERE id = $2")
             .bind(&now)
             .bind(user_id)
@@ -637,7 +637,7 @@ impl ConfigRepository {
     }
 
     pub async fn set_user_avatar(&self, user_id: &str, avatar_url: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET avatar_url = $1, updated_at = $2 WHERE id = $3")
             .bind(avatar_url)
             .bind(&now)
@@ -660,7 +660,7 @@ impl ConfigRepository {
 
     // ── Page layout persistence ────────────────────────────────────────
     pub async fn save_page_layout(&self, profile_id: &str, req: SavePageLayoutRequest) -> anyhow::Result<PageLayout> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let updated = sqlx::query(
             "UPDATE page_layouts SET cols = $1, rows = $2, gap = $3, updated_at = $4 WHERE profile_id = $5 AND page_id = $6"
@@ -728,7 +728,7 @@ impl ConfigRepository {
     // ── Per-page settings ──────────────────────────────────────────────
 
     pub async fn save_page_settings(&self, profile_id: &str, req: &SavePageSettingsRequest) -> anyhow::Result<PageSettings> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let bg_config_json = req.background_config.as_ref().map(|v| v.to_string());
 
         let existing = sqlx::query_as::<_, PageSettings>(
@@ -826,7 +826,7 @@ impl ConfigRepository {
     }
 
     pub async fn set_user_admin(&self, user_id: &str, is_admin: bool) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET is_admin = $1, updated_at = $2 WHERE id = $3")
             .bind(is_admin)
             .bind(&now)
@@ -837,7 +837,7 @@ impl ConfigRepository {
     }
 
     pub async fn set_user_role(&self, user_id: &str, role: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET role = $1, updated_at = $2 WHERE id = $3")
             .bind(role)
             .bind(&now)
@@ -848,7 +848,7 @@ impl ConfigRepository {
     }
 
     pub async fn set_user_password(&self, user_id: &str, password_hash: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(password_hash)
             .bind(&now)
@@ -901,9 +901,9 @@ impl ConfigRepository {
     }
 
     // API Key CRUD
-    pub async fn create_api_key(&self, user_id: &str, name: &str, key_hash: &str, key_prefix: &str, permissions: &str, rate_limit: i64, expires_at: Option<&str>) -> anyhow::Result<ApiKey> {
+    pub async fn create_api_key(&self, user_id: &str, name: &str, key_hash: &str, key_prefix: &str, permissions: &str, rate_limit: i32, expires_at: Option<chrono::DateTime<chrono::Utc>>) -> anyhow::Result<ApiKey> {
         let id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         sqlx::query(
             "INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, permissions, rate_limit, expires_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
@@ -958,7 +958,7 @@ impl ConfigRepository {
     }
 
     pub async fn update_api_key_last_used(&self, key_id: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
             .bind(&now)
             .bind(key_id)
@@ -978,7 +978,7 @@ impl ConfigRepository {
             None => return Ok(None),
         };
 
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let name = req.name.as_deref().unwrap_or(&existing.name);
         let permissions = req.permissions.as_ref()
             .map(|p| serde_json::to_string(p).unwrap_or_else(|_| existing.permissions.clone()))
@@ -1013,11 +1013,11 @@ impl ConfigRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn check_rate_limit(&self, key_id: &str, limit: i64) -> anyhow::Result<bool> {
+    pub async fn check_rate_limit(&self, key_id: &str, limit: i32) -> anyhow::Result<bool> {
         let window = chrono::Utc::now().format("%Y-%m-%dT%H:%M").to_string();
 
         // Try to increment or insert
-        let row: Option<(i64,)> = sqlx::query_as(
+        let row: Option<(i32,)> = sqlx::query_as(
             "SELECT request_count FROM api_key_rate_limits WHERE key_id = $1 AND window_start = $2"
         )
         .bind(key_id)

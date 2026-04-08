@@ -11,8 +11,10 @@ import {
   Bluetooth, Tree, LinkSimple, AppleLogo, Pulse, Wrench,
   CloudWarning, ShieldWarning, Siren,
   WebhooksLogo, Broadcast, Lightning, Eye, PaperPlaneTilt, CheckCircle, XCircle, Clock,
-  MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp
+  MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
+  Gauge, ListChecks, Robot, Hand, Queue, CircleNotch
 } from '@phosphor-icons/react'
+import { Tip } from '@/components/ui/tip'
 
 interface AdminUser {
   id: string
@@ -44,9 +46,12 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
+  { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+  { id: 'tasks', label: 'Aufgaben', icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
+  { id: 'control-mode', label: 'Betriebsmodus', icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
   { id: 'system', label: 'System', icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
   { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
   { id: 'api-keys', label: 'API Keys', icon: Key, description: 'API-Schlüssel erstellen und verwalten für externe Zugriffe' },
@@ -134,6 +139,9 @@ function prefetchAdjacentTabs(activeTab: string, token: string) {
     'webhooks': ['/api/webhooks'],
     'realtime': [],
     'entities': ['/api/entities/count'],
+    'services': ['/api/admin/control/overview'],
+    'tasks': ['/api/admin/control/services'],
+    'control-mode': ['/api/admin/control/tasks'],
     'scheduler': ['/api/integration/schedules', '/api/integration/watchdogs'],
     'analytics': ['/api/stats/dashboard', '/api/integration/health'],
     'logbook': ['/api/admin/ha/logbook'],
@@ -149,7 +157,7 @@ function prefetchAdjacentTabs(activeTab: string, token: string) {
 
 export function AdminPanel() {
   const { token } = useAuth()
-  const [activeTab, setActiveTab] = useState<Tab>('system')
+  const [activeTab, setActiveTab] = useState<Tab>('services')
 
   if (!token) return null
 
@@ -165,8 +173,8 @@ export function AdminPanel() {
         {/* Header row */}
         <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-foreground/8">
           <ShieldCheck size={22} weight="fill" className="text-accent" />
-          <h2 className="text-base font-semibold text-foreground">Admin Panel</h2>
-          <span className="text-[10px] text-foreground/85 ml-auto hidden sm:block">System-Verwaltung und Konfiguration</span>
+          <h2 className="text-base font-semibold text-foreground">IORA Control Center</h2>
+          <span className="text-[10px] text-foreground/85 ml-auto hidden sm:block">Dienste-Überwachung · Aufgaben · Betriebsmodus · Konfiguration</span>
         </div>
         {/* Tab row */}
         <div className="px-3 py-2 flex flex-wrap gap-1">
@@ -174,19 +182,20 @@ export function AdminPanel() {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
             return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                title={tab.description}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                  isActive
-                    ? 'bg-accent/20 text-accent shadow-sm shadow-accent/10'
-                    : 'text-foreground/75 hover:text-foreground hover:bg-foreground/8'
-                }`}
-              >
+              <Tip content={tab.description}>
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    isActive
+                      ? 'bg-accent/20 text-accent shadow-sm shadow-accent/10'
+                      : 'text-foreground/75 hover:text-foreground hover:bg-foreground/8'
+                  }`}
+                >
                 <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
                 {tab.label}
               </button>
+              </Tip>
             )
           })}
         </div>
@@ -207,6 +216,9 @@ export function AdminPanel() {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.15 }}
         >
+          {activeTab === 'services' && <ServicesTab token={token} />}
+          {activeTab === 'tasks' && <TasksTab token={token} />}
+          {activeTab === 'control-mode' && <ControlModeTab token={token} />}
           {activeTab === 'system' && <SystemTab token={token} />}
           {activeTab === 'users' && <UsersTab token={token} />}
           {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
@@ -235,6 +247,420 @@ export function AdminPanel() {
           {activeTab === 'warnings' && <WarningsTab token={token} />}
         </motion.div>
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ── Services Tab (Dienste-Überwachung) ──────────────────────────────────
+
+interface ServiceStatus {
+  name: string
+  url: string
+  status: 'online' | 'offline' | 'degraded'
+  response_time_ms?: number
+  version?: string
+  uptime?: string
+  details?: Record<string, unknown>
+}
+
+function ServicesTab({ token }: { token: string }) {
+  const [services, setServices] = useState<ServiceStatus[]>([])
+  const [overview, setOverview] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [svc, ov] = await Promise.all([
+        adminFetch('/api/admin/control/services', token),
+        cachedFetch('/api/admin/control/overview', token),
+      ])
+      setServices((svc as { services: ServiceStatus[] }).services ?? svc as ServiceStatus[])
+      setOverview(ov as Record<string, unknown>)
+    } catch (e) { setError((e as Error).message) }
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+
+  const onlineCount = services.filter(s => s.status === 'online').length
+  const totalCount = services.length
+
+  return (
+    <div className="space-y-3">
+      {/* Overview Bar */}
+      <AdminCard title="Übersicht" icon={Gauge}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-foreground">{onlineCount}/{totalCount}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Dienste online</div>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-foreground">{overview?.mode as string ?? '–'}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Betriebsmodus</div>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-foreground">{overview?.watchdog_count as number ?? 0}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Watchdogs</div>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-foreground">{overview?.scheduled_actions as number ?? 0}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Geplante Aktionen</div>
+          </div>
+        </div>
+      </AdminCard>
+
+      {/* Service Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {services.map(svc => (
+          <AdminCard key={svc.name}>
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-2.5 h-2.5 rounded-full ${
+                  svc.status === 'online' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]' :
+                  svc.status === 'degraded' ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]' :
+                  'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.5)]'
+                }`} />
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground">{svc.name}</h4>
+                  <span className="text-[10px] text-foreground/40 font-mono">{svc.url}</span>
+                </div>
+              </div>
+              <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${
+                svc.status === 'online' ? 'bg-green-500/15 text-green-300' :
+                svc.status === 'degraded' ? 'bg-amber-500/15 text-amber-300' :
+                'bg-red-500/15 text-red-300'
+              }`}>
+                {svc.status === 'online' ? 'Online' : svc.status === 'degraded' ? 'Eingeschränkt' : 'Offline'}
+              </span>
+            </div>
+            <div className="space-y-0">
+              {svc.response_time_ms !== undefined && (
+                <StatItem label="Antwortzeit" value={`${svc.response_time_ms}ms`} />
+              )}
+              {svc.version && <StatItem label="Version" value={svc.version} />}
+              {svc.uptime && <StatItem label="Uptime" value={svc.uptime} />}
+              {svc.details && Object.entries(svc.details).map(([k, v]) => (
+                <StatItem key={k} label={k} value={String(v)} />
+              ))}
+            </div>
+          </AdminCard>
+        ))}
+      </div>
+
+      <div className="flex justify-end">
+        <button onClick={() => { dataCache.delete('/api/admin/control/services'); dataCache.delete('/api/admin/control/overview'); load() }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground/80 hover:text-accent hover:bg-accent/10 transition-all">
+          <ArrowClockwise size={14} /> Aktualisieren
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Tasks Tab (Aufgaben-Überwachung & Warteschlange) ──────────────────────────
+
+interface BackgroundTask {
+  id: number
+  name: string
+  task_type: string
+  enabled: boolean
+  interval_seconds?: number
+  last_run_at?: string
+  last_success_at?: string
+  last_error?: string
+  run_count: number
+  error_count: number
+}
+
+function TasksTab({ token }: { token: string }) {
+  const [tasks, setTasks] = useState<BackgroundTask[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [triggerLoading, setTriggerLoading] = useState<number | null>(null)
+  const [filter, setFilter] = useState<'all' | 'active' | 'errors'>('all')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await adminFetch('/api/admin/control/tasks', token)
+      setTasks(Array.isArray(data) ? data : (data as { tasks: BackgroundTask[] }).tasks ?? [])
+    } catch (e) { setError((e as Error).message) }
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const triggerTask = async (taskId: number) => {
+    setTriggerLoading(taskId)
+    try {
+      await adminFetch(`/api/admin/control/tasks/${taskId}/trigger`, token, { method: 'POST' })
+      await load()
+    } catch { /* ignore */ }
+    setTriggerLoading(null)
+  }
+
+  const toggleTask = async (taskId: number) => {
+    try {
+      await adminFetch(`/api/admin/control/tasks/${taskId}/toggle`, token, { method: 'POST' })
+      await load()
+    } catch { /* ignore */ }
+  }
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+
+  const filtered = tasks.filter(t =>
+    filter === 'all' ? true :
+    filter === 'active' ? t.enabled :
+    t.error_count > 0
+  )
+
+  const totalRuns = tasks.reduce((s, t) => s + t.run_count, 0)
+  const totalErrors = tasks.reduce((s, t) => s + t.error_count, 0)
+  const activeCount = tasks.filter(t => t.enabled).length
+
+  return (
+    <div className="space-y-3">
+      {/* Stats */}
+      <AdminCard title="Aufgaben-Statistik" icon={ListChecks}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-foreground">{tasks.length}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Gesamt</div>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-green-300">{activeCount}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Aktiv</div>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className="text-2xl font-bold text-foreground">{totalRuns}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Ausführungen</div>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-foreground/3">
+            <div className={`text-2xl font-bold ${totalErrors > 0 ? 'text-red-300' : 'text-foreground'}`}>{totalErrors}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Fehler</div>
+          </div>
+        </div>
+      </AdminCard>
+
+      {/* Filter */}
+      <div className="flex gap-1.5">
+        {(['all', 'active', 'errors'] as const).map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === f ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/8'
+            }`}>
+            {f === 'all' ? 'Alle' : f === 'active' ? 'Aktiv' : 'Fehler'}
+          </button>
+        ))}
+      </div>
+
+      {/* Task List */}
+      <div className="space-y-2">
+        {filtered.length === 0 ? (
+          <div className="glass-card rounded-2xl p-8 text-center text-xs text-foreground/50">Keine Aufgaben gefunden.</div>
+        ) : filtered.map(task => (
+          <AdminCard key={task.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2 h-2 rounded-full ${task.enabled ? 'bg-green-400' : 'bg-foreground/30'}`} />
+                  <h4 className="text-sm font-semibold text-foreground truncate">{task.name}</h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-foreground/8 text-foreground/60">{task.task_type}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 mt-2">
+                  {task.interval_seconds && (
+                    <div className="text-[10px] text-foreground/50">
+                      <span className="text-foreground/30">Intervall:</span> {task.interval_seconds >= 3600 ? `${Math.round(task.interval_seconds/3600)}h` : task.interval_seconds >= 60 ? `${Math.round(task.interval_seconds/60)}m` : `${task.interval_seconds}s`}
+                    </div>
+                  )}
+                  <div className="text-[10px] text-foreground/50">
+                    <span className="text-foreground/30">Läufe:</span> {task.run_count}
+                  </div>
+                  {task.error_count > 0 && (
+                    <div className="text-[10px] text-red-300">
+                      <span className="text-red-300/60">Fehler:</span> {task.error_count}
+                    </div>
+                  )}
+                  {task.last_run_at && (
+                    <div className="text-[10px] text-foreground/50">
+                      <span className="text-foreground/30">Letzter Lauf:</span> {new Date(task.last_run_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  )}
+                </div>
+                {task.last_error && (
+                  <div className="mt-2 p-2 rounded-lg bg-red-500/8 border border-red-500/15 text-[10px] text-red-300 font-mono truncate">
+                    {task.last_error}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Tip content={task.enabled ? 'Aufgabe deaktivieren' : 'Aufgabe aktivieren'}>
+                  <button onClick={() => toggleTask(task.id)}
+                    className={`p-2 rounded-lg transition-all ${task.enabled ? 'text-green-300 hover:bg-green-500/15' : 'text-foreground/40 hover:bg-foreground/8'}`}>
+                    {task.enabled ? <ToggleRight size={18} weight="fill" /> : <ToggleLeft size={18} />}
+                  </button>
+                </Tip>
+                <Tip content="Jetzt auslösen">
+                  <button onClick={() => triggerTask(task.id)} disabled={triggerLoading === task.id}
+                    className="p-2 rounded-lg text-foreground/60 hover:text-accent hover:bg-accent/10 transition-all disabled:opacity-40">
+                    {triggerLoading === task.id ? <CircleNotch size={16} className="animate-spin" /> : <Play size={16} />}
+                  </button>
+                </Tip>
+              </div>
+            </div>
+          </AdminCard>
+        ))}
+      </div>
+
+      <div className="flex justify-end">
+        <button onClick={load}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground/80 hover:text-accent hover:bg-accent/10 transition-all">
+          <ArrowClockwise size={14} /> Aktualisieren
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Control Mode Tab (Betriebsmodus) ──────────────────────────────────────────
+
+const MODE_CONFIG = {
+  autonomous: {
+    icon: Robot,
+    label: 'Autonom',
+    color: 'green',
+    description: 'Das System führt alle Aufgaben, Watchdogs und Automationen selbstständig aus. Eingriffe sind nicht erforderlich.',
+  },
+  supervised: {
+    icon: Eye,
+    label: 'Überwacht',
+    color: 'amber',
+    description: 'Automationen laufen, aber kritische Aktionen erfordern eine Bestätigung. Benachrichtigungen bei wichtigen Entscheidungen.',
+  },
+  manual: {
+    icon: Hand,
+    label: 'Manuell',
+    color: 'blue',
+    description: 'Alle automatischen Aktionen sind pausiert. Aufgaben müssen manuell ausgelöst werden.',
+  },
+} as const
+
+type ControlMode = keyof typeof MODE_CONFIG
+
+function ControlModeTab({ token }: { token: string }) {
+  const [currentMode, setCurrentMode] = useState<ControlMode>('autonomous')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await adminFetch('/api/admin/control/mode', token) as { mode: string }
+      setCurrentMode((data.mode || 'autonomous') as ControlMode)
+    } catch (e) { setError((e as Error).message) }
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const setMode = async (mode: ControlMode) => {
+    if (mode === currentMode) return
+    setSaving(true)
+    try {
+      await adminFetch('/api/admin/control/mode', token, {
+        method: 'PUT',
+        body: JSON.stringify({ mode }),
+      })
+      setCurrentMode(mode)
+    } catch (e) { setError((e as Error).message) }
+    setSaving(false)
+  }
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+
+  const currentConfig = MODE_CONFIG[currentMode]
+
+  return (
+    <div className="space-y-3">
+      {/* Current Mode Display */}
+      <AdminCard>
+        <div className="flex items-center gap-4 py-2">
+          <div className={`p-4 rounded-2xl ${
+            currentConfig.color === 'green' ? 'bg-green-500/15' :
+            currentConfig.color === 'amber' ? 'bg-amber-500/15' :
+            'bg-blue-500/15'
+          }`}>
+            <currentConfig.icon size={32} weight="fill" className={
+              currentConfig.color === 'green' ? 'text-green-300' :
+              currentConfig.color === 'amber' ? 'text-amber-300' :
+              'text-blue-300'
+            } />
+          </div>
+          <div className="flex-1">
+            <div className="text-xs text-foreground/40 uppercase tracking-wider mb-0.5">Aktueller Betriebsmodus</div>
+            <div className={`text-xl font-bold ${
+              currentConfig.color === 'green' ? 'text-green-300' :
+              currentConfig.color === 'amber' ? 'text-amber-300' :
+              'text-blue-300'
+            }`}>{currentConfig.label}</div>
+            <p className="text-xs text-foreground/60 mt-1">{currentConfig.description}</p>
+          </div>
+        </div>
+      </AdminCard>
+
+      {/* Mode Selector */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {(Object.entries(MODE_CONFIG) as [ControlMode, typeof MODE_CONFIG[ControlMode]][]).map(([mode, config]) => {
+          const isActive = mode === currentMode
+          const Icon = config.icon
+          const colorClasses = config.color === 'green'
+            ? { bg: 'bg-green-500/8', border: 'border-green-500/30', text: 'text-green-300', activeBg: 'bg-green-500/15' }
+            : config.color === 'amber'
+            ? { bg: 'bg-amber-500/8', border: 'border-amber-500/30', text: 'text-amber-300', activeBg: 'bg-amber-500/15' }
+            : { bg: 'bg-blue-500/8', border: 'border-blue-500/30', text: 'text-blue-300', activeBg: 'bg-blue-500/15' }
+
+          return (
+            <button
+              key={mode}
+              onClick={() => setMode(mode)}
+              disabled={saving}
+              className={`glass-card rounded-2xl p-4 text-left transition-all border-2 ${
+                isActive
+                  ? `${colorClasses.activeBg} ${colorClasses.border} shadow-lg`
+                  : 'border-transparent hover:border-foreground/15 hover:bg-foreground/3'
+              } disabled:opacity-50`}
+            >
+              <div className="flex items-center gap-2.5 mb-2">
+                <Icon size={20} weight={isActive ? 'fill' : 'regular'} className={isActive ? colorClasses.text : 'text-foreground/50'} />
+                <span className={`text-sm font-semibold ${isActive ? colorClasses.text : 'text-foreground/80'}`}>{config.label}</span>
+                {isActive && <CheckCircle size={16} weight="fill" className={colorClasses.text + ' ml-auto'} />}
+              </div>
+              <p className="text-[10px] text-foreground/50 leading-relaxed">{config.description}</p>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Info */}
+      <AdminCard title="Hinweise" icon={Warning}>
+        <div className="space-y-2 text-xs text-foreground/60">
+          <p>• <strong className="text-foreground/80">Autonom:</strong> Empfohlen für den Normalbetrieb. Watchdogs, Scheduler und Automationen arbeiten selbstständig.</p>
+          <p>• <strong className="text-foreground/80">Überwacht:</strong> Ideal für Tests oder sensible Phasen. Kritische Aktionen erfordern Bestätigung.</p>
+          <p>• <strong className="text-foreground/80">Manuell:</strong> Für Wartungsarbeiten oder Fehlersuche. Alle automatischen Prozesse pausiert.</p>
+          <p className="text-foreground/40 mt-2">Der Modus wird sofort über WebSocket an alle verbundenen Clients propagiert.</p>
+        </div>
+      </AdminCard>
     </div>
   )
 }
@@ -547,32 +973,35 @@ function UsersTab({ token }: { token: string }) {
                 {u.has_password && <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 font-semibold border border-green-500/30">PW</span>}
                 {u.has_pin && <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">PIN</span>}
               </div>
-              <button
-                onClick={() => toggleAdmin(u.id, u.is_admin)}
-                disabled={actionLoading === u.id}
-                title={u.is_admin ? 'Admin entfernen' : 'Zum Admin machen'}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 ${
-                  u.is_admin
-                    ? 'bg-accent text-white shadow-sm shadow-accent/25'
-                    : 'bg-foreground/10 text-foreground border border-foreground/15 hover:bg-foreground/20'
-                }`}
-              >
-                {actionLoading === u.id ? <InlineSpinner size={12} /> : ({ admin: 'Admin', editor: 'Editor', viewer: 'Betrachter', maintenance: 'Wartung', user: 'User' }[u.role] || (u.is_admin ? 'Admin' : 'User'))}
-              </button>
-              <button
-                onClick={() => { setEditingUser(editingUser === u.id ? null : u.id); setEditForm({ display_name: u.display_name || '', new_password: '', role: u.role || 'user' }) }}
-                className="p-1.5 rounded-lg text-foreground/75 hover:text-accent hover:bg-accent/10 transition-all"
-                title="Bearbeiten"
-              >
-                <PencilSimple size={14} />
-              </button>
-              <button
-                onClick={() => setConfirmDelete(confirmDelete === u.id ? null : u.id)}
-                className="p-1.5 rounded-lg text-foreground/75 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                title="Löschen"
-              >
-                <UserMinus size={14} />
-              </button>
+              <Tip content={u.is_admin ? 'Admin entfernen' : 'Zum Admin machen'}>
+                <button
+                  onClick={() => toggleAdmin(u.id, u.is_admin)}
+                  disabled={actionLoading === u.id}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 ${
+                    u.is_admin
+                      ? 'bg-accent text-white shadow-sm shadow-accent/25'
+                      : 'bg-foreground/10 text-foreground border border-foreground/15 hover:bg-foreground/20'
+                  }`}
+                >
+                  {actionLoading === u.id ? <InlineSpinner size={12} /> : ({ admin: 'Admin', editor: 'Editor', viewer: 'Betrachter', maintenance: 'Wartung', user: 'User' }[u.role] || (u.is_admin ? 'Admin' : 'User'))}
+                </button>
+              </Tip>
+              <Tip content="Bearbeiten">
+                <button
+                  onClick={() => { setEditingUser(editingUser === u.id ? null : u.id); setEditForm({ display_name: u.display_name || '', new_password: '', role: u.role || 'user' }) }}
+                  className="p-1.5 rounded-lg text-foreground/75 hover:text-accent hover:bg-accent/10 transition-all"
+                >
+                  <PencilSimple size={14} />
+                </button>
+              </Tip>
+              <Tip content="Löschen">
+                <button
+                  onClick={() => setConfirmDelete(confirmDelete === u.id ? null : u.id)}
+                  className="p-1.5 rounded-lg text-foreground/75 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                >
+                  <UserMinus size={14} />
+                </button>
+              </Tip>
             </div>
           </div>
 
@@ -3019,23 +3448,26 @@ function WebhooksTab({ token }: { token: string }) {
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <button onClick={() => handleTest(wh.id)} disabled={testing === wh.id}
-                title="Test senden"
-                className="p-2 rounded-lg text-foreground/60 hover:text-accent hover:bg-accent/10 transition-all disabled:opacity-40">
-                {testing === wh.id ? <ArrowClockwise size={14} className="animate-spin" /> : <PaperPlaneTilt size={14} />}
-              </button>
-              <button onClick={() => handleShowDeliveries(wh.id)}
-                disabled={actionLoading === `dlv-${wh.id}`}
-                title="Zustellungen anzeigen"
-                className={`p-2 rounded-lg transition-all disabled:opacity-40 ${deliveryLog?.webhookId === wh.id ? 'text-accent bg-accent/10' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/10'}`}>
-                {actionLoading === `dlv-${wh.id}` ? <InlineSpinner size={14} /> : <Eye size={14} />}
-              </button>
-              <button onClick={() => handleToggle(wh.id, wh.active)}
-                disabled={actionLoading === `tog-${wh.id}`}
-                title={wh.active ? 'Deaktivieren' : 'Aktivieren'}
-                className="p-2 rounded-lg text-foreground/60 hover:text-foreground hover:bg-foreground/10 transition-all disabled:opacity-40">
-                {actionLoading === `tog-${wh.id}` ? <InlineSpinner size={14} /> : (wh.active ? <ToggleRight size={14} weight="fill" className="text-green-400" /> : <ToggleLeft size={14} />)}
-              </button>
+              <Tip content="Test senden">
+                <button onClick={() => handleTest(wh.id)} disabled={testing === wh.id}
+                  className="p-2 rounded-lg text-foreground/60 hover:text-accent hover:bg-accent/10 transition-all disabled:opacity-40">
+                  {testing === wh.id ? <ArrowClockwise size={14} className="animate-spin" /> : <PaperPlaneTilt size={14} />}
+                </button>
+              </Tip>
+              <Tip content="Zustellungen anzeigen">
+                <button onClick={() => handleShowDeliveries(wh.id)}
+                  disabled={actionLoading === `dlv-${wh.id}`}
+                  className={`p-2 rounded-lg transition-all disabled:opacity-40 ${deliveryLog?.webhookId === wh.id ? 'text-accent bg-accent/10' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/10'}`}>
+                  {actionLoading === `dlv-${wh.id}` ? <InlineSpinner size={14} /> : <Eye size={14} />}
+                </button>
+              </Tip>
+              <Tip content={wh.active ? 'Deaktivieren' : 'Aktivieren'}>
+                <button onClick={() => handleToggle(wh.id, wh.active)}
+                  disabled={actionLoading === `tog-${wh.id}`}
+                  className="p-2 rounded-lg text-foreground/60 hover:text-foreground hover:bg-foreground/10 transition-all disabled:opacity-40">
+                  {actionLoading === `tog-${wh.id}` ? <InlineSpinner size={14} /> : (wh.active ? <ToggleRight size={14} weight="fill" className="text-green-400" /> : <ToggleLeft size={14} />)}
+                </button>
+              </Tip>
               <button onClick={() => handleDelete(wh.id)}
                 disabled={actionLoading === `del-${wh.id}`}
                 className="p-2 rounded-lg text-foreground/60 hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-40">

@@ -89,7 +89,7 @@ async fn try_api_key_auth(key: &str, state: &AppState) -> Option<AuthIdentity> {
 
     // Check if expired
     if let Some(ref expires) = api_key.expires_at {
-        if expires < &chrono::Utc::now().to_rfc3339() {
+        if *expires < chrono::Utc::now() {
             return None;
         }
     }

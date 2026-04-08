@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Globe, ArrowsOutSimple, ArrowSquareOut, ArrowClockwise } from '@phosphor-icons/react'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tip } from '@/components/ui/tip'
 
 interface IFrameWidgetConfig {
   url?: string
@@ -72,23 +73,25 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {refreshInterval > 0 && (
-              <button
-                onClick={() => setIframeKey(k => k + 1)}
-                className="p-1 rounded-md hover:bg-foreground/5 text-foreground/40 hover:text-foreground/70 transition-colors"
-                title="Aktualisieren"
-              >
-                <ArrowClockwise size={14} />
-              </button>
+              <Tip content="Aktualisieren">
+                <button
+                  onClick={() => setIframeKey(k => k + 1)}
+                  className="p-1 rounded-md hover:bg-foreground/5 text-foreground/40 hover:text-foreground/70 transition-colors"
+                >
+                  <ArrowClockwise size={14} />
+                </button>
+              </Tip>
             )}
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1 rounded-md hover:bg-foreground/5 text-foreground/40 hover:text-foreground/70 transition-colors"
-              title="In neuem Tab öffnen"
-            >
-              <ArrowSquareOut size={14} />
-            </a>
+            <Tip content="In neuem Tab öffnen">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 rounded-md hover:bg-foreground/5 text-foreground/40 hover:text-foreground/70 transition-colors"
+              >
+                <ArrowSquareOut size={14} />
+              </a>
+            </Tip>
           </div>
         </div>
       )}
@@ -119,15 +122,16 @@ export default function IFrameWidget({ config }: IFrameWidgetProps) {
             <Globe size={16} weight="fill" className="text-accent shrink-0" />
             <h3 className="text-sm font-semibold text-foreground truncate">{title}</h3>
           </div>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-1.5 rounded-md hover:bg-foreground/5 text-foreground/40 hover:text-foreground/70 transition-colors"
-            title="In neuem Tab öffnen"
-          >
-            <ArrowSquareOut size={14} />
-          </a>
+          <Tip content="In neuem Tab öffnen">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 rounded-md hover:bg-foreground/5 text-foreground/40 hover:text-foreground/70 transition-colors"
+            >
+              <ArrowSquareOut size={14} />
+            </a>
+          </Tip>
         </div>
 
         <div className="w-full" style={{ height: '75vh' }}>

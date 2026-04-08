@@ -46,6 +46,7 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("014_webhooks", include_str!("../../migrations/014_webhooks.sql")),
         ("015_person_tracking", include_str!("../../migrations/015_person_tracking.sql")),
         ("016_automation_rules", include_str!("../../migrations/016_automation_rules.sql")),
+        ("017_entity_analytics_snapshots", include_str!("../../migrations/017_entity_analytics_snapshots.sql")),
     ];
 
     // Apply each migration if not already applied
@@ -59,7 +60,23 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
 
         if result.is_none() {
             tracing::info!("Applying migration: {}", name);
-            sqlx::query(sql).execute(pool).await?;
+            // Split by semicolons and execute each statement individually
+            // because prepared statements cannot contain multiple commands
+            for statement in sql.split(';') {
+                // Strip comment-only lines and whitespace to find actual SQL
+                let trimmed: String = statement
+                    .lines()
+                    .filter(|line| {
+                        let t = line.trim();
+                        !t.is_empty() && !t.starts_with("--")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if trimmed.is_empty() {
+                    continue;
+                }
+                sqlx::query(&trimmed).execute(pool).await?;
+            }
             sqlx::query("INSERT INTO _migrations (name) VALUES ($1)")
                 .bind(name)
                 .execute(pool)

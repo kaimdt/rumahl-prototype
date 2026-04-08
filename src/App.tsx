@@ -512,7 +512,7 @@ function DashboardContent() {
             </div>
           </header>
 
-          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 pb-24 sm:pb-28">
+          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32">
           {loading ? (
             <DashboardSkeleton />
           ) : (

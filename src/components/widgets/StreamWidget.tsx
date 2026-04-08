@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState, useCallback } from 'react'
 import { VideoCamera, Play, Pause, Eye, WifiHigh, WifiSlash, ArrowsOut, ArrowsIn, SpeakerHigh, SpeakerSlash, SpeakerLow, FilmStrip, Circle, X, PictureInPicture } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Tip } from '@/components/ui/tip'
 
 interface StreamWidgetProps {
   config?: Record<string, unknown>
@@ -68,13 +69,14 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
     return () => clearInterval(interval)
   }, [fetchStreams])
 
-  // Auto-select stream from config or first live stream
+  // Auto-select stream from config or first live stream, and clear stale selections
   useEffect(() => {
-    if (!selectedStreamId && streams.length > 0) {
-      const live = streams.find(s => s.status === 'live')
-      if (live) setSelectedStreamId(live.id)
-      else setSelectedStreamId(streams[0].id)
-    }
+    if (streams.length === 0) return
+    // If current selection is still valid, keep it
+    if (selectedStreamId && streams.find(s => s.id === selectedStreamId)) return
+    // Auto-select: prefer live stream, fall back to first available
+    const live = streams.find(s => s.status === 'live')
+    setSelectedStreamId(live ? live.id : streams[0].id)
   }, [streams, selectedStreamId])
 
   const selectedStream = streams.find(s => s.id === selectedStreamId)
@@ -96,6 +98,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
     let hasStartedPlayback = false
     let isInErrorState = false
     let isReconnecting = false
+    let recoveryTimer: ReturnType<typeof setTimeout> | null = null
 
     // Flush queued buffers — merge all pending chunks into one appendBuffer call
     function flushQueue() {
@@ -160,12 +163,16 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
       video.muted = true
       if (video.paused && !video.error) {
         video.play().catch(() => {
-          setTimeout(() => {
-            if (video.paused && !cancelled && !video.error) {
-              video.muted = true
-              video.play().catch(() => {})
-            }
-          }, 200)
+          // Retry a few times with increasing delay
+          const retries = [200, 500, 1000]
+          retries.forEach((delay) => {
+            setTimeout(() => {
+              if (video.paused && !cancelled && !video.error) {
+                video.muted = true
+                video.play().catch(() => {})
+              }
+            }, delay)
+          })
         })
       }
     }
@@ -218,6 +225,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
                 // Start playback after first successful append
                 if (!hasStartedPlayback) {
                   hasStartedPlayback = true
+                  if (recoveryTimer) { clearTimeout(recoveryTimer); recoveryTimer = null }
                   video.currentTime = Math.max(0, end - 0.1)
                   ensurePlayback()
                 }
@@ -251,6 +259,20 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
 
           // Flush queued data that arrived before sourceopen
           flushQueue()
+
+          // Recovery: if no frames render within 5s, reconnect
+          if (recoveryTimer) clearTimeout(recoveryTimer)
+          recoveryTimer = setTimeout(() => {
+            const video = videoRef.current
+            if (cancelled || isInErrorState) return
+            if (video && video.readyState < 2 && !video.error) {
+              console.warn('[StreamWidget] No frames decoded after 5s — reconnecting')
+              isInErrorState = true
+              cleanupMediaSource()
+              setIsConnected(false)
+              scheduleReconnect()
+            }
+          }, 5000)
         } catch (e) {
           console.warn('[StreamWidget] MediaSource setup failed:', e)
         }
@@ -294,7 +316,35 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
             }
           } catch { /* parse error */ }
         } else if (event.data instanceof ArrayBuffer) {
-          if (isInErrorState) return // Don't queue data if in error state
+          if (isInErrorState) return
+          // Detect new WebM init segment (EBML magic bytes: 1A 45 DF A3).
+          // The sender's MediaRecorder restarts every ~3s, producing a brand-new
+          // WebM file each time.  If we blindly merge the new init header into
+          // an existing appendBuffer the demuxer chokes on the mid-stream EBML
+          // element and throws PIPELINE_ERROR_DECODE.
+          //
+          // Fix: discard any queued data from the previous recording session and
+          // call SourceBuffer.abort() to reset the WebM byte-stream parser.
+          // The new init segment then becomes the first thing the parser sees,
+          // and in 'sequence' mode the timestamps continue seamlessly.
+          const bytes = new Uint8Array(event.data)
+          const isInitSegment =
+            bytes.length >= 4 &&
+            bytes[0] === 0x1A && bytes[1] === 0x45 &&
+            bytes[2] === 0xDF && bytes[3] === 0xA3
+
+          if (isInitSegment) {
+            // Drop everything still in the queue — it belongs to the old session
+            bufferQueueRef.current = []
+            const sb = sourceBufferRef.current
+            if (sb && mediaSourceRef.current?.readyState === 'open') {
+              try {
+                sb.abort()          // resets parser; safe even while updating
+              } catch { /* readyState changed between check and call */ }
+              isAppending = false   // abort cancels any in-flight appendBuffer
+            }
+          }
+
           bufferQueueRef.current.push(event.data)
           flushQueue()
         }
@@ -315,6 +365,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
       isReconnecting = true
       // Clean up everything before reconnecting
       isInErrorState = true // Stop all appends during teardown
+      if (recoveryTimer) { clearTimeout(recoveryTimer); recoveryTimer = null }
       cleanupMediaSource()
       if (wsRef.current) {
         try { wsRef.current.close() } catch {}
@@ -333,6 +384,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
 
     return () => {
       cancelled = true
+      if (recoveryTimer) { clearTimeout(recoveryTimer); recoveryTimer = null }
       if (wsRetryRef.current) { clearTimeout(wsRetryRef.current); wsRetryRef.current = null }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
       setIsConnected(false)
@@ -421,7 +473,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
 
   if (streams.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 text-foreground/40 p-4">
+      <div className="h-full min-h-[280px] flex flex-col items-center justify-center gap-2 text-foreground/40 p-4">
         <VideoCamera size={28} weight="duotone" className="opacity-50" />
         <p className="text-xs text-center">Kein Stream verfügbar</p>
         <p className="text-[10px] text-foreground/25">Erstelle einen Stream über die API</p>
@@ -438,7 +490,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
       {cinemaBackdrop}
       <div
         ref={containerRef}
-        className={`h-full flex flex-col overflow-hidden ${
+        className={`h-full min-h-[280px] flex flex-col overflow-hidden ${
           isCinemaMode && !isFullscreen
             ? 'fixed inset-x-0 top-[5%] bottom-[5%] max-w-[90vw] mx-auto z-[9999] rounded-2xl shadow-2xl shadow-black/60 border border-white/10'
             : ''
@@ -446,7 +498,7 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
         onMouseMove={resetOverlayTimer}
         onMouseEnter={resetOverlayTimer}
       >
-        <div className="flex-1 relative bg-black/30 group">
+        <div className="flex-1 relative bg-black/30 group min-h-0">
           {selectedStream?.source_type === 'external_url' && selectedStream.source_url ? (
             <video
               src={selectedStream.source_url}
@@ -527,11 +579,12 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
                         <WifiSlash size={13} className="text-white/30" />
                       )}
                       {isCinemaMode && !isFullscreen && (
-                        <button onClick={toggleCinemaMode}
-                          className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
-                          title="Kinomodus beenden">
-                          <X size={14} />
-                        </button>
+                        <Tip content="Kinomodus beenden">
+                          <button onClick={toggleCinemaMode}
+                            className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors">
+                            <X size={14} />
+                          </button>
+                        </Tip>
                       )}
                     </div>
                   </div>
@@ -564,20 +617,22 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1">
                       {isConnected && (
-                        <button onClick={togglePause}
-                          className="p-1.5 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors"
-                          title={isPaused ? 'Wiedergabe' : 'Pause'}>
-                          {isPaused ? <Play size={18} weight="fill" /> : <Pause size={18} weight="fill" />}
-                        </button>
+                        <Tip content={isPaused ? 'Wiedergabe' : 'Pause'}>
+                          <button onClick={togglePause}
+                            className="p-1.5 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors">
+                            {isPaused ? <Play size={18} weight="fill" /> : <Pause size={18} weight="fill" />}
+                          </button>
+                        </Tip>
                       )}
                       <div className="flex items-center gap-1 relative"
                         onMouseEnter={() => setShowVolumeSlider(true)}
                         onMouseLeave={() => setShowVolumeSlider(false)}>
-                        <button onClick={toggleMute}
-                          className="p-1.5 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors"
-                          title={isMuted ? 'Ton an' : 'Ton aus'}>
-                          {isMuted ? <SpeakerSlash size={18} /> : volume < 0.5 ? <SpeakerLow size={18} /> : <SpeakerHigh size={18} />}
-                        </button>
+                        <Tip content={isMuted ? 'Ton an' : 'Ton aus'}>
+                          <button onClick={toggleMute}
+                            className="p-1.5 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors">
+                            {isMuted ? <SpeakerSlash size={18} /> : volume < 0.5 ? <SpeakerLow size={18} /> : <SpeakerHigh size={18} />}
+                          </button>
+                        </Tip>
                         <AnimatePresence>
                           {showVolumeSlider && (
                             <motion.div
@@ -601,24 +656,27 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
                     </div>
                     <div className="flex items-center gap-0.5">
                       {document.pictureInPictureEnabled && (
-                        <button onClick={togglePiP}
-                          className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors"
-                          title="Bild-in-Bild">
-                          <PictureInPicture size={16} />
-                        </button>
+                        <Tip content="Bild-in-Bild">
+                          <button onClick={togglePiP}
+                            className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors">
+                            <PictureInPicture size={16} />
+                          </button>
+                        </Tip>
                       )}
-                      <button onClick={toggleCinemaMode}
-                        className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
-                          isCinemaMode ? 'text-accent' : 'text-white/60 hover:text-white'
-                        }`}
-                        title={isCinemaMode ? 'Kinomodus beenden' : 'Kinomodus'}>
-                        <FilmStrip size={16} />
-                      </button>
-                      <button onClick={toggleFullscreen}
-                        className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors"
-                        title={isFullscreen ? 'Vollbild beenden' : 'Vollbild'}>
-                        {isFullscreen ? <ArrowsIn size={16} /> : <ArrowsOut size={16} />}
-                      </button>
+                      <Tip content={isCinemaMode ? 'Kinomodus beenden' : 'Kinomodus'}>
+                        <button onClick={toggleCinemaMode}
+                          className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
+                            isCinemaMode ? 'text-accent' : 'text-white/60 hover:text-white'
+                          }`}>
+                          <FilmStrip size={16} />
+                        </button>
+                      </Tip>
+                      <Tip content={isFullscreen ? 'Vollbild beenden' : 'Vollbild'}>
+                        <button onClick={toggleFullscreen}
+                          className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors">
+                          {isFullscreen ? <ArrowsIn size={16} /> : <ArrowsOut size={16} />}
+                        </button>
+                      </Tip>
                     </div>
                   </div>
                 </div>

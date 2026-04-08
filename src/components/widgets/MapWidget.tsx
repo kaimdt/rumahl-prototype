@@ -4,6 +4,7 @@ import { MapTrifold, House, ArrowClockwise, GpsFix, User, Users, Plus } from '@p
 import { useEntityStore } from '@/hooks/useEntityStore'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tip } from '@/components/ui/tip'
 
 interface MapWidgetConfig {
   title?: string
@@ -436,13 +437,14 @@ export default function MapWidget({ config }: MapWidgetProps) {
           </div>
           <div className="flex items-center gap-1">
             {homeZone && (
-              <button
-                onClick={centerOnHome}
-                className="w-7 h-7 rounded-lg bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground transition-all"
-                title="Auf Zuhause zentrieren"
-              >
-                <House size={14} weight="fill" />
-              </button>
+              <Tip content="Auf Zuhause zentrieren">
+                <button
+                  onClick={centerOnHome}
+                  className="w-7 h-7 rounded-lg bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground transition-all"
+                >
+                  <House size={14} weight="fill" />
+                </button>
+              </Tip>
             )}
           </div>
         </div>
@@ -657,21 +659,23 @@ export default function MapWidget({ config }: MapWidgetProps) {
 
         <div className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
           {homeZone && (
-            <button
-              onClick={centerOnHome}
-              className="w-8 h-8 rounded-lg bg-card/80 backdrop-blur-xl border border-foreground/10 flex items-center justify-center text-foreground/60 hover:text-foreground shadow-lg transition-all active:scale-95"
-              title="Zentrieren"
-            >
-              <House size={14} weight="fill" />
-            </button>
+            <Tip content="Zentrieren" side="left">
+              <button
+                onClick={centerOnHome}
+                className="w-8 h-8 rounded-lg bg-card/80 backdrop-blur-xl border border-foreground/10 flex items-center justify-center text-foreground/60 hover:text-foreground shadow-lg transition-all active:scale-95"
+              >
+                <House size={14} weight="fill" />
+              </button>
+            </Tip>
           )}
-          <button
-            onClick={refreshMap}
-            className="w-8 h-8 rounded-lg bg-card/80 backdrop-blur-xl border border-foreground/10 flex items-center justify-center text-foreground/60 hover:text-foreground shadow-lg transition-all active:scale-95"
-            title="Aktualisieren"
-          >
-            <ArrowClockwise size={14} />
-          </button>
+          <Tip content="Aktualisieren" side="left">
+            <button
+              onClick={refreshMap}
+              className="w-8 h-8 rounded-lg bg-card/80 backdrop-blur-xl border border-foreground/10 flex items-center justify-center text-foreground/60 hover:text-foreground shadow-lg transition-all active:scale-95"
+            >
+              <ArrowClockwise size={14} />
+            </button>
+          </Tip>
         </div>
 
         {trackedEntities.length > 0 && (
@@ -832,21 +836,23 @@ export default function MapWidget({ config }: MapWidgetProps) {
           </div>
           <div className="flex items-center gap-1">
             {homeZone && (
-              <button
-                onClick={centerOnHome}
-                className="w-7 h-7 rounded-lg bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground transition-all"
-                title="Auf Zuhause zentrieren"
-              >
-                <House size={14} weight="fill" />
-              </button>
+              <Tip content="Auf Zuhause zentrieren">
+                <button
+                  onClick={centerOnHome}
+                  className="w-7 h-7 rounded-lg bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground transition-all"
+                >
+                  <House size={14} weight="fill" />
+                </button>
+              </Tip>
             )}
-            <button
-              onClick={refreshMap}
-              className="w-7 h-7 rounded-lg bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground transition-all"
-              title="Karte aktualisieren"
-            >
-              <ArrowClockwise size={14} />
-            </button>
+            <Tip content="Karte aktualisieren">
+              <button
+                onClick={refreshMap}
+                className="w-7 h-7 rounded-lg bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground transition-all"
+              >
+                <ArrowClockwise size={14} />
+              </button>
+            </Tip>
           </div>
         </div>
       )}

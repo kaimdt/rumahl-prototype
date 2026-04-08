@@ -687,6 +687,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/nina/test-warning", post(admin_send_test_warning))
         // Webhooks (admin overview)
         .route("/api/admin/webhooks", get(admin_list_all_webhooks))
+        // IORA Control Center: services, tasks, control mode
+        .route("/api/admin/control/services", get(admin_control_services))
+        .route("/api/admin/control/tasks", get(admin_control_tasks))
+        .route("/api/admin/control/tasks/:task_id/trigger", post(admin_control_trigger_task))
+        .route("/api/admin/control/tasks/:task_id/toggle", post(admin_control_toggle_task))
+        .route("/api/admin/control/mode", get(admin_control_get_mode).put(admin_control_set_mode))
+        .route("/api/admin/control/overview", get(admin_control_overview))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_admin))
         .with_state(state.clone());
 
@@ -1239,7 +1246,7 @@ async fn integration_command(
             });
             // Persist to DB
             if let Err(e) = sqlx::query(
-                "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)"
+                "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)"
             )
                 .bind(&id)
                 .bind(title)
@@ -1248,8 +1255,8 @@ async fn integration_command(
                 .bind(notification["source"].as_str().unwrap_or("system"))
                 .bind(notification["icon"].as_str().unwrap_or(""))
                 .bind(notification["entity_id"].as_str().unwrap_or(""))
-                .bind(notification["created_at"].as_str().unwrap_or(""))
-                .bind(notification["auto_dismiss_secs"].as_u64().unwrap_or(0) as i64)
+                .bind(chrono::Utc::now())
+                .bind(notification["auto_dismiss_secs"].as_u64().unwrap_or(0) as i32)
                 .execute(&state.db_pool)
                 .await
             {
@@ -1285,7 +1292,7 @@ async fn integration_command(
             *ACTIVE_EMERGENCY.write().await = Some(alert.clone());
             // Also create a notification entry in DB
             if let Err(e) = sqlx::query(
-                "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES (?, ?, ?, ?, ?, ?, '', ?, 0, 0)"
+                "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES ($1, $2, $3, $4, $5, $6, '', $7, false, 0)"
             )
                 .bind(&id)
                 .bind(alert["title"].as_str().unwrap_or(""))
@@ -1293,7 +1300,7 @@ async fn integration_command(
                 .bind(level)
                 .bind(alert["source"].as_str().unwrap_or("system"))
                 .bind(alert["icon"].as_str().unwrap_or(""))
-                .bind(alert["created_at"].as_str().unwrap_or(""))
+                .bind(chrono::Utc::now())
                 .execute(&state.db_pool)
                 .await
             {
@@ -1847,10 +1854,10 @@ async fn integration_analytics_history(
     let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100);
     let hours = params.get("hours").and_then(|v| v.parse::<i64>().ok()).unwrap_or(24);
 
-    let cutoff = (chrono::Utc::now() - chrono::Duration::hours(hours)).to_rfc3339();
+    let cutoff = chrono::Utc::now() - chrono::Duration::hours(hours);
 
-    match sqlx::query_as::<_, (String, i64, i64, i64, i64, Option<String>, i64)>(
-        "SELECT recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes FROM entity_analytics_snapshots WHERE recorded_at > ? ORDER BY recorded_at DESC LIMIT ?"
+    match sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, i32, i32, i32, i32, Option<String>, i32)>(
+        "SELECT recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes FROM entity_analytics_snapshots WHERE recorded_at > $1 ORDER BY recorded_at DESC LIMIT $2"
     )
         .bind(&cutoff)
         .bind(limit)
@@ -1860,7 +1867,7 @@ async fn integration_analytics_history(
         Ok(rows) => {
             let snapshots: Vec<serde_json::Value> = rows.iter().map(|r| {
                 serde_json::json!({
-                    "recorded_at": r.0,
+                    "recorded_at": r.0.to_rfc3339(),
                     "total_entities": r.1,
                     "unavailable_count": r.2,
                     "stale_count": r.3,
@@ -2690,7 +2697,7 @@ async fn auth_pin_login(
     Json(request): Json<db::models::PinLoginRequest>,
 ) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
     // Get user by ID
-    let user = match sqlx::query_as::<_, db::models::User>("SELECT * FROM users WHERE id = ?")
+    let user = match sqlx::query_as::<_, db::models::User>("SELECT * FROM users WHERE id = $1")
         .bind(&request.user_id)
         .fetch_optional(&state.db_pool)
         .await
@@ -2932,7 +2939,7 @@ async fn auth_register(
     // Create user with password
     let user_id = uuid::Uuid::new_v4().to_string();
     let query_result = sqlx::query(
-        "INSERT INTO users (id, username, display_name, password_hash, is_admin) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO users (id, username, display_name, password_hash, is_admin) VALUES ($1, $2, $3, $4, $5)"
     )
     .bind(&user_id)
     .bind(&request.username)
@@ -3185,7 +3192,7 @@ async fn get_local_history(
     });
 
     let rows: Vec<(String, String, Option<String>, String, String)> = sqlx::query_as(
-        "SELECT entity_id, state, attributes, last_changed, recorded_at FROM entity_history WHERE entity_id = ? AND recorded_at >= ? AND recorded_at <= ? ORDER BY recorded_at ASC"
+        "SELECT entity_id, state, attributes, last_changed, recorded_at FROM entity_history WHERE entity_id = $1 AND recorded_at >= $2 AND recorded_at <= $3 ORDER BY recorded_at ASC"
     )
     .bind(&entity_id)
     .bind(&start)
@@ -3217,8 +3224,8 @@ async fn get_cached_forecast(
     State(state): State<AppState>,
     Path((entity_id, forecast_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        "SELECT forecast_data, fetched_at FROM weather_forecast_cache WHERE entity_id = ? AND forecast_type = ?"
+    let row: Option<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT forecast_data, fetched_at FROM weather_forecast_cache WHERE entity_id = $1 AND forecast_type = $2"
     )
     .bind(&entity_id)
     .bind(&forecast_type)
@@ -3234,7 +3241,7 @@ async fn get_cached_forecast(
             let forecast: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
             Ok(Json(serde_json::json!({
                 "forecast": forecast,
-                "fetched_at": fetched_at,
+                "fetched_at": fetched_at.to_rfc3339(),
                 "cached": true
             })))
         }
@@ -3258,10 +3265,10 @@ async fn save_cached_forecast(
     let data_str = serde_json::to_string(forecast_data)
         .map_err(|e| ErrorResponse::internal(format!("Failed to serialize forecast: {}", e)))?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = chrono::Utc::now();
 
     sqlx::query(
-        "INSERT INTO weather_forecast_cache (entity_id, forecast_type, forecast_data, fetched_at) VALUES (?, ?, ?, ?) ON CONFLICT(entity_id, forecast_type) DO UPDATE SET forecast_data = excluded.forecast_data, fetched_at = excluded.fetched_at"
+        "INSERT INTO weather_forecast_cache (entity_id, forecast_type, forecast_data, fetched_at) VALUES ($1, $2, $3, $4) ON CONFLICT(entity_id, forecast_type) DO UPDATE SET forecast_data = excluded.forecast_data, fetched_at = excluded.fetched_at"
     )
     .bind(&entity_id)
     .bind(&forecast_type)
@@ -3367,7 +3374,7 @@ async fn get_entity_statistics(
 ) -> Result<Json<EntityStatistics>, ErrorResponse> {
     // Total changes
     let (total_changes,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history WHERE entity_id = ?"
+        "SELECT COUNT(*) FROM entity_history WHERE entity_id = $1"
     )
     .bind(&entity_id)
     .fetch_one(&state.db_pool)
@@ -3376,7 +3383,7 @@ async fn get_entity_statistics(
 
     // First and last seen
     let time_range: Option<(String, String)> = sqlx::query_as(
-        "SELECT MIN(recorded_at), MAX(recorded_at) FROM entity_history WHERE entity_id = ?"
+        "SELECT MIN(recorded_at), MAX(recorded_at) FROM entity_history WHERE entity_id = $1"
     )
     .bind(&entity_id)
     .fetch_optional(&state.db_pool)
@@ -3390,7 +3397,7 @@ async fn get_entity_statistics(
 
     // State distribution
     let state_rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT state, COUNT(*) as cnt FROM entity_history WHERE entity_id = ? GROUP BY state ORDER BY cnt DESC LIMIT 20"
+        "SELECT state, COUNT(*) as cnt FROM entity_history WHERE entity_id = $1 GROUP BY state ORDER BY cnt DESC LIMIT 20"
     )
     .bind(&entity_id)
     .fetch_all(&state.db_pool)
@@ -3466,7 +3473,7 @@ async fn get_dashboard_statistics(
         .to_string();
 
     let (history_entries_24h,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history WHERE recorded_at >= ?"
+        "SELECT COUNT(*) FROM entity_history WHERE recorded_at >= $1"
     )
     .bind(&cutoff_24h)
     .fetch_one(&state.db_pool)
@@ -3475,7 +3482,7 @@ async fn get_dashboard_statistics(
 
     // Most active entities in last 24h
     let active_rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT entity_id, COUNT(*) as cnt FROM entity_history WHERE recorded_at >= ? GROUP BY entity_id ORDER BY cnt DESC LIMIT 10"
+        "SELECT entity_id, COUNT(*) as cnt FROM entity_history WHERE recorded_at >= $1 GROUP BY entity_id ORDER BY cnt DESC LIMIT 10"
     )
     .bind(&cutoff_24h)
     .fetch_all(&state.db_pool)
@@ -3616,7 +3623,7 @@ async fn get_ha_info(
         .format("%Y-%m-%dT%H:%M:%S")
         .to_string();
     let (history_24h,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history WHERE recorded_at >= ?"
+        "SELECT COUNT(*) FROM entity_history WHERE recorded_at >= $1"
     )
     .bind(&cutoff_24h)
     .fetch_one(&state.db_pool)
@@ -3733,7 +3740,7 @@ async fn cleanup_old_history(db_pool: DbPool) {
             .format("%Y-%m-%dT%H:%M:%S")
             .to_string();
 
-        match sqlx::query("DELETE FROM entity_history WHERE recorded_at < ?")
+        match sqlx::query("DELETE FROM entity_history WHERE recorded_at < $1")
             .bind(&cutoff)
             .execute(&db_pool)
             .await
@@ -3935,8 +3942,8 @@ async fn background_analytics_aggregation(
     // Ensure analytics table exists
     let _ = sqlx::query(
         "CREATE TABLE IF NOT EXISTS entity_analytics_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            recorded_at TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            recorded_at TIMESTAMPTZ NOT NULL,
             total_entities INTEGER NOT NULL,
             unavailable_count INTEGER NOT NULL,
             stale_count INTEGER NOT NULL,
@@ -3953,16 +3960,16 @@ async fn background_analytics_aggregation(
         let health = entity_cache.entity_health_report(3600).await;
         let top = entity_cache.top_active_entities(1).await;
 
-        let total_entities = entity_cache.count().await as i64;
-        let unavailable = health.iter().filter(|h| h.status == "unavailable").count() as i64;
-        let stale = health.iter().filter(|h| h.status == "stale").count() as i64;
-        let total_changes = summary.get("total_state_changes").and_then(|v| v.as_i64()).unwrap_or(0);
+        let total_entities = entity_cache.count().await as i32;
+        let unavailable = health.iter().filter(|h| h.status == "unavailable").count() as i32;
+        let stale = health.iter().filter(|h| h.status == "stale").count() as i32;
+        let total_changes = summary.get("total_state_changes").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let most_active = top.first().map(|a| a.entity_id.clone()).unwrap_or_default();
-        let most_active_changes = top.first().map(|a| a.change_count as i64).unwrap_or(0);
+        let most_active_changes = top.first().map(|a| a.change_count as i32).unwrap_or(0);
 
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         match sqlx::query(
-            "INSERT INTO entity_analytics_snapshots (recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO entity_analytics_snapshots (recorded_at, total_entities, unavailable_count, stale_count, total_state_changes, most_active_entity, most_active_changes) VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
             .bind(&now)
             .bind(total_entities)
@@ -3983,9 +3990,8 @@ async fn background_analytics_aggregation(
         }
 
         // Clean up snapshots older than 30 days
-        let cutoff = (chrono::Utc::now() - chrono::Duration::days(30))
-            .to_rfc3339();
-        let _ = sqlx::query("DELETE FROM entity_analytics_snapshots WHERE recorded_at < ?")
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(30);
+        let _ = sqlx::query("DELETE FROM entity_analytics_snapshots WHERE recorded_at < $1")
             .bind(&cutoff)
             .execute(&db_pool)
             .await;
@@ -4088,8 +4094,7 @@ async fn create_api_key(
     let rate_limit = request.rate_limit.unwrap_or(60).clamp(1, 1000);
 
     let expires_at = request.expires_in_days.map(|days| {
-        (chrono::Utc::now() + chrono::Duration::days(days.clamp(1, 365)))
-            .to_rfc3339()
+        chrono::Utc::now() + chrono::Duration::days(days.clamp(1, 365))
     });
 
     let api_key = state.config_repo.create_api_key(
@@ -4099,7 +4104,7 @@ async fn create_api_key(
         &prefix,
         &permissions_json,
         rate_limit,
-        expires_at.as_deref(),
+        expires_at,
     ).await.map_err(|e| {
         warn!("Failed to create API key: {}", e);
         ErrorResponse::internal("Fehler beim Erstellen des API-Keys")
@@ -5921,7 +5926,7 @@ async fn admin_set_maintenance(
 async fn get_notifications(
     State(state): State<AppState>,
 ) -> Json<Vec<Value>> {
-    match sqlx::query_as::<_, (String, String, String, String, String, String, String, String, bool, i64)>(
+    match sqlx::query_as::<_, (String, String, String, String, String, String, String, String, bool, i32)>(
         "SELECT id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs FROM notifications ORDER BY created_at DESC LIMIT 200"
     )
     .fetch_all(&state.db_pool)
@@ -5946,7 +5951,7 @@ async fn mark_notification_read(
     State(state): State<AppState>,
     Path(notif_id): Path<String>,
 ) -> StatusCode {
-    match sqlx::query("UPDATE notifications SET read = 1 WHERE id = ?")
+    match sqlx::query("UPDATE notifications SET read = true WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
         .await {
@@ -5960,7 +5965,7 @@ async fn dismiss_notification(
     State(state): State<AppState>,
     Path(notif_id): Path<String>,
 ) -> StatusCode {
-    match sqlx::query("DELETE FROM notifications WHERE id = ?")
+    match sqlx::query("DELETE FROM notifications WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
         .await {
@@ -6016,7 +6021,7 @@ async fn get_active_warnings(
 async fn admin_list_notifications(
     State(state): State<AppState>,
 ) -> Json<Vec<Value>> {
-    match sqlx::query_as::<_, (String, String, String, String, String, String, String, String, bool, i64)>(
+    match sqlx::query_as::<_, (String, String, String, String, String, String, String, String, bool, i32)>(
         "SELECT id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs FROM notifications ORDER BY created_at DESC LIMIT 200"
     )
     .fetch_all(&state.db_pool)
@@ -6051,7 +6056,7 @@ async fn admin_mark_notification_read(
     State(state): State<AppState>,
     Path(notif_id): Path<String>,
 ) -> StatusCode {
-    match sqlx::query("UPDATE notifications SET read = 1 WHERE id = ?")
+    match sqlx::query("UPDATE notifications SET read = true WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
         .await {
@@ -6065,7 +6070,7 @@ async fn admin_dismiss_notification(
     Path(notif_id): Path<String>,
     State(state): State<AppState>,
 ) -> StatusCode {
-    match sqlx::query("DELETE FROM notifications WHERE id = ?")
+    match sqlx::query("DELETE FROM notifications WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
         .await {
@@ -6111,14 +6116,14 @@ async fn admin_set_alert(
     *ACTIVE_EMERGENCY.write().await = Some(alert.clone());
     // Also create notification in DB
     if let Err(e) = sqlx::query(
-        "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES (?, ?, ?, ?, 'admin', ?, '', ?, 0, 0)"
+        "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES ($1, $2, $3, $4, 'admin', $5, '', $6, false, 0)"
     )
         .bind(&id)
         .bind(alert["title"].as_str().unwrap_or(""))
         .bind(alert["message"].as_str().unwrap_or(""))
         .bind(level)
         .bind(alert["icon"].as_str().unwrap_or(""))
-        .bind(alert["created_at"].as_str().unwrap_or(""))
+        .bind(chrono::Utc::now())
         .execute(&state.db_pool)
         .await
     {
@@ -6158,16 +6163,16 @@ async fn admin_get_warning_log(
     let active_only = params.get("active").map(|v| v == "true").unwrap_or(false);
 
     let rows = if active_only {
-        sqlx::query_as::<_, (i64, String, String, String, String, String, String, Option<String>, String, bool)>(
-            "SELECT id, entity_id, title, message, level, source, started_at, ended_at, attributes_json, acknowledged FROM warning_log WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        sqlx::query_as::<_, (i64, String, String, String, String, String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, String, bool)>(
+            "SELECT id, entity_id, title, message, level, source, started_at, ended_at, attributes_json, acknowledged FROM warning_log WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT $1 OFFSET $2"
         )
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db_pool)
         .await
     } else {
-        sqlx::query_as::<_, (i64, String, String, String, String, String, String, Option<String>, String, bool)>(
-            "SELECT id, entity_id, title, message, level, source, started_at, ended_at, attributes_json, acknowledged FROM warning_log ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        sqlx::query_as::<_, (i64, String, String, String, String, String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, String, bool)>(
+            "SELECT id, entity_id, title, message, level, source, started_at, ended_at, attributes_json, acknowledged FROM warning_log ORDER BY started_at DESC LIMIT $1 OFFSET $2"
         )
         .bind(limit)
         .bind(offset)
@@ -6185,8 +6190,8 @@ async fn admin_get_warning_log(
                     "message": message,
                     "level": level,
                     "source": source,
-                    "started_at": started_at,
-                    "ended_at": ended_at,
+                    "started_at": started_at.to_rfc3339(),
+                    "ended_at": ended_at.map(|dt| dt.to_rfc3339()),
                     "attributes": serde_json::from_str::<Value>(&attrs).unwrap_or(Value::Null),
                     "acknowledged": ack,
                 })
@@ -6734,7 +6739,7 @@ async fn nina_poll_regions(
         let attrs_c = serde_json::to_string(w).unwrap_or_default();
         tokio::spawn(async move {
             let _ = sqlx::query(
-                "INSERT OR IGNORE INTO warning_log (entity_id, title, message, level, source, started_at, attributes_json) VALUES (?, ?, ?, ?, ?, datetime('now'), ?)"
+                "INSERT INTO warning_log (entity_id, title, message, level, source, started_at, attributes_json) VALUES ($1, $2, $3, $4, $5, NOW(), $6) ON CONFLICT DO NOTHING"
             )
             .bind(&entity_id)
             .bind(&title_c)
@@ -6773,7 +6778,7 @@ async fn nina_poll_regions(
             let eid = entity_id.clone();
             tokio::spawn(async move {
                 let _ = sqlx::query(
-                    "UPDATE warning_log SET ended_at = datetime('now') WHERE entity_id = ? AND ended_at IS NULL"
+                    "UPDATE warning_log SET ended_at = NOW() WHERE entity_id = $1 AND ended_at IS NULL"
                 )
                 .bind(&eid)
                 .execute(&db)
@@ -6794,7 +6799,7 @@ async fn nina_poll_regions(
         let expires = w.get("expires").and_then(|v| v.as_str()).unwrap_or("");
         let json_str = serde_json::to_string(w).unwrap_or_default();
         let _ = sqlx::query(
-            "INSERT OR REPLACE INTO nina_warning_cache (id, warning_json, expires_at) VALUES (?, ?, NULLIF(?, ''))"
+            "INSERT INTO nina_warning_cache (id, warning_json, expires_at) VALUES ($1, $2, NULLIF($3, '')) ON CONFLICT (id) DO UPDATE SET warning_json = EXCLUDED.warning_json, expires_at = EXCLUDED.expires_at"
         )
             .bind(id)
             .bind(&json_str)
@@ -6812,7 +6817,7 @@ async fn background_nina_poller(
     db_pool: DbPool,
 ) {
     // On startup: restore cached warnings from DB (survive restarts)
-    match sqlx::query_as::<_, (String, String, Option<String>)>(
+    match sqlx::query_as::<_, (String, String, Option<chrono::DateTime<chrono::Utc>>)>(
         "SELECT id, warning_json, expires_at FROM nina_warning_cache"
     )
         .fetch_all(&db_pool)
@@ -6825,19 +6830,10 @@ async fn background_nina_poller(
 
             for (id, json_str, expires_at) in &rows {
                 // Check if expired
-                if let Some(exp) = expires_at {
-                    if let Ok(exp_dt) = chrono::DateTime::parse_from_rfc3339(exp) {
-                        if exp_dt < now {
-                            expired_ids.push(id.clone());
-                            continue;
-                        }
-                    }
-                    // Also try ISO 8601 without timezone
-                    if let Ok(exp_dt) = chrono::NaiveDateTime::parse_from_str(exp, "%Y-%m-%dT%H:%M:%S") {
-                        if exp_dt < now.naive_utc() {
-                            expired_ids.push(id.clone());
-                            continue;
-                        }
+                if let Some(exp_dt) = expires_at {
+                    if *exp_dt < now {
+                        expired_ids.push(id.clone());
+                        continue;
                     }
                 }
 
@@ -6848,13 +6844,13 @@ async fn background_nina_poller(
 
             // Remove expired from DB
             for eid in &expired_ids {
-                let _ = sqlx::query("DELETE FROM nina_warning_cache WHERE id = ?")
+                let _ = sqlx::query("DELETE FROM nina_warning_cache WHERE id = $1")
                     .bind(eid)
                     .execute(&db_pool)
                     .await;
                 // Also close the warning_log entry
                 let entity_id = format!("nina.{}", eid.replace('.', "_").chars().take(80).collect::<String>());
-                let _ = sqlx::query("UPDATE warning_log SET ended_at = datetime('now') WHERE entity_id = ? AND ended_at IS NULL")
+                let _ = sqlx::query("UPDATE warning_log SET ended_at = NOW() WHERE entity_id = $1 AND ended_at IS NULL")
                     .bind(&entity_id)
                     .execute(&db_pool)
                     .await;
@@ -6958,7 +6954,7 @@ async fn create_webhook(
     let id = uuid::Uuid::new_v4().to_string();
 
     sqlx::query(
-        "INSERT INTO webhooks (id, user_id, name, url, secret, events, headers) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO webhooks (id, user_id, name, url, secret, events, headers) VALUES ($1, $2, $3, $4, $5, $6, $7)"
     )
     .bind(&id).bind(user_id).bind(&name).bind(&url).bind(&secret)
     .bind(events.to_string()).bind(headers.to_string())
@@ -6974,9 +6970,9 @@ async fn list_webhooks(
     axum::Extension(identity): axum::Extension<middleware::AuthIdentity>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
-    let rows: Vec<(String, String, String, String, String, i32, String, String, Option<String>, i64, i64)> =
+    let rows: Vec<(String, String, String, String, String, bool, String, String, Option<String>, i64, i64)> =
         sqlx::query_as(
-            "SELECT id, name, url, events, headers, active, created_at, updated_at, last_triggered_at, trigger_count, consecutive_failures FROM webhooks WHERE user_id = ? ORDER BY created_at DESC"
+            "SELECT id, name, url, events, headers, active, created_at, updated_at, last_triggered_at, trigger_count, consecutive_failures FROM webhooks WHERE user_id = $1 ORDER BY created_at DESC"
         )
         .bind(user_id)
         .fetch_all(&state.db_pool).await
@@ -6986,7 +6982,7 @@ async fn list_webhooks(
         "id": r.0, "name": r.1, "url": r.2,
         "events": serde_json::from_str::<Value>(&r.3).unwrap_or(json!(["*"])),
         "headers": serde_json::from_str::<Value>(&r.4).unwrap_or(json!({})),
-        "active": r.5 != 0, "created_at": r.6, "updated_at": r.7,
+        "active": r.5, "created_at": r.6, "updated_at": r.7,
         "last_triggered_at": r.8, "trigger_count": r.9, "consecutive_failures": r.10,
     })).collect();
 
@@ -7002,7 +6998,7 @@ async fn update_webhook(
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
     // Verify ownership
-    let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM webhooks WHERE id = ? AND user_id = ?")
+    let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM webhooks WHERE id = $1 AND user_id = $2")
         .bind(&webhook_id).bind(user_id)
         .fetch_optional(&state.db_pool).await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
@@ -7011,31 +7007,31 @@ async fn update_webhook(
     }
 
     if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
-        sqlx::query("UPDATE webhooks SET name = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE webhooks SET name = $1, updated_at = NOW() WHERE id = $2")
             .bind(name).bind(&webhook_id).execute(&state.db_pool).await.ok();
     }
     if let Some(url) = body.get("url").and_then(|v| v.as_str()) {
         if !url.starts_with("http://") && !url.starts_with("https://") {
             return Err(ErrorResponse::bad_request("url must start with http:// or https://"));
         }
-        sqlx::query("UPDATE webhooks SET url = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE webhooks SET url = $1, updated_at = NOW() WHERE id = $2")
             .bind(url).bind(&webhook_id).execute(&state.db_pool).await.ok();
     }
     if let Some(secret) = body.get("secret").and_then(|v| v.as_str()) {
-        sqlx::query("UPDATE webhooks SET secret = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE webhooks SET secret = $1, updated_at = NOW() WHERE id = $2")
             .bind(secret).bind(&webhook_id).execute(&state.db_pool).await.ok();
     }
     if let Some(events) = body.get("events") {
-        sqlx::query("UPDATE webhooks SET events = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE webhooks SET events = $1, updated_at = NOW() WHERE id = $2")
             .bind(events.to_string()).bind(&webhook_id).execute(&state.db_pool).await.ok();
     }
     if let Some(headers) = body.get("headers") {
-        sqlx::query("UPDATE webhooks SET headers = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE webhooks SET headers = $1, updated_at = NOW() WHERE id = $2")
             .bind(headers.to_string()).bind(&webhook_id).execute(&state.db_pool).await.ok();
     }
     if let Some(active) = body.get("active").and_then(|v| v.as_bool()) {
-        sqlx::query("UPDATE webhooks SET active = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(active as i32).bind(&webhook_id).execute(&state.db_pool).await.ok();
+        sqlx::query("UPDATE webhooks SET active = $1, updated_at = NOW() WHERE id = $2")
+            .bind(active).bind(&webhook_id).execute(&state.db_pool).await.ok();
     }
 
     Ok(Json(json!({ "success": true, "id": webhook_id })))
@@ -7048,7 +7044,7 @@ async fn delete_webhook(
     Path(webhook_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
-    let result = sqlx::query("DELETE FROM webhooks WHERE id = ? AND user_id = ?")
+    let result = sqlx::query("DELETE FROM webhooks WHERE id = $1 AND user_id = $2")
         .bind(&webhook_id).bind(user_id)
         .execute(&state.db_pool).await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
@@ -7067,7 +7063,7 @@ async fn test_webhook(
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
     let row: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT url, secret, headers FROM webhooks WHERE id = ? AND user_id = ?"
+        "SELECT url, secret, headers FROM webhooks WHERE id = $1 AND user_id = $2"
     )
     .bind(&webhook_id).bind(user_id)
     .fetch_optional(&state.db_pool).await
@@ -7085,11 +7081,11 @@ async fn test_webhook(
 
     // Log delivery
     sqlx::query(
-        "INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, error) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
     )
     .bind(&webhook_id).bind("webhook.test").bind(test_payload.to_string())
     .bind(result.status_code).bind(&result.response_body)
-    .bind(result.duration_ms).bind(result.success as i32).bind(&result.error)
+    .bind(result.duration_ms).bind(result.success).bind(&result.error)
     .execute(&state.db_pool).await.ok();
 
     Ok(Json(json!({
@@ -7109,7 +7105,7 @@ async fn get_webhook_deliveries(
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
     // Verify ownership
-    let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM webhooks WHERE id = ? AND user_id = ?")
+    let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM webhooks WHERE id = $1 AND user_id = $2")
         .bind(&webhook_id).bind(user_id)
         .fetch_optional(&state.db_pool).await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
@@ -7118,9 +7114,9 @@ async fn get_webhook_deliveries(
     }
 
     let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50).min(200);
-    let rows: Vec<(i64, String, String, Option<i32>, Option<String>, Option<i64>, i32, i32, Option<String>, String)> =
+    let rows: Vec<(i64, String, String, Option<i32>, Option<String>, Option<i64>, i32, bool, Option<String>, String)> =
         sqlx::query_as(
-            "SELECT id, event_type, payload, status_code, response_body, duration_ms, attempt, success, error, created_at FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT ?"
+            "SELECT id, event_type, payload, status_code, response_body, duration_ms, attempt, success, error, created_at FROM webhook_deliveries WHERE webhook_id = $1 ORDER BY created_at DESC LIMIT $2"
         )
         .bind(&webhook_id).bind(limit)
         .fetch_all(&state.db_pool).await
@@ -7130,7 +7126,7 @@ async fn get_webhook_deliveries(
         "id": r.0, "event_type": r.1,
         "payload": serde_json::from_str::<Value>(&r.2).unwrap_or(json!(null)),
         "status_code": r.3, "response_body": r.4, "duration_ms": r.5,
-        "attempt": r.6, "success": r.7 != 0, "error": r.8, "created_at": r.9,
+        "attempt": r.6, "success": r.7, "error": r.8, "created_at": r.9,
     })).collect();
 
     Ok(Json(json!({ "deliveries": deliveries })))
@@ -7140,7 +7136,7 @@ async fn get_webhook_deliveries(
 async fn admin_list_all_webhooks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let rows: Vec<(String, i64, String, String, String, i32, String, Option<String>, i64, i64)> =
+    let rows: Vec<(String, String, String, String, String, bool, String, Option<String>, i64, i64)> =
         sqlx::query_as(
             "SELECT id, user_id, name, url, events, active, created_at, last_triggered_at, trigger_count, consecutive_failures FROM webhooks ORDER BY created_at DESC"
         )
@@ -7150,11 +7146,212 @@ async fn admin_list_all_webhooks(
     let webhooks: Vec<Value> = rows.into_iter().map(|r| json!({
         "id": r.0, "user_id": r.1, "name": r.2, "url": r.3,
         "events": serde_json::from_str::<Value>(&r.4).unwrap_or(json!(["*"])),
-        "active": r.5 != 0, "created_at": r.6,
+        "active": r.5, "created_at": r.6,
         "last_triggered_at": r.7, "trigger_count": r.8, "consecutive_failures": r.9,
     })).collect();
 
     Ok(Json(json!({ "webhooks": webhooks })))
+}
+
+// ── IORA Control Center handlers ─────────────────────────────────────────────
+
+/// Fetch service health overview from all IORA subsystems
+async fn admin_control_services(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let client = &state.http_client;
+    let services = vec![
+        ("iora-home", format!("http://localhost:{}", 8080), "Dashboard Backend, API, Auth, Streaming"),
+        ("iora-core", format!("http://localhost:{}", std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string())), "Service Registry, Tasks, Plugins"),
+        ("iora-control", "http://localhost:8091".to_string(), "Dashboard Aggregation, System Monitor"),
+        ("iora-assist", "http://localhost:8092".to_string(), "AI Chat, Automation Suggestions"),
+    ];
+
+    let mut results = Vec::new();
+    for (name, url, description) in &services {
+        let health_url = format!("{}/health", url);
+        let (status, uptime, details) = match client.get(&health_url)
+            .timeout(std::time::Duration::from_secs(3))
+            .send().await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                let body: Value = resp.json().await.unwrap_or(json!({}));
+                let uptime = body.get("uptime_seconds").and_then(|v| v.as_u64()).unwrap_or(0);
+                ("healthy", uptime, body)
+            }
+            Ok(resp) => ("degraded", 0u64, json!({ "http_status": resp.status().as_u16() })),
+            Err(_) => ("offline", 0u64, json!({})),
+        };
+        results.push(json!({
+            "name": name,
+            "url": url,
+            "description": description,
+            "status": status,
+            "uptime_seconds": uptime,
+            "details": details,
+        }));
+    }
+
+    Json(json!({ "services": results, "timestamp": chrono::Utc::now().to_rfc3339() }))
+}
+
+/// List background tasks from iora-core
+async fn admin_control_tasks(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let core_port = std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string());
+    let url = format!("http://localhost:{}/api/core/tasks", core_port);
+    match state.http_client.get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await
+    {
+        Ok(resp) => {
+            let body: Value = resp.json().await.unwrap_or(json!({ "tasks": [], "error": "parse error" }));
+            Json(body)
+        }
+        Err(e) => Json(json!({ "tasks": [], "error": format!("iora-core unreachable: {}", e) })),
+    }
+}
+
+/// Trigger a background task manually
+async fn admin_control_trigger_task(
+    State(state): State<AppState>,
+    Path(task_id): Path<String>,
+) -> Json<Value> {
+    let core_port = std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string());
+    let url = format!("http://localhost:{}/api/core/tasks/{}/trigger", core_port, task_id);
+    match state.http_client.post(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await
+    {
+        Ok(resp) => {
+            let body: Value = resp.json().await.unwrap_or(json!({ "error": "parse error" }));
+            Json(body)
+        }
+        Err(e) => Json(json!({ "error": format!("iora-core unreachable: {}", e) })),
+    }
+}
+
+/// Toggle a background task enabled/disabled
+async fn admin_control_toggle_task(
+    State(state): State<AppState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    // Toggle via iora-core DB if accessible (direct DB call for speed)
+    let core_port = std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string());
+    // For now, proxy the request concept — the actual toggle would need a core endpoint
+    // We'll return the task ID and status
+    let url = format!("http://localhost:{}/api/core/tasks", core_port);
+    let tasks: Value = state.http_client.get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await
+        .map_err(|e| ErrorResponse::internal(format!("core unreachable: {}", e)))?
+        .json().await
+        .map_err(|e| ErrorResponse::internal(format!("parse error: {}", e)))?;
+
+    let current = tasks.get("tasks").and_then(|t| t.as_array())
+        .and_then(|arr| arr.iter().find(|t| t.get("id").and_then(|v| v.as_str()) == Some(&task_id)))
+        .and_then(|t| t.get("enabled").and_then(|v| v.as_bool()));
+
+    Ok(Json(json!({
+        "task_id": task_id,
+        "previous_enabled": current,
+        "message": "Task toggle requested"
+    })))
+}
+
+/// Persistent control mode stored in system_preferences
+static CONTROL_MODE_KEY: &str = "iora_control_mode";
+
+/// Get current control mode (autonomous/manual)
+async fn admin_control_get_mode(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let pref: Option<(String,)> = sqlx::query_as(
+        "SELECT value FROM system_preferences WHERE key = $1"
+    )
+    .bind(CONTROL_MODE_KEY)
+    .fetch_optional(&state.db_pool).await
+    .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
+
+    let mode = pref.map(|p| p.0).unwrap_or_else(|| "autonomous".to_string());
+    let parsed: Value = serde_json::from_str(&mode).unwrap_or(json!("autonomous"));
+
+    Ok(Json(json!({
+        "mode": parsed,
+        "available_modes": ["autonomous", "manual", "supervised"],
+        "description": {
+            "autonomous": "System führt Automationen, Watchdogs und Schedules selbstständig aus",
+            "manual": "Alle automatischen Aktionen pausiert — nur manuelle Steuerung",
+            "supervised": "Automationen laufen, aber mit Bestätigung vor kritischen Aktionen"
+        }
+    })))
+}
+
+/// Set control mode
+async fn admin_control_set_mode(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let mode = body.get("mode").and_then(|v| v.as_str()).unwrap_or("autonomous");
+    if !["autonomous", "manual", "supervised"].contains(&mode) {
+        return Err(ErrorResponse::bad_request("Invalid mode. Use: autonomous, manual, supervised"));
+    }
+
+    let mode_json = json!(mode).to_string();
+    sqlx::query(
+        "INSERT INTO system_preferences (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2"
+    )
+    .bind(CONTROL_MODE_KEY)
+    .bind(&mode_json)
+    .execute(&state.db_pool).await
+    .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
+
+    // Broadcast mode change to all connected WebSocket clients
+    let _ = state.ws_manager.broadcast_json(&json!({
+        "type": "control_mode_changed",
+        "mode": mode,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    })).await;
+
+    Ok(Json(json!({ "mode": mode, "message": "Betriebsmodus aktualisiert" })))
+}
+
+/// Full control center overview (aggregated)
+async fn admin_control_overview(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    // Get control mode
+    let mode: String = sqlx::query_as::<_, (String,)>(
+        "SELECT value FROM system_preferences WHERE key = $1"
+    )
+    .bind(CONTROL_MODE_KEY)
+    .fetch_optional(&state.db_pool).await
+    .ok().flatten()
+    .map(|p| p.0)
+    .unwrap_or_else(|| "\"autonomous\"".to_string());
+    let mode_val: Value = serde_json::from_str(&mode).unwrap_or(json!("autonomous"));
+
+    // Get active watchdogs count
+    let watchdog_count = ENTITY_WATCHDOGS.read().await.len();
+
+    // Get active schedules count
+    let schedule_count = SCHEDULED_ACTIONS.read().await.len();
+
+    // Get maintenance mode
+    let maintenance: Option<(String,)> = sqlx::query_as(
+        "SELECT value FROM system_preferences WHERE key = 'maintenance_mode'"
+    )
+    .fetch_optional(&state.db_pool).await.ok().flatten();
+    let is_maintenance = maintenance.map(|m| m.0 == "true").unwrap_or(false);
+
+    Json(json!({
+        "mode": mode_val,
+        "maintenance": is_maintenance,
+        "active_watchdogs": watchdog_count,
+        "active_schedules": schedule_count,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
 }
 
 struct WebhookDeliveryResult {
@@ -7291,24 +7488,24 @@ async fn background_webhook_delivery(
 
                             // Log delivery
                             sqlx::query(
-                                "INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                                "INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, error) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
                             )
                             .bind(&wh_id).bind("state_changed").bind(payload.to_string())
                             .bind(result.status_code).bind(&result.response_body)
-                            .bind(result.duration_ms).bind(result.success as i32).bind(&result.error)
+                            .bind(result.duration_ms).bind(result.success).bind(&result.error)
                             .execute(&pool).await.ok();
 
                             // Update webhook stats
                             if result.success {
-                                sqlx::query("UPDATE webhooks SET last_triggered_at = datetime('now'), trigger_count = trigger_count + 1, consecutive_failures = 0 WHERE id = ?")
+                                sqlx::query("UPDATE webhooks SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, consecutive_failures = 0 WHERE id = $1")
                                     .bind(&wh_id).execute(&pool).await.ok();
                             } else {
-                                let _: Option<(i64,)> = sqlx::query_as("SELECT consecutive_failures FROM webhooks WHERE id = ?")
+                                let _: Option<(i64,)> = sqlx::query_as("SELECT consecutive_failures FROM webhooks WHERE id = $1")
                                     .bind(&wh_id).fetch_optional(&pool).await.ok().flatten();
-                                sqlx::query("UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = ?")
+                                sqlx::query("UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1")
                                     .bind(&wh_id).execute(&pool).await.ok();
                                 // Auto-disable after 10 consecutive failures
-                                sqlx::query("UPDATE webhooks SET active = 0 WHERE id = ? AND consecutive_failures >= 10")
+                                sqlx::query("UPDATE webhooks SET active = false WHERE id = $1 AND consecutive_failures >= 10")
                                     .bind(&wh_id).execute(&pool).await.ok();
                             }
                         });
@@ -7923,7 +8120,7 @@ async fn api_doc_save_pages() {}
 /// Save theme settings
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/theme", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
-    request_body(content = Value, description = "{ sleep_mode, auto_theme, selected_theme? }"),
+    request_body(content = Value, description = "{ sleep_mode, auto_theme, selected_theme$1 }"),
     responses((status = 200, description = "Theme saved"))
 )]
 async fn api_doc_save_theme() {}

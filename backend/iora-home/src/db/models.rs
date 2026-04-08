@@ -14,8 +14,8 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub role: String,
     pub is_admin: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -27,8 +27,8 @@ pub struct Device {
     pub is_terminal: bool,
     pub terminal_name: Option<String>,
     pub assigned_profile_id: Option<String>,
-    pub last_seen: String,
-    pub created_at: String,
+    pub last_seen: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -38,8 +38,8 @@ pub struct ConfigurationProfile {
     pub profile_type: String, // 'user' or 'device'
     pub owner_id: String,
     pub is_default: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -49,13 +49,13 @@ pub struct Page {
     pub page_id: String,
     pub name: String,
     pub icon: String,
-    pub position: i64,
+    pub position: i32,
     pub show_in_nav: bool,
     pub display_mode: String,
     pub parent_page_id: Option<String>,
     pub modal_settings: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -64,13 +64,13 @@ pub struct Widget {
     pub page_id: String,
     pub widget_type: String,
     pub entity_id: Option<String>,
-    pub position_x: i64,
-    pub position_y: i64,
-    pub width: i64,
-    pub height: i64,
+    pub position_x: i32,
+    pub position_y: i32,
+    pub width: i32,
+    pub height: i32,
     pub config: Option<String>, // JSON string
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -80,8 +80,8 @@ pub struct ThemeSettings {
     pub sleep_mode: bool,
     pub auto_theme: bool,
     pub selected_theme: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -91,8 +91,8 @@ pub struct BackgroundConfig {
     pub background_type: String, // 'static', 'slideshow', 'video', 'gradient'
     pub config: String, // JSON string
     pub is_active: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -102,10 +102,10 @@ pub struct BackgroundTrigger {
     pub trigger_type: String, // 'time', 'entity_state', 'event'
     pub trigger_config: String, // JSON string
     pub background_config_id: String,
-    pub priority: i64,
+    pub priority: i32,
     pub is_enabled: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -115,8 +115,8 @@ pub struct UserPreference {
     pub device_id: Option<String>,
     pub preference_key: String,
     pub preference_value: String, // JSON string
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -124,8 +124,8 @@ pub struct SystemPreference {
     pub id: String,
     pub preference_key: String,
     pub preference_value: String, // JSON string
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -134,7 +134,7 @@ pub struct SyncMetadata {
     pub table_name: String,
     pub record_id: String,
     pub operation: String, // 'INSERT', 'UPDATE', 'DELETE'
-    pub changed_at: String,
+    pub changed_at: DateTime<Utc>,
     pub changed_by_device: Option<String>,
 }
 
@@ -171,7 +171,7 @@ pub struct SavePageRequest {
     pub page_id: String,
     pub name: String,
     pub icon: String,
-    pub position: i64,
+    pub position: i32,
     pub widgets: Vec<SaveWidgetRequest>,
     pub show_in_nav: Option<bool>,
     pub display_mode: Option<String>,
@@ -183,10 +183,10 @@ pub struct SavePageRequest {
 pub struct SaveWidgetRequest {
     pub widget_type: String,
     pub entity_id: Option<String>,
-    pub position_x: i64,
-    pub position_y: i64,
-    pub width: i64,
-    pub height: i64,
+    pub position_x: i32,
+    pub position_y: i32,
+    pub width: i32,
+    pub height: i32,
     pub config: Option<serde_json::Value>,
 }
 
@@ -279,19 +279,19 @@ pub struct PageLayout {
     pub id: String,
     pub profile_id: String,
     pub page_id: String,
-    pub cols: i64,
-    pub rows: i64,
-    pub gap: i64,
-    pub created_at: String,
-    pub updated_at: String,
+    pub cols: i32,
+    pub rows: i32,
+    pub gap: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SavePageLayoutRequest {
     pub page_id: String,
-    pub cols: i64,
-    pub rows: i64,
-    pub gap: i64,
+    pub cols: i32,
+    pub rows: i32,
+    pub gap: i32,
 }
 
 // Terminal/kiosk device settings
@@ -312,9 +312,9 @@ pub struct PageSettings {
     pub background_config: Option<String>,
     pub custom_css: Option<String>,
     pub hide_header: bool,
-    pub padding: Option<i64>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub padding: Option<i32>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -325,7 +325,7 @@ pub struct SavePageSettingsRequest {
     pub background_config: Option<serde_json::Value>,
     pub custom_css: Option<String>,
     pub hide_header: Option<bool>,
-    pub padding: Option<i64>,
+    pub padding: Option<i32>,
 }
 
 // API Key models
@@ -338,12 +338,12 @@ pub struct ApiKey {
     pub key_hash: String,
     pub key_prefix: String,
     pub permissions: String,  // JSON array
-    pub rate_limit: i64,
-    pub last_used_at: Option<String>,
-    pub expires_at: Option<String>,
+    pub rate_limit: i32,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub is_active: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -353,16 +353,16 @@ pub struct ApiKeyWithSecret {
     pub key: String,  // Only returned on creation
     pub key_prefix: String,
     pub permissions: Vec<String>,
-    pub rate_limit: i64,
-    pub expires_at: Option<String>,
-    pub created_at: String,
+    pub rate_limit: i32,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub permissions: Option<Vec<String>>,
-    pub rate_limit: Option<i64>,
+    pub rate_limit: Option<i32>,
     pub expires_in_days: Option<i64>,
 }
 
@@ -370,7 +370,7 @@ pub struct CreateApiKeyRequest {
 pub struct UpdateApiKeyRequest {
     pub name: Option<String>,
     pub permissions: Option<Vec<String>>,
-    pub rate_limit: Option<i64>,
+    pub rate_limit: Option<i32>,
     pub is_active: Option<bool>,
 }
 
@@ -390,6 +390,6 @@ pub struct AdminUserEntry {
     pub is_admin: bool,
     pub has_password: bool,
     pub has_pin: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

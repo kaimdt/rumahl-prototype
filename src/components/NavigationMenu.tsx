@@ -8,6 +8,7 @@ import { UserSwitcher } from '@/components/UserSwitcher'
 import { NotificationBell } from '@/components/NotificationCenter'
 import { useNotifications } from '@/contexts/NotificationContext'
 import { useLocalStorage } from '@/lib/storage'
+import { Tip } from '@/components/ui/tip'
 
 // ── Dynamic Island Notification ──────────────────────────────────────
 
@@ -334,15 +335,16 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
             {hasMorePages && !showAllPages && (
               <>
                 <div className="w-px h-5 bg-foreground/8 mx-0.5" />
-                <motion.button
-                  onClick={() => setShowAllPages(true)}
-                  className="min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full text-foreground/40 hover:text-foreground/70 active:text-foreground/60 transition-colors duration-200 focus-ring flex items-center justify-center"
-                  whileHover={{ scale: 1.06 }}
-                  whileTap={{ scale: 0.92 }}
-                  title="Mehr Seiten"
-                >
-                  <DotsThree size={19} weight="bold" />
-                </motion.button>
+                <Tip content="Mehr Seiten">
+                  <motion.button
+                    onClick={() => setShowAllPages(true)}
+                    className="min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full text-foreground/40 hover:text-foreground/70 active:text-foreground/60 transition-colors duration-200 focus-ring flex items-center justify-center"
+                    whileHover={{ scale: 1.06 }}
+                    whileTap={{ scale: 0.92 }}
+                  >
+                    <DotsThree size={19} weight="bold" />
+                  </motion.button>
+                </Tip>
               </>
             )}
 
@@ -351,18 +353,18 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
               <>
                 <div className="w-px h-5 bg-foreground/8 mx-0.5" />
                 <div className="relative" ref={appMenuRef}>
-                  <motion.button
-                    onClick={() => setShowAppMenu(!showAppMenu)}
-                    className={`relative min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-colors duration-200 focus-ring flex items-center justify-center ${
-                      showAppMenu || appMenuPageIds.includes(currentPageId)
-                        ? 'text-accent'
-                        : 'text-foreground/40 hover:text-foreground/70 active:text-foreground/60'
-                    }`}
-                    whileHover={{ scale: 1.06 }}
-                    whileTap={{ scale: 0.92 }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                    title="Apps & Features"
-                  >
+                  <Tip content="Apps & Features">
+                    <motion.button
+                      onClick={() => setShowAppMenu(!showAppMenu)}
+                      className={`relative min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-colors duration-200 focus-ring flex items-center justify-center ${
+                        showAppMenu || appMenuPageIds.includes(currentPageId)
+                          ? 'text-accent'
+                          : 'text-foreground/40 hover:text-foreground/70 active:text-foreground/60'
+                      }`}
+                      whileHover={{ scale: 1.06 }}
+                      whileTap={{ scale: 0.92 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                    >
                     {appMenuPageIds.includes(currentPageId) && (
                       <motion.div
                         layoutId="navActiveIndicator"
@@ -376,6 +378,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
                     )}
                     <DotsNine size={19} weight={showAppMenu || appMenuPageIds.includes(currentPageId) ? 'fill' : 'regular'} className="relative" />
                   </motion.button>
+                  </Tip>
 
                   {/* App Menu Popup */}
                   <AnimatePresence>
@@ -483,18 +486,18 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
             {user?.isAdmin && (
               <>
                 <div className="w-px h-5 bg-foreground/8 mx-0.5" />
-                <motion.button
-                  onClick={() => handlePageSelect('admin')}
-                  className={`relative min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-colors duration-200 focus-ring flex items-center justify-center ${
-                    currentPageId === 'admin'
-                      ? 'text-accent'
-                      : 'text-foreground/40 hover:text-foreground/70 active:text-foreground/60'
-                  }`}
-                  whileHover={{ scale: 1.06 }}
-                  whileTap={{ scale: 0.92 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                  title="Admin Panel"
-                >
+                <Tip content="Admin Panel">
+                  <motion.button
+                    onClick={() => handlePageSelect('admin')}
+                    className={`relative min-w-[44px] min-h-[44px] px-3 py-2.5 sm:py-2 rounded-full transition-colors duration-200 focus-ring flex items-center justify-center ${
+                      currentPageId === 'admin'
+                        ? 'text-accent'
+                        : 'text-foreground/40 hover:text-foreground/70 active:text-foreground/60'
+                    }`}
+                    whileHover={{ scale: 1.06 }}
+                    whileTap={{ scale: 0.92 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                  >
                   {currentPageId === 'admin' && (
                     <motion.div
                       layoutId="navActiveIndicator"
@@ -508,6 +511,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
                   )}
                   <ShieldCheck size={19} weight={currentPageId === 'admin' ? 'fill' : 'regular'} className="relative" />
                 </motion.button>
+                </Tip>
               </>
             )}
             <div className="w-px h-5 bg-foreground/8 mx-0.5" />
