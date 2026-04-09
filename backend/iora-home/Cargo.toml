@@ -1,0 +1,63 @@
+[package]
+name = "iora-home"
+version = "2.0.0"
+edition = "2021"
+description = "IORA Backend – Interface for Optimized Residential Autonomy – Rust/Axum server for smart home dashboard"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip", "compression-br"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for Home Assistant
+reqwest = { version = "0.11", features = ["json"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+native-tls = "0.2"
+futures-util = "0.3"
+tokio-stream = "0.1"
+async-stream = "0.3"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Environment
+dotenv = "0.15"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Authentication
+bcrypt = "0.15"
+jsonwebtoken = "9.2"
+rand = "0.8"
+hex = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+
+# System info
+sysinfo = "0.30"
+
+# MQTT client
+rumqttc = "0.24"
+
+# API documentation
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+

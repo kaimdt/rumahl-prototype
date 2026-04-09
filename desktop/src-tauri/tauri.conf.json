@@ -1,0 +1,45 @@
+{
+  "productName": "IORA Desktop",
+  "identifier": "de.iora.desktop",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "settings",
+        "title": "IORA Desktop – Einstellungen",
+        "width": 480,
+        "height": 640,
+        "resizable": false,
+        "visible": false,
+        "decorations": true,
+        "center": true,
+        "closable": true
+      }
+    ],
+    "trayIcon": {
+      "id": "iora-tray",
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false,
+      "tooltip": "IORA Desktop"
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}

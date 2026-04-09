@@ -1,21 +1,102 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
-import type { BackgroundConfig, BackgroundConfigData } from '@/contexts/ConfigurationContext'
+import { useTheme } from '@/contexts/ThemeContext'
+import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
+
+function normalizePosition(raw: unknown): string {
+  const value = String(raw ?? 'center').toLowerCase()
+  if (value === 'left') return 'left center'
+  if (value === 'right') return 'right center'
+  if (value === 'top') return 'center top'
+  if (value === 'bottom') return 'center bottom'
+  if (value.includes(' ')) return value
+  return 'center center'
+}
+
+function normalizeSize(raw: unknown): 'cover' | 'contain' | 'auto' {
+  const value = String(raw ?? 'cover').toLowerCase()
+  if (value === 'contain' || value === 'container') return 'contain'
+  if (value === 'auto') return 'auto'
+  if (value === 'cover' || value === 'about') return 'cover'
+  return 'cover'
+}
+
+function buildFilter(config: Record<string, unknown>): string {
+  const blur = Number(config.blur ?? 0)
+  const brightness = Number(config.brightness ?? 100)
+  return `blur(${Math.max(0, blur)}px) brightness(${Math.max(20, brightness)}%)`
+}
+
+function buildOpacity(config: Record<string, unknown>): number {
+  const opacity = Number(config.opacity ?? 100)
+  return Math.max(0, Math.min(100, opacity)) / 100
+}
 
 export function DynamicBackground() {
   const { background } = useConfiguration()
+  const { theme } = useTheme()
+  const { currentPageId, pageSettings } = usePageNavigation()
+  const isSleep = theme === 'sleep'
+
+  // Check for per-page background override
+  const ps = pageSettings[currentPageId]
+  const hasPageBg = ps?.background_type === 'static' && ps?.background_config
+  const pageHidesBackground = ps?.background_type === 'none'
+
+  // Per-page background: render page-specific static image instead of global
+  if (pageHidesBackground) {
+    return null
+  }
+
+  if (hasPageBg) {
+    const pageConfig = typeof ps.background_config === 'string' ? JSON.parse(ps.background_config) : ps.background_config
+    return (
+      <div
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          filter: isSleep ? 'brightness(0.03) grayscale(1) saturate(0)' : 'none',
+          opacity: isSleep ? 0.1 : 1,
+          transition: 'filter 0.6s ease, opacity 0.6s ease',
+        }}
+      >
+        <StaticBackground config={pageConfig} />
+      </div>
+    )
+  }
 
   if (!background || !background.is_active) {
     return null
   }
 
-  const config = typeof background.config === 'string'
-    ? JSON.parse(background.config)
-    : background.config
+  let config: any
+  try {
+    config = typeof background.config === 'string'
+      ? JSON.parse(background.config)
+      : background.config
+  } catch {
+    config = {
+      type: 'static',
+      url: DEFAULT_DASHBOARD_BACKGROUND_URL,
+      position: 'center',
+      size: 'cover',
+      fixed: true,
+      opacity: 100,
+      blur: 0,
+      brightness: 100,
+    }
+  }
 
   return (
-    <div className="fixed inset-0 -z-10">
+    <div
+      className="fixed inset-0 z-0 pointer-events-none"
+      style={{
+        filter: isSleep ? 'brightness(0.03) grayscale(1) saturate(0)' : 'none',
+        opacity: isSleep ? 0.1 : 1,
+        transition: 'filter 0.6s ease, opacity 0.6s ease',
+      }}
+    >
       {background.background_type === 'static' && (
         <StaticBackground config={config} />
       )}
@@ -33,10 +114,26 @@ export function DynamicBackground() {
 }
 
 function StaticBackground({ config }: { config: any }) {
+  const position = normalizePosition(config.position)
+  const size = normalizeSize(config.size)
+  const fixed = config.fixed !== false
+
+  const url = typeof config.url === 'string' && config.url.trim().length > 0
+    ? config.url
+    : DEFAULT_DASHBOARD_BACKGROUND_URL
+
   return (
     <div
-      className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-      style={{ backgroundImage: `url(${config.url})` }}
+      className={`${fixed ? 'fixed' : 'absolute'} inset-0 bg-no-repeat`}
+      style={{
+        backgroundImage: `url(${url})`,
+        backgroundPosition: position,
+        backgroundSize: size,
+        backgroundAttachment: fixed ? 'fixed' : 'scroll',
+        opacity: buildOpacity(config),
+        filter: buildFilter(config),
+        willChange: 'transform',
+      }}
     />
   )
 }
@@ -58,12 +155,22 @@ function SlideshowBackground({ config }: { config: any }) {
 
   if (urls.length === 0) return null
 
+  const currentUrl = urls[currentIndex] || DEFAULT_DASHBOARD_BACKGROUND_URL
+
   return (
     <AnimatePresence mode="wait">
       <motion.div
         key={currentIndex}
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url(${urls[currentIndex]})` }}
+        className="fixed inset-0 bg-no-repeat"
+        style={{
+          backgroundImage: `url(${currentUrl})`,
+          backgroundPosition: normalizePosition(config.position),
+          backgroundSize: normalizeSize(config.size),
+          backgroundAttachment: 'fixed',
+          opacity: buildOpacity(config),
+          filter: buildFilter(config),
+          willChange: 'opacity',
+        }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -74,14 +181,22 @@ function SlideshowBackground({ config }: { config: any }) {
 }
 
 function VideoBackground({ config }: { config: any }) {
+  const videoUrl = typeof config.url === 'string' && config.url.trim().length > 0
+    ? config.url
+    : DEFAULT_DASHBOARD_BACKGROUND_URL
+
   return (
     <video
-      className="absolute inset-0 w-full h-full object-cover"
-      src={config.url}
+      className="fixed inset-0 w-full h-full object-cover"
+      src={videoUrl}
       autoPlay
       muted
       loop={config.loop !== false}
       playsInline
+      style={{
+        opacity: buildOpacity(config),
+        filter: buildFilter(config),
+      }}
     />
   )
 }
@@ -92,7 +207,9 @@ function GradientBackground({ config }: { config: any }) {
 
   const gradientStyle = {
     background: `linear-gradient(${angle}deg, ${colors.join(', ')})`,
+    opacity: buildOpacity(config),
+    filter: buildFilter(config),
   }
 
-  return <div className="absolute inset-0" style={gradientStyle} />
+  return <div className="fixed inset-0" style={gradientStyle} />
 }

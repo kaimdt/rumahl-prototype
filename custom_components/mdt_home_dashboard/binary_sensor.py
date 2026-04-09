@@ -5,15 +5,16 @@ import logging
 from typing import Any
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
     BinarySensorDeviceClass,
+    BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_DASHBOARD_URL, DATA_COORDINATOR, DEFAULT_NAME, DOMAIN, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,97 +25,66 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up MDT HOME Dashboard binary sensors based on a config entry."""
+    coordinator = hass.data[DOMAIN][entry.entry_id].get(DATA_COORDINATOR)
+    if coordinator is None:
+        _LOGGER.warning("No coordinator available for binary sensors")
+        return
 
-    binary_sensors = [
-        MDTDashboardConnectionSensor(hass, entry),
-        MDTDashboardUpdateAvailableSensor(hass, entry),
-        MDTDashboardBackendConnectedSensor(hass, entry),
-    ]
-
-    async_add_entities(binary_sensors)
+    async_add_entities([
+        MDTDashboardConnectionSensor(coordinator, entry),
+        MDTDashboardHAConnectedSensor(coordinator, entry),
+    ])
 
 
-class MDTDashboardBinarySensorBase(BinarySensorEntity):
-    """Base class for MDT Dashboard binary sensors."""
+class _BaseBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Base binary sensor backed by the shared coordinator."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        sensor_type: str,
-        name: str,
-        icon: str,
-        device_class: BinarySensorDeviceClass | None = None,
-    ) -> None:
-        """Initialize the binary sensor."""
-        self.hass = hass
+    def __init__(self, coordinator, entry, sensor_type, name, icon, device_class=None):
+        super().__init__(coordinator)
         self._entry = entry
-        self._sensor_type = sensor_type
         self._attr_unique_id = f"{entry.entry_id}_{sensor_type}"
         self._attr_name = name
         self._attr_icon = icon
         self._attr_device_class = device_class
         self._attr_has_entity_name = True
-        self._is_on = False
 
     @property
     def device_info(self) -> dict[str, Any]:
-        """Return device information."""
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._entry.data.get(CONF_NAME, "MDT HOME Dashboard"),
+            "name": self._entry.data.get(CONF_NAME, DEFAULT_NAME),
             "manufacturer": "MDT",
             "model": "Home Dashboard",
-            "sw_version": "1.0.0",
+            "sw_version": self.coordinator.data.get("version", VERSION),
+            "configuration_url": self._entry.data.get(CONF_DASHBOARD_URL),
         }
+
+
+class MDTDashboardConnectionSensor(_BaseBinarySensor):
+    """True when the dashboard backend is reachable."""
+
+    def __init__(self, coordinator, entry):
+        super().__init__(
+            coordinator, entry,
+            "connection", "Dashboard Online", "mdi:lan-connect",
+            BinarySensorDeviceClass.CONNECTIVITY,
+        )
 
     @property
     def is_on(self) -> bool:
-        """Return true if the binary sensor is on."""
-        return self._is_on
+        return self.coordinator.data.get("online", False)
 
 
-class MDTDashboardConnectionSensor(MDTDashboardBinarySensorBase):
-    """Binary sensor for dashboard connection status."""
+class MDTDashboardHAConnectedSensor(_BaseBinarySensor):
+    """True when the dashboard backend has an active HA WebSocket connection."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the connection sensor."""
+    def __init__(self, coordinator, entry):
         super().__init__(
-            hass,
-            entry,
-            "connection",
-            "Connection",
-            "mdi:lan-connect",
-            BinarySensorDeviceClass.CONNECTIVITY
-        )
-        self._is_on = True  # Assume connected initially
-
-
-class MDTDashboardUpdateAvailableSensor(MDTDashboardBinarySensorBase):
-    """Binary sensor for update availability."""
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the update available sensor."""
-        super().__init__(
-            hass,
-            entry,
-            "update_available",
-            "Update Available",
-            "mdi:update",
-            BinarySensorDeviceClass.UPDATE
+            coordinator, entry,
+            "ha_connected", "HA Connected", "mdi:home-assistant",
+            BinarySensorDeviceClass.CONNECTIVITY,
         )
 
-
-class MDTDashboardBackendConnectedSensor(MDTDashboardBinarySensorBase):
-    """Binary sensor for backend connection status."""
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the backend connected sensor."""
-        super().__init__(
-            hass,
-            entry,
-            "backend_connected",
-            "Backend Connected",
-            "mdi:server-network",
-            BinarySensorDeviceClass.CONNECTIVITY
-        )
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.data.get("ha_connected", False)

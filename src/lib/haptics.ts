@@ -7,8 +7,18 @@ class HapticFeedback {
     this.isSupported = 'vibrate' in navigator
   }
 
+  private get isEnabled(): boolean {
+    try {
+      const val = localStorage.getItem('ha-haptic-feedback')
+      if (val === null) return true // default enabled
+      return JSON.parse(val) !== false
+    } catch {
+      return true
+    }
+  }
+
   private vibrate(pattern: number | number[]) {
-    if (!this.isSupported) return
+    if (!this.isSupported || !this.isEnabled) return
     
     try {
       navigator.vibrate(pattern)

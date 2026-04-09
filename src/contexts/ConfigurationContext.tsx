@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 import type { DashboardPage } from '@/lib/types'
 
 // Types
@@ -50,10 +51,42 @@ export interface BackgroundConfig {
 }
 
 export type BackgroundConfigData =
-  | { type: 'static'; url: string }
-  | { type: 'slideshow'; urls: string[]; interval: number }
-  | { type: 'video'; url: string; loop: boolean }
-  | { type: 'gradient'; colors: string[]; angle: number }
+  | {
+      type: 'static'
+      url: string
+      position?: 'center' | 'top' | 'bottom' | 'left' | 'right'
+      size?: 'cover' | 'contain' | 'auto'
+      fixed?: boolean
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
+  | {
+      type: 'slideshow'
+      urls: string[]
+      interval: number
+      position?: 'center' | 'top' | 'bottom' | 'left' | 'right'
+      size?: 'cover' | 'contain' | 'auto'
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
+  | {
+      type: 'video'
+      url: string
+      loop: boolean
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
+  | {
+      type: 'gradient'
+      colors: string[]
+      angle: number
+      opacity?: number
+      blur?: number
+      brightness?: number
+    }
 
 export interface UserPreference {
   id: string
@@ -95,6 +128,7 @@ const ConfigurationContext = createContext<ConfigurationContextType | undefined>
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {
+  const { token } = useAuth()
   const [user, setUser] = useState<User | null>(null)
   const [device, setDevice] = useState<Device | null>(null)
   const [profile, setProfile] = useState<ConfigurationProfile | null>(null)
@@ -213,7 +247,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       // This is a simplified approach - in production you'd have a specific endpoint
       const response = await fetch(`${API_BASE_URL}/api/config/profiles`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           name: designMode === 'user' ? `${user.username}'s Profile` : `${device.device_name} Profile`,
           profile_type: designMode,
@@ -238,7 +272,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
     try {
       setIsLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}`)
+      const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
 
       if (response.ok) {
         const data = await response.json()
@@ -251,11 +287,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
           widgets: p.widgets.map((w: any) => ({
             id: w.id,
             type: w.widget_type,
-            entityId: w.entity_id,
-            x: w.position_x,
-            y: w.position_y,
-            width: w.width,
-            height: w.height,
+            entity_id: w.entity_id ?? undefined,
+            position: { x: w.position_x, y: w.position_y },
+            size: { w: w.width, h: w.height },
             config: w.config ? JSON.parse(w.config) : undefined,
           })),
         })))
@@ -283,18 +317,18 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
         position: index,
         widgets: page.widgets.map(widget => ({
           widget_type: widget.type,
-          entity_id: widget.entityId,
-          position_x: widget.x || 0,
-          position_y: widget.y || 0,
-          width: widget.width || 1,
-          height: widget.height || 1,
+          entity_id: widget.entity_id || null,
+          position_x: widget.position?.x ?? 0,
+          position_y: widget.position?.y ?? 0,
+          width: widget.size?.w ?? 1,
+          height: widget.size?.h ?? 1,
           config: widget.config,
         })),
       }))
 
       const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}/pages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(pagesPayload),
       })
 
@@ -307,7 +341,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       console.error('Failed to save pages:', err)
       throw err
     }
-  }, [profile])
+  }, [profile, token])
 
   const saveTheme = useCallback(async (themeData: Partial<ThemeSettings>) => {
     if (!profile) return
@@ -315,7 +349,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}/theme`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(themeData),
       })
 
@@ -329,7 +363,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       console.error('Failed to save theme:', err)
       throw err
     }
-  }, [profile])
+  }, [profile, token])
 
   const saveBackground = useCallback(async (
     backgroundData: Omit<BackgroundConfig, 'id' | 'profile_id' | 'is_active' | 'created_at' | 'updated_at'>
@@ -339,7 +373,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}/background`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(backgroundData),
       })
 
@@ -353,7 +387,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       console.error('Failed to save background:', err)
       throw err
     }
-  }, [profile])
+  }, [profile, token])
 
   const savePreference = useCallback(async (key: string, value: any) => {
     if (!user) return
@@ -361,7 +395,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/config/preferences/${user.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           preference_key: key,
           preference_value: value,
@@ -375,13 +409,15 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       console.error('Failed to save preference:', err)
       throw err
     }
-  }, [user])
+  }, [user, token])
 
   const getPreference = useCallback(async (key: string): Promise<any> => {
     if (!user) return null
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/config/preferences/${user.id}`)
+      const response = await fetch(`${API_BASE_URL}/api/config/preferences/${user.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
 
       if (response.ok) {
         const prefs = await response.json()
@@ -392,7 +428,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       console.error('Failed to get preference:', err)
       return null
     }
-  }, [user])
+  }, [user, token])
 
   // Send heartbeat every 30 seconds
   useEffect(() => {
@@ -402,6 +438,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       try {
         await fetch(`${API_BASE_URL}/api/config/devices/${device.id}/heartbeat`, {
           method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
       } catch (err) {
         console.error('Failed to send heartbeat:', err)
@@ -409,30 +446,30 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [device])
+  }, [device, token])
+
+  const contextValue = useMemo(() => ({
+    user,
+    device,
+    profile,
+    pages,
+    theme,
+    background,
+    designMode,
+    setUser,
+    setDevice,
+    setDesignMode,
+    savePages,
+    saveTheme,
+    saveBackground,
+    savePreference,
+    getPreference,
+    isLoading,
+    error,
+  }), [user, device, profile, pages, theme, background, designMode, savePages, saveTheme, saveBackground, savePreference, getPreference, isLoading, error])
 
   return (
-    <ConfigurationContext.Provider
-      value={{
-        user,
-        device,
-        profile,
-        pages,
-        theme,
-        background,
-        designMode,
-        setUser,
-        setDevice,
-        setDesignMode,
-        savePages,
-        saveTheme,
-        saveBackground,
-        savePreference,
-        getPreference,
-        isLoading,
-        error,
-      }}
-    >
+    <ConfigurationContext.Provider value={contextValue}>
       {children}
     </ConfigurationContext.Provider>
   )

@@ -35,6 +35,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import type { DashboardPage, DashboardWidget, EntityState } from '@/lib/types'
 import { toast } from 'sonner'
+import { Tip } from '@/components/ui/tip'
 
 interface PageWidgetEditorProps {
   isOpen: boolean
@@ -115,26 +116,28 @@ function SortableWidget({ widget, onDelete, onEdit }: SortableWidgetProps) {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onEdit(widget.id)
-            }}
-            className="p-2 rounded-lg hover:bg-accent/10 text-foreground/60 hover:text-accent transition-colors"
-            title="Bearbeiten"
-          >
-            <ArrowsOutCardinal size={18} weight="bold" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete(widget.id)
-            }}
-            className="p-2 rounded-lg hover:bg-red-500/10 text-foreground/60 hover:text-red-500 transition-colors"
-            title="Löschen"
-          >
-            <Trash size={18} weight="bold" />
-          </button>
+          <Tip content="Bearbeiten">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit(widget.id)
+              }}
+              className="p-2 rounded-lg hover:bg-accent/10 text-foreground/60 hover:text-accent transition-colors"
+            >
+              <ArrowsOutCardinal size={18} weight="bold" />
+            </button>
+          </Tip>
+          <Tip content="Löschen">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(widget.id)
+              }}
+              className="p-2 rounded-lg hover:bg-red-500/10 text-foreground/60 hover:text-red-500 transition-colors"
+            >
+              <Trash size={18} weight="bold" />
+            </button>
+          </Tip>
         </div>
       </div>
     </div>
@@ -488,7 +491,7 @@ export function PageWidgetEditor({
                             <option value="">-- Bitte wählen --</option>
                             {entitiesForSelectedType.map((entity) => (
                               <option key={entity.entity_id} value={entity.entity_id}>
-                                {entity.attributes?.friendly_name || entity.entity_id}
+                                {(entity.attributes?.friendly_name as string) || entity.entity_id}
                               </option>
                             ))}
                           </select>

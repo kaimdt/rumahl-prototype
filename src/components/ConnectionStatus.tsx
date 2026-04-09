@@ -82,48 +82,63 @@ export function BackendUnavailableOverlay() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-background/95 backdrop-blur-lg flex items-center justify-center"
+        className="fixed inset-0 z-50 bg-background/95 backdrop-blur-xl flex items-center justify-center"
       >
         <div className="text-center space-y-6 max-w-md px-6">
-          <motion.div
-            animate={{
-              scale: [1, 1.1, 1],
-              rotate: [0, 5, -5, 0],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
-          >
-            <WifiSlash size={64} weight="fill" className="text-destructive mx-auto" />
-          </motion.div>
+          {/* Breathing ring behind icon */}
+          <div className="relative flex items-center justify-center">
+            <div
+              className="absolute w-28 h-28 rounded-full breathe-ring"
+              style={{ background: 'radial-gradient(circle, oklch(from var(--destructive) l c h / 0.15) 0%, transparent 70%)' }}
+            />
+            <motion.div
+              animate={{
+                scale: [1, 1.05, 1],
+              }}
+              transition={{
+                duration: 3,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            >
+              <WifiSlash size={64} weight="fill" className="text-destructive" />
+            </motion.div>
+          </div>
 
           <div>
             <h2 className="text-2xl font-semibold text-foreground mb-2">
               Backend nicht erreichbar
             </h2>
-            <p className="text-foreground/60">
+            <p className="text-foreground/60 leading-relaxed">
               Die Verbindung zum Backend konnte nicht hergestellt werden.
               Alle Funktionen sind vorübergehend nicht verfügbar.
             </p>
           </div>
 
-          <div className="glass-card p-4 rounded-lg">
-            <p className="text-sm text-foreground/80">
+          <div className="glass-card p-4 rounded-xl">
+            <p className="text-sm text-foreground/80 font-medium mb-2">
               Bitte überprüfe:
             </p>
-            <ul className="mt-2 text-sm text-foreground/60 text-left space-y-1">
-              <li>• Home Assistant ist gestartet</li>
-              <li>• Netzwerkverbindung ist aktiv</li>
-              <li>• Backend-Konfiguration ist korrekt</li>
+            <ul className="text-sm text-foreground/60 text-left space-y-1.5">
+              <li className="flex items-center gap-2">
+                <div className="w-1 h-1 rounded-full bg-foreground/30 shrink-0" />
+                Home Assistant ist gestartet
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-1 h-1 rounded-full bg-foreground/30 shrink-0" />
+                Netzwerkverbindung ist aktiv
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-1 h-1 rounded-full bg-foreground/30 shrink-0" />
+                Backend-Konfiguration ist korrekt
+              </li>
             </ul>
           </div>
 
           <motion.div
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="text-xs text-foreground/40"
+            animate={{ opacity: [0.3, 0.8, 0.3] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+            className="text-xs text-foreground/40 tracking-wide"
           >
             Automatische Neuverbindung...
           </motion.div>

@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { haService } from '@/lib/homeAssistant'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
+
+const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
 
 interface ConnectionStatus {
   backend: 'connected' | 'disconnected' | 'error'
@@ -23,49 +24,52 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     lastHACheck: null,
   })
 
-  const checkHomeAssistant = async () => {
+  const checkBackend = useCallback(async () => {
     try {
-      await haService.getStates()
+      const response = await fetch(`${API_BASE}/health`)
+      if (response.ok) {
+        const data = await response.json()
+        setStatus(prev => ({
+          ...prev,
+          backend: 'connected',
+          homeAssistant: data.ha_connected ? 'connected' : 'error',
+          lastBackendCheck: new Date(),
+          lastHACheck: new Date(),
+        }))
+      } else {
+        setStatus(prev => ({
+          ...prev,
+          backend: 'error',
+          lastBackendCheck: new Date(),
+        }))
+      }
+    } catch {
       setStatus(prev => ({
         ...prev,
-        homeAssistant: 'connected',
-        lastHACheck: new Date(),
-      }))
-    } catch (error) {
-      setStatus(prev => ({
-        ...prev,
-        homeAssistant: 'error',
-        lastHACheck: new Date(),
+        backend: 'error',
+        lastBackendCheck: new Date(),
       }))
     }
-  }
+  }, [])
 
-  const checkBackend = async () => {
-    // For now, backend check is the same as HA check
-    // This can be extended when using the Rust backend
-    await checkHomeAssistant()
-    setStatus(prev => ({
-      ...prev,
-      backend: prev.homeAssistant === 'connected' ? 'connected' : 'error',
-      lastBackendCheck: new Date(),
-    }))
-  }
+  // checkHomeAssistant now delegates to checkBackend (health endpoint reports HA status)
+  const checkHomeAssistant = checkBackend
 
   // Check connection on mount and periodically
   useEffect(() => {
     checkBackend()
-    const interval = setInterval(checkBackend, 10000) // Check every 10 seconds
+    const interval = setInterval(checkBackend, 30000) // Check every 30 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [checkBackend])
+
+  const contextValue = useMemo(() => ({
+    ...status,
+    checkBackend,
+    checkHomeAssistant,
+  }), [status, checkBackend, checkHomeAssistant])
 
   return (
-    <ConnectionContext.Provider
-      value={{
-        ...status,
-        checkBackend,
-        checkHomeAssistant,
-      }}
-    >
+    <ConnectionContext.Provider value={contextValue}>
       {children}
     </ConnectionContext.Provider>
   )

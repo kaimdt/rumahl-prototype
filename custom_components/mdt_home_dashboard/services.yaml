@@ -57,6 +57,23 @@ send_notification:
             - "warning"
             - "error"
             - "success"
+            - "critical"
+            - "emergency"
+    source:
+      name: Source
+      description: The source of the notification (displayed as context)
+      required: false
+      default: "home_assistant"
+      example: "automation"
+      selector:
+        text:
+    icon:
+      name: Icon
+      description: An optional icon name for the notification
+      required: false
+      example: "bell"
+      selector:
+        text:
 
 # Service set_theme
 set_theme:
@@ -143,6 +160,620 @@ trigger_automation:
     data:
       name: Data
       description: Additional data to pass to the automation
+      required: false
+      example: '{"brightness": 128}'
+      selector:
+        object:
+
+# Service navigate_dashboard
+navigate_dashboard:
+  name: Navigate Dashboard
+  description: Navigate to a specific page with transition effect
+  fields:
+    page_id:
+      name: Page ID
+      description: The ID of the page to navigate to
+      required: true
+      example: "living_room"
+      selector:
+        text:
+    transition:
+      name: Transition
+      description: The transition effect to use
+      required: false
+      default: "slide"
+      example: "fade"
+      selector:
+        select:
+          options:
+            - "slide"
+            - "fade"
+            - "none"
+
+# Service set_screensaver
+set_screensaver:
+  name: Set Screensaver
+  description: Enable or disable the screensaver with optional timeout
+  fields:
+    enabled:
+      name: Enabled
+      description: Whether to enable the screensaver
+      required: true
+      example: true
+      selector:
+        boolean:
+    timeout:
+      name: Timeout
+      description: Screensaver timeout in seconds (30-3600)
+      required: false
+      example: 300
+      selector:
+        number:
+          min: 30
+          max: 3600
+          unit_of_measurement: seconds
+
+# Service set_sleep_mode
+set_sleep_mode:
+  name: Set Sleep Mode
+  description: Enable or disable sleep mode on the dashboard
+  fields:
+    enabled:
+      name: Enabled
+      description: Whether to enable sleep mode
+      required: true
+      example: true
+      selector:
+        boolean:
+
+# Service set_brightness
+set_brightness:
+  name: Set Brightness
+  description: Set the dashboard display brightness
+  fields:
+    brightness:
+      name: Brightness
+      description: Brightness level (0-100%)
+      required: true
+      example: 75
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+
+# Service snapshot_states
+snapshot_states:
+  name: Snapshot States
+  description: Capture current entity states as a named preset for the dashboard
+  fields:
+    name:
+      name: Snapshot Name
+      description: Name for the state snapshot
+      required: true
+      example: "evening_mood"
+      selector:
+        text:
+    entity_ids:
+      name: Entity IDs
+      description: List of entity IDs to include in the snapshot
+      required: false
+      example: '["light.living_room", "light.kitchen"]'
+      selector:
+        entity:
+          multiple: true
+
+# Service execute_macro
+execute_macro:
+  name: Execute Macro
+  description: Execute a sequence of service calls with optional delays between them
+  fields:
+    commands:
+      name: Commands
+      description: List of service call commands to execute in sequence
+      required: true
+      example: '[{"domain": "light", "service": "turn_on", "entity_id": "light.living_room", "data": {"brightness": 255}, "delay_ms": 500}, {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}]'
+      selector:
+        object:
+
+# Service reload_dashboard
+reload_dashboard:
+  name: Reload Dashboard
+  description: Force a full reload of the dashboard frontend on all connected browsers
+
+# Service clear_cache
+clear_cache:
+  name: Clear Cache
+  description: Clear the dashboard entity cache and force a fresh fetch from Home Assistant
+
+# Service restart_backend
+restart_backend:
+  name: Restart Backend
+  description: Request the dashboard backend to perform a graceful restart
+
+# Service set_widget_value
+set_widget_value:
+  name: Set Widget Value
+  description: Set a value on a specific dashboard widget by its ID
+  fields:
+    widget_id:
+      name: Widget ID
+      description: The unique identifier of the widget to update
+      required: true
+      example: "living_room_temp"
+      selector:
+        text:
+    value:
+      name: Value
+      description: The value to set on the widget (string, number, boolean, or object)
+      required: true
+      example: "22.5"
+      selector:
+        object:
+
+# Service render_template
+render_template:
+  name: Render Template
+  description: Render a Jinja2 template and send the result to the dashboard
+  fields:
+    template:
+      name: Template
+      description: The Jinja2 template string to render
+      required: true
+      example: "{{ states('sensor.temperature') }}°C"
+      selector:
+        text:
+          multiline: true
+
+# Service register_composite_sensor
+register_composite_sensor:
+  name: Register Composite Sensor
+  description: >
+    Register a virtual composite sensor on the dashboard backend.
+    The backend continuously evaluates the formula against the source entities
+    and exposes the result. This enables derived metrics impossible with native HA templates
+    (e.g., comfort index from temp+humidity, temperature differential across rooms).
+  fields:
+    sensor_id:
+      name: Sensor ID
+      description: Unique identifier for this composite sensor
+      required: true
+      example: "comfort_living_room"
+      selector:
+        text:
+    name:
+      name: Name
+      description: Display name for the sensor
+      required: true
+      example: "Living Room Comfort Index"
+      selector:
+        text:
+    formula:
+      name: Formula
+      description: >
+        The aggregation formula. Available: avg (average), sum, min, max,
+        diff (difference between first two), comfort_index (temp+humidity),
+        range (max minus min)
+      required: true
+      example: "comfort_index"
+      selector:
+        select:
+          options:
+            - "avg"
+            - "sum"
+            - "min"
+            - "max"
+            - "diff"
+            - "comfort_index"
+            - "range"
+    entities:
+      name: Source Entities
+      description: Entity IDs whose numeric states are used as formula inputs
+      required: true
+      example: '["sensor.living_room_temperature", "sensor.living_room_humidity"]'
+      selector:
+        entity:
+          multiple: true
+    unit:
+      name: Unit
+      description: Unit of measurement for the computed value
+      required: false
+      example: "°C"
+      selector:
+        text:
+
+# Service remove_composite_sensor
+remove_composite_sensor:
+  name: Remove Composite Sensor
+  description: Remove a previously registered composite sensor from the dashboard backend
+  fields:
+    sensor_id:
+      name: Sensor ID
+      description: The ID of the composite sensor to remove
+      required: true
+      example: "comfort_living_room"
+      selector:
+        text:
+
+# Service get_entity_analytics
+get_entity_analytics:
+  name: Get Entity Analytics
+  description: >
+    Retrieve analytics data for a specific entity from the dashboard backend.
+    The result is fired as an event (mdt_home_dashboard_analytics) that automations
+    can listen to. Includes change count, average change interval, staleness,
+    and previous state — data that HA does not track natively.
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The entity to analyze
+      required: true
+      example: "sensor.living_room_temperature"
+      selector:
+        entity:
+
+# ──────────────── Smart Scenes ────────────────
+
+# Service create_smart_scene
+create_smart_scene:
+  name: Create Smart Scene
+  description: >
+    Create a backend-powered smart scene with ordered steps, delays between
+    actions, and optional conditions. Unlike native HA scenes, smart scenes
+    can execute sequences (e.g. dim lights, wait 2s, start music) and
+    conditionally skip steps based on live entity state.
+  fields:
+    scene_id:
+      name: Scene ID
+      description: Unique identifier for this scene
+      required: true
+      example: "movie_night"
+      selector:
+        text:
+    name:
+      name: Name
+      description: Display name for the scene
+      required: true
+      example: "Movie Night"
+      selector:
+        text:
+    steps:
+      name: Steps
+      description: >
+        Ordered list of actions. Each step has: domain, service, entity_id,
+        data (optional), delay_ms (wait after step), condition (optional,
+        skip step if entity not in given state).
+      required: true
+      example: >
+        [{"domain": "light", "service": "turn_on", "entity_id": "light.living_room",
+          "data": {"brightness": 50}, "delay_ms": 1000},
+         {"domain": "media_player", "service": "turn_on",
+          "entity_id": "media_player.tv",
+          "condition": {"entity_id": "binary_sensor.someone_home", "state": "on"}}]
+      selector:
+        object:
+
+# Service execute_smart_scene
+execute_smart_scene:
+  name: Execute Smart Scene
+  description: >
+    Execute a previously created smart scene. The backend runs all steps
+    in order, respecting delays and conditions, and calls HA services directly.
+  fields:
+    scene_id:
+      name: Scene ID
+      description: The ID of the scene to execute
+      required: true
+      example: "movie_night"
+      selector:
+        text:
+
+# Service delete_smart_scene
+delete_smart_scene:
+  name: Delete Smart Scene
+  description: Remove a smart scene from the backend
+  fields:
+    scene_id:
+      name: Scene ID
+      description: The ID of the scene to delete
+      required: true
+      example: "movie_night"
+      selector:
+        text:
+
+# ──────────────── Entity Scheduler ────────────────
+
+# Service schedule_action
+schedule_action:
+  name: Schedule Action
+  description: >
+    Schedule a future HA service call. Provide a time (HH:MM or ISO datetime)
+    and the backend will execute the service call at that time. No HA
+    automation needed — just one service call to schedule anything.
+  fields:
+    schedule_id:
+      name: Schedule ID
+      description: Unique identifier for this schedule
+      required: true
+      example: "lights_off_tonight"
+      selector:
+        text:
+    domain:
+      name: Domain
+      description: The HA domain (e.g. light, switch, climate)
+      required: true
+      example: "light"
+      selector:
+        text:
+    service:
+      name: Service
+      description: The service to call (e.g. turn_off, set_temperature)
+      required: true
+      example: "turn_off"
+      selector:
+        text:
+    run_at:
+      name: Run At
+      description: "When to execute: HH:MM (today/tomorrow) or ISO datetime (2025-12-31T23:00:00)"
+      required: true
+      example: "23:00"
+      selector:
+        text:
+    entity_id:
+      name: Entity ID
+      description: Target entity for the service call
+      required: false
+      example: "light.living_room"
+      selector:
+        entity:
+    data:
+      name: Data
+      description: Additional data for the service call
+      required: false
+      example: '{"brightness": 0}'
+      selector:
+        object:
+
+# Service cancel_schedule
+cancel_schedule:
+  name: Cancel Schedule
+  description: Cancel a previously scheduled action before it executes
+  fields:
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule to cancel
+      required: true
+      example: "lights_off_tonight"
+      selector:
+        text:
+
+# ──────────────── Entity Watchdog ────────────────
+
+# Service add_watchdog
+add_watchdog:
+  name: Add Watchdog
+  description: >
+    Add a watchdog rule that automatically takes action when an entity
+    becomes unavailable, goes stale (no state changes), or enters a
+    specific state. The backend monitors continuously and executes
+    the configured HA service call with a configurable cooldown.
+  fields:
+    watchdog_id:
+      name: Watchdog ID
+      description: Unique identifier for this watchdog rule
+      required: true
+      example: "sensor_restart"
+      selector:
+        text:
+    entity_id:
+      name: Entity ID
+      description: The entity to monitor
+      required: true
+      example: "sensor.outdoor_temperature"
+      selector:
+        entity:
+    trigger:
+      name: Trigger
+      description: "When to trigger: unavailable (entity goes unavailable), stale (no changes for cooldown period), state_equals (entity enters a specific state)"
+      required: true
+      example: "unavailable"
+      selector:
+        select:
+          options:
+            - "unavailable"
+            - "stale"
+            - "state_equals"
+    target_state:
+      name: Target State
+      description: "Required when trigger is 'state_equals'. The state to watch for."
+      required: false
+      example: "off"
+      selector:
+        text:
+    action_domain:
+      name: Action Domain
+      description: The HA domain for the recovery action
+      required: false
+      default: "homeassistant"
+      example: "homeassistant"
+      selector:
+        text:
+    action_service:
+      name: Action Service
+      description: The service to call as recovery action
+      required: false
+      default: "toggle"
+      example: "turn_on"
+      selector:
+        text:
+    action_data:
+      name: Action Data
+      description: Additional data for the recovery service call
+      required: false
+      selector:
+        object:
+    cooldown_secs:
+      name: Cooldown
+      description: Minimum seconds between watchdog triggers (prevents rapid re-triggering)
+      required: false
+      default: 300
+      example: 600
+      selector:
+        number:
+          min: 60
+          max: 86400
+          unit_of_measurement: seconds
+
+# Service remove_watchdog
+remove_watchdog:
+  name: Remove Watchdog
+  description: Remove a watchdog rule
+  fields:
+    watchdog_id:
+      name: Watchdog ID
+      description: The ID of the watchdog to remove
+      required: true
+      example: "sensor_restart"
+      selector:
+        text:
+
+# Service check_watchdogs
+check_watchdogs:
+  name: Check Watchdogs
+  description: >
+    Manually evaluate all watchdog rules right now. Useful to trigger
+    an immediate check instead of waiting for the next cycle.
+
+# ──────────────── Enhanced Device Control ────────────────
+
+# Service delayed_action
+delayed_action:
+  name: Delayed Action
+  description: >
+    Execute any HA service call after a delay. For example: "turn off the
+    kitchen light in 5 minutes". The backend handles the timer — no HA
+    automation or timer helper needed.
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The target entity
+      required: true
+      example: "light.kitchen"
+      selector:
+        entity:
+    domain:
+      name: Domain
+      description: The HA domain
+      required: true
+      example: "light"
+      selector:
+        text:
+    service:
+      name: Service
+      description: The service to call after the delay
+      required: true
+      example: "turn_off"
+      selector:
+        text:
+    delay_secs:
+      name: Delay
+      description: Seconds to wait before executing (max 86400 = 24h)
+      required: true
+      example: 300
+      selector:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: seconds
+    data:
+      name: Data
+      description: Additional service data
+      required: false
+      selector:
+        object:
+
+# Service conditional_action
+conditional_action:
+  name: Conditional Action
+  description: >
+    Execute a service call ONLY if a condition entity is in a specific state.
+    For example: "turn on the heater only if the window is closed".
+    Single service call replaces a full HA automation.
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The target entity for the action
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+    domain:
+      name: Domain
+      description: The HA domain
+      required: true
+      example: "climate"
+      selector:
+        text:
+    service:
+      name: Service
+      description: The service to call if condition is met
+      required: true
+      example: "turn_on"
+      selector:
+        text:
+    condition_entity:
+      name: Condition Entity
+      description: The entity whose state must match for the action to execute
+      required: true
+      example: "binary_sensor.window_living_room"
+      selector:
+        entity:
+    condition_state:
+      name: Condition State
+      description: The required state of the condition entity
+      required: true
+      example: "off"
+      selector:
+        text:
+    data:
+      name: Data
+      description: Additional service data
+      required: false
+      selector:
+        object:
+
+# Service group_action
+group_action:
+  name: Group Action
+  description: >
+    Call a service on multiple entities at once — no HA group entity needed.
+    For example: turn off all living room lights with a single service call.
+  fields:
+    domain:
+      name: Domain
+      description: The HA domain
+      required: true
+      example: "light"
+      selector:
+        text:
+    service:
+      name: Service
+      description: The service to call on each entity
+      required: true
+      example: "turn_off"
+      selector:
+        text:
+    entity_ids:
+      name: Entity IDs
+      description: List of entities to apply the service to
+      required: true
+      example: '["light.living_room", "light.kitchen", "light.bedroom"]'
+      selector:
+        entity:
+          multiple: true
+    data:
+      name: Data
+      description: Additional data applied to each service call
       required: false
       example: '{"brightness": 128}'
       selector:
