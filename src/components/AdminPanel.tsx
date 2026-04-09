@@ -46,7 +46,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
@@ -78,6 +78,7 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'realtime', label: 'Realtime', icon: Broadcast, description: 'SSE Event-Streams und Socket.IO-Namespace-WebSocket für Echtzeit-Daten testen und überwachen' },
   { id: 'database', label: 'Datenbank', icon: Database, description: 'SQLite-Datenbank verwalten, bereinigen und Statistiken anzeigen' },
   { id: 'warnings', label: 'Warnungen', icon: ShieldWarning, description: 'Protokoll aller Wetter- und Zivilschutzwarnungen mit Zeitstempeln' },
+  { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
 ]
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
@@ -245,6 +246,7 @@ export function AdminPanel() {
           {activeTab === 'realtime' && <RealtimeTab token={token} />}
           {activeTab === 'database' && <DatabaseTab token={token} />}
           {activeTab === 'warnings' && <WarningsTab token={token} />}
+          {activeTab === 'system-notifications' && <SystemNotificationsTab token={token} />}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -2869,6 +2871,296 @@ function DatabaseTab({ token }: { token: string }) {
             <StatItem key={table} label={table} value={count.toLocaleString('de-DE')} />
           ))}
         </AdminCard>
+      )}
+    </div>
+  )
+}
+
+// ── System Notifications Tab ──────────────────────────────────────────
+
+interface SystemNotification {
+  id: string
+  category: string
+  severity: string
+  title: string
+  message: string
+  details?: Record<string, unknown>
+  source: string
+  acknowledged: boolean
+  acknowledged_by?: string
+  acknowledged_at?: string
+  resolved: boolean
+  resolved_at?: string
+  created_at: string
+}
+
+interface SyncEntityStatus {
+  entity_id: string
+  friendly_name: string
+  last_sync_at?: string
+  oldest_data_at?: string
+  newest_data_at?: string
+  total_points: number
+  sync_state: string
+  last_error?: string
+  updated_at: string
+}
+
+function SystemNotificationsTab({ token }: { token: string }) {
+  const [notifications, setNotifications] = useState<SystemNotification[]>([])
+  const [syncStatus, setSyncStatus] = useState<{ entities: SyncEntityStatus[]; total_points: number; oldest_data?: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [showResolved, setShowResolved] = useState(false)
+  const [activeSection, setActiveSection] = useState<'notifications' | 'sync'>('notifications')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [notifs, sync] = await Promise.all([
+        adminFetch(`/api/admin/system-notifications?show_resolved=${showResolved}`, token),
+        adminFetch('/api/admin/location-sync/status', token),
+      ])
+      setNotifications(notifs as SystemNotification[])
+      setSyncStatus(sync as { entities: SyncEntityStatus[]; total_points: number; oldest_data?: string })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setLoading(false)
+  }, [token, showResolved])
+
+  useEffect(() => { load() }, [load])
+
+  const handleAcknowledge = async (id: string) => {
+    try {
+      await adminFetch(`/api/admin/system-notifications/${id}/acknowledge`, token, { method: 'PUT' })
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, acknowledged: true } : n))
+    } catch { /* ignore */ }
+  }
+
+  const handleResolve = async (id: string) => {
+    try {
+      await adminFetch(`/api/admin/system-notifications/${id}/resolve`, token, { method: 'PUT' })
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, resolved: true } : n))
+    } catch { /* ignore */ }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await adminFetch(`/api/admin/system-notifications/${id}`, token, { method: 'DELETE' })
+      setNotifications(prev => prev.filter(n => n.id !== id))
+    } catch { /* ignore */ }
+  }
+
+  const handleClearResolved = async () => {
+    try {
+      await adminFetch('/api/admin/system-notifications/clear-resolved', token, { method: 'DELETE' })
+      load()
+    } catch { /* ignore */ }
+  }
+
+  const handleForceSync = async (entityId: string) => {
+    try {
+      await adminFetch(`/api/admin/location-sync/${encodeURIComponent(entityId)}/force-sync`, token, { method: 'POST' })
+      load()
+    } catch { /* ignore */ }
+  }
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+
+  const severityColor = (s: string) => {
+    switch (s) {
+      case 'critical': return 'text-red-400 bg-red-500/10'
+      case 'warning': return 'text-amber-400 bg-amber-500/10'
+      case 'info': return 'text-blue-400 bg-blue-500/10'
+      default: return 'text-foreground/60 bg-foreground/5'
+    }
+  }
+
+  const syncStateColor = (s: string) => {
+    switch (s) {
+      case 'synced': return 'text-green-400'
+      case 'syncing': return 'text-blue-400'
+      case 'error': return 'text-red-400'
+      case 'pending': return 'text-amber-400'
+      default: return 'text-foreground/60'
+    }
+  }
+
+  const formatTime = (t?: string) => {
+    if (!t) return '–'
+    try { return new Date(t).toLocaleString('de-DE') } catch { return t }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Section Toggle */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setActiveSection('notifications')}
+          className={`px-3 py-1.5 text-xs rounded-lg transition-all ${
+            activeSection === 'notifications'
+              ? 'bg-accent/20 text-accent font-semibold'
+              : 'text-foreground/60 hover:text-foreground/80'
+          }`}
+        >
+          <Siren size={14} className="inline mr-1" />
+          Meldungen ({notifications.length})
+        </button>
+        <button
+          onClick={() => setActiveSection('sync')}
+          className={`px-3 py-1.5 text-xs rounded-lg transition-all ${
+            activeSection === 'sync'
+              ? 'bg-accent/20 text-accent font-semibold'
+              : 'text-foreground/60 hover:text-foreground/80'
+          }`}
+        >
+          <ArrowClockwise size={14} className="inline mr-1" />
+          Standort-Sync ({syncStatus?.entities.length ?? 0})
+        </button>
+      </div>
+
+      {/* Notifications Section */}
+      {activeSection === 'notifications' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowResolved(!showResolved)}
+                className="flex items-center gap-1 text-xs text-foreground/60 hover:text-foreground/80"
+              >
+                {showResolved ? <ToggleRight size={16} className="text-accent" /> : <ToggleLeft size={16} />}
+                Erledigte anzeigen
+              </button>
+            </div>
+            <div className="flex gap-2">
+              {showResolved && (
+                <button
+                  onClick={handleClearResolved}
+                  className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300"
+                >
+                  <Trash size={12} />
+                  Erledigte löschen
+                </button>
+              )}
+              <button onClick={load} className="flex items-center gap-1 text-xs text-foreground/60 hover:text-foreground/80">
+                <ArrowClockwise size={12} />
+                Aktualisieren
+              </button>
+            </div>
+          </div>
+
+          {notifications.length === 0 ? (
+            <AdminCard>
+              <div className="text-center py-6 text-foreground/40 text-sm">
+                <CheckCircle size={24} className="mx-auto mb-2 text-green-400" />
+                Keine offenen Systemmeldungen
+              </div>
+            </AdminCard>
+          ) : (
+            <div className="space-y-2">
+              {notifications.map(n => (
+                <AdminCard key={n.id} className={n.resolved ? 'opacity-50' : ''}>
+                  <div className="flex items-start gap-3">
+                    <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${severityColor(n.severity)}`}>
+                      {n.severity}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-foreground">{n.title}</span>
+                        <span className="text-[10px] text-foreground/40">{n.category}</span>
+                      </div>
+                      <p className="text-xs text-foreground/70 mb-2">{n.message}</p>
+                      {n.details && (
+                        <div className="text-[10px] text-foreground/40 bg-foreground/5 rounded px-2 py-1 mb-2 font-mono">
+                          {Object.entries(n.details).map(([k, v]) => (
+                            <div key={k}>{k}: {String(v)}</div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 text-[10px] text-foreground/40">
+                        <span>{formatTime(n.created_at)}</span>
+                        <span>{n.source}</span>
+                        {n.acknowledged && <span className="text-blue-400">Bestätigt{n.acknowledged_by ? ` von ${n.acknowledged_by}` : ''}</span>}
+                        {n.resolved && <span className="text-green-400">Erledigt</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      {!n.acknowledged && (
+                        <button onClick={() => handleAcknowledge(n.id)} className="p-1 rounded hover:bg-foreground/10" title="Bestätigen">
+                          <Eye size={14} className="text-blue-400" />
+                        </button>
+                      )}
+                      {!n.resolved && (
+                        <button onClick={() => handleResolve(n.id)} className="p-1 rounded hover:bg-foreground/10" title="Als erledigt markieren">
+                          <CheckCircle size={14} className="text-green-400" />
+                        </button>
+                      )}
+                      <button onClick={() => handleDelete(n.id)} className="p-1 rounded hover:bg-foreground/10" title="Löschen">
+                        <Trash size={14} className="text-red-400" />
+                      </button>
+                    </div>
+                  </div>
+                </AdminCard>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sync Status Section */}
+      {activeSection === 'sync' && syncStatus && (
+        <div className="space-y-3">
+          <AdminCard title="Übersicht" icon={Database}>
+            <StatItem label="Gesamt-Datenpunkte" value={syncStatus.total_points.toLocaleString('de-DE')} />
+            <StatItem label="Älteste Daten" value={formatTime(syncStatus.oldest_data)} />
+            <StatItem label="Sync-Intervall" value="5 Minuten" />
+            <StatItem label="Getrackte Entitäten" value={syncStatus.entities.length} />
+          </AdminCard>
+
+          {syncStatus.entities.length === 0 ? (
+            <AdminCard>
+              <div className="text-center py-6 text-foreground/40 text-sm">
+                Noch keine Standort-Entitäten synchronisiert
+              </div>
+            </AdminCard>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {syncStatus.entities.map(e => (
+                <AdminCard key={e.entity_id}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{e.friendly_name || e.entity_id}</div>
+                      <div className="text-[10px] text-foreground/40 font-mono">{e.entity_id}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold uppercase ${syncStateColor(e.sync_state)}`}>
+                        {e.sync_state}
+                      </span>
+                      <button
+                        onClick={() => handleForceSync(e.entity_id)}
+                        className="p-1 rounded hover:bg-foreground/10" title="Sync erzwingen"
+                      >
+                        <ArrowClockwise size={14} className="text-accent" />
+                      </button>
+                    </div>
+                  </div>
+                  <StatItem label="Datenpunkte" value={e.total_points.toLocaleString('de-DE')} />
+                  <StatItem label="Letzter Sync" value={formatTime(e.last_sync_at)} />
+                  <StatItem label="Älteste Daten" value={formatTime(e.oldest_data_at)} />
+                  <StatItem label="Neueste Daten" value={formatTime(e.newest_data_at)} />
+                  {e.last_error && (
+                    <div className="mt-2 text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1">
+                      {e.last_error}
+                    </div>
+                  )}
+                </AdminCard>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

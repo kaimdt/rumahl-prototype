@@ -37,6 +37,7 @@ mod ble_client;
 mod homekit_client;
 mod streaming;
 mod person_tracker;
+mod location_sync;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -382,6 +383,10 @@ async fn main() -> anyhow::Result<()> {
     let person_tracker = person_tracker::PersonTracker::new(db_pool.clone(), ha_client.clone());
     person_tracker.start();
 
+    // Start location history sync service
+    let location_sync = location_sync::LocationSyncService::new(db_pool.clone(), ha_client.clone());
+    location_sync.start();
+
     // Initialize WebSocket manager (frontend-facing)
     let ws_manager = Arc::new(websocket::WebSocketManager::new());
 
@@ -680,6 +685,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/notifications", get(admin_list_notifications).delete(admin_clear_notifications))
         .route("/api/admin/notifications/:notif_id/read", put(admin_mark_notification_read))
         .route("/api/admin/notifications/:notif_id", delete(admin_dismiss_notification))
+        // Admin system notifications (sync alerts, system issues)
+        .route("/api/admin/system-notifications", get(admin_list_system_notifications))
+        .route("/api/admin/system-notifications/:notif_id/acknowledge", put(admin_acknowledge_system_notification))
+        .route("/api/admin/system-notifications/:notif_id/resolve", put(admin_resolve_system_notification))
+        .route("/api/admin/system-notifications/:notif_id", delete(admin_delete_system_notification))
+        .route("/api/admin/system-notifications/clear-resolved", delete(admin_clear_resolved_system_notifications))
+        // Location sync management
+        .route("/api/admin/location-sync/status", get(admin_get_sync_status))
+        .route("/api/admin/location-sync/:entity_id/force-sync", post(admin_force_sync_entity))
         .route("/api/admin/alert", get(admin_get_alert).put(admin_set_alert).delete(admin_dismiss_alert))
         // Warning log
         .route("/api/admin/warnings/log", get(admin_get_warning_log).delete(admin_clear_warning_log))
@@ -774,6 +788,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sensors/:entity_id", get(get_sensor))
         .route("/api/buttons/:entity_id/press", post(press_button))
         .route("/api/switches/:entity_id", post(control_switch))
+        // Location history (our own DB, not HA proxy)
+        .route("/api/location-history/:entity_id", get(get_location_history))
+        .route("/api/location-history/sync/status", get(get_location_sync_status))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
         .with_state(state.clone());
 
@@ -3736,12 +3753,10 @@ async fn cleanup_old_history(db_pool: DbPool) {
     loop {
         interval.tick().await;
 
-        let cutoff = (chrono::Utc::now() - chrono::Duration::days(7))
-            .format("%Y-%m-%dT%H:%M:%S")
-            .to_string();
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
 
         match sqlx::query("DELETE FROM entity_history WHERE recorded_at < $1")
-            .bind(&cutoff)
+            .bind(cutoff)
             .execute(&db_pool)
             .await
         {
@@ -7865,6 +7880,274 @@ async fn handle_realtime_socket(
 struct EntitySubFilter {
     domains: Vec<String>,
     entity_ids: Vec<String>,
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Location History & Sync Endpoints
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Deserialize)]
+struct LocationHistoryQuery {
+    start: Option<String>,
+    end: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: i64,
+}
+
+fn default_limit() -> i64 { 5000 }
+
+/// Get location history points from our own database (long-term storage)
+async fn get_location_history(
+    State(state): State<AppState>,
+    Path(entity_id): Path<String>,
+    Query(query): Query<LocationHistoryQuery>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let start = query.start.unwrap_or_else(|| {
+        (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339()
+    });
+    let end = query.end.unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+    let rows: Vec<(f64, f64, Option<i32>, Option<String>, Option<String>, String)> = sqlx::query_as(
+        r#"SELECT latitude, longitude, gps_accuracy, state, source,
+                  to_char(recorded_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+           FROM location_history_points
+           WHERE entity_id = $1 AND recorded_at >= $2::timestamptz AND recorded_at <= $3::timestamptz
+           ORDER BY recorded_at ASC
+           LIMIT $4"#,
+    )
+    .bind(&entity_id)
+    .bind(&start)
+    .bind(&end)
+    .bind(query.limit)
+    .fetch_all(&state.db_pool)
+    .await
+    .map_err(|e| {
+        warn!("Failed to get location history: {}", e);
+        ErrorResponse::internal(format!("Failed to get location history: {}", e))
+    })?;
+
+    let points: Vec<Value> = rows.into_iter().map(|(lat, lng, acc, state, source, time)| {
+        json!({
+            "latitude": lat,
+            "longitude": lng,
+            "gps_accuracy": acc,
+            "state": state,
+            "source": source,
+            "recorded_at": time,
+        })
+    }).collect();
+
+    // Also return the HA-compatible format for backwards compatibility
+    let ha_compat: Vec<Value> = points.iter().map(|p| {
+        json!({
+            "entity_id": &entity_id,
+            "state": p["state"],
+            "last_changed": p["recorded_at"],
+            "attributes": {
+                "latitude": p["latitude"],
+                "longitude": p["longitude"],
+                "gps_accuracy": p["gps_accuracy"],
+                "source_type": p["source"],
+            }
+        })
+    }).collect();
+
+    Ok(Json(json!({
+        "entity_id": entity_id,
+        "points": points,
+        "ha_compatible": [ha_compat],
+        "count": points.len(),
+    })))
+}
+
+/// Get sync status for all tracked entities
+async fn get_location_sync_status(
+    State(state): State<AppState>,
+) -> Json<Vec<Value>> {
+    match sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, i32, String, Option<String>, String)>(
+        r#"SELECT entity_id, friendly_name,
+                  to_char(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  to_char(oldest_data_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  to_char(newest_data_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  total_points, sync_state, last_error,
+                  to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+           FROM location_sync_status
+           ORDER BY entity_id"#,
+    )
+    .fetch_all(&state.db_pool)
+    .await {
+        Ok(rows) => {
+            let statuses: Vec<Value> = rows.into_iter().map(|r| json!({
+                "entity_id": r.0,
+                "friendly_name": r.1,
+                "last_sync_at": r.2,
+                "oldest_data_at": r.3,
+                "newest_data_at": r.4,
+                "total_points": r.5,
+                "sync_state": r.6,
+                "last_error": r.7,
+                "updated_at": r.8,
+            })).collect();
+            Json(statuses)
+        }
+        Err(e) => {
+            warn!("Failed to get sync status: {}", e);
+            Json(vec![])
+        }
+    }
+}
+
+/// Admin: get detailed sync status
+async fn admin_get_sync_status(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let statuses = get_location_sync_status(State(state.clone())).await.0;
+
+    let total_points: i64 = sqlx::query_as("SELECT COALESCE(COUNT(*), 0) FROM location_history_points")
+        .fetch_one(&state.db_pool)
+        .await
+        .map(|(c,): (i64,)| c)
+        .unwrap_or(0);
+
+    let oldest: Option<String> = sqlx::query_as(
+        r#"SELECT to_char(MIN(recorded_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM location_history_points"#
+    )
+    .fetch_one(&state.db_pool)
+    .await
+    .map(|(s,): (Option<String>,)| s)
+    .unwrap_or(None);
+
+    Json(json!({
+        "entities": statuses,
+        "total_points": total_points,
+        "oldest_data": oldest,
+        "sync_interval_seconds": 300,
+    }))
+}
+
+/// Admin: force sync for a specific entity
+async fn admin_force_sync_entity(
+    State(state): State<AppState>,
+    Path(entity_id): Path<String>,
+) -> StatusCode {
+    // Reset last_sync_at to force a resync
+    match sqlx::query(
+        "UPDATE location_sync_status SET last_sync_at = NULL, sync_state = 'pending', updated_at = NOW() WHERE entity_id = $1"
+    )
+    .bind(&entity_id)
+    .execute(&state.db_pool)
+    .await {
+        Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
+        _ => StatusCode::NOT_FOUND,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Admin System Notifications Endpoints
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Admin: list all system notifications
+async fn admin_list_system_notifications(
+    State(state): State<AppState>,
+    Query(query): Query<SystemNotifQuery>,
+) -> Json<Vec<Value>> {
+    let has_category = query.category.is_some();
+    let category_val = query.category.unwrap_or_default();
+    let show_resolved = query.show_resolved.unwrap_or(false);
+
+    let base = r#"SELECT id, category, severity, title, message, details, source, acknowledged, acknowledged_by,
+                  to_char(acknowledged_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), resolved,
+                  to_char(resolved_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+           FROM admin_system_notifications
+           WHERE ($1 = false OR category = $2) AND ($3 = true OR resolved = false)
+           ORDER BY created_at DESC LIMIT 200"#;
+
+    match sqlx::query_as::<_, (String, String, String, String, String, Option<serde_json::Value>, String, bool, Option<String>, Option<String>, bool, Option<String>, String)>(base)
+        .bind(has_category)
+        .bind(&category_val)
+        .bind(show_resolved)
+        .fetch_all(&state.db_pool)
+        .await {
+        Ok(rows) => {
+            let notifs: Vec<Value> = rows.into_iter().map(|r| json!({
+                "id": r.0, "category": r.1, "severity": r.2, "title": r.3,
+                "message": r.4, "details": r.5, "source": r.6,
+                "acknowledged": r.7, "acknowledged_by": r.8, "acknowledged_at": r.9,
+                "resolved": r.10, "resolved_at": r.11, "created_at": r.12,
+            })).collect();
+            Json(notifs)
+        }
+        Err(e) => {
+            warn!("Failed to load system notifications: {}", e);
+            Json(vec![])
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct SystemNotifQuery {
+    category: Option<String>,
+    show_resolved: Option<bool>,
+}
+
+/// Admin: acknowledge a system notification
+async fn admin_acknowledge_system_notification(
+    State(state): State<AppState>,
+    Path(notif_id): Path<String>,
+    axum::Extension(identity): axum::Extension<middleware::AuthIdentity>,
+) -> StatusCode {
+    let user_id = identity.user_id().to_string();
+    match sqlx::query(
+        "UPDATE admin_system_notifications SET acknowledged = true, acknowledged_by = $2, acknowledged_at = NOW() WHERE id = $1"
+    )
+    .bind(&notif_id)
+    .bind(&user_id)
+    .execute(&state.db_pool)
+    .await {
+        Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
+        _ => StatusCode::NOT_FOUND,
+    }
+}
+
+/// Admin: resolve a system notification
+async fn admin_resolve_system_notification(
+    State(state): State<AppState>,
+    Path(notif_id): Path<String>,
+) -> StatusCode {
+    match sqlx::query(
+        "UPDATE admin_system_notifications SET resolved = true, resolved_at = NOW() WHERE id = $1"
+    )
+    .bind(&notif_id)
+    .execute(&state.db_pool)
+    .await {
+        Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
+        _ => StatusCode::NOT_FOUND,
+    }
+}
+
+/// Admin: delete a system notification
+async fn admin_delete_system_notification(
+    State(state): State<AppState>,
+    Path(notif_id): Path<String>,
+) -> StatusCode {
+    match sqlx::query("DELETE FROM admin_system_notifications WHERE id = $1")
+        .bind(&notif_id)
+        .execute(&state.db_pool)
+        .await {
+        Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
+        _ => StatusCode::NOT_FOUND,
+    }
+}
+
+/// Admin: clear all resolved system notifications
+async fn admin_clear_resolved_system_notifications(
+    State(state): State<AppState>,
+) -> StatusCode {
+    let _ = sqlx::query("DELETE FROM admin_system_notifications WHERE resolved = true")
+        .execute(&state.db_pool)
+        .await;
+    StatusCode::OK
 }
 
 // ═══════════════════════════════════════════════════════════════════════
