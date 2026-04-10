@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
 
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::{
         sse::{Event, Sse},
@@ -11,9 +11,8 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use iora_shared::types::{HealthStatus, IoraEvent};
 use serde::{Deserialize, Serialize};
-use sysinfo::{System, SystemExt, CpuExt};
+use sysinfo::System;
 use tokio::sync::{broadcast, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt as _;
@@ -343,7 +342,7 @@ async fn main() -> anyhow::Result<()> {
         events_tx,
         started_at: Arc::new(Instant::now()),
         core_is_down: Arc::new(RwLock::new(false)),
-        system: Arc::new(RwLock::new(System::new_all())),
+        system: Arc::new(RwLock::new(System::new())),
     };
 
     // Start background health checking

@@ -267,7 +267,10 @@ async fn get_secret(
     // Decrypt the value
     let decrypted_value = decrypt_value(&state.master_key, &encrypted_value, &nonce)
         .map_err(|e| {
-            log_access(&state.db, id, "system", "read", false, Some(&e.to_string()));
+            let db = state.db.clone();
+            tokio::spawn(async move {
+                log_access(&db, id, "system", "read", false, Some(&e.to_string())).await;
+            });
             AppError::Internal(format!("Decryption failed: {}", e))
         })?;
 
