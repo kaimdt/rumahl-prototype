@@ -9,6 +9,7 @@ import {
   GearSix,
   Layout,
   SignOut,
+  SignIn,
   CheckCircle,
   Shield,
   Moon,
@@ -465,6 +466,7 @@ interface SettingsPageProps {
   // User & Auth
   user: { username?: string; displayName?: string } | null
   userName: string
+  isAuthenticated: boolean
   logout: () => void
   updateProfile: (data: { username?: string; displayName?: string }) => Promise<void>
   // Device lock
@@ -683,6 +685,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const {
     user,
     userName,
+    isAuthenticated,
     logout,
     deviceLockMode,
     lockLoading,
@@ -746,52 +749,55 @@ export function SettingsPage(props: SettingsPageProps) {
         <TabsContent value="general" className="space-y-4 mt-5">
 
           {/* Profile */}
-          <SettingsSection icon={User} title="Benutzerprofil" description="Name und Anmeldedaten verwalten" accentIcon>
-            <div className="flex items-center gap-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
-              <div className="w-12 h-12 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
-                <User size={22} weight="fill" className="text-accent" />
+          {isAuthenticated && (
+            <SettingsSection icon={User} title="Benutzerprofil" description="Name und Anmeldedaten verwalten" accentIcon>
+              <div className="flex items-center gap-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
+                <div className="w-12 h-12 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
+                  <User size={22} weight="fill" className="text-accent" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{user?.displayName || user?.username || 'Benutzer'}</p>
+                  {user?.displayName && user?.username && (
+                    <p className="text-xs text-foreground/50 truncate">@{user.username}</p>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{user?.displayName || user?.username || 'Benutzer'}</p>
-                {user?.displayName && user?.username && (
-                  <p className="text-xs text-foreground/50 truncate">@{user.username}</p>
-                )}
-              </div>
-            </div>
 
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">Benutzername</label>
-                <input
-                  type="text"
-                  value={profileUsername}
-                  onChange={(e) => setProfileUsername(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
-                  disabled={isSavingProfile}
-                />
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">Benutzername</label>
+                  <input
+                    type="text"
+                    value={profileUsername}
+                    onChange={(e) => setProfileUsername(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                    disabled={isSavingProfile}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">Anzeigename</label>
+                  <input
+                    type="text"
+                    value={profileDisplayName}
+                    onChange={(e) => setProfileDisplayName(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                    disabled={isSavingProfile}
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">Anzeigename</label>
-                <input
-                  type="text"
-                  value={profileDisplayName}
-                  onChange={(e) => setProfileDisplayName(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
-                  disabled={isSavingProfile}
-                />
-              </div>
-            </div>
-            <button
-              onClick={saveUserProfile}
-              disabled={isSavingProfile}
-              className="w-full px-4 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-medium transition-colors hover:bg-accent/90 disabled:opacity-60"
-            >
-              {isSavingProfile ? 'Wird gespeichert...' : 'Profil speichern'}
-            </button>
-          </SettingsSection>
+              <button
+                onClick={saveUserProfile}
+                disabled={isSavingProfile}
+                className="w-full px-4 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-medium transition-colors hover:bg-accent/90 disabled:opacity-60"
+              >
+                {isSavingProfile ? 'Wird gespeichert...' : 'Profil speichern'}
+              </button>
+            </SettingsSection>
+          )}
 
           {/* Security */}
-          <SettingsSection icon={Shield} title="Sicherheit" description="PIN-Schutz und Gerätesperre">
+          {isAuthenticated && (
+            <SettingsSection icon={Shield} title="Sicherheit" description="PIN-Schutz und Gerätesperre">
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
@@ -843,18 +849,29 @@ export function SettingsPage(props: SettingsPageProps) {
               />
             </div>
           </SettingsSection>
+          )}
 
           {/* Quick Login PIN */}
-          <LoginPinSection />
+          {isAuthenticated && <LoginPinSection />}
 
-          {/* Logout */}
-          <button
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-2xl bg-red-500/8 hover:bg-red-500/15 text-red-400 border border-red-500/15 transition-colors"
-          >
-            <SignOut size={18} weight="bold" />
-            <span className="text-sm font-medium">Abmelden</span>
-          </button>
+          {/* Logout / Login */}
+          {isAuthenticated ? (
+            <button
+              onClick={logout}
+              className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-2xl bg-red-500/8 hover:bg-red-500/15 text-red-400 border border-red-500/15 transition-colors"
+            >
+              <SignOut size={18} weight="bold" />
+              <span className="text-sm font-medium">Abmelden</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-2xl bg-accent/8 hover:bg-accent/15 text-accent border border-accent/15 transition-colors"
+            >
+              <SignIn size={18} weight="bold" />
+              <span className="text-sm font-medium">Anmelden</span>
+            </button>
+          )}
         </TabsContent>
 
         {/* ─── TAB: Darstellung ────────────────────────────────────── */}

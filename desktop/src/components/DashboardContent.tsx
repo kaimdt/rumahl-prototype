@@ -330,8 +330,8 @@ function DashboardContent() {
     return <SplashScreen onComplete={() => setShowSplash(false)} />
   }
 
-  // Gate: show ONLY login screen when not authenticated
-  if (!authLoading && !isAuthenticated) {
+  // Gate: when not authenticated, show login modal OR allow settings page access
+  if (!authLoading && !isAuthenticated && currentPageId !== 'settings') {
     return (
       <div className="min-h-screen relative overflow-hidden">
         <div
@@ -594,6 +594,7 @@ function DashboardContent() {
                 <SettingsPage
                   user={user}
                   userName={userName}
+                  isAuthenticated={isAuthenticated}
                   logout={logout}
                   updateProfile={updateProfile}
                   deviceLockMode={deviceLockMode}
