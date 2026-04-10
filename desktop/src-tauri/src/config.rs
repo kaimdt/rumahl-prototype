@@ -9,10 +9,6 @@ fn default_iora_home_url() -> String {
     "http://localhost:8080".to_string()
 }
 
-fn default_ha_url() -> String {
-    "http://localhost:8123".to_string()
-}
-
 fn default_ha_update_interval() -> u64 {
     60 // seconds
 }
@@ -53,15 +49,12 @@ pub struct AppConfig {
     /// User ID
     #[serde(default)]
     pub auth_user_id: String,
-    /// Home Assistant URL
-    #[serde(default = "default_ha_url")]
-    pub ha_url: String,
-    /// Home Assistant Long-Lived Access Token
-    #[serde(default)]
-    pub ha_token: String,
-    /// Enable Home Assistant integration
+    /// Home Assistant integration enabled (via iora-home gateway)
     #[serde(default)]
     pub ha_enabled: bool,
+    /// JWT token for iora-home authentication (used for HA integration)
+    #[serde(default)]
+    pub ha_token: String,
     /// Update interval for sending metrics to HA (seconds)
     #[serde(default = "default_ha_update_interval")]
     pub ha_update_interval_secs: u64,
@@ -92,9 +85,8 @@ impl Default for AppConfig {
             auth_token: String::new(),
             auth_username: String::new(),
             auth_user_id: String::new(),
-            ha_url: default_ha_url(),
-            ha_token: String::new(),
             ha_enabled: false,
+            ha_token: String::new(),
             ha_update_interval_secs: default_ha_update_interval(),
             autostart_enabled: false,
             autostart_minimized: false,

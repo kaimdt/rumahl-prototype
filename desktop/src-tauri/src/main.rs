@@ -141,7 +141,7 @@ fn main() {
                         let state = app_handle_ha.state::<AppState>();
                         let cfg = state.config.lock().await.clone();
                         (
-                            cfg.ha_url.clone(),
+                            cfg.iora_home_url.clone(), // Use iora-home URL, not HA URL
                             cfg.ha_token.clone(),
                             cfg.client_name.clone(),
                             cfg.ha_update_interval_secs,
