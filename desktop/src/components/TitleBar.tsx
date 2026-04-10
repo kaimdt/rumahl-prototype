@@ -59,7 +59,7 @@ export function TitleBar({ title = "IORA Desktop" }: TitleBarProps) {
   return (
     <div
       data-tauri-drag-region
-      className="flex items-center justify-between h-8 bg-background/60 backdrop-blur-xl border-b border-border/40 select-none"
+      className="flex items-center justify-between h-8 bg-background/60 backdrop-blur-xl border-b border-border/40 select-none z-[9999] relative"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       {/* Left side - Title */}

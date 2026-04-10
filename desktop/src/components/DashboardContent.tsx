@@ -333,7 +333,7 @@ function DashboardContent() {
   // Gate: when not authenticated, show login modal OR allow settings page access
   if (!authLoading && !isAuthenticated && currentPageId !== 'settings') {
     return (
-      <div className="min-h-screen relative overflow-hidden">
+      <div className="h-full relative overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{
@@ -354,7 +354,7 @@ function DashboardContent() {
   // Still verifying token — show nothing
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'oklch(0.08 0.02 250)' }}>
+      <div className="h-full flex items-center justify-center" style={{ background: 'oklch(0.08 0.02 250)' }}>
         <div className="flex flex-col items-center gap-4">
           <motion.div
             animate={{ rotate: 360 }}
@@ -371,7 +371,7 @@ function DashboardContent() {
   return (
     <>
       <div
-        className={`min-h-screen relative theme-transition overflow-x-hidden font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
+        className={`h-full relative theme-transition overflow-x-hidden font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
       >
         <Screensaver
           enabled={screensaverSettings.enabled}
