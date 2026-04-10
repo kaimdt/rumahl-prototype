@@ -1,12 +1,14 @@
 import React, { useState } from "react";
+import { TitleBar } from "./TitleBar";
 
 interface Props {
   onLogin: (username: string, password: string) => Promise<void>;
+  onSkipToSettings?: () => void;
   error: string | null;
   loading: boolean;
 }
 
-export function LoginScreen({ onLogin, error, loading }: Props) {
+export function LoginScreen({ onLogin, onSkipToSettings, error, loading }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -18,7 +20,11 @@ export function LoginScreen({ onLogin, error, loading }: Props) {
 
   return (
     <div style={styles.root}>
-      <div style={styles.card}>
+      {/* Custom Titlebar */}
+      <TitleBar />
+
+      <div style={styles.content}>
+        <div style={styles.card}>
         {/* Logo */}
         <div style={styles.logoWrap}>
           <span style={styles.logoText}>IORA</span>
@@ -66,6 +72,18 @@ export function LoginScreen({ onLogin, error, loading }: Props) {
             {loading ? "Anmelden…" : "Anmelden"}
           </button>
         </form>
+
+        {/* Skip to Settings button */}
+        {onSkipToSettings && (
+          <button
+            type="button"
+            onClick={onSkipToSettings}
+            style={styles.skipBtn}
+          >
+            Einstellungen öffnen (ohne Login)
+          </button>
+        )}
+      </div>
       </div>
     </div>
   );
@@ -74,22 +92,28 @@ export function LoginScreen({ onLogin, error, loading }: Props) {
 const styles = {
   root: {
     display: "flex",
+    flexDirection: "column",
+    height: "100vh",
+    background: "hsl(var(--background))",
+  } as React.CSSProperties,
+  content: {
+    flex: 1,
+    display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    height: "100vh",
-    background: "var(--color-bg)",
     padding: "20px",
   } as React.CSSProperties,
   card: {
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
+    background: "hsl(var(--card))",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "12px",
-    padding: "32px 28px",
+    padding: "40px 32px",
     width: "100%",
-    maxWidth: "360px",
+    maxWidth: "420px",
     display: "flex",
     flexDirection: "column",
-    gap: "20px",
+    gap: "24px",
+    boxShadow: "0 4px 24px rgba(0, 0, 0, 0.25)",
   } as React.CSSProperties,
   logoWrap: {
     display: "flex",
@@ -130,36 +154,49 @@ const styles = {
   label: {
     fontSize: "13px",
     fontWeight: 500,
-    color: "var(--color-muted)",
+    color: "hsl(var(--muted-foreground))",
   } as React.CSSProperties,
   input: {
-    padding: "9px 12px",
-    borderRadius: "var(--radius)",
-    border: "1px solid var(--color-border)",
-    background: "var(--color-bg)",
-    color: "var(--color-text)",
+    padding: "10px 14px",
+    borderRadius: "calc(var(--radius) - 2px)",
+    border: "1px solid hsl(var(--border))",
+    background: "hsl(var(--background))",
+    color: "hsl(var(--foreground))",
     fontSize: "14px",
     width: "100%",
     outline: "none",
+    transition: "border-color 0.15s ease, box-shadow 0.15s ease",
   } as React.CSSProperties,
   error: {
-    background: "rgba(239,68,68,0.1)",
-    border: "1px solid var(--color-error)",
-    color: "var(--color-error)",
-    borderRadius: "var(--radius)",
-    padding: "8px 12px",
+    background: "hsl(var(--destructive) / 0.1)",
+    border: "1px solid hsl(var(--destructive))",
+    color: "hsl(var(--destructive))",
+    borderRadius: "calc(var(--radius) - 2px)",
+    padding: "10px 14px",
     fontSize: "13px",
   } as React.CSSProperties,
   btn: {
-    padding: "10px 20px",
-    borderRadius: "var(--radius)",
+    padding: "11px 20px",
+    borderRadius: "calc(var(--radius) - 2px)",
     border: "none",
-    background: "var(--color-primary)",
-    color: "white",
+    background: "hsl(var(--primary))",
+    color: "hsl(var(--primary-foreground))",
     fontSize: "14px",
     fontWeight: 600,
-    transition: "background 0.15s ease",
+    transition: "background 0.15s ease, opacity 0.15s ease",
     width: "100%",
-    marginTop: "4px",
+    marginTop: "6px",
+  } as React.CSSProperties,
+  skipBtn: {
+    padding: "10px 20px",
+    borderRadius: "calc(var(--radius) - 2px)",
+    border: "1px solid hsl(var(--border))",
+    background: "transparent",
+    color: "hsl(var(--muted-foreground))",
+    fontSize: "13px",
+    fontWeight: 500,
+    transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+    width: "100%",
+    cursor: "pointer",
   } as React.CSSProperties,
 };

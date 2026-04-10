@@ -10,7 +10,7 @@ import { TitleBar } from "./components/TitleBar";
 
 export default function App() {
   const { user, loading: authLoading, error: authError, login, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>("ai");
+  const [activeTab, setActiveTab] = useState<TabId>("settings"); // Default to settings
 
   const {
     config,
@@ -40,14 +40,22 @@ export default function App() {
   if (authLoading) {
     return (
       <div style={styles.splash}>
-        <span style={styles.logoText}>IORA</span>
+        <TitleBar />
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={styles.logoText}>IORA</span>
+        </div>
       </div>
     );
   }
 
   // Only show login screen if not on settings tab and not logged in
   if (!user && requiresAuth) {
-    return <LoginScreen onLogin={login} error={authError} loading={authLoading} />;
+    return <LoginScreen
+      onLogin={login}
+      onSkipToSettings={() => setActiveTab("settings")}
+      error={authError}
+      loading={authLoading}
+    />;
   }
 
   const initials = user
@@ -73,15 +81,24 @@ export default function App() {
               {clientInfo.client_name}
             </span>
           )}
-          <div style={styles.userArea}>
-            <div style={styles.avatar} title={user.username}>
-              {initials}
+          {user ? (
+            <div style={styles.userArea}>
+              <div style={styles.avatar} title={user.username}>
+                {initials}
+              </div>
+              <span style={styles.username}>{user.display_name ?? user.username}</span>
+              <button onClick={logout} style={styles.logoutBtn} title="Abmelden">
+                ✕
+              </button>
             </div>
-            <span style={styles.username}>{user.display_name ?? user.username}</span>
-            <button onClick={logout} style={styles.logoutBtn} title="Abmelden">
-              ✕
+          ) : (
+            <button
+              onClick={() => setActiveTab("ai")}
+              style={styles.loginPromptBtn}
+            >
+              Anmelden
             </button>
-          </div>
+          )}
         </div>
       </header>
 
@@ -150,15 +167,14 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     height: "100vh",
-    background: "var(--color-bg)",
-    color: "var(--color-text)",
+    background: "hsl(var(--background))",
+    color: "hsl(var(--foreground))",
   } as React.CSSProperties,
   splash: {
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+    flexDirection: "column",
     height: "100vh",
-    background: "var(--color-bg)",
+    background: "hsl(var(--background))",
   } as React.CSSProperties,
   header: {
     display: "flex",
@@ -236,6 +252,17 @@ const styles = {
     borderRadius: "4px",
     lineHeight: 1,
     transition: "color 0.15s ease",
+  } as React.CSSProperties,
+  loginPromptBtn: {
+    padding: "6px 14px",
+    borderRadius: "calc(var(--radius) - 2px)",
+    border: "1px solid hsl(var(--border))",
+    background: "hsl(var(--primary))",
+    color: "hsl(var(--primary-foreground))",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    transition: "background 0.15s ease, opacity 0.15s ease",
   } as React.CSSProperties,
   connectionRow: {
     marginBottom: "16px",
