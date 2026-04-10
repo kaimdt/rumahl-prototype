@@ -1,68 +1,57 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@import "tw-animate-css";
 
 @layer base {
   * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
     @apply border-border;
   }
-
+  
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: hsl(var(--background));
-    color: hsl(var(--foreground));
-    min-height: 100vh;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    /* Prevent text size adjustment on orientation change */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
-  #root {
-    min-height: 100vh;
+  /* Prevent pull-to-refresh and overscroll bounce on mobile */
+  html {
+    overscroll-behavior: none;
+  }
+  
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
   }
 
-  :root {
-    --background: 222 47% 11%;
-    --foreground: 213 31% 91%;
-    --card: 223 47% 11%;
-    --card-foreground: 213 31% 91%;
-    --popover: 223 47% 11%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 223 47% 20%;
-    --secondary-foreground: 213 31% 91%;
-    --muted: 223 47% 20%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 291 64% 68%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 215 28% 17%;
-    --input: 215 28% 17%;
-    --ring: 239 84% 67%;
-    --radius: 0.5rem;
+  /* ─── Mobile touch optimizations ─── */
+  @media (hover: none) and (pointer: coarse) {
+    /* Disable hover effects on touch devices */
+    .glass-card-interactive:hover {
+      box-shadow: none;
+      border-color: unset;
+    }
+    
+    /* Ensure tap targets are accessible */
+    button, a, [role="button"] {
+      min-height: 36px;
+    }
 
-    /* Legacy CSS variables for compatibility */
-    --color-bg: #0f1117;
-    --color-surface: #1a1f2e;
-    --color-border: #2d3748;
-    --color-primary: #6366f1;
-    --color-primary-hover: #4f46e5;
-    --color-success: #22c55e;
-    --color-error: #ef4444;
-    --color-warning: #f59e0b;
-    --color-text: #e2e8f0;
-    --color-muted: #94a3b8;
+    /* Smoother scrolling on touch */
+    * {
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Disable text selection on interactive elements */
+    button, [role="button"], nav {
+      -webkit-user-select: none;
+      user-select: none;
+    }
   }
 
-  /* Custom Scrollbar */
+  /* ─── Custom Scrollbar ─── */
   * {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted)) transparent;
+    scrollbar-color: oklch(from var(--foreground) l c h / 0.15) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -73,10 +62,11 @@
   *::-webkit-scrollbar-track {
     background: transparent;
     border-radius: 3px;
+    margin: 4px 0;
   }
 
   *::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted));
+    background: oklch(from var(--foreground) l c h / 0.12);
     border-radius: 3px;
     border: 1px solid transparent;
     background-clip: padding-box;
@@ -84,43 +74,1262 @@
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground));
+    background: oklch(from var(--foreground) l c h / 0.25);
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background: oklch(from var(--foreground) l c h / 0.35);
   }
 
   *::-webkit-scrollbar-corner {
     background: transparent;
   }
 
-  /* Input focus ring */
-  input:focus {
-    border-color: hsl(var(--ring)) !important;
-    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
-    outline: none;
+  /* Dialog/modal scrollbar - thinner, transparent track */
+  [data-slot="dialog-content"]::-webkit-scrollbar {
+    width: 5px;
   }
-
-  /* Button hover transitions */
-  button {
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  [data-slot="dialog-content"]::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 8px 0;
   }
-
-  /* Glass card effect */
-  .glass-card {
-    background: oklch(from var(--card) l c h / 0.75);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  [data-slot="dialog-content"]::-webkit-scrollbar-thumb {
+    background: oklch(from var(--foreground) l c h / 0.10);
+    border-radius: 3px;
   }
-
-  .glass-header {
-    background: oklch(from var(--card) l c h / 0.60);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border-bottom: 1px solid oklch(from var(--border) l c h / 0.4);
+  [data-slot="dialog-content"]::-webkit-scrollbar-thumb:hover {
+    background: oklch(from var(--foreground) l c h / 0.20);
   }
-
-  /* Theme transitions */
-  .theme-transition {
-    transition: background 0.6s ease, border-color 0.6s ease, color 0.6s ease, opacity 0.6s ease;
+  [data-slot="dialog-content"] {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(from var(--foreground) l c h / 0.10) transparent;
   }
 }
 
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.96 0.005 240);
+  --foreground: oklch(0.18 0.02 240);
+
+  --card: oklch(0.98 0.002 240);
+  --card-foreground: oklch(0.18 0.02 240);
+
+  --popover: oklch(0.98 0.002 240);
+  --popover-foreground: oklch(0.18 0.02 240);
+
+  --primary: oklch(0.28 0.04 240);
+  --primary-foreground: oklch(0.98 0 0);
+
+  --secondary: oklch(0.92 0.01 240);
+  --secondary-foreground: oklch(0.28 0.04 240);
+
+  --muted: oklch(0.93 0.008 240);
+  --muted-foreground: oklch(0.45 0.02 240);
+
+  --accent: oklch(0.55 0.22 210);
+  --accent-foreground: oklch(0.98 0 0);
+
+  --success: oklch(0.55 0.18 140);
+  --success-foreground: oklch(0.98 0 0);
+
+  --destructive: oklch(0.52 0.24 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.86 0.008 240);
+  --input: oklch(0.88 0.005 240);
+  --ring: oklch(0.55 0.22 210);
+
+  --glass-blur: 40px;
+  --glass-opacity: 0.35;
+  --glass-tint: oklch(0.94 0.01 220);
+  --glass-backdrop-blur: blur(40px);
+  --glass-backdrop-saturate: saturate(1.4);
+  --glass-header-blur: blur(30px);
+  --glass-header-saturate: saturate(1.3);
+  --glass-toast-blur: blur(20px);
+  --glass-bg: oklch(0.96 0.005 220 / 0.55);
+  --glass-bg-end: oklch(1 0 0 / 0.45);
+  --glass-border-color: oklch(0.18 0.02 240 / 0.10);
+  --glass-shadow-1: oklch(0.18 0.02 240 / 0.06);
+  --glass-shadow-2: oklch(0.18 0.02 240 / 0.03);
+  --transition-duration: 0.4s;
+}
+
+:root[data-theme="light"] {
+  --background: oklch(0.98 0.003 240);
+  --foreground: oklch(0.15 0.02 240);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 240);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.02 240);
+
+  --primary: oklch(0.30 0.04 240);
+  --primary-foreground: oklch(0.98 0 0);
+
+  --secondary: oklch(0.95 0.005 240);
+  --secondary-foreground: oklch(0.25 0.03 240);
+
+  --muted: oklch(0.96 0.004 240);
+  --muted-foreground: oklch(0.40 0.02 240);
+
+  --accent: oklch(0.52 0.22 210);
+  --accent-foreground: oklch(0.98 0 0);
+
+  --success: oklch(0.50 0.18 140);
+  --success-foreground: oklch(0.98 0 0);
+
+  --destructive: oklch(0.50 0.24 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.90 0.005 240);
+  --input: oklch(0.92 0.003 240);
+  --ring: oklch(0.52 0.22 210);
+
+  --glass-blur: 44px;
+  --glass-opacity: 0.45;
+  --glass-tint: oklch(0.97 0.005 220);
+  --glass-backdrop-blur: blur(44px);
+  --glass-backdrop-saturate: saturate(1.2);
+  --glass-header-blur: blur(32px);
+  --glass-header-saturate: saturate(1.2);
+  --glass-toast-blur: blur(22px);
+  --glass-bg: oklch(0.98 0.003 220 / 0.65);
+  --glass-bg-end: oklch(1 0 0 / 0.55);
+  --glass-border-color: oklch(0.15 0.02 240 / 0.08);
+  --glass-shadow-1: oklch(0.15 0.02 240 / 0.05);
+  --glass-shadow-2: oklch(0.15 0.02 240 / 0.02);
+}
+
+:root[data-theme="day-classic"] {
+  --background: oklch(0.98 0.005 240);
+  --foreground: oklch(0.95 0.005 240);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.95 0.005 240);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.95 0.005 240);
+
+  --primary: oklch(0.28 0.04 240);
+  --primary-foreground: oklch(0.98 0 0);
+
+  --secondary: oklch(0.92 0.01 240);
+  --secondary-foreground: oklch(0.28 0.04 240);
+
+  --muted: oklch(0.94 0.01 240);
+  --muted-foreground: oklch(0.60 0.02 240);
+
+  --accent: oklch(0.65 0.20 210);
+  --accent-foreground: oklch(0.98 0 0);
+
+  --success: oklch(0.68 0.18 140);
+  --success-foreground: oklch(0.98 0 0);
+
+  --destructive: oklch(0.58 0.24 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.88 0.005 240);
+  --input: oklch(0.88 0.005 240);
+  --ring: oklch(0.65 0.20 210);
+
+  --glass-blur: 40px;
+  --glass-opacity: 0.25;
+  --glass-tint: oklch(0.75 0.08 220);
+  --glass-backdrop-blur: blur(40px);
+  --glass-backdrop-saturate: saturate(1.8);
+  --glass-header-blur: blur(30px);
+  --glass-header-saturate: saturate(1.6);
+  --glass-toast-blur: blur(20px);
+  --glass-bg: oklch(0.75 0.08 220 / 0.25);
+  --glass-bg-end: oklch(1 0 0 / 0.2);
+  --glass-border-color: oklch(0.95 0.005 240 / 0.12);
+  --glass-shadow-1: oklch(0.95 0.005 240 / 0.08);
+  --glass-shadow-2: oklch(0.95 0.005 240 / 0.04);
+}
+
+:root[data-theme="evening"] {
+  --background: oklch(0.25 0.04 250);
+  --foreground: oklch(0.82 0.015 250);
+
+  --card: oklch(0.30 0.04 250);
+  --card-foreground: oklch(0.82 0.015 250);
+
+  --muted: oklch(0.35 0.03 250);
+  --muted-foreground: oklch(0.65 0.02 250);
+
+  --glass-opacity: 0.32;
+  --glass-tint: oklch(0.35 0.12 240);
+  --glass-blur: 35px;
+  --glass-backdrop-blur: blur(35px);
+  --glass-bg: oklch(0.35 0.12 240 / 0.32);
+  --glass-bg-end: oklch(0.30 0.04 250 / 0.256);
+  --glass-border-color: oklch(0.82 0.015 250 / 0.12);
+  --glass-shadow-1: oklch(0.82 0.015 250 / 0.08);
+  --glass-shadow-2: oklch(0.82 0.015 250 / 0.04);
+}
+
+:root[data-theme="night"] {
+  --background: oklch(0.22 0.05 240);
+  --foreground: oklch(0.78 0.015 240);
+
+  --card: oklch(0.28 0.045 240);
+  --card-foreground: oklch(0.78 0.015 240);
+
+  --glass-opacity: 0.32;
+  --glass-tint: oklch(0.35 0.10 230);
+  --glass-backdrop-blur: blur(40px);
+  --glass-bg: oklch(0.35 0.10 230 / 0.32);
+  --glass-bg-end: oklch(0.28 0.045 240 / 0.256);
+  --glass-border-color: oklch(0.78 0.015 240 / 0.12);
+  --glass-shadow-1: oklch(0.78 0.015 240 / 0.08);
+  --glass-shadow-2: oklch(0.78 0.015 240 / 0.04);
+
+  /* Blue light reduction (individual functions to avoid Lightning CSS mangling) */
+  --night-filter-sepia: sepia(0.15);
+  --night-filter-saturate: saturate(0.9);
+  --night-filter-brightness: brightness(0.92);
+}
+
+:root[data-theme="sleep"] {
+  /* OLED black — true black background for maximum contrast & power saving */
+  --background: oklch(0.00 0 0);
+  --foreground: oklch(0.32 0.008 250);
+
+  --card: oklch(0.04 0.005 250);
+  --card-foreground: oklch(0.32 0.008 250);
+
+  --popover: oklch(0.04 0.005 250);
+  --popover-foreground: oklch(0.32 0.008 250);
+
+  --primary: oklch(0.20 0.02 250);
+  --primary-foreground: oklch(0.35 0.01 250);
+
+  --secondary: oklch(0.06 0.005 250);
+  --secondary-foreground: oklch(0.30 0.008 250);
+
+  --muted: oklch(0.06 0.005 250);
+  --muted-foreground: oklch(0.24 0.006 250);
+
+  --accent: oklch(0.30 0.06 250);
+  --accent-foreground: oklch(0.40 0.01 250);
+
+  --success: oklch(0.30 0.08 140);
+  --success-foreground: oklch(0.40 0.01 0);
+
+  --destructive: oklch(0.30 0.10 25);
+  --destructive-foreground: oklch(0.40 0.01 0);
+
+  --glass-blur: 12px;
+  --glass-opacity: 0.06;
+  --glass-tint: oklch(0.06 0.005 250);
+  --glass-backdrop-blur: blur(12px);
+  --glass-backdrop-saturate: saturate(1.0);
+  --glass-header-blur: blur(10px);
+  --glass-header-saturate: saturate(1.0);
+  --glass-bg: oklch(0.06 0.005 250 / 0.06);
+  --glass-bg-end: oklch(0.04 0.005 250 / 0.04);
+  --glass-border-color: oklch(0.20 0.005 250 / 0.08);
+  --glass-shadow-1: oklch(0 0 0 / 0.0);
+  --glass-shadow-2: oklch(0 0 0 / 0.0);
+
+  --border: oklch(0.10 0.005 250);
+  --input: oklch(0.08 0.005 250);
+  --ring: oklch(0.30 0.06 250);
+
+  --transition-duration: 0.6s;
+
+  /* Strong blue light reduction */
+  --night-filter-sepia: sepia(0.15);
+  --night-filter-saturate: saturate(0.6);
+  --night-filter-brightness: brightness(0.55);
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.33);
+  --radius-xl: calc(var(--radius) * 2);
+  --radius-2xl: calc(var(--radius) * 2.67);
+  --radius-full: 9999px;
+}
+
+.theme-transition {
+  transition: background-color var(--transition-duration) ease,
+              color var(--transition-duration) ease,
+              border-color var(--transition-duration) ease;
+}
+
+/* ─── OLED Sleep Mode overrides ─── */
+:root[data-theme="sleep"] .glass-card {
+  background: oklch(0.03 0.002 250 / 0.5) !important;
+  border-color: oklch(0.14 0.005 250 / 0.06) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="sleep"] .glass-header {
+  background: oklch(0.02 0.002 250 / 0.6) !important;
+  border-bottom-color: oklch(0.12 0.005 250 / 0.05) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="sleep"] .glass-toast {
+  background: oklch(0.04 0.003 250 / 0.9) !important;
+  border-color: oklch(0.14 0.005 250 / 0.1) !important;
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.4) !important;
+}
+
+:root[data-theme="sleep"] img:not([data-no-dim]) {
+  filter: brightness(0.35) saturate(0.3);
+  transition: filter 0.6s ease;
+}
+
+:root[data-theme="sleep"] .widget-enter {
+  animation: none;
+}
+
+/* ─── Light Mode glass overrides ─── */
+:root:not([data-theme]),
+:root[data-theme="day"] {
+  .glass-card {
+    background:
+      linear-gradient(
+        180deg,
+        oklch(1 0 0 / 0.5) 0%,
+        oklch(0.97 0.003 240 / 0.4) 100%
+      );
+    backdrop-filter: blur(40px) saturate(1.4);
+    border-color: oklch(0.18 0.02 240 / 0.08);
+    box-shadow:
+      0 4px 16px oklch(0.18 0.02 240 / 0.05),
+      0 1px 4px oklch(0.18 0.02 240 / 0.03);
+  }
+
+  .glass-header {
+    background: oklch(0.97 0.004 240 / 0.75);
+    backdrop-filter: blur(30px) saturate(1.3);
+    border-bottom-color: oklch(0.18 0.02 240 / 0.06);
+  }
+}
+
+:root[data-theme="light"] {
+  .glass-card {
+    background:
+      linear-gradient(
+        180deg,
+        oklch(1 0 0 / 0.65) 0%,
+        oklch(0.98 0.002 240 / 0.5) 100%
+      );
+    backdrop-filter: blur(44px) saturate(1.2);
+    border-color: oklch(0.15 0.02 240 / 0.06);
+    box-shadow:
+      0 4px 16px oklch(0.15 0.02 240 / 0.04),
+      0 1px 4px oklch(0.15 0.02 240 / 0.02);
+  }
+
+  .glass-header {
+    background: oklch(0.98 0.003 240 / 0.8);
+    backdrop-filter: blur(32px) saturate(1.2);
+    border-bottom-color: oklch(0.15 0.02 240 / 0.05);
+  }
+}
+
+/* ─── Light theme text readability ─── */
+/* Force dark text inside glass cards for light themes where widgets use hardcoded text-white */
+:root:not([data-theme]),
+:root[data-theme="day"],
+:root[data-theme="light"] {
+  .glass-card {
+    color: var(--card-foreground);
+
+    /* Override text-white utility classes with foreground color at various opacities */
+    [class*="text-white\\/"] {
+      color: color-mix(in oklch, var(--card-foreground), transparent calc(100% - var(--tw-text-opacity, 1) * 100%));
+    }
+    [class*="text-white"] {
+      --tw-text-opacity: 1;
+      color: oklch(from var(--card-foreground) l c h / var(--tw-text-opacity));
+    }
+    .text-white\\/90 { --tw-text-opacity: 0.9; }
+    .text-white\\/80 { --tw-text-opacity: 0.8; }
+    .text-white\\/70 { --tw-text-opacity: 0.7; }
+    .text-white\\/60 { --tw-text-opacity: 0.6; }
+    .text-white\\/50 { --tw-text-opacity: 0.5; }
+    .text-white\\/40 { --tw-text-opacity: 0.4; }
+    .text-white\\/30 { --tw-text-opacity: 0.3; }
+    .text-white\\/20 { --tw-text-opacity: 0.2; }
+
+    /* Same for bg-white utility classes */
+    [class*="bg-white\\/"] {
+      background-color: oklch(from var(--card-foreground) l c h / var(--tw-bg-opacity, 0.1));
+    }
+    .bg-white\\/5 { --tw-bg-opacity: 0.05; }
+    .bg-white\\/10 { --tw-bg-opacity: 0.1; }
+    .bg-white\\/15 { --tw-bg-opacity: 0.15; }
+  }
+}
+
+.glass-card {
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--foreground) l c h / 0.08) 0%,
+      transparent 38%
+    ),
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 55%,
+      oklch(from var(--card) l c h / 0.18) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid var(--glass-border-color);
+  box-shadow:
+    0 10px 30px var(--glass-shadow-1),
+    0 2px 8px var(--glass-shadow-2),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.10),
+    inset 0 -1px 0 var(--glass-shadow-2);
+}
+
+.widget-transparent .glass-card {
+  background: transparent !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.widget-transparent {
+  --glass-bg: transparent;
+  --glass-bg-end: transparent;
+  --glass-border-color: transparent;
+  --glass-shadow-1: transparent;
+  --glass-shadow-2: transparent;
+  --glass-backdrop-blur: none;
+  --glass-backdrop-saturate: none;
+}
+
+.widget-transparent,
+.widget-transparent * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.widget-transparent [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+[data-glass="off"] .glass-card,
+[data-glass="off"] .glass-header,
+[data-glass="off"] .glass-toast {
+  background: oklch(from var(--card) l c h / 0.82) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.08) !important;
+  box-shadow: none !important;
+}
+
+.glass-header {
+  background: linear-gradient(
+    180deg,
+    var(--glass-bg) 0%,
+    var(--glass-bg-end) 100%
+  );
+  backdrop-filter: var(--glass-header-blur) var(--glass-header-saturate);
+  border-bottom: 1px solid var(--glass-shadow-1);
+}
+
+.glass-toast {
+  background: oklch(from var(--card) l c h / 0.95) !important;
+  backdrop-filter: var(--glass-toast-blur) !important;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.15) !important;
+  box-shadow: 0 8px 32px oklch(from var(--foreground) l c h / 0.2) !important;
+  color: var(--foreground) !important;
+}
+
+.glass-toast-success {
+  background: oklch(from var(--success) l c h / 0.2) !important;
+  backdrop-filter: var(--glass-toast-blur) !important;
+  border: 1px solid var(--success) !important;
+  box-shadow: 0 8px 32px oklch(from var(--success) l c h / 0.3) !important;
+}
+
+.glass-toast-error {
+  background: oklch(from var(--destructive) l c h / 0.2) !important;
+  backdrop-filter: var(--glass-toast-blur) !important;
+  border: 1px solid var(--destructive) !important;
+  box-shadow: 0 8px 32px oklch(from var(--destructive) l c h / 0.3) !important;
+}
+
+.glass-toast-warning {
+  background: oklch(0.75 0.15 80 / 0.2) !important;
+  backdrop-filter: var(--glass-toast-blur) !important;
+  border: 1px solid oklch(0.75 0.15 80) !important;
+  box-shadow: 0 8px 32px oklch(0.75 0.15 80 / 0.3) !important;
+}
+
+.glass-toast-info {
+  background: oklch(from var(--accent) l c h / 0.2) !important;
+  backdrop-filter: var(--glass-toast-blur) !important;
+  border: 1px solid var(--accent) !important;
+  box-shadow: 0 8px 32px oklch(from var(--accent) l c h / 0.3) !important;
+}
+/* Blue light reduction for night modes — applied via App.tsx content wrapper, not body */
+
+/* Ensure smooth transitions for theme changes */
+body {
+  transition: filter var(--transition-duration) ease;
+}
+
+/* ─── GPU acceleration & performance hints ─── */
+.glass-card,
+.glass-header {
+  will-change: backdrop-filter, background;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* ─── Premium typography refinements ─── */
+@layer base {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+/* ─── Widget entrance animations ─── */
+@keyframes widget-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.widget-animate-in {
+  animation: widget-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.widget-animate-in:nth-child(1) { animation-delay: 0.02s; }
+.widget-animate-in:nth-child(2) { animation-delay: 0.04s; }
+.widget-animate-in:nth-child(3) { animation-delay: 0.06s; }
+.widget-animate-in:nth-child(4) { animation-delay: 0.08s; }
+.widget-animate-in:nth-child(5) { animation-delay: 0.10s; }
+.widget-animate-in:nth-child(6) { animation-delay: 0.12s; }
+.widget-animate-in:nth-child(7) { animation-delay: 0.14s; }
+.widget-animate-in:nth-child(8) { animation-delay: 0.16s; }
+.widget-animate-in:nth-child(9) { animation-delay: 0.18s; }
+.widget-animate-in:nth-child(10) { animation-delay: 0.20s; }
+
+/* ─── Refined glass-card hover states ─── */
+.glass-card-interactive {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s ease,
+              border-color 0.3s ease;
+}
+
+.glass-card-interactive:hover {
+  box-shadow:
+    0 14px 40px var(--glass-shadow-1),
+    0 4px 12px var(--glass-shadow-2),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.14),
+    inset 0 -1px 0 var(--glass-shadow-2);
+  border-color: oklch(from var(--foreground) l c h / 0.18);
+}
+
+/* ─── Universal press feedback for all interactive glass cards ─── */
+.glass-card[class*="cursor-pointer"] {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s ease,
+              border-color 0.3s ease,
+              background 0.3s ease;
+}
+
+.glass-card[class*="cursor-pointer"]:hover {
+  border-color: oklch(from var(--foreground) l c h / 0.16);
+}
+
+.glass-card[class*="cursor-pointer"]:active {
+  transform: scale(0.985);
+  transition-duration: 0.1s;
+}
+
+/* ─── Premium loading skeleton ─── */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-premium {
+  background: linear-gradient(
+    90deg,
+    oklch(from var(--foreground) l c h / 0.04) 0%,
+    oklch(from var(--foreground) l c h / 0.08) 40%,
+    oklch(from var(--foreground) l c h / 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+
+/* ─── Ambient glow for active entities ─── */
+.entity-glow {
+  position: relative;
+}
+
+.entity-glow::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    oklch(from var(--accent) l c h / 0.12) 0%,
+    transparent 70%
+  );
+}
+
+.entity-glow[data-active="true"]::after {
+  opacity: 1;
+}
+
+/* ─── Smooth page transitions ─── */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition-enter {
+  animation: page-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Premium separator lines ─── */
+.separator-gradient {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(from var(--foreground) l c h / 0.12) 20%,
+    oklch(from var(--foreground) l c h / 0.12) 80%,
+    transparent 100%
+  );
+}
+
+/* ─── Focus ring for accessibility ─── */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ─── Premium text selection ─── */
+::selection {
+  background: oklch(from var(--accent) l c h / 0.25);
+  color: var(--foreground);
+}
+
+/* ─── Widget glow aura for active entities ─── */
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.widget-glow-active {
+  position: relative;
+}
+
+.widget-glow-active::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse at 30% 50%,
+    oklch(from var(--accent) l c h / 0.08) 0%,
+    transparent 60%
+  );
+  animation: glow-breathe 4s ease-in-out infinite;
+}
+
+/* ─── Animated shimmer sweep on glass cards ─── */
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(200%) skewX(-15deg); }
+}
+
+.glass-card-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(from var(--foreground) l c h / 0.03) 45%,
+    oklch(from var(--foreground) l c h / 0.06) 50%,
+    oklch(from var(--foreground) l c h / 0.03) 55%,
+    transparent 100%
+  );
+  transform: translateX(-100%) skewX(-15deg);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass-card-shimmer:hover::after {
+  animation: shimmer-sweep 0.8s ease-out;
+}
+
+/* ─── Premium icon container with ring ─── */
+.icon-container-premium {
+  position: relative;
+}
+
+.icon-container-premium::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1.5px solid transparent;
+  pointer-events: none;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.icon-container-premium[data-active="true"]::after {
+  border-color: oklch(from var(--accent) l c h / 0.3);
+  box-shadow: 0 0 12px oklch(from var(--accent) l c h / 0.15);
+}
+
+/* ─── Status dot pulse ─── */
+@keyframes status-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.6); opacity: 0; }
+}
+
+.status-dot {
+  position: relative;
+}
+
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  animation: status-pulse 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ─── Greeting widget gradient text ─── */
+.text-gradient-greeting {
+  background: linear-gradient(
+    135deg,
+    var(--foreground) 0%,
+    oklch(from var(--accent) l c h / 0.9) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ─── Weather forecast card micro-glass ─── */
+.forecast-card {
+  background: oklch(from var(--foreground) l c h / 0.04);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-radius: 12px;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.forecast-card:hover {
+  background: oklch(from var(--foreground) l c h / 0.07);
+  border-color: oklch(from var(--foreground) l c h / 0.10);
+  transform: translateY(-1px);
+}
+
+/* ─── Value change flash ─── */
+@keyframes value-flash {
+  0% { opacity: 0.6; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.value-update {
+  animation: value-flash 0.3s ease-out;
+}
+
+/* ─── Ambient card glow for hero widgets ─── */
+.ambient-glow-card {
+  position: relative;
+}
+
+.ambient-glow-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background: radial-gradient(
+    ellipse at 20% 30%,
+    oklch(from var(--accent) l c h / 0.06) 0%,
+    transparent 50%
+  ),
+  radial-gradient(
+    ellipse at 80% 70%,
+    oklch(from var(--accent) l c h / 0.04) 0%,
+    transparent 50%
+  );
+  transition: opacity 0.5s ease;
+}
+
+.ambient-glow-card:hover::before {
+  opacity: 0.8;
+}
+
+/* ─── Connection overlay breathing ring ─── */
+@keyframes breathe-ring {
+  0%, 100% { transform: scale(1); opacity: 0.15; }
+  50% { transform: scale(1.3); opacity: 0.05; }
+}
+
+.breathe-ring {
+  animation: breathe-ring 3s ease-in-out infinite;
+}
+
+/* ─── Premium number display ─── */
+.number-display {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  font-feature-settings: 'tnum', 'cv02', 'cv03';
+}
+
+/* ─── Smooth state transition for widget icons ─── */
+.icon-container-premium {
+  transition: background-color 0.4s ease, color 0.4s ease, box-shadow 0.5s ease;
+}
+
+/* ─── Card style presets: ensure shimmer/glow still work on top ─── */
+[class*="card-style-"] .glass-card-shimmer::after {
+  z-index: 2;
+}
+
+[class*="card-style-"] .widget-glow-active::before {
+  z-index: 0;
+}
+
+/* ═══════════════════════════════════════════
+   Card Style Presets
+   Applied via wrapper class card-style-{id} → targets child .glass-card
+   ═══════════════════════════════════════════ */
+
+/* Subtle – lighter glass, softer presence */
+.card-style-subtle .glass-card {
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--foreground) l c h / 0.03) 0%,
+      transparent 40%
+    ),
+    oklch(from var(--card) l c h / 0.08);
+  backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  box-shadow:
+    0 2px 12px oklch(from var(--foreground) l c h / 0.03),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.04);
+}
+
+/* Solid – opaque, clean, modern */
+.card-style-solid .glass-card {
+  background: oklch(from var(--card) l c h / 0.88);
+  backdrop-filter: blur(4px);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  box-shadow:
+    0 1px 3px oklch(from var(--foreground) l c h / 0.04),
+    0 4px 16px oklch(from var(--foreground) l c h / 0.03);
+}
+
+/* Outline – clean wire-frame, transparent */
+.card-style-outline .glass-card {
+  background: oklch(from var(--foreground) l c h / 0.015);
+  backdrop-filter: blur(6px);
+  border: 1.5px solid oklch(from var(--foreground) l c h / 0.14);
+  box-shadow: none;
+}
+
+/* Neon – vibrant glowing accent edge */
+.card-style-neon .glass-card {
+  background:
+    linear-gradient(
+      160deg,
+      oklch(from var(--accent) l c h / 0.08) 0%,
+      oklch(from var(--accent) l c h / 0.02) 40%,
+      transparent 70%
+    );
+  backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid oklch(from var(--accent) l c h / 0.40);
+  box-shadow:
+    0 0 15px oklch(from var(--accent) l c h / 0.15),
+    0 0 40px oklch(from var(--accent) l c h / 0.06),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.12);
+}
+
+/* Minimal – ultra-clean, nearly invisible */
+.card-style-minimal .glass-card {
+  background: oklch(from var(--foreground) l c h / 0.015);
+  backdrop-filter: blur(6px);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+  box-shadow: none;
+}
+
+/* Elevated – floating card with depth */
+.card-style-elevated .glass-card {
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--foreground) l c h / 0.08) 0%,
+      transparent 25%
+    ),
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 55%,
+      oklch(from var(--card) l c h / 0.20) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.10);
+  box-shadow:
+    0 16px 48px oklch(from var(--foreground) l c h / 0.10),
+    0 6px 16px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.12);
+  transform: translateY(-2px);
+}
+
+/* Frosted – heavy frosted glass, milky */
+.card-style-frosted .glass-card {
+  background: oklch(from var(--card) l c h / 0.35);
+  backdrop-filter: blur(50px) saturate(1.8);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.10);
+  box-shadow:
+    0 6px 24px oklch(from var(--foreground) l c h / 0.06),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.12),
+    inset 0 -1px 0 oklch(from var(--foreground) l c h / 0.03);
+}
+
+/* Gradient – accent tinted gradient */
+.card-style-gradient .glass-card {
+  background:
+    linear-gradient(
+      135deg,
+      oklch(from var(--accent) l c h / 0.12) 0%,
+      oklch(from var(--accent) l c h / 0.04) 35%,
+      oklch(from var(--card) l c h / 0.15) 100%
+    );
+  backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid oklch(from var(--accent) l c h / 0.14);
+  box-shadow:
+    0 6px 20px oklch(from var(--accent) l c h / 0.07),
+    0 1px 4px oklch(from var(--foreground) l c h / 0.03),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.10);
+}
+
+/* Flat – modern flat design, no depth */
+.card-style-flat .glass-card {
+  background: oklch(from var(--card) l c h / 0.55);
+  backdrop-filter: none;
+  border: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  box-shadow: none;
+  border-radius: 16px;
+}
+
+/* Aurora – shimmering multi-tone accent */
+.card-style-aurora .glass-card {
+  background:
+    linear-gradient(
+      135deg,
+      oklch(from var(--accent) l c h / 0.10) 0%,
+      oklch(from var(--accent) calc(l + 0.08) calc(c * 0.7) calc(h + 35) / 0.08) 45%,
+      oklch(from var(--accent) calc(l - 0.05) c calc(h - 20) / 0.06) 100%
+    );
+  backdrop-filter: blur(32px) saturate(1.7);
+  border: 1px solid oklch(from var(--accent) l c h / 0.18);
+  box-shadow:
+    0 6px 20px oklch(from var(--accent) l c h / 0.08),
+    0 0 40px oklch(from var(--accent) l c h / 0.04),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.08);
+}
+
+/* Dark Glass – deep tinted glass */
+.card-style-dark-glass .glass-card {
+  background:
+    linear-gradient(
+      175deg,
+      oklch(0 0 0 / 0.20) 0%,
+      oklch(0 0 0 / 0.12) 100%
+    );
+  backdrop-filter: blur(36px) saturate(1.4) brightness(0.88);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.07);
+  box-shadow:
+    0 8px 24px oklch(0 0 0 / 0.12),
+    0 1px 4px oklch(0 0 0 / 0.08),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.05);
+}
+
+/* Metallic – brushed-metal shimmer */
+.card-style-metallic .glass-card {
+  background:
+    linear-gradient(
+      170deg,
+      oklch(from var(--foreground) l c h / 0.10) 0%,
+      oklch(from var(--foreground) l c h / 0.03) 25%,
+      oklch(from var(--foreground) l c h / 0.07) 55%,
+      oklch(from var(--foreground) l c h / 0.02) 100%
+    );
+  backdrop-filter: blur(28px) saturate(1.2);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.12);
+  box-shadow:
+    0 2px 12px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.18),
+    inset 0 -1px 0 oklch(from var(--foreground) l c h / 0.04);
+}
+
+/* Soft Glow – gentle ambient glow aura */
+.card-style-soft-glow .glass-card {
+  background:
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid oklch(from var(--accent) l c h / 0.10);
+  box-shadow:
+    0 0 24px oklch(from var(--accent) l c h / 0.10),
+    0 0 50px oklch(from var(--accent) l c h / 0.05),
+    0 6px 18px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.08);
+}
+
+/* Bordered – double-border elegant frame */
+.card-style-bordered .glass-card {
+  background:
+    linear-gradient(
+      165deg,
+      var(--glass-bg) 0%,
+      var(--glass-bg-end) 100%
+    );
+  backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+  border: 1px solid oklch(from var(--foreground) l c h / 0.14);
+  box-shadow:
+    0 0 0 4px oklch(from var(--foreground) l c h / 0.04),
+    0 6px 20px oklch(from var(--foreground) l c h / 0.05),
+    inset 0 1px 0 oklch(from var(--foreground) l c h / 0.08);
+}
+
+/* ─── Card style light-theme overrides ─── */
+/* Ensure all card styles look correct in day/light themes */
+:root:not([data-theme]),
+:root[data-theme="day"],
+:root[data-theme="light"] {
+  /* Solid – lighter, clean white-ish */
+  .card-style-solid .glass-card {
+    background: oklch(from var(--card) l c h / 0.82);
+    box-shadow:
+      0 1px 3px oklch(0.18 0.02 240 / 0.06),
+      0 4px 16px oklch(0.18 0.02 240 / 0.04);
+  }
+
+  /* Outline – soft border on light bg */
+  .card-style-outline .glass-card {
+    background: oklch(1 0 0 / 0.04);
+    border-color: oklch(0.18 0.02 240 / 0.12);
+  }
+
+  /* Neon – accent glow visible on light */
+  .card-style-neon .glass-card {
+    background:
+      linear-gradient(
+        160deg,
+        oklch(from var(--accent) l c h / 0.06) 0%,
+        oklch(from var(--accent) l c h / 0.02) 40%,
+        oklch(1 0 0 / 0.3) 70%
+      );
+    box-shadow:
+      0 0 15px oklch(from var(--accent) l c h / 0.12),
+      0 0 40px oklch(from var(--accent) l c h / 0.05),
+      inset 0 1px 0 oklch(from var(--accent) l c h / 0.10);
+  }
+
+  /* Elevated – subtle lift on white */
+  .card-style-elevated .glass-card {
+    box-shadow:
+      0 16px 48px oklch(0.18 0.02 240 / 0.08),
+      0 6px 16px oklch(0.18 0.02 240 / 0.04),
+      inset 0 1px 0 oklch(1 0 0 / 0.6);
+  }
+
+  /* Frosted – milky white */
+  .card-style-frosted .glass-card {
+    background: oklch(1 0 0 / 0.55);
+    box-shadow:
+      0 6px 24px oklch(0.18 0.02 240 / 0.05),
+      inset 0 1px 0 oklch(1 0 0 / 0.5),
+      inset 0 -1px 0 oklch(0.18 0.02 240 / 0.03);
+  }
+
+  /* Gradient – lighter accent tint */
+  .card-style-gradient .glass-card {
+    background:
+      linear-gradient(
+        135deg,
+        oklch(from var(--accent) l c h / 0.08) 0%,
+        oklch(from var(--accent) l c h / 0.03) 35%,
+        oklch(1 0 0 / 0.35) 100%
+      );
+    box-shadow:
+      0 6px 20px oklch(from var(--accent) l c h / 0.06),
+      0 1px 4px oklch(0.18 0.02 240 / 0.03),
+      inset 0 1px 0 oklch(1 0 0 / 0.4);
+  }
+
+  /* Flat – clean white surface */
+  .card-style-flat .glass-card {
+    background: oklch(1 0 0 / 0.65);
+    border-color: oklch(0.18 0.02 240 / 0.06);
+  }
+
+  /* Aurora – lighter shimmer */
+  .card-style-aurora .glass-card {
+    background:
+      linear-gradient(
+        135deg,
+        oklch(from var(--accent) l c h / 0.07) 0%,
+        oklch(from var(--accent) calc(l + 0.12) calc(c * 0.5) calc(h + 35) / 0.05) 45%,
+        oklch(1 0 0 / 0.35) 100%
+      );
+    box-shadow:
+      0 6px 20px oklch(from var(--accent) l c h / 0.06),
+      0 0 40px oklch(from var(--accent) l c h / 0.03),
+      inset 0 1px 0 oklch(1 0 0 / 0.4);
+  }
+
+  /* Dark Glass – inverted: light glass on light bg */
+  .card-style-dark-glass .glass-card {
+    background:
+      linear-gradient(
+        175deg,
+        oklch(1 0 0 / 0.5) 0%,
+        oklch(0.97 0.005 240 / 0.35) 100%
+      );
+    backdrop-filter: blur(36px) saturate(1.4) brightness(1.05);
+    border-color: oklch(0.18 0.02 240 / 0.08);
+    box-shadow:
+      0 8px 24px oklch(0.18 0.02 240 / 0.06),
+      0 1px 4px oklch(0.18 0.02 240 / 0.03),
+      inset 0 1px 0 oklch(1 0 0 / 0.5);
+  }
+
+  /* Metallic – light brushed metal */
+  .card-style-metallic .glass-card {
+    background:
+      linear-gradient(
+        170deg,
+        oklch(1 0 0 / 0.55) 0%,
+        oklch(0.96 0.005 240 / 0.4) 25%,
+        oklch(1 0 0 / 0.5) 55%,
+        oklch(0.97 0.003 240 / 0.35) 100%
+      );
+    border-color: oklch(0.18 0.02 240 / 0.10);
+    box-shadow:
+      0 2px 12px oklch(0.18 0.02 240 / 0.04),
+      inset 0 1px 0 oklch(1 0 0 / 0.6),
+      inset 0 -1px 0 oklch(0.18 0.02 240 / 0.04);
+  }
+
+  /* Soft Glow – softer glow on light */
+  .card-style-soft-glow .glass-card {
+    box-shadow:
+      0 0 24px oklch(from var(--accent) l c h / 0.08),
+      0 0 50px oklch(from var(--accent) l c h / 0.03),
+      0 6px 18px oklch(0.18 0.02 240 / 0.04),
+      inset 0 1px 0 oklch(1 0 0 / 0.4);
+  }
+
+  /* Bordered – elegant frame on light */
+  .card-style-bordered .glass-card {
+    border-color: oklch(0.18 0.02 240 / 0.12);
+    box-shadow:
+      0 0 0 4px oklch(0.18 0.02 240 / 0.04),
+      0 6px 20px oklch(0.18 0.02 240 / 0.04),
+      inset 0 1px 0 oklch(1 0 0 / 0.4);
+  }
+}
+
+/* ─── Font size settings ─── */
+.font-size-small { font-size: 13px; }
+.font-size-normal { font-size: 16px; }
+.font-size-large { font-size: 19px; }
+
+/* ─── Reduced animations ─── */
+.reduce-animations,
+.reduce-animations * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* ─── Compact widgets ─── */
+.compact-widgets .glass-card {
+  padding: 0.5rem !important;
+}
+.compact-widgets .glass-card-interactive {
+  padding: 0.5rem !important;
+}
