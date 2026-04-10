@@ -14,6 +14,11 @@ export interface AppConfig {
   auth_token: string;
   auth_username: string;
   auth_user_id: string;
+  ha_enabled: boolean;
+  ha_update_interval_secs: number;
+  autostart_enabled: boolean;
+  autostart_minimized: boolean;
+  autostart_hidden: boolean;
 }
 
 export interface Model {
