@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 fn default_iora_home_url() -> String {
-    "http://localhost:8080".to_string()
+    env!("IORA_HOME_URL_DEFAULT").to_string()
 }
 
 fn default_ha_update_interval() -> u64 {
-    60 // seconds
+    env!("HA_UPDATE_INTERVAL_DEFAULT").parse().unwrap_or(60)
 }
 
 fn default_true() -> bool {
@@ -74,13 +74,13 @@ impl Default for AppConfig {
         Self {
             client_id: Uuid::new_v4().to_string(),
             client_name: hostname(),
-            lm_studio_url: "http://localhost:1234".to_string(),
+            lm_studio_url: env!("LM_STUDIO_URL_DEFAULT").to_string(),
             lm_studio_api_key: String::new(),
             selected_model: String::new(),
-            iora_backend_url: "http://localhost:8092".to_string(),
+            iora_backend_url: env!("IORA_BACKEND_URL_DEFAULT").to_string(),
             auto_start_proxy: true,
-            proxy_port: 11435,
-            health_poll_interval_secs: 30,
+            proxy_port: env!("PROXY_PORT_DEFAULT").parse().unwrap_or(11435),
+            health_poll_interval_secs: env!("HEALTH_POLL_INTERVAL_DEFAULT").parse().unwrap_or(30),
             iora_home_url: default_iora_home_url(),
             auth_token: String::new(),
             auth_username: String::new(),

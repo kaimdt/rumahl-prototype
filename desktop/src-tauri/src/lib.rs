@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod autostart;
 pub mod commands;
 pub mod config;
 pub mod ha_commands;

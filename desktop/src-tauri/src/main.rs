@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
+mod autostart;
 mod commands;
 mod config;
 mod ha_commands;
@@ -56,21 +57,30 @@ fn main() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("settings") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                    match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } => {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("settings") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
+                        TrayIconEvent::Click {
+                            button: MouseButton::Right,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } => {
+                            // Right-click shows menu (handled automatically by Tauri)
+                        }
+                        _ => {}
                     }
                 })
                 .build(app)?;
@@ -204,6 +214,9 @@ fn main() {
             ha_commands::get_ha_entities,
             ha_commands::call_ha_service,
             ha_commands::execute_command,
+            autostart::set_autostart,
+            autostart::get_autostart_status,
+            autostart::set_autostart_options,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IORA Desktop");

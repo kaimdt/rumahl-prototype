@@ -33,7 +33,9 @@ export default function App() {
     ? `Zuletzt geprüft: ${lastChecked.toLocaleTimeString("de-DE")}`
     : "";
 
-  // Show a blank screen while checking for a persisted session
+  // Auth gate - Settings tab is always accessible, others require login
+  const requiresAuth = activeTab !== "settings";
+
   if (authLoading) {
     return (
       <div style={styles.splash}>
@@ -42,14 +44,16 @@ export default function App() {
     );
   }
 
-  // Auth gate
-  if (!user) {
+  // Only show login screen if not on settings tab and not logged in
+  if (!user && requiresAuth) {
     return <LoginScreen onLogin={login} error={authError} loading={authLoading} />;
   }
 
-  const initials = user.display_name
-    ? user.display_name.slice(0, 2).toUpperCase()
-    : user.username.slice(0, 2).toUpperCase();
+  const initials = user
+    ? (user.display_name
+        ? user.display_name.slice(0, 2).toUpperCase()
+        : user.username.slice(0, 2).toUpperCase())
+    : "??";
 
   return (
     <div style={styles.root}>
