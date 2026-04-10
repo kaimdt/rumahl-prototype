@@ -73,11 +73,12 @@ export function TitleBar({ title = "IORA Desktop" }: TitleBarProps) {
       </div>
 
       {/* Right side - Window controls */}
-      <div className="flex h-full" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+      <div className="flex h-full pointer-events-auto" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         <button
           onClick={handleMinimize}
-          className="w-12 h-full flex items-center justify-center hover:bg-foreground/5 transition-colors text-muted-foreground hover:text-foreground"
+          className="w-12 h-full flex items-center justify-center hover:bg-foreground/5 transition-colors text-muted-foreground hover:text-foreground pointer-events-auto"
           title="Minimize"
+          type="button"
         >
           <svg width="12" height="2" viewBox="0 0 12 2" fill="currentColor">
             <rect width="12" height="2" />
@@ -85,8 +86,9 @@ export function TitleBar({ title = "IORA Desktop" }: TitleBarProps) {
         </button>
         <button
           onClick={handleMaximize}
-          className="w-12 h-full flex items-center justify-center hover:bg-foreground/5 transition-colors text-muted-foreground hover:text-foreground"
+          className="w-12 h-full flex items-center justify-center hover:bg-foreground/5 transition-colors text-muted-foreground hover:text-foreground pointer-events-auto"
           title={isMaximized ? "Restore" : "Maximize"}
+          type="button"
         >
           {isMaximized ? (
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1">
@@ -101,8 +103,9 @@ export function TitleBar({ title = "IORA Desktop" }: TitleBarProps) {
         </button>
         <button
           onClick={handleClose}
-          className="w-12 h-full flex items-center justify-center hover:bg-destructive transition-colors text-muted-foreground hover:text-destructive-foreground"
+          className="w-12 h-full flex items-center justify-center hover:bg-destructive transition-colors text-muted-foreground hover:text-destructive-foreground pointer-events-auto"
           title="Close"
+          type="button"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M1 1L11 11M11 1L1 11" />

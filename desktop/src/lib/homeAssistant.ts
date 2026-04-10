@@ -1,7 +1,7 @@
 import type { EntityState } from '@/lib/types'
 import { wsSend } from '@/lib/wsConnection'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+const API_BASE = ''  // Use Vite proxy in dev, relative path in production
 
 class HomeAssistantService {
   private generateIntent(): string {

@@ -346,6 +346,8 @@ function DashboardContent() {
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
           <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">IORA</p>
         </div>
+        {/* Navigation menu to allow settings access */}
+        <NavigationMenu />
         <LoginModal open onOpenChange={() => {}} />
       </div>
     )
