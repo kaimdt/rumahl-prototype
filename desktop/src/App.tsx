@@ -39,10 +39,12 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div style={styles.splash}>
+      <div className="flex flex-col h-screen bg-background">
         <TitleBar />
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={styles.logoText}>IORA</span>
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            IORA
+          </span>
         </div>
       </div>
     );
@@ -65,36 +67,54 @@ export default function App() {
     : "??";
 
   return (
-    <div style={styles.root}>
+    <div className="flex flex-col h-screen bg-background text-foreground">
       {/* Custom Titlebar */}
       <TitleBar />
 
       {/* Header */}
-      <header style={styles.header}>
-        <div style={styles.logo}>
-          <span style={styles.logoText}>IORA</span>
-          <span style={styles.logoSub}>Desktop</span>
+      <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0 min-h-[52px]">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-lg font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            IORA
+          </span>
+          <span className="text-[11px] text-muted-foreground font-medium tracking-wider uppercase">
+            Desktop
+          </span>
         </div>
-        <div style={styles.headerRight}>
+        <div className="flex items-center gap-2">
           {clientInfo && (
-            <span style={styles.clientBadge} title={`Client-ID: ${clientInfo.client_id}`}>
+            <span
+              className="text-[11px] text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5 cursor-default"
+              title={`Client-ID: ${clientInfo.client_id}`}
+            >
               {clientInfo.client_name}
             </span>
           )}
           {user ? (
-            <div style={styles.userArea}>
-              <div style={styles.avatar} title={user.username}>
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-accent text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 cursor-default"
+                title={user.username}
+              >
                 {initials}
               </div>
-              <span style={styles.username}>{user.display_name ?? user.username}</span>
-              <button onClick={logout} style={styles.logoutBtn} title="Abmelden">
-                ✕
+              <span className="text-xs text-muted-foreground max-w-[80px] overflow-hidden text-ellipsis whitespace-nowrap">
+                {user.display_name ?? user.username}
+              </span>
+              <button
+                onClick={logout}
+                className="bg-transparent border-none text-muted-foreground hover:text-foreground cursor-pointer text-sm px-1 py-0.5 rounded leading-none transition-colors"
+                title="Abmelden"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M1 1L11 11M11 1L1 11" />
+                </svg>
               </button>
             </div>
           ) : (
             <button
               onClick={() => setActiveTab("ai")}
-              style={styles.loginPromptBtn}
+              className="px-3.5 py-1.5 rounded-md border border-border bg-primary text-primary-foreground text-sm font-semibold cursor-pointer hover:opacity-90 transition-opacity"
             >
               Anmelden
             </button>
@@ -107,14 +127,16 @@ export default function App() {
 
       {/* Error banner */}
       {error && activeTab === "ai" && (
-        <div style={styles.errorBanner}>⚠ {error}</div>
+        <div className="bg-destructive/10 border border-destructive text-destructive px-5 py-2 text-sm flex-shrink-0">
+          ⚠ {error}
+        </div>
       )}
 
       {/* Main content */}
-      <main style={styles.main}>
+      <main className="flex-1 overflow-y-auto p-5">
         {activeTab === "ai" && (
           <>
-            <div style={styles.connectionRow}>
+            <div className="mb-4">
               <ConnectionStatus status={status} loading={loading} />
             </div>
             {config ? (
@@ -126,7 +148,9 @@ export default function App() {
                 onLoadModels={loadModels}
               />
             ) : (
-              <div style={styles.loadingText}>Lade Einstellungen…</div>
+              <div className="text-center text-muted-foreground py-10">
+                Lade Einstellungen…
+              </div>
             )}
           </>
         )}
@@ -146,171 +170,22 @@ export default function App() {
 
       {/* Footer — only for AI tab */}
       {activeTab === "ai" && (
-        <footer style={styles.footer}>
-          <button onClick={testConnection} disabled={loading} style={styles.testBtn}>
+        <footer className="flex items-center justify-between px-4 py-2.5 border-t border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0">
+          <button
+            onClick={testConnection}
+            disabled={loading}
+            className="px-3.5 py-1.5 rounded-lg border border-border bg-transparent text-foreground cursor-pointer text-sm hover:bg-foreground/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
             {loading ? "Teste…" : "Verbindung testen"}
           </button>
-          <div style={styles.footerRight}>
+          <div className="flex items-center gap-3">
             {lastCheckedLabel && (
-              <span style={styles.lastChecked}>{lastCheckedLabel}</span>
+              <span className="text-[11px] text-muted-foreground">{lastCheckedLabel}</span>
             )}
-            <span style={styles.version}>v0.1.0</span>
+            <span className="text-xs text-muted-foreground">v0.1.0</span>
           </div>
         </footer>
       )}
     </div>
   );
 }
-
-const styles = {
-  root: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100vh",
-    background: "hsl(var(--background))",
-    color: "hsl(var(--foreground))",
-  } as React.CSSProperties,
-  splash: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100vh",
-    background: "hsl(var(--background))",
-  } as React.CSSProperties,
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "10px 16px",
-    borderBottom: "1px solid var(--color-border)",
-    background: "var(--color-surface)",
-    flexShrink: 0,
-    minHeight: "52px",
-  } as React.CSSProperties,
-  logo: { display: "flex", alignItems: "baseline", gap: "6px" } as React.CSSProperties,
-  logoText: {
-    fontSize: "18px",
-    fontWeight: 700,
-    background: "linear-gradient(135deg, #6366f1, #a855f7)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  } as React.CSSProperties,
-  logoSub: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-    fontWeight: 500,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase" as const,
-  } as React.CSSProperties,
-  headerRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  } as React.CSSProperties,
-  clientBadge: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-    background: "var(--color-bg)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "4px",
-    padding: "2px 7px",
-    cursor: "default",
-  } as React.CSSProperties,
-  userArea: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  } as React.CSSProperties,
-  avatar: {
-    width: "28px",
-    height: "28px",
-    borderRadius: "50%",
-    background: "linear-gradient(135deg, #6366f1, #a855f7)",
-    color: "white",
-    fontSize: "11px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    cursor: "default",
-  } as React.CSSProperties,
-  username: {
-    fontSize: "12px",
-    color: "var(--color-muted)",
-    maxWidth: "80px",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap" as const,
-  } as React.CSSProperties,
-  logoutBtn: {
-    background: "transparent",
-    border: "none",
-    color: "var(--color-muted)",
-    cursor: "pointer",
-    fontSize: "13px",
-    padding: "2px 4px",
-    borderRadius: "4px",
-    lineHeight: 1,
-    transition: "color 0.15s ease",
-  } as React.CSSProperties,
-  loginPromptBtn: {
-    padding: "6px 14px",
-    borderRadius: "calc(var(--radius) - 2px)",
-    border: "1px solid hsl(var(--border))",
-    background: "hsl(var(--primary))",
-    color: "hsl(var(--primary-foreground))",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "background 0.15s ease, opacity 0.15s ease",
-  } as React.CSSProperties,
-  connectionRow: {
-    marginBottom: "16px",
-  } as React.CSSProperties,
-  errorBanner: {
-    background: "rgba(239,68,68,0.1)",
-    border: "1px solid var(--color-error)",
-    color: "var(--color-error)",
-    padding: "8px 20px",
-    fontSize: "13px",
-    flexShrink: 0,
-  } as React.CSSProperties,
-  main: {
-    flex: 1,
-    overflowY: "auto" as const,
-    padding: "20px",
-  },
-  loadingText: {
-    textAlign: "center" as const,
-    color: "var(--color-muted)",
-    padding: "40px",
-  } as React.CSSProperties,
-  footer: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "10px 16px",
-    borderTop: "1px solid var(--color-border)",
-    background: "var(--color-surface)",
-    flexShrink: 0,
-  } as React.CSSProperties,
-  testBtn: {
-    padding: "7px 14px",
-    borderRadius: "var(--radius)",
-    border: "1px solid var(--color-border)",
-    background: "transparent",
-    color: "var(--color-text)",
-    cursor: "pointer",
-    fontSize: "13px",
-  } as React.CSSProperties,
-  footerRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-  } as React.CSSProperties,
-  lastChecked: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-  version: { fontSize: "12px", color: "var(--color-muted)" } as React.CSSProperties,
-};

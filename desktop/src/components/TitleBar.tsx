@@ -59,126 +59,54 @@ export function TitleBar({ title = "IORA Desktop" }: TitleBarProps) {
   return (
     <div
       data-tauri-drag-region
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        height: "32px",
-        background: "var(--color-surface)",
-        borderBottom: "1px solid var(--color-border)",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-        WebkitAppRegion: "drag",
-      } as React.CSSProperties}
+      className="flex items-center justify-between h-8 bg-background/60 backdrop-blur-xl border-b border-border/40 select-none"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       {/* Left side - Title */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          paddingLeft: "12px",
-          fontSize: "13px",
-          fontWeight: 500,
-          color: "var(--color-text)",
-        }}
-      >
-        <span
-          style={{
-            background: "linear-gradient(135deg, #6366f1, #a855f7)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            fontWeight: 700,
-          }}
-        >
+      <div className="flex items-center gap-2 px-3">
+        <span className="text-sm font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
           IORA
         </span>
-        <span style={{ color: "var(--color-muted)", fontSize: "12px" }}>
+        <span className="text-xs text-muted-foreground font-medium">
           {title}
         </span>
       </div>
 
       {/* Right side - Window controls */}
-      <div style={{ display: "flex", height: "100%" }}>
+      <div className="flex h-full" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         <button
           onClick={handleMinimize}
-          style={{
-            width: "46px",
-            height: "100%",
-            border: "none",
-            background: "transparent",
-            color: "var(--color-muted)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "16px",
-            transition: "background 0.15s",
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-          }}
+          className="w-12 h-full flex items-center justify-center hover:bg-foreground/5 transition-colors text-muted-foreground hover:text-foreground"
           title="Minimize"
         >
-          −
+          <svg width="12" height="2" viewBox="0 0 12 2" fill="currentColor">
+            <rect width="12" height="2" />
+          </svg>
         </button>
         <button
           onClick={handleMaximize}
-          style={{
-            width: "46px",
-            height: "100%",
-            border: "none",
-            background: "transparent",
-            color: "var(--color-muted)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "14px",
-            transition: "background 0.15s",
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-          }}
+          className="w-12 h-full flex items-center justify-center hover:bg-foreground/5 transition-colors text-muted-foreground hover:text-foreground"
           title={isMaximized ? "Restore" : "Maximize"}
         >
-          {isMaximized ? "❐" : "□"}
+          {isMaximized ? (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1">
+              <rect x="2" y="0" width="9" height="9" />
+              <rect x="0" y="2" width="9" height="9" />
+            </svg>
+          ) : (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1">
+              <rect width="11" height="11" />
+            </svg>
+          )}
         </button>
         <button
           onClick={handleClose}
-          style={{
-            width: "46px",
-            height: "100%",
-            border: "none",
-            background: "transparent",
-            color: "var(--color-muted)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "16px",
-            transition: "background 0.15s, color 0.15s",
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#ef4444";
-            e.currentTarget.style.color = "white";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "var(--color-muted)";
-          }}
+          className="w-12 h-full flex items-center justify-center hover:bg-destructive transition-colors text-muted-foreground hover:text-destructive-foreground"
           title="Close"
         >
-          ×
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M1 1L11 11M11 1L1 11" />
+          </svg>
         </button>
       </div>
     </div>

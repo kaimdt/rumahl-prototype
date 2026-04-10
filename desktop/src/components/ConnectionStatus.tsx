@@ -9,17 +9,23 @@ interface Props {
 export function ConnectionStatus({ status, loading }: Props) {
   if (loading) {
     return (
-      <div style={styles.container}>
-        <span style={styles.dot("warning")} />
-        <span style={styles.text}>Verbinde…</span>
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-yellow-500 shadow-[0_0_6px_rgb(234,179,8)]" />
+        <span className="text-sm text-muted-foreground">Verbinde…</span>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
-      <span style={styles.dot(status.connected ? "success" : "error")} />
-      <span style={styles.text}>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+      <span
+        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+          status.connected
+            ? "bg-green-500 shadow-[0_0_6px_rgb(34,197,94)]"
+            : "bg-red-500 shadow-[0_0_6px_rgb(239,68,68)]"
+        }`}
+      />
+      <span className="text-sm text-muted-foreground">
         {status.connected
           ? "Verbunden mit LM Studio"
           : status.error || "Nicht verbunden"}
@@ -27,39 +33,3 @@ export function ConnectionStatus({ status, loading }: Props) {
     </div>
   );
 }
-
-const styles = {
-  container: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "8px 12px",
-    borderRadius: "var(--radius)",
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-  } as React.CSSProperties,
-  dot: (color: "success" | "error" | "warning") =>
-    ({
-      width: "10px",
-      height: "10px",
-      borderRadius: "50%",
-      flexShrink: 0,
-      backgroundColor:
-        color === "success"
-          ? "var(--color-success)"
-          : color === "error"
-          ? "var(--color-error)"
-          : "var(--color-warning)",
-      boxShadow: `0 0 6px ${
-        color === "success"
-          ? "var(--color-success)"
-          : color === "error"
-          ? "var(--color-error)"
-          : "var(--color-warning)"
-      }`,
-    } as React.CSSProperties),
-  text: {
-    fontSize: "13px",
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-};

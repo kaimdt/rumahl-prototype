@@ -54,30 +54,32 @@ export function SettingsForm({
   };
 
   return (
-    <form onSubmit={handleSave} style={styles.form}>
+    <form onSubmit={handleSave} className="flex flex-col gap-6">
       {/* LM Studio section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>LM Studio</h2>
+      <section className="flex flex-col gap-3.5">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider pb-1.5 border-b border-border">
+          LM Studio
+        </h2>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Server URL</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">Server URL</label>
           <input
             type="url"
             value={form.lm_studio_url}
             onChange={field("lm_studio_url")}
             placeholder="http://localhost:1234"
-            style={styles.input}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-full outline-none"
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>API Key (optional)</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">API Key (optional)</label>
           <input
             type="password"
             value={form.lm_studio_api_key}
             onChange={field("lm_studio_api_key")}
             placeholder="Leer lassen, wenn nicht benötigt"
-            style={styles.input}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-full outline-none"
           />
         </div>
 
@@ -91,126 +93,134 @@ export function SettingsForm({
       </section>
 
       {/* IORA Backend section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>IORA Backend</h2>
+      <section className="flex flex-col gap-3.5">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider pb-1.5 border-b border-border">
+          IORA Backend
+        </h2>
 
-        <div style={styles.field}>
-          <label style={styles.label}>IORA Assist URL</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">IORA Assist URL</label>
           <input
             type="url"
             value={form.iora_backend_url}
             onChange={field("iora_backend_url")}
             placeholder="http://localhost:8092"
-            style={styles.input}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-full outline-none"
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>IORA Home URL</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">IORA Home URL</label>
           <input
             type="url"
             value={form.iora_home_url}
             onChange={field("iora_home_url")}
             placeholder="http://localhost:8080"
-            style={styles.input}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-full outline-none"
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Proxy Port</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">Proxy Port</label>
           <input
             type="number"
             value={form.proxy_port}
             onChange={field("proxy_port")}
             min={1024}
             max={65535}
-            style={{ ...styles.input, width: "120px" }}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-[120px] outline-none"
           />
         </div>
 
-        <div style={styles.checkboxField}>
+        <div className="flex items-center gap-2.5">
           <input
             id="auto_start"
             type="checkbox"
             checked={form.auto_start_proxy}
             onChange={field("auto_start_proxy")}
-            style={styles.checkbox}
+            className="w-4 h-4 accent-primary"
           />
-          <label htmlFor="auto_start" style={styles.checkboxLabel}>
+          <label htmlFor="auto_start" className="text-sm text-foreground cursor-pointer">
             Proxy beim Start automatisch aktivieren
           </label>
         </div>
       </section>
 
       {/* Client section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Dieser Client</h2>
+      <section className="flex flex-col gap-3.5">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider pb-1.5 border-b border-border">
+          Dieser Client
+        </h2>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Client-Name</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">Client-Name</label>
           <input
             type="text"
             value={form.client_name}
             onChange={field("client_name")}
             placeholder="z.B. Wohnzimmer-PC"
-            style={styles.input}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-full outline-none"
           />
-          <span style={styles.hint}>
+          <span className="text-[11px] text-muted-foreground">
             Anzeigename in IORA Assist (bei mehreren Clients)
           </span>
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Prüfintervall (Sekunden)</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-muted-foreground">Prüfintervall (Sekunden)</label>
           <input
             type="number"
             value={form.health_poll_interval_secs}
             onChange={field("health_poll_interval_secs")}
             min={5}
             max={300}
-            style={{ ...styles.input, width: "100px" }}
+            className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-[100px] outline-none"
           />
-          <span style={styles.hint}>
+          <span className="text-[11px] text-muted-foreground">
             Wie oft der Hintergrundprozess die Verbindung prüft
           </span>
         </div>
 
-        <div style={styles.readonlyField}>
-          <span style={styles.label}>Client-ID</span>
-          <code style={styles.clientId}>{form.client_id}</code>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-muted-foreground">Client-ID</span>
+          <code className="text-[11px] text-muted-foreground bg-background border border-border rounded px-2 py-1 select-all overflow-x-auto">
+            {form.client_id}
+          </code>
         </div>
       </section>
 
       {/* Home Assistant Integration section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Home Assistant Integration</h2>
+      <section className="flex flex-col gap-3.5">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider pb-1.5 border-b border-border">
+          Home Assistant Integration
+        </h2>
 
-        <div style={styles.checkboxField}>
+        <div className="flex items-center gap-2.5">
           <input
             id="ha_enabled"
             type="checkbox"
             checked={form.ha_enabled}
             onChange={field("ha_enabled")}
-            style={styles.checkbox}
+            className="w-4 h-4 accent-primary"
           />
-          <label htmlFor="ha_enabled" style={styles.checkboxLabel}>
+          <label htmlFor="ha_enabled" className="text-sm text-foreground cursor-pointer">
             Home Assistant Integration aktivieren
           </label>
         </div>
 
         {form.ha_enabled && (
           <>
-            <div style={styles.field}>
-              <label style={styles.label}>Metriken-Update-Intervall (Sekunden)</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-muted-foreground">Metriken-Update-Intervall (Sekunden)</label>
               <input
                 type="number"
                 value={form.ha_update_interval_secs}
                 onChange={field("ha_update_interval_secs")}
                 min={30}
                 max={300}
-                style={{ ...styles.input, width: "120px" }}
+                className="px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm w-[120px] outline-none"
               />
-              <span style={styles.hint}>
+              <span className="text-[11px] text-muted-foreground">
                 Wie oft System-Metriken an HA gesendet werden
               </span>
             </div>
@@ -219,46 +229,48 @@ export function SettingsForm({
       </section>
 
       {/* Autostart section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Autostart</h2>
+      <section className="flex flex-col gap-3.5">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider pb-1.5 border-b border-border">
+          Autostart
+        </h2>
 
-        <div style={styles.checkboxField}>
+        <div className="flex items-center gap-2.5">
           <input
             id="autostart_enabled"
             type="checkbox"
             checked={form.autostart_enabled}
             onChange={field("autostart_enabled")}
-            style={styles.checkbox}
+            className="w-4 h-4 accent-primary"
           />
-          <label htmlFor="autostart_enabled" style={styles.checkboxLabel}>
+          <label htmlFor="autostart_enabled" className="text-sm text-foreground cursor-pointer">
             Beim Systemstart automatisch starten
           </label>
         </div>
 
         {form.autostart_enabled && (
           <>
-            <div style={styles.checkboxField}>
+            <div className="flex items-center gap-2.5">
               <input
                 id="autostart_minimized"
                 type="checkbox"
                 checked={form.autostart_minimized}
                 onChange={field("autostart_minimized")}
-                style={styles.checkbox}
+                className="w-4 h-4 accent-primary"
               />
-              <label htmlFor="autostart_minimized" style={styles.checkboxLabel}>
+              <label htmlFor="autostart_minimized" className="text-sm text-foreground cursor-pointer">
                 Minimiert starten
               </label>
             </div>
 
-            <div style={styles.checkboxField}>
+            <div className="flex items-center gap-2.5">
               <input
                 id="autostart_hidden"
                 type="checkbox"
                 checked={form.autostart_hidden}
                 onChange={field("autostart_hidden")}
-                style={styles.checkbox}
+                className="w-4 h-4 accent-primary"
               />
-              <label htmlFor="autostart_hidden" style={styles.checkboxLabel}>
+              <label htmlFor="autostart_hidden" className="text-sm text-foreground cursor-pointer">
                 Nur im Tray starten (kein Fenster)
               </label>
             </div>
@@ -266,93 +278,13 @@ export function SettingsForm({
         )}
       </section>
 
-      <button type="submit" disabled={saving} style={styles.saveBtn}>
+      <button
+        type="submit"
+        disabled={saving}
+        className="px-5 py-2.5 rounded-lg border-none bg-primary text-white text-sm font-semibold cursor-pointer hover:opacity-90 transition-opacity self-end disabled:opacity-60 disabled:cursor-not-allowed"
+      >
         {saving ? "Speichern…" : saved ? "✓ Gespeichert" : "Einstellungen speichern"}
       </button>
     </form>
   );
 }
-
-const styles = {
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "24px",
-  } as React.CSSProperties,
-  section: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  } as React.CSSProperties,
-  sectionTitle: {
-    fontSize: "14px",
-    fontWeight: 600,
-    color: "var(--color-primary)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-    paddingBottom: "6px",
-    borderBottom: "1px solid var(--color-border)",
-  } as React.CSSProperties,
-  field: { display: "flex", flexDirection: "column", gap: "5px" } as React.CSSProperties,
-  label: {
-    fontSize: "13px",
-    fontWeight: 500,
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-  input: {
-    padding: "8px 12px",
-    borderRadius: "var(--radius)",
-    border: "1px solid var(--color-border)",
-    background: "var(--color-surface)",
-    color: "var(--color-text)",
-    fontSize: "14px",
-    width: "100%",
-    outline: "none",
-  } as React.CSSProperties,
-  hint: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-  checkboxField: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  } as React.CSSProperties,
-  checkbox: {
-    width: "16px",
-    height: "16px",
-    accentColor: "var(--color-primary)",
-  } as React.CSSProperties,
-  checkboxLabel: {
-    fontSize: "14px",
-    color: "var(--color-text)",
-    cursor: "pointer",
-  } as React.CSSProperties,
-  readonlyField: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  } as React.CSSProperties,
-  clientId: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-    background: "var(--color-bg)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "4px",
-    padding: "4px 8px",
-    userSelect: "all" as const,
-    overflowX: "auto" as const,
-  } as React.CSSProperties,
-  saveBtn: {
-    padding: "10px 20px",
-    borderRadius: "var(--radius)",
-    border: "none",
-    background: "var(--color-primary)",
-    color: "white",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "background 0.2s",
-    alignSelf: "flex-end",
-  } as React.CSSProperties,
-};
