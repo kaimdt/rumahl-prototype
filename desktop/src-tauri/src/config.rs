@@ -9,6 +9,18 @@ fn default_iora_home_url() -> String {
     "http://localhost:8080".to_string()
 }
 
+fn default_ha_url() -> String {
+    "http://localhost:8123".to_string()
+}
+
+fn default_ha_update_interval() -> u64 {
+    60 // seconds
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Unique identifier for this desktop client instance (used for multi-client routing)
@@ -41,6 +53,27 @@ pub struct AppConfig {
     /// User ID
     #[serde(default)]
     pub auth_user_id: String,
+    /// Home Assistant URL
+    #[serde(default = "default_ha_url")]
+    pub ha_url: String,
+    /// Home Assistant Long-Lived Access Token
+    #[serde(default)]
+    pub ha_token: String,
+    /// Enable Home Assistant integration
+    #[serde(default)]
+    pub ha_enabled: bool,
+    /// Update interval for sending metrics to HA (seconds)
+    #[serde(default = "default_ha_update_interval")]
+    pub ha_update_interval_secs: u64,
+    /// Start on system boot
+    #[serde(default)]
+    pub autostart_enabled: bool,
+    /// Start minimized to tray
+    #[serde(default)]
+    pub autostart_minimized: bool,
+    /// Start hidden (tray only, no window)
+    #[serde(default = "default_true")]
+    pub autostart_hidden: bool,
 }
 
 impl Default for AppConfig {
@@ -59,6 +92,13 @@ impl Default for AppConfig {
             auth_token: String::new(),
             auth_username: String::new(),
             auth_user_id: String::new(),
+            ha_url: default_ha_url(),
+            ha_token: String::new(),
+            ha_enabled: false,
+            ha_update_interval_secs: default_ha_update_interval(),
+            autostart_enabled: false,
+            autostart_minimized: false,
+            autostart_hidden: true,
         }
     }
 }

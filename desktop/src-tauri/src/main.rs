@@ -4,12 +4,18 @@
 mod auth;
 mod commands;
 mod config;
+mod ha_commands;
+mod ha_integration;
 mod iora_home;
 mod lm_studio;
+mod system_commands;
+mod system_info;
 
 use commands::AppState;
+use ha_integration::{HaClient, HaConfig};
 use lm_studio::LmStudioClient;
 use std::sync::atomic::Ordering;
+use system_info::collect_metrics;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -124,6 +130,50 @@ fn main() {
                 }
             });
 
+            // ── Home Assistant metrics reporter ───────────────────────────────
+            // Periodically sends system metrics to Home Assistant
+            let app_handle_ha = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                loop {
+                    let (ha_url, ha_token, device_name, update_interval, enabled) = {
+                        let state = app_handle_ha.state::<AppState>();
+                        let cfg = state.config.lock().await.clone();
+                        (
+                            cfg.ha_url.clone(),
+                            cfg.ha_token.clone(),
+                            cfg.client_name.clone(),
+                            cfg.ha_update_interval_secs,
+                            cfg.ha_enabled,
+                        )
+                    };
+
+                    if enabled && !ha_token.is_empty() {
+                        let ha_config = HaConfig {
+                            url: ha_url,
+                            token: ha_token,
+                            device_name,
+                            update_interval_secs: update_interval,
+                            enabled: true,
+                        };
+
+                        if let Ok(metrics) = collect_metrics() {
+                            let client = HaClient::new(ha_config);
+                            if let Err(e) = client.send_metrics(&metrics).await {
+                                tracing::warn!("Failed to send metrics to HA: {}", e);
+                            } else {
+                                tracing::debug!("Successfully sent metrics to Home Assistant");
+                            }
+                        }
+                    }
+
+                    let mut ticker = interval(Duration::from_secs(update_interval.max(30)));
+                    ticker.tick().await;
+                    ticker.tick().await;
+                }
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -148,6 +198,12 @@ fn main() {
             auth::get_current_user,
             iora_home::ping_iora_home,
             iora_home::get_iora_home_status,
+            ha_commands::test_ha_connection,
+            ha_commands::get_system_metrics,
+            ha_commands::send_metrics_to_ha,
+            ha_commands::get_ha_entities,
+            ha_commands::call_ha_service,
+            ha_commands::execute_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IORA Desktop");
