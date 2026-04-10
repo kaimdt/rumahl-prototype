@@ -443,4 +443,26 @@ impl HomeAssistantClient {
 
         response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
+
+    /// Set entity state directly (POST /api/states/<entity_id>)
+    /// Used by desktop client gateway to update sensor values
+    pub async fn set_state(&self, entity_id: &str, state_data: Value) -> Result<()> {
+        let url = format!("{}/api/states/{}", self.base_url, entity_id);
+        let response = self
+            .cmd_client
+            .post(&url)
+            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(&state_data)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(HAClientError::UpstreamStatus { status, body });
+        }
+
+        Ok(())
+    }
 }

@@ -38,6 +38,7 @@ mod homekit_client;
 mod streaming;
 mod person_tracker;
 mod location_sync;
+mod desktop_gateway;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -288,6 +289,12 @@ impl IntoResponse for ErrorResponse {
         api_doc_sse_event_stream,
         api_doc_sse_system_stream,
         api_doc_realtime_ws,
+        // Desktop gateway endpoints
+        desktop_gateway::register_desktop,
+        desktop_gateway::receive_metrics,
+        desktop_gateway::get_entities,
+        desktop_gateway::call_service,
+        desktop_gateway::queue_command,
     ),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -309,6 +316,7 @@ impl IntoResponse for ErrorResponse {
         (name = "webhooks", description = "Webhook management – register outgoing webhooks for event delivery with HMAC-SHA256 signatures"),
         (name = "realtime", description = "Realtime API – SSE event streams and Socket.IO-style namespace WebSocket"),
         (name = "streaming", description = "Streaming server – create and manage live video streams for IORA dashboard"),
+        (name = "desktop", description = "Desktop Client Gateway – secure proxy for IORA Desktop clients to interact with Home Assistant"),
     ),
     modifiers(&SecurityAddon),
     security(
@@ -727,6 +735,16 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
         .with_state(state.clone());
 
+    // Desktop gateway routes (secure proxy for desktop clients)
+    let desktop_routes = Router::new()
+        .route("/api/desktop/register", post(desktop_gateway::register_desktop))
+        .route("/api/desktop/metrics", post(desktop_gateway::receive_metrics))
+        .route("/api/desktop/entities", get(desktop_gateway::get_entities))
+        .route("/api/desktop/service/call", post(desktop_gateway::call_service))
+        .route("/api/desktop/command/execute", post(desktop_gateway::queue_command))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
+        .with_state(state.clone());
+
     // Protected data routes (JWT or API key required)
     let data_routes = Router::new()
         // Home Assistant API proxy
@@ -875,6 +893,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(admin_routes)
         // Merge authenticated routes (API keys)
         .merge(auth_routes)
+        // Merge desktop gateway routes (secure proxy for desktop clients)
+        .merge(desktop_routes)
         // Serve frontend static assets (JS, CSS, etc.) — immutable because filenames are hashed
         .nest_service("/assets",
             ServeDir::new("../dist/assets").precompressed_gzip()
