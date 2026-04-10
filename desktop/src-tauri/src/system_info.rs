@@ -40,12 +40,12 @@ pub fn collect_metrics() -> Result<SystemMetrics> {
     );
 
     // Need to refresh twice for accurate CPU usage
-    sys.refresh_cpu_all();
+    sys.refresh_cpu();
     std::thread::sleep(std::time::Duration::from_millis(200));
-    sys.refresh_cpu_all();
+    sys.refresh_cpu();
     sys.refresh_memory();
 
-    let cpu_usage = sys.global_cpu_usage();
+    let cpu_usage = sys.global_cpu_info().cpu_usage();
     let cpu_temp = get_cpu_temperature(&sys);
 
     let memory_total_gb = bytes_to_gb(sys.total_memory());
