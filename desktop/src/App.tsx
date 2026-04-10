@@ -5,12 +5,16 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { SettingsForm } from "./components/SettingsForm";
 import { LoginScreen } from "./components/LoginScreen";
 import { IoraHomePanel } from "./components/IoraHomePanel";
-import { TabBar, type TabId } from "./components/TabBar";
+import { DesktopNavigation, type NavId } from "./components/DesktopNavigation";
 import { TitleBar } from "./components/TitleBar";
+import { motion } from "framer-motion";
+
+const DEFAULT_BACKGROUND_URL = "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1920&q=80";
 
 export default function App() {
   const { user, loading: authLoading, error: authError, login, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>("settings"); // Default to settings
+  const [activeTab, setActiveTab] = useState<NavId>("settings");
+  const [sleepMode, setSleepMode] = useState(false);
 
   const {
     config,
@@ -42,9 +46,13 @@ export default function App() {
       <div className="flex flex-col h-screen bg-background">
         <TitleBar />
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-            IORA
-          </span>
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            className="text-accent"
+          >
+            <span className="text-3xl">⟳</span>
+          </motion.div>
         </div>
       </div>
     );
@@ -67,79 +75,116 @@ export default function App() {
     : "??";
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground">
-      {/* Custom Titlebar */}
+    <div className={`min-h-screen relative theme-transition overflow-hidden${sleepMode ? ' sleep-mode' : ''}`}>
       <TitleBar />
 
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0 min-h-[52px]">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-lg font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-            IORA
-          </span>
-          <span className="text-[11px] text-muted-foreground font-medium tracking-wider uppercase">
-            Desktop
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {clientInfo && (
-            <span
-              className="text-[11px] text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5 cursor-default"
-              title={`Client-ID: ${clientInfo.client_id}`}
-            >
-              {clientInfo.client_name}
-            </span>
-          )}
-          {user ? (
-            <div className="flex items-center gap-1.5">
-              <div
-                className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-accent text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 cursor-default"
-                title={user.username}
-              >
-                {initials}
-              </div>
-              <span className="text-xs text-muted-foreground max-w-[80px] overflow-hidden text-ellipsis whitespace-nowrap">
-                {user.display_name ?? user.username}
+      {/* Background */}
+      <div
+        className="fixed inset-0 bg-cover bg-center bg-no-repeat theme-transition z-0 pointer-events-none"
+        style={{
+          backgroundImage: `url('${DEFAULT_BACKGROUND_URL}')`,
+          backgroundAttachment: 'fixed',
+          filter: sleepMode
+            ? 'brightness(0.02) grayscale(1) saturate(0)'
+            : 'brightness(0.75)',
+          opacity: sleepMode ? 0.15 : 1,
+        }}
+      />
+
+      {/* Gradient overlay */}
+      <div
+        className="fixed inset-0 z-10 pointer-events-none"
+        style={{
+          background: sleepMode
+            ? 'black'
+            : 'linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.2), rgba(0,0,0,0.6))',
+          opacity: sleepMode ? 0.92 : 1,
+          transition: 'opacity 0.6s ease, background 0.6s ease',
+        }}
+      />
+
+      <div
+        className="relative z-20"
+        style={{
+          filter: sleepMode ? 'saturate(0.25) brightness(0.65)' : 'none',
+          transition: 'filter 0.6s ease',
+        }}
+      >
+        {/* Header */}
+        <header className="glass-header theme-transition">
+          <div className="max-w-[1500px] mx-auto px-4 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
+              <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
+              <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25">
+                Desktop
               </span>
-              <button
-                onClick={logout}
-                className="bg-transparent border-none text-muted-foreground hover:text-foreground cursor-pointer text-sm px-1 py-0.5 rounded leading-none transition-colors"
-                title="Abmelden"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M1 1L11 11M11 1L1 11" />
-                </svg>
-              </button>
             </div>
-          ) : (
-            <button
-              onClick={() => setActiveTab("ai")}
-              className="px-3.5 py-1.5 rounded-md border border-border bg-primary text-primary-foreground text-sm font-semibold cursor-pointer hover:opacity-90 transition-opacity"
+            <div className="flex items-center gap-4">
+              {clientInfo && (
+                <span className="text-[11px] text-foreground/40 font-light tracking-wider">
+                  {clientInfo.client_name}
+                </span>
+              )}
+              {user && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-accent text-white text-[11px] font-bold flex items-center justify-center"
+                    title={user.username}
+                  >
+                    {initials}
+                  </div>
+                  <span className="text-xs text-foreground/60">{user.display_name ?? user.username}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Main content */}
+        <main className="max-w-[1500px] mx-auto px-4 pt-6 pb-32">
+          {activeTab === "ai" && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
             >
-              Anmelden
-            </button>
+              <div className="mb-4">
+                <ConnectionStatus status={status} loading={loading} />
+              </div>
+              {config ? (
+                <SettingsForm
+                  config={config}
+                  models={models}
+                  modelsLoading={modelsLoading}
+                  onSave={saveConfig}
+                  onLoadModels={loadModels}
+                />
+              ) : (
+                <div className="text-center text-muted-foreground py-10">
+                  Lade Einstellungen…
+                </div>
+              )}
+            </motion.div>
           )}
-        </div>
-      </header>
 
-      {/* Tab bar */}
-      <TabBar active={activeTab} onChange={setActiveTab} />
+          {activeTab === "iora-home" && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <IoraHomePanel />
+            </motion.div>
+          )}
 
-      {/* Error banner */}
-      {error && activeTab === "ai" && (
-        <div className="bg-destructive/10 border border-destructive text-destructive px-5 py-2 text-sm flex-shrink-0">
-          ⚠ {error}
-        </div>
-      )}
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto p-5">
-        {activeTab === "ai" && (
-          <>
-            <div className="mb-4">
-              <ConnectionStatus status={status} loading={loading} />
-            </div>
-            {config ? (
+          {activeTab === "settings" && config && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
               <SettingsForm
                 config={config}
                 models={models}
@@ -147,45 +192,20 @@ export default function App() {
                 onSave={saveConfig}
                 onLoadModels={loadModels}
               />
-            ) : (
-              <div className="text-center text-muted-foreground py-10">
-                Lade Einstellungen…
-              </div>
-            )}
-          </>
-        )}
+            </motion.div>
+          )}
+        </main>
+      </div>
 
-        {activeTab === "iora-home" && <IoraHomePanel />}
-
-        {activeTab === "settings" && config && (
-          <SettingsForm
-            config={config}
-            models={models}
-            modelsLoading={modelsLoading}
-            onSave={saveConfig}
-            onLoadModels={loadModels}
-          />
-        )}
-      </main>
-
-      {/* Footer — only for AI tab */}
-      {activeTab === "ai" && (
-        <footer className="flex items-center justify-between px-4 py-2.5 border-t border-border/40 bg-card/60 backdrop-blur-xl flex-shrink-0">
-          <button
-            onClick={testConnection}
-            disabled={loading}
-            className="px-3.5 py-1.5 rounded-lg border border-border bg-transparent text-foreground cursor-pointer text-sm hover:bg-foreground/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? "Teste…" : "Verbindung testen"}
-          </button>
-          <div className="flex items-center gap-3">
-            {lastCheckedLabel && (
-              <span className="text-[11px] text-muted-foreground">{lastCheckedLabel}</span>
-            )}
-            <span className="text-xs text-muted-foreground">v0.1.0</span>
-          </div>
-        </footer>
-      )}
+      {/* Bottom Navigation */}
+      <DesktopNavigation
+        active={activeTab}
+        onChange={setActiveTab}
+        sleepMode={sleepMode}
+        onSleepModeToggle={() => setSleepMode(!sleepMode)}
+        user={user}
+        onUserClick={logout}
+      />
     </div>
   );
 }
