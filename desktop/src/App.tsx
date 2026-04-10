@@ -6,6 +6,7 @@ import { SettingsForm } from "./components/SettingsForm";
 import { LoginScreen } from "./components/LoginScreen";
 import { IoraHomePanel } from "./components/IoraHomePanel";
 import { TabBar, type TabId } from "./components/TabBar";
+import { TitleBar } from "./components/TitleBar";
 
 export default function App() {
   const { user, loading: authLoading, error: authError, login, logout } = useAuth();
@@ -57,6 +58,9 @@ export default function App() {
 
   return (
     <div style={styles.root}>
+      {/* Custom Titlebar */}
+      <TitleBar />
+
       {/* Header */}
       <header style={styles.header}>
         <div style={styles.logo}>
