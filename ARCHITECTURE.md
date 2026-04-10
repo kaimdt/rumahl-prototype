@@ -59,6 +59,7 @@ backend/
 ├── iora-secrets/       ← Encrypted secrets storage (port 8093)
 ├── iora-watchdog/      ← Health monitoring and failover (port 8094)
 ├── iora-security/      ← Security monitoring and PostgreSQL management (port 8095)
+├── iora-gateway/       ← Sandboxed external integration gateway (port 8096)
 └── iora-installer/     ← Installation and update management (CLI)
 ```
 
@@ -406,6 +407,126 @@ PORT=8095
 - Fail-secure: locks down on suspicious activity
 - Comprehensive audit trail for forensics
 
+### `iora-gateway` – Sandboxed External Integration Gateway (port 8096)
+
+**Secure gateway for external integrations** - Provides sandboxed access to email sending, web search,
+and HTTP data retrieval with comprehensive content validation, malware detection, and AI request monitoring.
+
+**Responsibilities:**
+- Email sending with content validation and sanitization
+- Web search integration (placeholder for external APIs)
+- HTTP GET requests with response validation
+- Update integrity verification (SHA256 checksums)
+- Code execution detection and prevention
+- AI request logging and monitoring
+- Rate limiting per service
+- Sandboxed execution with timeout protection
+
+**Key endpoints:**
+```
+GET  /health
+POST /api/gateway/email                ← Send email with validation
+POST /api/gateway/search               ← Web search (external API)
+POST /api/gateway/http/get             ← HTTP GET with sanitization
+POST /api/gateway/verify-update        ← Update checksum verification
+GET  /api/gateway/requests             ← Request log
+GET  /api/gateway/ai-requests          ← AI request monitoring
+```
+
+**Content Validation System:**
+- **JavaScript Detection:** Detects `<script>` tags, `javascript:` URLs, event handlers, `eval()`, `setTimeout()`, `setInterval()`
+- **SQL Injection Detection:** UNION/SELECT patterns, comment markers (--), equality checks
+- **Shell Command Detection:** Command separators (`;`, `&`, `|`), command substitution (`$(...)`, backticks), variable expansion
+- **Path Traversal Detection:** `../` and `..\` patterns
+- **Threat Scoring:** 0-10 scale based on findings
+- **HTML Sanitization:** Uses ammonia for safe HTML cleaning
+
+**Sandbox Execution:**
+- Process isolation wrapper for all external operations
+- Configurable timeout protection (default: 30 seconds)
+- All sandbox executions logged with PID, duration, exit code
+- Timeout detection and cleanup
+
+**Email Capabilities:**
+- SMTP integration via lettre (tokio1-rustls-tls)
+- Content validation before sending
+- HTML sanitization of email bodies
+- Configurable SMTP server, username, password
+- All emails logged with request ID
+
+**Web Search:**
+- Placeholder for external search API integration
+- Designed for DuckDuckGo, Google Custom Search, or SearX
+- Query logging and validation
+- Result content validation
+
+**HTTP GET Features:**
+- Custom headers support
+- Response content validation
+- HTML sanitization before returning
+- URL whitelist support
+- Timeout protection
+
+**Update Integrity Verification:**
+- SHA256 checksum verification
+- Package download and hash calculation
+- Supports custom checksum types
+- All verifications logged
+- Prevents supply chain attacks
+
+**Rate Limiting:**
+- Per-service rate limiting
+- Default: 100 requests/hour, 1000 requests/day
+- Configurable via environment variables
+- Tracked in SQLite database
+
+**AI Request Monitoring:**
+- Dedicated logging for all AI-initiated requests
+- Tracks service name, request type, destination
+- Threat level tracking
+- Used for AI behavior analysis
+
+**SQLite Database:**
+- Location: Configured via `GATEWAY_DB_PATH`
+- Tables:
+  - `gateway_requests`: All external request tracking
+  - `content_validations`: Security validation results
+  - `sandbox_executions`: Sandboxed process tracking
+  - `blocked_content`: Blocked malicious content log
+  - `ai_request_log`: AI tool usage monitoring
+  - `url_whitelist`: Allowed domains/URLs
+  - `update_verifications`: Package update integrity checks
+  - `rate_limits`: Service-level rate limiting
+
+**Environment Configuration:**
+```env
+GATEWAY_DB_PATH=/var/lib/iora/gateway.db
+SMTP_SERVER=smtp.example.com:587
+SMTP_USERNAME=noreply@example.com
+SMTP_PASSWORD=<secure-password>
+ENABLE_SANDBOXING=true
+ALLOWED_DOMAINS=example.com,api.trusted.com
+REQUEST_TIMEOUT_SECS=30
+MAX_REQUEST_SIZE=1048576              # 1MB default
+PORT=8096
+```
+
+**Security Features:**
+- All external content validated for malicious patterns
+- Responses sanitized before returning to caller
+- Sandbox execution with process isolation
+- Rate limiting prevents abuse
+- Threat level scoring (0-10)
+- Auto-blocking of unsafe content
+- Update integrity verification with SHA256
+- AI request monitoring and analysis
+
+**Integration:**
+- Available to `iora-assist` for AI tool usage
+- Monitored by `iora-watchdog` for health
+- Uses `iora-security` for threat intelligence
+- Logs critical events to security system
+
 ---
 
 ## Plugin System
@@ -632,6 +753,7 @@ can install/remove other plugins.
 | iora-secrets | 8093 | HTTP |
 | iora-watchdog | 8094 | HTTP, SSE |
 | iora-security | 8095 | HTTP |
+| iora-gateway | 8096 | HTTP |
 | iora-installer | N/A | CLI only |
 
 Ports can be overridden with the `PORT` environment variable in each service.
@@ -648,6 +770,7 @@ cargo run -p iora-core     &   # start orchestrator first
 cargo run -p iora-security &   # security monitoring (requires PostgreSQL admin access)
 cargo run -p iora-watchdog &   # health monitoring
 cargo run -p iora-secrets  &   # encrypted secrets storage
+cargo run -p iora-gateway  &   # sandboxed external integrations
 cargo run -p iora-home     &   # smart home service
 cargo run -p iora-control  &   # admin panel backend
 cargo run -p iora-assist   &   # AI assistant (optional)
@@ -693,6 +816,7 @@ cargo build --release -p iora-assist
 cargo build --release -p iora-secrets
 cargo build --release -p iora-watchdog
 cargo build --release -p iora-security
+cargo build --release -p iora-gateway
 cargo build --release -p iora-installer
 ```
 
