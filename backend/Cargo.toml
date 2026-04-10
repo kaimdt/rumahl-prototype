@@ -5,6 +5,9 @@ members = [
     "iora-core",
     "iora-control",
     "iora-assist",
+    "iora-secrets",
+    "iora-watchdog",
+    "iora-installer",
 ]
 resolver = "2"
 

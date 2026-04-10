@@ -55,7 +55,10 @@ backend/
 ├── iora-home/          ← Smart Home server (port 8080)
 ├── iora-core/          ← Central orchestrator (port 8090)
 ├── iora-control/       ← Admin panel backend (port 8091)
-└── iora-assist/        ← AI assistant skeleton (port 8092)
+├── iora-assist/        ← AI assistant skeleton (port 8092)
+├── iora-secrets/       ← Encrypted secrets storage (port 8093)
+├── iora-watchdog/      ← Health monitoring and failover (port 8094)
+└── iora-installer/     ← Installation and update management (CLI)
 ```
 
 ### `iora-shared` – Shared Library
@@ -172,6 +175,111 @@ GET  /api/assist/insights      ← home insights
 
 To enable AI features set `ASSIST_AI_BACKEND_URL` and `ASSIST_AI_API_KEY` in the
 environment.
+
+### `iora-secrets` – Encrypted Secrets Storage (port 8093)
+
+Centralized encrypted storage for sensitive data like API keys, passwords, and tokens.
+Essential for AI-powered autonomous tasks that need to access external services securely.
+
+**Responsibilities:**
+- AES-256-GCM encryption of all stored secrets
+- Access control per secret (which services can read)
+- Comprehensive audit logging of all access
+- Secret rotation and expiration management
+- Master key derivation from environment variable
+
+**Key endpoints:**
+```
+GET  /health
+POST   /api/secrets              ← create encrypted secret
+GET    /api/secrets              ← list secrets (metadata only)
+GET    /api/secrets/:id          ← retrieve and decrypt secret
+PUT    /api/secrets/:id          ← update secret
+DELETE /api/secrets/:id          ← delete secret
+POST   /api/secrets/:id/rotate   ← rotate secret value
+GET    /api/secrets/:id/audit    ← view access audit log
+```
+
+**Security features:**
+- Master key must be 32 bytes (64 hex chars) in `SECRETS_MASTER_KEY`
+- Each secret encrypted with unique nonce
+- No secrets in logs or error messages
+- Audit trail for all operations
+- PostgreSQL database: `iora_secrets`
+
+### `iora-watchdog` – Health Monitoring & Failover (port 8094)
+
+High-availability monitoring service that tracks all IORA programs and provides
+failover event routing when `iora-core` is unavailable. Designed for maximum
+stability with minimal complexity.
+
+**Responsibilities:**
+- Health check polling every 10 seconds for all registered services
+- Detect service failures and recovery
+- Backup event bus when `iora-core` is down
+- System metrics collection (CPU, memory)
+- Broadcast notifications on service state changes
+- Circuit breaker to prevent cascade failures
+
+**Key endpoints:**
+```
+GET  /health
+GET  /api/watchdog/status        ← status of all monitored services
+GET  /api/watchdog/services      ← list registered services
+POST /api/watchdog/services      ← register a service for monitoring
+POST /api/watchdog/heartbeat     ← receive heartbeat from service
+GET  /api/watchdog/metrics       ← system resource metrics
+GET  /api/watchdog/events        ← SSE event stream (backup for core)
+POST /api/watchdog/events        ← broadcast event (backup for core)
+```
+
+**Monitored metrics:**
+- Service health status (healthy, degraded, unhealthy, unreachable)
+- Response time of health checks
+- Consecutive failure count
+- System CPU and memory usage
+
+**Failover behavior:**
+- Normal: `iora-core` handles events, watchdog monitors passively
+- Core down: Watchdog detects failure, takes over event broadcasting
+- Core recovered: Watchdog returns event bus control to core
+
+### `iora-installer` – Installation & Update Manager (CLI)
+
+Command-line tool for automated installation, updates, and management of IORA
+on Debian servers. Handles dependencies, database setup, systemd integration,
+and zero-downtime updates.
+
+**Commands:**
+```bash
+iora-installer install              # Fresh installation
+iora-installer update               # Update to latest version
+iora-installer update --version X   # Update to specific version
+iora-installer rollback             # Rollback to previous version
+iora-installer config               # Interactive configuration
+iora-installer status               # Show service status
+iora-installer backup               # Create system backup
+iora-installer restore <file>       # Restore from backup
+iora-installer migrate              # Run database migrations
+iora-installer validate             # Validate installation
+```
+
+**Installation process:**
+1. Pre-flight checks (Debian version, permissions, disk space)
+2. Install dependencies (PostgreSQL, build tools, SSL)
+3. Create `iora` system user
+4. Install IORA binaries to `/opt/iora/bin/`
+5. Create PostgreSQL databases
+6. Generate configuration files in `/etc/iora/`
+7. Create systemd service units
+8. Start and enable all services
+9. Validate health of all services
+
+**Files created:**
+- `/opt/iora/bin/` – IORA binaries
+- `/etc/iora/*.env` – Configuration files per service
+- `/etc/systemd/system/iora-*.service` – Systemd units
+- `/var/lib/iora/` – Runtime data (optional)
 
 ---
 
@@ -396,6 +504,9 @@ can install/remove other plugins.
 | iora-core | 8090 | HTTP, SSE |
 | iora-control | 8091 | HTTP |
 | iora-assist | 8092 | HTTP |
+| iora-secrets | 8093 | HTTP |
+| iora-watchdog | 8094 | HTTP, SSE |
+| iora-installer | N/A | CLI only |
 
 Ports can be overridden with the `PORT` environment variable in each service.
 
@@ -407,10 +518,12 @@ Ports can be overridden with the `PORT` environment variable in each service.
 
 ```bash
 cd backend
-cargo run -p iora-core    &   # start orchestrator first
-cargo run -p iora-home    &   # smart home service
-cargo run -p iora-control &   # admin panel backend
-cargo run -p iora-assist  &   # AI assistant (optional)
+cargo run -p iora-core     &   # start orchestrator first
+cargo run -p iora-watchdog &   # health monitoring
+cargo run -p iora-secrets  &   # encrypted secrets storage
+cargo run -p iora-home     &   # smart home service
+cargo run -p iora-control  &   # admin panel backend
+cargo run -p iora-assist   &   # AI assistant (optional)
 ```
 
 ### Docker Compose (recommended)
@@ -450,6 +563,25 @@ cargo build --release -p iora-home
 cargo build --release -p iora-core
 cargo build --release -p iora-control
 cargo build --release -p iora-assist
+cargo build --release -p iora-secrets
+cargo build --release -p iora-watchdog
+cargo build --release -p iora-installer
+```
+
+### Production Installation (Debian)
+
+Use the `iora-installer` tool for automated installation:
+
+```bash
+# Download installer
+wget https://github.com/your-org/iora/releases/latest/download/iora-installer
+chmod +x iora-installer
+
+# Run installation
+sudo ./iora-installer install
+
+# Check status
+./iora-installer status
 ```
 
 ---
