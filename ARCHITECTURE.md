@@ -58,6 +58,7 @@ backend/
 ├── iora-assist/        ← AI assistant skeleton (port 8092)
 ├── iora-secrets/       ← Encrypted secrets storage (port 8093)
 ├── iora-watchdog/      ← Health monitoring and failover (port 8094)
+├── iora-security/      ← Security monitoring and PostgreSQL management (port 8095)
 └── iora-installer/     ← Installation and update management (CLI)
 ```
 
@@ -280,6 +281,130 @@ iora-installer validate             # Validate installation
 - `/etc/iora/*.env` – Configuration files per service
 - `/etc/systemd/system/iora-*.service` – Systemd units
 - `/var/lib/iora/` – Runtime data (optional)
+
+### `iora-security` – Security Monitoring & PostgreSQL Management (port 8095)
+
+**THE MOST CRITICAL COMPONENT** - Comprehensive security system with encrypted audit logging,
+PostgreSQL connection monitoring, automatic database user management with credential rotation,
+intrusion detection, and automatic system lockdown capabilities.
+
+**Responsibilities:**
+- Real-time PostgreSQL connection monitoring (every 5 seconds)
+- Automatic PostgreSQL user creation and 30-day credential rotation
+- Encrypted, tamper-proof security audit logs (SQLite with AES-256-GCM)
+- Hash-chained event logging (blockchain-style integrity verification)
+- Intrusion detection system with threat intelligence
+- Automatic system lockdown (4 severity levels)
+- IP whitelist/blacklist management
+- Frontend security alerts and notifications
+
+**Key endpoints:**
+```
+GET  /health
+GET  /api/security/status              ← System lockdown status
+GET  /api/security/connections         ← Active PostgreSQL connections
+GET  /api/security/events              ← Security event log (encrypted)
+GET  /api/security/threats             ← Threat intelligence feed
+GET  /api/security/alerts              ← Pending security alerts
+POST /api/security/whitelist           ← Add IP to whitelist
+POST /api/security/block/:ip           ← Block threatening IP
+POST /api/security/lockdown            ← Manual lockdown trigger
+POST /api/security/release             ← Release system lockdown
+POST /api/security/users               ← Create PostgreSQL user
+```
+
+**Encrypted SQLite Database:**
+- Location: `/var/lib/iora/security.db`
+- Encryption: AES-256-GCM with master key from `SECURITY_DB_KEY`
+- **COMPLETELY UNREADABLE** if database file is copied without the key
+- Hash-chained events prevent tampering
+- Append-only for forensic integrity
+
+**PostgreSQL Management:**
+- Full control over PostgreSQL server via admin connection
+- Automatic user creation per service: `iora_servicename_<uuid>`
+- Secure password generation (32-byte random hex)
+- Automatic 30-day credential rotation
+- Granular permission management (read, write, full)
+- All credentials encrypted and stored in security database
+
+**Connection Monitoring:**
+- Queries `pg_stat_activity` every 5 seconds
+- Tracks: PID, IP, username, database, application name
+- Detects unauthorized connections immediately
+- Auto-increments threat level for unknown IPs
+- Logs all connections to encrypted audit trail
+
+**Intrusion Detection System (IDS):**
+- Threat scoring: 0-10 scale per IP address
+- Automatic IP blocking at threat level ≥ 7
+- Detection triggers:
+  - Unauthorized database connections (+3 threat)
+  - Failed authentication attempts (+2 threat)
+  - SQL injection patterns (+5 threat)
+  - Rate limiting violations (+1 threat)
+  - Abnormal access patterns (+2 threat)
+
+**Auto-Lockdown Levels:**
+1. **Level 1 (Warning):** Enhanced monitoring, frontend notification
+2. **Level 2 (Suspicious):** Elevated logging, IP tracking active
+3. **Level 3 (Confirmed):** Partial service lockdown, external API blocked
+4. **Level 4 (Critical):** Full system isolation, admin-only access
+
+**When lockdown triggers:**
+- All external API access blocked
+- Only admin console accessible
+- PostgreSQL connections frozen (except admin)
+- Forensic snapshot created
+- Critical alerts sent to all administrators
+- All events logged to encrypted database
+
+**Security Event Types:**
+- `connection`: Database connection events
+- `auth`: Authentication attempts
+- `intrusion`: Detected attack attempts
+- `anomaly`: Unusual behavior patterns
+- `lockdown`: System lockdown events
+- `user_rotation`: Credential rotation events
+- `unauthorized_connection`: Unknown DB connections
+
+**Environment Configuration:**
+```env
+SECURITY_DB_PATH=/var/lib/iora/security.db
+SECURITY_DB_KEY=<64-hex-char-key>     # From iora-secrets
+POSTGRES_ADMIN_URL=postgres://postgres:<admin-pass>@localhost:5432/postgres
+AUTO_LOCKDOWN_ENABLED=true
+LOCKDOWN_THRESHOLD_CRITICAL=5
+THREAT_LEVEL_THRESHOLD=7
+WHITELIST_IPS=127.0.0.1,::1,10.0.0.0/8
+PORT=8095
+```
+
+**Integration:**
+- Works with `iora-secrets` for key management
+- Monitored by `iora-watchdog` for health
+- Sends alerts to `iora-home` frontend
+- Controls access for all services
+- Coordinates with `iora-core` during lockdown
+
+**Database Schema Highlights:**
+- `security_events`: Hash-chained immutable event log
+- `database_connections`: All PostgreSQL connection tracking
+- `threat_intelligence`: IP reputation and blocking
+- `system_lockdowns`: Lockdown event history
+- `postgres_users`: Managed database user credentials
+- `ip_whitelist`: Authorized IP addresses
+- `pending_alerts`: Unacknowledged security alerts
+- `activity_baselines`: ML-ready anomaly detection data
+
+**Security Best Practices:**
+- Never store plaintext passwords
+- All sensitive data encrypted before storage
+- Hash chains prevent log tampering
+- Separate encrypted database for security events
+- Defense in depth with multiple detection layers
+- Fail-secure: locks down on suspicious activity
+- Comprehensive audit trail for forensics
 
 ---
 
@@ -506,6 +631,7 @@ can install/remove other plugins.
 | iora-assist | 8092 | HTTP |
 | iora-secrets | 8093 | HTTP |
 | iora-watchdog | 8094 | HTTP, SSE |
+| iora-security | 8095 | HTTP |
 | iora-installer | N/A | CLI only |
 
 Ports can be overridden with the `PORT` environment variable in each service.
@@ -519,6 +645,7 @@ Ports can be overridden with the `PORT` environment variable in each service.
 ```bash
 cd backend
 cargo run -p iora-core     &   # start orchestrator first
+cargo run -p iora-security &   # security monitoring (requires PostgreSQL admin access)
 cargo run -p iora-watchdog &   # health monitoring
 cargo run -p iora-secrets  &   # encrypted secrets storage
 cargo run -p iora-home     &   # smart home service
@@ -565,6 +692,7 @@ cargo build --release -p iora-control
 cargo build --release -p iora-assist
 cargo build --release -p iora-secrets
 cargo build --release -p iora-watchdog
+cargo build --release -p iora-security
 cargo build --release -p iora-installer
 ```
 
