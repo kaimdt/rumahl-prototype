@@ -181,6 +181,91 @@ export function SettingsForm({
         </div>
       </section>
 
+      {/* Home Assistant Integration section */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Home Assistant Integration</h2>
+
+        <div style={styles.checkboxField}>
+          <input
+            id="ha_enabled"
+            type="checkbox"
+            checked={form.ha_enabled}
+            onChange={field("ha_enabled")}
+            style={styles.checkbox}
+          />
+          <label htmlFor="ha_enabled" style={styles.checkboxLabel}>
+            Home Assistant Integration aktivieren
+          </label>
+        </div>
+
+        {form.ha_enabled && (
+          <>
+            <div style={styles.field}>
+              <label style={styles.label}>Metriken-Update-Intervall (Sekunden)</label>
+              <input
+                type="number"
+                value={form.ha_update_interval_secs}
+                onChange={field("ha_update_interval_secs")}
+                min={30}
+                max={300}
+                style={{ ...styles.input, width: "120px" }}
+              />
+              <span style={styles.hint}>
+                Wie oft System-Metriken an HA gesendet werden
+              </span>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Autostart section */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Autostart</h2>
+
+        <div style={styles.checkboxField}>
+          <input
+            id="autostart_enabled"
+            type="checkbox"
+            checked={form.autostart_enabled}
+            onChange={field("autostart_enabled")}
+            style={styles.checkbox}
+          />
+          <label htmlFor="autostart_enabled" style={styles.checkboxLabel}>
+            Beim Systemstart automatisch starten
+          </label>
+        </div>
+
+        {form.autostart_enabled && (
+          <>
+            <div style={styles.checkboxField}>
+              <input
+                id="autostart_minimized"
+                type="checkbox"
+                checked={form.autostart_minimized}
+                onChange={field("autostart_minimized")}
+                style={styles.checkbox}
+              />
+              <label htmlFor="autostart_minimized" style={styles.checkboxLabel}>
+                Minimiert starten
+              </label>
+            </div>
+
+            <div style={styles.checkboxField}>
+              <input
+                id="autostart_hidden"
+                type="checkbox"
+                checked={form.autostart_hidden}
+                onChange={field("autostart_hidden")}
+                style={styles.checkbox}
+              />
+              <label htmlFor="autostart_hidden" style={styles.checkboxLabel}>
+                Nur im Tray starten (kein Fenster)
+              </label>
+            </div>
+          </>
+        )}
+      </section>
+
       <button type="submit" disabled={saving} style={styles.saveBtn}>
         {saving ? "Speichern…" : saved ? "✓ Gespeichert" : "Einstellungen speichern"}
       </button>

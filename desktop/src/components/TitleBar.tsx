@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface TitleBarProps {
   title?: string;
@@ -7,28 +7,53 @@ interface TitleBarProps {
 export function TitleBar({ title = "IORA Desktop" }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
 
-  const handleMinimize = async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().minimize();
-  };
+  useEffect(() => {
+    // Check initial maximized state
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      getCurrentWindow().isMaximized().then(setIsMaximized);
+    });
+  }, []);
 
-  const handleMaximize = async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const window = getCurrentWindow();
-    const maximized = await window.isMaximized();
-
-    if (maximized) {
-      await window.unmaximize();
-      setIsMaximized(false);
-    } else {
-      await window.maximize();
-      setIsMaximized(true);
+  const handleMinimize = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().minimize();
+    } catch (error) {
+      console.error("Failed to minimize:", error);
     }
   };
 
-  const handleClose = async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().hide(); // Hide instead of close (to tray)
+  const handleMaximize = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const window = getCurrentWindow();
+      const maximized = await window.isMaximized();
+
+      if (maximized) {
+        await window.unmaximize();
+        setIsMaximized(false);
+      } else {
+        await window.maximize();
+        setIsMaximized(true);
+      }
+    } catch (error) {
+      console.error("Failed to maximize/restore:", error);
+    }
+  };
+
+  const handleClose = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().hide(); // Hide instead of close (to tray)
+    } catch (error) {
+      console.error("Failed to close:", error);
+    }
   };
 
   return (
