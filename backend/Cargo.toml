@@ -8,6 +8,7 @@ members = [
     "iora-secrets",
     "iora-watchdog",
     "iora-installer",
+    "iora-security",
 ]
 resolver = "2"
 
