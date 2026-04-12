@@ -1,7 +1,6 @@
 import type { EntityState } from '@/lib/types'
 import { wsSend } from '@/lib/wsConnection'
-
-const API_BASE = ''  // Use Vite proxy in dev, relative path in production
+import { getApiBase } from '@/lib/apiBase'
 
 class HomeAssistantService {
   private generateIntent(): string {
@@ -27,7 +26,7 @@ class HomeAssistantService {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const response = await fetch(`${API_BASE}/api/states`, { headers })
+    const response = await fetch(`${getApiBase()}/api/states`, { headers })
 
     if (!response.ok) {
       throw new Error(`Failed to fetch states: ${response.status} ${response.statusText}`)
@@ -48,7 +47,7 @@ class HomeAssistantService {
 
     const payload = { entity_id, ...data }
 
-    const response = await fetch(`/api/services/${domain}/${service}`, {
+    const response = await fetch(`${getApiBase()}/api/services/${domain}/${service}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -81,7 +80,7 @@ class HomeAssistantService {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    fetch(`/api/services/${domain}/${service}`, {
+    fetch(`${getApiBase()}/api/services/${domain}/${service}`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -340,7 +339,7 @@ class HomeAssistantService {
 
     for (const payload of payloadVariants) {
       try {
-        const response = await fetch(`${API_BASE}/api/services/weather/get_forecasts?return_response`, {
+        const response = await fetch(`${getApiBase()}/api/services/weather/get_forecasts?return_response`, {
           method: 'POST',
           headers,
           body: JSON.stringify(payload),

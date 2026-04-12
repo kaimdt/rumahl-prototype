@@ -13,6 +13,10 @@ fn default_ha_update_interval() -> u64 {
     env!("HA_UPDATE_INTERVAL_DEFAULT").parse().unwrap_or(60)
 }
 
+fn default_screen_saver_timeout() -> u64 {
+    300
+}
+
 fn default_true() -> bool {
     true
 }
@@ -67,6 +71,33 @@ pub struct AppConfig {
     /// Start hidden (tray only, no window)
     #[serde(default = "default_true")]
     pub autostart_hidden: bool,
+    /// Notification sound enabled
+    #[serde(default = "default_true")]
+    pub notification_sound: bool,
+    /// Desktop notifications enabled
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
+    /// Screen saver / dim after inactivity
+    #[serde(default)]
+    pub screen_saver_enabled: bool,
+    /// Screen saver timeout in seconds
+    #[serde(default = "default_screen_saver_timeout")]
+    pub screen_saver_timeout_secs: u64,
+    /// Wake-on-motion (camera/sensor based wake from screen saver)
+    #[serde(default)]
+    pub wake_on_motion: bool,
+    /// Display brightness override (0-100, 0 = system default)
+    #[serde(default)]
+    pub display_brightness: u8,
+    /// Always on top
+    #[serde(default)]
+    pub always_on_top: bool,
+    /// Kiosk mode (fullscreen, no title bar)
+    #[serde(default)]
+    pub kiosk_mode: bool,
+    /// Send crash / error reports
+    #[serde(default)]
+    pub send_diagnostics: bool,
 }
 
 impl Default for AppConfig {
@@ -91,6 +122,15 @@ impl Default for AppConfig {
             autostart_enabled: false,
             autostart_minimized: false,
             autostart_hidden: true,
+            notification_sound: true,
+            notifications_enabled: true,
+            screen_saver_enabled: false,
+            screen_saver_timeout_secs: default_screen_saver_timeout(),
+            wake_on_motion: false,
+            display_brightness: 0,
+            always_on_top: false,
+            kiosk_mode: false,
+            send_diagnostics: false,
         }
     }
 }

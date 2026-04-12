@@ -5,8 +5,6 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use anyhow::{Context, Result};
-use argon2::{Argon2, PasswordHasher};
-use argon2::password_hash::{SaltString, PasswordHash};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -267,11 +265,13 @@ async fn get_secret(
     // Decrypt the value
     let decrypted_value = decrypt_value(&state.master_key, &encrypted_value, &nonce)
         .map_err(|e| {
+            let err_msg = e.to_string();
             let db = state.db.clone();
+            let log_msg = err_msg.clone();
             tokio::spawn(async move {
-                log_access(&db, id, "system", "read", false, Some(&e.to_string())).await;
+                log_access(&db, id, "system", "read", false, Some(&log_msg)).await;
             });
-            AppError::Internal(format!("Decryption failed: {}", e))
+            AppError::Internal(format!("Decryption failed: {}", err_msg))
         })?;
 
     log_access(&state.db, id, "system", "read", true, None).await;
@@ -517,7 +517,7 @@ async fn main() -> Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8093".to_string());
+    let port = std::env::var("SECRETS_PORT").unwrap_or_else(|_| "8093".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
     info!("🔐 iora-secrets starting on {}", addr);

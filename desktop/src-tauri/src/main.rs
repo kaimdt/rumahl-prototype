@@ -198,6 +198,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
+            commands::apply_window_settings,
             commands::test_connection,
             commands::list_models,
             commands::send_chat,

@@ -10,6 +10,9 @@ members = [
     "iora-installer",
     "iora-security",
     "iora-gateway",
+    "iora-files",
+    "iora-connector",
+    "iora-api",
 ]
 resolver = "2"
 

@@ -95,6 +95,7 @@ import {
   Heart,
   Trophy,
   Megaphone,
+  ShareNetwork,
 } from '@phosphor-icons/react'
 
 export interface PageSettings {
@@ -164,6 +165,14 @@ const defaultPages: DashboardPage[] = [
     widgets: [],
     showInNav: true,
     order: 997,
+  },
+  {
+    id: 'share',
+    name: 'Share',
+    icon: 'ShareNetwork',
+    widgets: [],
+    showInNav: true,
+    order: 996,
   },
 ]
 
@@ -262,12 +271,14 @@ const builtInPages = ['lights', 'climate', 'switches', 'sensors', 'settings', 'd
 
 function pageIdToPath(id: string): string {
   if (id === 'home') return '/'
+  if (id === 'admin') return '/admin'
   if (builtInPages.includes(id)) return `/${id}`
   return `/page/${id}`
 }
 
 function pathToPageId(path: string): string {
   if (path === '/' || path === '') return 'home'
+  if (path.startsWith('/admin')) return 'admin'
   if (path.startsWith('/page/')) return path.slice(6)
   return path.slice(1)
 }

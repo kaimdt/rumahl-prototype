@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getApiBase } from '@/lib/apiBase'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   VideoCamera,
@@ -31,7 +32,6 @@ interface StreamInfo {
 }
 
 export function StreamSender() {
-  const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
   const [mode, setMode] = useState<StreamMode>('av')
   const [videoSource, setVideoSource] = useState<VideoSourceType>('camera')
   const [useMicAudio, setUseMicAudio] = useState(false)
@@ -267,7 +267,7 @@ export function StreamSender() {
       }
 
       // Create stream via API
-      const res = await fetch(`${API_BASE}/api/streams`, {
+      const res = await fetch(`${getApiBase()}/api/streams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: streamName, description: `${videoSource === 'screen' ? 'screen' : mode} stream`, source_type: 'websocket_relay' }),
@@ -310,7 +310,7 @@ export function StreamSender() {
           // Viewer count polling
           statusPollRef.current = setInterval(async () => {
             try {
-              const r = await fetch(`${API_BASE}/api/streams/${streamId}`)
+              const r = await fetch(`${getApiBase()}/api/streams/${streamId}`)
               if (r.ok) {
                 const d = await r.json()
                 setViewerCount(d.stream?.viewer_count || 0)
@@ -444,7 +444,7 @@ export function StreamSender() {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         canvas.toBlob(blob => {
           if (blob) {
-            fetch(`${API_BASE}/api/streams/${captureStreamId}/snapshot`, {
+            fetch(`${getApiBase()}/api/streams/${captureStreamId}/snapshot`, {
               method: 'POST',
               body: blob,
             }).catch(() => {})
@@ -466,7 +466,7 @@ export function StreamSender() {
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
 
     if (streamIdRef.current) {
-      try { await fetch(`${API_BASE}/api/streams/${streamIdRef.current}`, { method: 'DELETE' }) } catch {}
+      try { await fetch(`${getApiBase()}/api/streams/${streamIdRef.current}`, { method: 'DELETE' }) } catch {}
       streamIdRef.current = null
     }
 

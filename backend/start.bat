@@ -10,17 +10,30 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo Starte Binaries mit Verzögerung...
 
-:: Dienst 1
+:: Kern-Dienste
 start /b cargo run -p iora-core
 timeout /t 2 >nul
 
-:: Dienst 2
 start /b cargo run -p iora-home
 timeout /t 2 >nul
 
-:: Weitere Dienste...
+start /b cargo run -p iora-gateway
+timeout /t 2 >nul
+
+start /b cargo run -p iora-security
+timeout /t 2 >nul
+
+start /b cargo run -p iora-secrets
+timeout /t 2 >nul
+
+:: Zusatz-Dienste
 start /b cargo run -p iora-control
+timeout /t 2 >nul
+
 start /b cargo run -p iora-assist
+timeout /t 2 >nul
+
+start /b cargo run -p iora-watchdog
 
 echo Alle Dienste gestartet.
 pause

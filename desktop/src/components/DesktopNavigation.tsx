@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion'
-import { Gear, Robot, House, Moon, Sun } from '@phosphor-icons/react'
+import { Gear, Robot, House, Moon, Sun, Globe } from '@phosphor-icons/react'
 import { useState } from 'react'
 
-export type NavId = "ai" | "iora-home" | "settings"
+export type NavId = "ai" | "iora-home" | "connection" | "settings"
 
 interface Props {
   active: NavId
@@ -16,6 +16,7 @@ interface Props {
 const TABS = [
   { id: "ai" as NavId, label: "KI", Icon: Robot },
   { id: "iora-home" as NavId, label: "IORA Home", Icon: House },
+  { id: "connection" as NavId, label: "Verbindung", Icon: Globe },
   { id: "settings" as NavId, label: "Einstellungen", Icon: Gear },
 ]
 

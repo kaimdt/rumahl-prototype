@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { getApiBase } from '@/lib/apiBase'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
+import { useConnection } from '@/contexts/ConnectionContext'
 import { useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
 import { useDynamicOverview, getVisibleWidgetTypes } from '@/contexts/DynamicOverviewContext'
 import { useEntityStore } from '@/hooks/useEntityStore'
@@ -10,19 +12,22 @@ import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
 import { SwitchWidget } from '@/components/widgets/SwitchWidget'
 import { SensorWidget } from '@/components/widgets/SensorWidget'
-import { NavigationMenu } from '@/components/NavigationMenu'
 import { SplashScreen } from '@/components/SplashScreen'
 import { LoginModal } from '@/components/LoginModal'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
 import { PageDesigner } from '@/components/PageDesigner'
+import { RemoteHomeView } from '@/components/RemoteHomeView'
 import { CustomPageRenderer } from '@/components/CustomPageRenderer'
 import { SettingsPage } from '@/components/SettingsPage'
+import { SharePage } from '@/components/SharePage'
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 import { AdminPanel } from '@/components/AdminPanel'
 import { DocsPage } from '@/components/DocsPage'
+import { NavigationMenu } from '@/components/NavigationMenu'
 import { StreamSender } from '@/components/StreamSender'
+import { ConnectionSettings } from '@/components/ConnectionSettings'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAccentColor } from '@/hooks/useAccentColor'
@@ -30,7 +35,7 @@ import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
-import { Sparkle, ShieldCheck, Wrench } from '@phosphor-icons/react'
+import { Sparkle, ShieldCheck, Wrench, WifiSlash } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { wsOnMessage } from '@/lib/wsConnection'
@@ -90,7 +95,8 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile } = useAuth()
-  const { currentPageId, currentPage, modalPageId, closeModalPage, pages } = usePageNavigation()
+  const { currentPageId, currentPage, modalPageId, closeModalPage, pages, setCurrentPageId } = usePageNavigation()
+  const { backend } = useConnection()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
   const screensaverSettings = useScreensaverSettings()
@@ -103,6 +109,8 @@ function DashboardContent() {
   const [globalCardStyle] = useLocalStorage('ha-global-card-style', 'default')
   const { entities, loading, refresh } = useEntityStore()
   const warningLevel = useWarningLevel()
+  const remoteHomeUrl = getApiBase()
+  const isRemoteHome = currentPageId === 'home' && Boolean(remoteHomeUrl)
 
   // Apply global card style class on <html> so it covers portals/modals/dialogs
   useEffect(() => {
@@ -139,7 +147,7 @@ function DashboardContent() {
   useEffect(() => {
     let mounted = true
     // Initial fetch
-    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/maintenance/status`)
+    fetch(`${getApiBase()}/api/maintenance/status`)
       .then(r => r.json())
       .then((data: { active: boolean; message: string }) => {
         if (!mounted) return
@@ -198,6 +206,12 @@ function DashboardContent() {
       mounted = false
     }
   }, [user, getPreference])
+
+  useEffect(() => {
+    const openSettings = () => setCurrentPageId('settings')
+    window.addEventListener('desktop-open-settings', openSettings)
+    return () => window.removeEventListener('desktop-open-settings', openSettings)
+  }, [setCurrentPageId])
 
   const updateDeviceLockMode = async (next: boolean) => {
     if (!next && deviceLockMode && pinHash) {
@@ -326,8 +340,59 @@ function DashboardContent() {
     }
   }, [homePage, currentVariant.config])
 
+  const showOfflineFallback = backend === 'error' && !['settings', 'connection'].includes(currentPageId)
+
+  useEffect(() => {
+    if (isRemoteHome) {
+      if (!['home', 'settings'].includes(currentPageId)) {
+        setCurrentPageId('home')
+      }
+    } else if (currentPageId !== 'settings') {
+      setCurrentPageId('settings')
+    }
+  }, [isRemoteHome, currentPageId, setCurrentPageId])
+
+  if (showOfflineFallback) {
+    return (
+      <div className="h-full relative overflow-hidden bg-background text-foreground">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.15),_transparent_40%),radial-gradient(circle_at_bottom,_rgba(248,113,113,0.12),_transparent_30%)]" />
+        <div className="relative z-10 flex min-h-full items-center justify-center px-4 py-16">
+          <div className="w-full max-w-2xl rounded-3xl border border-foreground/10 bg-background/95 backdrop-blur-2xl p-10 text-center shadow-2xl shadow-black/10">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <WifiSlash size={38} weight="fill" />
+            </div>
+            <h1 className="text-3xl font-semibold mb-3">IORA Home offline</h1>
+            <p className="text-sm text-foreground/70 mb-6 leading-relaxed">
+              Die Verbindung zur entfernten IORA Home Instanz konnte nicht hergestellt werden.
+              Alle Einstellungen bleiben verfügbar, damit du die Verbindung prüfen und anpassen kannst.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => setCurrentPageId('settings')}
+                className="rounded-2xl border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent/15"
+              >
+                Einstellungen öffnen
+              </button>
+              <button
+                onClick={() => setCurrentPageId('connection')}
+                className="rounded-2xl border border-foreground/10 bg-foreground/5 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-foreground/10"
+              >
+                Verbindung prüfen
+              </button>
+            </div>
+            <p className="text-[11px] text-foreground/50 mt-6">Die Titelleiste bleibt sichtbar, damit du weiterhin zwischen Einstellungen und Verbindung wechseln kannst.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (showSplash) {
     return <SplashScreen onComplete={() => setShowSplash(false)} />
+  }
+
+  if (isRemoteHome) {
+    return <RemoteHomeView />
   }
 
   // Gate: when not authenticated, show login modal OR allow settings page access
@@ -346,8 +411,14 @@ function DashboardContent() {
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10 text-center">
           <p className="text-sm font-light tracking-[0.3em] uppercase text-white/30">IORA</p>
         </div>
-        {/* Navigation menu to allow settings access */}
-        <NavigationMenu />
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <button
+            onClick={() => setCurrentPageId('settings')}
+            className="rounded-3xl border border-accent/20 bg-accent/10 px-6 py-3 text-sm font-semibold text-accent transition hover:bg-accent/15"
+          >
+            Einstellungen öffnen
+          </button>
+        </div>
         <LoginModal open onOpenChange={() => {}} />
       </div>
     )
@@ -373,14 +444,14 @@ function DashboardContent() {
   return (
     <>
       <div
-        className={`h-full relative theme-transition overflow-x-hidden font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
+        className={`flex-1 min-h-0 relative theme-transition overflow-x-hidden overflow-y-auto font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
       >
         <Screensaver
           enabled={screensaverSettings.enabled}
           timeout={screensaverSettings.timeout}
         />
         <DynamicBackground />
-        <BackendUnavailableOverlay />
+        {backend === 'error' && !['settings', 'connection'].includes(currentPageId) && <BackendUnavailableOverlay />}
         <ConnectionStatus />
         <EntityDiscoveryNotification />
 
@@ -479,6 +550,8 @@ function DashboardContent() {
         <div
           className="relative z-20"
           style={{
+            overflow: 'scroll',
+            height: '100vh',
             filter: theme === 'sleep' ? 'saturate(0.25) brightness(0.65)' : 'none',
             transition: 'filter var(--transition-duration) ease',
           }}
@@ -629,8 +702,16 @@ function DashboardContent() {
               {currentPageId === 'docs' && (
                 <DocsPage />
               )}
+              {currentPageId === 'share' && (
+                <SharePage />
+              )}
               {currentPageId === 'streaming' && (
                 <StreamSender />
+              )}
+              {currentPageId === 'connection' && (
+                <div className="p-6">
+                  <ConnectionSettings />
+                </div>
               )}
               {/* TODO: Music Player Page */}
               {currentPageId === 'music' && (
@@ -638,7 +719,7 @@ function DashboardContent() {
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
                 </div>
               )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming'].includes(currentPageId) && currentPage && (
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming', 'connection'].includes(currentPageId) && currentPage && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}

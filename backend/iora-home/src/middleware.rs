@@ -45,16 +45,17 @@ impl AuthIdentity {
     }
 }
 
-/// Try to authenticate a request via Bearer JWT token or X-API-Key header.
+/// Try to authenticate a request via Bearer JWT token, X-API-Key header, or token query parameter.
 /// Returns None if no auth is present, Some(identity) if valid.
 pub async fn try_authenticate(
-    headers: &axum::http::HeaderMap,
+    authorization_header: Option<String>,
+    api_key_header: Option<String>,
+    query_string: Option<String>,
     state: &AppState,
 ) -> Option<AuthIdentity> {
     // 1. Try JWT Bearer token
-    if let Some(token) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
+    if let Some(token) = authorization_header
+        .as_deref()
         .and_then(|v| v.strip_prefix("Bearer "))
     {
         // Check if it looks like an API key (starts with "mdt_")
@@ -67,12 +68,27 @@ pub async fn try_authenticate(
         }
     }
 
-    // 2. Try X-API-Key header  
-    if let Some(api_key) = headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-    {
+    // 2. Try X-API-Key header
+    if let Some(api_key) = api_key_header.as_deref() {
         return try_api_key_auth(api_key, state).await;
+    }
+
+    // 3. Try token query parameter
+    if let Some(query) = query_string.as_deref() {
+        if let Some(token) = query.split('&').find_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            let key = parts.next()?;
+            let value = parts.next()?;
+            if key == "token" { Some(value) } else { None }
+        }) {
+            // Check if it looks like an API key (starts with "mdt_")
+            if token.starts_with("mdt_") {
+                return try_api_key_auth(token, state).await;
+            }
+            if let Ok(claims) = auth::verify_token(token) {
+                return Some(AuthIdentity::Jwt(claims));
+            }
+        }
     }
 
     None
@@ -124,11 +140,23 @@ async fn try_api_key_auth(key: &str, state: &AppState) -> Option<AuthIdentity> {
 /// Middleware that verifies JWT authentication and X-Action-Intent header
 /// on service call routes to ensure actions are user-initiated.
 pub async fn require_auth(
-    State(state): State<AppState>,
+    state: State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let identity = try_authenticate(request.headers(), &state).await;
+    let state = state.0;
+    let identity = try_authenticate(
+        request.headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        request.headers()
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        request.uri().query().map(|s| s.to_string()),
+        &state,
+    ).await;
 
     match identity {
         Some(id) => {
@@ -165,11 +193,23 @@ pub async fn require_auth(
 
 /// Middleware that requires admin access
 pub async fn require_admin(
-    State(state): State<AppState>,
+    state: State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let identity = try_authenticate(request.headers(), &state).await;
+    let state = state.0;
+    let identity = try_authenticate(
+        request.headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        request.headers()
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        request.uri().query().map(|s| s.to_string()),
+        &state,
+    ).await;
 
     match identity {
         Some(id) if id.is_admin() => {
@@ -189,11 +229,23 @@ pub async fn require_admin(
 
 /// Middleware that requires authentication (JWT or API key) but not admin
 pub async fn require_authenticated(
-    State(state): State<AppState>,
+    state: State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let identity = try_authenticate(request.headers(), &state).await;
+    let state = state.0;
+    let identity = try_authenticate(
+        request.headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        request.headers()
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        request.uri().query().map(|s| s.to_string()),
+        &state,
+    ).await;
 
     match identity {
         Some(id) => {

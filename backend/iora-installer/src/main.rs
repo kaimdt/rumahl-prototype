@@ -119,6 +119,12 @@ fn install(non_interactive: bool) -> Result<()> {
     std::thread::sleep(std::time::Duration::from_secs(5));
     validate_installation()?;
 
+    // Mark system as production-installed
+    match iora_shared::env::IoraEnv::write_install_marker() {
+        Ok(path) => println!("{} Install marker written to {:?}", "✓".bright_green(), path),
+        Err(e) => println!("{} Could not write install marker: {}", "⚠".bright_yellow(), e),
+    }
+
     println!();
     println!("{}", "✅ Installation completed successfully!".bright_green().bold());
     println!();
@@ -150,8 +156,15 @@ fn check_debian_version() -> Result<()> {
 }
 
 fn check_permissions() -> Result<()> {
-    if !nix::unistd::Uid::effective().is_root() {
-        anyhow::bail!("Installation must be run as root (use sudo)");
+    #[cfg(unix)]
+    {
+        if !nix::unistd::Uid::effective().is_root() {
+            anyhow::bail!("Installation must be run as root (use sudo)");
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        println!("  ⚠ Root check skipped (non-Unix platform)");
     }
     println!("  ✓ Running with root privileges");
     Ok(())

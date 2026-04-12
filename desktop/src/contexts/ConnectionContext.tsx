@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getApiBase } from '@/lib/apiBase'
 
 interface ConnectionStatus {
   backend: 'connected' | 'disconnected' | 'error'
@@ -26,7 +26,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
   const checkBackend = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/health`)
+      const response = await fetch(`${getApiBase()}/health`)
       if (response.ok) {
         const data = await response.json()
         setStatus(prev => ({

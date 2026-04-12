@@ -8,7 +8,7 @@ fn main() {
     // These will be baked into the binary at compile time
 
     let iora_home_url = std::env::var("IORA_HOME_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        .unwrap_or_else(|_| "http://localhost:3001".to_string());
     println!("cargo:rustc-env=IORA_HOME_URL_DEFAULT={}", iora_home_url);
 
     let lm_studio_url = std::env::var("LM_STUDIO_URL")

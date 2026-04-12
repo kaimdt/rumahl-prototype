@@ -132,6 +132,7 @@ async fn connection_loop(
 
         connected.store(false, Ordering::Relaxed);
         cache.set_ha_connected(false);
+        crate::METRICS.ha_ws_reconnects.fetch_add(1, Ordering::Relaxed);
         info!("[HA-WS] Reconnecting in {:?}", backoff);
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(Duration::from_secs(30));
@@ -390,6 +391,7 @@ async fn handle_ha_message(
 
     let changed = cache.update_single(entity.clone()).await;
     if changed {
+        crate::METRICS.entity_state_changes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ws_manager
             .broadcast_state_updates(vec![entity.clone()])
             .await;

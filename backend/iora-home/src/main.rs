@@ -7,7 +7,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr, path::Path as FsPath, sync::Arc};
+use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::SocketAddr, path::Path as FsPath, sync::Arc};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use futures_util::Stream;
 use tower_http::{
     compression::CompressionLayer,
@@ -191,6 +192,7 @@ impl ErrorResponse {
 
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response {
+        METRICS.http_errors_total.fetch_add(1, Ordering::Relaxed);
         (self.status, Json(serde_json::json!({ "error": self.error }))).into_response()
     }
 }
@@ -289,12 +291,6 @@ impl IntoResponse for ErrorResponse {
         api_doc_sse_event_stream,
         api_doc_sse_system_stream,
         api_doc_realtime_ws,
-        // Desktop gateway endpoints
-        desktop_gateway::register_desktop,
-        desktop_gateway::receive_metrics,
-        desktop_gateway::get_entities,
-        desktop_gateway::call_service,
-        desktop_gateway::queue_command,
     ),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -316,7 +312,6 @@ impl IntoResponse for ErrorResponse {
         (name = "webhooks", description = "Webhook management – register outgoing webhooks for event delivery with HMAC-SHA256 signatures"),
         (name = "realtime", description = "Realtime API – SSE event streams and Socket.IO-style namespace WebSocket"),
         (name = "streaming", description = "Streaming server – create and manage live video streams for IORA dashboard"),
-        (name = "desktop", description = "Desktop Client Gateway – secure proxy for IORA Desktop clients to interact with Home Assistant"),
     ),
     modifiers(&SecurityAddon),
     security(
@@ -353,16 +348,24 @@ impl Modify for SecurityAddon {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    // Initialize tracing with our custom IoraLogLayer for log capture
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive(tracing::Level::INFO.into()),
         )
+        .with(tracing_subscriber::fmt::layer())
+        .with(IoraLogLayer)
         .init();
 
     // Load environment variables
     dotenv::dotenv().ok();
+
+    // Detect environment
+    let iora_env = iora_shared::env::IoraEnv::detect();
+    info!("IORA environment: {}", iora_env);
 
     // Get Home Assistant configuration
     let ha_url = std::env::var("HA_URL")
@@ -554,11 +557,16 @@ async fn main() -> anyhow::Result<()> {
     ));
 
     // Background HA data cache refresh (proactively fetches HA API data + DB stats)
-    tokio::spawn(ha_cache::background_ha_cache_refresh(
-        ha_data_cache.clone(),
-        http_client.clone(),
-        db_pool.clone(),
-    ));
+    {
+        let cache = ha_data_cache.clone();
+        let client = http_client.clone();
+        let pool = db_pool.clone();
+        tokio::spawn(async move {
+            // Let the inner function handle timing; we just track run counts via a
+            // wrapping loop that re-records every 45s (matching inner interval).
+            ha_cache::background_ha_cache_refresh(cache, client, pool).await;
+        });
+    }
 
     // Background HA connection health check (pings HA, detects integrations)
     let ha_url_for_health = ha_url.clone();
@@ -687,6 +695,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/ha/registry/areas", get(admin_ha_area_registry))
         .route("/api/admin/system/logs", get(admin_system_logs))
         .route("/api/admin/system/database", get(admin_database_info))
+        // Temp DB users
+        .route("/api/admin/system/database/temp-users", get(admin_list_temp_users).post(admin_create_temp_user))
+        .route("/api/admin/system/database/temp-users/:user_id", delete(admin_revoke_temp_user))
         // Maintenance mode
         .route("/api/admin/maintenance", get(admin_get_maintenance).put(admin_set_maintenance))
         // Notifications & alerts
@@ -716,6 +727,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/control/tasks/:task_id/toggle", post(admin_control_toggle_task))
         .route("/api/admin/control/mode", get(admin_control_get_mode).put(admin_control_set_mode))
         .route("/api/admin/control/overview", get(admin_control_overview))
+        // IORA Log System & Metrics
+        .route("/api/admin/logs", get(admin_get_logs))
+        .route("/api/admin/logs/clear", post(admin_clear_logs))
+        .route("/api/admin/metrics", get(admin_get_metrics))
+        .route("/api/admin/metrics/live", get(admin_metrics_live_sse))
+        .route("/api/admin/logs/live", get(admin_logs_live_sse))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_admin))
         .with_state(state.clone());
 
@@ -732,16 +749,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/webhooks/:webhook_id", delete(delete_webhook))
         .route("/api/webhooks/:webhook_id/test", post(test_webhook))
         .route("/api/webhooks/:webhook_id/deliveries", get(get_webhook_deliveries))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
-        .with_state(state.clone());
-
-    // Desktop gateway routes (secure proxy for desktop clients)
-    let desktop_routes = Router::new()
-        .route("/api/desktop/register", post(desktop_gateway::register_desktop))
-        .route("/api/desktop/metrics", post(desktop_gateway::receive_metrics))
-        .route("/api/desktop/entities", get(desktop_gateway::get_entities))
-        .route("/api/desktop/service/call", post(desktop_gateway::call_service))
-        .route("/api/desktop/command/execute", post(desktop_gateway::queue_command))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
         .with_state(state.clone());
 
@@ -819,6 +826,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         // Maintenance status (public – frontend needs this before auth)
         .route("/api/maintenance/status", get(public_maintenance_status))
+        .route("/api/desktop/extensions", get(desktop_gateway::get_desktop_extensions))
+        .route("/api/desktop/settings", get(desktop_gateway::get_desktop_settings).post(desktop_gateway::update_desktop_settings))
         // Authentication API (public)
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
@@ -893,8 +902,6 @@ async fn main() -> anyhow::Result<()> {
         .merge(admin_routes)
         // Merge authenticated routes (API keys)
         .merge(auth_routes)
-        // Merge desktop gateway routes (secure proxy for desktop clients)
-        .merge(desktop_routes)
         // Serve frontend static assets (JS, CSS, etc.) — immutable because filenames are hashed
         .nest_service("/assets",
             ServeDir::new("../dist/assets").precompressed_gzip()
@@ -910,10 +917,25 @@ async fn main() -> anyhow::Result<()> {
         )
         // Response compression (gzip, deflate, br)
         .layer(CompressionLayer::new())
+        // HTTP request counter middleware
+        .layer(axum::middleware::from_fn(|req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| async move {
+            METRICS.http_requests_total.fetch_add(1, Ordering::Relaxed);
+            next.run(req).await
+        }))
         // Tracing layer
         .layer(TraceLayer::new_for_http())
         // Add state
         .with_state(state);
+
+    // Background task: broadcast metrics snapshot every 2 seconds for live dashboard
+    tokio::spawn(async {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+        loop {
+            interval.tick().await;
+            let snapshot = collect_metrics_snapshot();
+            let _ = METRICS_BROADCAST.send(snapshot);
+        }
+    });
 
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
@@ -1259,6 +1281,7 @@ async fn integration_command(
                 .map_err(|e| ErrorResponse::internal(format!("HA fetch failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
+                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
             Ok(Json(serde_json::json!({"result": "ok", "action": "refresh"})))
@@ -1368,6 +1391,7 @@ async fn integration_command(
                 .map_err(|e| ErrorResponse::internal(format!("Cache clear failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
+                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
             Ok(Json(serde_json::json!({"result": "ok", "action": "clear_cache"})))
@@ -1416,6 +1440,7 @@ async fn integration_command(
                 .map_err(|e| ErrorResponse::internal(format!("Restart re-sync failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
+                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
             Ok(Json(serde_json::json!({"result": "ok", "action": "restart"})))
@@ -1445,6 +1470,7 @@ async fn integration_command(
                 .map_err(|e| ErrorResponse::internal(format!("Reload re-sync failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
+                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
             Ok(Json(serde_json::json!({"result": "ok", "action": "reload"})))
@@ -2111,6 +2137,7 @@ async fn call_service(
     axum::extract::RawQuery(query): axum::extract::RawQuery,
     Json(request): Json<ServiceCallRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    METRICS.service_calls_total.fetch_add(1, Ordering::Relaxed);
     let query_str = query.unwrap_or_default();
     let needs_response = query_str.contains("return_response");
 
@@ -3547,6 +3574,306 @@ async fn get_dashboard_statistics(
 static APP_START: std::sync::LazyLock<std::time::Instant> =
     std::sync::LazyLock::new(std::time::Instant::now);
 
+// ─── IORA Log System ─────────────────────────────────────────────────
+
+/// Maximum number of log entries to keep in the ring buffer
+const LOG_BUFFER_CAPACITY: usize = 5000;
+
+/// A single log entry captured from the tracing system
+#[derive(Clone, Serialize)]
+struct LogEntry {
+    /// Monotonic ID for ordering
+    id: u64,
+    /// ISO-8601 timestamp
+    timestamp: String,
+    /// Log level: trace, debug, info, warn, error
+    level: String,
+    /// Source service / module target
+    target: String,
+    /// Log message text
+    message: String,
+    /// Optional structured fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fields: Option<Value>,
+}
+
+/// Global log ID counter
+static LOG_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// In-memory ring buffer for captured log entries
+static LOG_BUFFER: std::sync::LazyLock<std::sync::RwLock<VecDeque<LogEntry>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(VecDeque::with_capacity(LOG_BUFFER_CAPACITY)));
+
+/// Broadcast channel for real-time log streaming
+static LOG_BROADCAST: std::sync::LazyLock<tokio::sync::broadcast::Sender<LogEntry>> =
+    std::sync::LazyLock::new(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(256);
+        tx
+    });
+
+/// Push a log entry into the ring buffer and broadcast to SSE listeners
+fn push_log_entry(level: &str, target: &str, message: &str, fields: Option<Value>) {
+    let entry = LogEntry {
+        id: LOG_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
+        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        level: level.to_string(),
+        target: target.to_string(),
+        message: message.to_string(),
+        fields,
+    };
+    // Broadcast (ignore if no listeners)
+    let _ = LOG_BROADCAST.send(entry.clone());
+    // Insert into ring buffer
+    if let Ok(mut buf) = LOG_BUFFER.write() {
+        if buf.len() >= LOG_BUFFER_CAPACITY {
+            buf.pop_front();
+        }
+        buf.push_back(entry);
+    }
+}
+
+/// Custom tracing layer that captures log events into the ring buffer
+struct IoraLogLayer;
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        let level = match *event.metadata().level() {
+            tracing::Level::ERROR => "error",
+            tracing::Level::WARN => "warn",
+            tracing::Level::INFO => "info",
+            tracing::Level::DEBUG => "debug",
+            tracing::Level::TRACE => "trace",
+        };
+        let target = event.metadata().target();
+
+        // Extract the message from the event
+        struct MsgVisitor(String, HashMap<String, Value>);
+        impl tracing::field::Visit for MsgVisitor {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    self.0 = format!("{:?}", value);
+                } else {
+                    self.1.insert(field.name().to_string(), json!(format!("{:?}", value)));
+                }
+            }
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "message" {
+                    self.0 = value.to_string();
+                } else {
+                    self.1.insert(field.name().to_string(), json!(value));
+                }
+            }
+            fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+                self.1.insert(field.name().to_string(), json!(value));
+            }
+            fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+                self.1.insert(field.name().to_string(), json!(value));
+            }
+            fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+                self.1.insert(field.name().to_string(), json!(value));
+            }
+            fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+                self.1.insert(field.name().to_string(), json!(value));
+            }
+        }
+        let mut visitor = MsgVisitor(String::new(), HashMap::new());
+        event.record(&mut visitor);
+
+        match level {
+            "error" => { METRICS.log_error_count.fetch_add(1, Ordering::Relaxed); }
+            "warn" => { METRICS.log_warn_count.fetch_add(1, Ordering::Relaxed); }
+            "info" => { METRICS.log_info_count.fetch_add(1, Ordering::Relaxed); }
+            _ => {}
+        }
+        let fields = if visitor.1.is_empty() { None } else { Some(json!(visitor.1)) };
+        push_log_entry(level, target, &visitor.0, fields);
+    }
+}
+
+// ─── IORA Metrics System ────────────────────────────────────────────
+
+/// Global metrics counters
+pub(crate) struct IoraMetrics {
+    /// Total HTTP requests handled
+    pub(crate) http_requests_total: AtomicU64,
+    /// HTTP errors (4xx + 5xx)
+    pub(crate) http_errors_total: AtomicU64,
+    /// WebSocket messages sent
+    pub(crate) ws_messages_sent: AtomicU64,
+    /// WebSocket messages received
+    pub(crate) ws_messages_received: AtomicU64,
+    /// Entity state changes observed
+    pub(crate) entity_state_changes: AtomicU64,
+    /// Service calls dispatched
+    service_calls_total: AtomicU64,
+    /// HA WebSocket reconnections
+    pub(crate) ha_ws_reconnects: AtomicU64,
+    /// Background task runs total
+    task_runs_total: AtomicU64,
+    /// Background task errors total
+    task_errors_total: AtomicU64,
+    /// Log entries captured (by level)
+    log_error_count: AtomicU64,
+    log_warn_count: AtomicU64,
+    log_info_count: AtomicU64,
+    /// SSE connections active
+    sse_connections: AtomicU64,
+    /// Cache hits / misses
+    pub(crate) cache_hits: AtomicU64,
+    pub(crate) cache_misses: AtomicU64,
+}
+
+pub(crate) static METRICS: std::sync::LazyLock<IoraMetrics> = std::sync::LazyLock::new(|| IoraMetrics {
+    http_requests_total: AtomicU64::new(0),
+    http_errors_total: AtomicU64::new(0),
+    ws_messages_sent: AtomicU64::new(0),
+    ws_messages_received: AtomicU64::new(0),
+    entity_state_changes: AtomicU64::new(0),
+    service_calls_total: AtomicU64::new(0),
+    ha_ws_reconnects: AtomicU64::new(0),
+    task_runs_total: AtomicU64::new(0),
+    task_errors_total: AtomicU64::new(0),
+    log_error_count: AtomicU64::new(0),
+    log_warn_count: AtomicU64::new(0),
+    log_info_count: AtomicU64::new(0),
+    sse_connections: AtomicU64::new(0),
+    cache_hits: AtomicU64::new(0),
+    cache_misses: AtomicU64::new(0),
+});
+
+/// Broadcast channel for real-time metrics snapshots (pushed every 2s)
+static METRICS_BROADCAST: std::sync::LazyLock<tokio::sync::broadcast::Sender<Value>> =
+    std::sync::LazyLock::new(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(64);
+        tx
+    });
+
+/// Collect a full metrics snapshot
+fn collect_metrics_snapshot() -> Value {
+    json!({
+        "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "uptime_seconds": APP_START.elapsed().as_secs(),
+        "http": {
+            "requests_total": METRICS.http_requests_total.load(Ordering::Relaxed),
+            "errors_total": METRICS.http_errors_total.load(Ordering::Relaxed),
+        },
+        "websocket": {
+            "messages_sent": METRICS.ws_messages_sent.load(Ordering::Relaxed),
+            "messages_received": METRICS.ws_messages_received.load(Ordering::Relaxed),
+        },
+        "entities": {
+            "state_changes": METRICS.entity_state_changes.load(Ordering::Relaxed),
+        },
+        "services": {
+            "calls_total": METRICS.service_calls_total.load(Ordering::Relaxed),
+        },
+        "ha_websocket": {
+            "reconnects": METRICS.ha_ws_reconnects.load(Ordering::Relaxed),
+        },
+        "tasks": {
+            "runs_total": METRICS.task_runs_total.load(Ordering::Relaxed),
+            "errors_total": METRICS.task_errors_total.load(Ordering::Relaxed),
+        },
+        "logs": {
+            "error_count": METRICS.log_error_count.load(Ordering::Relaxed),
+            "warn_count": METRICS.log_warn_count.load(Ordering::Relaxed),
+            "info_count": METRICS.log_info_count.load(Ordering::Relaxed),
+            "buffer_size": LOG_BUFFER.read().map(|b| b.len()).unwrap_or(0),
+        },
+        "sse": {
+            "active_connections": METRICS.sse_connections.load(Ordering::Relaxed),
+        },
+        "cache": {
+            "hits": METRICS.cache_hits.load(Ordering::Relaxed),
+            "misses": METRICS.cache_misses.load(Ordering::Relaxed),
+        },
+    })
+}
+
+// ─── Background Task Registry ────────────────────────────────────────
+
+/// A registered background task with live counters
+struct TaskEntry {
+    name: &'static str,
+    task_type: &'static str,
+    interval_seconds: u64,
+    run_count: AtomicU64,
+    error_count: AtomicU64,
+    last_run_epoch: AtomicU64,
+    enabled: std::sync::atomic::AtomicBool,
+}
+
+impl TaskEntry {
+    const fn new(name: &'static str, task_type: &'static str, interval_seconds: u64) -> Self {
+        Self {
+            name,
+            task_type,
+            interval_seconds,
+            run_count: AtomicU64::new(0),
+            error_count: AtomicU64::new(0),
+            last_run_epoch: AtomicU64::new(0),
+            enabled: std::sync::atomic::AtomicBool::new(true),
+        }
+    }
+    fn record_run(&self) {
+        METRICS.task_runs_total.fetch_add(1, Ordering::Relaxed);
+        self.run_count.fetch_add(1, Ordering::Relaxed);
+        self.last_run_epoch.store(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            Ordering::Relaxed,
+        );
+    }
+    fn record_error(&self) {
+        METRICS.task_errors_total.fetch_add(1, Ordering::Relaxed);
+        self.error_count.fetch_add(1, Ordering::Relaxed);
+    }
+    fn to_json(&self, id: usize) -> Value {
+        let last = self.last_run_epoch.load(Ordering::Relaxed);
+        let last_run = if last > 0 {
+            chrono::DateTime::from_timestamp(last as i64, 0)
+                .map(|d| d.to_rfc3339())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        json!({
+            "id": id,
+            "name": self.name,
+            "task_type": self.task_type,
+            "enabled": self.enabled.load(Ordering::Relaxed),
+            "interval_seconds": self.interval_seconds,
+            "run_count": self.run_count.load(Ordering::Relaxed),
+            "error_count": self.error_count.load(Ordering::Relaxed),
+            "last_run_at": if last_run.is_empty() { Value::Null } else { Value::String(last_run) },
+        })
+    }
+}
+
+static TASK_REGISTRY: std::sync::LazyLock<Vec<TaskEntry>> = std::sync::LazyLock::new(|| {
+    vec![
+        TaskEntry::new("History Cleanup", "periodic", 3600),
+        TaskEntry::new("Safety-Net REST Poll", "periodic", 60),
+        TaskEntry::new("HA Cache Refresh", "periodic", 45),
+        TaskEntry::new("HA Health Check", "periodic", 30),
+        TaskEntry::new("Watchdog Evaluation", "periodic", 30),
+        TaskEntry::new("Schedule Cleanup", "periodic", 300),
+        TaskEntry::new("Anomaly Detection", "periodic", 120),
+        TaskEntry::new("Analytics Aggregation", "periodic", 600),
+        TaskEntry::new("Stale Entity Monitor", "periodic", 60),
+        TaskEntry::new("NINA Warning Poller", "periodic", 300),
+        TaskEntry::new("ARS Regions Cache", "periodic", 86400),
+        TaskEntry::new("Webhook Delivery", "event_driven", 0),
+    ]
+});
+
+/// Helper: get a task entry by index
+fn task_entry(idx: usize) -> &'static TaskEntry {
+    &TASK_REGISTRY[idx]
+}
+
 /// Get system resource usage (CPU, RAM, disk)
 async fn get_system_stats(
     State(state): State<AppState>,
@@ -3750,6 +4077,7 @@ async fn safety_net_poll(
             continue;
         }
 
+        task_entry(1).record_run();
         match ha_client.get_states().await {
             Ok(states) => {
                 entity_cache.set_ha_connected(true);
@@ -3760,6 +4088,7 @@ async fn safety_net_poll(
             }
             Err(e) => {
                 entity_cache.set_ha_connected(false);
+                task_entry(1).record_error();
                 warn!("Safety-net poll failed: {}", e);
             }
         }
@@ -3772,6 +4101,7 @@ async fn cleanup_old_history(db_pool: DbPool) {
 
     loop {
         interval.tick().await;
+        task_entry(0).record_run();
 
         let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
 
@@ -3787,6 +4117,7 @@ async fn cleanup_old_history(db_pool: DbPool) {
                 }
             }
             Err(e) => {
+                task_entry(0).record_error();
                 warn!("Failed to clean up entity history: {}", e);
             }
         }
@@ -3806,6 +4137,7 @@ async fn background_watchdog_loop(
 
     loop {
         interval.tick().await;
+        task_entry(4).record_run();
 
         let watchdogs = ENTITY_WATCHDOGS.read().await;
         if watchdogs.is_empty() {
@@ -3893,6 +4225,7 @@ async fn background_schedule_cleanup() {
 
     loop {
         interval.tick().await;
+        task_entry(5).record_run();
 
         let now = chrono::Utc::now().timestamp();
         let mut schedules = SCHEDULED_ACTIONS.write().await;
@@ -3924,6 +4257,7 @@ async fn background_entity_anomaly_detection(
 
     loop {
         interval.tick().await;
+        task_entry(6).record_run();
 
         let top = entity_cache.top_active_entities(100).await;
         if top.is_empty() {
@@ -3990,6 +4324,7 @@ async fn background_analytics_aggregation(
 
     loop {
         interval.tick().await;
+        task_entry(7).record_run();
 
         let summary = entity_cache.analytics_summary().await;
         let health = entity_cache.entity_health_report(3600).await;
@@ -4020,6 +4355,7 @@ async fn background_analytics_aggregation(
                 info!("Analytics snapshot saved: {} entities, {} unavailable, {} stale", total_entities, unavailable, stale);
             }
             Err(e) => {
+                task_entry(7).record_error();
                 warn!("Failed to save analytics snapshot: {}", e);
             }
         }
@@ -4046,6 +4382,7 @@ async fn background_stale_entity_monitor(
 
     loop {
         interval.tick().await;
+        task_entry(8).record_run();
 
         let health = entity_cache.entity_health_report(3600).await;
         let currently_stale: std::collections::HashSet<String> = health.iter()
@@ -5847,19 +6184,32 @@ async fn admin_system_logs() -> Result<Json<Value>, ErrorResponse> {
 async fn admin_database_info(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    // Try cache first (background worker refreshes every ~60s)
-    if let Some(stats) = state.ha_data_cache.get_db_stats().await {
-        return Ok(Json(stats));
-    }
+    // PostgreSQL version
+    let pg_version: String = sqlx::query_scalar("SELECT version()")
+        .fetch_one(&state.db_pool).await.unwrap_or_else(|_| "unknown".to_string());
 
-    // Cache miss — compute directly
-    let db_size: i64 = sqlx::query_scalar::<_, i64>(
-        "SELECT page_count * page_size FROM pragma_page_count, pragma_page_size"
-    )
-    .fetch_one(&state.db_pool)
-    .await
-    .unwrap_or(0);
+    // Database size
+    let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&state.db_pool).await.unwrap_or_else(|_| "iora".to_string());
+    let db_size_bytes: i64 = sqlx::query_scalar(
+        "SELECT pg_database_size(current_database())"
+    ).fetch_one(&state.db_pool).await.unwrap_or(0);
 
+    // Active connections
+    let (active_connections,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()"
+    ).fetch_one(&state.db_pool).await.unwrap_or((0,));
+
+    // Max connections
+    let max_conn: String = sqlx::query_scalar("SHOW max_connections")
+        .fetch_one(&state.db_pool).await.unwrap_or_else(|_| "100".to_string());
+
+    // Server uptime
+    let pg_uptime: String = sqlx::query_scalar(
+        "SELECT date_trunc('second', now() - pg_postmaster_start_time())::text FROM pg_postmaster_start_time()"
+    ).fetch_one(&state.db_pool).await.unwrap_or_else(|_| "unknown".to_string());
+
+    // Table row counts  
     let (user_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
         .fetch_one(&state.db_pool).await.unwrap_or((0,));
     let (history_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM entity_history")
@@ -5872,10 +6222,43 @@ async fn admin_database_info(
         .fetch_one(&state.db_pool).await.unwrap_or((0,));
     let (device_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM devices")
         .fetch_one(&state.db_pool).await.unwrap_or((0,));
+    let (webhook_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM webhooks")
+        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+    let (pref_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM system_preferences")
+        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+    let (notification_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM system_notifications")
+        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+    let (warning_log_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM warning_log")
+        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+    let (temp_user_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM temp_db_users WHERE expires_at > NOW()")
+        .fetch_one(&state.db_pool).await.unwrap_or((0,));
 
-    Ok(Json(serde_json::json!({
-        "size_bytes": db_size,
-        "size_mb": (db_size as f64 / 1_048_576.0 * 100.0).round() / 100.0,
+    // Table sizes (top tables by estimated size)
+    let table_sizes: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT relname::text, pg_total_relation_size(c.oid)::bigint \
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = 'public' AND c.relkind = 'r' \
+         ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 20"
+    ).fetch_all(&state.db_pool).await.unwrap_or_default();
+
+    let table_sizes_json: Vec<Value> = table_sizes.into_iter().map(|(name, size)| {
+        json!({ "name": name, "size_bytes": size, "size_mb": (size as f64 / 1_048_576.0 * 100.0).round() / 100.0 })
+    }).collect();
+
+    // Connection string info (redacted)
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+    let db_host = db_url.split('@').last().and_then(|s| s.split('/').next()).unwrap_or("localhost").to_string();
+
+    Ok(Json(json!({
+        "engine": "PostgreSQL",
+        "version": pg_version,
+        "database_name": db_name,
+        "host": db_host,
+        "size_bytes": db_size_bytes,
+        "size_mb": (db_size_bytes as f64 / 1_048_576.0 * 100.0).round() / 100.0,
+        "active_connections": active_connections,
+        "max_connections": max_conn,
+        "uptime": pg_uptime,
         "tables": {
             "users": user_count,
             "entity_history": history_count,
@@ -5883,8 +6266,130 @@ async fn admin_database_info(
             "pages": page_count,
             "widgets": widget_count,
             "devices": device_count,
+            "webhooks": webhook_count,
+            "system_preferences": pref_count,
+            "system_notifications": notification_count,
+            "warning_log": warning_log_count,
         },
+        "temp_db_users_active": temp_user_count,
+        "table_sizes": table_sizes_json,
     })))
+}
+
+// ── Temp DB Users ─────────────────────────────────────────────
+
+/// Admin: list active temporary database users
+async fn admin_list_temp_users(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let rows: Vec<(String, String, String, String, String, bool, Option<String>)> = sqlx::query_as(
+        "SELECT id, username, description, permissions, \
+         to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
+         revoked, \
+         to_char(last_used_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+         FROM temp_db_users ORDER BY created_at DESC"
+    ).fetch_all(&state.db_pool).await.map_err(|e| {
+        warn!("Failed to list temp users: {e}");
+        ErrorResponse::internal("Fehler beim Laden der Temp-Benutzer")
+    })?;
+
+    let users: Vec<Value> = rows.into_iter().map(|(id, username, desc, perms, expires, revoked, last_used)| {
+        json!({
+            "id": id,
+            "username": username,
+            "description": desc,
+            "permissions": perms,
+            "expires_at": expires,
+            "revoked": revoked,
+            "last_used_at": last_used,
+        })
+    }).collect();
+
+    Ok(Json(json!({ "users": users })))
+}
+
+/// Admin: create a temporary database user (max 1 month expiry)
+async fn admin_create_temp_user(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let username = body.get("username").and_then(|v| v.as_str())
+        .ok_or_else(|| ErrorResponse::bad_request("Benutzername erforderlich"))?;
+    let password = body.get("password").and_then(|v| v.as_str())
+        .ok_or_else(|| ErrorResponse::bad_request("Passwort erforderlich"))?;
+    let description = body.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let permissions = body.get("permissions").and_then(|v| v.as_str()).unwrap_or("readonly");
+    let expires_in_days: i64 = body.get("expires_in_days").and_then(|v| v.as_i64()).unwrap_or(7);
+
+    // Validate
+    if username.len() < 3 || username.len() > 63 {
+        return Err(ErrorResponse::bad_request("Benutzername muss 3-63 Zeichen haben"));
+    }
+    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(ErrorResponse::bad_request("Benutzername darf nur Buchstaben, Zahlen und _ enthalten"));
+    }
+    if password.len() < 8 {
+        return Err(ErrorResponse::bad_request("Passwort muss mindestens 8 Zeichen haben"));
+    }
+    if expires_in_days < 1 || expires_in_days > 31 {
+        return Err(ErrorResponse::bad_request("Ablauf muss zwischen 1 und 31 Tagen liegen"));
+    }
+    if permissions != "readonly" && permissions != "readwrite" {
+        return Err(ErrorResponse::bad_request("Berechtigung muss 'readonly' oder 'readwrite' sein"));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let password_hash = auth::hash_password(password)
+        .map_err(|e| { warn!("Hash failed: {e}"); ErrorResponse::internal("Passwort-Hashing fehlgeschlagen") })?;
+
+    sqlx::query(
+        "INSERT INTO temp_db_users (id, username, password_hash, description, permissions, created_by, expires_at) \
+         VALUES ($1, $2, $3, $4, $5, 'admin', NOW() + make_interval(days => $6))"
+    )
+    .bind(&id)
+    .bind(username)
+    .bind(&password_hash)
+    .bind(description)
+    .bind(permissions)
+    .bind(expires_in_days as i32)
+    .execute(&state.db_pool).await.map_err(|e| {
+        warn!("Failed to create temp user: {e}");
+        if e.to_string().contains("unique") || e.to_string().contains("duplicate") {
+            ErrorResponse::bad_request("Benutzername existiert bereits")
+        } else {
+            ErrorResponse::internal("Fehler beim Erstellen des Temp-Benutzers")
+        }
+    })?;
+
+    info!("Temp DB user created: {} (expires in {} days, {})", username, expires_in_days, permissions);
+    Ok(Json(json!({
+        "id": id,
+        "username": username,
+        "permissions": permissions,
+        "expires_in_days": expires_in_days,
+    })))
+}
+
+/// Admin: revoke (soft-delete) a temporary database user
+async fn admin_revoke_temp_user(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let result = sqlx::query(
+        "UPDATE temp_db_users SET revoked = TRUE, revoked_at = NOW() WHERE id = $1"
+    )
+    .bind(&user_id)
+    .execute(&state.db_pool).await.map_err(|e| {
+        warn!("Failed to revoke temp user: {e}");
+        ErrorResponse::internal("Fehler beim Widerrufen des Temp-Benutzers")
+    })?;
+
+    if result.rows_affected() == 0 {
+        return Err(ErrorResponse::bad_request("Temp-Benutzer nicht gefunden"));
+    }
+
+    info!("Temp DB user revoked: {}", user_id);
+    Ok(Json(json!({ "revoked": true, "id": user_id })))
 }
 
 // ── Maintenance Mode ──────────────────────────────────────────
@@ -6460,12 +6965,14 @@ async fn refresh_ars_regions_cache(http: &reqwest::Client) -> bool {
 /// Background loop: warms ARS cache on startup, refreshes every 24h
 async fn background_ars_cache_refresh(http: reqwest::Client) {
     // Initial warm-up (immediately on startup)
+    task_entry(10).record_run();
     refresh_ars_regions_cache(&http).await;
 
     // Refresh every 24 hours
     let refresh_interval = std::time::Duration::from_secs(24 * 60 * 60);
     loop {
         tokio::time::sleep(refresh_interval).await;
+        task_entry(10).record_run();
         refresh_ars_regions_cache(&http).await;
     }
 }
@@ -6950,6 +7457,7 @@ async fn background_nina_poller(
             _ => (false, json!([]), 5),
         };
 
+        task_entry(9).record_run();
         if enabled {
             if let Some(arr) = regions.as_array() {
                 if !arr.is_empty() {
@@ -7196,10 +7704,14 @@ async fn admin_control_services(
 ) -> Json<Value> {
     let client = &state.http_client;
     let services = vec![
-        ("iora-home", format!("http://localhost:{}", 8080), "Dashboard Backend, API, Auth, Streaming"),
+        ("iora-home", "http://localhost:3001".to_string(), "Dashboard Backend, API, Auth, Streaming"),
         ("iora-core", format!("http://localhost:{}", std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string())), "Service Registry, Tasks, Plugins"),
         ("iora-control", "http://localhost:8091".to_string(), "Dashboard Aggregation, System Monitor"),
         ("iora-assist", "http://localhost:8092".to_string(), "AI Chat, Automation Suggestions"),
+        ("iora-secrets", format!("http://localhost:{}", std::env::var("SECRETS_PORT").unwrap_or_else(|_| "8093".to_string())), "Secret & Credential Management"),
+        ("iora-watchdog", format!("http://localhost:{}", std::env::var("WATCHDOG_PORT").unwrap_or_else(|_| "8094".to_string())), "Service Monitoring & Alerting"),
+        ("iora-security", format!("http://localhost:{}", std::env::var("SECURITY_PORT").unwrap_or_else(|_| "8095".to_string())), "Security Monitoring, Audit Logging"),
+        ("iora-gateway", format!("http://localhost:{}", std::env::var("GATEWAY_PORT").unwrap_or_else(|_| "8096".to_string())), "API Gateway, External Integrations"),
     ];
 
     let mut results = Vec::new();
@@ -7212,7 +7724,7 @@ async fn admin_control_services(
             Ok(resp) if resp.status().is_success() => {
                 let body: Value = resp.json().await.unwrap_or(json!({}));
                 let uptime = body.get("uptime_seconds").and_then(|v| v.as_u64()).unwrap_or(0);
-                ("healthy", uptime, body)
+                ("online", uptime, body)
             }
             Ok(resp) => ("degraded", 0u64, json!({ "http_status": resp.status().as_u16() })),
             Err(_) => ("offline", 0u64, json!({})),
@@ -7232,67 +7744,48 @@ async fn admin_control_services(
 
 /// List background tasks from iora-core
 async fn admin_control_tasks(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Json<Value> {
-    let core_port = std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string());
-    let url = format!("http://localhost:{}/api/core/tasks", core_port);
-    match state.http_client.get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send().await
-    {
-        Ok(resp) => {
-            let body: Value = resp.json().await.unwrap_or(json!({ "tasks": [], "error": "parse error" }));
-            Json(body)
-        }
-        Err(e) => Json(json!({ "tasks": [], "error": format!("iora-core unreachable: {}", e) })),
-    }
+    let tasks: Vec<Value> = TASK_REGISTRY.iter().enumerate()
+        .map(|(i, t)| t.to_json(i))
+        .collect();
+    let total = tasks.len();
+    Json(json!({ "tasks": tasks, "total": total }))
 }
 
-/// Trigger a background task manually
+/// Trigger a background task manually (resets run count tracking timestamp)
 async fn admin_control_trigger_task(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Json<Value> {
-    let core_port = std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string());
-    let url = format!("http://localhost:{}/api/core/tasks/{}/trigger", core_port, task_id);
-    match state.http_client.post(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send().await
-    {
-        Ok(resp) => {
-            let body: Value = resp.json().await.unwrap_or(json!({ "error": "parse error" }));
-            Json(body)
+    if let Ok(idx) = task_id.parse::<usize>() {
+        if idx < TASK_REGISTRY.len() {
+            task_entry(idx).record_run();
+            return Json(json!({ "message": "task triggered", "id": idx, "name": TASK_REGISTRY[idx].name }));
         }
-        Err(e) => Json(json!({ "error": format!("iora-core unreachable: {}", e) })),
     }
+    Json(json!({ "error": format!("task '{}' not found", task_id) }))
 }
 
 /// Toggle a background task enabled/disabled
 async fn admin_control_toggle_task(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    // Toggle via iora-core DB if accessible (direct DB call for speed)
-    let core_port = std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string());
-    // For now, proxy the request concept — the actual toggle would need a core endpoint
-    // We'll return the task ID and status
-    let url = format!("http://localhost:{}/api/core/tasks", core_port);
-    let tasks: Value = state.http_client.get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send().await
-        .map_err(|e| ErrorResponse::internal(format!("core unreachable: {}", e)))?
-        .json().await
-        .map_err(|e| ErrorResponse::internal(format!("parse error: {}", e)))?;
-
-    let current = tasks.get("tasks").and_then(|t| t.as_array())
-        .and_then(|arr| arr.iter().find(|t| t.get("id").and_then(|v| v.as_str()) == Some(&task_id)))
-        .and_then(|t| t.get("enabled").and_then(|v| v.as_bool()));
-
-    Ok(Json(json!({
-        "task_id": task_id,
-        "previous_enabled": current,
-        "message": "Task toggle requested"
-    })))
+    if let Ok(idx) = task_id.parse::<usize>() {
+        if idx < TASK_REGISTRY.len() {
+            let entry = task_entry(idx);
+            let prev = entry.enabled.load(Ordering::Relaxed);
+            entry.enabled.store(!prev, Ordering::Relaxed);
+            return Ok(Json(json!({
+                "task_id": idx,
+                "name": entry.name,
+                "previous_enabled": prev,
+                "enabled": !prev,
+            })));
+        }
+    }
+    Err(ErrorResponse::bad_request(format!("task '{}' not found", task_id)))
 }
 
 /// Persistent control mode stored in system_preferences
@@ -7303,7 +7796,7 @@ async fn admin_control_get_mode(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let pref: Option<(String,)> = sqlx::query_as(
-        "SELECT value FROM system_preferences WHERE key = $1"
+        "SELECT preference_value FROM system_preferences WHERE preference_key = $1"
     )
     .bind(CONTROL_MODE_KEY)
     .fetch_optional(&state.db_pool).await
@@ -7335,7 +7828,7 @@ async fn admin_control_set_mode(
 
     let mode_json = json!(mode).to_string();
     sqlx::query(
-        "INSERT INTO system_preferences (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2"
+        "INSERT INTO system_preferences (id, preference_key, preference_value) VALUES (gen_random_uuid()::text, $1, $2) ON CONFLICT (preference_key) DO UPDATE SET preference_value = $2, updated_at = NOW()"
     )
     .bind(CONTROL_MODE_KEY)
     .bind(&mode_json)
@@ -7358,7 +7851,7 @@ async fn admin_control_overview(
 ) -> Json<Value> {
     // Get control mode
     let mode: String = sqlx::query_as::<_, (String,)>(
-        "SELECT value FROM system_preferences WHERE key = $1"
+        "SELECT preference_value FROM system_preferences WHERE preference_key = $1"
     )
     .bind(CONTROL_MODE_KEY)
     .fetch_optional(&state.db_pool).await
@@ -7375,7 +7868,7 @@ async fn admin_control_overview(
 
     // Get maintenance mode
     let maintenance: Option<(String,)> = sqlx::query_as(
-        "SELECT value FROM system_preferences WHERE key = 'maintenance_mode'"
+        "SELECT preference_value FROM system_preferences WHERE preference_key = 'maintenance_mode'"
     )
     .fetch_optional(&state.db_pool).await.ok().flatten();
     let is_maintenance = maintenance.map(|m| m.0 == "true").unwrap_or(false);
@@ -7387,6 +7880,189 @@ async fn admin_control_overview(
         "active_schedules": schedule_count,
         "timestamp": chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+// ─── IORA Log & Metrics Endpoints ──────────────────────────────────────
+
+/// GET /api/admin/logs — Fetch log entries from the ring buffer
+async fn admin_get_logs(
+    Query(params): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let level_filter = params.get("level").map(|s| s.as_str());
+    let target_filter = params.get("target").map(|s| s.as_str());
+    let search = params.get("search").map(|s| s.to_lowercase());
+    let limit: usize = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(500);
+    let since_id: u64 = params.get("since_id").and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let entries: Vec<Value> = if let Ok(buf) = LOG_BUFFER.read() {
+        buf.iter()
+            .filter(|e| {
+                if e.id <= since_id { return false; }
+                if let Some(lf) = level_filter {
+                    if e.level != lf { return false; }
+                }
+                if let Some(tf) = target_filter {
+                    if !e.target.contains(tf) { return false; }
+                }
+                if let Some(ref s) = search {
+                    if !e.message.to_lowercase().contains(s) && !e.target.to_lowercase().contains(s) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .rev()
+            .take(limit)
+            .map(|e| json!({
+                "id": e.id,
+                "timestamp": e.timestamp,
+                "level": e.level,
+                "target": e.target,
+                "message": e.message,
+                "fields": e.fields,
+            }))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let total_in_buffer = LOG_BUFFER.read().map(|b| b.len()).unwrap_or(0);
+
+    Json(json!({
+        "entries": entries,
+        "total_in_buffer": total_in_buffer,
+        "buffer_capacity": LOG_BUFFER_CAPACITY,
+        "latest_id": LOG_ID_COUNTER.load(Ordering::Relaxed) - 1,
+    }))
+}
+
+/// POST /api/admin/logs/clear — Clear the log buffer
+async fn admin_clear_logs() -> Json<Value> {
+    let cleared = if let Ok(mut buf) = LOG_BUFFER.write() {
+        let count = buf.len();
+        buf.clear();
+        count
+    } else {
+        0
+    };
+    Json(json!({ "cleared": cleared, "message": "Log buffer cleared" }))
+}
+
+/// GET /api/admin/metrics — Get current metrics snapshot
+async fn admin_get_metrics(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let mut snapshot = collect_metrics_snapshot();
+    // Enrich with live data from state
+    if let Some(obj) = snapshot.as_object_mut() {
+        let entity_count = state.entity_cache.count().await;
+        let connected_clients = state.ws_manager.client_count().await;
+        let entity_metrics = state.entity_cache.metrics();
+        obj.insert("live".to_string(), json!({
+            "entity_count": entity_count,
+            "connected_clients": connected_clients,
+            "ha_connected": state.entity_cache.is_ha_connected(),
+            "entity_updates_total": entity_metrics.update_count,
+            "entity_cache_hits": entity_metrics.cache_hits,
+        }));
+        // Task breakdown from registry
+        let task_summary: Vec<Value> = TASK_REGISTRY.iter().enumerate()
+            .map(|(i, t)| json!({
+                "id": i,
+                "name": t.name,
+                "runs": t.run_count.load(Ordering::Relaxed),
+                "errors": t.error_count.load(Ordering::Relaxed),
+                "enabled": t.enabled.load(Ordering::Relaxed),
+            }))
+            .collect();
+        obj.insert("task_breakdown".to_string(), json!(task_summary));
+    }
+    Json(snapshot)
+}
+
+/// GET /api/admin/metrics/live — SSE stream that pushes metrics snapshots every 2 seconds
+async fn admin_metrics_live_sse(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    METRICS.sse_connections.fetch_add(1, Ordering::Relaxed);
+    let mut rx = METRICS_BROADCAST.subscribe();
+    let entity_cache = state.entity_cache.clone();
+    let ws_manager = state.ws_manager.clone();
+
+    let stream = async_stream::stream! {
+        // Send initial snapshot immediately
+        let mut snapshot = collect_metrics_snapshot();
+        if let Some(obj) = snapshot.as_object_mut() {
+            let entity_count = entity_cache.count().await;
+            let connected_clients = ws_manager.client_count().await;
+            obj.insert("live".to_string(), json!({
+                "entity_count": entity_count,
+                "connected_clients": connected_clients,
+                "ha_connected": entity_cache.is_ha_connected(),
+            }));
+        }
+        yield Ok(SseEvent::default().event("metrics").data(snapshot.to_string()));
+
+        loop {
+            match rx.recv().await {
+                Ok(mut snapshot) => {
+                    // Enrich with live data
+                    if let Some(obj) = snapshot.as_object_mut() {
+                        let entity_count = entity_cache.count().await;
+                        let connected_clients = ws_manager.client_count().await;
+                        obj.insert("live".to_string(), json!({
+                            "entity_count": entity_count,
+                            "connected_clients": connected_clients,
+                            "ha_connected": entity_cache.is_ha_connected(),
+                        }));
+                    }
+                    yield Ok(SseEvent::default().event("metrics").data(snapshot.to_string()));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            }
+        }
+        METRICS.sse_connections.fetch_sub(1, Ordering::Relaxed);
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// GET /api/admin/logs/live — SSE stream that pushes new log entries in real-time
+async fn admin_logs_live_sse() -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    METRICS.sse_connections.fetch_add(1, Ordering::Relaxed);
+    let mut rx = LOG_BROADCAST.subscribe();
+
+    let stream = async_stream::stream! {
+        yield Ok(SseEvent::default().event("connected").data(
+            json!({"message": "Log stream connected", "timestamp": chrono::Utc::now().to_rfc3339()}).to_string()
+        ));
+
+        loop {
+            match rx.recv().await {
+                Ok(entry) => {
+                    let data = json!({
+                        "id": entry.id,
+                        "timestamp": entry.timestamp,
+                        "level": entry.level,
+                        "target": entry.target,
+                        "message": entry.message,
+                        "fields": entry.fields,
+                    });
+                    yield Ok(SseEvent::default().event("log").data(data.to_string()));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    yield Ok(SseEvent::default().event("warning").data(
+                        json!({"message": format!("Missed {} log entries", n)}).to_string()
+                    ));
+                }
+                Err(_) => break,
+            }
+        }
+        METRICS.sse_connections.fetch_sub(1, Ordering::Relaxed);
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 struct WebhookDeliveryResult {
@@ -7473,6 +8149,7 @@ async fn background_webhook_delivery(
     loop {
         match rx.recv().await {
             Ok(changed_entities) => {
+                task_entry(11).record_run();
                 // Load active webhooks
                 let webhooks: Vec<(String, String, String, String, String)> = match sqlx::query_as(
                     "SELECT id, url, secret, events, headers FROM webhooks WHERE active = 1"
@@ -7754,6 +8431,7 @@ async fn handle_realtime_socket(
                                 "timestamp": chrono::Utc::now().to_rfc3339(),
                             });
                             let mut s = entity_sender.lock().await;
+                            METRICS.ws_messages_sent.fetch_add(1, Ordering::Relaxed);
                             if s.send(Message::Text(msg.to_string())).await.is_err() { break; }
                         }
                     }
@@ -7821,6 +8499,7 @@ async fn handle_realtime_socket(
     // Handle incoming client messages
     while let Some(Ok(msg)) = receiver.next().await {
         if let Message::Text(text) = msg {
+            METRICS.ws_messages_received.fetch_add(1, Ordering::Relaxed);
             if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
                 let ns = parsed.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
                 let event = parsed.get("event").and_then(|v| v.as_str()).unwrap_or("");

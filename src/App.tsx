@@ -20,6 +20,8 @@ import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotific
 import { PageDesigner } from '@/components/PageDesigner'
 import { CustomPageRenderer } from '@/components/CustomPageRenderer'
 import { SettingsPage } from '@/components/SettingsPage'
+// Share page for the Apps & Features app menu
+import { SharePage } from './components/SharePage'
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 import { AdminPanel } from '@/components/AdminPanel'
@@ -630,6 +632,9 @@ function DashboardContent() {
               {currentPageId === 'docs' && (
                 <DocsPage />
               )}
+              {currentPageId === 'share' && (
+                <SharePage />
+              )}
               {currentPageId === 'streaming' && (
                 <StreamSender />
               )}
@@ -639,7 +644,7 @@ function DashboardContent() {
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
                 </div>
               )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming'].includes(currentPageId) && currentPage && (
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming', 'share'].includes(currentPageId) && currentPage && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}

@@ -22,7 +22,6 @@ sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chron
 
 # Encryption dependencies
 aes-gcm = "0.10"
-argon2 = "0.5"
 rand = "0.8"
 hex = "0.4"
 base64 = "0.21"

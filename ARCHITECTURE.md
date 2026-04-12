@@ -35,6 +35,18 @@ dependency.
   │  └──────────────────────────────────────────────────────────────┘   │
   └────────────────────────────────────────────────────────────────────┘
                │
+
+### `iora-desktop` — Desktop Shell (Tauri)
+
+Desktop shell for IORA Home and admin tools, built with Tauri and React.
+
+**Responsibilities:**
+- Transparent glass titlebar and tray integration
+- Remote IORA Home embedding with desktop viewport rendering
+- Desktop-only settings for brightness, kiosk, always-on-top, proxy and diagnostics
+- Local system metrics, proxy health and desktop lifecycle management
+- LM Studio proxy startup and connection for local AI services
+
   ┌────────────┴────────────┐
   │  Home Assistant          │
   │  (Optional integration)  │
@@ -59,6 +71,7 @@ backend/
 ├── iora-secrets/       ← Encrypted secrets storage (port 8093)
 ├── iora-watchdog/      ← Health monitoring and failover (port 8094)
 ├── iora-security/      ← Security monitoring and PostgreSQL management (port 8095)
+├── iora-files/         ← Secure file sharing backend with share links and WebDAV access
 ├── iora-gateway/       ← Sandboxed external integration gateway (port 8096)
 └── iora-installer/     ← Installation and update management (CLI)
 ```
@@ -137,7 +150,11 @@ The backend for the IORA Control admin dashboard. Aggregates data from `iora-cor
 - System stats (CPU, RAM, OS info via `sysinfo`)
 - Proxied service and plugin management (via iora-core)
 - Proxied user management (via iora-home)
-- System-wide configuration store
+- Home Assistant integration endpoints for config, connection status, entities, scenes and automations
+- Network, backup, database and admin notification support
+- MQTT / Zigbee / Z-Wave / Matter / BLE / HomeKit status aggregation
+- System notifications and warning stream delivery
+- Admin sidebar metadata and tabbed feature discovery
 
 **Key endpoints:**
 ```
@@ -145,13 +162,27 @@ GET  /health
 GET  /api/control/dashboard    ← overview (services + plugins)
 GET  /api/control/system       ← CPU / memory / OS stats
 GET  /api/control/services     ← all IORA services (via iora-core)
-GET  /api/control/logs         ← aggregated logs (placeholder)
-GET  /api/control/plugins      ← plugin list (via iora-core)
-POST /api/control/plugins      ← install plugin
-DELETE /api/control/plugins/:id
+GET  /api/control/tasks        ← control task status and queue overview
+GET  /api/control/mode         ← active control mode and available modes
 GET  /api/control/users        ← users (via iora-home)
-GET  /api/control/config       ← system config
-PUT  /api/control/config       ← update system config
+GET  /api/control/api-keys     ← API keys and rate limits
+GET  /api/control/webhooks     ← registered webhooks
+GET  /api/control/ha/config    ← Home Assistant configuration
+GET  /api/control/ha/connection← HA connection status and integrations
+GET  /api/control/ha/entities  ← entity explorer and metadata
+GET  /api/control/ha/scenes    ← scenes and triggers
+GET  /api/control/ha/automations ← automation status and history
+GET  /api/control/ha/logbook   ← Home Assistant logbook stream
+GET  /api/control/mqtt/status  ← MQTT broker connectivity
+GET  /api/control/zigbee/status← Zigbee network status
+GET  /api/control/zwave/status ← Z-Wave network status
+GET  /api/control/matter/status← Matter bridge status
+GET  /api/control/ble/status   ← BLE device status
+GET  /api/control/homekit/status← HomeKit bridge status
+GET  /api/control/network      ← network diagnostics
+GET  /api/control/database     ← database health
+GET  /api/control/warnings     ← system warnings
+GET  /api/control/notifications← system notification feed
 ```
 
 ### `iora-assist` – AI Assistant (port 8092)
@@ -373,7 +404,9 @@ POST /api/security/users               ← Create PostgreSQL user
 ```env
 SECURITY_DB_PATH=/var/lib/iora/security.db
 SECURITY_DB_KEY=<64-hex-char-key>     # From iora-secrets
-POSTGRES_ADMIN_URL=postgres://postgres:<admin-pass>@localhost:5432/postgres
+# Uses DATABASE_URL for PostgreSQL (same as iora-home). Optional override:
+# POSTGRES_ADMIN_URL=postgres://postgres:<admin-pass>@localhost:5432/postgres
+IORA_ENV=production                   # Or 'development' (default)
 AUTO_LOCKDOWN_ENABLED=true
 LOCKDOWN_THRESHOLD_CRITICAL=5
 THREAT_LEVEL_THRESHOLD=7
@@ -863,7 +896,10 @@ as a bridge between IORA and a locally running **LM Studio** instance.
 - **Local AI processing** — LM Studio runs AI models fully on-device. IORA Desktop proxies
   requests from `iora-assist` to LM Studio, keeping all data local.
 - **Background service** — the app runs invisibly after login; no terminal required.
-- **Settings window** — a small React UI is shown/hidden by clicking the tray icon.
+- **Remote IORA Home shell** — the desktop window can embed the remote IORA Home UI with native window chrome and quick actions.
+- **System integration** — desktop settings now expose brightness, always-on-top, kiosk mode, screensaver, notifications and proxy controls.
+- **Admin sidebar** — the built-in Admin Panel now uses a side navigation layout for faster access to system, HA, network, logs and realtime tools.
+- **Settings persistence** — desktop configuration is stored centrally and loaded on app startup.
 
 ### Directory structure
 

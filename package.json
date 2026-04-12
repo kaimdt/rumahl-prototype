@@ -6,6 +6,10 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "dev:all": "node dev/iora-dev.mjs",
+        "dev:start": "node dev/iora-dev.mjs start all",
+        "dev:watch": "node dev/iora-dev.mjs start all --watch",
+        "dev:list": "node dev/iora-dev.mjs list",
         "build": "tsc -b --noCheck && vite build",
         "lint": "eslint .",
         "optimize": "vite optimize",

@@ -46,12 +46,13 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const [navStyle] = useLocalStorage<'pill' | 'classic' | 'minimal'>('ha-nav-style', 'pill')
 
   // App menu pages (shown in 9-dot grid, not in main nav bar)
-  const appMenuPageIds = ['streaming', 'docs']
+  const appMenuPageIds = ['streaming', 'docs', 'share']
 
   // Built-in app menu entries (always visible even if not yet in pages array)
   const builtInAppEntries: Array<{ id: string; name: string; icon: string }> = [
     { id: 'streaming', name: 'Streaming', icon: 'VideoCamera' },
     { id: 'docs', name: 'Dokumentation', icon: 'BookOpen' },
+    { id: 'share', name: 'Share', icon: 'ShareNetwork' },
   ]
 
   // Filter pages: show in nav, not settings, not app-menu pages, and only top-level

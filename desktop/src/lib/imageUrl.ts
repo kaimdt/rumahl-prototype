@@ -1,4 +1,9 @@
-const API_BASE = (import.meta.env.VITE_BACKEND_URL || window.location.origin).replace(/\/$/, '')
+import { getApiBase } from '@/lib/apiBase'
+
+function resolveApiBase() {
+  const base = getApiBase()
+  return (base || window.location.origin).replace(/\/$/, '')
+}
 
 export function toBackendImageUrl(raw: string | undefined | null): string | null {
   if (!raw) return null
@@ -8,7 +13,7 @@ export function toBackendImageUrl(raw: string | undefined | null): string | null
     for (const marker of markers) {
       const index = path.indexOf(marker)
       if (index >= 0) {
-        return `${API_BASE}${path.slice(index)}${search}`
+        return `${resolveApiBase()}${path.slice(index)}${search}`
       }
     }
     return null
@@ -32,8 +37,8 @@ export function toBackendImageUrl(raw: string | undefined | null): string | null
   if (raw.startsWith('/')) {
     const proxied = remapKnownApiPath(raw)
     if (proxied) return proxied
-    return `${API_BASE}${raw}`
+    return `${resolveApiBase()}${raw}`
   }
 
-  return `${API_BASE}/${raw.replace(/^\/+/, '')}`
+  return `${resolveApiBase()}/${raw.replace(/^\/+/, '')}`
 }

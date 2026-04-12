@@ -15,6 +15,16 @@ import {
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
+import { toast } from 'sonner'
+
+interface CloudSettings {
+  connectorHost: string
+  useTls: boolean
+  privatePort: number
+  publicProxyPort: number
+  enableReverseProxy: boolean
+  requireVpnOnly: boolean
+}
 
 interface AdminUser {
   id: string
@@ -46,7 +56,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'network' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
@@ -72,6 +82,7 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'analytics', label: 'Analytics', icon: ChartLine, description: 'Dashboard-Statistiken, Entity-Nutzung und System-Gesundheit überwachen' },
   { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
   { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und Verbindungsdetails anzeigen' },
+  { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
   { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
   { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
   { id: 'calendars', label: 'Kalender', icon: CalendarBlank, description: 'Home Assistant Kalender-Entitäten und anstehende Termine anzeigen' },
@@ -81,10 +92,266 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
 ]
 
+type TabGroup = {
+  id: string
+  title: string
+  icon: typeof ShieldCheck
+  items: Tab[]
+}
+
+const tabGroups: TabGroup[] = [
+  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'tasks', 'control-mode', 'system'] },
+  { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'scenes', 'automations', 'logbook', 'calendars'] },
+  { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
+  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'network', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications'] },
+  { id: 'access', title: 'Benutzer', icon: Users, items: ['users'] },
+]
+
+const CLOUD_HOST_KEY = 'iora-cloud-connector-host'
+const CLOUD_USE_TLS_KEY = 'iora-cloud-connector-use-tls'
+const CLOUD_PRIVATE_PORT_KEY = 'iora-cloud-connector-private-port'
+const CLOUD_PUBLIC_PORT_KEY = 'iora-cloud-connector-public-port'
+const CLOUD_ENABLE_REVERSE_PROXY_KEY = 'iora-cloud-connector-enable-reverse-proxy'
+const CLOUD_REQUIRE_VPN_KEY = 'iora-cloud-connector-require-vpn'
+
+function CloudSettingsTab({ token }: { token: string }) {
+  const [settings, setSettings] = useState<CloudSettings>({
+    connectorHost: '',
+    useTls: true,
+    privatePort: 3001,
+    publicProxyPort: 443,
+    enableReverseProxy: true,
+    requireVpnOnly: true,
+  })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [testState, setTestState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [testError, setTestError] = useState<string | null>(null)
+  const [testInfo, setTestInfo] = useState<{ online: boolean; ha: boolean; entities: number } | null>(null)
+
+  useEffect(() => {
+    const persistedHost = localStorage.getItem(CLOUD_HOST_KEY)
+    const persistedTls = localStorage.getItem(CLOUD_USE_TLS_KEY)
+    const persistedPrivatePort = localStorage.getItem(CLOUD_PRIVATE_PORT_KEY)
+    const persistedPublicPort = localStorage.getItem(CLOUD_PUBLIC_PORT_KEY)
+    const persistedReverseProxy = localStorage.getItem(CLOUD_ENABLE_REVERSE_PROXY_KEY)
+    const persistedVpnOnly = localStorage.getItem(CLOUD_REQUIRE_VPN_KEY)
+
+    setSettings((current) => ({
+      connectorHost: persistedHost ?? current.connectorHost,
+      useTls: persistedTls === null ? current.useTls : persistedTls === 'true',
+      privatePort: persistedPrivatePort ? Number(persistedPrivatePort) : current.privatePort,
+      publicProxyPort: persistedPublicPort ? Number(persistedPublicPort) : current.publicProxyPort,
+      enableReverseProxy: persistedReverseProxy === null ? current.enableReverseProxy : persistedReverseProxy === 'true',
+      requireVpnOnly: persistedVpnOnly === null ? current.requireVpnOnly : persistedVpnOnly === 'true',
+    }))
+    setLoading(false)
+  }, [])
+
+  const saveSettings = useCallback(async () => {
+    setSaving(true)
+    setError(null)
+
+    const payload = {
+      connector_host: settings.connectorHost,
+      use_tls: settings.useTls,
+      private_port: settings.privatePort,
+      public_proxy_port: settings.publicProxyPort,
+      enable_reverse_proxy: settings.enableReverseProxy,
+      require_vpn_only: settings.requireVpnOnly,
+    }
+
+    try {
+      await adminFetch('/api/admin/iora-cloud/config', token, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+    } catch {
+      // Fallback: save locally if backend is not available
+    }
+
+    localStorage.setItem(CLOUD_HOST_KEY, settings.connectorHost)
+    localStorage.setItem(CLOUD_USE_TLS_KEY, String(settings.useTls))
+    localStorage.setItem(CLOUD_PRIVATE_PORT_KEY, String(settings.privatePort))
+    localStorage.setItem(CLOUD_PUBLIC_PORT_KEY, String(settings.publicProxyPort))
+    localStorage.setItem(CLOUD_ENABLE_REVERSE_PROXY_KEY, String(settings.enableReverseProxy))
+    localStorage.setItem(CLOUD_REQUIRE_VPN_KEY, String(settings.requireVpnOnly))
+
+    toast.success('IORA Cloud Einstellungen gespeichert')
+    setSaving(false)
+  }, [settings, token])
+
+  const testConnection = useCallback(async () => {
+    if (!settings.connectorHost.trim()) {
+      setTestState('error')
+      setTestError('Bitte eine Host-IP oder einen Hostnamen eingeben.')
+      return
+    }
+
+    setTestState('testing')
+    setTestError(null)
+    setTestInfo(null)
+
+    const protocol = settings.useTls ? 'https' : 'http'
+    const url = `${protocol}://${settings.connectorHost}:${settings.privatePort}/health`
+
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setTestInfo({
+        online: true,
+        ha: data.ha_connected ?? false,
+        entities: data.entity_count ?? 0,
+      })
+      setTestState('success')
+    } catch (err) {
+      setTestState('error')
+      setTestError(err instanceof Error ? err.message : 'Verbindung fehlgeschlagen')
+    }
+  }, [settings])
+
+  const currentUrl = `${settings.useTls ? 'https' : 'http'}://${settings.connectorHost}${settings.privatePort ? `:${settings.privatePort}` : ''}`
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <CloudArrowUp size={18} className="text-foreground" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">IORA Cloud Connector</p>
+            <p className="text-xs text-foreground/60">Konfiguriere den Connector mit IP, Ports und Verschlüsselung.</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Connector Host / IP</label>
+            <input
+              type="text"
+              value={settings.connectorHost}
+              onChange={(event) => setSettings({ ...settings, connectorHost: event.target.value })}
+              placeholder="10.0.0.2"
+              className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Protokoll</label>
+              <select
+                value={settings.useTls ? 'https' : 'http'}
+                onChange={(event) => setSettings({ ...settings, useTls: event.target.value === 'https' })}
+                className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
+              >
+                <option value="https">HTTPS</option>
+                <option value="http">HTTP</option>
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Privater API Port</label>
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={settings.privatePort}
+                onChange={(event) => setSettings({ ...settings, privatePort: Number(event.target.value) || 3001 })}
+                className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
+              />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Öffentlicher Proxy-Port</label>
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={settings.publicProxyPort}
+                onChange={(event) => setSettings({ ...settings, publicProxyPort: Number(event.target.value) || 443 })}
+                className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.enableReverseProxy}
+                onChange={(event) => setSettings({ ...settings, enableReverseProxy: event.target.checked })}
+                className="h-4 w-4 rounded border-white/10 bg-background text-accent focus:ring-accent"
+              />
+              Öffentlichen Reverse-Proxy aktivieren
+            </label>
+            <label className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.requireVpnOnly}
+                onChange={(event) => setSettings({ ...settings, requireVpnOnly: event.target.checked })}
+                className="h-4 w-4 rounded border-white/10 bg-background text-accent focus:ring-accent"
+              />
+              Nur VPN/Tailscale-Zugriff auf privaten Port
+            </label>
+          </div>
+
+          <div className="rounded-3xl border border-foreground/10 bg-foreground/5 p-4 text-sm text-foreground/70">
+            <p className="font-semibold text-foreground">Wichtig</p>
+            <p className="mt-2">Der Connector soll auf allen ihm zugewiesenen IP-Adressen hören. Der private API-Port ist für interne Cloud-Verbindungen vorgesehen, der öffentliche Proxy-Port nur für verschlüsselte Zugriffe.</p>
+            <p className="mt-2">Diese Seite ist die einzige Stelle zur Einrichtung und Anpassung des IORA Cloud Connectors.</p>
+          </div>
+
+          <div className="grid gap-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Berechnete Connector-URL</label>
+            <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground">{currentUrl}</div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="button"
+              onClick={saveSettings}
+              disabled={saving || loading}
+              className="inline-flex items-center justify-center rounded-3xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent/95 disabled:opacity-50"
+            >
+              {saving ? 'Speichert…' : 'Einstellungen speichern'}
+            </button>
+            <button
+              type="button"
+              onClick={testConnection}
+              disabled={!settings.connectorHost.trim() || testState === 'testing'}
+              className="inline-flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground transition hover:bg-white/10 disabled:opacity-50"
+            >
+              {testState === 'testing' ? 'Teste Verbindung…' : 'Verbindung testen'}
+            </button>
+          </div>
+
+          {testState === 'success' && testInfo && (
+            <div className="rounded-3xl border border-green-500/20 bg-green-500/10 p-4 text-sm text-foreground">
+              <p className="font-semibold text-green-600">Verbindung erfolgreich</p>
+              <p className="mt-2">Status: online</p>
+              <p>Home Assistant: {testInfo.ha ? 'verbunden' : 'nicht verbunden'}</p>
+              <p>Entitäten: {testInfo.entities}</p>
+            </div>
+          )}
+
+          {testState === 'error' && (
+            <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-destructive">
+              <p className="font-semibold text-red-600">Verbindung fehlgeschlagen</p>
+              <p className="mt-2">{testError}</p>
+            </div>
+          )}
+
+          {error && <div className="rounded-3xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
 
 async function adminFetch(path: string, token: string, options?: RequestInit) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const url = `${API_BASE}${path}`
+  const res = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -93,11 +360,20 @@ async function adminFetch(path: string, token: string, options?: RequestInit) {
     },
   })
   if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let message = `HTTP ${res.status}`
+    try {
+      const json = JSON.parse(text)
+      if (json?.error) message = json.error
+      else if (json?.message) message = json.message
+    } catch {
+      if (text) message = text
+    }
+    console.error('Admin fetch failed:', { url, status: res.status, statusText: res.statusText, body: text })
     if (res.status === 403) {
       throw new Error('Kein Admin-Zugriff. Bitte neu einloggen.')
     }
-    const err = await res.json().catch(() => ({ error: 'Anfrage fehlgeschlagen' }))
-    throw new Error(err.error || `HTTP ${res.status}`)
+    throw new Error(`${message} (${res.status})`)
   }
   return res.json()
 }
@@ -156,11 +432,44 @@ function prefetchAdjacentTabs(activeTab: string, token: string) {
   }
 }
 
+function adminPathToTab(path: string): Tab {
+  const segments = path.split('/').filter(Boolean)
+  if (segments[0] !== 'admin') return 'services'
+  const sub = segments[1]
+  if (!sub) return 'services'
+  if (sub === 'cloud') return 'cloud-settings'
+  if (tabs.some((t) => t.id === sub)) return sub as Tab
+  return 'services'
+}
+
+function tabToAdminPath(tab: Tab): string {
+  if (tab === 'services') return '/admin'
+  if (tab === 'cloud-settings') return '/admin/cloud'
+  return `/admin/${tab}`
+}
+
 export function AdminPanel() {
   const { token } = useAuth()
-  const [activeTab, setActiveTab] = useState<Tab>('services')
+  const [activeTab, setActiveTab] = useState<Tab>(() => adminPathToTab(window.location.pathname))
+  const [expandedGroup, setExpandedGroup] = useState<string>('core')
 
   if (!token) return null
+
+  // Sync admin tab state with URL
+  useEffect(() => {
+    const path = tabToAdminPath(activeTab)
+    if (window.location.pathname !== path) {
+      window.history.replaceState({}, '', path)
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(adminPathToTab(window.location.pathname))
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   // Prefetch adjacent tab data when tab changes
   useEffect(() => {
@@ -169,86 +478,121 @@ export function AdminPanel() {
 
   return (
     <div className="pb-28">
-      {/* Admin Navbar (Header + Tabs combined) */}
-      <div className="glass-card rounded-2xl theme-transition mb-5 overflow-hidden">
-        {/* Header row */}
-        <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-foreground/8">
-          <ShieldCheck size={22} weight="fill" className="text-accent" />
-          <h2 className="text-base font-semibold text-foreground">IORA Control Center</h2>
-          <span className="text-[10px] text-foreground/85 ml-auto hidden sm:block">Dienste-Überwachung · Aufgaben · Betriebsmodus · Konfiguration</span>
-        </div>
-        {/* Tab row */}
-        <div className="px-3 py-2 flex flex-wrap gap-1">
-          {tabs.map(tab => {
-            const Icon = tab.icon
-            const isActive = activeTab === tab.id
-            return (
-              <Tip content={tab.description}>
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    isActive
-                      ? 'bg-accent/20 text-accent shadow-sm shadow-accent/10'
-                      : 'text-foreground/75 hover:text-foreground hover:bg-foreground/8'
-                  }`}
-                >
-                <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
-                {tab.label}
-              </button>
-              </Tip>
-            )
-          })}
+      <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+        <aside className="glass-card rounded-3xl border border-white/10 bg-white/10 p-4 shadow-xl shadow-black/5 backdrop-blur-xl">
+          <div className="flex items-center gap-3 mb-4">
+            <ShieldCheck size={24} weight="fill" className="text-accent" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">IORA Control Center</p>
+              <p className="text-xs text-foreground/60">Admin-Funktionen nach Bereich gruppiert.</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            {tabGroups.map(group => {
+              const GroupIcon = group.icon
+              const isExpanded = expandedGroup === group.id
+              return (
+                <div key={group.id} className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedGroup(isExpanded ? '' : group.id)}
+                    className="flex w-full items-center justify-between gap-2 rounded-3xl border border-white/10 bg-white/5 px-3 py-3 text-left text-sm font-semibold text-foreground transition hover:border-white/20 hover:bg-white/10"
+                  >
+                    <span className="flex items-center gap-2">
+                      <GroupIcon size={16} />
+                      {group.title}
+                    </span>
+                    <span className="text-[11px] text-foreground/50">{isExpanded ? 'Verstecken' : 'Anzeigen'}</span>
+                  </button>
+                  <div className={`space-y-1 overflow-hidden transition-all ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                    {group.items.map(tabId => {
+                      const tab = tabs.find(t => t.id === tabId)
+                      if (!tab) return null
+                      const isActive = activeTab === tab.id
+                      const Icon = tab.icon
+                      return (
+                        <Tip key={tab.id} content={tab.description}>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex w-full items-center gap-2 rounded-3xl px-4 py-2 text-left text-sm transition ${
+                              isActive
+                                ? 'bg-accent/20 text-accent shadow-sm shadow-accent/10'
+                                : 'text-foreground/70 hover:text-foreground hover:bg-white/5'
+                            }`}
+                          >
+                            <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
+                            {tab.label}
+                          </button>
+                        </Tip>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </aside>
+
+        <div className="space-y-3">
+          <div className="glass-card rounded-3xl border border-white/10 bg-white/10 px-5 py-4 shadow-xl shadow-black/5 backdrop-blur-xl">
+            <div className="flex items-center gap-3">
+              {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <Icon size={18} className="text-accent" /> })()}
+              <div>
+                <p className="text-sm font-semibold text-foreground">{tabs.find(t => t.id === activeTab)?.label}</p>
+                <p className="text-xs text-foreground/60">{tabs.find(t => t.id === activeTab)?.description}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-card rounded-3xl border border-white/10 bg-white/10 px-4 py-2.5 mb-4 flex items-center gap-2 theme-transition">
+            {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <Icon size={15} className="text-accent shrink-0" /> })()}
+            <span className="text-xs text-foreground/70">{tabs.find(t => t.id === activeTab)?.description}</span>
+          </div>
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.15 }}
+            >
+              {activeTab === 'services' && <ServicesTab token={token} />}
+              {activeTab === 'tasks' && <TasksTab token={token} />}
+              {activeTab === 'control-mode' && <ControlModeTab token={token} />}
+              {activeTab === 'system' && <SystemTab token={token} />}
+              {activeTab === 'users' && <UsersTab token={token} />}
+              {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
+              {activeTab === 'webhooks' && <WebhooksTab token={token} />}
+              {activeTab === 'ha-config' && <HaConfigTab token={token} />}
+              {activeTab === 'ha-connection' && <HaConnectionTab token={token} />}
+              {activeTab === 'integrations' && <IntegrationsTab token={token} />}
+              {activeTab === 'entities' && <EntitiesTab token={token} />}
+              {activeTab === 'mqtt' && <MqttTab token={token} />}
+              {activeTab === 'zigbee' && <ZigbeeTab token={token} />}
+              {activeTab === 'zwave' && <ZwaveTab token={token} />}
+              {activeTab === 'matter' && <MatterTab token={token} />}
+              {activeTab === 'ble' && <BleTab token={token} />}
+              {activeTab === 'homekit' && <HomekitTab token={token} />}
+              {activeTab === 'scenes' && <ScenesTab token={token} />}
+              {activeTab === 'automations' && <AutomationsTab token={token} />}
+              {activeTab === 'scheduler' && <SchedulerTab token={token} />}
+              {activeTab === 'analytics' && <AnalyticsTab token={token} />}
+              {activeTab === 'backups' && <BackupsTab token={token} />}
+              {activeTab === 'network' && <NetworkTab token={token} />}
+              {activeTab === 'cloud-settings' && <CloudSettingsTab token={token} />}
+              {activeTab === 'logs' && <LogsTab token={token} />}
+              {activeTab === 'logbook' && <LogbookTab token={token} />}
+              {activeTab === 'calendars' && <CalendarsTab token={token} />}
+              {activeTab === 'realtime' && <RealtimeTab token={token} />}
+              {activeTab === 'database' && <DatabaseTab token={token} />}
+              {activeTab === 'warnings' && <WarningsTab token={token} />}
+              {activeTab === 'system-notifications' && <SystemNotificationsTab token={token} />}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
-
-      {/* Tab Description */}
-      <div className="glass-card rounded-xl px-4 py-2.5 mb-4 flex items-center gap-2 theme-transition">
-        {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <Icon size={15} className="text-accent shrink-0" /> })()}
-        <span className="text-xs text-foreground/70">{tabs.find(t => t.id === activeTab)?.description}</span>
-      </div>
-
-      {/* Tab Content */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.15 }}
-        >
-          {activeTab === 'services' && <ServicesTab token={token} />}
-          {activeTab === 'tasks' && <TasksTab token={token} />}
-          {activeTab === 'control-mode' && <ControlModeTab token={token} />}
-          {activeTab === 'system' && <SystemTab token={token} />}
-          {activeTab === 'users' && <UsersTab token={token} />}
-          {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
-          {activeTab === 'webhooks' && <WebhooksTab token={token} />}
-          {activeTab === 'ha-config' && <HaConfigTab token={token} />}
-          {activeTab === 'ha-connection' && <HaConnectionTab token={token} />}
-          {activeTab === 'integrations' && <IntegrationsTab token={token} />}
-          {activeTab === 'entities' && <EntitiesTab token={token} />}
-          {activeTab === 'mqtt' && <MqttTab token={token} />}
-          {activeTab === 'zigbee' && <ZigbeeTab token={token} />}
-          {activeTab === 'zwave' && <ZwaveTab token={token} />}
-          {activeTab === 'matter' && <MatterTab token={token} />}
-          {activeTab === 'ble' && <BleTab token={token} />}
-          {activeTab === 'homekit' && <HomekitTab token={token} />}
-          {activeTab === 'scenes' && <ScenesTab token={token} />}
-          {activeTab === 'automations' && <AutomationsTab token={token} />}
-          {activeTab === 'scheduler' && <SchedulerTab token={token} />}
-          {activeTab === 'analytics' && <AnalyticsTab token={token} />}
-          {activeTab === 'backups' && <BackupsTab token={token} />}
-          {activeTab === 'network' && <NetworkTab token={token} />}
-          {activeTab === 'logs' && <LogsTab token={token} />}
-          {activeTab === 'logbook' && <LogbookTab token={token} />}
-          {activeTab === 'calendars' && <CalendarsTab token={token} />}
-          {activeTab === 'realtime' && <RealtimeTab token={token} />}
-          {activeTab === 'database' && <DatabaseTab token={token} />}
-          {activeTab === 'warnings' && <WarningsTab token={token} />}
-          {activeTab === 'system-notifications' && <SystemNotificationsTab token={token} />}
-        </motion.div>
-      </AnimatePresence>
     </div>
   )
 }
@@ -1607,6 +1951,9 @@ function MqttTab({ token }: { token: string }) {
   if (error && !status) return <ErrorMessage>{error}</ErrorMessage>
 
   const isConnected = (status as Record<string, unknown>)?.connected === true
+  const statusError = status && typeof (status as Record<string, unknown>).error !== 'undefined'
+    ? (String((status as Record<string, unknown>).error) || null)
+    : null
 
   // Show inline setup if not configured
   if (!configured && !isConnected) {
@@ -1628,7 +1975,7 @@ function MqttTab({ token }: { token: string }) {
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
             <span className="text-xs font-medium text-foreground/85">{isConnected ? 'Verbunden' : 'Nicht verbunden'}</span>
-            {status?.error && <span className="text-[10px] text-red-400 truncate ml-2">{status.error as string}</span>}
+            {statusError && <span className="text-[10px] text-red-400 truncate ml-2">{statusError}</span>}
           </div>
           <div className="flex gap-1.5">
             <button onClick={() => setShowConfig(true)} className="flex items-center gap-1 px-2 py-1 rounded bg-foreground/5 text-xs text-foreground/70 hover:bg-foreground/10 transition">
@@ -1851,8 +2198,8 @@ function MatterTab({ token }: { token: string }) {
                 </div>
                 <div className="grid grid-cols-2 gap-x-3 text-[10px] text-foreground/60">
                   <span>Typ: <span className="text-foreground/80">{d.device_type as string}</span></span>
-                  {d.vendor && <span>Hersteller: <span className="text-foreground/80">{d.vendor as string}</span></span>}
-                  {d.model && <span>Modell: <span className="text-foreground/80">{d.model as string}</span></span>}
+                  {typeof d.vendor === 'string' && <span>Hersteller: <span className="text-foreground/80">{d.vendor}</span></span>}
+                  {typeof d.model === 'string' && <span>Modell: <span className="text-foreground/80">{d.model}</span></span>}
                 </div>
               </div>
             ))}
@@ -1934,7 +2281,7 @@ function HaConnectionTab({ token }: { token: string }) {
         <div className="space-y-1">
           <StatItem label="Status" value={status?.available ? '🟢 Verbunden' : '🔴 Getrennt'} />
           <StatItem label="HA URL" value={status?.ha_url as string} />
-          {status?.ha_version && <StatItem label="HA Version" value={status.ha_version as string} />}
+          {typeof status?.ha_version === 'string' && <StatItem label="HA Version" value={status.ha_version} />}
           <StatItem label="Fehler in Folge" value={String(status?.failure_count ?? 0)} />
         </div>
         <button onClick={refresh} className="mt-2 flex items-center gap-1 px-2 py-1 rounded bg-foreground/5 text-xs text-foreground/70 hover:bg-foreground/10 transition">
@@ -2180,13 +2527,13 @@ function ZwaveTab({ token }: { token: string }) {
                 </div>
                 <div className="grid grid-cols-3 gap-x-2 text-[10px] text-foreground/60">
                   <span>Node: <span className="text-foreground/80">{String(n.node_id)}</span></span>
-                  <span>Typ: <span className="text-foreground/80">{n.device_type as string}</span></span>
-                  {n.product && <span>Produkt: <span className="text-foreground/80">{n.product as string}</span></span>}
+                  <span>Typ: <span className="text-foreground/80">{String(n.device_type)}</span></span>
+                  {typeof n.product === 'string' && <span>Produkt: <span className="text-foreground/80">{n.product}</span></span>}
                 </div>
                 <div className="flex gap-2 mt-0.5">
-                  {n.is_secure && <span className="text-[9px] px-1 rounded bg-blue-500/10 text-blue-400">Sicher</span>}
-                  {n.is_routing && <span className="text-[9px] px-1 rounded bg-purple-500/10 text-purple-400">Routing</span>}
-                  {n.is_beaming && <span className="text-[9px] px-1 rounded bg-cyan-500/10 text-cyan-400">Beaming</span>}
+                  {n.is_secure === true && <span className="text-[9px] px-1 rounded bg-blue-500/10 text-blue-400">Sicher</span>}
+                  {n.is_routing === true && <span className="text-[9px] px-1 rounded bg-purple-500/10 text-purple-400">Routing</span>}
+                  {n.is_beaming === true && <span className="text-[9px] px-1 rounded bg-cyan-500/10 text-cyan-400">Beaming</span>}
                 </div>
               </div>
             ))}
@@ -2348,10 +2695,15 @@ function HomekitTab({ token }: { token: string }) {
       setStatus(s)
       if (s.config) {
         const c = s.config as Record<string, unknown>
+        const bridge_port = typeof c.bridge_port === 'number'
+          ? c.bridge_port
+          : typeof c.port === 'number'
+            ? c.port
+            : 21063
         setConfig({
-          enabled: (c.enabled as boolean) ?? false,
-          bridge_name: (c.bridge_name as string) ?? 'MDT Dashboard Bridge',
-          bridge_port: (c.bridge_port ?? c.port as number) ?? 21063,
+          enabled: typeof c.enabled === 'boolean' ? c.enabled : false,
+          bridge_name: typeof c.bridge_name === 'string' ? c.bridge_name : 'MDT Dashboard Bridge',
+          bridge_port,
         })
       }
     } catch { /* optional */ }
@@ -2666,126 +3018,222 @@ function NetworkTab({ token }: { token: string }) {
 
 // ── Logs Tab ──────────────────────────────────────────────────
 
+interface IoraLogEntry {
+  id: number
+  timestamp: string
+  level: string
+  target: string
+  message: string
+  fields?: Record<string, unknown>
+}
+
 function LogsTab({ token }: { token: string }) {
+  const [logs, setLogs] = useState<IoraLogEntry[]>([])
   const [haLogs, setHaLogs] = useState<Array<{ line: string; severity: string }>>([])
-  const [logbook, setLogbook] = useState<Array<Record<string, unknown>>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [filter, setFilter] = useState<'all' | 'error' | 'warning' | 'info'>('all')
+  const [filter, setFilter] = useState<'all' | 'error' | 'warn' | 'info' | 'debug'>('all')
   const [search, setSearch] = useState('')
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const [totalLines, setTotalLines] = useState(0)
-  const [activeView, setActiveView] = useState<'errorlog' | 'logbook'>('errorlog')
+  const [targetFilter, setTargetFilter] = useState('')
+  const [liveMode, setLiveMode] = useState(false)
+  const [activeView, setActiveView] = useState<'iora' | 'ha'>('iora')
+  const [autoScroll, setAutoScroll] = useState(true)
+  const logContainerRef = { current: null as HTMLDivElement | null }
 
+  // Load initial logs
   const load = useCallback(async () => {
     setError('')
     try {
-      const [logsData, logbookData] = await Promise.all([
-        adminFetch('/api/admin/ha/logs', token),
-        adminFetch('/api/admin/ha/logbook', token).catch(() => ({ entries: [] })),
+      const [ioraData, haData] = await Promise.all([
+        adminFetch('/api/admin/logs?limit=500' +
+          (filter !== 'all' ? `&level=${filter}` : '') +
+          (targetFilter ? `&target=${encodeURIComponent(targetFilter)}` : '') +
+          (search ? `&search=${encodeURIComponent(search)}` : ''), token),
+        adminFetch('/api/admin/ha/logs', token).catch(() => ({ log: [] })),
       ])
-      setHaLogs(logsData.log ?? [])
-      setTotalLines(logsData.total_lines ?? 0)
-      setLogbook((logbookData.entries ?? []) as Array<Record<string, unknown>>)
+      setLogs((ioraData.entries ?? []) as IoraLogEntry[])
+      setHaLogs(haData.log ?? [])
     } catch (e) { setError((e as Error).message) }
     setLoading(false)
-  }, [token])
+  }, [token, filter, targetFilter, search])
 
   useEffect(() => { load() }, [load])
 
-  // Auto-refresh every 15s
+  // Live SSE mode
   useEffect(() => {
-    if (!autoRefresh) return
-    const iv = setInterval(load, 15000)
-    return () => clearInterval(iv)
-  }, [autoRefresh, load])
+    if (!liveMode || activeView !== 'iora') return
+    const es = new EventSource(`${API_BASE}/api/admin/logs/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+    es.addEventListener('log', (e) => {
+      try {
+        const entry = JSON.parse((e as MessageEvent).data) as IoraLogEntry
+        setLogs(prev => {
+          const next = [entry, ...prev]
+          return next.length > 1000 ? next.slice(0, 1000) : next
+        })
+      } catch { /* skip */ }
+    })
+    es.addEventListener('warning', (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data)
+        setError(d.message || 'Missed events')
+      } catch { /* skip */ }
+    })
+    es.onerror = () => setLiveMode(false)
+    return () => es.close()
+  }, [liveMode, activeView])
+
+  const clearLogs = async () => {
+    try {
+      await adminFetch('/api/admin/logs/clear', token, { method: 'POST' })
+      setLogs([])
+    } catch { /* ignore */ }
+  }
 
   if (loading) return <LoadingSpinner />
-  if (error) return (
-    <div className="space-y-3">
-      <ErrorMessage>{error}</ErrorMessage>
-      <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-xs font-medium hover:bg-accent/30 transition mx-auto">
-        <ArrowClockwise size={14} /> Erneut versuchen
-      </button>
-    </div>
-  )
+  if (error && logs.length === 0) return <ErrorMessage>{error}</ErrorMessage>
 
-  const filtered = haLogs.filter(entry => {
-    if (filter !== 'all' && entry.severity !== filter) return false
-    if (search && !entry.line.toLowerCase().includes(search.toLowerCase())) return false
+  // Filter displayed logs client-side for live mode
+  const displayed = liveMode ? logs.filter(e => {
+    if (filter !== 'all' && e.level !== filter) return false
+    if (targetFilter && !e.target.includes(targetFilter)) return false
+    if (search && !e.message.toLowerCase().includes(search.toLowerCase()) && !e.target.toLowerCase().includes(search.toLowerCase())) return false
     return true
-  })
+  }) : logs
 
-  const errorCount = haLogs.filter(e => e.severity === 'error').length
-  const warningCount = haLogs.filter(e => e.severity === 'warning').length
-  const infoCount = haLogs.filter(e => e.severity === 'info').length
+  const errorCount = logs.filter(e => e.level === 'error').length
+  const warnCount = logs.filter(e => e.level === 'warn').length
+  const infoCount = logs.filter(e => e.level === 'info').length
+
+  // Get unique targets for quick filter
+  const uniqueTargets = [...new Set(logs.map(e => e.target.split('::')[0]).filter(Boolean))].slice(0, 20)
 
   return (
     <div className="space-y-3">
-      {/* Header with view toggle */}
+      {/* View toggle + controls */}
       <AdminCard>
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <div className="flex items-center gap-2">
             <div className="flex rounded-lg bg-foreground/5 p-0.5">
-              <button onClick={() => setActiveView('errorlog')} className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${activeView === 'errorlog' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
-                Error Log
+              <button onClick={() => setActiveView('iora')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'iora' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
+                IORA System
               </button>
-              <button onClick={() => setActiveView('logbook')} className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${activeView === 'logbook' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
-                Logbook
+              <button onClick={() => setActiveView('ha')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'ha' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
+                Home Assistant
               </button>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-              <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded accent-[var(--accent)]" />
-              Auto
-            </label>
-            <button onClick={load} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-foreground/70 hover:text-accent hover:bg-accent/10 transition">
-              <ArrowClockwise size={12} /> Aktualisieren
+            {activeView === 'iora' && (
+              <>
+                <button onClick={() => setLiveMode(!liveMode)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    liveMode ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+                  }`}>
+                  <Broadcast size={12} weight={liveMode ? 'fill' : 'regular'} />
+                  {liveMode ? 'Live' : 'Live'}
+                </button>
+                <Tip content="Log-Buffer leeren">
+                  <button onClick={clearLogs} className="p-1.5 rounded-lg text-foreground/50 hover:text-red-400 hover:bg-red-500/10 transition">
+                    <Trash size={14} />
+                  </button>
+                </Tip>
+              </>
+            )}
+            <button onClick={load} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-foreground/70 hover:text-accent hover:bg-accent/10 transition">
+              <ArrowClockwise size={12} /> Refresh
             </button>
           </div>
         </div>
       </AdminCard>
 
-      {activeView === 'errorlog' && (
+      {activeView === 'iora' && (
         <>
           {/* Stats & Filters */}
           <AdminCard>
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              <div className="flex gap-1.5">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button onClick={() => setFilter('all')} className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${filter === 'all' ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
-                  Alle ({haLogs.length})
+                  Alle ({logs.length})
                 </button>
                 <button onClick={() => setFilter('error')} className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${filter === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
-                  Fehler ({errorCount})
+                  Error ({errorCount})
                 </button>
-                <button onClick={() => setFilter('warning')} className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${filter === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
-                  Warnungen ({warningCount})
+                <button onClick={() => setFilter('warn')} className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${filter === 'warn' ? 'bg-amber-500/20 text-amber-400' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+                  Warn ({warnCount})
                 </button>
                 <button onClick={() => setFilter('info')} className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${filter === 'info' ? 'bg-blue-500/20 text-blue-400' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
                   Info ({infoCount})
                 </button>
+                <button onClick={() => setFilter('debug')} className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${filter === 'debug' ? 'bg-purple-500/20 text-purple-400' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+                  Debug
+                </button>
+                <span className="text-[10px] text-foreground/30 mx-1">|</span>
+                {uniqueTargets.slice(0, 8).map(t => (
+                  <button key={t} onClick={() => setTargetFilter(targetFilter === t ? '' : t)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition ${targetFilter === t ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'}`}>
+                    {t}
+                  </button>
+                ))}
               </div>
-              <div className="flex-1 min-w-32">
-                <div className="relative">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
                   <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
-                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Log durchsuchen..." className="w-full pl-7 pr-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Logs durchsuchen..."
+                    className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
                 </div>
+                {liveMode && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-[10px] text-green-400 font-medium">Live-Stream aktiv</span>
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="text-[10px] text-foreground/40">
-              {totalLines} Zeilen gesamt · {filtered.length} angezeigt
             </div>
           </AdminCard>
 
-          {/* Log Lines */}
+          {/* IORA Log Entries */}
+          <AdminCard>
+            <div ref={el => { logContainerRef.current = el }} className="max-h-[600px] overflow-y-auto font-mono text-[10px] leading-relaxed space-y-0.5">
+              {displayed.length === 0 ? (
+                <div className="text-foreground/50 text-center py-8">Keine Log-Einträge gefunden.</div>
+              ) : displayed.map(entry => (
+                <div key={entry.id} className={`group py-1 px-2 rounded flex items-start gap-2 hover:bg-foreground/5 transition-colors ${
+                  entry.level === 'error' ? 'bg-red-500/5' :
+                  entry.level === 'warn' ? 'bg-amber-500/3' : ''
+                }`}>
+                  <span className="text-foreground/30 shrink-0 w-[58px]">{entry.timestamp.split('T')[1]?.slice(0, 12) || ''}</span>
+                  <span className={`shrink-0 w-[42px] font-semibold uppercase ${
+                    entry.level === 'error' ? 'text-red-400' :
+                    entry.level === 'warn' ? 'text-amber-400' :
+                    entry.level === 'info' ? 'text-blue-400' :
+                    entry.level === 'debug' ? 'text-purple-400' :
+                    'text-foreground/40'
+                  }`}>{entry.level}</span>
+                  <span className="text-accent/60 shrink-0 max-w-[180px] truncate">{entry.target}</span>
+                  <span className={`flex-1 ${
+                    entry.level === 'error' ? 'text-red-300/90' :
+                    entry.level === 'warn' ? 'text-amber-300/80' :
+                    'text-foreground/70'
+                  }`}>{entry.message}</span>
+                  {entry.fields && (
+                    <span className="text-foreground/25 truncate max-w-[200px] opacity-0 group-hover:opacity-100 transition-opacity">
+                      {JSON.stringify(entry.fields)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </AdminCard>
+        </>
+      )}
+
+      {activeView === 'ha' && (
+        <>
           <AdminCard>
             <div className="max-h-[500px] overflow-y-auto font-mono text-[10px] leading-relaxed space-y-0.5">
-              {filtered.length === 0 ? (
-                <div className="text-foreground/50 text-center py-6">
-                  {search || filter !== 'all' ? 'Keine passenden Einträge gefunden.' : 'Keine Log-Einträge.'}
-                </div>
-              ) : filtered.map((entry, i) => (
+              {haLogs.length === 0 ? (
+                <div className="text-foreground/50 text-center py-6">Keine HA-Logs verfügbar.</div>
+              ) : haLogs.map((entry, i) => (
                 <div key={i} className={`py-0.5 px-1.5 rounded ${
                   entry.severity === 'error' ? 'text-red-400/90 bg-red-500/5' :
                   entry.severity === 'warning' ? 'text-amber-400/80 bg-amber-500/5' :
@@ -2799,41 +3247,6 @@ function LogsTab({ token }: { token: string }) {
           </AdminCard>
         </>
       )}
-
-      {activeView === 'logbook' && (
-        <AdminCard title={`HA Logbook (${logbook.length} Einträge)`} icon={ListBullets}>
-          {logbook.length === 0 ? (
-            <div className="text-xs text-foreground/50 text-center py-6">Keine Logbook-Einträge verfügbar.</div>
-          ) : (
-            <div className="max-h-[500px] overflow-y-auto space-y-1">
-              {(logbook as Array<Record<string, unknown>>).slice(0, 200).map((entry, i) => (
-                <div key={i} className="flex items-start gap-2 text-[10px] py-1.5 px-2 rounded bg-foreground/5 border-b border-foreground/5 last:border-0">
-                  <div className="flex-shrink-0 mt-0.5">
-                    <div className={`w-1.5 h-1.5 rounded-full ${
-                      (entry.state as string) === 'on' ? 'bg-green-400' :
-                      (entry.state as string) === 'off' ? 'bg-foreground/30' :
-                      'bg-accent/60'
-                    }`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium text-foreground/90 truncate">{entry.name as string}</span>
-                      {entry.message && <span className="text-foreground/60">{entry.message as string}</span>}
-                    </div>
-                    <div className="flex items-center gap-2 text-[9px] text-foreground/40">
-                      {entry.entity_id && <span className="font-mono">{entry.entity_id as string}</span>}
-                      {entry.when && <span>{(entry.when as string).split('T')[1]?.slice(0, 8)}</span>}
-                    </div>
-                  </div>
-                  {entry.state && (
-                    <span className="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-foreground/10 text-foreground/70">{entry.state as string}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </AdminCard>
-      )}
     </div>
   )
 }
@@ -2844,34 +3257,215 @@ function DatabaseTab({ token }: { token: string }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [tempUsers, setTempUsers] = useState<Array<{id:string;username:string;description:string;permissions:string;expires_at:string;revoked:boolean;last_used_at:string|null}>>([])
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [newUser, setNewUser] = useState({ username: '', password: '', description: '', permissions: 'readonly', expires_in_days: 7 })
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
 
-  useEffect(() => {
-    cachedFetch('/api/admin/system/database', token)
-      .then(d => setData(d as Record<string, unknown>))
-      .catch(e => setError((e as Error).message))
-      .finally(() => setLoading(false))
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [dbInfo, usersRes] = await Promise.all([
+        cachedFetch('/api/admin/system/database', token),
+        adminFetch('/api/admin/system/database/temp-users', token),
+      ])
+      setData(dbInfo as Record<string, unknown>)
+      setTempUsers((usersRes as {users:typeof tempUsers}).users ?? [])
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setLoading(false)
   }, [token])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  const handleCreateUser = async () => {
+    setCreating(true)
+    setCreateError('')
+    try {
+      await adminFetch('/api/admin/system/database/temp-users', token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      })
+      setShowCreateForm(false)
+      setNewUser({ username: '', password: '', description: '', permissions: 'readonly', expires_in_days: 7 })
+      loadData()
+    } catch (e) {
+      setCreateError((e as Error).message)
+    }
+    setCreating(false)
+  }
+
+  const handleRevokeUser = async (id: string) => {
+    try {
+      await adminFetch(`/api/admin/system/database/temp-users/${id}`, token, { method: 'DELETE' })
+      loadData()
+    } catch { /* ignore */ }
+  }
 
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorMessage>{error}</ErrorMessage>
   if (!data) return <ErrorMessage>Datenbankinfo nicht verfügbar.</ErrorMessage>
 
   const tables = data.tables as Record<string, number> | undefined
+  const tableSizes = data.table_sizes as Array<{name:string;size_bytes:number;size_mb:number}> | undefined
+  const formatTime = (t?: string | null) => {
+    if (!t) return '–'
+    try { return new Date(t).toLocaleString('de-DE') } catch { return t }
+  }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <AdminCard title="Datenbank-Übersicht" icon={Database}>
-        <StatItem label="Größe" value={`${data.size_mb} MB`} />
-        <StatItem label="Größe (Bytes)" value={`${(data.size_bytes as number).toLocaleString('de-DE')}`} />
-      </AdminCard>
+    <div className="space-y-4">
+      {/* Database Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <AdminCard title="Datenbank-Übersicht" icon={Database}>
+          <StatItem label="Engine" value={String(data.engine ?? 'PostgreSQL')} />
+          <StatItem label="Version" value={String(data.version ?? '–')} />
+          <StatItem label="Datenbank" value={String(data.database_name ?? '–')} />
+          <StatItem label="Host" value={String(data.host ?? '–')} />
+          <StatItem label="Größe" value={`${data.size_mb} MB`} />
+          <StatItem label="Betriebszeit" value={String(data.uptime ?? '–')} />
+        </AdminCard>
 
-      {tables && (
-        <AdminCard title="Tabellen" icon={ListBullets}>
-          {Object.entries(tables).map(([table, count]) => (
-            <StatItem key={table} label={table} value={count.toLocaleString('de-DE')} />
-          ))}
+        <AdminCard title="Verbindungen" icon={Pulse}>
+          <StatItem label="Aktive Verbindungen" value={String(data.active_connections ?? 0)} />
+          <StatItem label="Max. Verbindungen" value={String(data.max_connections ?? '–')} />
+          <StatItem label="Temp-Benutzer aktiv" value={String(data.temp_db_users_active ?? 0)} />
+        </AdminCard>
+
+        {tables && (
+          <AdminCard title="Tabellen (Zeilen)" icon={ListBullets}>
+            {Object.entries(tables).map(([table, count]) => (
+              <StatItem key={table} label={table} value={count.toLocaleString('de-DE')} />
+            ))}
+          </AdminCard>
+        )}
+      </div>
+
+      {/* Table Sizes */}
+      {tableSizes && tableSizes.length > 0 && (
+        <AdminCard title="Tabellen-Größen" icon={HardDrive}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            {tableSizes.map(t => (
+              <StatItem key={t.name} label={t.name} value={t.size_mb >= 1 ? `${t.size_mb} MB` : `${(t.size_bytes / 1024).toFixed(1)} KB`} />
+            ))}
+          </div>
         </AdminCard>
       )}
+
+      {/* Temp DB Users */}
+      <AdminCard title="Temporäre Datenbank-Benutzer" icon={Key}>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-foreground/50">Temporäre Zugangsbenutzer mit Ablaufdatum (max. 1 Monat)</p>
+            <button
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
+            >
+              <Plus size={14} /> Erstellen
+            </button>
+          </div>
+
+          {showCreateForm && (
+            <div className="p-3 rounded-lg bg-foreground/5 border border-foreground/10 space-y-2">
+              {createError && <p className="text-xs text-red-400">{createError}</p>}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="Benutzername (a-z, 0-9, _)"
+                  value={newUser.username}
+                  onChange={e => setNewUser(u => ({ ...u, username: e.target.value }))}
+                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                />
+                <input
+                  type="password"
+                  placeholder="Passwort (min. 8 Zeichen)"
+                  value={newUser.password}
+                  onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))}
+                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                />
+                <input
+                  type="text"
+                  placeholder="Beschreibung (optional)"
+                  value={newUser.description}
+                  onChange={e => setNewUser(u => ({ ...u, description: e.target.value }))}
+                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/30"
+                />
+                <select
+                  value={newUser.permissions}
+                  onChange={e => setNewUser(u => ({ ...u, permissions: e.target.value }))}
+                  className="px-2 py-1.5 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground"
+                >
+                  <option value="readonly">Nur Lesen</option>
+                  <option value="readwrite">Lesen & Schreiben</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-foreground/60">Ablauf in Tagen:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={newUser.expires_in_days}
+                  onChange={e => setNewUser(u => ({ ...u, expires_in_days: Math.min(31, Math.max(1, +e.target.value)) }))}
+                  className="w-16 px-2 py-1 text-xs rounded-lg bg-foreground/5 border border-foreground/10 text-foreground"
+                />
+                <button
+                  onClick={handleCreateUser}
+                  disabled={creating || !newUser.username || !newUser.password}
+                  className="ml-auto px-3 py-1.5 text-xs rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-50 transition-colors"
+                >
+                  {creating ? 'Erstelle...' : 'Erstellen'}
+                </button>
+                <button
+                  onClick={() => setShowCreateForm(false)}
+                  className="px-2 py-1.5 text-xs rounded-lg text-foreground/60 hover:text-foreground/80"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tempUsers.length === 0 && !showCreateForm && (
+            <p className="text-xs text-foreground/40 text-center py-2">Keine temporären Benutzer vorhanden.</p>
+          )}
+
+          {tempUsers.map(u => (
+            <div
+              key={u.id}
+              className={`flex items-center justify-between p-2 rounded-lg ${u.revoked ? 'bg-red-500/5 border border-red-500/10' : 'bg-foreground/5 border border-foreground/10'}`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-foreground">{u.username}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${u.permissions === 'readwrite' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                    {u.permissions === 'readwrite' ? 'Lesen & Schreiben' : 'Nur Lesen'}
+                  </span>
+                  {u.revoked && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">Widerrufen</span>}
+                </div>
+                {u.description && <p className="text-[10px] text-foreground/40 mt-0.5">{u.description}</p>}
+                <div className="flex gap-3 text-[10px] text-foreground/40 mt-0.5">
+                  <span>Ablauf: {formatTime(u.expires_at)}</span>
+                  {u.last_used_at && <span>Zuletzt: {formatTime(u.last_used_at)}</span>}
+                </div>
+              </div>
+              {!u.revoked && (
+                <button
+                  onClick={() => handleRevokeUser(u.id)}
+                  className="ml-2 p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                  title="Widerrufen"
+                >
+                  <UserMinus size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </AdminCard>
     </div>
   )
 }
@@ -3822,10 +4416,35 @@ function WebhooksTab({ token }: { token: string }) {
 
 // ─── Realtime Tab ──────────────────────────────────────────────────────────────
 
+interface MetricsSnapshot {
+  timestamp: string
+  uptime_seconds: number
+  http: { requests_total: number; errors_total: number }
+  websocket: { messages_sent: number; messages_received: number }
+  entities: { state_changes: number }
+  services: { calls_total: number }
+  ha_websocket: { reconnects: number }
+  tasks: { runs_total: number; errors_total: number }
+  logs: { error_count: number; warn_count: number; info_count: number; buffer_size: number }
+  sse: { active_connections: number }
+  cache: { hits: number; misses: number }
+  live?: { entity_count: number; connected_clients: number; ha_connected: boolean; entity_updates_total?: number }
+  task_breakdown?: Array<{ id: number; name: string; runs: number; errors: number; enabled: boolean }>
+}
+
 function RealtimeTab({ token }: { token: string }) {
+  const [activeSection, setActiveSection] = useState<'metrics' | 'sse' | 'ws'>('metrics')
+
+  // ── Metrics state ──
+  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null)
+  const [metricsHistory, setMetricsHistory] = useState<MetricsSnapshot[]>([])
+  const [metricsLive, setMetricsLive] = useState(false)
+  const [metricsLoading, setMetricsLoading] = useState(true)
+
+  // ── SSE state ──
   const [sseConnected, setSseConnected] = useState(false)
-  const [wsConnected, setWsConnected] = useState(false)
   const [sseEvents, setSseEvents] = useState<{ id: number; type: string; data: string; time: string }[]>([])
+  const [wsConnected, setWsConnected] = useState(false)
   const [wsEvents, setWsEvents] = useState<{ id: number; ns: string; event: string; data: string; time: string }[]>([])
   const [sseSource, setSseSource] = useState<EventSource | null>(null)
   const [wsSocket, setWsSocket] = useState<WebSocket | null>(null)
@@ -3833,12 +4452,36 @@ function RealtimeTab({ token }: { token: string }) {
   const [wsNamespace, setWsNamespace] = useState('entities')
   const [wsDomainFilter, setWsDomainFilter] = useState('')
   const [eventIdCounter, setEventIdCounter] = useState(0)
-  const [activeSection, setActiveSection] = useState<'sse' | 'ws'>('sse')
 
   const nextId = useCallback(() => {
     setEventIdCounter(c => c + 1)
     return eventIdCounter + 1
   }, [eventIdCounter])
+
+  // ── Metrics: initial load ──
+  useEffect(() => {
+    adminFetch('/api/admin/metrics', token)
+      .then((data: MetricsSnapshot) => { setMetrics(data); setMetricsLoading(false) })
+      .catch(() => setMetricsLoading(false))
+  }, [token])
+
+  // ── Metrics: live SSE stream ──
+  useEffect(() => {
+    if (!metricsLive) return
+    const es = new EventSource(`${API_BASE}/api/admin/metrics/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+    es.addEventListener('metrics', (e) => {
+      try {
+        const snapshot = JSON.parse((e as MessageEvent).data) as MetricsSnapshot
+        setMetrics(snapshot)
+        setMetricsHistory(prev => {
+          const next = [...prev, snapshot]
+          return next.length > 60 ? next.slice(-60) : next
+        })
+      } catch { /* skip */ }
+    })
+    es.onerror = () => setMetricsLive(false)
+    return () => es.close()
+  }, [metricsLive])
 
   // SSE connect/disconnect
   const toggleSse = useCallback(() => {
@@ -3923,7 +4566,11 @@ function RealtimeTab({ token }: { token: string }) {
     <div className="space-y-3">
       {/* Section Toggle */}
       <AdminCard>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setActiveSection('metrics')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all ${activeSection === 'metrics' ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+            <Heartbeat size={14} weight={activeSection === 'metrics' ? 'fill' : 'regular'} /> Metrics Dashboard
+          </button>
           <button onClick={() => setActiveSection('sse')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all ${activeSection === 'sse' ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
             <Broadcast size={14} /> SSE Event-Stream
@@ -3934,6 +4581,154 @@ function RealtimeTab({ token }: { token: string }) {
           </button>
         </div>
       </AdminCard>
+
+      {/* Metrics Dashboard Section */}
+      {activeSection === 'metrics' && (
+        <>
+          {/* Live toggle */}
+          <AdminCard>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Heartbeat size={16} weight="fill" className="text-accent" />
+                <span className="text-sm font-semibold text-foreground">IORA Metrics Dashboard</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setMetricsLive(!metricsLive)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    metricsLive ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+                  }`}>
+                  <Broadcast size={12} weight={metricsLive ? 'fill' : 'regular'} />
+                  {metricsLive ? 'Live (2s)' : 'Live starten'}
+                </button>
+                <button onClick={() => adminFetch('/api/admin/metrics', token).then((d: MetricsSnapshot) => setMetrics(d)).catch(() => {})}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-foreground/70 hover:text-accent hover:bg-accent/10 transition">
+                  <ArrowClockwise size={12} /> Refresh
+                </button>
+              </div>
+            </div>
+          </AdminCard>
+
+          {metricsLoading ? <LoadingSpinner /> : metrics && (
+            <>
+              {/* Key Metrics Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                  <div className="text-2xl font-bold text-foreground">{metrics.http.requests_total.toLocaleString()}</div>
+                  <div className="text-[10px] text-foreground/50 mt-0.5">HTTP Requests</div>
+                  {metrics.http.errors_total > 0 && <div className="text-[9px] text-red-400 mt-0.5">{metrics.http.errors_total} Fehler</div>}
+                </div>
+                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                  <div className="text-2xl font-bold text-foreground">{metrics.entities.state_changes.toLocaleString()}</div>
+                  <div className="text-[10px] text-foreground/50 mt-0.5">State Changes</div>
+                </div>
+                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                  <div className="text-2xl font-bold text-foreground">{metrics.services.calls_total.toLocaleString()}</div>
+                  <div className="text-[10px] text-foreground/50 mt-0.5">Service Calls</div>
+                </div>
+                <div className="glass-card rounded-2xl p-4 theme-transition text-center">
+                  <div className={`text-2xl font-bold ${metrics.live?.ha_connected ? 'text-green-400' : 'text-red-400'}`}>
+                    {metrics.live?.ha_connected ? 'Online' : 'Offline'}
+                  </div>
+                  <div className="text-[10px] text-foreground/50 mt-0.5">HA Verbindung</div>
+                </div>
+              </div>
+
+              {/* Detailed Metrics */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {/* System */}
+                <AdminCard title="System" icon={Cpu}>
+                  <StatItem label="Uptime" value={formatUptime(metrics.uptime_seconds)} />
+                  <StatItem label="Entities" value={metrics.live?.entity_count ?? '–'} />
+                  <StatItem label="WS Clients" value={metrics.live?.connected_clients ?? 0} />
+                  <StatItem label="SSE Streams" value={metrics.sse.active_connections} />
+                </AdminCard>
+
+                {/* HTTP */}
+                <AdminCard title="HTTP" icon={Globe}>
+                  <StatItem label="Requests Total" value={metrics.http.requests_total.toLocaleString()} />
+                  <StatItem label="Errors" value={metrics.http.errors_total.toLocaleString()} />
+                  <StatItem label="Error Rate" value={metrics.http.requests_total > 0 ? `${((metrics.http.errors_total / metrics.http.requests_total) * 100).toFixed(2)}%` : '0%'} />
+                </AdminCard>
+
+                {/* WebSocket */}
+                <AdminCard title="WebSocket" icon={Lightning}>
+                  <StatItem label="Nachrichten gesendet" value={metrics.websocket.messages_sent.toLocaleString()} />
+                  <StatItem label="Nachrichten empfangen" value={metrics.websocket.messages_received.toLocaleString()} />
+                  <StatItem label="HA Reconnects" value={metrics.ha_websocket.reconnects} />
+                </AdminCard>
+
+                {/* Tasks */}
+                <AdminCard title="Hintergrund-Aufgaben" icon={ListChecks}>
+                  <StatItem label="Ausführungen Total" value={metrics.tasks.runs_total.toLocaleString()} />
+                  <StatItem label="Fehler Total" value={metrics.tasks.errors_total.toLocaleString()} />
+                  <StatItem label="Error Rate" value={metrics.tasks.runs_total > 0 ? `${((metrics.tasks.errors_total / metrics.tasks.runs_total) * 100).toFixed(2)}%` : '0%'} />
+                </AdminCard>
+
+                {/* Logs */}
+                <AdminCard title="Log-Statistik" icon={ListBullets}>
+                  <StatItem label="Error" value={metrics.logs.error_count.toLocaleString()} />
+                  <StatItem label="Warn" value={metrics.logs.warn_count.toLocaleString()} />
+                  <StatItem label="Info" value={metrics.logs.info_count.toLocaleString()} />
+                  <StatItem label="Buffer" value={`${metrics.logs.buffer_size} / 5000`} />
+                </AdminCard>
+
+                {/* Cache */}
+                <AdminCard title="Cache" icon={Database}>
+                  <StatItem label="Hits" value={metrics.cache.hits.toLocaleString()} />
+                  <StatItem label="Misses" value={metrics.cache.misses.toLocaleString()} />
+                  <StatItem label="Hit Rate" value={(metrics.cache.hits + metrics.cache.misses) > 0 ? `${((metrics.cache.hits / (metrics.cache.hits + metrics.cache.misses)) * 100).toFixed(1)}%` : '–'} />
+                </AdminCard>
+              </div>
+
+              {/* Task Breakdown */}
+              {metrics.task_breakdown && metrics.task_breakdown.length > 0 && (
+                <AdminCard title="Aufgaben-Breakdown" icon={ListChecks}>
+                  <div className="space-y-1">
+                    {metrics.task_breakdown.map(t => (
+                      <div key={t.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-foreground/3 hover:bg-foreground/5 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-1.5 h-1.5 rounded-full ${t.enabled ? 'bg-green-400' : 'bg-foreground/30'}`} />
+                          <span className="text-xs text-foreground/80">{t.name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px]">
+                          <span className="text-foreground/50">{t.runs} runs</span>
+                          {t.errors > 0 && <span className="text-red-400">{t.errors} err</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </AdminCard>
+              )}
+
+              {/* Live Activity Sparkline (simple bar chart from history) */}
+              {metricsHistory.length > 1 && (
+                <AdminCard title="Live-Aktivität (Request-Rate)" icon={TrendUp}>
+                  <div className="flex items-end gap-0.5 h-16">
+                    {metricsHistory.map((snap, i) => {
+                      const prev = metricsHistory[i - 1]
+                      const delta = prev ? snap.http.requests_total - prev.http.requests_total : 0
+                      const maxDelta = Math.max(1, ...metricsHistory.slice(1).map((s, j) => s.http.requests_total - metricsHistory[j].http.requests_total))
+                      const height = Math.max(2, (delta / maxDelta) * 100)
+                      return (
+                        <Tip key={i} content={`+${delta} req`}>
+                          <div
+                            className="flex-1 rounded-t bg-accent/40 hover:bg-accent/60 transition-colors min-w-[3px]"
+                            style={{ height: `${height}%` }}
+                          />
+                        </Tip>
+                      )
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[9px] text-foreground/30 mt-1">
+                    <span>{metricsHistory.length * 2}s ago</span>
+                    <span>jetzt</span>
+                  </div>
+                </AdminCard>
+              )}
+            </>
+          )}
+        </>
+      )}
 
       {/* SSE Section */}
       {activeSection === 'sse' && (

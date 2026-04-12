@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{
         sse::{Event, Sse},
         IntoResponse,
@@ -206,6 +206,35 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
+async fn health_text(State(state): State<AppState>) -> impl IntoResponse {
+    let services = state.services.read().await;
+    let healthy_count = services.values().filter(|s| s.status == "healthy").count();
+    let total_count = services.len();
+    let core_is_down = *state.core_is_down.read().await;
+    let status_text = if healthy_count == total_count && !core_is_down {
+        "healthy"
+    } else if healthy_count > 0 {
+        "degraded"
+    } else {
+        "unhealthy"
+    };
+
+    let body = format!(
+        "service: iora-watchdog\nstatus: {}\nuptime_seconds: {}\nmonitored_services: {}\nhealthy_services: {}\ncore_is_down: {}\ntimestamp: {}\n",
+        status_text,
+        state.started_at.elapsed().as_secs(),
+        total_count,
+        healthy_count,
+        core_is_down,
+        Utc::now().to_rfc3339(),
+    );
+
+    (
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        body,
+    )
+}
+
 async fn get_status(State(state): State<AppState>) -> Json<serde_json::Value> {
     let services: Vec<ServiceStatus> = state.services.read().await.values().cloned().collect();
 
@@ -351,6 +380,9 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/health/text", get(health_text))
+        .route("/api/watchdog/health", get(health))
+        .route("/api/watchdog/health/text", get(health_text))
         .route("/api/watchdog/status", get(get_status))
         .route("/api/watchdog/services", get(list_services).post(register_service))
         .route("/api/watchdog/heartbeat", post(receive_heartbeat))
@@ -360,7 +392,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8094".to_string());
+    let port = std::env::var("WATCHDOG_PORT").unwrap_or_else(|_| "8094".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
     info!("👁️  iora-watchdog starting on {}", addr);

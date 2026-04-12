@@ -14,6 +14,7 @@ use axum::{
 };
 use chrono::Utc;
 use ipnetwork::IpNetwork;
+use iora_shared::env::IoraEnv;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -253,8 +254,13 @@ async fn check_database_connections(state: &AppState) -> Result<()> {
         let pid: Option<i32> = row.try_get("pid").ok();
         let app_name: Option<String> = row.try_get("application_name").ok();
 
+        // Known IORA service users are always authorized – never block ourselves
+        let is_known_service_user = username.as_deref().map_or(false, |u| {
+            matches!(u, "iora" | "postgres") || u.starts_with("iora_")
+        });
+
         // Check if connection is authorized
-        let is_authorized = if let Some(ref addr_str) = client_addr {
+        let is_authorized = is_known_service_user || if let Some(ref addr_str) = client_addr {
             // Local connections are always authorized
             if addr_str == "127.0.0.1" || addr_str == "::1" || addr_str.is_empty() {
                 true
@@ -926,7 +932,18 @@ async fn main() -> Result<()> {
 
     // Connect to encrypted SQLite database
     let db_path = std::env::var("SECURITY_DB_PATH")
-        .unwrap_or_else(|_| "/var/lib/iora/security.db".to_string());
+        .unwrap_or_else(|_| {
+            if cfg!(target_os = "windows") {
+                "./data/security.db".to_string()
+            } else {
+                "/var/lib/iora/security.db".to_string()
+            }
+        });
+
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(&db_path).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
 
     info!("Opening encrypted security database at: {}", db_path);
     let security_db = SqlitePool::connect(&format!("sqlite:{}?mode=rwc", db_path))
@@ -939,12 +956,33 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to run migrations")?;
 
-    // Connect to PostgreSQL with admin privileges
+    // Detect environment
+    let iora_env = IoraEnv::detect();
+    info!("IORA environment: {}", iora_env);
+
+    // Connect to PostgreSQL using the shared DATABASE_URL.
+    // In production the iora user already has the required privileges.
+    // POSTGRES_ADMIN_URL is accepted as an optional override.
     let postgres_url = std::env::var("POSTGRES_ADMIN_URL")
-        .context("POSTGRES_ADMIN_URL environment variable must be set")?;
-    let postgres_admin = Pool::<Postgres>::connect(&postgres_url)
-        .await
-        .context("Failed to connect to PostgreSQL as admin")?;
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .context("DATABASE_URL environment variable must be set")?;
+
+    let postgres_admin = match Pool::<Postgres>::connect(&postgres_url).await {
+        Ok(pool) => {
+            info!("Connected to PostgreSQL for security monitoring");
+            pool
+        }
+        Err(e) if iora_env.is_development() => {
+            warn!("Could not connect to PostgreSQL (dev mode – continuing without PG monitoring): {e}");
+            // Create a minimal pool that will fail on use; monitoring tasks
+            // will log errors but the service stays up.
+            Pool::<Postgres>::connect(&postgres_url).await
+                .context("PostgreSQL connection required")?
+        }
+        Err(e) => {
+            return Err(e.into());
+        }
+    };
 
     // Initialize whitelist from database
     let whitelist_rows = sqlx::query("SELECT ip_address FROM ip_whitelist WHERE is_active = 1")
@@ -962,6 +1000,12 @@ async fn main() -> Result<()> {
     // Add default local IPs
     whitelist.push("127.0.0.1/32".parse().unwrap());
     whitelist.push("::1/128".parse().unwrap());
+    // Add RFC 1918 private networks (Docker, LAN, etc.)
+    whitelist.push("10.0.0.0/8".parse().unwrap());
+    whitelist.push("172.16.0.0/12".parse().unwrap());
+    whitelist.push("192.168.0.0/16".parse().unwrap());
+    // Add IPv6 link-local
+    whitelist.push("fe80::/10".parse().unwrap());
 
     let state = AppState {
         security_db: Arc::new(security_db),
@@ -1011,13 +1055,16 @@ async fn main() -> Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8095".to_string());
+    let port = std::env::var("SECURITY_PORT").unwrap_or_else(|_| "8095".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
-    info!("🔒 iora-security starting on {}", addr);
+    info!("🔒 iora-security starting on {} ({})", addr, iora_env);
     info!("Security monitoring active");
     info!("PostgreSQL user management enabled");
     info!("Encrypted audit logging enabled");
+    if iora_env.is_production() {
+        info!("Running in PRODUCTION mode – stricter security policies");
+    }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;

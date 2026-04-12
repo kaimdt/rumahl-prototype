@@ -4,7 +4,7 @@
 // IMMEDIATELY at module load time so commands can flow as soon as
 // the user interacts — no waiting for React to mount.
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getApiBase } from '@/lib/apiBase'
 
 let wsInstance: WebSocket | null = null
 let reconnectTimeout: number | undefined
@@ -24,13 +24,14 @@ function connectWebSocket() {
     reconnectTimeout = undefined
   }
 
-  // Derive WebSocket URL from VITE_BACKEND_URL if set,
+  // Derive WebSocket URL from the configured IORA Home URL,
   // otherwise fall back to current host (works when served by backend).
   // In dev mode, bypass Vite proxy to avoid message buffering.
+  const apiBase = getApiBase()
   let wsUrl: string
-  if (API_BASE) {
+  if (apiBase) {
     try {
-      const url = new URL(API_BASE)
+      const url = new URL(apiBase)
       const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
       wsUrl = `${protocol}//${url.host}/ws`
     } catch {
@@ -107,3 +108,10 @@ export function wsOnClose(fn: () => void) { closeListeners.add(fn); return () =>
 
 // ── Connect IMMEDIATELY at module load ──────────────────────────────
 connectWebSocket()
+
+// Reconnect when the IORA Home URL changes at runtime
+window.addEventListener('iora-api-base-changed', () => {
+  console.log('[WS] API base changed, reconnecting…')
+  reconnectDelay = 1000
+  connectWebSocket()
+})

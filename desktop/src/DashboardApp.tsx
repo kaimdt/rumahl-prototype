@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { getApiBase } from '@/lib/apiBase'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
@@ -25,6 +26,7 @@ import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 import { AdminPanel } from '@/components/AdminPanel'
 import { DocsPage } from '@/components/DocsPage'
 import { StreamSender } from '@/components/StreamSender'
+import { ConnectionSettings } from '@/components/ConnectionSettings'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -143,7 +145,7 @@ function DashboardContent() {
   useEffect(() => {
     let mounted = true
     // Initial fetch
-    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/maintenance/status`)
+    fetch(`${getApiBase()}/api/maintenance/status`)
       .then(r => r.json())
       .then((data: { active: boolean; message: string }) => {
         if (!mounted) return
@@ -595,34 +597,7 @@ function DashboardContent() {
               )}
 
               {currentPageId === 'settings' && (
-                <SettingsPage
-                  user={user}
-                  userName={userName}
-                  logout={logout}
-                  updateProfile={updateProfile}
-                  deviceLockMode={deviceLockMode}
-                  lockLoading={lockLoading}
-                  updateDeviceLockMode={updateDeviceLockMode}
-                  pinHash={pinHash}
-                  savePin={savePin}
-                  pinCode={pinCode}
-                  setPinCode={setPinCode}
-                  pinConfirm={pinConfirm}
-                  setPinConfirm={setPinConfirm}
-                  isSavingProfile={isSavingProfile}
-                  profileUsername={profileUsername}
-                  setProfileUsername={setProfileUsername}
-                  profileDisplayName={profileDisplayName}
-                  setProfileDisplayName={setProfileDisplayName}
-                  saveUserProfile={saveUserProfile}
-                  accentColorSettings={accentColorSettings}
-                  glassSettings={glassSettings}
-                  nightModeSettings={nightModeSettings}
-                  screensaverSettings={screensaverSettings}
-                  setShowPageDesigner={setShowPageDesigner}
-                  entities={entities}
-                  theme={theme}
-                />
+                <SettingsPage theme={theme} />
               )}
               {currentPageId === 'admin' && user?.isAdmin && (
                 <AdminPanel />
@@ -633,13 +608,18 @@ function DashboardContent() {
               {currentPageId === 'streaming' && (
                 <StreamSender />
               )}
-              {/* TODO: Music Player Page */}
+              {currentPageId === 'connection' && (
+                <div className="p-6">
+                  <ConnectionSettings />
+                </div>
+              )}
+              {/* TODO: Music Player Page */}}
               {currentPageId === 'music' && (
                 <div className="space-y-3 w-full h-full flex flex-col z-1000 bg-card p-4 theme-transition absolute top-0 left-0">
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
                 </div>
               )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming'].includes(currentPageId) && currentPage && (
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming', 'connection'].includes(currentPageId) && currentPage && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}

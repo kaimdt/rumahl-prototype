@@ -85,10 +85,12 @@ impl EntityStateCache {
         match map.get(entity_id) {
             Some(entity) => {
                 self.cache_hits.fetch_add(1, Ordering::Relaxed);
+                crate::METRICS.cache_hits.fetch_add(1, Ordering::Relaxed);
                 Some(entity.clone())
             }
             None => {
                 self.cache_misses.fetch_add(1, Ordering::Relaxed);
+                crate::METRICS.cache_misses.fetch_add(1, Ordering::Relaxed);
                 None
             }
         }

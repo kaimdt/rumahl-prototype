@@ -26,7 +26,7 @@ pub struct HaConfig {
 impl Default for HaConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:8080".to_string(), // iora-home backend
+            url: "http://localhost:3001".to_string(), // iora-home backend
             token: String::new(),
             device_name: "IORA Desktop".to_string(),
             update_interval_secs: 60,

@@ -871,7 +871,18 @@ async fn main() -> Result<()> {
 
     // Connect to database
     let db_path = std::env::var("GATEWAY_DB_PATH")
-        .unwrap_or_else(|_| "/var/lib/iora/gateway.db".to_string());
+        .unwrap_or_else(|_| {
+            if cfg!(target_os = "windows") {
+                "./data/gateway.db".to_string()
+            } else {
+                "/var/lib/iora/gateway.db".to_string()
+            }
+        });
+
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(&db_path).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
 
     info!("Opening gateway database at: {}", db_path);
     let db = SqlitePool::connect(&format!("sqlite:{}?mode=rwc", db_path))
@@ -914,7 +925,7 @@ async fn main() -> Result<()> {
         ))
         .with_state(state);
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8096".to_string());
+    let port = std::env::var("GATEWAY_PORT").unwrap_or_else(|_| "8096".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
     info!("🌐 iora-gateway starting on {}", addr);

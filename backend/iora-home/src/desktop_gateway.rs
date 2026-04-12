@@ -35,6 +35,107 @@ pub struct DesktopRegistrationResponse {
     pub registered_at: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DesktopCustomElement {
+    pub id: String,
+    pub tag: String,
+    pub description: String,
+    pub documentation_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DesktopCustomPage {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub description: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DesktopExtensionManifest {
+    pub custom_elements: Vec<DesktopCustomElement>,
+    pub custom_pages: Vec<DesktopCustomPage>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DesktopSettingField {
+    pub key: String,
+    pub label: String,
+    pub description: String,
+    pub field_type: String,
+    pub options: Option<Vec<String>>,
+    pub default_value: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DesktopSettingsManifest {
+    pub fields: Vec<DesktopSettingField>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DesktopSettingsUpdate {
+    pub settings: HashMap<String, Value>,
+}
+
+pub async fn get_desktop_extensions() -> Result<Json<DesktopExtensionManifest>, StatusCode> {
+    Ok(Json(DesktopExtensionManifest {
+        custom_elements: vec![
+            DesktopCustomElement {
+                id: "desktop-status-card".to_string(),
+                tag: "desktop-status-card".to_string(),
+                description: "A custom desktop status widget for IORA Home pages.".to_string(),
+                documentation_url: None,
+            },
+        ],
+        custom_pages: vec![
+            DesktopCustomPage {
+                id: "desktop-settings".to_string(),
+                title: "Desktop Einstellungen".to_string(),
+                url: "/desktop-settings".to_string(),
+                description: "A desktop-specific settings page exposed to IORA Home.".to_string(),
+            },
+        ],
+    }))
+}
+
+pub async fn get_desktop_settings() -> Result<Json<DesktopSettingsManifest>, StatusCode> {
+    Ok(Json(DesktopSettingsManifest {
+        fields: vec![
+            DesktopSettingField {
+                key: "display_brightness".to_string(),
+                label: "Display-Helligkeit".to_string(),
+                description: "Steuere die Desktop-Helligkeit.".to_string(),
+                field_type: "range".to_string(),
+                options: None,
+                default_value: Some(Value::from(0)),
+            },
+            DesktopSettingField {
+                key: "notifications_enabled".to_string(),
+                label: "Benachrichtigungen".to_string(),
+                description: "Aktiviere oder deaktiviere Desktop-Benachrichtigungen.".to_string(),
+                field_type: "boolean".to_string(),
+                options: None,
+                default_value: Some(Value::from(true)),
+            },
+            DesktopSettingField {
+                key: "kiosk_mode".to_string(),
+                label: "Kiosk-Modus".to_string(),
+                description: "Zeige Desktop im Kioskmodus ohne Steuerleisten.".to_string(),
+                field_type: "boolean".to_string(),
+                options: None,
+                default_value: Some(Value::from(false)),
+            },
+        ],
+    }))
+}
+
+pub async fn update_desktop_settings(
+    Json(update): Json<DesktopSettingsUpdate>,
+) -> Result<StatusCode, StatusCode> {
+    info!("Desktop settings update requested: {:#?}", update.settings);
+    Ok(StatusCode::OK)
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SystemMetrics {
     pub timestamp: String,

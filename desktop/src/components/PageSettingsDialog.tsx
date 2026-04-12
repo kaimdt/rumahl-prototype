@@ -22,7 +22,7 @@ import { usePageNavigation, type PageSettings } from '@/contexts/PageNavigationC
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS } from '@/lib/defaults'
 import { toast } from 'sonner'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getApiBase } from '@/lib/apiBase'
 
 function getAuthToken(): string {
   const raw = localStorage.getItem('ha-auth-token') ?? sessionStorage.getItem('ha-auth-token')
@@ -86,7 +86,7 @@ export function PageSettingsDialog({ open, onClose, pageId, pageName }: PageSett
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await fetch(`${API_BASE}/api/uploads/background`, {
+      const res = await fetch(`${getApiBase()}/api/uploads/background`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

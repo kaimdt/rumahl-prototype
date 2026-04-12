@@ -153,14 +153,14 @@ impl LocationSyncService {
                 .fetch_one(&self.pool)
                 .await?;
 
-                let oldest: Option<(DateTime<Utc>,)> = sqlx::query_as(
+                let oldest: Option<(Option<DateTime<Utc>>,)> = sqlx::query_as(
                     "SELECT MIN(recorded_at) FROM location_history_points WHERE entity_id = $1",
                 )
                 .bind(entity_id)
                 .fetch_optional(&self.pool)
                 .await?;
 
-                let newest: Option<(DateTime<Utc>,)> = sqlx::query_as(
+                let newest: Option<(Option<DateTime<Utc>>,)> = sqlx::query_as(
                     "SELECT MAX(recorded_at) FROM location_history_points WHERE entity_id = $1",
                 )
                 .bind(entity_id)
@@ -176,8 +176,8 @@ impl LocationSyncService {
                 )
                 .bind(entity_id)
                 .bind(total.0 as i32)
-                .bind(oldest.and_then(|o| Some(o.0)))
-                .bind(newest.and_then(|n| Some(n.0)))
+                .bind(oldest.and_then(|o| o.0))
+                .bind(newest.and_then(|n| n.0))
                 .execute(&self.pool)
                 .await?;
 
@@ -190,8 +190,8 @@ impl LocationSyncService {
 
                 // Check for gaps: if our newest data is much older than expected
                 // and HA couldn't provide older data, create admin notification
-                if let Some(ref newest_dt) = newest {
-                    let gap_hours = (Utc::now() - newest_dt.0).num_hours();
+                if let Some((Some(ref newest_ts),)) = newest {
+                    let gap_hours = (Utc::now() - *newest_ts).num_hours();
                     if gap_hours > 24 && points.is_empty() {
                         self.create_gap_notification(entity_id, friendly_name, gap_hours).await;
                     }

@@ -15,7 +15,7 @@ import {
   Tooltip,
 } from 'recharts'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getApiBase } from '@/lib/apiBase'
 
 interface StatisticsChartWidgetProps {
   entityId?: string
@@ -65,7 +65,7 @@ export default function StatisticsChartWidget({ entityId, config }: StatisticsCh
         const end = new Date().toISOString()
         const start = new Date(Date.now() - rangeMs).toISOString()
         const response = await fetch(
-          `${API_BASE}/api/local-history/${entityId}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+          `${getApiBase()}/api/local-history/${entityId}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
         )
         if (response.ok) {
           setHistory(await response.json())

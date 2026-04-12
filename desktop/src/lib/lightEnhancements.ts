@@ -1,7 +1,7 @@
 import { storage } from '@/lib/storage'
 import { authFetch } from '@/lib/authHelpers'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getApiBase } from '@/lib/apiBase'
 
 export interface LightEnhancementSettings {
   showSubModalNavButtons: boolean

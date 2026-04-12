@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, useCallback } from 'react'
+import { getApiBase } from '@/lib/apiBase'
 import { VideoCamera, Play, Pause, Eye, WifiHigh, WifiSlash, ArrowsOut, ArrowsIn, SpeakerHigh, SpeakerSlash, SpeakerLow, FilmStrip, Circle, X, PictureInPicture } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Tip } from '@/components/ui/tip'
@@ -42,13 +43,12 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
   const wsRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsRetryCountRef = useRef(0)
 
-  const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
   const streamsJsonRef = useRef('')
 
   // Fetch available streams (only update state when data actually changes)
   const fetchStreams = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/streams`)
+      const res = await fetch(`${getApiBase()}/api/streams`)
       if (res.ok) {
         const data = await res.json()
         const incoming = data.streams || []
