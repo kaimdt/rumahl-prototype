@@ -989,6 +989,7 @@ async fn get_version() -> impl IntoResponse {
 
 /// Compute a fast hash representing the current state of the frontend dist/ directory.
 /// Uses file modification times and sizes — no file content reading required.
+/// The dist directory defaults to `../dist` but can be overridden via the `DIST_DIR` env var.
 fn compute_dist_hash() -> String {
     use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
@@ -996,7 +997,8 @@ fn compute_dist_hash() -> String {
     let mut hasher = DefaultHasher::new();
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
 
-    if let Ok(entries) = std::fs::read_dir("../dist") {
+    let dist_dir = std::env::var("DIST_DIR").unwrap_or_else(|_| "../dist".to_string());
+    if let Ok(entries) = std::fs::read_dir(&dist_dir) {
         let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).collect();
         paths.sort_by_key(|e| e.path());
         for entry in paths {
@@ -1357,7 +1359,7 @@ async fn integration_command(
             // Route through the notification dispatcher (persists + broadcasts + sends to all channels)
             let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
             let req = notification_dispatcher::DispatchRequest {
-                title: data.get("title").and_then(|v| v.as_str()).unwrap_or("Benachrichtigung").to_string(),
+                title: data.get("title").and_then(|v| v.as_str()).unwrap_or("Notification").to_string(),
                 message: data.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 level: data.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
                 source: data.get("source").and_then(|v| v.as_str()).unwrap_or("system").to_string(),
@@ -6581,7 +6583,7 @@ async fn notification_send(
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let req = notification_dispatcher::DispatchRequest {
-        title: body.get("title").and_then(|v| v.as_str()).unwrap_or("Benachrichtigung").to_string(),
+        title: body.get("title").and_then(|v| v.as_str()).unwrap_or("Notification").to_string(),
         message: body.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         level: body.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
         source: body.get("source").and_then(|v| v.as_str()).unwrap_or("iora").to_string(),

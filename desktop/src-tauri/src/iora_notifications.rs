@@ -34,7 +34,7 @@ pub fn start_notification_listener(
         let mut backoff_secs: u64 = 2;
 
         loop {
-            let ws_url = build_ws_url(&iora_home_url, &auth_token);
+            let ws_url = build_ws_url(&iora_home_url);
             match tokio_tungstenite::connect_async(&ws_url).await {
                 Ok((mut stream, _)) => {
                     info!("[notif] WebSocket connected to iora-home for notifications");
@@ -121,7 +121,7 @@ fn handle_message(app: &AppHandle, text: &str, client_id: &str) {
 }
 
 /// Convert an http(s) URL to a ws(s) URL and append the WS endpoint.
-fn build_ws_url(base: &str, _token: &str) -> String {
+fn build_ws_url(base: &str) -> String {
     let base = base.trim_end_matches('/');
     let ws_base = if base.starts_with("https://") {
         base.replacen("https://", "wss://", 1)

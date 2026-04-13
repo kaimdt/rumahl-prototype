@@ -15,6 +15,10 @@ use uuid::Uuid;
 
 use crate::{websocket::WebSocketManager, ha_client::HomeAssistantClient};
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const DEFAULT_NOTIFICATION_TITLE: &str = "Notification";
+
 // ─── Data Types ─────────────────────────────────────────────────────────────
 
 /// A notification to be dispatched through one or more channels.
@@ -37,7 +41,7 @@ pub struct DispatchRequest {
 impl Default for DispatchRequest {
     fn default() -> Self {
         Self {
-            title: "Benachrichtigung".to_string(),
+            title: DEFAULT_NOTIFICATION_TITLE.to_string(),
             message: String::new(),
             level: "info".to_string(),
             source: "system".to_string(),
@@ -100,22 +104,18 @@ impl NotificationDispatcher {
             .await
             .unwrap_or_default()
         } else {
-            // SQLx doesn't support dynamic IN with bind so iterate
-            let mut result = Vec::new();
-            for id in filter_ids {
-                let row: Option<NotificationChannel> = sqlx::query_as(
-                    "SELECT id, name, channel_type, target_id, enabled, config, created_at, updated_at \
-                     FROM notification_channels WHERE id = $1 AND enabled = TRUE"
-                )
-                .bind(id)
-                .fetch_optional(&self.db)
-                .await
-                .unwrap_or(None);
-                if let Some(ch) = row {
-                    result.push(ch);
-                }
-            }
-            result
+            // Use ANY($1) to avoid N+1 queries when filtering by specific IDs
+            let ids: Vec<&str> = filter_ids.iter().map(|s| s.as_str()).collect();
+            sqlx::query_as(
+                "SELECT id, name, channel_type, target_id, enabled, config, created_at, updated_at \
+                 FROM notification_channels \
+                 WHERE id = ANY($1) AND enabled = TRUE \
+                 ORDER BY created_at ASC"
+            )
+            .bind(&ids[..])
+            .fetch_all(&self.db)
+            .await
+            .unwrap_or_default()
         };
         rows
     }
