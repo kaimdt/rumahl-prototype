@@ -824,6 +824,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
         // Health check (public)
         .route("/health", get(health_check))
+        // Version endpoint (public, never cached – desktop client uses this to detect updates)
+        .route("/api/version", get(get_version))
         // Maintenance status (public – frontend needs this before auth)
         .route("/api/maintenance/status", get(public_maintenance_status))
         .route("/api/desktop/extensions", get(desktop_gateway::get_desktop_extensions))
@@ -948,6 +950,21 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Health check endpoint with diagnostics
+/// GET /api/version — returns the current server version without caching.
+/// The desktop client polls this endpoint to detect when the server has been updated
+/// and must invalidate its local file cache.
+async fn get_version() -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate".parse().unwrap());
+    headers.insert(header::PRAGMA, "no-cache".parse().unwrap());
+    (
+        headers,
+        Json(serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+        })),
+    )
+}
+
 async fn health_check(
     State(state): State<AppState>,
 ) -> impl IntoResponse {

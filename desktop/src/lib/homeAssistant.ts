@@ -26,7 +26,7 @@ class HomeAssistantService {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const response = await fetch(`${getApiBase()}/api/states`, { headers })
+    const response = await fetch(`${getApiBase()}/api/states`, { headers, cache: 'no-store' })
 
     if (!response.ok) {
       throw new Error(`Failed to fetch states: ${response.status} ${response.statusText}`)
@@ -51,6 +51,7 @@ class HomeAssistantService {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
+      cache: 'no-store',
     })
 
     if (!response.ok) {
@@ -87,6 +88,7 @@ class HomeAssistantService {
         entity_id,
         ...data,
       }),
+      cache: 'no-store',
     }).then(resp => {
       if (!resp.ok) console.warn(`[cmd] HTTP fallback failed: ${resp.status}`)
     }).catch(err => {
@@ -258,7 +260,7 @@ class HomeAssistantService {
     })
     if (endTime) params.set('end_time', endTime)
 
-    const response = await fetch(`/api/history/period/${start}?${params}`, { headers })
+    const response = await fetch(`/api/history/period/${start}?${params}`, { headers, cache: 'no-store' })
     if (!response.ok) {
       throw new Error(`Failed to fetch history: ${response.status}`)
     }
@@ -277,7 +279,7 @@ class HomeAssistantService {
 
     // Try to load from cache first
     try {
-      const cacheRes = await fetch(`/api/weather/forecast/${encodeURIComponent(entityId)}/${type}`, { headers })
+      const cacheRes = await fetch(`/api/weather/forecast/${encodeURIComponent(entityId)}/${type}`, { headers, cache: 'no-store' })
       if (cacheRes.ok) {
         const cacheData = await cacheRes.json()
         if (cacheData.cached && Array.isArray(cacheData.forecast) && cacheData.forecast.length > 0) {
@@ -343,6 +345,7 @@ class HomeAssistantService {
           method: 'POST',
           headers,
           body: JSON.stringify(payload),
+          cache: 'no-store',
         })
 
         if (!response.ok) {

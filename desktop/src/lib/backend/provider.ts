@@ -80,6 +80,7 @@ export class DirectHAProvider implements BackendProvider {
         'Content-Type': 'application/json',
         ...this.config.headers,
       },
+      cache: 'no-store',
       signal: AbortSignal.timeout(this.config.timeout ?? 10000),
     })
 
@@ -101,6 +102,7 @@ export class DirectHAProvider implements BackendProvider {
         'Content-Type': 'application/json',
         ...this.config.headers,
       },
+      cache: 'no-store',
       signal: AbortSignal.timeout(this.config.timeout ?? 10000),
     })
 
@@ -127,6 +129,7 @@ export class DirectHAProvider implements BackendProvider {
         ...this.config.headers,
       },
       body: JSON.stringify(data ?? {}),
+      cache: 'no-store',
       signal: AbortSignal.timeout(this.config.timeout ?? 10000),
     })
 
@@ -257,6 +260,7 @@ export class ProxyBackendProvider implements BackendProvider {
         'Content-Type': 'application/json',
         ...this.config.headers,
       },
+      cache: 'no-store',
       signal: AbortSignal.timeout(this.config.timeout ?? 10000),
     })
 
@@ -278,6 +282,7 @@ export class ProxyBackendProvider implements BackendProvider {
         'Content-Type': 'application/json',
         ...this.config.headers,
       },
+      cache: 'no-store',
       signal: AbortSignal.timeout(this.config.timeout ?? 10000),
     })
 
@@ -304,6 +309,7 @@ export class ProxyBackendProvider implements BackendProvider {
         ...this.config.headers,
       },
       body: JSON.stringify(data ?? {}),
+      cache: 'no-store',
       signal: AbortSignal.timeout(this.config.timeout ?? 10000),
     })
 
