@@ -956,7 +956,6 @@ async fn main() -> anyhow::Result<()> {
 async fn get_version() -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate".parse().unwrap());
-    headers.insert(header::PRAGMA, "no-cache".parse().unwrap());
     (
         headers,
         Json(serde_json::json!({

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from 'react-error-boundary'
 import { ErrorFallback } from './ErrorFallback'
 import { initApiBase } from '@/lib/apiBase'
-import { checkAndInvalidateCache, startVersionPoller } from '@/lib/versionCheck'
+import { checkAndInvalidateCache, startVersionPoller, VERSION_POLL_INTERVAL_MS } from '@/lib/versionCheck'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { PageNavigationProvider } from '@/contexts/PageNavigationContext'
@@ -30,7 +30,7 @@ export default function App() {
       await checkAndInvalidateCache()
       if (!cancelled) {
         // Start a background poller that re-checks every 5 minutes
-        stopPollerRef.current = startVersionPoller(5 * 60 * 1000)
+        stopPollerRef.current = startVersionPoller(VERSION_POLL_INTERVAL_MS)
         setReady(true)
       }
     })

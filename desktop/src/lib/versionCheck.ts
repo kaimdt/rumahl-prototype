@@ -14,6 +14,9 @@
 
 import { getApiBase } from '@/lib/apiBase'
 
+/** Default interval between version polls (5 minutes). */
+export const VERSION_POLL_INTERVAL_MS = 5 * 60 * 1000
+
 const STORED_VERSION_KEY = 'iora-home-server-version'
 
 /** Cache keys that belong to IORA Home static/configuration data. */
@@ -44,7 +47,6 @@ async function fetchRemoteVersion(baseUrl: string): Promise<string | null> {
   try {
     const response = await fetch(`${baseUrl}/api/version`, {
       cache: 'no-store',
-      headers: { 'Pragma': 'no-cache' },
     })
     if (!response.ok) return null
     const data = await response.json()
