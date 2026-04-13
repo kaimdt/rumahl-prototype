@@ -111,6 +111,10 @@ SERVICE_SEND_NOTIFICATION_SCHEMA = vol.Schema(
         ),
         vol.Optional("source", default="home_assistant"): cv.string,
         vol.Optional("icon"): cv.string,
+        # Channel routing: list of IORA channel IDs, empty = all enabled channels.
+        vol.Optional("channels", default=[]): vol.All(cv.ensure_list, [cv.string]),
+        # Optional HA mobile push extras forwarded as `data` to notify service.
+        vol.Optional("ha_data", default={}): dict,
     }
 )
 
@@ -1109,16 +1113,24 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "emergency": "emergency",
         }
         level = type_to_level.get(notif_type, "info")
+        channels = call.data.get("channels", [])
+        ha_data = call.data.get("ha_data", {})
         payload = {
             "message": message,
             "title": title,
             "level": level,
             "source": call.data.get("source", "home_assistant"),
             "icon": call.data.get("icon", ""),
+            "channels": channels,
+            # Pass HA-specific data block through extra_data so the dispatcher
+            # can forward it to ha_mobile channels.
+            "extra_data": {"data": ha_data} if ha_data else {},
         }
         client = _get_client()
         if client:
             try:
+                # Use the dedicated /api/notifications/send endpoint to trigger
+                # multi-channel dispatch (IORA + HA mobile + Desktop).
                 await client.send_command("notify", payload)
             except Exception:
                 _LOGGER.warning("Could not send notification to dashboard")

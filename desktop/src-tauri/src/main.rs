@@ -8,6 +8,7 @@ mod config;
 mod ha_commands;
 mod ha_integration;
 mod iora_home;
+mod iora_notifications;
 mod lm_studio;
 mod system_commands;
 mod system_info;
@@ -181,6 +182,29 @@ fn main() {
                     let mut ticker = interval(Duration::from_secs(update_interval.max(30)));
                     ticker.tick().await;
                     ticker.tick().await;
+                }
+            });
+
+            // ── IORA Desktop Notification Listener ───────────────────────────
+            // Connect to iora-home WebSocket and listen for desktop_notification events.
+            let app_handle_notif = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Small startup delay so config is ready
+                tokio::time::sleep(Duration::from_secs(3)).await;
+
+                let (iora_home_url, auth_token, client_name) = {
+                    let state = app_handle_notif.state::<AppState>();
+                    let cfg = state.config.lock().await.clone();
+                    (cfg.iora_home_url.clone(), cfg.auth_token.clone(), cfg.client_name.clone())
+                };
+                if !iora_home_url.is_empty() {
+                    // start_notification_listener runs its own reconnect loop indefinitely
+                    iora_notifications::start_notification_listener(
+                        app_handle_notif,
+                        iora_home_url,
+                        auth_token,
+                        client_name,
+                    );
                 }
             });
 

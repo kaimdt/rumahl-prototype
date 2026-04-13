@@ -40,6 +40,7 @@ mod streaming;
 mod person_tracker;
 mod location_sync;
 mod desktop_gateway;
+mod notification_dispatcher;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -53,6 +54,7 @@ use zigbee_client::ZigbeeClient;
 use zwave_client::ZwaveClient;
 use ble_client::BleClient;
 use homekit_client::HomekitClient;
+use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
 
 /// Per-entity service call buffer that coalesces rapid-fire requests.
@@ -146,6 +148,7 @@ pub struct AppState {
     pub ble_client: Arc<BleClient>,
     pub homekit_client: Arc<HomekitClient>,
     pub stream_manager: Arc<StreamManager>,
+    pub notification_dispatcher: Arc<NotificationDispatcher>,
 }
 
 /// Entity state from Home Assistant
@@ -443,6 +446,11 @@ async fn main() -> anyhow::Result<()> {
     let ble_client = Arc::new(BleClient::new());
     let homekit_client = Arc::new(HomekitClient::new());
     let stream_manager = Arc::new(StreamManager::new());
+    let notification_dispatcher = Arc::new(NotificationDispatcher::new(
+        db_pool.clone(),
+        ws_manager.clone(),
+        ha_client.clone(),
+    ));
 
     // Create application state
     let state = AppState {
@@ -463,6 +471,7 @@ async fn main() -> anyhow::Result<()> {
         ble_client: ble_client.clone(),
         homekit_client: homekit_client.clone(),
         stream_manager: stream_manager.clone(),
+        notification_dispatcher: notification_dispatcher.clone(),
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -793,8 +802,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
         .route("/api/notifications", get(get_notifications))
+        .route("/api/notifications/send", post(notification_send))
         .route("/api/notifications/:notif_id/read", put(mark_notification_read))
         .route("/api/notifications/:notif_id", delete(dismiss_notification))
+        // Notification channels management
+        .route("/api/notifications/channels", get(notification_channels_list).post(notification_channel_create))
+        .route("/api/notifications/channels/:channel_id", put(notification_channel_update).delete(notification_channel_delete))
         .route("/api/alert/active", get(get_active_alert))
         .route("/api/warnings/active", get(get_active_warnings))
         // NINA warning endpoints
@@ -956,12 +969,50 @@ async fn main() -> anyhow::Result<()> {
 async fn get_version() -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate".parse().unwrap());
+    headers.insert(header::PRAGMA, "no-cache".parse().unwrap());
+    headers.insert(header::EXPIRES, "0".parse().unwrap());
+
+    // Compute a lightweight content hash of the frontend dist/ directory.
+    // The desktop client polls this endpoint and invalidates its file cache
+    // whenever the hash changes.
+    let content_hash = compute_dist_hash();
+
     (
         headers,
         Json(serde_json::json!({
             "version": env!("CARGO_PKG_VERSION"),
+            "content_hash": content_hash,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
         })),
     )
+}
+
+/// Compute a fast hash representing the current state of the frontend dist/ directory.
+/// Uses file modification times and sizes — no file content reading required.
+fn compute_dist_hash() -> String {
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+
+    let mut hasher = DefaultHasher::new();
+    env!("CARGO_PKG_VERSION").hash(&mut hasher);
+
+    if let Ok(entries) = std::fs::read_dir("../dist") {
+        let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+        paths.sort_by_key(|e| e.path());
+        for entry in paths {
+            if let Ok(meta) = entry.metadata() {
+                entry.path().hash(&mut hasher);
+                meta.len().hash(&mut hasher);
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH) {
+                        since.as_secs().hash(&mut hasher);
+                    }
+                }
+            }
+        }
+    }
+
+    format!("{:016x}", hasher.finish())
 }
 
 async fn health_check(
@@ -1303,51 +1354,23 @@ async fn integration_command(
             Ok(Json(serde_json::json!({"result": "ok", "action": "refresh"})))
         }
         "notify" => {
+            // Route through the notification dispatcher (persists + broadcasts + sends to all channels)
             let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-            let id = uuid::Uuid::new_v4().to_string();
-            let level = data.get("level").and_then(|v| v.as_str()).unwrap_or("info");
-            let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("Benachrichtigung");
-            let message = data.get("message").and_then(|v| v.as_str()).unwrap_or("");
-            let notification = serde_json::json!({
-                "id": id,
-                "title": title,
-                "message": message,
-                "level": level,
-                "source": data.get("source").and_then(|v| v.as_str()).unwrap_or("system"),
-                "icon": data.get("icon").and_then(|v| v.as_str()).unwrap_or(""),
-                "entity_id": data.get("entity_id").and_then(|v| v.as_str()).unwrap_or(""),
-                "created_at": chrono::Utc::now().to_rfc3339(),
-                "read": false,
-                "auto_dismiss_secs": data.get("auto_dismiss_secs").and_then(|v| v.as_u64()).unwrap_or(0),
-            });
-            // Persist to DB
-            if let Err(e) = sqlx::query(
-                "INSERT INTO notifications (id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)"
-            )
-                .bind(&id)
-                .bind(title)
-                .bind(message)
-                .bind(level)
-                .bind(notification["source"].as_str().unwrap_or("system"))
-                .bind(notification["icon"].as_str().unwrap_or(""))
-                .bind(notification["entity_id"].as_str().unwrap_or(""))
-                .bind(chrono::Utc::now())
-                .bind(notification["auto_dismiss_secs"].as_u64().unwrap_or(0) as i32)
-                .execute(&state.db_pool)
-                .await
-            {
-                warn!("Failed to persist notification: {}", e);
-            }
-            // Prune old notifications (keep max 200)
-            let _ = sqlx::query("DELETE FROM notifications WHERE id NOT IN (SELECT id FROM notifications ORDER BY created_at DESC LIMIT 200)")
-                .execute(&state.db_pool)
-                .await;
-            let event = serde_json::json!({
-                "type": "notification",
-                "action": "new",
-                "notification": notification,
-            });
-            state.ws_manager.broadcast_json(&event).await;
+            let req = notification_dispatcher::DispatchRequest {
+                title: data.get("title").and_then(|v| v.as_str()).unwrap_or("Benachrichtigung").to_string(),
+                message: data.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                level: data.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
+                source: data.get("source").and_then(|v| v.as_str()).unwrap_or("system").to_string(),
+                icon: data.get("icon").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                entity_id: data.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                auto_dismiss_secs: data.get("auto_dismiss_secs").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                channels: data.get("channels")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_default(),
+                extra_data: data.get("extra_data").cloned().unwrap_or(serde_json::Value::Null),
+            };
+            let (id, _results) = state.notification_dispatcher.dispatch(req).await;
             Ok(Json(serde_json::json!({"result": "ok", "action": "notify", "id": id})))
         }
         "alert" => {
@@ -6536,6 +6559,113 @@ async fn get_active_alert() -> Json<Value> {
     match &*alert {
         Some(a) => Json(serde_json::json!({"active": true, "alert": a})),
         None => Json(serde_json::json!({"active": false})),
+    }
+}
+
+// ── Notification Dispatcher Handlers ─────────────────────────────────────────
+
+/// POST /api/notifications/send — dispatch a notification to one or more channels.
+///
+/// Body:
+/// ```json
+/// {
+///   "title": "...", "message": "...", "level": "info",
+///   "source": "my_app", "icon": "", "entity_id": "",
+///   "auto_dismiss_secs": 0,
+///   "channels": [],            // optional: channel IDs; empty = all enabled
+///   "extra_data": {}           // optional: forwarded to channels (e.g. HA data block)
+/// }
+/// ```
+async fn notification_send(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let req = notification_dispatcher::DispatchRequest {
+        title: body.get("title").and_then(|v| v.as_str()).unwrap_or("Benachrichtigung").to_string(),
+        message: body.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        level: body.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
+        source: body.get("source").and_then(|v| v.as_str()).unwrap_or("iora").to_string(),
+        icon: body.get("icon").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        entity_id: body.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        auto_dismiss_secs: body.get("auto_dismiss_secs").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+        channels: body.get("channels")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        extra_data: body.get("extra_data").cloned().unwrap_or(serde_json::Value::Null),
+    };
+
+    let (id, results) = state.notification_dispatcher.dispatch(req).await;
+    let all_ok = results.iter().all(|r| r.status != "error");
+    let status = if all_ok { StatusCode::OK } else { StatusCode::MULTI_STATUS };
+    (status, Json(serde_json::json!({"id": id, "results": results})))
+}
+
+/// GET /api/notifications/channels — list all notification channels.
+async fn notification_channels_list(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let channels = state.notification_dispatcher.list_channels().await;
+    Json(serde_json::json!({"channels": channels}))
+}
+
+/// POST /api/notifications/channels — create a notification channel.
+///
+/// Body:
+/// ```json
+/// {
+///   "name": "My Pixel 8",
+///   "channel_type": "ha_mobile",   // "iora" | "ha_mobile" | "desktop"
+///   "target_id": "mobile_app_pixel_8",
+///   "config": {}
+/// }
+/// ```
+async fn notification_channel_create(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let name = match body.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "name required"}))).into_response(),
+    };
+    let channel_type = match body.get("channel_type").and_then(|v| v.as_str()) {
+        Some(t) if matches!(t, "iora" | "ha_mobile" | "desktop") => t.to_string(),
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "channel_type must be one of: iora, ha_mobile, desktop"}))).into_response(),
+    };
+    let target_id = body.get("target_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let config = body.get("config").cloned().unwrap_or(serde_json::json!({}));
+
+    match state.notification_dispatcher.create_channel(name, channel_type, target_id, config).await {
+        Ok(ch) => (StatusCode::CREATED, Json(serde_json::json!({"channel": ch}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+/// PUT /api/notifications/channels/:channel_id — update a notification channel.
+async fn notification_channel_update(
+    State(state): State<AppState>,
+    Path(channel_id): Path<String>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let name = body.get("name").and_then(|v| v.as_str()).map(String::from);
+    let target_id = body.get("target_id").and_then(|v| v.as_str()).map(String::from);
+    let enabled = body.get("enabled").and_then(|v| v.as_bool());
+    let config = body.get("config").cloned();
+
+    match state.notification_dispatcher.update_channel(&channel_id, name, target_id, enabled, config).await {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+/// DELETE /api/notifications/channels/:channel_id — delete a notification channel.
+async fn notification_channel_delete(
+    State(state): State<AppState>,
+    Path(channel_id): Path<String>,
+) -> StatusCode {
+    match state.notification_dispatcher.delete_channel(&channel_id).await {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::NOT_FOUND,
     }
 }
 

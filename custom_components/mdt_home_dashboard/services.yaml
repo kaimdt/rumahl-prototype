@@ -74,6 +74,27 @@ send_notification:
       example: "bell"
       selector:
         text:
+    channels:
+      name: Channels
+      description: >
+        Optional list of IORA notification channel IDs to target.
+        Leave empty to send to all enabled channels (IORA dashboard + configured HA mobile targets + IORA Desktop).
+      required: false
+      default: []
+      example: '["channel-uuid-1", "channel-uuid-2"]'
+      selector:
+        object:
+    ha_data:
+      name: HA Mobile Data
+      description: >
+        Extra data forwarded to Home Assistant mobile_app notify services
+        (e.g. {"actions": [...], "tag": "my-tag", "image": "/local/img.png"}).
+        Only relevant when a ha_mobile channel is targeted.
+      required: false
+      default: {}
+      example: '{"tag": "system_alert", "color": "#FF0000"}'
+      selector:
+        object:
 
 # Service set_theme
 set_theme:
