@@ -5,6 +5,11 @@ edition = "2021"
 description = "IORA CLI – command-line interface for controlling IORA OS and services"
 
 [[bin]]
+name = "ora"
+path = "src/main.rs"
+
+# Alias for backwards compatibility
+[[bin]]
 name = "iora"
 path = "src/main.rs"
 

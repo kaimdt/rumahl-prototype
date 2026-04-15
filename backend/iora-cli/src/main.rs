@@ -5,10 +5,10 @@ use serde_json::Value;
 use std::process::Command as StdCommand;
 use tabled::{Table, Tabled};
 
-/// IORA CLI - Command-line interface for controlling IORA OS and services
+/// ORA CLI - Command-line interface for controlling IORA OS and services
 #[derive(Parser)]
-#[command(name = "iora")]
-#[command(about = "IORA Command-Line Interface", long_about = None)]
+#[command(name = "ora")]
+#[command(about = "ORA - IORA Command-Line Interface (short form)", long_about = None)]
 #[command(version)]
 struct Cli {
     /// Base URL for IORA services
@@ -29,11 +29,11 @@ enum Commands {
     #[command(subcommand)]
     Service(ServiceCommands),
 
-    /// Container management
+    /// App management (Docker containers)
     #[command(subcommand)]
-    Container(ContainerCommands),
+    App(AppCommands),
 
-    /// Plugin management
+    /// Plugin management (code extensions)
     #[command(subcommand)]
     Plugin(PluginCommands),
 
@@ -104,20 +104,20 @@ enum ServiceCommands {
 }
 
 #[derive(Subcommand)]
-enum ContainerCommands {
-    /// List all containers
+enum AppCommands {
+    /// List all apps (containers)
     List {
-        /// Show all containers (including stopped)
+        /// Show all apps (including stopped)
         #[arg(short, long)]
         all: bool,
     },
-    /// Start a container
+    /// Start an app
     Start { name: String },
-    /// Stop a container
+    /// Stop an app
     Stop { name: String },
-    /// Restart a container
+    /// Restart an app
     Restart { name: String },
-    /// Show container logs
+    /// Show app logs
     Logs {
         name: String,
         /// Number of lines to show
@@ -127,13 +127,13 @@ enum ContainerCommands {
         #[arg(short, long)]
         follow: bool,
     },
-    /// Show container stats
+    /// Show app stats
     Stats { name: Option<String> },
 }
 
 #[derive(Subcommand)]
 enum PluginCommands {
-    /// List installed plugins
+    /// List installed plugins (code extensions)
     List,
     /// Install a plugin
     Install {
@@ -228,7 +228,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::System(cmd) => handle_system(cmd).await,
         Commands::Service(cmd) => handle_service(&cli.url, cmd).await,
-        Commands::Container(cmd) => handle_container(&cli.url, cmd).await,
+        Commands::App(cmd) => handle_app(&cli.url, cmd).await,
         Commands::Plugin(cmd) => handle_plugin(&cli.url, cmd).await,
         Commands::Logs(cmd) => handle_logs(&cli.url, cmd).await,
         Commands::Security(cmd) => handle_security(&cli.url, cmd).await,
@@ -388,11 +388,11 @@ async fn handle_service(base_url: &str, cmd: ServiceCommands) -> Result<()> {
     Ok(())
 }
 
-async fn handle_container(base_url: &str, cmd: ContainerCommands) -> Result<()> {
+async fn handle_app(base_url: &str, cmd: AppCommands) -> Result<()> {
     let client = reqwest::Client::new();
 
     match cmd {
-        ContainerCommands::List { all: _ } => {
+        AppCommands::List { all: _ } => {
             let url = format!("{}:8097/api/supervisor/containers", base_url);
             let resp = client.get(&url).send().await?;
             let containers: Vec<Value> = resp.json().await?;
@@ -408,25 +408,25 @@ async fn handle_container(base_url: &str, cmd: ContainerCommands) -> Result<()> 
             }
             println!("{}", Table::new(rows));
         }
-        ContainerCommands::Start { name } => {
-            println!("{} {}", "Starting container".bright_cyan(), name.bright_white());
+        AppCommands::Start { name } => {
+            println!("{} {}", "Starting app".bright_cyan(), name.bright_white());
             let url = format!("{}:8097/api/supervisor/containers/{}/start", base_url, name);
             client.post(&url).send().await?;
-            println!("{}", "✓ Container started".green());
+            println!("{}", "✓ App started".green());
         }
-        ContainerCommands::Stop { name } => {
-            println!("{} {}", "Stopping container".bright_cyan(), name.bright_white());
+        AppCommands::Stop { name } => {
+            println!("{} {}", "Stopping app".bright_cyan(), name.bright_white());
             let url = format!("{}:8097/api/supervisor/containers/{}/stop", base_url, name);
             client.post(&url).send().await?;
-            println!("{}", "✓ Container stopped".green());
+            println!("{}", "✓ App stopped".green());
         }
-        ContainerCommands::Restart { name } => {
-            println!("{} {}", "Restarting container".bright_cyan(), name.bright_white());
+        AppCommands::Restart { name } => {
+            println!("{} {}", "Restarting app".bright_cyan(), name.bright_white());
             let url = format!("{}:8097/api/supervisor/containers/{}/restart", base_url, name);
             client.post(&url).send().await?;
-            println!("{}", "✓ Container restarted".green());
+            println!("{}", "✓ App restarted".green());
         }
-        ContainerCommands::Logs { name, lines, follow } => {
+        AppCommands::Logs { name, lines, follow } => {
             if follow {
                 println!("{} (press Ctrl+C to stop)", "Following logs...".bright_cyan());
                 // For follow, would need to implement streaming
@@ -445,8 +445,8 @@ async fn handle_container(base_url: &str, cmd: ContainerCommands) -> Result<()> 
                 }
             }
         }
-        ContainerCommands::Stats { name: _ } => {
-            println!("{}", "Container stats not yet implemented".yellow());
+        AppCommands::Stats { name: _ } => {
+            println!("{}", "App stats not yet implemented".yellow());
         }
     }
     Ok(())
@@ -462,7 +462,7 @@ async fn handle_plugin(base_url: &str, cmd: PluginCommands) -> Result<()> {
             let data: Value = resp.json().await?;
 
             if let Some(plugins) = data.get("plugins").and_then(|v| v.as_array()) {
-                println!("{}", "Installed Plugins".bright_blue().bold());
+                println!("{}", "Installed Plugins (Code Extensions)".bright_blue().bold());
                 println!();
                 for plugin in plugins {
                     println!("  {} - {}",
@@ -620,12 +620,12 @@ async fn show_status(base_url: &str, verbose: bool) -> Result<()> {
         }
     }
 
-    // Containers
+    // Apps (Containers)
     let url = format!("{}:8097/api/supervisor/containers", base_url);
     if let Ok(resp) = client.get(&url).send().await {
         if let Ok(containers) = resp.json::<Vec<Value>>().await {
             println!();
-            println!("{}", "Containers:".bright_cyan());
+            println!("{}", "Apps (Containers):".bright_cyan());
             let running = containers.iter().filter(|c| c["state"].as_str() == Some("running")).count();
             println!("  Running: {}/{}", running, containers.len());
 
@@ -644,10 +644,12 @@ async fn show_status(base_url: &str, verbose: bool) -> Result<()> {
 
 async fn handle_update(check: bool) -> Result<()> {
     if check {
-        println!("{}", "Checking for updates...".bright_cyan());
+        println!("{}", "Checking for updates from update server...".bright_cyan());
+        println!("{}", "Update server: https://github.com/kaimdt/update-server".bright_black());
         println!("{}", "Update check not yet implemented".yellow());
     } else {
-        println!("{}", "Installing updates...".bright_cyan());
+        println!("{}", "Installing updates from update server...".bright_cyan());
+        println!("{}", "Update server: https://github.com/kaimdt/update-server".bright_black());
         println!("{}", "Update installation not yet implemented".yellow());
     }
     Ok(())
