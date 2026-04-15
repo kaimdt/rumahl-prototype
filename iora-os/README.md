@@ -90,6 +90,41 @@ IORA OS is a custom Linux-based operating system built with Buildroot, designed 
 
 ## Building IORA OS
 
+### Quick Start
+
+```bash
+# Install dependencies
+sudo make install-deps
+
+# Build all image formats
+make build
+```
+
+This creates a complete release in `releases/YYYYMMDD-HHMMSS/` with:
+- **iora-os.img.xz** - Raw disk image (USB/SD cards)
+- **iora-os.qcow2.xz** - QEMU/KVM image
+- **iora-os.vdi.zip** - VirtualBox image
+- **iora-os.vmdk.zip** - VMware image
+- **iora-os.ova** - OVA (universal VM format)
+- **iora-os-YYYYMMDD.raucb** - RAUC update bundle
+- **SHA256SUMS** - Checksums for verification
+- **README.txt** - Deployment instructions
+
+See [BUILD_IMAGES.md](BUILD_IMAGES.md) for detailed build documentation.
+
+### Alternative Build Methods
+
+```bash
+# Using the build script
+./build-all-images.sh
+
+# Using Make
+make build
+
+# Using the wrapper
+./build.sh
+```
+
 ### Prerequisites
 
 - Linux host system (Debian/Ubuntu recommended)

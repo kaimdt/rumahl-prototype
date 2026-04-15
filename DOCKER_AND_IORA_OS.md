@@ -138,7 +138,50 @@ All services have:
 - 4GB+ RAM
 - Internet connection
 
-### Build Steps
+## Building IORA OS
+
+### Quick Build (All Formats)
+
+```bash
+cd iora-os
+
+# Install dependencies
+sudo make install-deps
+
+# Build all image formats
+make build
+```
+
+This single command creates:
+- Raw disk image (.img.xz)
+- QEMU/KVM image (.qcow2.xz)
+- VirtualBox image (.vdi.zip)
+- VMware image (.vmdk.zip)
+- OVA (universal VM format)
+- RAUC update bundle (.raucb)
+
+**Build time**: 1-2 hours (depending on hardware)
+
+**Output**: `iora-os/releases/YYYYMMDD-HHMMSS/` directory
+
+### Alternative Build Methods
+
+```bash
+# Method 1: Full automated build
+./build-all-images.sh
+
+# Method 2: Using Make
+make build
+
+# Method 3: Using wrapper
+./build.sh all
+```
+
+See [iora-os/BUILD_IMAGES.md](iora-os/BUILD_IMAGES.md) for comprehensive build documentation.
+
+### Manual Build Steps (Advanced)
+
+For more control over the build:
 
 1. **Install dependencies**
    ```bash

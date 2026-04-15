@@ -77,9 +77,7 @@ umount "${MOUNT_DIR}"
 losetup -d "${LOOP_DEV}"
 rmdir "${MOUNT_DIR}"
 
-# Compress final image
-echo "IORA OS: Compressing disk image..."
-xz -9 -T0 "${IMG}"
-
-echo "IORA OS: Disk image created: ${IMG}.xz"
-echo "IORA OS: Flash with: xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress"
+# Note: Compression and format conversion now handled by build-all-images.sh
+echo "IORA OS: Base disk image created: ${IMG}"
+echo "IORA OS: Use build-all-images.sh to create all image formats"
+echo "IORA OS: Or compress manually: xz -9 -T0 ${IMG}"
