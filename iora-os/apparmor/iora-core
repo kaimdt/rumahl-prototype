@@ -1,0 +1,30 @@
+#include <tunables/global>
+
+/app/iora-core {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # Binary execution
+  /app/iora-core r,
+
+  # Network
+  network inet stream,
+  network inet6 stream,
+
+  # PostgreSQL client libraries
+  /usr/lib/** rm,
+
+  # Temporary files
+  /tmp/** rw,
+
+  # Configuration
+  /etc/iora/** r,
+
+  # Plugin system (restricted)
+  /opt/iora/plugins/** r,
+
+  # No privilege escalation
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_ptrace,
+}

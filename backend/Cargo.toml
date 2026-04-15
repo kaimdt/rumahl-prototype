@@ -13,6 +13,7 @@ members = [
     "iora-files",
     "iora-connector",
     "iora-api",
+    "iora-supervisor",
 ]
 resolver = "2"
 

@@ -73,6 +73,7 @@ backend/
 ├── iora-security/      ← Security monitoring and PostgreSQL management (port 8095)
 ├── iora-files/         ← Secure file sharing backend with share links and WebDAV access
 ├── iora-gateway/       ← Sandboxed external integration gateway (port 8096)
+├── iora-supervisor/    ← Docker orchestration and container management (port 8097)
 └── iora-installer/     ← Installation and update management (CLI)
 ```
 
@@ -560,6 +561,87 @@ PORT=8096
 - Uses `iora-security` for threat intelligence
 - Logs critical events to security system
 
+### `iora-supervisor` – Docker Orchestration (port 8097)
+
+**THE CONTAINER MANAGER** - Controls the entire IORA Docker ecosystem. Manages all service containers, handles updates, restarts, and provides a unified API for container operations.
+
+**Responsibilities:**
+- Docker container orchestration and lifecycle management
+- Container health monitoring and automatic restarts
+- Over-the-air (OTA) updates for all services
+- Container logs aggregation and access
+- Service start/stop/restart operations
+- Image pull and update management
+- Integration with RAUC for system-wide updates
+- Container resource monitoring
+
+**Key endpoints:**
+```
+GET  /health
+GET  /api/supervisor/status              ← Supervisor and system status
+GET  /api/supervisor/containers          ← List all IORA containers
+POST /api/supervisor/containers/{name}/start   ← Start container
+POST /api/supervisor/containers/{name}/stop    ← Stop container
+POST /api/supervisor/containers/{name}/restart ← Restart container
+POST /api/supervisor/services/update    ← Pull new image and update service
+GET  /api/supervisor/containers/{name}/logs    ← Get container logs
+```
+
+**Container Management:**
+- Lists all containers with `iora.managed=true` label
+- Monitors container state (running, stopped, unhealthy)
+- Provides start/stop/restart operations
+- Aggregates logs from all services
+- Tracks container uptime and resource usage
+
+**Update System:**
+- Pulls new Docker images from registry
+- Recreates containers with new images
+- Coordinates with RAUC for OS-level updates
+- Automatic rollback on update failure
+- Zero-downtime updates with health checks
+
+**Docker Socket Access:**
+- Runs with privileged access to Docker socket
+- Required for container management operations
+- Protected by AppArmor profile
+- Only accessible from within IORA network
+
+**Environment Configuration:**
+```env
+PORT=8097
+RUST_LOG=info
+```
+
+**Integration:**
+- Managed by RAUC for system updates
+- Monitored by `iora-watchdog` for health
+- Controls all other IORA service containers
+- Critical service - must always be running
+- Coordinates with `iora-core` for service registry
+
+**Docker Compose Configuration:**
+```yaml
+iora-supervisor:
+  container_name: iora-supervisor
+  ports: ["8097:8097"]
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+  privileged: true
+  labels:
+    iora.managed: "true"
+    iora.service: "supervisor"
+    iora.critical: "true"
+```
+
+**Security Considerations:**
+- Requires Docker socket access (high privilege)
+- Protected by AppArmor mandatory access control
+- Only allows container operations on IORA services
+- No arbitrary container creation allowed
+- Logs all operations for audit trail
+- Rate limiting on update operations
+
 ---
 
 ## Plugin System
@@ -787,6 +869,7 @@ can install/remove other plugins.
 | iora-watchdog | 8094 | HTTP, SSE |
 | iora-security | 8095 | HTTP |
 | iora-gateway | 8096 | HTTP |
+| iora-supervisor | 8097 | HTTP |
 | iora-installer | N/A | CLI only |
 
 Ports can be overridden with the `PORT` environment variable in each service.
@@ -795,7 +878,79 @@ Ports can be overridden with the `PORT` environment variable in each service.
 
 ## Deployment
 
-### Development (run all services)
+### Docker Compose (recommended for production)
+
+IORA is designed to run as a fully containerized system. All services are Docker containers managed by `iora-supervisor`.
+
+```bash
+# Clone repository
+git clone https://github.com/your-org/iora.git
+cd iora
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# Start entire IORA stack
+docker compose up -d
+
+# Check status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# Access IORA
+# - Home: http://localhost:8080
+# - Control: http://localhost:8091
+# - Supervisor: http://localhost:8097
+```
+
+The full docker-compose.yml includes:
+- PostgreSQL database with automatic initialization
+- All 9 IORA services as containers
+- iora-supervisor for Docker orchestration
+- AppArmor security profiles
+- Health checks and auto-restart
+- Persistent volumes for data
+
+### IORA OS (production hardware deployment)
+
+**IORA OS** is a custom operating system based on Buildroot, similar to Home Assistant OS. It provides a complete, secure, and optimized environment for running IORA.
+
+#### Key Features:
+- **Buildroot LTS Linux** - Minimal, secure kernel
+- **SquashFS root filesystem** - Read-only, compressed (LZ4)
+- **ZRAM** - Compressed RAM for /tmp, /var, swap
+- **Docker Engine** - All IORA services run in containers
+- **RAUC updates** - A/B partitions with atomic updates and rollback
+- **AppArmor** - Mandatory Access Control for all services
+- **GRUB/U-Boot** - Support for x86_64 and ARM devices
+
+#### Supported Hardware:
+- x86_64 with UEFI (Intel/AMD servers, NUCs)
+- Raspberry Pi 4 (4GB+ recommended)
+- Rock Pi 4, Odroid N2+
+- Generic ARM64 boards
+
+#### Quick Start:
+```bash
+# Download pre-built image
+wget https://github.com/your-org/iora/releases/latest/iora-os.img.xz
+
+# Flash to device (replace /dev/sdX with your device)
+xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+
+# Boot device
+# Default credentials: root / iora (change immediately!)
+# Web interface: http://[device-ip]:8080
+```
+
+See [iora-os/README.md](iora-os/README.md) for building from source.
+
+### Development (run services directly)
+
+For development without Docker:
 
 ```bash
 cd backend
@@ -807,35 +962,6 @@ cargo run -p iora-gateway  &   # sandboxed external integrations
 cargo run -p iora-home     &   # smart home service
 cargo run -p iora-control  &   # admin panel backend
 cargo run -p iora-assist   &   # AI assistant (optional)
-```
-
-### Docker Compose (recommended)
-
-```yaml
-services:
-  iora-core:
-    build: { context: ./backend, target: iora-core }
-    ports: ["8090:8090"]
-
-  iora-home:
-    build: { context: ./backend, target: iora-home }
-    ports: ["8080:8080"]
-    environment:
-      - HA_URL=http://homeassistant.local:8123
-      - HA_TOKEN=${HA_TOKEN}
-    depends_on: [iora-core]
-
-  iora-control:
-    build: { context: ./backend, target: iora-control }
-    ports: ["8091:8091"]
-    depends_on: [iora-core, iora-home]
-
-  iora-assist:
-    build: { context: ./backend, target: iora-assist }
-    ports: ["8092:8092"]
-    environment:
-      - ASSIST_AI_BACKEND_URL=${AI_URL}
-      - ASSIST_AI_API_KEY=${AI_KEY}
 ```
 
 ### Build individual programs
