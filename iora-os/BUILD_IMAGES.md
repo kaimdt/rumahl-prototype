@@ -175,6 +175,9 @@ iora-os/releases/20240415-143022/
 
 # No prompts (CI/headless): auto-try missing installs, continue without optional artifacts
 ./build-all-images.sh --unattended
+
+# Convert only from existing output/images/iora-os.img (no rebuild)
+./build-all-images.sh --images-only --unattended
 ```
 
 ### Interactive dependency handling
@@ -185,6 +188,12 @@ During preflight, the script can:
 - if still missing: print alternatives and ask whether to continue.
 
 Supported unattended aliases: `--non-interactive`, `--unattachment`.
+
+If you use `./build.sh resume ...`, only the base build is resumed. To also generate release files in one run:
+
+```bash
+./build.sh resume --progress --with-images --unattended
+```
 
 ### Custom Configuration
 

@@ -8,6 +8,16 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+normalize_shell_scripts() {
+    # Keep all project shell scripts executable and with LF endings.
+    find "${SCRIPT_DIR}" \
+        -path "${SCRIPT_DIR}/buildroot-*" -prune -o \
+        -type f -name "*.sh" -print0 | while IFS= read -r -d '' file; do
+        sed -i 's/\r$//' "${file}" || true
+        chmod +x "${file}" || true
+    done
+}
+
 usage() {
     cat <<EOF
 IORA OS Image Builder
@@ -18,6 +28,7 @@ OPTIONS:
     all             Build all image formats (default)
     resume          Resume interrupted build (passes extra args)
     iso             Build all formats (including installer ISO)
+    images          Generate release formats from existing output/images only
     raw             Build only raw disk image (.img.xz)
     qcow2           Build QEMU/KVM image (.qcow2.xz)
     vdi             Build VirtualBox image (.vdi.zip)
@@ -32,6 +43,8 @@ EXAMPLES:
     $(basename $0) all          # Build all images
     $(basename $0) all --force-full-image  # Require full GPT/GRUB post-image flow
     $(basename $0) resume --progress  # Resume with progress bar
+    $(basename $0) resume --progress --with-images --unattended  # Resume then generate release formats
+    $(basename $0) images --unattended  # Convert existing iora-os.img to release artifacts
     $(basename $0) raw          # Build only raw disk image
     $(basename $0) clean        # Clean build artifacts
 
@@ -45,6 +58,8 @@ For detailed documentation, see iora-os/README.md
 EOF
 }
 
+normalize_shell_scripts
+
 case "${1:-all}" in
     all)
         shift
@@ -53,6 +68,10 @@ case "${1:-all}" in
     iso)
         shift
         "${SCRIPT_DIR}/build-all-images.sh" "$@"
+        ;;
+    images)
+        shift
+        "${SCRIPT_DIR}/build-all-images.sh" --images-only "$@"
         ;;
     resume)
         shift

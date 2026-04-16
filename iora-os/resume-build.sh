@@ -17,6 +17,16 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+normalize_shell_scripts() {
+    # Keep all project shell scripts executable and with LF endings.
+    find "${SCRIPT_DIR}" \
+        -path "${SCRIPT_DIR}/buildroot-*" -prune -o \
+        -type f -name "*.sh" -print0 | while IFS= read -r -d '' file; do
+        sed -i 's/\r$//' "${file}" || true
+        chmod +x "${file}" || true
+    done
+}
+
 usage() {
     cat <<EOF
 Resume/Continue Build for IORA OS
@@ -31,6 +41,8 @@ OPTIONS:
     --force-full-image  Require full GPT/loop/grub post-image flow (fail if unavailable)
     --allow-fallback    Allow post-image fallback to rootfs.ext2 (default)
     --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
+    --with-images       After successful resume, generate release image formats
+    --unattended        Forward non-interactive mode to image generation
     --jobs N            Override parallel jobs (default: nproc)
     --log FILE          Write build log to custom file path
     -h, --help          Show this help
@@ -96,6 +108,8 @@ RECONFIGURE=false
 JOBS="$(nproc)"
 LOG_FILE=""
 POST_IMAGE_MODE="auto"
+WITH_IMAGES=false
+UNATTENDED=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -128,6 +142,12 @@ while [ $# -gt 0 ]; do
         --force-fallback-image)
             POST_IMAGE_MODE="fallback"
             ;;
+        --with-images)
+            WITH_IMAGES=true
+            ;;
+        --unattended|--non-interactive|--unattachment)
+            UNATTENDED=true
+            ;;
         --log)
             shift
             LOG_FILE="${1:-}"
@@ -150,6 +170,7 @@ while [ $# -gt 0 ]; do
 done
 
 check_prereqs
+normalize_shell_scripts
 
 mkdir -p "${LOG_DIR}"
 if [ -z "${LOG_FILE}" ]; then
@@ -160,6 +181,7 @@ log_info "Resuming build in ${BUILD_DIR}"
 log_info "Log file: ${LOG_FILE}"
 log_info "Jobs: ${JOBS}"
 log_info "Post-image mode: ${POST_IMAGE_MODE}"
+log_info "Generate release images after resume: ${WITH_IMAGES}"
 
 cd "${BUILD_DIR}"
 
@@ -208,3 +230,12 @@ if [ ${BUILD_RC} -ne 0 ]; then
 fi
 
 log_success "Build resume finished successfully."
+
+if [ "${WITH_IMAGES}" = true ]; then
+    log_info "Generating release image formats from current build output..."
+    IMAGE_ARGS=("--images-only")
+    if [ "${UNATTENDED}" = true ]; then
+        IMAGE_ARGS+=("--unattended")
+    fi
+    PATH="${SAFE_PATH}" "${SCRIPT_DIR}/build-all-images.sh" "${IMAGE_ARGS[@]}"
+fi

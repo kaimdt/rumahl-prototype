@@ -131,6 +131,12 @@ make build
 # Resume interrupted build (with optional progress view)
 ./build.sh resume --progress
 
+# Resume and generate release artifacts automatically afterwards
+./build.sh resume --progress --with-images --unattended
+
+# Generate release artifacts from existing output/images without rebuild
+./build.sh images --unattended
+
 # Require full GPT/GRUB post-image flow (no fallback)
 ./build.sh all --force-full-image
 
@@ -231,6 +237,20 @@ Run without prompts (automation/CI):
 ```
 
 `--unattended` aliases: `--non-interactive`, `--unattachment`
+
+### Why Only `iora-os.img` Sometimes Exists
+
+`./build.sh resume ...` only resumes Buildroot compilation. It does not automatically create release conversions unless you pass `--with-images`.
+
+Use one of these:
+
+```bash
+# Resume build + convert artifacts
+./build.sh resume --progress --with-images --unattended
+
+# Convert only (no rebuild), requires existing output/images/iora-os.img
+./build.sh images --unattended
+```
 
 ### Prerequisites
 

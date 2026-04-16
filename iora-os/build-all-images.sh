@@ -30,6 +30,7 @@ BUILDROOT_VERSION="2024.02"
 BUILDROOT_URL="https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.gz"
 POST_IMAGE_MODE="auto"
 UNATTENDED=false
+IMAGES_ONLY=false
 
 # VM image settings
 VM_NAME="IORA-OS"
@@ -57,6 +58,16 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+normalize_shell_scripts() {
+    # Keep all project shell scripts executable and with LF endings.
+    find "${SCRIPT_DIR}" \
+        -path "${SCRIPT_DIR}/buildroot-*" -prune -o \
+        -type f -name "*.sh" -print0 | while IFS= read -r -d '' file; do
+        sed -i 's/\r$//' "${file}" || true
+        chmod +x "${file}" || true
+    done
 }
 
 prompt_yes_no() {
@@ -183,31 +194,26 @@ check_dependencies() {
     local missing_packages=()
 
     # Core build tools
-    for cmd in make gcc g++ patch wget tar gzip; do
-        if ! command -v $cmd &> /dev/null; then
-            missing_deps+=($cmd)
-        fi
-    done
-
-    # Image conversion tools
-    if ! command -v qemu-img &> /dev/null; then
-        missing_deps+=("qemu-img")
+    local core_cmds=(tar gzip xz zip)
+    if [ "${IMAGES_ONLY}" = false ]; then
+        core_cmds+=(make gcc g++ patch wget)
     fi
 
-    # Compression tools
-    for cmd in xz zip; do
+    for cmd in "${core_cmds[@]}"; do
         if ! command -v $cmd &> /dev/null; then
             missing_deps+=($cmd)
         fi
     done
 
-    # Kernel tools (objtool) need libelf headers via pkg-config.
-    if command -v pkg-config &> /dev/null; then
-        if ! pkg-config --exists libelf; then
-            missing_deps+=("libelf")
+    # Kernel tools (objtool) need libelf headers via pkg-config only for full build.
+    if [ "${IMAGES_ONLY}" = false ]; then
+        if command -v pkg-config &> /dev/null; then
+            if ! pkg-config --exists libelf; then
+                missing_deps+=("libelf")
+            fi
+        else
+            missing_deps+=("pkg-config")
         fi
-    else
-        missing_deps+=("pkg-config")
     fi
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
@@ -286,6 +292,18 @@ check_dependencies() {
         fi
     fi
 
+    if ! command -v qemu-img &> /dev/null; then
+        log_warn "qemu-img not found - qcow2/vdi/vmdk export will be skipped"
+        if offer_install_missing_packages "VM conversion tooling" "qemu-utils"; then
+            if ! command -v qemu-img &> /dev/null; then
+                show_install_alternatives "VM image conversion" "qemu-utils"
+                if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "VM images cannot be generated right now. Continue build without qcow2/vdi/vmdk?" "Y"; then
+                    exit 1
+                fi
+            fi
+        fi
+    fi
+
     log_success "All dependencies available"
 }
 
@@ -301,6 +319,9 @@ parse_args() {
             --force-fallback-image)
                 POST_IMAGE_MODE="fallback"
                 ;;
+            --images-only)
+                IMAGES_ONLY=true
+                ;;
             --unattended|--non-interactive|--unattachment)
                 UNATTENDED=true
                 ;;
@@ -312,6 +333,7 @@ OPTIONS:
   --force-full-image     Require full GPT/loop/grub post-image flow (fail if unavailable)
   --allow-fallback       Allow automatic fallback to rootfs.ext2 image (default)
   --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
+    --images-only          Skip Buildroot compile, generate release artifacts from existing output/images
     --unattended           No interactive prompts; auto-attempt install and continue when optional tooling is missing
   -h, --help             Show this help
 EOF
@@ -722,10 +744,12 @@ print_summary() {
 # Main build process
 main() {
     parse_args "$@"
+    normalize_shell_scripts
 
     log_info "Starting IORA OS complete image build..."
     log_info "Build time: $(date)"
     log_info "Unattended mode: ${UNATTENDED}"
+    log_info "Images-only mode: ${IMAGES_ONLY}"
     echo ""
 
     # Create release directory
@@ -733,9 +757,18 @@ main() {
 
     # Run build steps
     check_dependencies
-    download_buildroot
-    configure_buildroot
-    build_base_image
+    if [ "${IMAGES_ONLY}" = false ]; then
+        download_buildroot
+        configure_buildroot
+        build_base_image
+    else
+        log_info "Skipping Buildroot compile steps (images-only mode)."
+        if [ ! -f "${OUTPUT_DIR}/iora-os.img" ]; then
+            log_error "Missing base image: ${OUTPUT_DIR}/iora-os.img"
+            log_info "Run a full build once: ./build.sh all"
+            exit 1
+        fi
+    fi
 
     log_info ""
     log_info "Creating release images..."
