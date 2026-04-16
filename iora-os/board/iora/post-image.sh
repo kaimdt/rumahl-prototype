@@ -158,10 +158,27 @@ fi
 
 # Install GRUB
 HOST_GRUB_INSTALL=""
-if command -v grub-install >/dev/null 2>&1; then
-    HOST_GRUB_INSTALL="grub-install"
-elif [ -x "${HOST_BIN_DIR}/grub-install" ]; then
-    HOST_GRUB_INSTALL="${HOST_BIN_DIR}/grub-install"
+if [ -x "/usr/sbin/grub-install" ]; then
+    HOST_GRUB_INSTALL="/usr/sbin/grub-install"
+elif [ -x "/usr/bin/grub-install" ]; then
+    HOST_GRUB_INSTALL="/usr/bin/grub-install"
+else
+    # PATH inside Buildroot often points to output/host/bin first; that grub-install
+    # may be incomplete and fail with missing modinfo.sh for x86_64-efi.
+    while IFS= read -r candidate; do
+        case "${candidate}" in
+            *"/buildroot-"*"/output/host/bin/grub-install")
+                ;;
+            *)
+                HOST_GRUB_INSTALL="${candidate}"
+                break
+                ;;
+        esac
+    done < <(command -v -a grub-install 2>/dev/null || true)
+
+    if [ -z "${HOST_GRUB_INSTALL}" ] && [ -x "${HOST_BIN_DIR}/grub-install" ]; then
+        HOST_GRUB_INSTALL="${HOST_BIN_DIR}/grub-install"
+    fi
 fi
 
 if [ -z "${HOST_GRUB_INSTALL}" ]; then

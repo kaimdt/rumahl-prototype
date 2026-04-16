@@ -515,6 +515,44 @@ EOF
     mark_created "iora-os-installer.iso"
 }
 
+resolve_installer_initrd() {
+    if [ -f "${OUTPUT_DIR}/rootfs.cpio.gz" ]; then
+        echo "${OUTPUT_DIR}/rootfs.cpio.gz"
+        return 0
+    fi
+
+    if [ -f "${OUTPUT_DIR}/rootfs.cpio" ]; then
+        if command -v gzip &> /dev/null; then
+            local generated_cpio_gz="${OUTPUT_DIR}/rootfs.generated.cpio.gz"
+            gzip -c "${OUTPUT_DIR}/rootfs.cpio" > "${generated_cpio_gz}"
+            echo "${generated_cpio_gz}"
+            return 0
+        fi
+    fi
+
+    if [ -f "${OUTPUT_DIR}/rootfs.tar" ]; then
+        if command -v cpio &> /dev/null && command -v gzip &> /dev/null; then
+            local work_dir
+            work_dir=$(mktemp -d)
+            local generated_cpio_gz="${OUTPUT_DIR}/rootfs.generated.cpio.gz"
+
+            tar -xf "${OUTPUT_DIR}/rootfs.tar" -C "${work_dir}"
+            (
+                cd "${work_dir}"
+                find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9 > "${generated_cpio_gz}"
+            )
+            rm -rf "${work_dir}"
+
+            if [ -f "${generated_cpio_gz}" ]; then
+                echo "${generated_cpio_gz}"
+                return 0
+            fi
+        fi
+    fi
+
+    return 1
+}
+
 create_bootable_installer_iso() {
     log_info "Creating bootable installer ISO (UEFI/GRUB)..."
 
@@ -530,9 +568,10 @@ create_bootable_installer_iso() {
         return
     fi
 
-    if [ ! -f "${OUTPUT_DIR}/rootfs.cpio.gz" ]; then
-        log_warn "rootfs.cpio.gz missing, skipping bootable installer ISO"
-        mark_skipped "iora-os-installer-boot.iso (missing rootfs.cpio.gz)"
+    local installer_initrd=""
+    if ! installer_initrd=$(resolve_installer_initrd); then
+        log_warn "No usable initrd source found (tried rootfs.cpio.gz/rootfs.cpio/rootfs.tar), skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (missing initrd source)"
         return
     fi
 
@@ -547,7 +586,7 @@ create_bootable_installer_iso() {
     mkdir -p "${stage_dir}/boot/grub"
 
     cp "${OUTPUT_DIR}/bzImage" "${stage_dir}/boot/vmlinuz"
-    cp "${OUTPUT_DIR}/rootfs.cpio.gz" "${stage_dir}/boot/initrd.img"
+    cp "${installer_initrd}" "${stage_dir}/boot/initrd.img"
     cp "${RELEASE_DIR}/iora-os.img.xz" "${stage_dir}/iora-os.img.xz"
 
     cat > "${stage_dir}/README-INSTALLER.txt" <<'EOF'
