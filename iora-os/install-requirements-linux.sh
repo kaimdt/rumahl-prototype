@@ -35,6 +35,10 @@ REQUIRED_PACKAGES=(
     qemu-utils
     zip
     xorriso
+    grub-common
+    grub-pc-bin
+    grub-efi-amd64-bin
+    mtools
 )
 
 OPTIONAL_PACKAGES=(
