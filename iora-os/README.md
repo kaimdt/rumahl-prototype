@@ -96,6 +96,9 @@ IORA OS is a custom Linux-based operating system built with Buildroot, designed 
 # Install dependencies
 sudo make install-deps
 
+# For native Linux VM/host specifically
+make install-deps-linux
+
 # For WSL specifically
 make install-deps-wsl
 
@@ -155,9 +158,9 @@ make build
 ```bash
 cd iora/iora-os
 chmod +x build.sh build-all-images.sh resume-build.sh \
-  install-requirements-linux.sh install-requirements-wsl.sh
+  install-requirements.sh install-requirements-linux.sh install-requirements-wsl.sh
 
-./install-requirements-linux.sh
+./install-requirements.sh --auto
 ```
 
 This installs the full toolchain, conversion tools, and ISO tooling. Optional tools like VirtualBox and RAUC may still be skipped if packages are unavailable.
@@ -167,9 +170,9 @@ This installs the full toolchain, conversion tools, and ISO tooling. Optional to
 ```bash
 cd ~/iora-os/home-assistant-dashb/iora-os
 chmod +x build.sh build-all-images.sh resume-build.sh \
-  install-requirements-linux.sh install-requirements-wsl.sh
+  install-requirements.sh install-requirements-linux.sh install-requirements-wsl.sh
 
-./install-requirements-wsl.sh
+./install-requirements.sh --auto
 ```
 
 Notes for WSL:
@@ -290,6 +293,9 @@ cd iora/iora-os
 Or use the provided requirement scripts:
 
 ```bash
+# Auto-detect Linux VM vs WSL (recommended)
+./install-requirements.sh --auto
+
 # Native Linux
 ./install-requirements-linux.sh
 

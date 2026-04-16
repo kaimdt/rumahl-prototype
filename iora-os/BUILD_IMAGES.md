@@ -5,6 +5,9 @@ This directory contains scripts to build IORA OS in multiple image formats for d
 ## Quick Start
 
 ```bash
+# Install dependencies (auto-detect Linux VM vs WSL)
+./install-requirements.sh --auto
+
 # One-command build (creates all formats)
 ./build.sh
 
@@ -16,6 +19,8 @@ This directory contains scripts to build IORA OS in multiple image formats for d
 ```
 
 This will create a `releases/YYYYMMDD-HHMMSS/` directory with all image formats.
+
+The dependency installer supports both native Linux VMs and WSL.
 
 ## Generated Image Formats
 

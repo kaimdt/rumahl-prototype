@@ -1,7 +1,7 @@
 # IORA OS Build System Makefile
 # Simplified interface for building all image formats
 
-.PHONY: all help install-deps install-deps-wsl build resume clean distclean release
+.PHONY: all help install-deps install-deps-linux install-deps-wsl build resume clean distclean release
 
 # Default target
 all: build
@@ -11,7 +11,8 @@ help:
 	@echo "IORA OS Build System"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  make install-deps  - Install build dependencies"
+	@echo "  make install-deps  - Install build dependencies (auto-detect Linux VM vs WSL)"
+	@echo "  make install-deps-linux - Install build dependencies for native Linux VM/host"
 	@echo "  make install-deps-wsl - Install build dependencies for WSL"
 	@echo "  make build         - Build all image formats"
 	@echo "  make resume        - Resume interrupted build (with progress)"
@@ -27,7 +28,12 @@ help:
 
 # Install build dependencies (requires sudo)
 install-deps:
-	@echo "Installing Linux build dependencies..."
+	@echo "Installing build dependencies (auto-detect mode)..."
+	bash ./install-requirements.sh --auto
+
+# Install Linux build dependencies (explicit)
+install-deps-linux:
+	@echo "Installing Linux VM/host build dependencies..."
 	bash ./install-requirements-linux.sh
 
 # Install WSL build dependencies
