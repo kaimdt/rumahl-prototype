@@ -8,21 +8,8 @@ BOARD_DIR="$(dirname $0)"
 IMAGES_DIR=$1
 HOST_BIN_DIR="$(cd "${IMAGES_DIR}/../host/bin" 2>/dev/null && pwd || true)"
 POST_IMAGE_MODE="${IORA_POST_IMAGE_MODE:-auto}"
-
-run_privileged() {
-    if "$@"; then
-        return 0
-    fi
-
-    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-        sudo -n "$@"
-        return $?
-    fi
-
-    echo "IORA OS: ERROR: privilege escalation required for '$*'"
-    echo "IORA OS: Re-run with sudo or allow passwordless sudo for build steps requiring loop devices."
-    exit 1
-}
+UNATTENDED_MODE="${IORA_UNATTENDED:-false}"
+FALLBACK_MARKER="${IMAGES_DIR}/iora-os.fallback"
 
 try_privileged() {
     if "$@"; then
@@ -34,7 +21,23 @@ try_privileged() {
         return $?
     fi
 
+    if [ "${UNATTENDED_MODE}" != "true" ] && [ -t 0 ] && command -v sudo >/dev/null 2>&1; then
+        echo "IORA OS: INFO: sudo authentication required for: $*"
+        sudo "$@"
+        return $?
+    fi
+
     return 1
+}
+
+run_privileged() {
+    if try_privileged "$@"; then
+        return 0
+    fi
+
+    echo "IORA OS: ERROR: privilege escalation required for '$*'"
+    echo "IORA OS: Re-run with sudo, allow passwordless sudo, or disable unattended mode."
+    exit 1
 }
 
 can_run_privileged() {
@@ -55,16 +58,9 @@ can_attach_loop() {
     local probe_img="$1"
     local loop_dev=""
 
-    if loop_dev=$(losetup -fP --show "${probe_img}" 2>/dev/null); then
-        losetup -d "${loop_dev}" >/dev/null 2>&1 || true
+    if loop_dev=$(try_privileged losetup -fP --show "${probe_img}" 2>/dev/null); then
+        try_privileged losetup -d "${loop_dev}" >/dev/null 2>&1 || true
         return 0
-    fi
-
-    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-        if loop_dev=$(sudo -n losetup -fP --show "${probe_img}" 2>/dev/null); then
-            sudo -n losetup -d "${loop_dev}" >/dev/null 2>&1 || true
-            return 0
-        fi
     fi
 
     return 1
@@ -77,6 +73,7 @@ fallback_to_rootfs_ext2() {
     fi
 
     if [ -f "${IMAGES_DIR}/rootfs.ext2" ]; then
+        : > "${FALLBACK_MARKER}"
         echo "IORA OS: WARN: switching to rootfs.ext2 fallback image"
         cp -f "${IMAGES_DIR}/rootfs.ext2" "${IMG}"
         echo "IORA OS: Base disk image fallback created: ${IMG}"
@@ -89,6 +86,7 @@ fallback_to_rootfs_ext2() {
 }
 
 echo "IORA OS: Creating bootable disk image..."
+rm -f "${FALLBACK_MARKER}" 2>/dev/null || true
 
 case "${POST_IMAGE_MODE}" in
     auto|full|fallback)
@@ -160,10 +158,10 @@ fi
 
 # Install GRUB
 HOST_GRUB_INSTALL=""
-if [ -x "${HOST_BIN_DIR}/grub-install" ]; then
-    HOST_GRUB_INSTALL="${HOST_BIN_DIR}/grub-install"
-elif command -v grub-install >/dev/null 2>&1; then
+if command -v grub-install >/dev/null 2>&1; then
     HOST_GRUB_INSTALL="grub-install"
+elif [ -x "${HOST_BIN_DIR}/grub-install" ]; then
+    HOST_GRUB_INSTALL="${HOST_BIN_DIR}/grub-install"
 fi
 
 if [ -z "${HOST_GRUB_INSTALL}" ]; then

@@ -84,6 +84,11 @@ This will create a `releases/YYYYMMDD-HHMMSS/` directory with all image formats.
 - **Contents**: `iora-os.img.xz` and a short install instruction file
 - **Creation tools**: `xorriso` (preferred) or `genisoimage`/`mkisofs`
 
+### 8. **iora-os-installer-boot.iso** - Bootable Installer ISO
+- **Use case**: Bootable installer/recovery medium for manual disk installation
+- **Contents**: Kernel, initrd, GRUB menu, and `iora-os.img.xz` payload
+- **Creation tools**: `grub-mkrescue` (+ ISO tooling)
+
 ## Build Requirements
 
 ### System Requirements
@@ -114,6 +119,9 @@ sudo apt-get install -y \
     python3 \
     qemu-utils \
     xorriso \
+    grub-pc-bin \
+    grub-common \
+    mtools \
     virtualbox \
     zip \
     rauc
@@ -150,6 +158,7 @@ cd iora-os
 iora-os/releases/20240415-143022/
 ├── iora-os.img.xz          # Raw disk image
 ├── iora-os-installer.iso   # Installer/archive ISO
+├── iora-os-installer-boot.iso # Bootable installer ISO
 ├── iora-os.qcow2.xz        # QEMU/KVM
 ├── iora-os.vdi.zip         # VirtualBox
 ├── iora-os.vmdk.zip        # VMware

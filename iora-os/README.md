@@ -106,6 +106,7 @@ make build
 This creates a complete release in `releases/YYYYMMDD-HHMMSS/` with:
 - **iora-os.img.xz** - Raw disk image (USB/SD cards)
 - **iora-os-installer.iso** - ISO archive containing `iora-os.img.xz` + install note
+- **iora-os-installer-boot.iso** - Bootable installer ISO (GRUB/UEFI)
 - **iora-os.qcow2.xz** - QEMU/KVM image
 - **iora-os.vdi.zip** - VirtualBox image
 - **iora-os.vmdk.zip** - VMware image
@@ -219,6 +220,11 @@ Examples:
 
 If `xorriso` (or `genisoimage`/`mkisofs`) is available, the build creates:
 - `iora-os-installer.iso`
+
+If `grub-mkrescue` is available, the build also creates:
+- `iora-os-installer-boot.iso`
+
+This ISO is bootable and contains kernel/initrd plus the `iora-os.img.xz` payload for manual installation.
 
 This ISO is an installer/archive medium containing `iora-os.img.xz` and install notes. It is intended for easy distribution and transfer. The primary deployment artifact remains `iora-os.img.xz`.
 

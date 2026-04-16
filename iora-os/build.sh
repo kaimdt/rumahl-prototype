@@ -24,29 +24,45 @@ IORA OS Image Builder
 
 Usage: $(basename $0) [OPTIONS]
 
-OPTIONS:
-    all             Build all image formats (default)
-    resume          Resume interrupted build (passes extra args)
-    iso             Build all formats (including installer ISO)
-    images          Generate release formats from existing output/images only
-    raw             Build only raw disk image (.img.xz)
-    qcow2           Build QEMU/KVM image (.qcow2.xz)
-    vdi             Build VirtualBox image (.vdi.zip)
-    vmdk            Build VMware image (.vmdk.zip)
-    ova             Build OVA image (.ova)
-    rauc            Build RAUC update bundle (.raucb)
-    clean           Clean build artifacts
+Commands:
+    all             Full workflow (Buildroot + release artifacts)
+    resume          Resume Buildroot compilation; optional artifact generation via --with-images
+    images          Generate release artifacts from existing output/images only
+    iso             Alias of 'all' (kept for compatibility)
+    clean           Remove build outputs and releases
     help            Show this help message
 
+OPTIONS:
+    all/images options (forwarded to build-all-images.sh):
+        --progress
+        --images-only
+        --force-full-image
+        --allow-fallback
+        --force-fallback-image
+        --require-all-artifacts
+        --unattended | --non-interactive | --unattachment
+
+    resume options (forwarded to resume-build.sh):
+        --progress
+        --clean-glibc
+        --clean-linux
+        --reconfigure
+        --force-full-image
+        --allow-fallback
+        --force-fallback-image
+        --with-images
+        --unattended | --non-interactive | --unattachment
+        --jobs N
+        --log FILE
+
 EXAMPLES:
-    $(basename $0)              # Build all images
-    $(basename $0) all          # Build all images
-    $(basename $0) all --force-full-image  # Require full GPT/GRUB post-image flow
-    $(basename $0) resume --progress  # Resume with progress bar
-    $(basename $0) resume --progress --with-images --unattended  # Resume then generate release formats
-    $(basename $0) images --unattended  # Convert existing iora-os.img to release artifacts
-    $(basename $0) raw          # Build only raw disk image
-    $(basename $0) clean        # Clean build artifacts
+    $(basename $0)
+    $(basename $0) all --progress --require-all-artifacts
+    $(basename $0) all --force-full-image --progress
+    $(basename $0) resume --progress
+    $(basename $0) resume --progress --with-images --unattended
+    $(basename $0) images --unattended
+    $(basename $0) clean
 
 REQUIREMENTS:
     - Debian/Ubuntu Linux

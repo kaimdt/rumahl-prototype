@@ -5,7 +5,8 @@
 #
 # Generates:
 #   - img.xz       - Raw disk image (USB/SD card, physical hardware)
-#   - iso          - Installer/archive ISO (contains compressed raw image)
+#   - iso          - Archive ISO (contains compressed raw image; not directly bootable)
+#   - installer-boot.iso - Bootable installer ISO (GRUB/UEFI)
 #   - qcow2.xz     - QEMU/KVM image (compressed)
 #   - vdi.zip      - VirtualBox image
 #   - vmdk.zip     - VMware image
@@ -13,6 +14,7 @@
 #   - raucb        - RAUC update bundle
 
 set -e
+set -o pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -31,6 +33,11 @@ BUILDROOT_URL="https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.ta
 POST_IMAGE_MODE="auto"
 UNATTENDED=false
 IMAGES_ONLY=false
+PROGRESS=false
+REQUIRE_ALL_ARTIFACTS=false
+
+CREATED_ARTIFACTS=()
+SKIPPED_ARTIFACTS=()
 
 # VM image settings
 VM_NAME="IORA-OS"
@@ -58,6 +65,45 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+mark_created() {
+    CREATED_ARTIFACTS+=("$1")
+}
+
+mark_skipped() {
+    SKIPPED_ARTIFACTS+=("$1")
+}
+
+show_progress_stream() {
+    awk '
+    BEGIN { step=0; width=28 }
+    {
+        print $0
+        if ($0 ~ /^>>> /) {
+            step++
+            label=$0
+            sub(/^>>> /, "", label)
+
+            pos = step % width
+            bar = ""
+            for (i=0; i<width; i++) {
+                if (i == pos) {
+                    bar = bar ">"
+                } else {
+                    bar = bar "="
+                }
+            }
+
+            printf "\r[%s] steps:%4d | %s", bar, step, label > "/dev/stderr"
+            fflush("/dev/stderr")
+        }
+    }
+    END {
+        if (step > 0) {
+            printf "\n" > "/dev/stderr"
+        }
+    }'
 }
 
 normalize_shell_scripts() {
@@ -173,9 +219,14 @@ refresh_optional_tool_flags() {
     ISO_TOOL_AVAILABLE=false
     HAS_VBOXMANAGE=false
     HAS_RAUC=false
+    HAS_GRUB_MKRESCUE=false
 
     if command -v xorriso &> /dev/null || command -v genisoimage &> /dev/null || command -v mkisofs &> /dev/null; then
         ISO_TOOL_AVAILABLE=true
+    fi
+
+    if command -v grub-mkrescue &> /dev/null; then
+        HAS_GRUB_MKRESCUE=true
     fi
 
     if command -v VBoxManage &> /dev/null; then
@@ -266,6 +317,19 @@ check_dependencies() {
         fi
     fi
 
+    if [ "${HAS_GRUB_MKRESCUE}" = false ]; then
+        log_warn "grub-mkrescue not found - bootable installer ISO will be skipped"
+        if offer_install_missing_packages "bootable ISO tooling" "grub-pc-bin grub-common mtools"; then
+            refresh_optional_tool_flags
+        fi
+        if [ "${HAS_GRUB_MKRESCUE}" = false ]; then
+            show_install_alternatives "bootable installer ISO" "grub-pc-bin grub-common mtools"
+            if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "Bootable installer ISO cannot be generated right now. Continue without it?" "Y"; then
+                exit 1
+            fi
+        fi
+    fi
+
     if [ "${HAS_VBOXMANAGE}" = false ]; then
         log_warn "VBoxManage not found - OVA export will be skipped"
         if offer_install_missing_packages "OVA export tools" "virtualbox"; then
@@ -322,6 +386,12 @@ parse_args() {
             --images-only)
                 IMAGES_ONLY=true
                 ;;
+            --progress)
+                PROGRESS=true
+                ;;
+            --require-all-artifacts)
+                REQUIRE_ALL_ARTIFACTS=true
+                ;;
             --unattended|--non-interactive|--unattachment)
                 UNATTENDED=true
                 ;;
@@ -334,6 +404,8 @@ OPTIONS:
   --allow-fallback       Allow automatic fallback to rootfs.ext2 image (default)
   --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
     --images-only          Skip Buildroot compile, generate release artifacts from existing output/images
+    --progress             Show build step progress while running make
+    --require-all-artifacts Fail build if any optional artifact is skipped
     --unattended           No interactive prompts; auto-attempt install and continue when optional tooling is missing
   -h, --help             Show this help
 EOF
@@ -381,13 +453,17 @@ build_base_image() {
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
     cd "${BUILD_DIR}"
-    PATH="${BUILDROOT_SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j$(nproc)
+    if [ "${PROGRESS}" = true ]; then
+        PATH="${BUILDROOT_SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)" 2>&1 | show_progress_stream
+    else
+        PATH="${BUILDROOT_SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)"
+    fi
 
     log_success "Base image built successfully"
 }
 
 create_iso_image() {
-    log_info "Creating ISO image..."
+    log_info "Creating archive ISO image (not directly bootable)..."
 
     if [ ! -f "${RELEASE_DIR}/iora-os.img.xz" ]; then
         log_warn "iora-os.img.xz not found in release directory, skipping ISO"
@@ -403,6 +479,7 @@ create_iso_image() {
         iso_tool="mkisofs"
     else
         log_warn "No ISO creation tool available, skipping ISO"
+        mark_skipped "iora-os-installer.iso (missing xorriso/genisoimage/mkisofs)"
         return
     fi
 
@@ -435,6 +512,88 @@ EOF
     local size
     size=$(du -h "${RELEASE_DIR}/iora-os-installer.iso" | cut -f1)
     log_success "ISO created: iora-os-installer.iso (${size})"
+    mark_created "iora-os-installer.iso"
+}
+
+create_bootable_installer_iso() {
+    log_info "Creating bootable installer ISO (UEFI/GRUB)..."
+
+    if ! command -v grub-mkrescue &> /dev/null; then
+        log_warn "grub-mkrescue not available, skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (missing grub-mkrescue)"
+        return
+    fi
+
+    if [ ! -f "${OUTPUT_DIR}/bzImage" ]; then
+        log_warn "bzImage missing, skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (missing bzImage)"
+        return
+    fi
+
+    if [ ! -f "${OUTPUT_DIR}/rootfs.cpio.gz" ]; then
+        log_warn "rootfs.cpio.gz missing, skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (missing rootfs.cpio.gz)"
+        return
+    fi
+
+    if [ ! -f "${RELEASE_DIR}/iora-os.img.xz" ]; then
+        log_warn "iora-os.img.xz missing in release directory, skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (missing iora-os.img.xz)"
+        return
+    fi
+
+    local stage_dir
+    stage_dir=$(mktemp -d)
+    mkdir -p "${stage_dir}/boot/grub"
+
+    cp "${OUTPUT_DIR}/bzImage" "${stage_dir}/boot/vmlinuz"
+    cp "${OUTPUT_DIR}/rootfs.cpio.gz" "${stage_dir}/boot/initrd.img"
+    cp "${RELEASE_DIR}/iora-os.img.xz" "${stage_dir}/iora-os.img.xz"
+
+    cat > "${stage_dir}/README-INSTALLER.txt" <<'EOF'
+IORA OS Bootable Installer ISO
+
+This ISO is bootable and provides a minimal environment.
+Installation payload file on ISO root:
+  /iora-os.img.xz
+
+Typical manual install from installer shell:
+  mkdir -p /mnt/iso
+  mount /dev/sr0 /mnt/iso
+  xzcat /mnt/iso/iora-os.img.xz | dd of=/dev/sda bs=4M status=progress
+  sync
+
+Replace /dev/sda with your target disk.
+EOF
+
+    cat > "${stage_dir}/boot/grub/grub.cfg" <<'EOF'
+set timeout=8
+set default=0
+
+menuentry "IORA OS Installer (normal boot)" {
+    linux /boot/vmlinuz quiet console=tty0
+    initrd /boot/initrd.img
+}
+
+menuentry "IORA OS Installer (rescue shell)" {
+    linux /boot/vmlinuz init=/bin/sh console=tty0
+    initrd /boot/initrd.img
+}
+EOF
+
+    if ! grub-mkrescue -o "${RELEASE_DIR}/iora-os-installer-boot.iso" "${stage_dir}" >/dev/null 2>&1; then
+        rm -rf "${stage_dir}"
+        log_warn "grub-mkrescue failed, skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (grub-mkrescue failed)"
+        return
+    fi
+
+    rm -rf "${stage_dir}"
+
+    local size
+    size=$(du -h "${RELEASE_DIR}/iora-os-installer-boot.iso" | cut -f1)
+    log_success "Bootable installer ISO created: iora-os-installer-boot.iso (${size})"
+    mark_created "iora-os-installer-boot.iso"
 }
 
 create_raw_image() {
@@ -456,6 +615,7 @@ create_raw_image() {
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.img.xz" | cut -f1)
     log_success "Raw image created: iora-os.img.xz (${size})"
+    mark_created "iora-os.img.xz"
 }
 
 create_qcow2_image() {
@@ -463,6 +623,7 @@ create_qcow2_image() {
 
     if ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not available, skipping qcow2"
+        mark_skipped "iora-os.qcow2.xz (missing qemu-img)"
         return
     fi
 
@@ -480,6 +641,7 @@ create_qcow2_image() {
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.qcow2.xz" | cut -f1)
     log_success "QEMU image created: iora-os.qcow2.xz (${size})"
+    mark_created "iora-os.qcow2.xz"
 }
 
 create_vdi_image() {
@@ -487,6 +649,7 @@ create_vdi_image() {
 
     if ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not available, skipping VDI"
+        mark_skipped "iora-os.vdi.zip (missing qemu-img)"
         return
     fi
 
@@ -504,6 +667,7 @@ create_vdi_image() {
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.vdi.zip" | cut -f1)
     log_success "VirtualBox image created: iora-os.vdi.zip (${size})"
+    mark_created "iora-os.vdi.zip"
 }
 
 create_vmdk_image() {
@@ -511,6 +675,7 @@ create_vmdk_image() {
 
     if ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not available, skipping VMDK"
+        mark_skipped "iora-os.vmdk.zip (missing qemu-img)"
         return
     fi
 
@@ -528,6 +693,7 @@ create_vmdk_image() {
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.vmdk.zip" | cut -f1)
     log_success "VMware image created: iora-os.vmdk.zip (${size})"
+    mark_created "iora-os.vmdk.zip"
 }
 
 create_ova_image() {
@@ -535,6 +701,7 @@ create_ova_image() {
 
     if ! command -v VBoxManage &> /dev/null; then
         log_warn "VBoxManage not available, skipping OVA"
+        mark_skipped "iora-os.ova (missing VBoxManage)"
         return
     fi
 
@@ -586,6 +753,7 @@ create_ova_image() {
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.ova" | cut -f1)
     log_success "OVA created: iora-os.ova (${size})"
+    mark_created "iora-os.ova"
 }
 
 create_rauc_bundle() {
@@ -593,6 +761,7 @@ create_rauc_bundle() {
 
     if ! command -v rauc &> /dev/null; then
         log_warn "RAUC not available, skipping update bundle"
+        mark_skipped "iora-os-YYYYMMDD.raucb (missing rauc)"
         return
     fi
 
@@ -601,6 +770,7 @@ create_rauc_bundle() {
         log_warn "RAUC signing keys not found"
         log_info "Generate with: openssl req -x509 -newkey rsa:4096 -nodes -keyout rauc/key.pem -out rauc/cert.pem -days 3650"
         log_warn "Skipping RAUC bundle creation"
+        mark_skipped "iora-os-YYYYMMDD.raucb (missing signing keys)"
         return
     fi
 
@@ -637,6 +807,7 @@ create_rauc_bundle() {
 
     local size=$(du -h "${RELEASE_DIR}/iora-os-"*.raucb | cut -f1)
     log_success "RAUC bundle created: iora-os-$(date +%Y%m%d).raucb (${size})"
+    mark_created "iora-os-$(date +%Y%m%d).raucb"
 }
 
 create_checksums() {
@@ -646,6 +817,7 @@ create_checksums() {
     sha256sum * > SHA256SUMS
 
     log_success "Checksums created: SHA256SUMS"
+    mark_created "SHA256SUMS"
 }
 
 create_readme() {
@@ -661,33 +833,39 @@ This release includes multiple image formats for different deployment scenarios:
    - Usage: xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 
 2. iora-os-installer.iso
-    - Installer/archive ISO containing iora-os.img.xz and install notes
+    - Archive ISO containing iora-os.img.xz and install notes
+    - Not directly bootable as an installer medium
     - Usage: Mount/extract the ISO, then flash iora-os.img.xz to your target disk
 
-3. iora-os.qcow2.xz
+3. iora-os-installer-boot.iso
+    - Bootable installer ISO (GRUB/UEFI)
+    - Includes kernel/initrd and iora-os.img.xz payload
+    - Use rescue menu entry for manual disk install via dd
+
+4. iora-os.qcow2.xz
    - QEMU/KVM virtual machine image
    - Usage:
      xz -d iora-os.qcow2.xz
      qemu-system-x86_64 -enable-kvm -m 2048 -drive file=iora-os.qcow2,format=qcow2
 
-4. iora-os.vdi.zip
+5. iora-os.vdi.zip
    - VirtualBox virtual machine image
    - Usage:
      unzip iora-os.vdi.zip
      Import into VirtualBox using the .vdi file
 
-5. iora-os.vmdk.zip
+6. iora-os.vmdk.zip
    - VMware virtual machine image
    - Usage:
      unzip iora-os.vmdk.zip
      Import into VMware using the .vmdk file
 
-6. iora-os.ova
+7. iora-os.ova
    - Open Virtualization Archive (VirtualBox/VMware)
    - Usage: Double-click to import into VirtualBox/VMware
    - Recommended: 2GB RAM, 2 CPUs
 
-7. iora-os-YYYYMMDD.raucb
+8. iora-os-YYYYMMDD.raucb
    - RAUC update bundle for existing IORA OS installations
    - Usage: rauc install iora-os-YYYYMMDD.raucb
 
@@ -722,6 +900,7 @@ Support:
 EOF
 
     log_success "README created"
+    mark_created "README.txt"
 }
 
 print_summary() {
@@ -734,11 +913,25 @@ print_summary() {
     echo ""
     log_info "Generated images:"
     ls -lh "${RELEASE_DIR}" | grep -v "^total" | awk '{printf "  %-30s %10s\n", $9, $5}'
+
+    if [ ${#SKIPPED_ARTIFACTS[@]} -gt 0 ]; then
+        echo ""
+        log_warn "Skipped artifacts:"
+        for entry in "${SKIPPED_ARTIFACTS[@]}"; do
+            echo "  - ${entry}"
+        done
+    fi
+
     echo ""
     log_info "Total release size: $(du -sh ${RELEASE_DIR} | cut -f1)"
     echo ""
     log_success "All images ready for deployment!"
     echo ""
+
+    if [ "${REQUIRE_ALL_ARTIFACTS}" = true ] && [ ${#SKIPPED_ARTIFACTS[@]} -gt 0 ]; then
+        log_error "--require-all-artifacts set and some artifacts were skipped."
+        exit 1
+    fi
 }
 
 # Main build process
@@ -750,6 +943,8 @@ main() {
     log_info "Build time: $(date)"
     log_info "Unattended mode: ${UNATTENDED}"
     log_info "Images-only mode: ${IMAGES_ONLY}"
+    log_info "Progress mode: ${PROGRESS}"
+    log_info "Require all artifacts: ${REQUIRE_ALL_ARTIFACTS}"
     echo ""
 
     # Create release directory
@@ -776,6 +971,7 @@ main() {
 
     create_raw_image
     create_iso_image
+    create_bootable_installer_iso
     create_qcow2_image
     create_vdi_image
     create_vmdk_image
