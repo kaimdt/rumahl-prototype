@@ -26,6 +26,7 @@ Usage: $(basename "$0") [OPTIONS]
 OPTIONS:
     --progress          Show a live progress bar (indeterminate, step-based)
     --clean-glibc       Clean glibc build directory before resuming
+    --clean-linux       Clean kernel build directory before resuming
     --reconfigure       Re-run iora_defconfig before resuming
     --jobs N            Override parallel jobs (default: nproc)
     --log FILE          Write build log to custom file path
@@ -35,6 +36,7 @@ Examples:
     $(basename "$0")
     $(basename "$0") --progress
     $(basename "$0") --clean-glibc --progress
+    $(basename "$0") --reconfigure --clean-linux --progress
 EOF
 }
 
@@ -86,6 +88,7 @@ check_prereqs() {
 
 PROGRESS=false
 CLEAN_GLIBC=false
+CLEAN_LINUX=false
 RECONFIGURE=false
 JOBS="$(nproc)"
 LOG_FILE=""
@@ -97,6 +100,9 @@ while [ $# -gt 0 ]; do
             ;;
         --clean-glibc)
             CLEAN_GLIBC=true
+            ;;
+        --clean-linux)
+            CLEAN_LINUX=true
             ;;
         --reconfigure)
             RECONFIGURE=true
@@ -153,6 +159,11 @@ if [ "${CLEAN_GLIBC}" = true ]; then
     PATH="${SAFE_PATH}" make glibc-dirclean
 fi
 
+if [ "${CLEAN_LINUX}" = true ]; then
+    log_warn "Cleaning linux build directory before resume..."
+    PATH="${SAFE_PATH}" make linux-dirclean
+fi
+
 set +e
 if [ "${PROGRESS}" = true ]; then
     PATH="${SAFE_PATH}" make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
@@ -169,6 +180,12 @@ if [ ${BUILD_RC} -ne 0 ]; then
     if grep -q "__lll_lock_wait_private\|__lll_lock_wake_private" "${LOG_FILE}"; then
         log_warn "Detected glibc linker error (__lll_lock_*)."
         log_info "Try: ./resume-build.sh --clean-glibc --progress"
+    fi
+
+    if grep -q "fatal error: gelf.h: No such file or directory\|fatal error: libelf.h: No such file or directory" "${LOG_FILE}"; then
+        log_warn "Detected missing libelf headers for kernel objtool."
+        log_info "Install once: sudo apt-get install -y libelf-dev pkg-config"
+        log_info "No sudo available? Try: ./resume-build.sh --reconfigure --clean-linux --progress"
     fi
 
     log_info "Last 40 log lines:"

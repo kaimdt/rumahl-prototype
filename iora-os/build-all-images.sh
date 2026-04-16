@@ -91,6 +91,15 @@ check_dependencies() {
         fi
     done
 
+    # Kernel tools (objtool) need libelf headers via pkg-config.
+    if command -v pkg-config &> /dev/null; then
+        if ! pkg-config --exists libelf; then
+            missing_deps+=("libelf")
+        fi
+    else
+        missing_deps+=("pkg-config")
+    fi
+
     if [ ${#missing_deps[@]} -ne 0 ]; then
         for dep in "${missing_deps[@]}"; do
             case "$dep" in
@@ -99,6 +108,9 @@ check_dependencies() {
                     ;;
                 qemu-img)
                     missing_packages+=("qemu-utils")
+                    ;;
+                libelf)
+                    missing_packages+=("libelf-dev")
                     ;;
                 *)
                     missing_packages+=("$dep")
