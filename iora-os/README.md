@@ -105,6 +105,7 @@ make build
 
 This creates a complete release in `releases/YYYYMMDD-HHMMSS/` with:
 - **iora-os.img.xz** - Raw disk image (USB/SD cards)
+- **iora-os-installer.iso** - ISO archive containing `iora-os.img.xz` + install note
 - **iora-os.qcow2.xz** - QEMU/KVM image
 - **iora-os.vdi.zip** - VirtualBox image
 - **iora-os.vmdk.zip** - VMware image
@@ -129,7 +130,88 @@ make build
 
 # Resume interrupted build (with optional progress view)
 ./build.sh resume --progress
+
+# Require full GPT/GRUB post-image flow (no fallback)
+./build.sh all --force-full-image
+
+# Always use fallback image creation (fastest for restricted WSL)
+./build.sh all --force-fallback-image
 ```
+
+### Detailed Installation (Linux and WSL)
+
+#### 1) Linux host preparation (Debian/Ubuntu)
+
+```bash
+cd iora/iora-os
+chmod +x build.sh build-all-images.sh resume-build.sh \
+  install-requirements-linux.sh install-requirements-wsl.sh
+
+./install-requirements-linux.sh
+```
+
+This installs the full toolchain, conversion tools, and ISO tooling. Optional tools like VirtualBox and RAUC may still be skipped if packages are unavailable.
+
+#### 2) WSL preparation (recommended path under Windows)
+
+```bash
+cd ~/iora-os/home-assistant-dashb/iora-os
+chmod +x build.sh build-all-images.sh resume-build.sh \
+  install-requirements-linux.sh install-requirements-wsl.sh
+
+./install-requirements-wsl.sh
+```
+
+Notes for WSL:
+- Use a Linux path in WSL for building (`~/...`) to avoid path/permission edge cases.
+- Full GPT/loop/grub image assembly may require elevated loop/mount support.
+- If loop devices are restricted, build uses a safe fallback image path automatically.
+
+### Detailed Image Build Workflow
+
+#### Standard build (recommended)
+
+```bash
+./build.sh all --allow-fallback
+```
+
+Artifacts are placed in `releases/<timestamp>/`.
+
+#### Resume an interrupted build
+
+```bash
+./build.sh resume --progress
+```
+
+Useful recovery variants:
+
+```bash
+./build.sh resume --clean-linux --progress
+./build.sh resume --clean-glibc --progress
+./build.sh resume --reconfigure --progress
+```
+
+#### Post-image behavior modes
+
+The post-image step supports three modes:
+- `--allow-fallback` (default): tries full GPT/GRUB flow, falls back if environment blocks loop/mount/grub.
+- `--force-full-image`: requires full GPT/GRUB flow; build fails if unavailable.
+- `--force-fallback-image`: skips privileged full-image flow and directly creates `iora-os.img` from `rootfs.ext2`.
+
+Examples:
+
+```bash
+./build.sh all --force-full-image
+./build.sh all --force-fallback-image
+./build.sh resume --force-full-image --progress
+```
+
+### ISO Output
+
+If `xorriso` (or `genisoimage`/`mkisofs`) is available, the build creates:
+- `iora-os-installer.iso`
+
+This ISO is an installer/archive medium containing `iora-os.img.xz` and install notes. It is intended for easy distribution and transfer. The primary deployment artifact remains `iora-os.img.xz`.
 
 ### Prerequisites
 

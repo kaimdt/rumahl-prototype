@@ -5,6 +5,7 @@
 #
 # Generates:
 #   - img.xz       - Raw disk image (USB/SD card, physical hardware)
+#   - iso          - Installer/archive ISO (contains compressed raw image)
 #   - qcow2.xz     - QEMU/KVM image (compressed)
 #   - vdi.zip      - VirtualBox image
 #   - vmdk.zip     - VMware image
@@ -27,6 +28,7 @@ OUTPUT_DIR="${BUILD_DIR}/output/images"
 RELEASE_DIR="${SCRIPT_DIR}/releases/$(date +%Y%m%d-%H%M%S)"
 BUILDROOT_VERSION="2024.02"
 BUILDROOT_URL="https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.gz"
+POST_IMAGE_MODE="auto"
 
 # VM image settings
 VM_NAME="IORA-OS"
@@ -91,6 +93,11 @@ check_dependencies() {
         fi
     done
 
+    # ISO creation tools (optional but recommended).
+    if ! command -v xorriso &> /dev/null && ! command -v genisoimage &> /dev/null && ! command -v mkisofs &> /dev/null; then
+        log_warn "No ISO creator found (xorriso/genisoimage/mkisofs) - ISO creation will be skipped"
+    fi
+
     # Kernel tools (objtool) need libelf headers via pkg-config.
     if command -v pkg-config &> /dev/null; then
         if ! pkg-config --exists libelf; then
@@ -126,6 +133,39 @@ check_dependencies() {
     log_success "All dependencies available"
 }
 
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force-full-image)
+                POST_IMAGE_MODE="full"
+                ;;
+            --allow-fallback)
+                POST_IMAGE_MODE="auto"
+                ;;
+            --force-fallback-image)
+                POST_IMAGE_MODE="fallback"
+                ;;
+            -h|--help)
+                cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+OPTIONS:
+  --force-full-image     Require full GPT/loop/grub post-image flow (fail if unavailable)
+  --allow-fallback       Allow automatic fallback to rootfs.ext2 image (default)
+  --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
+  -h, --help             Show this help
+EOF
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+        shift
+    done
+}
+
 download_buildroot() {
     if [ -d "${BUILD_DIR}" ]; then
         log_info "Buildroot already downloaded"
@@ -156,11 +196,63 @@ configure_buildroot() {
 
 build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
+    log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
     cd "${BUILD_DIR}"
-    PATH="${BUILDROOT_SAFE_PATH}" make -j$(nproc)
+    PATH="${BUILDROOT_SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j$(nproc)
 
     log_success "Base image built successfully"
+}
+
+create_iso_image() {
+    log_info "Creating ISO image..."
+
+    if [ ! -f "${RELEASE_DIR}/iora-os.img.xz" ]; then
+        log_warn "iora-os.img.xz not found in release directory, skipping ISO"
+        return
+    fi
+
+    local iso_tool=""
+    if command -v xorriso &> /dev/null; then
+        iso_tool="xorriso"
+    elif command -v genisoimage &> /dev/null; then
+        iso_tool="genisoimage"
+    elif command -v mkisofs &> /dev/null; then
+        iso_tool="mkisofs"
+    else
+        log_warn "No ISO creation tool available, skipping ISO"
+        return
+    fi
+
+    local ISO_STAGE_DIR
+    ISO_STAGE_DIR=$(mktemp -d)
+
+    cp "${RELEASE_DIR}/iora-os.img.xz" "${ISO_STAGE_DIR}/"
+
+    cat > "${ISO_STAGE_DIR}/INSTALL.txt" <<'EOF'
+IORA OS installer/archive ISO
+
+This ISO contains:
+- iora-os.img.xz (compressed raw image)
+
+Write image to disk:
+  xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+  sync
+
+Replace /dev/sdX with your target device.
+EOF
+
+    if [ "${iso_tool}" = "xorriso" ]; then
+        xorriso -as mkisofs -r -J -V "IORA_OS" -o "${RELEASE_DIR}/iora-os-installer.iso" "${ISO_STAGE_DIR}" >/dev/null 2>&1
+    else
+        "${iso_tool}" -r -J -V "IORA_OS" -o "${RELEASE_DIR}/iora-os-installer.iso" "${ISO_STAGE_DIR}" >/dev/null 2>&1
+    fi
+
+    rm -rf "${ISO_STAGE_DIR}"
+
+    local size
+    size=$(du -h "${RELEASE_DIR}/iora-os-installer.iso" | cut -f1)
+    log_success "ISO created: iora-os-installer.iso (${size})"
 }
 
 create_raw_image() {
@@ -386,30 +478,34 @@ This release includes multiple image formats for different deployment scenarios:
    - Raw disk image for USB/SD cards and physical hardware
    - Usage: xzcat iora-os.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 
-2. iora-os.qcow2.xz
+2. iora-os-installer.iso
+    - Installer/archive ISO containing iora-os.img.xz and install notes
+    - Usage: Mount/extract the ISO, then flash iora-os.img.xz to your target disk
+
+3. iora-os.qcow2.xz
    - QEMU/KVM virtual machine image
    - Usage:
      xz -d iora-os.qcow2.xz
      qemu-system-x86_64 -enable-kvm -m 2048 -drive file=iora-os.qcow2,format=qcow2
 
-3. iora-os.vdi.zip
+4. iora-os.vdi.zip
    - VirtualBox virtual machine image
    - Usage:
      unzip iora-os.vdi.zip
      Import into VirtualBox using the .vdi file
 
-4. iora-os.vmdk.zip
+5. iora-os.vmdk.zip
    - VMware virtual machine image
    - Usage:
      unzip iora-os.vmdk.zip
      Import into VMware using the .vmdk file
 
-5. iora-os.ova
+6. iora-os.ova
    - Open Virtualization Archive (VirtualBox/VMware)
    - Usage: Double-click to import into VirtualBox/VMware
    - Recommended: 2GB RAM, 2 CPUs
 
-6. iora-os-YYYYMMDD.raucb
+7. iora-os-YYYYMMDD.raucb
    - RAUC update bundle for existing IORA OS installations
    - Usage: rauc install iora-os-YYYYMMDD.raucb
 
@@ -465,6 +561,8 @@ print_summary() {
 
 # Main build process
 main() {
+    parse_args "$@"
+
     log_info "Starting IORA OS complete image build..."
     log_info "Build time: $(date)"
     echo ""
@@ -483,6 +581,7 @@ main() {
     log_info ""
 
     create_raw_image
+    create_iso_image
     create_qcow2_image
     create_vdi_image
     create_vmdk_image

@@ -34,6 +34,7 @@ REQUIRED_PACKAGES=(
     python3-pip
     qemu-utils
     zip
+    xorriso
 )
 
 OPTIONAL_PACKAGES=(

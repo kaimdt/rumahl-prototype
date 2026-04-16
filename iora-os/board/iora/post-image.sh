@@ -7,6 +7,7 @@ set -e
 BOARD_DIR="$(dirname $0)"
 IMAGES_DIR=$1
 HOST_BIN_DIR="$(cd "${IMAGES_DIR}/../host/bin" 2>/dev/null && pwd || true)"
+POST_IMAGE_MODE="${IORA_POST_IMAGE_MODE:-auto}"
 
 run_privileged() {
     if "$@"; then
@@ -70,6 +71,11 @@ can_attach_loop() {
 }
 
 fallback_to_rootfs_ext2() {
+    if [ "${POST_IMAGE_MODE}" = "full" ]; then
+        echo "IORA OS: ERROR: full post-image mode enabled; fallback is disabled"
+        exit 1
+    fi
+
     if [ -f "${IMAGES_DIR}/rootfs.ext2" ]; then
         echo "IORA OS: WARN: switching to rootfs.ext2 fallback image"
         cp -f "${IMAGES_DIR}/rootfs.ext2" "${IMG}"
@@ -83,6 +89,21 @@ fallback_to_rootfs_ext2() {
 }
 
 echo "IORA OS: Creating bootable disk image..."
+
+case "${POST_IMAGE_MODE}" in
+    auto|full|fallback)
+        ;;
+    *)
+        echo "IORA OS: ERROR: invalid IORA_POST_IMAGE_MODE='${POST_IMAGE_MODE}' (allowed: auto|full|fallback)"
+        exit 1
+        ;;
+esac
+
+if [ "${POST_IMAGE_MODE}" = "fallback" ]; then
+    echo "IORA OS: INFO: forced fallback mode requested"
+    IMG="${IMAGES_DIR}/iora-os.img"
+    fallback_to_rootfs_ext2
+fi
 
 # Create disk image (8GB)
 IMG="${IMAGES_DIR}/iora-os.img"

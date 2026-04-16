@@ -10,6 +10,9 @@ This directory contains scripts to build IORA OS in multiple image formats for d
 
 # Or use the detailed script
 ./build-all-images.sh
+
+# Force full GPT/GRUB post-image flow (no fallback)
+./build-all-images.sh --force-full-image
 ```
 
 This will create a `releases/YYYYMMDD-HHMMSS/` directory with all image formats.
@@ -76,6 +79,11 @@ This will create a `releases/YYYYMMDD-HHMMSS/` directory with all image formats.
   reboot
   ```
 
+### 7. **iora-os-installer.iso** - Installer/Archive ISO
+- **Use case**: Distribution medium containing the compressed raw image
+- **Contents**: `iora-os.img.xz` and a short install instruction file
+- **Creation tools**: `xorriso` (preferred) or `genisoimage`/`mkisofs`
+
 ## Build Requirements
 
 ### System Requirements
@@ -105,6 +113,7 @@ sudo apt-get install -y \
     libssl-dev \
     python3 \
     qemu-utils \
+    xorriso \
     virtualbox \
     zip \
     rauc
@@ -140,6 +149,7 @@ cd iora-os
 ```
 iora-os/releases/20240415-143022/
 ├── iora-os.img.xz          # Raw disk image
+├── iora-os-installer.iso   # Installer/archive ISO
 ├── iora-os.qcow2.xz        # QEMU/KVM
 ├── iora-os.vdi.zip         # VirtualBox
 ├── iora-os.vmdk.zip        # VMware
@@ -150,6 +160,19 @@ iora-os/releases/20240415-143022/
 ```
 
 ## Advanced Build Options
+
+### Post-image mode controls
+
+```bash
+# Default: try full flow, fallback if loop/mount/grub is restricted
+./build-all-images.sh --allow-fallback
+
+# Require full GPT/GRUB post-image flow and fail on restrictions
+./build-all-images.sh --force-full-image
+
+# Always use rootfs.ext2 fallback for iora-os.img
+./build-all-images.sh --force-fallback-image
+```
 
 ### Custom Configuration
 

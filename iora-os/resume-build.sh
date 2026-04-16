@@ -28,6 +28,9 @@ OPTIONS:
     --clean-glibc       Clean glibc build directory before resuming
     --clean-linux       Clean kernel build directory before resuming
     --reconfigure       Re-run iora_defconfig before resuming
+    --force-full-image  Require full GPT/loop/grub post-image flow (fail if unavailable)
+    --allow-fallback    Allow post-image fallback to rootfs.ext2 (default)
+    --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
     --jobs N            Override parallel jobs (default: nproc)
     --log FILE          Write build log to custom file path
     -h, --help          Show this help
@@ -92,6 +95,7 @@ CLEAN_LINUX=false
 RECONFIGURE=false
 JOBS="$(nproc)"
 LOG_FILE=""
+POST_IMAGE_MODE="auto"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -114,6 +118,15 @@ while [ $# -gt 0 ]; do
                 log_error "--jobs requires a numeric value"
                 exit 1
             fi
+            ;;
+        --force-full-image)
+            POST_IMAGE_MODE="full"
+            ;;
+        --allow-fallback)
+            POST_IMAGE_MODE="auto"
+            ;;
+        --force-fallback-image)
+            POST_IMAGE_MODE="fallback"
             ;;
         --log)
             shift
@@ -146,6 +159,7 @@ fi
 log_info "Resuming build in ${BUILD_DIR}"
 log_info "Log file: ${LOG_FILE}"
 log_info "Jobs: ${JOBS}"
+log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
 cd "${BUILD_DIR}"
 
@@ -166,10 +180,10 @@ fi
 
 set +e
 if [ "${PROGRESS}" = true ]; then
-    PATH="${SAFE_PATH}" make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
+    PATH="${SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 else
-    PATH="${SAFE_PATH}" make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
+    PATH="${SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 fi
 set -e
