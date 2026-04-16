@@ -13,6 +13,8 @@ mkdir -p "${TARGET_DIR}/mnt/data"
 mkdir -p "${TARGET_DIR}/var/lib/docker"
 mkdir -p "${TARGET_DIR}/etc/docker"
 mkdir -p "${TARGET_DIR}/etc/systemd/system"
+mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+mkdir -p "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants"
 mkdir -p "${TARGET_DIR}/etc/apparmor.d"
 
 # Configure Docker daemon

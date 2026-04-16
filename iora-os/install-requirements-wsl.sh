@@ -29,10 +29,12 @@ REQUIRED_PACKAGES=(
     bc
     libncurses-dev
     libssl-dev
+    libelf-dev
     python3
     python3-pip
     qemu-utils
     zip
+    xorriso
 )
 
 echo "[INFO] Updating package index..."
