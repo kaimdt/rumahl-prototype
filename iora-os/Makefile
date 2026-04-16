@@ -1,7 +1,7 @@
 # IORA OS Build System Makefile
 # Simplified interface for building all image formats
 
-.PHONY: all help install-deps build clean distclean release
+.PHONY: all help install-deps install-deps-wsl build resume clean distclean release
 
 # Default target
 all: build
@@ -12,7 +12,9 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  make install-deps  - Install build dependencies"
+	@echo "  make install-deps-wsl - Install build dependencies for WSL"
 	@echo "  make build         - Build all image formats"
+	@echo "  make resume        - Resume interrupted build (with progress)"
 	@echo "  make clean         - Clean build artifacts"
 	@echo "  make distclean     - Clean everything including downloads"
 	@echo "  make release       - Create release package"
@@ -25,33 +27,23 @@ help:
 
 # Install build dependencies (requires sudo)
 install-deps:
-	@echo "Installing build dependencies..."
-	sudo apt-get update
-	sudo apt-get install -y \
-		build-essential \
-		git \
-		wget \
-		tar \
-		gzip \
-		xz-utils \
-		cpio \
-		unzip \
-		rsync \
-		bc \
-		libncurses5-dev \
-		libssl-dev \
-		python3 \
-		python3-pip \
-		qemu-utils \
-		virtualbox \
-		zip \
-		rauc
-	@echo "Dependencies installed successfully"
+	@echo "Installing Linux build dependencies..."
+	bash ./install-requirements-linux.sh
+
+# Install WSL build dependencies
+install-deps-wsl:
+	@echo "Installing WSL build dependencies..."
+	bash ./install-requirements-wsl.sh
 
 # Build all images
 build:
 	@echo "Building IORA OS (all formats)..."
 	./build-all-images.sh
+
+# Resume interrupted build
+resume:
+	@echo "Resuming IORA OS build..."
+	bash ./resume-build.sh --progress
 
 # Clean build artifacts (keep downloads)
 clean:

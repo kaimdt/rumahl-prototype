@@ -16,6 +16,7 @@ Usage: $(basename $0) [OPTIONS]
 
 OPTIONS:
     all             Build all image formats (default)
+    resume          Resume interrupted build (passes extra args)
     raw             Build only raw disk image (.img.xz)
     qcow2           Build QEMU/KVM image (.qcow2.xz)
     vdi             Build VirtualBox image (.vdi.zip)
@@ -28,6 +29,7 @@ OPTIONS:
 EXAMPLES:
     $(basename $0)              # Build all images
     $(basename $0) all          # Build all images
+    $(basename $0) resume --progress  # Resume with progress bar
     $(basename $0) raw          # Build only raw disk image
     $(basename $0) clean        # Clean build artifacts
 
@@ -44,6 +46,10 @@ EOF
 case "${1:-all}" in
     all)
         "${SCRIPT_DIR}/build-all-images.sh"
+        ;;
+    resume)
+        shift
+        "${SCRIPT_DIR}/resume-build.sh" "$@"
         ;;
     raw|qcow2|vdi|vmdk|ova|rauc)
         echo "Building specific format not yet implemented"

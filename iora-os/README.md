@@ -96,6 +96,9 @@ IORA OS is a custom Linux-based operating system built with Buildroot, designed 
 # Install dependencies
 sudo make install-deps
 
+# For WSL specifically
+make install-deps-wsl
+
 # Build all image formats
 make build
 ```
@@ -123,6 +126,9 @@ make build
 
 # Using the wrapper
 ./build.sh
+
+# Resume interrupted build (with optional progress view)
+./build.sh resume --progress
 ```
 
 ### Prerequisites
@@ -154,6 +160,16 @@ git clone https://github.com/your-org/iora.git
 cd iora/iora-os
 ```
 
+Or use the provided requirement scripts:
+
+```bash
+# Native Linux
+./install-requirements-linux.sh
+
+# WSL
+./install-requirements-wsl.sh
+```
+
 ### Configure Buildroot
 
 ```bash
@@ -163,7 +179,7 @@ tar xzf buildroot-2024.02.tar.gz
 cd buildroot-2024.02
 
 # Load IORA OS configuration
-make BR2_EXTERNAL=../configs iora_defconfig
+make BR2_EXTERNAL=.. iora_defconfig
 
 # Optional: Customize configuration
 make menuconfig

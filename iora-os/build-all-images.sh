@@ -38,6 +38,7 @@ VM_DISK_SIZE="8G"
 # RAUC signing (configure these for production)
 RAUC_CERT="${SCRIPT_DIR}/rauc/cert.pem"
 RAUC_KEY="${SCRIPT_DIR}/rauc/key.pem"
+BUILDROOT_SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -59,9 +60,10 @@ check_dependencies() {
     log_info "Checking build dependencies..."
 
     local missing_deps=()
+    local missing_packages=()
 
     # Core build tools
-    for cmd in make gcc g++ patch wget tar gzip xz-utils; do
+    for cmd in make gcc g++ patch wget tar gzip; do
         if ! command -v $cmd &> /dev/null; then
             missing_deps+=($cmd)
         fi
@@ -69,7 +71,7 @@ check_dependencies() {
 
     # Image conversion tools
     if ! command -v qemu-img &> /dev/null; then
-        missing_deps+=("qemu-utils")
+        missing_deps+=("qemu-img")
     fi
 
     # VM export tools
@@ -90,8 +92,22 @@ check_dependencies() {
     done
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
+        for dep in "${missing_deps[@]}"; do
+            case "$dep" in
+                xz)
+                    missing_packages+=("xz-utils")
+                    ;;
+                qemu-img)
+                    missing_packages+=("qemu-utils")
+                    ;;
+                *)
+                    missing_packages+=("$dep")
+                    ;;
+            esac
+        done
+
         log_error "Missing required dependencies: ${missing_deps[*]}"
-        log_info "Install with: sudo apt-get install -y ${missing_deps[*]}"
+        log_info "Install with: sudo apt-get install -y ${missing_packages[*]}"
         exit 1
     fi
 
@@ -121,7 +137,7 @@ configure_buildroot() {
     log_info "Configuring Buildroot for IORA OS..."
 
     cd "${BUILD_DIR}"
-    make BR2_EXTERNAL="${SCRIPT_DIR}/configs" iora_defconfig
+    PATH="${BUILDROOT_SAFE_PATH}" make BR2_EXTERNAL="${SCRIPT_DIR}" iora_defconfig
 
     log_success "Buildroot configured"
 }
@@ -130,7 +146,7 @@ build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
 
     cd "${BUILD_DIR}"
-    make -j$(nproc)
+    PATH="${BUILDROOT_SAFE_PATH}" make -j$(nproc)
 
     log_success "Base image built successfully"
 }
