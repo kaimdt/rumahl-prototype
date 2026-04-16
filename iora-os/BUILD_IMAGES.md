@@ -172,7 +172,19 @@ iora-os/releases/20240415-143022/
 
 # Always use rootfs.ext2 fallback for iora-os.img
 ./build-all-images.sh --force-fallback-image
+
+# No prompts (CI/headless): auto-try missing installs, continue without optional artifacts
+./build-all-images.sh --unattended
 ```
+
+### Interactive dependency handling
+
+During preflight, the script can:
+- ask whether missing tools should be installed now (`y/n`),
+- retry tool detection,
+- if still missing: print alternatives and ask whether to continue.
+
+Supported unattended aliases: `--non-interactive`, `--unattachment`.
 
 ### Custom Configuration
 

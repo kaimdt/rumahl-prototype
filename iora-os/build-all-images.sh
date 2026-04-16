@@ -29,6 +29,7 @@ RELEASE_DIR="${SCRIPT_DIR}/releases/$(date +%Y%m%d-%H%M%S)"
 BUILDROOT_VERSION="2024.02"
 BUILDROOT_URL="https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.gz"
 POST_IMAGE_MODE="auto"
+UNATTENDED=false
 
 # VM image settings
 VM_NAME="IORA-OS"
@@ -58,6 +59,123 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+prompt_yes_no() {
+    local question="$1"
+    local default_answer="${2:-N}"
+    local reply
+
+    if [ "${UNATTENDED}" = true ]; then
+        if [ "${default_answer}" = "Y" ]; then
+            return 0
+        fi
+        return 1
+    fi
+
+    if [ ! -t 0 ]; then
+        log_warn "No interactive terminal detected, defaulting to '${default_answer}' for: ${question}"
+        if [ "${default_answer}" = "Y" ]; then
+            return 0
+        fi
+        return 1
+    fi
+
+    while true; do
+        read -r -p "${question} [y/n]: " reply
+        case "${reply}" in
+            [Yy]|[Yy][Ee][Ss]) return 0 ;;
+            [Nn]|[Nn][Oo]) return 1 ;;
+            *) echo "Please answer y or n." ;;
+        esac
+    done
+}
+
+dep_to_package() {
+    case "$1" in
+        xz) echo "xz-utils" ;;
+        qemu-img) echo "qemu-utils" ;;
+        libelf) echo "libelf-dev" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+try_apt_install() {
+    local package_list=("$@")
+    local installer=""
+
+    if ! command -v apt-get &> /dev/null; then
+        return 1
+    fi
+
+    if [ "${EUID}" -eq 0 ]; then
+        installer=""
+    elif command -v sudo &> /dev/null; then
+        installer="sudo"
+    else
+        return 1
+    fi
+
+    if [ -n "${installer}" ]; then
+        ${installer} DEBIAN_FRONTEND=noninteractive apt-get update && \
+            ${installer} DEBIAN_FRONTEND=noninteractive apt-get install -y "${package_list[@]}"
+    else
+        DEBIAN_FRONTEND=noninteractive apt-get update && \
+            DEBIAN_FRONTEND=noninteractive apt-get install -y "${package_list[@]}"
+    fi
+}
+
+offer_install_missing_packages() {
+    local reason="$1"
+    shift
+    local packages=("$@")
+
+    if [ ${#packages[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    if [ "${UNATTENDED}" = true ]; then
+        log_info "Unattended mode: attempting automatic install for ${reason}: ${packages[*]}"
+        try_apt_install "${packages[@]}" || true
+        return 0
+    fi
+
+    if prompt_yes_no "Missing ${reason}. Try automatic install now (${packages[*]})?" "N"; then
+        if ! try_apt_install "${packages[@]}"; then
+            log_warn "Automatic installation failed for ${reason}."
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+show_install_alternatives() {
+    local feature="$1"
+    local package_hint="$2"
+
+    log_warn "Alternative options for ${feature}:"
+    log_warn "  1) Install manually: sudo apt-get install -y ${package_hint}"
+    log_warn "  2) Build in a native Linux VM/host with full tooling"
+    log_warn "  3) Continue without this artifact if optional"
+}
+
+refresh_optional_tool_flags() {
+    ISO_TOOL_AVAILABLE=false
+    HAS_VBOXMANAGE=false
+    HAS_RAUC=false
+
+    if command -v xorriso &> /dev/null || command -v genisoimage &> /dev/null || command -v mkisofs &> /dev/null; then
+        ISO_TOOL_AVAILABLE=true
+    fi
+
+    if command -v VBoxManage &> /dev/null; then
+        HAS_VBOXMANAGE=true
+    fi
+
+    if command -v rauc &> /dev/null; then
+        HAS_RAUC=true
+    fi
+}
+
 check_dependencies() {
     log_info "Checking build dependencies..."
 
@@ -76,27 +194,12 @@ check_dependencies() {
         missing_deps+=("qemu-img")
     fi
 
-    # VM export tools
-    if ! command -v VBoxManage &> /dev/null; then
-        log_warn "VBoxManage not found - OVA export will be skipped"
-    fi
-
-    # RAUC
-    if ! command -v rauc &> /dev/null; then
-        log_warn "RAUC not found - update bundle creation will be skipped"
-    fi
-
     # Compression tools
     for cmd in xz zip; do
         if ! command -v $cmd &> /dev/null; then
             missing_deps+=($cmd)
         fi
     done
-
-    # ISO creation tools (optional but recommended).
-    if ! command -v xorriso &> /dev/null && ! command -v genisoimage &> /dev/null && ! command -v mkisofs &> /dev/null; then
-        log_warn "No ISO creator found (xorriso/genisoimage/mkisofs) - ISO creation will be skipped"
-    fi
 
     # Kernel tools (objtool) need libelf headers via pkg-config.
     if command -v pkg-config &> /dev/null; then
@@ -109,25 +212,78 @@ check_dependencies() {
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
         for dep in "${missing_deps[@]}"; do
-            case "$dep" in
-                xz)
-                    missing_packages+=("xz-utils")
-                    ;;
-                qemu-img)
-                    missing_packages+=("qemu-utils")
-                    ;;
-                libelf)
-                    missing_packages+=("libelf-dev")
-                    ;;
-                *)
-                    missing_packages+=("$dep")
-                    ;;
-            esac
+            missing_packages+=("$(dep_to_package "$dep")")
         done
 
-        log_error "Missing required dependencies: ${missing_deps[*]}"
-        log_info "Install with: sudo apt-get install -y ${missing_packages[*]}"
-        exit 1
+        log_warn "Missing required dependencies: ${missing_deps[*]}"
+
+        offer_install_missing_packages "required dependencies" "${missing_packages[@]}" || true
+
+        local still_missing=()
+        for dep in "${missing_deps[@]}"; do
+            if [ "$dep" = "libelf" ]; then
+                if ! command -v pkg-config &> /dev/null || ! pkg-config --exists libelf; then
+                    still_missing+=("$dep")
+                fi
+            elif ! command -v "$dep" &> /dev/null; then
+                still_missing+=("$dep")
+            fi
+        done
+
+        if [ ${#still_missing[@]} -ne 0 ]; then
+            log_error "Still missing required dependencies: ${still_missing[*]}"
+            show_install_alternatives "required build dependencies" "${missing_packages[*]}"
+
+            if [ "${UNATTENDED}" = true ]; then
+                log_error "Unattended mode: cannot continue with missing required dependencies."
+                exit 1
+            fi
+
+            if ! prompt_yes_no "Continue anyway? Build may fail." "N"; then
+                exit 1
+            fi
+        fi
+    fi
+
+    refresh_optional_tool_flags
+
+    if [ "${ISO_TOOL_AVAILABLE}" = false ]; then
+        log_warn "No ISO creator found (xorriso/genisoimage/mkisofs) - ISO creation will be skipped"
+        if offer_install_missing_packages "ISO creation tools" "xorriso"; then
+            refresh_optional_tool_flags
+        fi
+        if [ "${ISO_TOOL_AVAILABLE}" = false ]; then
+            show_install_alternatives "ISO generation" "xorriso"
+            if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "ISO cannot be generated right now. Continue build without ISO?" "Y"; then
+                exit 1
+            fi
+        fi
+    fi
+
+    if [ "${HAS_VBOXMANAGE}" = false ]; then
+        log_warn "VBoxManage not found - OVA export will be skipped"
+        if offer_install_missing_packages "OVA export tools" "virtualbox"; then
+            refresh_optional_tool_flags
+        fi
+        if [ "${HAS_VBOXMANAGE}" = false ]; then
+            show_install_alternatives "OVA export" "virtualbox"
+            if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "OVA cannot be generated right now. Continue build without OVA?" "Y"; then
+                exit 1
+            fi
+        fi
+    fi
+
+    if [ "${HAS_RAUC}" = false ]; then
+        log_warn "RAUC not found - update bundle creation will be skipped"
+        if offer_install_missing_packages "RAUC tooling" "rauc"; then
+            refresh_optional_tool_flags
+        fi
+        if [ "${HAS_RAUC}" = false ]; then
+            show_install_alternatives "RAUC bundle creation" "rauc"
+            if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "RAUC bundle cannot be generated right now. Continue build without RAUC bundle?" "Y"; then
+                exit 1
+            fi
+        fi
     fi
 
     log_success "All dependencies available"
@@ -145,6 +301,9 @@ parse_args() {
             --force-fallback-image)
                 POST_IMAGE_MODE="fallback"
                 ;;
+            --unattended|--non-interactive|--unattachment)
+                UNATTENDED=true
+                ;;
             -h|--help)
                 cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -153,6 +312,7 @@ OPTIONS:
   --force-full-image     Require full GPT/loop/grub post-image flow (fail if unavailable)
   --allow-fallback       Allow automatic fallback to rootfs.ext2 image (default)
   --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
+    --unattended           No interactive prompts; auto-attempt install and continue when optional tooling is missing
   -h, --help             Show this help
 EOF
                 exit 0
@@ -565,6 +725,7 @@ main() {
 
     log_info "Starting IORA OS complete image build..."
     log_info "Build time: $(date)"
+    log_info "Unattended mode: ${UNATTENDED}"
     echo ""
 
     # Create release directory

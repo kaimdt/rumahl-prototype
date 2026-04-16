@@ -136,6 +136,9 @@ make build
 
 # Always use fallback image creation (fastest for restricted WSL)
 ./build.sh all --force-fallback-image
+
+# No prompts (CI/headless): auto-try install missing tools, continue without optional artifacts
+./build.sh all --unattended
 ```
 
 ### Detailed Installation (Linux and WSL)
@@ -212,6 +215,22 @@ If `xorriso` (or `genisoimage`/`mkisofs`) is available, the build creates:
 - `iora-os-installer.iso`
 
 This ISO is an installer/archive medium containing `iora-os.img.xz` and install notes. It is intended for easy distribution and transfer. The primary deployment artifact remains `iora-os.img.xz`.
+
+### Interactive Tool Installation During Build
+
+`build-all-images.sh` now performs an interactive preflight:
+
+- If tools are missing, it asks whether it should try to install them automatically (`y/n`).
+- If installation fails, it prints alternatives and asks whether to continue without that artifact.
+- For required core dependencies, continuing is possible but may cause a later build failure.
+
+Run without prompts (automation/CI):
+
+```bash
+./build.sh all --unattended
+```
+
+`--unattended` aliases: `--non-interactive`, `--unattachment`
 
 ### Prerequisites
 

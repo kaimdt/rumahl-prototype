@@ -1,0 +1,12 @@
+* text=auto
+
+# Keep executable shell scripts Linux-compatible
+*.sh text eol=lf
+
+# Buildroot and build metadata consumed by shell/make
+Makefile text eol=lf
+*.mk text eol=lf
+*.in text eol=lf
+*.desc text eol=lf
+*.config text eol=lf
+*.conf text eol=lf
