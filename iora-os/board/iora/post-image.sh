@@ -216,17 +216,17 @@ set default=0
 set timeout=3
 
 menuentry "IORA OS" {
-    linux /vmlinuz root=/dev/sda2 ro rootfstype=squashfs quiet
+    linux /vmlinuz root=/dev/sda2 rootwait ro rootfstype=ext4 quiet
     initrd /initrd.img
 }
 
 menuentry "IORA OS (Partition B)" {
-    linux /vmlinuz root=/dev/sda3 ro rootfstype=squashfs quiet
+    linux /vmlinuz root=/dev/sda3 rootwait ro rootfstype=ext4 quiet
     initrd /initrd.img
 }
 
 menuentry "IORA OS Recovery" {
-    linux /vmlinuz root=/dev/sda2 ro rootfstype=squashfs init=/bin/bash
+    linux /vmlinuz root=/dev/sda2 rootwait rw rootfstype=ext4 init=/bin/bash
     initrd /initrd.img
 }
 EOF

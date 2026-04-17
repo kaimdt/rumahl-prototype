@@ -50,6 +50,7 @@ VM_DISK_SIZE="8G"
 RAUC_CERT="${SCRIPT_DIR}/rauc/cert.pem"
 RAUC_KEY="${SCRIPT_DIR}/rauc/key.pem"
 BUILDROOT_SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+FALLBACK_MARKER="${OUTPUT_DIR}/iora-os.fallback"
 
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -89,6 +90,20 @@ xz_compress_file() {
     fi
 
     mv -f "${tmp_file}" "${dst_file}"
+}
+
+require_bootable_base_image() {
+    if [ -f "${FALLBACK_MARKER}" ]; then
+        log_error "Current base image was produced via fallback mode and is not a validated bootable disk image."
+        log_info "Rebuild with privileges and full post-image flow: sudo ./build.sh all --force-full-image --progress"
+        return 1
+    fi
+
+    if [ ! -f "${OUTPUT_DIR}/rootfs.cpio.gz" ] && [ ! -f "${OUTPUT_DIR}/rootfs.cpio" ]; then
+        log_warn "No Buildroot cpio initramfs output detected; installer ISO may be incomplete until you run a reconfigure rebuild."
+    fi
+
+    return 0
 }
 
 show_progress_stream() {
@@ -704,6 +719,11 @@ create_raw_image() {
 create_qcow2_image() {
     log_info "Creating QEMU qcow2 image..."
 
+    if ! require_bootable_base_image; then
+        mark_skipped "iora-os.qcow2.xz (base image not validated bootable)"
+        return
+    fi
+
     if ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not available, skipping qcow2"
         mark_skipped "iora-os.qcow2.xz (missing qemu-img)"
@@ -730,6 +750,11 @@ create_qcow2_image() {
 
 create_vdi_image() {
     log_info "Creating VirtualBox VDI image..."
+
+    if ! require_bootable_base_image; then
+        mark_skipped "iora-os.vdi.zip (base image not validated bootable)"
+        return
+    fi
 
     if ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not available, skipping VDI"
@@ -758,6 +783,11 @@ create_vdi_image() {
 create_vmdk_image() {
     log_info "Creating VMware VMDK image..."
 
+    if ! require_bootable_base_image; then
+        mark_skipped "iora-os.vmdk.zip (base image not validated bootable)"
+        return
+    fi
+
     if ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not available, skipping VMDK"
         mark_skipped "iora-os.vmdk.zip (missing qemu-img)"
@@ -784,6 +814,11 @@ create_vmdk_image() {
 
 create_ova_image() {
     log_info "Creating OVA (Open Virtualization Archive)..."
+
+    if ! require_bootable_base_image; then
+        mark_skipped "iora-os.ova (base image not validated bootable)"
+        return
+    fi
 
     if ! command -v VBoxManage &> /dev/null; then
         log_warn "VBoxManage not available, skipping OVA"
