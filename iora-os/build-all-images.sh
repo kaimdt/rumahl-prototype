@@ -610,12 +610,12 @@ set timeout=8
 set default=0
 
 menuentry "IORA OS Installer (normal boot)" {
-    linux /boot/vmlinuz quiet console=tty0
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 systemd.log_level=debug panic=10
     initrd /boot/initrd.img
 }
 
 menuentry "IORA OS Installer (rescue shell)" {
-    linux /boot/vmlinuz init=/bin/sh console=tty0
+    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 panic=10
     initrd /boot/initrd.img
 }
 EOF
@@ -643,12 +643,11 @@ create_raw_image() {
         return 1
     fi
 
-    # Compress with xz (high compression)
+    # Always regenerate compressed output to avoid stale artifacts.
     cd "${OUTPUT_DIR}"
-    if [ ! -f "iora-os.img.xz" ]; then
-        log_info "Compressing raw image with xz..."
-        xz -9 -T0 -k iora-os.img
-    fi
+    rm -f iora-os.img.xz
+    log_info "Compressing raw image with xz..."
+    xz -f -9 -T0 -k iora-os.img
 
     cp iora-os.img.xz "${RELEASE_DIR}/"
 
@@ -667,6 +666,7 @@ create_qcow2_image() {
     fi
 
     cd "${OUTPUT_DIR}"
+    rm -f iora-os.qcow2 iora-os.qcow2.xz
 
     # Convert to qcow2
     log_info "Converting to qcow2 format..."
@@ -674,7 +674,7 @@ create_qcow2_image() {
 
     # Compress with xz
     log_info "Compressing qcow2 with xz..."
-    xz -9 -T0 -k iora-os.qcow2
+    xz -f -9 -T0 -k iora-os.qcow2
 
     cp iora-os.qcow2.xz "${RELEASE_DIR}/"
 
@@ -693,6 +693,7 @@ create_vdi_image() {
     fi
 
     cd "${OUTPUT_DIR}"
+    rm -f iora-os.vdi iora-os.vdi.zip
 
     # Convert to VDI
     log_info "Converting to VDI format..."
@@ -719,6 +720,7 @@ create_vmdk_image() {
     fi
 
     cd "${OUTPUT_DIR}"
+    rm -f iora-os.vmdk iora-os.vmdk.zip
 
     # Convert to VMDK
     log_info "Converting to VMDK format..."
