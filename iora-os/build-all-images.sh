@@ -549,6 +549,42 @@ resolve_installer_initrd() {
     return 1
 }
 
+build_installer_runtime_initrd() {
+    local source_initrd="$1"
+    local runtime_initrd="$2"
+    local work_dir
+
+    if ! command -v cpio &> /dev/null || ! command -v gzip &> /dev/null; then
+        return 1
+    fi
+
+    work_dir=$(mktemp -d)
+
+    if ! gzip -dc "${source_initrd}" | (cd "${work_dir}" && cpio -idm --quiet); then
+        rm -rf "${work_dir}"
+        return 1
+    fi
+
+    cat > "${work_dir}/init" <<'EOF'
+#!/bin/sh
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+echo "IORA installer initramfs started"
+echo "Starting emergency installer shell..."
+exec /bin/sh
+EOF
+    chmod +x "${work_dir}/init"
+
+    if ! (cd "${work_dir}" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9 > "${runtime_initrd}"); then
+        rm -rf "${work_dir}"
+        return 1
+    fi
+
+    rm -rf "${work_dir}"
+    return 0
+}
+
 create_bootable_installer_iso() {
     log_info "Creating bootable installer ISO (UEFI/GRUB)..."
 
@@ -572,6 +608,13 @@ create_bootable_installer_iso() {
         return
     fi
 
+    local runtime_initrd="${OUTPUT_DIR}/installer-runtime.cpio.gz"
+    if ! build_installer_runtime_initrd "${installer_initrd}" "${runtime_initrd}"; then
+        log_warn "Failed to build installer runtime initrd, skipping bootable installer ISO"
+        mark_skipped "iora-os-installer-boot.iso (failed to create runtime initrd)"
+        return
+    fi
+
     if [ ! -f "${RELEASE_DIR}/iora-os.img.xz" ]; then
         log_warn "iora-os.img.xz missing in release directory, skipping bootable installer ISO"
         mark_skipped "iora-os-installer-boot.iso (missing iora-os.img.xz)"
@@ -583,7 +626,7 @@ create_bootable_installer_iso() {
     mkdir -p "${stage_dir}/boot/grub"
 
     cp "${OUTPUT_DIR}/bzImage" "${stage_dir}/boot/vmlinuz"
-    cp "${installer_initrd}" "${stage_dir}/boot/initrd.img"
+    cp "${runtime_initrd}" "${stage_dir}/boot/initrd.img"
     cp "${RELEASE_DIR}/iora-os.img.xz" "${stage_dir}/iora-os.img.xz"
 
     cat > "${stage_dir}/README-INSTALLER.txt" <<'EOF'
@@ -607,17 +650,17 @@ set timeout=8
 set default=1
 
 menuentry "IORA OS Installer (normal boot)" {
-    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 systemd.log_level=debug ignore_loglevel nomodeset pci=nommconf
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf
     initrd /boot/initrd.img
 }
 
 menuentry "IORA OS Installer (safe VM boot)" {
-    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf acpi=off noapic nolapic
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf acpi=off noapic nolapic
     initrd /boot/initrd.img
 }
 
 menuentry "IORA OS Installer (rescue shell)" {
-    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf
+    linux /boot/vmlinuz init=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf
     initrd /boot/initrd.img
 }
 EOF
