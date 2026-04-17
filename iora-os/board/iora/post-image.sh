@@ -85,6 +85,11 @@ fallback_to_rootfs_ext2() {
     exit 1
 }
 
+is_mounted() {
+    local mount_dir="$1"
+    grep -qs " ${mount_dir} " /proc/mounts
+}
+
 echo "IORA OS: Creating bootable disk image..."
 rm -f "${FALLBACK_MARKER}" 2>/dev/null || true
 
@@ -151,6 +156,12 @@ run_privileged mkfs.ext4 -F -L iora-data "${LOOP_DEV}p4"
 MOUNT_DIR=$(mktemp -d)
 if ! try_privileged mount "${LOOP_DEV}p1" "${MOUNT_DIR}"; then
     echo "IORA OS: WARN: mount failed for EFI partition"
+    try_privileged losetup -d "${LOOP_DEV}" >/dev/null 2>&1 || true
+    rmdir "${MOUNT_DIR}" >/dev/null 2>&1 || true
+    fallback_to_rootfs_ext2
+fi
+if ! is_mounted "${MOUNT_DIR}"; then
+    echo "IORA OS: WARN: EFI partition mount did not become active"
     try_privileged losetup -d "${LOOP_DEV}" >/dev/null 2>&1 || true
     rmdir "${MOUNT_DIR}" >/dev/null 2>&1 || true
     fallback_to_rootfs_ext2
@@ -229,16 +240,37 @@ if [ -f "${IMAGES_DIR}/rootfs.cpio.gz" ]; then
     run_privileged cp "${IMAGES_DIR}/rootfs.cpio.gz" "${MOUNT_DIR}/initrd.img"
 fi
 
-run_privileged umount "${MOUNT_DIR}"
+if ! try_privileged umount "${MOUNT_DIR}"; then
+    echo "IORA OS: WARN: failed to unmount EFI partition"
+    try_privileged losetup -d "${LOOP_DEV}" >/dev/null 2>&1 || true
+    rmdir "${MOUNT_DIR}" >/dev/null 2>&1 || true
+    fallback_to_rootfs_ext2
+fi
 
 # Install root filesystem to partition A
-run_privileged mount "${LOOP_DEV}p2" "${MOUNT_DIR}"
+if ! try_privileged mount "${LOOP_DEV}p2" "${MOUNT_DIR}"; then
+    echo "IORA OS: WARN: mount failed for rootfs partition"
+    try_privileged losetup -d "${LOOP_DEV}" >/dev/null 2>&1 || true
+    rmdir "${MOUNT_DIR}" >/dev/null 2>&1 || true
+    fallback_to_rootfs_ext2
+fi
+if ! is_mounted "${MOUNT_DIR}"; then
+    echo "IORA OS: WARN: rootfs partition mount did not become active"
+    try_privileged losetup -d "${LOOP_DEV}" >/dev/null 2>&1 || true
+    rmdir "${MOUNT_DIR}" >/dev/null 2>&1 || true
+    fallback_to_rootfs_ext2
+fi
 if [ -x "${HOST_BIN_DIR}/unsquashfs" ]; then
     run_privileged "${HOST_BIN_DIR}/unsquashfs" -f -d "${MOUNT_DIR}" "${IMAGES_DIR}/rootfs.squashfs"
 else
     run_privileged unsquashfs -f -d "${MOUNT_DIR}" "${IMAGES_DIR}/rootfs.squashfs"
 fi
-run_privileged umount "${MOUNT_DIR}"
+if ! try_privileged umount "${MOUNT_DIR}"; then
+    echo "IORA OS: WARN: failed to unmount rootfs partition"
+    try_privileged losetup -d "${LOOP_DEV}" >/dev/null 2>&1 || true
+    rmdir "${MOUNT_DIR}" >/dev/null 2>&1 || true
+    fallback_to_rootfs_ext2
+fi
 
 # Cleanup
 run_privileged losetup -d "${LOOP_DEV}"

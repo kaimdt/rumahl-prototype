@@ -75,6 +75,22 @@ mark_skipped() {
     SKIPPED_ARTIFACTS+=("$1")
 }
 
+xz_compress_file() {
+    local src_file="$1"
+    local dst_file="$2"
+    local tmp_file="${dst_file}.tmp"
+
+    rm -f "${tmp_file}" "${dst_file}"
+
+    # Use streaming compression to avoid metadata/chgrp issues on some filesystems.
+    if ! xz -9 -T0 -c "${src_file}" > "${tmp_file}"; then
+        rm -f "${tmp_file}"
+        return 1
+    fi
+
+    mv -f "${tmp_file}" "${dst_file}"
+}
+
 show_progress_stream() {
     awk '
     BEGIN { step=0; width=28 }
@@ -628,7 +644,7 @@ create_raw_image() {
     cd "${OUTPUT_DIR}"
     rm -f iora-os.img.xz
     log_info "Compressing raw image with xz..."
-    xz -f -9 -T0 -k iora-os.img
+    xz_compress_file "iora-os.img" "iora-os.img.xz"
 
     cp iora-os.img.xz "${RELEASE_DIR}/"
 
@@ -655,7 +671,7 @@ create_qcow2_image() {
 
     # Compress with xz
     log_info "Compressing qcow2 with xz..."
-    xz -f -9 -T0 -k iora-os.qcow2
+    xz_compress_file "iora-os.qcow2" "iora-os.qcow2.xz"
 
     cp iora-os.qcow2.xz "${RELEASE_DIR}/"
 
