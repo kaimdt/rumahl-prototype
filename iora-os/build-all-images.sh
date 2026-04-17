@@ -530,26 +530,6 @@ resolve_installer_initrd() {
         fi
     fi
 
-    if [ -f "${OUTPUT_DIR}/rootfs.tar" ]; then
-        if command -v cpio &> /dev/null && command -v gzip &> /dev/null; then
-            local work_dir
-            work_dir=$(mktemp -d)
-            local generated_cpio_gz="${OUTPUT_DIR}/rootfs.generated.cpio.gz"
-
-            tar -xf "${OUTPUT_DIR}/rootfs.tar" -C "${work_dir}"
-            (
-                cd "${work_dir}"
-                find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9 > "${generated_cpio_gz}"
-            )
-            rm -rf "${work_dir}"
-
-            if [ -f "${generated_cpio_gz}" ]; then
-                echo "${generated_cpio_gz}"
-                return 0
-            fi
-        fi
-    fi
-
     return 1
 }
 
@@ -570,7 +550,8 @@ create_bootable_installer_iso() {
 
     local installer_initrd=""
     if ! installer_initrd=$(resolve_installer_initrd); then
-        log_warn "No usable initrd source found (tried rootfs.cpio.gz/rootfs.cpio/rootfs.tar), skipping bootable installer ISO"
+        log_warn "No usable initrd source found (tried rootfs.cpio.gz/rootfs.cpio), skipping bootable installer ISO"
+        log_warn "Run: ./build.sh resume --reconfigure --progress to regenerate Buildroot cpio initramfs outputs"
         mark_skipped "iora-os-installer-boot.iso (missing initrd source)"
         return
     fi
@@ -610,12 +591,12 @@ set timeout=8
 set default=0
 
 menuentry "IORA OS Installer (normal boot)" {
-    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 systemd.log_level=debug panic=10
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 systemd.log_level=debug ignore_loglevel nomodeset
     initrd /boot/initrd.img
 }
 
 menuentry "IORA OS Installer (rescue shell)" {
-    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 panic=10
+    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset
     initrd /boot/initrd.img
 }
 EOF
