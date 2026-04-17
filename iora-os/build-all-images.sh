@@ -604,15 +604,20 @@ EOF
 
     cat > "${stage_dir}/boot/grub/grub.cfg" <<'EOF'
 set timeout=8
-set default=0
+set default=1
 
 menuentry "IORA OS Installer (normal boot)" {
-    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 systemd.log_level=debug ignore_loglevel nomodeset
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 systemd.log_level=debug ignore_loglevel nomodeset pci=nommconf
+    initrd /boot/initrd.img
+}
+
+menuentry "IORA OS Installer (safe VM boot)" {
+    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf acpi=off noapic nolapic
     initrd /boot/initrd.img
 }
 
 menuentry "IORA OS Installer (rescue shell)" {
-    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset
+    linux /boot/vmlinuz rdinit=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf
     initrd /boot/initrd.img
 }
 EOF
@@ -878,7 +883,8 @@ This release includes multiple image formats for different deployment scenarios:
 3. iora-os-installer-boot.iso
     - Bootable installer ISO (GRUB/UEFI)
     - Includes kernel/initrd and iora-os.img.xz payload
-    - Use rescue menu entry for manual disk install via dd
+    - Default boot entry uses safe VM parameters (pci=nommconf)
+    - Use rescue/safe menu entry for manual disk install via dd
 
 4. iora-os.qcow2.xz
    - QEMU/KVM virtual machine image
