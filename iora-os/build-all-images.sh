@@ -567,36 +567,375 @@ resolve_installer_initrd() {
 build_installer_runtime_initrd() {
     local source_initrd="$1"
     local runtime_initrd="$2"
-    local work_dir
 
     if ! command -v cpio &> /dev/null || ! command -v gzip &> /dev/null; then
+        log_warn "cpio or gzip not available"
         return 1
     fi
 
+    # Strategy: concatenate a tiny cpio containing /init AFTER the original
+    # rootfs.cpio.gz. The Linux kernel initramfs loader processes multiple
+    # concatenated cpio archives sequentially; later entries override earlier
+    # ones. This means our /init replaces whatever init was in the original.
+    #
+    # This avoids extracting the original archive entirely, which fails on
+    # non-root builds because cpio cannot mknod device nodes like /dev/console.
+    # Concatenated gzip streams are valid gzip: cat a.gz b.gz | gunzip works.
+
+    local work_dir
     work_dir=$(mktemp -d)
 
-    if ! gzip -dc "${source_initrd}" | (cd "${work_dir}" && cpio -idm --quiet); then
-        rm -rf "${work_dir}"
-        return 1
-    fi
-
-    cat > "${work_dir}/init" <<'EOF'
+    cat > "${work_dir}/init" <<'INITEOF'
 #!/bin/sh
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+
+# ── Mount virtual filesystems ──────────────────────────────────────
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
-echo "IORA installer initramfs started"
-echo "Starting emergency installer shell..."
-exec /bin/sh
-EOF
+
+if [ ! -e /dev/console ]; then
+    mknod -m 600 /dev/console c 5 1 2>/dev/null || true
+fi
+if [ ! -e /dev/null ]; then
+    mknod -m 666 /dev/null c 1 3 2>/dev/null || true
+fi
+
+mkdir -p /mnt/iso /tmp
+
+# ── Helpers ────────────────────────────────────────────────────────
+ISO_MOUNT="/mnt/iso"
+ISO_IMAGE="iora-os.img.xz"
+MIN_DISK_GB=8
+
+print_banner() {
+    clear 2>/dev/null || true
+    echo ""
+    echo "  ╦╔═╗╦═╗╔═╗   ╔═╗╔═╗"
+    echo "  ║║ ║╠╦╝╠═╣   ║ ║╚═╗"
+    echo "  ╩╚═╝╩╚═╩ ╩   ╚═╝╚═╝"
+    echo ""
+    echo "  Installation Wizard"
+    echo "  ───────────────────────────────────"
+    echo ""
+}
+
+print_line() {
+    echo "  ───────────────────────────────────"
+}
+
+# Mount the installation media (CD-ROM or USB)
+mount_iso() {
+    # Try CD-ROM devices first
+    for dev in /dev/sr0 /dev/sr1 /dev/cdrom; do
+        [ -b "$dev" ] || continue
+        if mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null; then
+            if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
+                return 0
+            fi
+            umount "${ISO_MOUNT}" 2>/dev/null || true
+        fi
+    done
+
+    # Try USB/disk partitions
+    for dev in /dev/sd*[0-9] /dev/vd*[0-9] /dev/nvme*p[0-9]*; do
+        [ -b "$dev" ] || continue
+        if mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null; then
+            if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
+                return 0
+            fi
+            umount "${ISO_MOUNT}" 2>/dev/null || true
+        fi
+    done
+
+    return 1
+}
+
+# Find the device that has the ISO mounted (to exclude it from targets)
+get_iso_parent_disk() {
+    local iso_dev=""
+    iso_dev=$(grep " ${ISO_MOUNT} " /proc/mounts 2>/dev/null | awk '{print $1}' | head -1)
+    [ -z "$iso_dev" ] && return
+    # Strip partition suffix to get parent disk: /dev/sda1 -> sda
+    iso_dev=$(basename "$iso_dev")
+    echo "$iso_dev" | sed 's/[0-9]*$//' | sed 's/p[0-9]*$//'
+}
+
+# Enumerate target disks suitable for installation
+get_disks() {
+    local iso_parent
+    iso_parent=$(get_iso_parent_disk)
+    local found=""
+
+    for disk_path in /sys/block/sd* /sys/block/vd* /sys/block/nvme*; do
+        [ -e "$disk_path" ] || continue
+        local name
+        name=$(basename "$disk_path")
+
+        # Skip non-installable device types
+        case "$name" in
+            sr*|loop*|ram*|zram*|dm-*|md*) continue ;;
+        esac
+
+        # Skip the disk hosting the installer media
+        if [ -n "$iso_parent" ] && [ "$name" = "$iso_parent" ]; then
+            continue
+        fi
+
+        local size_sectors
+        size_sectors=$(cat "${disk_path}/size" 2>/dev/null || echo 0)
+        local size_gb=$(( size_sectors / 2097152 ))  # sectors * 512 / 1073741824
+
+        # Require minimum disk size
+        [ "$size_gb" -lt "$MIN_DISK_GB" ] && continue
+
+        found="${found} ${name}"
+    done
+
+    echo "$found"
+}
+
+# Print details for a single disk
+show_disk_info() {
+    local disk="$1"
+    local size_sectors
+    size_sectors=$(cat "/sys/block/${disk}/size" 2>/dev/null || echo 0)
+    local size_gb=$(( size_sectors / 2097152 ))
+
+    echo "  Device:     /dev/${disk}"
+    echo "  Size:       ${size_gb} GB"
+
+    local model
+    model=$(cat "/sys/block/${disk}/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true)
+    [ -n "$model" ] && echo "  Model:      ${model}"
+
+    local vendor
+    vendor=$(cat "/sys/block/${disk}/device/vendor" 2>/dev/null | sed 's/^ *//;s/ *$//' || true)
+    [ -n "$vendor" ] && echo "  Vendor:     ${vendor}"
+
+    local serial
+    serial=$(cat "/sys/block/${disk}/device/serial" 2>/dev/null || true)
+    [ -n "$serial" ] && echo "  Serial:     ${serial}"
+
+    # Count existing partitions
+    local parts=0
+    for p in /sys/block/${disk}/${disk}*; do
+        [ -e "$p" ] && parts=$((parts + 1))
+    done
+    [ "$parts" -gt 0 ] && echo "  Partitions: ${parts} existing"
+}
+
+# ── Main Wizard ────────────────────────────────────────────────────
+run_wizard() {
+    print_banner
+
+    echo "  Searching for installation media..."
+    echo ""
+
+    if ! mount_iso; then
+        echo "  ERROR: Could not find IORA OS installation image."
+        echo ""
+        echo "  Ensure the installer ISO/USB is connected and contains"
+        echo "  the file '${ISO_IMAGE}'."
+        echo ""
+        echo "  Dropping to shell for manual installation."
+        echo "  Type 'install' to retry the wizard."
+        echo ""
+        return 1
+    fi
+
+    local img_size
+    img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
+    echo "  OK  Installation image found (${img_size})"
+    echo ""
+    print_line
+    echo ""
+
+    # ── Step 1: Disk selection ─────────────────────────────────────
+    local disk_list
+    disk_list=$(get_disks)
+
+    if [ -z "$disk_list" ]; then
+        echo "  ERROR: No suitable target disks found."
+        echo "  IORA OS requires at least ${MIN_DISK_GB} GB of disk space."
+        echo ""
+        echo "  Dropping to shell. Type 'install' to retry."
+        return 1
+    fi
+
+    echo "  STEP 1: Select target disk"
+    echo ""
+
+    local i=1
+    local disk_array=""
+    for disk in $disk_list; do
+        local sz_s
+        sz_s=$(cat "/sys/block/${disk}/size" 2>/dev/null || echo 0)
+        local sz_gb=$(( sz_s / 2097152 ))
+        local mdl
+        mdl=$(cat "/sys/block/${disk}/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true)
+
+        printf "    %d)  /dev/%-8s  %4d GB" "$i" "$disk" "$sz_gb"
+        [ -n "$mdl" ] && printf "  [%s]" "$mdl"
+        echo ""
+
+        disk_array="${disk_array}${disk} "
+        i=$((i + 1))
+    done
+
+    local disk_count=$((i - 1))
+    echo ""
+    echo "    s)  Drop to shell"
+    echo "    r)  Reboot"
+    echo ""
+
+    local choice=""
+    while true; do
+        printf "  Select disk [1-%d]: " "$disk_count"
+        read choice
+
+        case "$choice" in
+            s|S) return 1 ;;
+            r|R) sync; reboot -f ;;
+        esac
+
+        if echo "$choice" | grep -qE '^[0-9]+$'; then
+            if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "$disk_count" ] 2>/dev/null; then
+                break
+            fi
+        fi
+        echo "  Invalid choice. Enter a number between 1 and ${disk_count}."
+    done
+
+    local sel_disk
+    sel_disk=$(echo "$disk_array" | tr ' ' '\n' | sed -n "${choice}p")
+
+    echo ""
+    print_line
+    echo ""
+
+    # ── Step 2: Confirm ────────────────────────────────────────────
+    echo "  STEP 2: Confirm installation"
+    echo ""
+    show_disk_info "$sel_disk"
+    echo ""
+    echo "  ╔════════════════════════════════════════════════╗"
+    echo "  ║  WARNING: ALL data on /dev/${sel_disk} will be erased! ║"
+    echo "  ╚════════════════════════════════════════════════╝"
+    echo ""
+    printf "  Type 'yes' to confirm: "
+    read confirm
+
+    if [ "$confirm" != "yes" ]; then
+        echo ""
+        echo "  Installation cancelled."
+        echo ""
+        printf "  [r]eboot / [s]hell / [m]enu: "
+        read action
+        case "$action" in
+            r|R) sync; reboot -f ;;
+            m|M) run_wizard; return $? ;;
+            *) return 1 ;;
+        esac
+    fi
+
+    echo ""
+    print_line
+    echo ""
+
+    # ── Step 3: Install ────────────────────────────────────────────
+    echo "  STEP 3: Installing IORA OS"
+    echo ""
+
+    # Unmount any existing partitions on the target
+    for part in /dev/${sel_disk}*; do
+        [ -b "$part" ] && umount "$part" 2>/dev/null || true
+    done
+
+    echo "  Writing image to /dev/${sel_disk}..."
+    echo "  (This may take several minutes)"
+    echo ""
+
+    if xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${sel_disk}" bs=4M status=progress conv=fsync 2>&1; then
+        echo ""
+        echo "  Syncing disk..."
+        sync
+
+        echo ""
+        print_line
+        echo ""
+        echo "  IORA OS installed successfully!"
+        echo ""
+        echo "  Please remove the installation media before rebooting."
+        echo ""
+        printf "  Press ENTER to reboot..."
+        read _
+
+        umount "${ISO_MOUNT}" 2>/dev/null || true
+        sync
+        reboot -f
+    else
+        echo ""
+        echo "  ERROR: Installation failed!"
+        echo ""
+        echo "  The image could not be written to /dev/${sel_disk}."
+        echo "  Check the disk and try again."
+        echo ""
+        printf "  [r]eboot / [s]hell / [m]enu: "
+        read action
+        case "$action" in
+            r|R) sync; reboot -f ;;
+            m|M) run_wizard; return $? ;;
+            *) return 1 ;;
+        esac
+    fi
+}
+
+# ── Entry point ────────────────────────────────────────────────────
+
+# Create convenience alias so user can re-run wizard from shell
+cat > /tmp/install_helper.sh <<'HELPEOF'
+#!/bin/sh
+# Source this to get the 'install' command
+HELPEOF
+echo '#!/bin/sh' > /bin/install
+echo 'exec /init' >> /bin/install
+chmod +x /bin/install 2>/dev/null || true
+
+run_wizard
+rc=$?
+
+# If wizard returns (error or shell request), drop to interactive shell
+echo ""
+echo "  Type 'install' to restart the installation wizard."
+echo "  Type 'reboot' to reboot the system."
+echo ""
+
+if [ -x /bin/bash ]; then
+    exec /bin/bash
+elif [ -x /bin/sh ]; then
+    exec /bin/sh
+elif [ -x /bin/busybox ]; then
+    exec /bin/busybox sh
+else
+    exec sh
+fi
+INITEOF
     chmod +x "${work_dir}/init"
 
-    if ! (cd "${work_dir}" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9 > "${runtime_initrd}"); then
+    # Build a tiny cpio archive containing only our /init
+    local supplement="${work_dir}/supplement.cpio.gz"
+    if ! (cd "${work_dir}" && echo init | cpio -ov --format=newc 2>/dev/null | gzip -9 > "${supplement}"); then
+        log_warn "Failed to create init supplement cpio"
         rm -rf "${work_dir}"
         return 1
     fi
 
+    # Concatenate: original rootfs cpio + our init override
+    cat "${source_initrd}" "${supplement}" > "${runtime_initrd}"
+
     rm -rf "${work_dir}"
+    log_info "Installer runtime initrd created ($(du -h "${runtime_initrd}" | cut -f1)) via cpio concatenation"
     return 0
 }
 
@@ -647,47 +986,100 @@ create_bootable_installer_iso() {
     cat > "${stage_dir}/README-INSTALLER.txt" <<'EOF'
 IORA OS Bootable Installer ISO
 
-This ISO is bootable and provides a minimal environment.
-Installation payload file on ISO root:
-  /iora-os.img.xz
+This ISO boots into an interactive installation wizard.
+Follow the on-screen prompts to select a target disk and install.
 
-Typical manual install from installer shell:
+If you need manual control, choose "Drop to shell" from the menu.
+You can re-launch the wizard at any time by typing: install
+
+Manual install from shell:
   mkdir -p /mnt/iso
   mount /dev/sr0 /mnt/iso
-  xzcat /mnt/iso/iora-os.img.xz | dd of=/dev/sda bs=4M status=progress
-  sync
-
-Replace /dev/sda with your target disk.
+  xzcat /mnt/iso/iora-os.img.xz | dd of=/dev/sdX bs=4M status=progress
+  sync && reboot
 EOF
 
     cat > "${stage_dir}/boot/grub/grub.cfg" <<'EOF'
-set timeout=8
-set default=1
+set timeout=10
+set default=0
 
-menuentry "IORA OS Installer (normal boot)" {
-    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf
+menuentry "IORA OS Installer" {
+    linux /boot/vmlinuz nomodeset
     initrd /boot/initrd.img
 }
 
-menuentry "IORA OS Installer (safe VM boot)" {
-    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf acpi=off noapic nolapic
+menuentry "IORA OS Installer (serial console)" {
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 nomodeset
     initrd /boot/initrd.img
 }
 
-menuentry "IORA OS Installer (rescue shell)" {
-    linux /boot/vmlinuz init=/bin/sh console=tty0 console=ttyS0,115200 loglevel=7 ignore_loglevel nomodeset pci=nommconf
+menuentry "IORA OS Installer (safe mode)" {
+    linux /boot/vmlinuz nomodeset noapic acpi=off
     initrd /boot/initrd.img
 }
 EOF
 
-    if ! grub-mkrescue -o "${RELEASE_DIR}/iora-os-installer-boot.iso" "${stage_dir}" >/dev/null 2>&1; then
-        rm -rf "${stage_dir}"
-        log_warn "grub-mkrescue failed, skipping bootable installer ISO"
-        mark_skipped "iora-os-installer-boot.iso (grub-mkrescue failed)"
-        return
+    local grub_log
+    grub_log=$(mktemp)
+    local grub_ok=0
+
+    # Try grub-mkrescue. If it fails, fall back to a manual xorriso-based approach.
+    # grub-mkrescue generates a hybrid BIOS+UEFI bootable ISO.
+    if grub-mkrescue \
+        -o "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+        "${stage_dir}" >"${grub_log}" 2>&1; then
+        grub_ok=1
     fi
 
+    if [ "${grub_ok}" -eq 0 ]; then
+        log_warn "grub-mkrescue failed. Output:"
+        cat "${grub_log}" | while IFS= read -r line; do log_warn "  ${line}"; done
+
+        # Fallback: create a simple UEFI-only bootable ISO using xorriso directly
+        if command -v xorriso &> /dev/null && [ -d /usr/lib/grub/x86_64-efi ]; then
+            log_info "Attempting fallback: manual xorriso UEFI ISO..."
+            local efi_img="${stage_dir}/boot/efi.img"
+
+            # Create a FAT EFI system partition image
+            dd if=/dev/zero of="${efi_img}" bs=1M count=4 2>/dev/null
+            mkfs.vfat "${efi_img}" >/dev/null 2>&1
+            local efi_mount
+            efi_mount=$(mktemp -d)
+            if mount -o loop "${efi_img}" "${efi_mount}" 2>/dev/null || sudo mount -o loop "${efi_img}" "${efi_mount}" 2>/dev/null; then
+                mkdir -p "${efi_mount}/EFI/BOOT"
+                # Build a standalone GRUB EFI binary
+                if grub-mkstandalone --format=x86_64-efi \
+                    --output="${efi_mount}/EFI/BOOT/BOOTX64.EFI" \
+                    --locales="" --fonts="" \
+                    "boot/grub/grub.cfg=${stage_dir}/boot/grub/grub.cfg" 2>/dev/null; then
+                    umount "${efi_mount}" 2>/dev/null || sudo umount "${efi_mount}" 2>/dev/null || true
+                    rmdir "${efi_mount}" 2>/dev/null || true
+
+                    if xorriso -as mkisofs \
+                        -r -J -V "IORA_INSTALLER" \
+                        -e boot/efi.img -no-emul-boot \
+                        -o "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                        "${stage_dir}" >/dev/null 2>&1; then
+                        grub_ok=1
+                        log_info "Fallback xorriso UEFI ISO succeeded"
+                    fi
+                else
+                    umount "${efi_mount}" 2>/dev/null || sudo umount "${efi_mount}" 2>/dev/null || true
+                    rmdir "${efi_mount}" 2>/dev/null || true
+                fi
+            else
+                rmdir "${efi_mount}" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    rm -f "${grub_log}"
     rm -rf "${stage_dir}"
+
+    if [ "${grub_ok}" -eq 0 ]; then
+        mark_skipped "iora-os-installer-boot.iso (grub-mkrescue and fallback both failed)"
+        return
+    fi
 
     local size
     size=$(du -h "${RELEASE_DIR}/iora-os-installer-boot.iso" | cut -f1)
@@ -742,6 +1134,7 @@ create_qcow2_image() {
     xz_compress_file "iora-os.qcow2" "iora-os.qcow2.xz"
 
     cp iora-os.qcow2.xz "${RELEASE_DIR}/"
+    rm -f iora-os.qcow2  # Clean up uncompressed intermediate file
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.qcow2.xz" | cut -f1)
     log_success "QEMU image created: iora-os.qcow2.xz (${size})"
@@ -774,6 +1167,7 @@ create_vdi_image() {
     zip -9 iora-os.vdi.zip iora-os.vdi
 
     cp iora-os.vdi.zip "${RELEASE_DIR}/"
+    rm -f iora-os.vdi  # Clean up intermediate file
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.vdi.zip" | cut -f1)
     log_success "VirtualBox image created: iora-os.vdi.zip (${size})"
@@ -806,6 +1200,7 @@ create_vmdk_image() {
     zip -9 iora-os.vmdk.zip iora-os.vmdk
 
     cp iora-os.vmdk.zip "${RELEASE_DIR}/"
+    rm -f iora-os.vmdk  # Clean up intermediate file
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.vmdk.zip" | cut -f1)
     log_success "VMware image created: iora-os.vmdk.zip (${size})"
@@ -959,16 +1354,18 @@ This release includes multiple image formats for different deployment scenarios:
     - Usage: Mount/extract the ISO, then flash iora-os.img.xz to your target disk
 
 3. iora-os-installer-boot.iso
-    - Bootable installer ISO (GRUB/UEFI)
-    - Includes kernel/initrd and iora-os.img.xz payload
-    - Default boot entry uses safe VM parameters (pci=nommconf)
-    - Use rescue/safe menu entry for manual disk install via dd
+    - Bootable installer ISO (GRUB/UEFI, hybrid BIOS+UEFI)
+    - Includes kernel, initrd, and iora-os.img.xz payload
+    - Boot menu with normal, serial console, and safe mode entries
+    - From the installer shell: mount /dev/sr0, then dd the image to disk
 
 4. iora-os.qcow2.xz
-   - QEMU/KVM virtual machine image
+   - QEMU/KVM virtual machine image (UEFI boot required)
    - Usage:
      xz -d iora-os.qcow2.xz
-     qemu-system-x86_64 -enable-kvm -m 2048 -drive file=iora-os.qcow2,format=qcow2
+     qemu-system-x86_64 -enable-kvm -m 2048 \\
+       -bios /usr/share/ovmf/OVMF.fd \\
+       -drive file=iora-os.qcow2,format=qcow2
 
 5. iora-os.vdi.zip
    - VirtualBox virtual machine image

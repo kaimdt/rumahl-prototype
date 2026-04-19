@@ -32,13 +32,35 @@ cat > "${TARGET_DIR}/etc/docker/daemon.json" <<EOF
 }
 EOF
 
+# Auto-mount data partition at /mnt/data
+cat > "${TARGET_DIR}/etc/systemd/system/mnt-data.mount" <<'EOF'
+[Unit]
+Description=IORA Data Partition
+DefaultDependencies=no
+After=systemd-fsck@dev-disk-by\x2dlabel-iora\x2ddata.service
+Before=local-fs.target
+
+[Mount]
+What=/dev/disk/by-label/iora-data
+Where=/mnt/data
+Type=ext4
+Options=defaults,noatime
+
+[Install]
+WantedBy=local-fs.target
+EOF
+
+ln -sf /etc/systemd/system/mnt-data.mount \
+    "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/mnt-data.mount"
+
 # Install systemd service for Docker Compose
 cat > "${TARGET_DIR}/etc/systemd/system/iora-stack.service" <<'EOF'
 [Unit]
 Description=IORA Docker Stack
-Requires=docker.service
-After=docker.service network-online.target
+Requires=docker.service mnt-data.mount
+After=docker.service network-online.target mnt-data.mount
 Wants=network-online.target
+ConditionPathIsDirectory=/mnt/data/iora
 
 [Service]
 Type=oneshot
@@ -97,12 +119,12 @@ bundle-formats=-plain
 path=/etc/rauc/keyring.pem
 
 [slot.rootfs.0]
-device=/dev/sda2
+device=/dev/sda3
 type=ext4
 bootname=A
 
 [slot.rootfs.1]
-device=/dev/sda3
+device=/dev/sda4
 type=ext4
 bootname=B
 EOF
