@@ -588,6 +588,8 @@ build_installer_runtime_initrd() {
     cat > "${work_dir}/init" <<'INITEOF'
 #!/bin/sh
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+export TERM=linux
+export NCURSES_NO_UTF8_ACS=1
 
 # ── Mount virtual filesystems ──────────────────────────────────────
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
@@ -601,303 +603,464 @@ if [ ! -e /dev/null ]; then
     mknod -m 666 /dev/null c 1 3 2>/dev/null || true
 fi
 
-mkdir -p /mnt/iso /tmp
+mkdir -p /mnt/iso /tmp /run
 
-# ── Helpers ────────────────────────────────────────────────────────
+# Load CD-ROM modules
+modprobe cdrom 2>/dev/null || true
+modprobe sr_mod 2>/dev/null || true
+modprobe iso9660 2>/dev/null || true
+modprobe loop 2>/dev/null || true
+modprobe isofs 2>/dev/null || true
+
+# ── Configuration ──────────────────────────────────────────────────
 ISO_MOUNT="/mnt/iso"
 ISO_IMAGE="iora-os.img.xz"
 MIN_DISK_GB=8
+BACKTITLE="IORA OS Installer"
 
-print_banner() {
-    clear 2>/dev/null || true
-    echo ""
-    echo "  ╦╔═╗╦═╗╔═╗   ╔═╗╔═╗"
-    echo "  ║║ ║╠╦╝╠═╣   ║ ║╚═╗"
-    echo "  ╩╚═╝╩╚═╩ ╩   ╚═╝╚═╝"
-    echo ""
-    echo "  Installation Wizard"
-    echo "  ───────────────────────────────────"
-    echo ""
+# ── Dialog helpers ─────────────────────────────────────────────────
+# Detect dialog or fall back to plain text
+DIALOG_BIN=""
+if command -v dialog >/dev/null 2>&1; then
+    DIALOG_BIN="dialog"
+elif command -v whiptail >/dev/null 2>&1; then
+    DIALOG_BIN="whiptail"
+fi
+
+dlg() {
+    if [ -n "$DIALOG_BIN" ]; then
+        $DIALOG_BIN --backtitle "$BACKTITLE" "$@"
+    fi
 }
 
-print_line() {
-    echo "  ───────────────────────────────────"
+dlg_msg() {
+    local title="$1"; shift
+    if [ -n "$DIALOG_BIN" ]; then
+        dlg --title "$title" --msgbox "$1" 12 60
+    else
+        echo ""; echo "=== $title ==="; echo "$1"; echo ""
+        echo "Press ENTER to continue..."; read _
+    fi
 }
 
-# Mount the installation media (CD-ROM or USB)
+dlg_yesno() {
+    local title="$1"; shift
+    if [ -n "$DIALOG_BIN" ]; then
+        dlg --title "$title" --yesno "$1" 12 60
+        return $?
+    else
+        echo ""; echo "=== $title ==="; echo "$1"
+        printf "[y/n]: "; read ans
+        case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+    fi
+}
+
+dlg_info() {
+    local title="$1"; shift
+    if [ -n "$DIALOG_BIN" ]; then
+        dlg --title "$title" --infobox "$1" 8 60
+    else
+        echo "$1"
+    fi
+}
+
+# ── Mount the installation media ───────────────────────────────────
 mount_iso() {
     # Try CD-ROM devices first
     for dev in /dev/sr0 /dev/sr1 /dev/cdrom; do
         [ -b "$dev" ] || continue
-        if mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null; then
-            if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
-                return 0
-            fi
-            umount "${ISO_MOUNT}" 2>/dev/null || true
+        mount -t iso9660 -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || \
+            mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
+        if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
+            return 0
         fi
+        umount "${ISO_MOUNT}" 2>/dev/null || true
     done
 
     # Try USB/disk partitions
     for dev in /dev/sd*[0-9] /dev/vd*[0-9] /dev/nvme*p[0-9]*; do
         [ -b "$dev" ] || continue
-        if mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null; then
-            if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
-                return 0
-            fi
-            umount "${ISO_MOUNT}" 2>/dev/null || true
+        mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
+        if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
+            return 0
         fi
+        umount "${ISO_MOUNT}" 2>/dev/null || true
     done
 
     return 1
 }
 
-# Find the device that has the ISO mounted (to exclude it from targets)
+# Find the device hosting the ISO (to exclude from target list)
 get_iso_parent_disk() {
     local iso_dev=""
     iso_dev=$(grep " ${ISO_MOUNT} " /proc/mounts 2>/dev/null | awk '{print $1}' | head -1)
     [ -z "$iso_dev" ] && return
-    # Strip partition suffix to get parent disk: /dev/sda1 -> sda
     iso_dev=$(basename "$iso_dev")
     echo "$iso_dev" | sed 's/[0-9]*$//' | sed 's/p[0-9]*$//'
 }
 
-# Enumerate target disks suitable for installation
+# ── Enumerate installable disks ────────────────────────────────────
 get_disks() {
     local iso_parent
     iso_parent=$(get_iso_parent_disk)
-    local found=""
 
     for disk_path in /sys/block/sd* /sys/block/vd* /sys/block/nvme*; do
         [ -e "$disk_path" ] || continue
         local name
         name=$(basename "$disk_path")
 
-        # Skip non-installable device types
         case "$name" in
             sr*|loop*|ram*|zram*|dm-*|md*) continue ;;
         esac
 
-        # Skip the disk hosting the installer media
-        if [ -n "$iso_parent" ] && [ "$name" = "$iso_parent" ]; then
-            continue
-        fi
+        [ -n "$iso_parent" ] && [ "$name" = "$iso_parent" ] && continue
 
         local size_sectors
         size_sectors=$(cat "${disk_path}/size" 2>/dev/null || echo 0)
-        local size_gb=$(( size_sectors / 2097152 ))  # sectors * 512 / 1073741824
+        local size_gb=$(( size_sectors / 2097152 ))
 
-        # Require minimum disk size
         [ "$size_gb" -lt "$MIN_DISK_GB" ] && continue
 
-        found="${found} ${name}"
+        echo "$name"
     done
-
-    echo "$found"
 }
 
-# Print details for a single disk
-show_disk_info() {
+get_disk_size_gb() {
     local disk="$1"
-    local size_sectors
-    size_sectors=$(cat "/sys/block/${disk}/size" 2>/dev/null || echo 0)
-    local size_gb=$(( size_sectors / 2097152 ))
+    local sz=$(cat "/sys/block/${disk}/size" 2>/dev/null || echo 0)
+    echo $(( sz / 2097152 ))
+}
 
-    echo "  Device:     /dev/${disk}"
-    echo "  Size:       ${size_gb} GB"
+get_disk_model() {
+    local disk="$1"
+    cat "/sys/block/${disk}/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true
+}
 
-    local model
-    model=$(cat "/sys/block/${disk}/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true)
-    [ -n "$model" ] && echo "  Model:      ${model}"
+get_disk_vendor() {
+    local disk="$1"
+    cat "/sys/block/${disk}/device/vendor" 2>/dev/null | sed 's/^ *//;s/ *$//' || true
+}
 
-    local vendor
-    vendor=$(cat "/sys/block/${disk}/device/vendor" 2>/dev/null | sed 's/^ *//;s/ *$//' || true)
-    [ -n "$vendor" ] && echo "  Vendor:     ${vendor}"
-
-    local serial
-    serial=$(cat "/sys/block/${disk}/device/serial" 2>/dev/null || true)
-    [ -n "$serial" ] && echo "  Serial:     ${serial}"
-
-    # Count existing partitions
+get_disk_partitions() {
+    local disk="$1"
     local parts=0
     for p in /sys/block/${disk}/${disk}*; do
         [ -e "$p" ] && parts=$((parts + 1))
     done
-    [ "$parts" -gt 0 ] && echo "  Partitions: ${parts} existing"
+    echo "$parts"
 }
 
 # ── Main Wizard ────────────────────────────────────────────────────
 run_wizard() {
-    print_banner
+    # ── Welcome screen ─────────────────────────────────────────────
+    if [ -n "$DIALOG_BIN" ]; then
+        dlg --title " Welcome " --msgbox "\
+    ╦╔═╗╦═╗╔═╗   ╔═╗╔═╗
+    ║║ ║╠╦╝╠═╣   ║ ║╚═╗
+    ╩╚═╝╩╚═╩ ╩   ╚═╝╚═╝
 
-    echo "  Searching for installation media..."
-    echo ""
+    IORA OS Installation Wizard
 
-    if ! mount_iso; then
-        echo "  ERROR: Could not find IORA OS installation image."
+This wizard will guide you through the
+installation of IORA OS on your system.
+
+  - Select a target disk
+  - Confirm the installation
+  - Write the OS image to disk
+
+Press OK to begin." 18 48
+    else
+        clear 2>/dev/null || true
         echo ""
-        echo "  Ensure the installer ISO/USB is connected and contains"
-        echo "  the file '${ISO_IMAGE}'."
+        echo "  IORA OS Installation Wizard"
+        echo "  ==========================="
         echo ""
-        echo "  Dropping to shell for manual installation."
-        echo "  Type 'install' to retry the wizard."
-        echo ""
+        echo "  Press ENTER to begin..."
+        read _
+    fi
+
+    # ── Search for installation media ──────────────────────────────
+    dlg_info " Searching " "Searching for installation media...\n\nPlease wait..."
+    sleep 1
+
+    # Retry mounting with delays (device might not be ready)
+    local mounted=false
+    local attempt=0
+    while [ "$attempt" -lt 5 ]; do
+        if mount_iso; then
+            mounted=true
+            break
+        fi
+        attempt=$((attempt + 1))
+        dlg_info " Searching " "Waiting for installation media... (attempt ${attempt}/5)"
+        sleep 2
+    done
+
+    if [ "$mounted" = false ]; then
+        dlg_msg " Error " "\
+Could not find IORA OS installation image.
+
+Ensure the installer ISO/USB is connected
+and contains the file '${ISO_IMAGE}'.
+
+The system will drop to a shell.
+Type 'install' to retry."
         return 1
     fi
 
     local img_size
     img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
-    echo "  OK  Installation image found (${img_size})"
-    echo ""
-    print_line
-    echo ""
+
+    # ── Verify image integrity ─────────────────────────────────────
+    if [ -f "${ISO_MOUNT}/${ISO_IMAGE}.sha256" ]; then
+        dlg_info " Verifying " "Verifying image integrity (SHA256)...\n\nPlease wait..."
+        if (cd "${ISO_MOUNT}" && sha256sum -c "${ISO_IMAGE}.sha256" >/dev/null 2>&1); then
+            dlg_info " Verified " "Image integrity: OK  (${img_size})"
+            sleep 1
+        else
+            dlg_msg " Warning " "\
+Image checksum verification FAILED!
+
+The installation image may be corrupted.
+Re-download or re-create the installer ISO.
+
+Installation will not continue."
+            return 1
+        fi
+    else
+        dlg_info " Info " "No checksum file found - skipping verification.\nImage size: ${img_size}"
+        sleep 1
+    fi
+
+    # Show version info if available
+    if [ -f "${ISO_MOUNT}/VERSION" ]; then
+        local ver_info
+        ver_info=$(cat "${ISO_MOUNT}/VERSION" 2>/dev/null)
+        if [ -n "$DIALOG_BIN" ]; then
+            dlg --title " Build Info " --msgbox "${ver_info}" 10 50
+        fi
+    fi
 
     # ── Step 1: Disk selection ─────────────────────────────────────
     local disk_list
     disk_list=$(get_disks)
 
     if [ -z "$disk_list" ]; then
-        echo "  ERROR: No suitable target disks found."
-        echo "  IORA OS requires at least ${MIN_DISK_GB} GB of disk space."
-        echo ""
-        echo "  Dropping to shell. Type 'install' to retry."
+        dlg_msg " Error " "\
+No suitable target disks found.
+
+IORA OS requires at least ${MIN_DISK_GB} GB
+of disk space.
+
+Connect a disk and type 'install' to retry."
         return 1
     fi
 
-    echo "  STEP 1: Select target disk"
-    echo ""
+    # Build dialog menu items
+    if [ -n "$DIALOG_BIN" ]; then
+        local menu_args=""
+        local disk_count=0
+        for disk in $disk_list; do
+            local sz=$(get_disk_size_gb "$disk")
+            local mdl=$(get_disk_model "$disk")
+            local label="/dev/${disk} - ${sz}GB"
+            [ -n "$mdl" ] && label="${label} [${mdl}]"
+            menu_args="${menu_args} ${disk} \"${label}\""
+            disk_count=$((disk_count + 1))
+        done
 
-    local i=1
-    local disk_array=""
-    for disk in $disk_list; do
-        local sz_s
-        sz_s=$(cat "/sys/block/${disk}/size" 2>/dev/null || echo 0)
-        local sz_gb=$(( sz_s / 2097152 ))
-        local mdl
-        mdl=$(cat "/sys/block/${disk}/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true)
+        local sel_disk=""
+        local menu_height=$((disk_count + 8))
+        [ "$menu_height" -gt 20 ] && menu_height=20
 
-        printf "    %d)  /dev/%-8s  %4d GB" "$i" "$disk" "$sz_gb"
-        [ -n "$mdl" ] && printf "  [%s]" "$mdl"
+        sel_disk=$(eval $DIALOG_BIN --backtitle '"$BACKTITLE"' \
+            --title '" Step 1: Select Target Disk "' \
+            --menu '"\nInstallation image: ${ISO_IMAGE} (${img_size})\n\nSelect the disk to install IORA OS on:\n"' \
+            "$menu_height" 60 "$disk_count" \
+            $menu_args \
+            3>&1 1>&2 2>&3)
+
+        if [ $? -ne 0 ] || [ -z "$sel_disk" ]; then
+            dlg_msg " Cancelled " "Installation cancelled by user."
+            return 1
+        fi
+    else
+        # Plain text fallback
         echo ""
-
-        disk_array="${disk_array}${disk} "
-        i=$((i + 1))
-    done
-
-    local disk_count=$((i - 1))
-    echo ""
-    echo "    s)  Drop to shell"
-    echo "    r)  Reboot"
-    echo ""
-
-    local choice=""
-    while true; do
+        echo "  === Step 1: Select Target Disk ==="
+        echo ""
+        local i=1
+        local disk_array=""
+        for disk in $disk_list; do
+            local sz=$(get_disk_size_gb "$disk")
+            local mdl=$(get_disk_model "$disk")
+            printf "    %d)  /dev/%-8s  %4d GB" "$i" "$disk" "$sz"
+            [ -n "$mdl" ] && printf "  [%s]" "$mdl"
+            echo ""
+            disk_array="${disk_array}${disk} "
+            i=$((i + 1))
+        done
+        local disk_count=$((i - 1))
+        echo ""
         printf "  Select disk [1-%d]: " "$disk_count"
         read choice
-
-        case "$choice" in
-            s|S) return 1 ;;
-            r|R) sync; reboot -f ;;
-        esac
-
-        if echo "$choice" | grep -qE '^[0-9]+$'; then
-            if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "$disk_count" ] 2>/dev/null; then
-                break
-            fi
+        sel_disk=$(echo "$disk_array" | tr ' ' '\n' | sed -n "${choice}p")
+        if [ -z "$sel_disk" ]; then
+            echo "  Invalid selection."
+            return 1
         fi
-        echo "  Invalid choice. Enter a number between 1 and ${disk_count}."
-    done
-
-    local sel_disk
-    sel_disk=$(echo "$disk_array" | tr ' ' '\n' | sed -n "${choice}p")
-
-    echo ""
-    print_line
-    echo ""
-
-    # ── Step 2: Confirm ────────────────────────────────────────────
-    echo "  STEP 2: Confirm installation"
-    echo ""
-    show_disk_info "$sel_disk"
-    echo ""
-    echo "  ╔════════════════════════════════════════════════╗"
-    echo "  ║  WARNING: ALL data on /dev/${sel_disk} will be erased! ║"
-    echo "  ╚════════════════════════════════════════════════╝"
-    echo ""
-    printf "  Type 'yes' to confirm: "
-    read confirm
-
-    if [ "$confirm" != "yes" ]; then
-        echo ""
-        echo "  Installation cancelled."
-        echo ""
-        printf "  [r]eboot / [s]hell / [m]enu: "
-        read action
-        case "$action" in
-            r|R) sync; reboot -f ;;
-            m|M) run_wizard; return $? ;;
-            *) return 1 ;;
-        esac
     fi
 
-    echo ""
-    print_line
-    echo ""
+    # ── Step 2: Confirmation ───────────────────────────────────────
+    local sz=$(get_disk_size_gb "$sel_disk")
+    local mdl=$(get_disk_model "$sel_disk")
+    local vendor=$(get_disk_vendor "$sel_disk")
+    local parts=$(get_disk_partitions "$sel_disk")
+
+    local disk_info="Device:     /dev/${sel_disk}\nSize:       ${sz} GB"
+    [ -n "$mdl" ] && disk_info="${disk_info}\nModel:      ${mdl}"
+    [ -n "$vendor" ] && disk_info="${disk_info}\nVendor:     ${vendor}"
+    [ "$parts" -gt 0 ] && disk_info="${disk_info}\nPartitions: ${parts} existing"
+
+    if ! dlg_yesno " Step 2: Confirm Installation " "\
+${disk_info}
+
+╔════════════════════════════════════╗
+║  WARNING: ALL data on             ║
+║  /dev/${sel_disk} will be ERASED!       ║
+╚════════════════════════════════════╝
+
+Do you want to proceed?"; then
+        dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
+        return 1
+    fi
 
     # ── Step 3: Install ────────────────────────────────────────────
-    echo "  STEP 3: Installing IORA OS"
-    echo ""
 
-    # Unmount any existing partitions on the target
+    # Unmount any partitions on target disk
     for part in /dev/${sel_disk}*; do
         [ -b "$part" ] && umount "$part" 2>/dev/null || true
     done
 
-    echo "  Writing image to /dev/${sel_disk}..."
-    echo "  (This may take several minutes)"
-    echo ""
+    if [ -n "$DIALOG_BIN" ]; then
+        # Use a gauge for progress display
+        (
+            echo "5"
+            echo "XXX"
+            echo "Preparing disk /dev/${sel_disk}..."
+            echo "XXX"
 
-    if xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${sel_disk}" bs=4M status=progress conv=fsync 2>&1; then
-        echo ""
-        echo "  Syncing disk..."
-        sync
+            # Wipe partition table
+            dd if=/dev/zero of="/dev/${sel_disk}" bs=1M count=1 >/dev/null 2>&1
+            sleep 1
 
-        echo ""
-        print_line
-        echo ""
-        echo "  IORA OS installed successfully!"
-        echo ""
-        echo "  Please remove the installation media before rebooting."
-        echo ""
-        printf "  Press ENTER to reboot..."
-        read _
+            echo "10"
+            echo "XXX"
+            echo "Writing IORA OS image to /dev/${sel_disk}..."
+            echo "This may take several minutes."
+            echo "XXX"
 
-        umount "${ISO_MOUNT}" 2>/dev/null || true
-        sync
-        reboot -f
+            # Write image with progress estimation
+            local img_bytes
+            img_bytes=$(xz --robot --list "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '/^totals/{print $5}' || echo 0)
+            [ "$img_bytes" -eq 0 ] && img_bytes=2000000000  # fallback ~2GB
+
+            xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${sel_disk}" bs=4M conv=fsync 2>/tmp/dd_progress &
+            local dd_pid=$!
+
+            # Monitor progress
+            local written=0
+            while kill -0 "$dd_pid" 2>/dev/null; do
+                if [ -f /tmp/dd_progress ]; then
+                    written=$(grep -o '[0-9]* bytes' /tmp/dd_progress 2>/dev/null | tail -1 | awk '{print $1}' || echo 0)
+                fi
+                if [ "$img_bytes" -gt 0 ] && [ "$written" -gt 0 ]; then
+                    local pct=$((10 + written * 80 / img_bytes))
+                    [ "$pct" -gt 90 ] && pct=90
+                    echo "$pct"
+                fi
+                sleep 3
+            done
+            wait "$dd_pid"
+            local dd_rc=$?
+
+            echo "95"
+            echo "XXX"
+            echo "Syncing disk..."
+            echo "XXX"
+            sync
+            sleep 1
+
+            if [ "$dd_rc" -eq 0 ]; then
+                echo "100"
+                echo "XXX"
+                echo "Installation complete!"
+                echo "XXX"
+            else
+                echo "100"
+                echo "XXX"
+                echo "ERROR: Installation failed!"
+                echo "XXX"
+            fi
+
+            echo "$dd_rc" > /tmp/install_result
+        ) | dlg --title " Step 3: Installing IORA OS " --gauge \
+            "Preparing installation..." 10 60 0
+
+        local result
+        result=$(cat /tmp/install_result 2>/dev/null || echo 1)
+
+        if [ "$result" -eq 0 ]; then
+            dlg_msg " Installation Complete " "\
+IORA OS has been installed successfully
+on /dev/${sel_disk}!
+
+Please remove the installation media
+before rebooting.
+
+Press OK to reboot."
+
+            umount "${ISO_MOUNT}" 2>/dev/null || true
+            sync
+            reboot -f
+        else
+            dlg_msg " Installation Failed " "\
+The image could not be written to
+/dev/${sel_disk}.
+
+Check the disk and try again."
+            return 1
+        fi
     else
+        # Plain text fallback
         echo ""
-        echo "  ERROR: Installation failed!"
+        echo "  === Step 3: Installing IORA OS ==="
         echo ""
-        echo "  The image could not be written to /dev/${sel_disk}."
-        echo "  Check the disk and try again."
+        echo "  Writing image to /dev/${sel_disk}..."
+        echo "  (This may take several minutes)"
         echo ""
-        printf "  [r]eboot / [s]hell / [m]enu: "
-        read action
-        case "$action" in
-            r|R) sync; reboot -f ;;
-            m|M) run_wizard; return $? ;;
-            *) return 1 ;;
-        esac
+
+        if xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${sel_disk}" bs=4M status=progress conv=fsync 2>&1; then
+            sync
+            echo ""
+            echo "  IORA OS installed successfully!"
+            echo ""
+            echo "  Remove the installation media and press ENTER to reboot..."
+            read _
+            umount "${ISO_MOUNT}" 2>/dev/null || true
+            sync
+            reboot -f
+        else
+            echo ""
+            echo "  ERROR: Installation failed!"
+            return 1
+        fi
     fi
 }
 
 # ── Entry point ────────────────────────────────────────────────────
 
-# Create convenience alias so user can re-run wizard from shell
-cat > /tmp/install_helper.sh <<'HELPEOF'
-#!/bin/sh
-# Source this to get the 'install' command
-HELPEOF
+# Create 'install' command to re-run wizard from shell
 echo '#!/bin/sh' > /bin/install
 echo 'exec /init' >> /bin/install
 chmod +x /bin/install 2>/dev/null || true
@@ -905,7 +1068,6 @@ chmod +x /bin/install 2>/dev/null || true
 run_wizard
 rc=$?
 
-# If wizard returns (error or shell request), drop to interactive shell
 echo ""
 echo "  Type 'install' to restart the installation wizard."
 echo "  Type 'reboot' to reboot the system."
@@ -983,11 +1145,46 @@ create_bootable_installer_iso() {
     cp "${runtime_initrd}" "${stage_dir}/boot/initrd.img"
     cp "${RELEASE_DIR}/iora-os.img.xz" "${stage_dir}/iora-os.img.xz"
 
+    # Generate SHA256 checksum for integrity verification
+    log_info "Generating SHA256 checksum for iora-os.img.xz..."
+    (cd "${stage_dir}" && sha256sum iora-os.img.xz > iora-os.img.xz.sha256)
+
+    # Copy additional release artifacts if present
+    for f in "${RELEASE_DIR}/iora-os.qcow2.xz" \
+             "${RELEASE_DIR}/iora-os.vdi.xz" \
+             "${RELEASE_DIR}/iora-os.vmdk.xz" \
+             "${RELEASE_DIR}/iora-os-update.raucb"; do
+        if [ -f "$f" ]; then
+            log_info "Including $(basename "$f") in installer ISO"
+            cp "$f" "${stage_dir}/"
+            (cd "${stage_dir}" && sha256sum "$(basename "$f")" >> checksums.sha256)
+        fi
+    done
+
+    # Append main image checksum to combined checksums file
+    cat "${stage_dir}/iora-os.img.xz.sha256" >> "${stage_dir}/checksums.sha256" 2>/dev/null || true
+
+    # Version & build metadata
+    local kernel_ver=""
+    kernel_ver=$(file "${OUTPUT_DIR}/bzImage" 2>/dev/null | grep -oP 'version \K[0-9.]+' || echo "unknown")
+    cat > "${stage_dir}/VERSION" <<VEOF
+IORA OS
+Build:   $(date '+%Y-%m-%d %H:%M:%S')
+Kernel:  ${kernel_ver}
+Image:   iora-os.img.xz ($(du -h "${stage_dir}/iora-os.img.xz" | cut -f1))
+VEOF
+
     cat > "${stage_dir}/README-INSTALLER.txt" <<'EOF'
 IORA OS Bootable Installer ISO
 
 This ISO boots into an interactive installation wizard.
 Follow the on-screen prompts to select a target disk and install.
+
+Included files:
+- iora-os.img.xz           Compressed raw disk image
+- iora-os.img.xz.sha256    SHA256 checksum
+- checksums.sha256          All checksums
+- VERSION                   Build information
 
 If you need manual control, choose "Drop to shell" from the menu.
 You can re-launch the wizard at any time by typing: install
@@ -995,6 +1192,7 @@ You can re-launch the wizard at any time by typing: install
 Manual install from shell:
   mkdir -p /mnt/iso
   mount /dev/sr0 /mnt/iso
+  sha256sum -c /mnt/iso/iora-os.img.xz.sha256
   xzcat /mnt/iso/iora-os.img.xz | dd of=/dev/sdX bs=4M status=progress
   sync && reboot
 EOF
