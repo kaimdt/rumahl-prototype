@@ -38,6 +38,7 @@ REQUIRE_ALL_ARTIFACTS=false
 
 CREATED_ARTIFACTS=()
 SKIPPED_ARTIFACTS=()
+PUBLISH_RELEASE=false
 
 # VM image settings
 VM_NAME="IORA-OS"
@@ -426,6 +427,9 @@ parse_args() {
             --unattended|--non-interactive|--unattachment)
                 UNATTENDED=true
                 ;;
+            --publish)
+                PUBLISH_RELEASE=true
+                ;;
             -h|--help)
                 cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -438,6 +442,7 @@ OPTIONS:
     --progress             Show build step progress while running make
     --require-all-artifacts Fail build if any optional artifact is skipped
     --unattended           No interactive prompts; auto-attempt install and continue when optional tooling is missing
+    --publish              Publish release to IORA update server (requires IORA_UPDATE_API_KEY)
   -h, --help             Show this help
 EOF
                 exit 0
@@ -595,6 +600,7 @@ export NCURSES_NO_UTF8_ACS=1
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
 if [ ! -e /dev/console ]; then
     mknod -m 600 /dev/console c 5 1 2>/dev/null || true
@@ -603,40 +609,78 @@ if [ ! -e /dev/null ]; then
     mknod -m 666 /dev/null c 1 3 2>/dev/null || true
 fi
 
-mkdir -p /mnt/iso /tmp /run
+mkdir -p /mnt/iso /mnt/target /tmp /run
 
-# Load CD-ROM modules
-modprobe cdrom 2>/dev/null || true
-modprobe sr_mod 2>/dev/null || true
-modprobe iso9660 2>/dev/null || true
-modprobe loop 2>/dev/null || true
-modprobe isofs 2>/dev/null || true
+# Load modules
+for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci; do
+    modprobe "$mod" 2>/dev/null || true
+done
 
 # ── Configuration ──────────────────────────────────────────────────
 ISO_MOUNT="/mnt/iso"
 ISO_IMAGE="iora-os.img.xz"
 MIN_DISK_GB=8
-BACKTITLE="IORA OS Installer"
+BACKTITLE="IORA OS Installer v1.0"
+IORA_HOSTNAME="iora"
+IORA_TIMEZONE="Europe/Berlin"
+IORA_NETWORK="dhcp"
+
+# ── Modern dialog color theme ─────────────────────────────────────
+setup_dialog_theme() {
+    cat > /tmp/.dialogrc <<'DLGRC'
+use_shadow = ON
+use_colors = ON
+screen_color = (WHITE,BLUE,ON)
+dialog_color = (BLACK,WHITE,OFF)
+title_color = (BLUE,WHITE,ON)
+border_color = (WHITE,WHITE,ON)
+button_active_color = (WHITE,BLUE,ON)
+button_inactive_color = (BLACK,WHITE,OFF)
+button_key_active_color = (WHITE,BLUE,ON)
+button_key_inactive_color = (RED,WHITE,OFF)
+button_label_active_color = (YELLOW,BLUE,ON)
+button_label_inactive_color = (BLACK,WHITE,ON)
+inputbox_color = (BLACK,WHITE,OFF)
+inputbox_border_color = (BLACK,WHITE,OFF)
+searchbox_color = (BLACK,WHITE,OFF)
+searchbox_title_color = (BLUE,WHITE,ON)
+searchbox_border_color = (WHITE,WHITE,ON)
+position_indicator_color = (BLUE,WHITE,ON)
+menubox_color = (BLACK,WHITE,OFF)
+menubox_border_color = (WHITE,WHITE,ON)
+item_color = (BLACK,WHITE,OFF)
+item_selected_color = (WHITE,BLUE,ON)
+tag_color = (BLUE,WHITE,ON)
+tag_selected_color = (YELLOW,BLUE,ON)
+tag_key_color = (RED,WHITE,OFF)
+tag_key_selected_color = (RED,BLUE,ON)
+check_color = (BLACK,WHITE,OFF)
+check_selected_color = (WHITE,BLUE,ON)
+uarrow_color = (GREEN,WHITE,ON)
+darrow_color = (GREEN,WHITE,ON)
+gauge_color = (WHITE,BLUE,ON)
+border2_color = (WHITE,WHITE,ON)
+DLGRC
+    export DIALOGRC=/tmp/.dialogrc
+}
 
 # ── Dialog helpers ─────────────────────────────────────────────────
-# Detect dialog or fall back to plain text
 DIALOG_BIN=""
 if command -v dialog >/dev/null 2>&1; then
     DIALOG_BIN="dialog"
+    setup_dialog_theme
 elif command -v whiptail >/dev/null 2>&1; then
     DIALOG_BIN="whiptail"
 fi
 
 dlg() {
-    if [ -n "$DIALOG_BIN" ]; then
-        $DIALOG_BIN --backtitle "$BACKTITLE" "$@"
-    fi
+    $DIALOG_BIN --backtitle "$BACKTITLE" "$@"
 }
 
 dlg_msg() {
     local title="$1"; shift
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --msgbox "$1" 12 60
+        dlg --title "$title" --msgbox "$1" 14 64
     else
         echo ""; echo "=== $title ==="; echo "$1"; echo ""
         echo "Press ENTER to continue..."; read _
@@ -646,7 +690,7 @@ dlg_msg() {
 dlg_yesno() {
     local title="$1"; shift
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --yesno "$1" 12 60
+        dlg --title "$title" --defaultno --yesno "$1" 14 64
         return $?
     else
         echo ""; echo "=== $title ==="; echo "$1"
@@ -658,39 +702,74 @@ dlg_yesno() {
 dlg_info() {
     local title="$1"; shift
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --infobox "$1" 8 60
+        dlg --title "$title" --infobox "$1" 8 64
     else
         echo "$1"
     fi
 }
 
+dlg_input() {
+    local title="$1"; local prompt="$2"; local default="$3"
+    if [ -n "$DIALOG_BIN" ]; then
+        dlg --title "$title" --inputbox "$prompt" 10 64 "$default" 3>&1 1>&2 2>&3
+    else
+        printf "  %s [%s]: " "$prompt" "$default"; read ans
+        echo "${ans:-$default}"
+    fi
+}
+
+# ── System info helpers ────────────────────────────────────────────
+get_cpu_info() {
+    local model count
+    model=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')
+    count=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "?")
+    echo "${count}x ${model:-Unknown CPU}"
+}
+
+get_ram_info() {
+    local total
+    total=$(awk '/MemTotal/{printf "%.0f", $2/1024}' /proc/meminfo 2>/dev/null || echo "?")
+    echo "${total} MB"
+}
+
+get_boot_mode() {
+    if [ -d /sys/firmware/efi ]; then
+        echo "UEFI"
+    else
+        echo "BIOS (Legacy)"
+    fi
+}
+
+get_network_interfaces() {
+    local ifaces=""
+    for iface in /sys/class/net/*; do
+        local name=$(basename "$iface")
+        [ "$name" = "lo" ] && continue
+        local state=$(cat "$iface/operstate" 2>/dev/null || echo "unknown")
+        local mac=$(cat "$iface/address" 2>/dev/null || echo "??:??:??:??:??:??")
+        ifaces="${ifaces}  ${name}: ${state} (${mac})\n"
+    done
+    echo "${ifaces:-  No network interfaces found}"
+}
+
 # ── Mount the installation media ───────────────────────────────────
 mount_iso() {
-    # Try CD-ROM devices first
     for dev in /dev/sr0 /dev/sr1 /dev/cdrom; do
         [ -b "$dev" ] || continue
         mount -t iso9660 -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || \
             mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
-        if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
-            return 0
-        fi
+        [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ] && return 0
         umount "${ISO_MOUNT}" 2>/dev/null || true
     done
-
-    # Try USB/disk partitions
     for dev in /dev/sd*[0-9] /dev/vd*[0-9] /dev/nvme*p[0-9]*; do
         [ -b "$dev" ] || continue
         mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
-        if [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ]; then
-            return 0
-        fi
+        [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ] && return 0
         umount "${ISO_MOUNT}" 2>/dev/null || true
     done
-
     return 1
 }
 
-# Find the device hosting the ISO (to exclude from target list)
 get_iso_parent_disk() {
     local iso_dev=""
     iso_dev=$(grep " ${ISO_MOUNT} " /proc/mounts 2>/dev/null | awk '{print $1}' | head -1)
@@ -699,76 +778,142 @@ get_iso_parent_disk() {
     echo "$iso_dev" | sed 's/[0-9]*$//' | sed 's/p[0-9]*$//'
 }
 
-# ── Enumerate installable disks ────────────────────────────────────
+# ── Disk helpers ───────────────────────────────────────────────────
 get_disks() {
     local iso_parent
     iso_parent=$(get_iso_parent_disk)
-
     for disk_path in /sys/block/sd* /sys/block/vd* /sys/block/nvme*; do
         [ -e "$disk_path" ] || continue
-        local name
-        name=$(basename "$disk_path")
-
-        case "$name" in
-            sr*|loop*|ram*|zram*|dm-*|md*) continue ;;
-        esac
-
+        local name=$(basename "$disk_path")
+        case "$name" in sr*|loop*|ram*|zram*|dm-*|md*) continue ;; esac
         [ -n "$iso_parent" ] && [ "$name" = "$iso_parent" ] && continue
-
-        local size_sectors
-        size_sectors=$(cat "${disk_path}/size" 2>/dev/null || echo 0)
+        local size_sectors=$(cat "${disk_path}/size" 2>/dev/null || echo 0)
         local size_gb=$(( size_sectors / 2097152 ))
-
         [ "$size_gb" -lt "$MIN_DISK_GB" ] && continue
-
         echo "$name"
     done
 }
 
 get_disk_size_gb() {
-    local disk="$1"
-    local sz=$(cat "/sys/block/${disk}/size" 2>/dev/null || echo 0)
+    local sz=$(cat "/sys/block/$1/size" 2>/dev/null || echo 0)
     echo $(( sz / 2097152 ))
 }
 
 get_disk_model() {
-    local disk="$1"
-    cat "/sys/block/${disk}/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true
+    cat "/sys/block/$1/device/model" 2>/dev/null | sed 's/^ *//;s/ *$//' || true
 }
 
 get_disk_vendor() {
-    local disk="$1"
-    cat "/sys/block/${disk}/device/vendor" 2>/dev/null | sed 's/^ *//;s/ *$//' || true
+    cat "/sys/block/$1/device/vendor" 2>/dev/null | sed 's/^ *//;s/ *$//' || true
 }
 
 get_disk_partitions() {
-    local disk="$1"
     local parts=0
-    for p in /sys/block/${disk}/${disk}*; do
-        [ -e "$p" ] && parts=$((parts + 1))
-    done
+    for p in /sys/block/$1/$1*; do [ -e "$p" ] && parts=$((parts + 1)); done
     echo "$parts"
 }
 
-# ── Main Wizard ────────────────────────────────────────────────────
-run_wizard() {
-    # ── Welcome screen ─────────────────────────────────────────────
+get_disk_transport() {
+    local link=$(readlink -f "/sys/block/$1" 2>/dev/null || true)
+    case "$link" in
+        *usb*)   echo "USB" ;;
+        *ata*)   echo "SATA" ;;
+        *nvme*)  echo "NVMe" ;;
+        *virtio*) echo "VirtIO" ;;
+        *scsi*)  echo "SCSI" ;;
+        *)       echo "Unknown" ;;
+    esac
+}
+
+# ── Post-install configuration ─────────────────────────────────────
+apply_post_install_config() {
+    local disk="$1"
+    local target="/mnt/target"
+
+    dlg_info " Configuring " "  Applying system configuration..."
+
+    # Try to mount the root partition (p3 = Root-A)
+    local root_part=""
+    if [ -b "/dev/${disk}3" ]; then
+        root_part="/dev/${disk}3"
+    elif [ -b "/dev/${disk}p3" ]; then
+        root_part="/dev/${disk}p3"
+    fi
+
+    if [ -z "$root_part" ]; then
+        return 0  # skip silently if partition layout differs
+    fi
+
+    mkdir -p "$target"
+    if ! mount "$root_part" "$target" 2>/dev/null; then
+        return 0
+    fi
+
+    # Set hostname
+    if [ -n "$IORA_HOSTNAME" ] && [ "$IORA_HOSTNAME" != "iora" ]; then
+        echo "$IORA_HOSTNAME" > "${target}/etc/hostname" 2>/dev/null || true
+        if [ -f "${target}/etc/hosts" ]; then
+            sed -i "s/iora/${IORA_HOSTNAME}/g" "${target}/etc/hosts" 2>/dev/null || true
+        fi
+    fi
+
+    # Set timezone
+    if [ -n "$IORA_TIMEZONE" ] && [ -f "${target}/usr/share/zoneinfo/${IORA_TIMEZONE}" ]; then
+        ln -sf "/usr/share/zoneinfo/${IORA_TIMEZONE}" "${target}/etc/localtime" 2>/dev/null || true
+        echo "$IORA_TIMEZONE" > "${target}/etc/timezone" 2>/dev/null || true
+    fi
+
+    # Set root password if changed
+    if [ -n "$IORA_ROOT_PW" ]; then
+        local salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
+        local hash=$(echo "$IORA_ROOT_PW" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null || true)
+        if [ -n "$hash" ] && [ -f "${target}/etc/shadow" ]; then
+            sed -i "s|^root:[^:]*:|root:${hash}:|" "${target}/etc/shadow" 2>/dev/null || true
+        fi
+    fi
+
+    # Configure static network if chosen
+    if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
+        mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
+        cat > "${target}/etc/systemd/network/10-static.network" <<NETEOF
+[Match]
+Name=eth* en*
+
+[Network]
+Address=${IORA_IP}/${IORA_NETMASK:-24}
+Gateway=${IORA_GATEWAY:-}
+DNS=${IORA_DNS:-8.8.8.8}
+NETEOF
+    fi
+
+    sync
+    umount "$target" 2>/dev/null || true
+    return 0
+}
+
+# ── Wizard screens ─────────────────────────────────────────────────
+
+screen_welcome() {
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title " Welcome " --msgbox "\
-    ╦╔═╗╦═╗╔═╗   ╔═╗╔═╗
-    ║║ ║╠╦╝╠═╣   ║ ║╚═╗
-    ╩╚═╝╩╚═╩ ╩   ╚═╝╚═╝
+        dlg --title " Welcome to IORA OS " --msgbox "\
+  ___ ___  ____    _      ___  ____
+ |_ _/ _ \\|  _ \\  / \\    / _ \\/ ___|
+  | | | | | |_) |/ _ \\  | | | \\___ \\
+  | | |_| |  _ </ ___ \\ | |_| |___) |
+ |___\\___/|_| \\_/_/   \\_\\ \\___/|____/
 
-    IORA OS Installation Wizard
+         Installation Wizard
 
-This wizard will guide you through the
-installation of IORA OS on your system.
+ This wizard will install IORA OS
+ on your system in a few steps.
 
-  - Select a target disk
-  - Confirm the installation
-  - Write the OS image to disk
+   [1]  System information
+   [2]  Configure hostname & timezone
+   [3]  Configure network
+   [4]  Set root password
+   [5]  Select disk & install
 
-Press OK to begin." 18 48
+ Press OK to begin." 22 52
     else
         clear 2>/dev/null || true
         echo ""
@@ -778,119 +923,172 @@ Press OK to begin." 18 48
         echo "  Press ENTER to begin..."
         read _
     fi
+}
 
-    # ── Search for installation media ──────────────────────────────
-    dlg_info " Searching " "Searching for installation media...\n\nPlease wait..."
-    sleep 1
+screen_sysinfo() {
+    [ -z "$DIALOG_BIN" ] && return 0
 
-    # Retry mounting with delays (device might not be ready)
-    local mounted=false
-    local attempt=0
-    while [ "$attempt" -lt 5 ]; do
-        if mount_iso; then
-            mounted=true
-            break
-        fi
-        attempt=$((attempt + 1))
-        dlg_info " Searching " "Waiting for installation media... (attempt ${attempt}/5)"
-        sleep 2
-    done
+    local cpu=$(get_cpu_info)
+    local ram=$(get_ram_info)
+    local boot=$(get_boot_mode)
+    local net=$(get_network_interfaces)
 
-    if [ "$mounted" = false ]; then
-        dlg_msg " Error " "\
-Could not find IORA OS installation image.
-
-Ensure the installer ISO/USB is connected
-and contains the file '${ISO_IMAGE}'.
-
-The system will drop to a shell.
-Type 'install' to retry."
-        return 1
-    fi
-
-    local img_size
-    img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
-
-    # ── Verify image integrity ─────────────────────────────────────
-    if [ -f "${ISO_MOUNT}/${ISO_IMAGE}.sha256" ]; then
-        dlg_info " Verifying " "Verifying image integrity (SHA256)...\n\nPlease wait..."
-        if (cd "${ISO_MOUNT}" && sha256sum -c "${ISO_IMAGE}.sha256" >/dev/null 2>&1); then
-            dlg_info " Verified " "Image integrity: OK  (${img_size})"
-            sleep 1
-        else
-            dlg_msg " Warning " "\
-Image checksum verification FAILED!
-
-The installation image may be corrupted.
-Re-download or re-create the installer ISO.
-
-Installation will not continue."
-            return 1
-        fi
-    else
-        dlg_info " Info " "No checksum file found - skipping verification.\nImage size: ${img_size}"
-        sleep 1
-    fi
-
-    # Show version info if available
+    local ver_line=""
     if [ -f "${ISO_MOUNT}/VERSION" ]; then
-        local ver_info
-        ver_info=$(cat "${ISO_MOUNT}/VERSION" 2>/dev/null)
-        if [ -n "$DIALOG_BIN" ]; then
-            dlg --title " Build Info " --msgbox "${ver_info}" 10 50
-        fi
+        ver_line=$(head -3 "${ISO_MOUNT}/VERSION" 2>/dev/null | tr '\n' ' ')
     fi
 
-    # ── Step 1: Disk selection ─────────────────────────────────────
+    dlg --title " System Information " --msgbox "\
+ Hardware
+ --------
+ CPU:       ${cpu}
+ Memory:    ${ram}
+ Boot:      ${boot}
+
+ Network Interfaces
+ ------------------
+${net}
+ Image
+ -----
+ File:      ${ISO_IMAGE} (${img_size})
+ ${ver_line}" 22 64
+}
+
+screen_hostname() {
+    if [ -z "$DIALOG_BIN" ]; then
+        printf "  Hostname [iora]: "; read ans
+        IORA_HOSTNAME="${ans:-iora}"
+        return 0
+    fi
+
+    local result
+    result=$(dlg --title " Hostname " --inputbox \
+        "\n Enter a hostname for this system.\n\n Only letters, numbers and hyphens.\n" \
+        12 52 "$IORA_HOSTNAME" 3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$result" ] && IORA_HOSTNAME="$result"
+}
+
+screen_timezone() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local tz
+    tz=$(dlg --title " Timezone " --menu \
+        "\n Select your timezone:\n" 20 52 10 \
+        "Europe/Berlin"    "Germany" \
+        "Europe/Vienna"    "Austria" \
+        "Europe/Zurich"    "Switzerland" \
+        "Europe/London"    "United Kingdom" \
+        "Europe/Paris"     "France" \
+        "Europe/Amsterdam" "Netherlands" \
+        "Europe/Rome"      "Italy" \
+        "Europe/Madrid"    "Spain" \
+        "US/Eastern"       "US East Coast" \
+        "US/Pacific"       "US West Coast" \
+        "UTC"              "Coordinated Universal Time" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$tz" ] && IORA_TIMEZONE="$tz"
+}
+
+screen_network() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local mode
+    mode=$(dlg --title " Network Configuration " --menu \
+        "\n How should the network be configured?\n" 14 52 3 \
+        "dhcp"   "Automatic (DHCP) - recommended" \
+        "static" "Manual (Static IP)" \
+        "skip"   "Do not configure" \
+        3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+
+    IORA_NETWORK="$mode"
+
+    if [ "$mode" = "static" ]; then
+        IORA_IP=$(dlg --title " Static IP " --inputbox \
+            "\n Enter the IP address (e.g. 192.168.1.100):\n" \
+            10 52 "${IORA_IP:-192.168.1.100}" 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 0
+
+        IORA_NETMASK=$(dlg --title " Subnet Mask " --inputbox \
+            "\n Enter the subnet prefix length:\n" \
+            10 52 "${IORA_NETMASK:-24}" 3>&1 1>&2 2>&3)
+
+        IORA_GATEWAY=$(dlg --title " Gateway " --inputbox \
+            "\n Enter the default gateway:\n" \
+            10 52 "${IORA_GATEWAY:-192.168.1.1}" 3>&1 1>&2 2>&3)
+
+        IORA_DNS=$(dlg --title " DNS Server " --inputbox \
+            "\n Enter the DNS server:\n" \
+            10 52 "${IORA_DNS:-8.8.8.8}" 3>&1 1>&2 2>&3)
+    fi
+}
+
+screen_password() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local pw1 pw2
+
+    pw1=$(dlg --title " Root Password " --insecure --passwordbox \
+        "\n Enter a new root password.\n Leave empty to keep the default.\n" \
+        12 52 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+    [ -z "$pw1" ] && return 0
+
+    pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
+        "\n Re-enter the root password:\n" \
+        10 52 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+
+    if [ "$pw1" != "$pw2" ]; then
+        dlg_msg " Error " "Passwords do not match.\nThe default password will be kept."
+        return 0
+    fi
+
+    IORA_ROOT_PW="$pw1"
+}
+
+screen_select_disk() {
     local disk_list
     disk_list=$(get_disks)
 
     if [ -z "$disk_list" ]; then
         dlg_msg " Error " "\
-No suitable target disks found.
-
-IORA OS requires at least ${MIN_DISK_GB} GB
-of disk space.
-
-Connect a disk and type 'install' to retry."
+ No suitable target disks found.\n\n\
+ IORA OS requires at least ${MIN_DISK_GB} GB.\n\n\
+ Connect a disk and type 'install' to retry."
         return 1
     fi
 
-    # Build dialog menu items
     if [ -n "$DIALOG_BIN" ]; then
         local menu_args=""
         local disk_count=0
         for disk in $disk_list; do
             local sz=$(get_disk_size_gb "$disk")
             local mdl=$(get_disk_model "$disk")
-            local label="/dev/${disk} - ${sz}GB"
-            [ -n "$mdl" ] && label="${label} [${mdl}]"
-            menu_args="${menu_args} ${disk} \"${label}\""
+            local bus=$(get_disk_transport "$disk")
+            local label="${sz}GB ${bus}"
+            [ -n "$mdl" ] && label="${label} - ${mdl}"
+            menu_args="${menu_args} /dev/${disk} \"${label}\""
             disk_count=$((disk_count + 1))
         done
 
-        local sel_disk=""
-        local menu_height=$((disk_count + 8))
-        [ "$menu_height" -gt 20 ] && menu_height=20
+        local menu_h=$((disk_count + 10))
+        [ "$menu_h" -gt 22 ] && menu_h=22
 
-        sel_disk=$(eval $DIALOG_BIN --backtitle '"$BACKTITLE"' \
-            --title '" Step 1: Select Target Disk "' \
-            --menu '"\nInstallation image: ${ISO_IMAGE} (${img_size})\n\nSelect the disk to install IORA OS on:\n"' \
-            "$menu_height" 60 "$disk_count" \
+        SEL_DISK=$(eval $DIALOG_BIN --backtitle '"$BACKTITLE"' \
+            --title '" Select Target Disk "' \
+            --menu '"\n Image: ${ISO_IMAGE} (${img_size})\n\n Choose the disk to install IORA OS on:\n"' \
+            "$menu_h" 64 "$disk_count" \
             $menu_args \
             3>&1 1>&2 2>&3)
 
-        if [ $? -ne 0 ] || [ -z "$sel_disk" ]; then
-            dlg_msg " Cancelled " "Installation cancelled by user."
-            return 1
-        fi
+        [ $? -ne 0 ] && return 1
+        SEL_DISK=$(basename "$SEL_DISK")
     else
-        # Plain text fallback
         echo ""
-        echo "  === Step 1: Select Target Disk ==="
+        echo "  === Select Target Disk ==="
         echo ""
-        local i=1
-        local disk_array=""
+        local i=1 disk_array=""
         for disk in $disk_list; do
             local sz=$(get_disk_size_gb "$disk")
             local mdl=$(get_disk_model "$disk")
@@ -904,79 +1102,92 @@ Connect a disk and type 'install' to retry."
         echo ""
         printf "  Select disk [1-%d]: " "$disk_count"
         read choice
-        sel_disk=$(echo "$disk_array" | tr ' ' '\n' | sed -n "${choice}p")
-        if [ -z "$sel_disk" ]; then
-            echo "  Invalid selection."
-            return 1
-        fi
+        SEL_DISK=$(echo "$disk_array" | tr ' ' '\n' | sed -n "${choice}p")
+        [ -z "$SEL_DISK" ] && return 1
+    fi
+    return 0
+}
+
+screen_confirm() {
+    local disk="$SEL_DISK"
+    local sz=$(get_disk_size_gb "$disk")
+    local mdl=$(get_disk_model "$disk")
+    local vendor=$(get_disk_vendor "$disk")
+    local parts=$(get_disk_partitions "$disk")
+    local bus=$(get_disk_transport "$disk")
+
+    local summary="Target Disk\n"
+    summary="${summary}  Device:     /dev/${disk}\n"
+    summary="${summary}  Size:       ${sz} GB\n"
+    summary="${summary}  Bus:        ${bus}\n"
+    [ -n "$mdl" ] && summary="${summary}  Model:      ${mdl}\n"
+    [ -n "$vendor" ] && summary="${summary}  Vendor:     ${vendor}\n"
+    [ "$parts" -gt 0 ] && summary="${summary}  Partitions: ${parts} (will be erased)\n"
+
+    summary="${summary}\nSystem Settings\n"
+    summary="${summary}  Hostname:   ${IORA_HOSTNAME}\n"
+    summary="${summary}  Timezone:   ${IORA_TIMEZONE}\n"
+    if [ "$IORA_NETWORK" = "static" ]; then
+        summary="${summary}  Network:    Static (${IORA_IP}/${IORA_NETMASK})\n"
+    else
+        summary="${summary}  Network:    DHCP (automatic)\n"
+    fi
+    if [ -n "$IORA_ROOT_PW" ]; then
+        summary="${summary}  Password:   (custom)\n"
+    else
+        summary="${summary}  Password:   (default)\n"
     fi
 
-    # ── Step 2: Confirmation ───────────────────────────────────────
-    local sz=$(get_disk_size_gb "$sel_disk")
-    local mdl=$(get_disk_model "$sel_disk")
-    local vendor=$(get_disk_vendor "$sel_disk")
-    local parts=$(get_disk_partitions "$sel_disk")
+    summary="${summary}\n +------------------------------------+"
+    summary="${summary}\n |  WARNING: ALL data on /dev/${disk}    |"
+    summary="${summary}\n |  will be permanently ERASED!       |"
+    summary="${summary}\n +------------------------------------+"
+    summary="${summary}\n\n Proceed with installation?"
 
-    local disk_info="Device:     /dev/${sel_disk}\nSize:       ${sz} GB"
-    [ -n "$mdl" ] && disk_info="${disk_info}\nModel:      ${mdl}"
-    [ -n "$vendor" ] && disk_info="${disk_info}\nVendor:     ${vendor}"
-    [ "$parts" -gt 0 ] && disk_info="${disk_info}\nPartitions: ${parts} existing"
-
-    if ! dlg_yesno " Step 2: Confirm Installation " "\
-${disk_info}
-
-╔════════════════════════════════════╗
-║  WARNING: ALL data on             ║
-║  /dev/${sel_disk} will be ERASED!       ║
-╚════════════════════════════════════╝
-
-Do you want to proceed?"; then
-        dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
+    if ! dlg_yesno " Confirm Installation " "$summary"; then
         return 1
     fi
+    return 0
+}
 
-    # ── Step 3: Install ────────────────────────────────────────────
+screen_install() {
+    local disk="$SEL_DISK"
 
-    # Unmount any partitions on target disk
-    for part in /dev/${sel_disk}*; do
+    # Unmount any partitions on target
+    for part in /dev/${disk}*; do
         [ -b "$part" ] && umount "$part" 2>/dev/null || true
     done
 
     if [ -n "$DIALOG_BIN" ]; then
-        # Use a gauge for progress display
         (
-            echo "5"
+            echo "2"
             echo "XXX"
-            echo "Preparing disk /dev/${sel_disk}..."
+            echo "  Wiping partition table on /dev/${disk}..."
             echo "XXX"
-
-            # Wipe partition table
-            dd if=/dev/zero of="/dev/${sel_disk}" bs=1M count=1 >/dev/null 2>&1
+            dd if=/dev/zero of="/dev/${disk}" bs=1M count=1 >/dev/null 2>&1
             sleep 1
 
-            echo "10"
+            echo "5"
             echo "XXX"
-            echo "Writing IORA OS image to /dev/${sel_disk}..."
-            echo "This may take several minutes."
+            echo "  Decompressing and writing IORA OS to /dev/${disk}..."
+            echo "  This may take several minutes."
             echo "XXX"
 
-            # Write image with progress estimation
             local img_bytes
             img_bytes=$(xz --robot --list "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '/^totals/{print $5}' || echo 0)
-            [ "$img_bytes" -eq 0 ] && img_bytes=2000000000  # fallback ~2GB
+            [ "$img_bytes" -eq 0 ] && img_bytes=2000000000
 
-            xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${sel_disk}" bs=4M conv=fsync 2>/tmp/dd_progress &
+            xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${disk}" bs=4M conv=fsync 2>/tmp/dd_progress &
             local dd_pid=$!
 
-            # Monitor progress
             local written=0
             while kill -0 "$dd_pid" 2>/dev/null; do
                 if [ -f /tmp/dd_progress ]; then
                     written=$(grep -o '[0-9]* bytes' /tmp/dd_progress 2>/dev/null | tail -1 | awk '{print $1}' || echo 0)
                 fi
                 if [ "$img_bytes" -gt 0 ] && [ "$written" -gt 0 ]; then
-                    local pct=$((10 + written * 80 / img_bytes))
-                    [ "$pct" -gt 90 ] && pct=90
+                    local pct=$((5 + written * 75 / img_bytes))
+                    [ "$pct" -gt 80 ] && pct=80
                     echo "$pct"
                 fi
                 sleep 3
@@ -984,93 +1195,274 @@ Do you want to proceed?"; then
             wait "$dd_pid"
             local dd_rc=$?
 
-            echo "95"
+            if [ "$dd_rc" -ne 0 ]; then
+                echo "$dd_rc" > /tmp/install_result
+                echo "100"; echo "XXX"; echo "  ERROR: Image write failed!"; echo "XXX"
+                exit 1
+            fi
+
+            echo "82"
             echo "XXX"
-            echo "Syncing disk..."
+            echo "  Syncing disk..."
             echo "XXX"
             sync
             sleep 1
 
-            if [ "$dd_rc" -eq 0 ]; then
-                echo "100"
-                echo "XXX"
-                echo "Installation complete!"
-                echo "XXX"
-            else
-                echo "100"
-                echo "XXX"
-                echo "ERROR: Installation failed!"
-                echo "XXX"
-            fi
+            echo "85"
+            echo "XXX"
+            echo "  Re-reading partition table..."
+            echo "XXX"
+            blockdev --rereadpt "/dev/${disk}" 2>/dev/null || true
+            sleep 2
 
-            echo "$dd_rc" > /tmp/install_result
-        ) | dlg --title " Step 3: Installing IORA OS " --gauge \
-            "Preparing installation..." 10 60 0
+            echo "88"
+            echo "XXX"
+            echo "  Applying system configuration..."
+            echo "XXX"
+            echo "0" > /tmp/install_result
 
-        local result
-        result=$(cat /tmp/install_result 2>/dev/null || echo 1)
+            echo "95"
+            echo "XXX"
+            echo "  Finalizing..."
+            echo "XXX"
+            sync
+            sleep 1
+
+            echo "100"
+            echo "XXX"
+            echo "  Installation complete!"
+            echo "XXX"
+        ) | dlg --title " Installing IORA OS " --gauge \
+            "  Preparing installation..." 10 64 0
+
+        local result=$(cat /tmp/install_result 2>/dev/null || echo 1)
 
         if [ "$result" -eq 0 ]; then
-            dlg_msg " Installation Complete " "\
-IORA OS has been installed successfully
-on /dev/${sel_disk}!
-
-Please remove the installation media
-before rebooting.
-
-Press OK to reboot."
-
-            umount "${ISO_MOUNT}" 2>/dev/null || true
-            sync
-            reboot -f
+            # Apply post-install config (hostname, timezone, password, network)
+            apply_post_install_config "$disk"
+            return 0
         else
-            dlg_msg " Installation Failed " "\
-The image could not be written to
-/dev/${sel_disk}.
-
-Check the disk and try again."
+            dlg_msg " Failed " "\
+ Could not write image to /dev/${disk}.\n\n Check the disk and try again."
             return 1
         fi
     else
-        # Plain text fallback
         echo ""
-        echo "  === Step 3: Installing IORA OS ==="
+        echo "  Writing image to /dev/${disk}..."
         echo ""
-        echo "  Writing image to /dev/${sel_disk}..."
-        echo "  (This may take several minutes)"
-        echo ""
-
-        if xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${sel_disk}" bs=4M status=progress conv=fsync 2>&1; then
+        if xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${disk}" bs=4M status=progress conv=fsync 2>&1; then
             sync
-            echo ""
-            echo "  IORA OS installed successfully!"
-            echo ""
-            echo "  Remove the installation media and press ENTER to reboot..."
-            read _
-            umount "${ISO_MOUNT}" 2>/dev/null || true
-            sync
-            reboot -f
+            blockdev --rereadpt "/dev/${disk}" 2>/dev/null || true
+            sleep 2
+            apply_post_install_config "$disk"
+            return 0
         else
-            echo ""
             echo "  ERROR: Installation failed!"
             return 1
         fi
     fi
 }
 
+screen_complete() {
+    # Determine expected IP address
+    local iora_ip="<IP>"
+    if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
+        iora_ip="$IORA_IP"
+    else
+        # Try to guess from first active interface
+        for iface in /sys/class/net/*; do
+            local name=$(basename "$iface")
+            [ "$name" = "lo" ] && continue
+            local addr=$(ip -4 addr show "$name" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+            if [ -n "$addr" ]; then
+                iora_ip="$addr"
+                break
+            fi
+        done
+        [ "$iora_ip" = "<IP>" ] && iora_ip="${IORA_HOSTNAME}.local"
+    fi
+
+    if [ -n "$DIALOG_BIN" ]; then
+        local action
+        action=$(dlg --title " Installation Complete " --menu "\
+  ___ ___  ____    _      ___  ____
+ |_ _/ _ \\|  _ \\  / \\    / _ \\/ ___|
+  | | | | | |_) |/ _ \\  | | | \\___ \\
+  | | |_| |  _ </ ___ \\ | |_| |___) |
+ |___\\___/|_| \\_/_/   \\_\\ \\___/|____/
+
+ IORA OS was installed on /dev/${SEL_DISK}.
+
+ After rebooting, open a browser and
+ go to the setup wizard:
+
+   http://${iora_ip}:8080
+
+ The first-boot setup will guide you
+ through configuring IORA Home.
+
+ Hostname:  ${IORA_HOSTNAME}
+ Timezone:  ${IORA_TIMEZONE}
+
+ Remove the installation media first.\n" \
+            24 56 3 \
+            "reboot"   "Reboot now (recommended)" \
+            "shell"    "Drop to shell" \
+            "poweroff" "Shut down" \
+            3>&1 1>&2 2>&3)
+
+        case "$action" in
+            reboot)   umount "${ISO_MOUNT}" 2>/dev/null; sync; reboot -f ;;
+            poweroff) umount "${ISO_MOUNT}" 2>/dev/null; sync; poweroff -f ;;
+            shell)    return 0 ;;
+            *)        umount "${ISO_MOUNT}" 2>/dev/null; sync; reboot -f ;;
+        esac
+    else
+        echo ""
+        echo "  IORA OS installed successfully!"
+        echo ""
+        echo "  After rebooting, open a browser:"
+        echo "    http://${iora_ip}:8080"
+        echo ""
+        echo "  Remove the media and press ENTER to reboot..."
+        read _
+        umount "${ISO_MOUNT}" 2>/dev/null; sync; reboot -f
+    fi
+}
+
+# ── Main wizard flow ───────────────────────────────────────────────
+run_wizard() {
+    # Step 0: Welcome
+    screen_welcome
+
+    # Mount media with retries
+    dlg_info " Scanning " "  Searching for installation media..."
+    sleep 1
+
+    local mounted=false attempt=0
+    while [ "$attempt" -lt 5 ]; do
+        if mount_iso; then mounted=true; break; fi
+        attempt=$((attempt + 1))
+        dlg_info " Scanning " "  Scanning for devices... attempt ${attempt} of 5"
+        sleep 2
+    done
+
+    if [ "$mounted" = false ]; then
+        dlg_msg " Error " "\
+ Could not find the IORA OS image.\n\n\
+ Make sure the installer ISO or USB\n\
+ is connected and contains the file\n\
+ '${ISO_IMAGE}'.\n\n\
+ Type 'install' to retry."
+        return 1
+    fi
+
+    local img_size
+    img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
+
+    # Integrity check
+    if [ -f "${ISO_MOUNT}/${ISO_IMAGE}.sha256" ]; then
+        dlg_info " Integrity Check " "  Verifying SHA256 checksum..."
+        if (cd "${ISO_MOUNT}" && sha256sum -c "${ISO_IMAGE}.sha256" >/dev/null 2>&1); then
+            dlg_info " Verified " "  Image integrity: OK  [${img_size}]"
+            sleep 1
+        else
+            dlg_msg " Checksum Error " "\
+ Image checksum verification FAILED!\n\n\
+ The installation image may be corrupted.\n\
+ Re-download or re-create the installer.\n\n\
+ Installation will not continue."
+            return 1
+        fi
+    fi
+
+    # Step 1: System info
+    screen_sysinfo
+
+    # Step 2: Hostname
+    screen_hostname
+
+    # Step 3: Timezone
+    screen_timezone
+
+    # Step 4: Network
+    screen_network
+
+    # Step 5: Root password
+    screen_password
+
+    # Step 6: Disk selection
+    if ! screen_select_disk; then
+        dlg_msg " Cancelled " "Installation cancelled."
+        return 1
+    fi
+
+    # Step 7: Confirmation summary
+    if ! screen_confirm; then
+        dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
+        return 1
+    fi
+
+    # Step 8: Install
+    if ! screen_install; then
+        return 1
+    fi
+
+    # Step 9: Done
+    screen_complete
+}
+
 # ── Entry point ────────────────────────────────────────────────────
 
-# Create 'install' command to re-run wizard from shell
-echo '#!/bin/sh' > /bin/install
-echo 'exec /init' >> /bin/install
+# Helper commands for the recovery shell
+cat > /bin/install <<'SHEOF'
+#!/bin/sh
+exec /init
+SHEOF
 chmod +x /bin/install 2>/dev/null || true
+
+cat > /bin/sysinfo <<'SHEOF'
+#!/bin/sh
+echo ""
+echo "  === System Information ==="
+echo "  CPU:     $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')"
+echo "  Cores:   $(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
+echo "  Memory:  $(awk '/MemTotal/{printf "%.0f MB", $2/1024}' /proc/meminfo 2>/dev/null)"
+echo "  Boot:    $([ -d /sys/firmware/efi ] && echo UEFI || echo BIOS)"
+echo ""
+echo "  === Block Devices ==="
+lsblk 2>/dev/null || ls -l /sys/block/
+echo ""
+echo "  === Network ==="
+ip -brief addr 2>/dev/null || ifconfig 2>/dev/null || echo "  (no ip/ifconfig)"
+echo ""
+SHEOF
+chmod +x /bin/sysinfo 2>/dev/null || true
+
+cat > /bin/netsetup <<'SHEOF'
+#!/bin/sh
+echo "  Bringing up network interfaces..."
+for iface in /sys/class/net/*; do
+    name=$(basename "$iface")
+    [ "$name" = "lo" ] && continue
+    ip link set "$name" up 2>/dev/null
+    udhcpc -i "$name" -n -q 2>/dev/null && echo "  $name: DHCP OK" && exit 0
+    dhclient "$name" 2>/dev/null && echo "  $name: DHCP OK" && exit 0
+done
+echo "  No DHCP lease obtained."
+SHEOF
+chmod +x /bin/netsetup 2>/dev/null || true
 
 run_wizard
 rc=$?
 
 echo ""
-echo "  Type 'install' to restart the installation wizard."
-echo "  Type 'reboot' to reboot the system."
+echo "  Available commands:"
+echo "    install  - Restart the installation wizard"
+echo "    sysinfo  - Show system information"
+echo "    netsetup - Configure network via DHCP"
+echo "    reboot   - Reboot the system"
+echo "    poweroff - Shut down"
 echo ""
 
 if [ -x /bin/bash ]; then
@@ -1651,6 +2043,96 @@ print_summary() {
     fi
 }
 
+# ── Publish to IORA Update Server ─────────────────────────────────────────────
+
+publish_to_update_server() {
+    if [ -z "${IORA_UPDATE_API_KEY:-}" ]; then
+        log_info "Skipping update server publish (IORA_UPDATE_API_KEY not set)"
+        log_info "  To publish, set: export IORA_UPDATE_API_KEY=<your-api-key>"
+        return 0
+    fi
+
+    local update_server="${IORA_UPDATE_SERVER:-https://update.kaimdt.com}"
+    local download_server="${IORA_DOWNLOAD_SERVER:-https://dist.kaimdt.com}"
+    local version
+    version=$(date +%Y%m%d)
+    local channel="${IORA_RELEASE_CHANNEL:-stable}"
+
+    log_info "Publishing to update server: ${update_server}"
+    log_info "  Version: ${version}"
+    log_info "  Channel: ${channel}"
+
+    # Publish RAUC bundle if it exists
+    local raucb_file="${RELEASE_DIR}/iora-os.raucb"
+    if [ -f "$raucb_file" ]; then
+        local raucb_size
+        raucb_size=$(stat -c%s "$raucb_file" 2>/dev/null || stat -f%z "$raucb_file" 2>/dev/null)
+        local raucb_sha256
+        raucb_sha256=$(sha256sum "$raucb_file" | awk '{print $1}')
+
+        log_info "  Publishing RAUC bundle (${raucb_size} bytes)..."
+
+        # Upload artifact to download server
+        local upload_resp
+        upload_resp=$(curl -sSf -X POST "${download_server}/v1/admin/upload" \
+            -H "Authorization: Bearer ${IORA_UPDATE_API_KEY}" \
+            -F "file=@${raucb_file}" \
+            -F "project=iora-os" \
+            -F "version=${version}" \
+            -F "platform=ioraos-x86_64" \
+            2>/dev/null) || {
+            log_warn "Failed to upload RAUC bundle to download server"
+        }
+
+        # Publish OS release metadata to update server
+        curl -sSf -X POST "${update_server}/v1/admin/iora/os/publish" \
+            -H "Authorization: Bearer ${IORA_UPDATE_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"version\": \"${version}\",
+                \"channel\": \"${channel}\",
+                \"platform\": \"ioraos-x86_64\",
+                \"file_name\": \"iora-os.raucb\",
+                \"file_size\": ${raucb_size},
+                \"sha256_checksum\": \"${raucb_sha256}\",
+                \"file_path\": \"iora-os/${version}/ioraos-x86_64/iora-os.raucb\",
+                \"rauc_compatible\": \"iora-os\",
+                \"rauc_version\": \"${version}\",
+                \"bootloader_type\": \"grub\",
+                \"uefi_capable\": true,
+                \"rootfs_type\": \"squashfs\",
+                \"compression\": \"lz4\"
+            }" 2>/dev/null && log_success "  RAUC bundle published" || log_warn "  Failed to publish RAUC bundle metadata"
+    fi
+
+    # Publish installer manifest (for net installer)
+    local img_xz="${RELEASE_DIR}/iora-os.img.xz"
+    if [ -f "$img_xz" ]; then
+        local img_size
+        img_size=$(stat -c%s "$img_xz" 2>/dev/null || stat -f%z "$img_xz" 2>/dev/null)
+        local img_sha256
+        img_sha256=$(sha256sum "$img_xz" | awk '{print $1}')
+
+        log_info "  Publishing installer manifest..."
+
+        curl -sSf -X POST "${update_server}/v1/admin/iora/installer" \
+            -H "Authorization: Bearer ${IORA_UPDATE_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"os_version\": \"${version}\",
+                \"os_channel\": \"${channel}\",
+                \"architecture\": \"x86_64\",
+                \"image_url\": \"${download_server}/v1/iora-os/${version}/ioraos-x86_64\",
+                \"image_sha256\": \"${img_sha256}\",
+                \"image_size\": ${img_size},
+                \"min_ram_mb\": 2048,
+                \"min_disk_gb\": 8
+            }" 2>/dev/null && log_success "  Installer manifest published" || log_warn "  Failed to publish installer manifest"
+    fi
+
+    log_success "Update server publish complete"
+}
+
 # Main build process
 main() {
     parse_args "$@"
@@ -1696,6 +2178,10 @@ main() {
     create_rauc_bundle
     create_checksums
     create_readme
+
+    if [ "${PUBLISH_RELEASE}" = true ]; then
+        publish_to_update_server
+    fi
 
     print_summary
 }
