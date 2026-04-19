@@ -474,7 +474,7 @@ configure_buildroot() {
     log_info "Configuring Buildroot for IORA OS..."
 
     cd "${BUILD_DIR}"
-    PATH="${BUILDROOT_SAFE_PATH}" make BR2_EXTERNAL="${SCRIPT_DIR}" iora_defconfig
+    PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" iora_defconfig
 
     log_success "Buildroot configured"
 }
@@ -485,9 +485,9 @@ build_base_image() {
 
     cd "${BUILD_DIR}"
     if [ "${PROGRESS}" = true ]; then
-        PATH="${BUILDROOT_SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)" 2>&1 | show_progress_stream
+        PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)" 2>&1 | show_progress_stream
     else
-        PATH="${BUILDROOT_SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)"
+        PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)"
     fi
 
     log_success "Base image built successfully"

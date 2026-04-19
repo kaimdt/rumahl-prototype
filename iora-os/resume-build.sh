@@ -187,25 +187,25 @@ cd "${BUILD_DIR}"
 
 if [ "${RECONFIGURE}" = true ] || [ ! -f ".config" ]; then
     log_info "Running iora_defconfig..."
-    PATH="${SAFE_PATH}" make BR2_EXTERNAL="${SCRIPT_DIR}" iora_defconfig
+    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" iora_defconfig
 fi
 
 if [ "${CLEAN_GLIBC}" = true ]; then
     log_warn "Cleaning glibc build directory before resume..."
-    PATH="${SAFE_PATH}" make glibc-dirclean
+    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make glibc-dirclean
 fi
 
 if [ "${CLEAN_LINUX}" = true ]; then
     log_warn "Cleaning linux build directory before resume..."
-    PATH="${SAFE_PATH}" make linux-dirclean
+    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make linux-dirclean
 fi
 
 set +e
 if [ "${PROGRESS}" = true ]; then
-    PATH="${SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
+    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 else
-    PATH="${SAFE_PATH}" IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
+    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 fi
 set -e
