@@ -1001,12 +1001,22 @@ detect_target_root_partition() {
     mkdir -p "$target_probe"
 
     for p in $(seq 1 16); do
-        local part
+        local part fstype
         part=$(disk_part_name "$disk" "$p")
         [ -b "$part" ] || continue
 
+        # Skip partitions that are almost certainly not root filesystems.
+        if command -v blkid >/dev/null 2>&1; then
+            fstype=$(blkid -s TYPE -o value "$part" 2>/dev/null || true)
+            case "$fstype" in
+                vfat|fat|msdos|iso9660|squashfs|swap)
+                    continue
+                    ;;
+            esac
+        fi
+
         mount "$part" "$target_probe" 2>/dev/null || continue
-        if [ -f "${target_probe}/etc/os-release" ] || [ -x "${target_probe}/sbin/init" ] || [ -d "${target_probe}/boot" ]; then
+        if [ -f "${target_probe}/etc/os-release" ] || [ -x "${target_probe}/sbin/init" ] || [ -x "${target_probe}/bin/sh" ] || [ -f "${target_probe}/etc/passwd" ]; then
             umount "$target_probe" 2>/dev/null || true
             echo "$part"
             return 0
@@ -1177,11 +1187,11 @@ repair_disk_and_bootloader() {
 
     log_r "Root-A: ${root_a_ref}  Root-B: ${root_b_ref}"
 
-    # Find kernel image (bzImage first, then vmlinuz)
-    local kernel_path="/vmlinuz"
-    if [ -f "${target}/boot/vmlinuz" ]; then
-        kernel_path="/boot/vmlinuz"
-    elif [ -f "${target}/boot/bzImage" ]; then
+    # Prefer kernel under rootfs /boot; keep /vmlinuz fallback for legacy layouts.
+    local kernel_path="/boot/vmlinuz"
+    if [ ! -f "${target}/boot/vmlinuz" ] && [ -f "${target}/vmlinuz" ]; then
+        kernel_path="/vmlinuz"
+    elif [ ! -f "${target}/boot/vmlinuz" ] && [ -f "${target}/boot/bzImage" ]; then
         kernel_path="/boot/bzImage"
     fi
     log_r "Kernel: ${kernel_path}"
@@ -1192,16 +1202,36 @@ set default=0
 set timeout=5
 
 menuentry "IORA OS" {
-    search --no-floppy --set=root --label "iora-data" 2>/dev/null || true
-    linux ${kernel_path} root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    search --no-floppy --partuuid ${puuid_a:-00000000-0000-0000-0000-000000000000} --set=root 2>/dev/null || true
+    if [ -f /boot/vmlinuz ]; then
+        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    elif [ -f /vmlinuz ]; then
+        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    elif [ -f /boot/bzImage ]; then
+        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    fi
 }
 
 menuentry "IORA OS (second slot)" {
-    linux ${kernel_path} root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    search --no-floppy --partuuid ${puuid_b:-00000000-0000-0000-0000-000000000000} --set=root 2>/dev/null || true
+    if [ -f /boot/vmlinuz ]; then
+        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    elif [ -f /vmlinuz ]; then
+        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    elif [ -f /boot/bzImage ]; then
+        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    fi
 }
 
 menuentry "IORA OS Recovery" {
-    linux ${kernel_path} root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+    search --no-floppy --partuuid ${puuid_a:-00000000-0000-0000-0000-000000000000} --set=root 2>/dev/null || true
+    if [ -f /boot/vmlinuz ]; then
+        linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+    elif [ -f /vmlinuz ]; then
+        linux /vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+    elif [ -f /boot/bzImage ]; then
+        linux /boot/bzImage root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+    fi
 }
 GRUBCFG
     log_r "grub.cfg written"
@@ -1238,7 +1268,7 @@ GRUBCFG
             log_r "grub-install i386-pc failed (may be UEFI-only system)"
         fi
         # UEFI (x86_64-efi)
-        if [ "$efi_mounted" = true ] || [ -d /sys/firmware/efi ]; then
+        if [ "$efi_mounted" = true ] && [ -d /sys/firmware/efi ]; then
             if chroot "$target" /bin/sh -c \
                 "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck /dev/${disk}" \
                 >> "$logfile" 2>&1; then
@@ -1260,7 +1290,7 @@ GRUBCFG
             log_r "installer grub-install i386-pc failed"
         fi
 
-        if [ "$efi_mounted" = true ] || [ -d /sys/firmware/efi ]; then
+        if [ "$efi_mounted" = true ] && [ -d /sys/firmware/efi ]; then
             if "$installer_grub_install" --target=x86_64-efi --efi-directory="${target}/boot/efi" --boot-directory="${target}/boot" --removable --recheck "/dev/${disk}" >> "$logfile" 2>&1; then
                 uefi_ok=true; log_r "installer grub-install x86_64-efi OK"
             else
@@ -1291,6 +1321,11 @@ GRUBCFG
             log_r "BOOTX64.EFI already present"
         else
             log_r "WARN: No grubx64.efi source found for UEFI fallback"
+        fi
+
+        # Presence of a removable UEFI loader is sufficient for UEFI boot attempt.
+        if [ -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ] && [ -d /sys/firmware/efi ]; then
+            uefi_ok=true
         fi
 
         # efibootmgr: register IORA OS boot entry if running in UEFI installer
@@ -1335,6 +1370,16 @@ GRUBCFG
             || log_r "Final GPT verify: issues remain (check log)"
     fi
 
+    # If BIOS grub-install wasn't possible, but GPT has a BIOS boot partition,
+    # keep BIOS status as possible because the dd-written image may already
+    # contain embedded core.img from post-image creation.
+    if [ "$bios_ok" = false ] && is_gpt_disk "$disk" && command -v sgdisk >/dev/null 2>&1; then
+        if sgdisk -i 1 "/dev/${disk}" 2>/dev/null | grep -qi "EF02\|BIOS boot"; then
+            bios_ok=true
+            log_r "BIOS boot partition detected (EF02); BIOS boot may be available"
+        fi
+    fi
+
     log_r "=== Boot repair complete ==="
     log_r "BIOS-boot: ${bios_ok}  UEFI-boot: ${uefi_ok}"
     return 0
@@ -1374,7 +1419,7 @@ install_bootloader_fallback() {
             bios_install_ok=true
         fi
 
-        if [ "$efi_mounted" = true ] || [ -d /sys/firmware/efi ]; then
+        if [ "$efi_mounted" = true ] && [ -d /sys/firmware/efi ]; then
             if chroot "$target" /bin/sh -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck" >/dev/null 2>&1; then
                 uefi_install_ok=true
             fi
