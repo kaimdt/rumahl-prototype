@@ -41,6 +41,7 @@ mod person_tracker;
 mod location_sync;
 mod desktop_gateway;
 mod notification_dispatcher;
+mod documentation;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -763,6 +764,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Protected data routes (JWT or API key required)
     let data_routes = Router::new()
+        // Documentation endpoints
+        .route("/api/documentation/config", get(documentation::get_docs_config))
+        .route("/api/documentation/list", get(documentation::list_docs))
+        .route("/api/documentation/*doc_path", get(documentation::get_doc_file))
         // Home Assistant API proxy
         .route("/api/states", get(get_states))
         .route("/api/states/:entity_id", get(get_state))

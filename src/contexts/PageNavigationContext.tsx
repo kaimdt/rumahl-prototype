@@ -269,9 +269,10 @@ export const iconMap = {
 
 const builtInPages = ['lights', 'climate', 'switches', 'sensors', 'settings', 'docs', 'streaming']
 
-function pageIdToPath(id: string): string {
+function pageIdToPath(id: string, docPath?: string): string {
   if (id === 'home') return '/'
   if (id === 'admin') return '/admin'
+  if (id === 'docs' && docPath) return `/docs/${docPath}`
   if (builtInPages.includes(id)) return `/${id}`
   return `/page/${id}`
 }
@@ -279,8 +280,16 @@ function pageIdToPath(id: string): string {
 function pathToPageId(path: string): string {
   if (path === '/' || path === '') return 'home'
   if (path.startsWith('/admin')) return 'admin'
+  if (path.startsWith('/docs/') || path.startsWith('/docs')) return 'docs'
   if (path.startsWith('/page/')) return path.slice(6)
   return path.slice(1)
+}
+
+function extractDocPath(path: string): string | null {
+  if (path.startsWith('/docs/')) {
+    return path.slice(6) // Remove '/docs/' prefix
+  }
+  return null
 }
 
 // ── Backend sync helpers ──────────────────────────────────────────────
