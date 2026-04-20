@@ -9,6 +9,16 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WidgetDefaultView {
+    /// HTML/Component content for default view
+    pub content: String,
+    /// Message to display when provider is unavailable
+    pub message: String,
+    /// Icon or image URL for default view
+    pub icon_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WidgetDefinition {
     pub id: String,
     pub provider_id: String,      // App or Plugin ID
@@ -19,6 +29,7 @@ pub struct WidgetDefinition {
     pub component_url: String,    // URL to widget component (for dynamic loading)
     pub config_schema: Option<serde_json::Value>,
     pub default_config: Option<serde_json::Value>,
+    pub default_view: Option<WidgetDefaultView>,  // Fallback view when provider unavailable
     pub permissions: Vec<String>,
     pub registered_at: String,
     pub is_available: bool,
@@ -165,15 +176,15 @@ impl WidgetRegistry {
     }
 
     /// Create a widget instance
+    /// Widgets can be created even if provider is unavailable (will show default view)
     pub async fn create_instance(&self, instance: WidgetInstance) -> anyhow::Result<()> {
-        // Check if widget exists and is available
+        // Check if widget exists (but don't require it to be available)
         let widgets = self.widgets.read().await;
-        let widget = widgets.get(&instance.widget_id)
+        let _widget = widgets.get(&instance.widget_id)
             .ok_or_else(|| anyhow::anyhow!("Widget '{}' not found", instance.widget_id))?;
 
-        if !widget.is_available {
-            anyhow::bail!("Widget '{}' is currently unavailable", instance.widget_id);
-        }
+        // Widget availability no longer blocks instance creation
+        // If unavailable, default view will be shown
         drop(widgets);
 
         let mut instances = self.instances.write().await;
