@@ -29,6 +29,9 @@ pub enum IoraError {
     #[error("Plugin execution error: {0}")]
     PluginError(String),
 
+    #[error("Runtime error: {0}")]
+    Runtime(String),
+
     #[error("Timeout: {0}")]
     Timeout(String),
 

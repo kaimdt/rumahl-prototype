@@ -42,6 +42,8 @@ pub mod plugin;
 pub mod widget;
 pub mod error;
 pub mod types;
+pub mod runtime;
+pub mod runtime_manager;
 
 pub use client::IoraClient;
 pub use manifest::{ManifestBuilder, AppManifest, PluginType};
@@ -50,6 +52,8 @@ pub use plugin::{Plugin, PluginContext, PluginResult};
 pub use widget::{Widget, WidgetConfig};
 pub use error::{IoraError, Result};
 pub use types::*;
+pub use runtime::{AppStatus, LogLevel, IoraMessage, PermissionToken};
+pub use runtime_manager::{RuntimeManager, RuntimeManagerBuilder, RuntimeConfig};
 
 /// SDK version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -62,6 +66,8 @@ pub mod prelude {
     pub use crate::plugin::{Plugin, PluginContext, PluginResult};
     pub use crate::widget::{Widget, WidgetConfig};
     pub use crate::error::{IoraError, Result};
+    pub use crate::runtime::{AppStatus, LogLevel, IoraMessage, PermissionToken};
+    pub use crate::runtime_manager::{RuntimeManager, RuntimeManagerBuilder, RuntimeConfig};
     pub use async_trait::async_trait;
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{json, Value};
