@@ -275,6 +275,32 @@ services:
       iora.managed: "true"
       iora.service: "assist"
 
+  # IORA App Store - App marketplace and management
+  iora-appstore:
+    build:
+      context: .
+      dockerfile: backend/iora-appstore/Dockerfile
+    container_name: iora-appstore
+    image: iora/appstore:latest
+    ports:
+      - "${APPSTORE_PORT:-8098}:8098"
+    environment:
+      - PORT=8098
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_appstore
+      - SUPERVISOR_URL=http://iora-supervisor:8097
+      - RUST_LOG=${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iora-supervisor:
+        condition: service_started
+    labels:
+      iora.managed: "true"
+      iora.service: "appstore"
+
 networks:
   iora-network:
     driver: bridge
