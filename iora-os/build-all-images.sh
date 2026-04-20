@@ -107,6 +107,37 @@ require_bootable_base_image() {
     return 0
 }
 
+write_payload_metadata() {
+    local target_dir="$1"
+    local payload_mode="full"
+    local payload_bootable="yes"
+    local payload_layout="gpt+bios+uefi+abroot+data"
+    local payload_boot_mode="dual"
+
+    if [ -f "${FALLBACK_MARKER}" ]; then
+        payload_mode="fallback"
+        payload_bootable="no"
+        payload_layout="rootfs.ext2-only"
+        payload_boot_mode="none"
+    elif [ -f "${OUTPUT_DIR}/iora-os.bootmode" ]; then
+        payload_boot_mode=$(cat "${OUTPUT_DIR}/iora-os.bootmode" 2>/dev/null | tr -d '\r\n' || echo "dual")
+        case "${payload_boot_mode}" in
+            dual|uefi-only|bios-only)
+                ;;
+            *)
+                payload_boot_mode="dual"
+                ;;
+        esac
+    fi
+
+    cat > "${target_dir}/PAYLOAD-METADATA" <<EOF
+PAYLOAD_MODE=${payload_mode}
+PAYLOAD_BOOTABLE=${payload_bootable}
+PAYLOAD_LAYOUT=${payload_layout}
+PAYLOAD_BOOT_MODE=${payload_boot_mode}
+EOF
+}
+
 show_progress_stream() {
     awk '
     BEGIN { step=0; width=28 }
@@ -523,6 +554,7 @@ create_iso_image() {
     ISO_STAGE_DIR=$(mktemp -d)
 
     cp "${RELEASE_DIR}/iora-os.img.xz" "${ISO_STAGE_DIR}/"
+    write_payload_metadata "${ISO_STAGE_DIR}"
 
     cat > "${ISO_STAGE_DIR}/INSTALL.txt" <<'EOF'
 IORA OS installer/archive ISO
@@ -619,11 +651,21 @@ done
 # ── Configuration ──────────────────────────────────────────────────
 ISO_MOUNT="/mnt/iso"
 ISO_IMAGE="iora-os.img.xz"
+PAYLOAD_MODE="unknown"
+PAYLOAD_BOOTABLE="unknown"
+PAYLOAD_LAYOUT="unknown"
+PAYLOAD_BOOT_MODE="unknown"
 MIN_DISK_GB=8
 BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
 IORA_HOSTNAME="iora"
 IORA_TIMEZONE="Europe/Berlin"
 IORA_NETWORK="dhcp"
+IORA_LOCALE="en_US.UTF-8"
+IORA_KEYBOARD="de"
+IORA_INSTALL_MODE="guided"
+
+# Silence kernel log output that would pollute the UI
+dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
 
 # ── Dialog color theme (Ubuntu/Debian terminal-installer style) ──
 setup_dialog_theme() {
@@ -817,6 +859,21 @@ mount_iso() {
     return 1
 }
 
+load_payload_metadata() {
+    local metadata_file="${ISO_MOUNT}/PAYLOAD-METADATA"
+    [ -f "$metadata_file" ] || return 1
+
+    PAYLOAD_MODE=$(sed -n 's/^PAYLOAD_MODE=//p' "$metadata_file" 2>/dev/null | head -1)
+    PAYLOAD_BOOTABLE=$(sed -n 's/^PAYLOAD_BOOTABLE=//p' "$metadata_file" 2>/dev/null | head -1)
+    PAYLOAD_LAYOUT=$(sed -n 's/^PAYLOAD_LAYOUT=//p' "$metadata_file" 2>/dev/null | head -1)
+    PAYLOAD_BOOT_MODE=$(sed -n 's/^PAYLOAD_BOOT_MODE=//p' "$metadata_file" 2>/dev/null | head -1)
+    [ -n "$PAYLOAD_MODE" ] || PAYLOAD_MODE="unknown"
+    [ -n "$PAYLOAD_BOOTABLE" ] || PAYLOAD_BOOTABLE="unknown"
+    [ -n "$PAYLOAD_LAYOUT" ] || PAYLOAD_LAYOUT="unknown"
+    [ -n "$PAYLOAD_BOOT_MODE" ] || PAYLOAD_BOOT_MODE="unknown"
+    return 0
+}
+
 get_iso_parent_disk() {
     local iso_dev=""
     iso_dev=$(grep " ${ISO_MOUNT} " /proc/mounts 2>/dev/null | awk '{print $1}' | head -1)
@@ -874,20 +931,159 @@ get_disk_transport() {
     esac
 }
 
+disk_part_name() {
+    case "$1" in
+        nvme*|mmcblk*|loop*) echo "/dev/${1}p$2" ;;
+        *) echo "/dev/${1}$2" ;;
+    esac
+}
+
+has_mbr_boot_signature() {
+    local sig=""
+    sig=$(dd if="/dev/$1" bs=1 skip=510 count=2 2>/dev/null | od -An -tx1 | tr -d ' \n' || true)
+    [ "$sig" = "55aa" ]
+}
+
+disk_has_existing_data() {
+    local disk="$1"
+    local parts=0
+    parts=$(get_disk_partitions "$disk")
+    parts=$(safe_uint "$parts" 0)
+    [ "$parts" -gt 0 ] && return 0
+
+    if command -v blkid >/dev/null 2>&1; then
+        blkid "/dev/${disk}" >/dev/null 2>&1 && return 0
+    fi
+
+    if command -v wipefs >/dev/null 2>&1; then
+        [ -n "$(wipefs -n "/dev/${disk}" 2>/dev/null)" ] && return 0
+    fi
+
+    return 1
+}
+
+target_has_bootloader() {
+    local target="$1"
+    [ -f "${target}/boot/grub/grub.cfg" ] && return 0
+    [ -f "${target}/boot/grub2/grub.cfg" ] && return 0
+    [ -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ] && return 0
+    [ -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" ] && return 0
+    [ -f "${target}/boot/efi/EFI/debian/grubx64.efi" ] && return 0
+    [ -f "${target}/boot/extlinux/extlinux.conf" ] && return 0
+    return 1
+}
+
+detect_target_root_partition() {
+    local disk="$1"
+    local p target_probe
+    target_probe="/mnt/target-probe"
+    mkdir -p "$target_probe"
+
+    for p in $(seq 1 16); do
+        local part
+        part=$(disk_part_name "$disk" "$p")
+        [ -b "$part" ] || continue
+
+        mount "$part" "$target_probe" 2>/dev/null || continue
+        if [ -f "${target_probe}/etc/os-release" ] || [ -x "${target_probe}/sbin/init" ] || [ -d "${target_probe}/boot" ]; then
+            umount "$target_probe" 2>/dev/null || true
+            echo "$part"
+            return 0
+        fi
+        umount "$target_probe" 2>/dev/null || true
+    done
+
+    return 1
+}
+
+install_bootloader_fallback() {
+    local disk="$1"
+    local target="$2"
+    local did_bind=false
+    local efi_part=""
+    local efi_mounted=false
+    local bios_install_ok=false
+    local uefi_install_ok=false
+    local efi_has_loader=false
+    local target_has_grub_install=false
+    local boot_ok=1
+    efi_part=$(disk_part_name "$disk" 2)
+
+    mkdir -p "${target}/dev" "${target}/proc" "${target}/sys" "${target}/run" "${target}/boot/efi"
+    mount --bind /dev "${target}/dev" 2>/dev/null || true
+    mount --bind /proc "${target}/proc" 2>/dev/null || true
+    mount --bind /sys "${target}/sys" 2>/dev/null || true
+    mount --bind /run "${target}/run" 2>/dev/null || true
+    did_bind=true
+
+    if [ -b "$efi_part" ]; then
+        mount "$efi_part" "${target}/boot/efi" 2>/dev/null && efi_mounted=true || true
+    fi
+
+    if chroot "$target" /bin/sh -c "command -v grub-install >/dev/null 2>&1" >/dev/null 2>&1; then
+        target_has_grub_install=true
+
+        if chroot "$target" /bin/sh -c "grub-install --target=i386-pc --recheck /dev/${disk}" >/dev/null 2>&1; then
+            bios_install_ok=true
+        fi
+
+        if [ "$efi_mounted" = true ] || [ -d /sys/firmware/efi ]; then
+            if chroot "$target" /bin/sh -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck" >/dev/null 2>&1; then
+                uefi_install_ok=true
+            fi
+        fi
+
+        chroot "$target" /bin/sh -c "command -v grub-mkconfig >/dev/null 2>&1 && grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
+    fi
+
+    # BIOS fallback: set first partition active if firmware expects an MBR active flag.
+    sfdisk --activate "/dev/${disk}" 1 2>/dev/null || parted -s "/dev/${disk}" set 1 boot on 2>/dev/null || true
+
+    # Keep removable-path fallback for UEFI firmware lookups.
+    if [ "$efi_mounted" = true ]; then
+        mkdir -p "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
+        if [ -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" ] && [ ! -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+            cp -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+        elif [ -f "${target}/boot/efi/EFI/debian/grubx64.efi" ] && [ ! -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+            cp -f "${target}/boot/efi/EFI/debian/grubx64.efi" "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+        fi
+
+        if [ -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ] || [ -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" ] || [ -f "${target}/boot/efi/EFI/debian/grubx64.efi" ]; then
+            efi_has_loader=true
+        fi
+    fi
+
+    if [ "$efi_mounted" = true ]; then
+        umount "${target}/boot/efi" 2>/dev/null || true
+    fi
+    if [ "$did_bind" = true ]; then
+        umount "${target}/run" 2>/dev/null || true
+        umount "${target}/sys" 2>/dev/null || true
+        umount "${target}/proc" 2>/dev/null || true
+        umount "${target}/dev" 2>/dev/null || true
+    fi
+
+    if target_has_bootloader "$target" || [ "$bios_install_ok" = true ] || [ "$uefi_install_ok" = true ] || [ "$efi_has_loader" = true ]; then
+        boot_ok=0
+    elif [ "$target_has_grub_install" = false ]; then
+        boot_ok=1
+    fi
+
+    return "$boot_ok"
+}
+
 # ── Post-install configuration ─────────────────────────────────────
 apply_post_install_config() {
     local disk="$1"
     local target="/mnt/target"
 
-    dlg_info " Configuring " "  Applying system configuration..."
+    dlg_info " Configuring " "  Applying settings..."
 
-    # Try to mount the root partition (p3 = Root-A)
+    # Probe partitions to find the installed root filesystem.
     local root_part=""
-    if [ -b "/dev/${disk}3" ]; then
-        root_part="/dev/${disk}3"
-    elif [ -b "/dev/${disk}p3" ]; then
-        root_part="/dev/${disk}p3"
-    fi
+    root_part=$(detect_target_root_partition "$disk" 2>/dev/null || true)
+    [ -z "$root_part" ] && root_part=$(disk_part_name "$disk" 3)
+    [ -b "$root_part" ] || root_part=""
 
     if [ -z "$root_part" ]; then
         return 0  # skip silently if partition layout differs
@@ -933,6 +1129,55 @@ Address=${IORA_IP}/${IORA_NETMASK:-24}
 Gateway=${IORA_GATEWAY:-}
 DNS=${IORA_DNS:-8.8.8.8}
 NETEOF
+    fi
+
+    # Locale / keyboard defaults similar to common installers
+    if [ -n "$IORA_LOCALE" ]; then
+        mkdir -p "${target}/etc" 2>/dev/null || true
+        if [ -f "${target}/etc/locale.conf" ] || [ ! -f "${target}/etc/default/locale" ]; then
+            echo "LANG=${IORA_LOCALE}" > "${target}/etc/locale.conf" 2>/dev/null || true
+        fi
+        mkdir -p "${target}/etc/default" 2>/dev/null || true
+        echo "LANG=${IORA_LOCALE}" > "${target}/etc/default/locale" 2>/dev/null || true
+    fi
+
+    if [ -n "$IORA_KEYBOARD" ]; then
+        mkdir -p "${target}/etc" 2>/dev/null || true
+        echo "KEYMAP=${IORA_KEYBOARD}" > "${target}/etc/vconsole.conf" 2>/dev/null || true
+        mkdir -p "${target}/etc/default" 2>/dev/null || true
+        cat > "${target}/etc/default/keyboard" <<KBDCONF
+XKBMODEL="pc105"
+XKBLAYOUT="${IORA_KEYBOARD}"
+XKBVARIANT=""
+XKBOPTIONS=""
+BACKSPACE="guess"
+KBDCONF
+    fi
+
+    local efi_part=""
+    local efi_mounted=false
+    efi_part=$(disk_part_name "$disk" 2)
+    if [ -b "$efi_part" ]; then
+        mkdir -p "${target}/boot/efi" 2>/dev/null || true
+        if mount "$efi_part" "${target}/boot/efi" 2>/dev/null; then
+            efi_mounted=true
+        fi
+    fi
+
+    # Detect existing bootloader in the installed system; install only if missing.
+    if target_has_bootloader "$target"; then
+        dlg_info " Boot " "  Bootloader found."
+    else
+        dlg_info " Boot " "  No bootloader found. Installing..."
+        if install_bootloader_fallback "$disk" "$target"; then
+            dlg_info " Boot " "  Bootloader installed."
+        else
+            dlg_info " Boot " "  Bootloader install could not be confirmed."
+        fi
+    fi
+
+    if [ "$efi_mounted" = true ]; then
+        umount "${target}/boot/efi" 2>/dev/null || true
     fi
 
     sync
@@ -994,7 +1239,8 @@ screen_sysinfo() {
 ${net}
  Image
  -----
- File:      ${ISO_IMAGE} (${img_size})
+ Package:   Installation payload (${img_size})
+ Layout:    ${PAYLOAD_LAYOUT}
  ${ver_line}" 22 64
 }
 
@@ -1046,6 +1292,64 @@ screen_timezone() {
         "UTC"              "Coordinated Universal Time" \
         3>&1 1>&2 2>&3)
     [ $? -eq 0 ] && [ -n "$tz" ] && IORA_TIMEZONE="$tz"
+}
+
+screen_locale() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local locale
+    locale=$(dlg --title " Language " --menu \
+        "\n Select the system language/locale.\n" 18 60 8 \
+        "de_DE.UTF-8" "German" \
+        "en_US.UTF-8" "English (US)" \
+        "en_GB.UTF-8" "English (UK)" \
+        "fr_FR.UTF-8" "French" \
+        "es_ES.UTF-8" "Spanish" \
+        "it_IT.UTF-8" "Italian" \
+        "nl_NL.UTF-8" "Dutch" \
+        "pl_PL.UTF-8" "Polish" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$locale" ] && IORA_LOCALE="$locale"
+}
+
+screen_keyboard() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local kb
+    kb=$(dlg --title " Keyboard Layout " --menu \
+        "\n Select the keyboard layout.\n" 16 60 7 \
+        "de" "German" \
+        "us" "English (US)" \
+        "gb" "English (UK)" \
+        "fr" "French" \
+        "es" "Spanish" \
+        "it" "Italian" \
+        "nl" "Dutch" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$kb" ] && IORA_KEYBOARD="$kb"
+}
+
+screen_installation_type() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local mode
+    mode=$(dlg --title " Installation Type " --menu \
+        "\n Choose installation type.\n" 15 64 3 \
+        "guided" "Guided - erase selected disk and install" \
+        "guided-safe" "Guided - ask extra confirmation before erase" \
+        "shell" "Manual - drop to shell for custom partitioning" \
+        3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+
+    IORA_INSTALL_MODE="$mode"
+    if [ "$mode" = "shell" ]; then
+        dlg_msg " Manual Mode " "\
+ You selected manual mode.\n\n\
+ The installer will return to shell now.\n\n\
+ After preparing disks manually, run 'install' again."
+        return 1
+    fi
+    return 0
 }
 
 screen_network() {
@@ -1154,7 +1458,7 @@ screen_select_disk() {
         [ "$menu_h" -gt 22 ] && menu_h=22
 
         SEL_DISK=$(dlg --title " Installation Target " \
-            --menu "\n Release: ${ISO_IMAGE} (${img_size})\n\n Select the drive that should receive IORA OS.\n All existing data on the selected drive will be erased.\n" \
+            --menu "\n Payload size: ${img_size}\n\n Select the drive that should receive the system.\n All existing data on the selected drive will be erased.\n" \
             "$menu_h" 64 "$disk_count" \
             "$@" \
             3>&1 1>&2 2>&3)
@@ -1208,6 +1512,8 @@ screen_confirm() {
     summary="${summary}\nSystem Settings\n"
     summary="${summary}  Hostname:   ${IORA_HOSTNAME}\n"
     summary="${summary}  Timezone:   ${IORA_TIMEZONE}\n"
+    summary="${summary}  Locale:     ${IORA_LOCALE}\n"
+    summary="${summary}  Keyboard:   ${IORA_KEYBOARD}\n"
     if [ "$IORA_NETWORK" = "static" ]; then
         summary="${summary}  Network:    Static (${IORA_IP}/${IORA_NETMASK})\n"
     else
@@ -1225,7 +1531,7 @@ screen_confirm() {
     summary="${summary}\n +------------------------------------+"
     summary="${summary}\n\n Proceed with installation?"
 
-    if ! dlg_yesno " Confirm Installation " "$summary"; then
+    if ! dlg_yesno " Confirm " "$summary"; then
         return 1
     fi
     return 0
@@ -1243,15 +1549,15 @@ screen_install() {
         (
             echo "2"
             echo "XXX"
-            echo "  Wiping partition table on /dev/${disk}..."
+            echo "  Preparing drive /dev/${disk}..."
             echo "XXX"
             dd if=/dev/zero of="/dev/${disk}" bs=1M count=1 >/dev/null 2>&1
             sleep 1
 
             echo "5"
             echo "XXX"
-            echo "  Decompressing and writing IORA OS to /dev/${disk}..."
-            echo "  This may take several minutes."
+            echo "  Writing operating system to /dev/${disk}..."
+            echo "  This may take a few minutes."
             echo "XXX"
 
             local img_bytes
@@ -1262,72 +1568,97 @@ screen_install() {
             xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${disk}" bs=4M conv=fsync 2>/tmp/dd_progress &
             local dd_pid=$!
 
-            local written=0
+            local written=0 pct=5 ticks=0
+            local start_written_sectors=0
+            local now_written_sectors=0
+            start_written_sectors=$(awk '{print $7}' "/sys/block/${disk}/stat" 2>/dev/null || echo 0)
+            start_written_sectors=$(safe_uint "$start_written_sectors" 0)
             while kill -0 "$dd_pid" 2>/dev/null; do
-                if [ -f /tmp/dd_progress ]; then
-                    written=$(grep -o '[0-9]* bytes' /tmp/dd_progress 2>/dev/null | tail -1 | awk '{print $1}' || echo 0)
-                    written=$(safe_uint "$written" 0)
+                sleep 1
+                # Read sector writes directly from kernel block stats for reliable progress.
+                if [ -f "/sys/block/${disk}/stat" ]; then
+                    now_written_sectors=$(awk '{print $7}' "/sys/block/${disk}/stat" 2>/dev/null || echo 0)
+                    now_written_sectors=$(safe_uint "$now_written_sectors" 0)
+                    if [ "$now_written_sectors" -gt "$start_written_sectors" ]; then
+                        written=$(( (now_written_sectors - start_written_sectors) * 512 ))
+                    fi
                 fi
+
+                # Fallback: parse dd stderr when no block stat progress is available.
+                if [ "$written" -eq 0 ] && [ -f /tmp/dd_progress ]; then
+                    local fb
+                    fb=$(grep -o '[0-9][0-9]* bytes' /tmp/dd_progress 2>/dev/null | tail -1 | awk '{print $1}')
+                    fb=$(safe_uint "$fb" 0)
+                    [ "$fb" -gt 0 ] && written=$fb
+                fi
+                # Percentage; if bytes unknown, animate steadily forward
                 if [ "$img_bytes" -gt 0 ] && [ "$written" -gt 0 ]; then
-                    local pct=$((5 + written * 75 / img_bytes))
-                    [ "$pct" -gt 80 ] && pct=80
-                    echo "$pct"
+                    pct=$((5 + written * 74 / img_bytes))
+                    [ "$pct" -gt 79 ] && pct=79
+                else
+                    ticks=$((ticks + 1))
+                    pct=$((5 + ticks * 2))
+                    [ "$pct" -gt 79 ] && pct=79
                 fi
-                sleep 3
+                echo "$pct"
             done
             wait "$dd_pid"
             local dd_rc=$?
 
             if [ "$dd_rc" -ne 0 ]; then
                 echo "$dd_rc" > /tmp/install_result
-                echo "100"; echo "XXX"; echo "  ERROR: Image write failed!"; echo "XXX"
+                echo "100"; echo "XXX"; echo "  Write failed."; echo "XXX"
                 exit 1
             fi
 
             echo "82"
             echo "XXX"
-            echo "  Syncing disk..."
+            echo "  Saving changes..."
             echo "XXX"
             sync
             sleep 1
 
             echo "85"
             echo "XXX"
-            echo "  Re-reading partition table..."
+            echo "  Refreshing device..."
             echo "XXX"
             blockdev --rereadpt "/dev/${disk}" 2>/dev/null || true
             sleep 2
 
+            # Ensure the first partition is marked active/bootable for BIOS MBR compatibility
+            sfdisk --activate "/dev/${disk}" 1 2>/dev/null || \
+                parted -s "/dev/${disk}" set 1 boot on 2>/dev/null || true
+            sleep 1
+
             echo "88"
             echo "XXX"
-            echo "  Applying system configuration..."
+            echo "  Applying settings..."
             echo "XXX"
             echo "0" > /tmp/install_result
 
             echo "95"
             echo "XXX"
-            echo "  Finalizing..."
+            echo "  Almost done..."
             echo "XXX"
             sync
             sleep 1
 
             echo "100"
             echo "XXX"
-            echo "  Installation complete!"
+            echo "  Done."
             echo "XXX"
-        ) | dlg --title " Installing IORA OS " --gauge \
-            "  Preparing installation..." 10 64 0
+        ) | dlg --title " Writing to Drive " --gauge \
+            "  Starting..." 10 64 0
 
         local result=$(cat /tmp/install_result 2>/dev/null || echo 1)
         result=$(safe_uint "$result" 1)
 
         if [ "$result" -eq 0 ]; then
-            # Apply post-install config (hostname, timezone, password, network)
             apply_post_install_config "$disk"
             return 0
         else
             dlg_msg " Failed " "\
- Could not write image to /dev/${disk}.\n\n Check the disk and try again."
+ The drive could not be written.\n\n Verify the drive is connected and retry."
             return 1
         fi
     else
@@ -1425,13 +1756,35 @@ run_wizard() {
         dlg_msg " Error " "\
  Could not find the IORA OS image.\n\n\
  Make sure the installer ISO or USB\n\
- is connected and contains the file\n\
- '${ISO_IMAGE}'.\n\n\
+ is connected and contains the installer payload.\n\n\
  Type 'install' to retry."
         return 1
     fi
 
     img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
+    load_payload_metadata || true
+
+    if [ "$PAYLOAD_BOOTABLE" = "no" ] || [ "$PAYLOAD_MODE" = "fallback" ]; then
+        dlg_msg " Unsupported Payload " "\
+ This installer media contains a fallback payload.\n\n\
+ It can write data to the target disk, but it does not contain\n\
+ the validated partition table and bootloader layout required\n\
+ for a bootable installation.\n\n\
+ Rebuild the image with full post-image flow:\n\
+   sudo ./build.sh all --force-full-image --progress"
+        return 1
+    fi
+
+        if [ ! -d /sys/firmware/efi ] && [ "$PAYLOAD_BOOT_MODE" = "uefi-only" ]; then
+                dlg_msg " Firmware Mismatch " "\
+ This installer was booted in Legacy BIOS mode,\n\
+ but the payload supports UEFI boot only.\n\n\
+ Result would be non-bootable on BIOS firmware.\n\n\
+ Options:\n\
+     1) Boot the installer in UEFI mode and install again\n\
+     2) Rebuild with BIOS GRUB modules available (grub-pc-bin)"
+                return 1
+        fi
 
     # Integrity check
     if [ -f "${ISO_MOUNT}/${ISO_IMAGE}.sha256" ]; then
@@ -1458,30 +1811,61 @@ run_wizard() {
     # Step 3: Timezone
     screen_timezone
 
-    # Step 4: Network
+    # Step 4: Language
+    screen_locale
+
+    # Step 5: Keyboard
+    screen_keyboard
+
+    # Step 6: Network
     screen_network
 
-    # Step 5: Root password
+    # Step 7: Root password
     screen_password
 
-    # Step 6: Disk selection
+    # Step 8: Installation type
+    if ! screen_installation_type; then
+        return 1
+    fi
+
+    # Step 9: Disk selection
     if ! screen_select_disk; then
-        dlg_msg " Cancelled " "Installation cancelled."
+        dlg_msg " Cancelled " "Setup was cancelled."
         return 1
     fi
 
-    # Step 7: Confirmation summary
+    if disk_has_existing_data "$SEL_DISK"; then
+        if ! dlg_yesno " Existing Data Detected " "\
+ Data or partitions were found on /dev/${SEL_DISK}.\n\n\
+ Continuing will delete everything on this drive.\n\n\
+ Do you want to erase the entire drive and continue?"; then
+            dlg_msg " Cancelled " "No changes were made."
+            return 1
+        fi
+    fi
+
+    if [ "$IORA_INSTALL_MODE" = "guided-safe" ]; then
+        if ! dlg_yesno " Final Erase Check " "\
+ Final safety check for /dev/${SEL_DISK}.\n\n\
+ Confirm again that all data on this drive\n\
+ may be removed permanently."; then
+            dlg_msg " Cancelled " "No changes were made."
+            return 1
+        fi
+    fi
+
+    # Step 10: Confirm
     if ! screen_confirm; then
-        dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
+        dlg_msg " Cancelled " "No changes were made."
         return 1
     fi
 
-    # Step 8: Install
+    # Step 11: Install
     if ! screen_install; then
         return 1
     fi
 
-    # Step 9: Done
+    # Step 12: Done
     screen_complete
 }
 
@@ -1569,6 +1953,14 @@ INITEOF
 create_bootable_installer_iso() {
     log_info "Creating bootable installer ISO (UEFI/GRUB)..."
 
+    if [ -f "${FALLBACK_MARKER}" ]; then
+        log_error "Base image is in fallback mode and is not safe to ship inside the bootable installer ISO."
+        log_error "The installer would write a non-partitioned/non-validated payload to disk."
+        log_info "Rebuild with privileges and full post-image flow: sudo ./build.sh all --force-full-image --progress"
+        mark_skipped "iora-os-installer-boot.iso (fallback payload not bootable)"
+        return
+    fi
+
     if ! command -v grub-mkrescue &> /dev/null; then
         log_warn "grub-mkrescue not available, skipping bootable installer ISO"
         mark_skipped "iora-os-installer-boot.iso (missing grub-mkrescue)"
@@ -1609,6 +2001,7 @@ create_bootable_installer_iso() {
     cp "${OUTPUT_DIR}/bzImage" "${stage_dir}/boot/vmlinuz"
     cp "${runtime_initrd}" "${stage_dir}/boot/initrd.img"
     cp "${RELEASE_DIR}/iora-os.img.xz" "${stage_dir}/iora-os.img.xz"
+    write_payload_metadata "${stage_dir}"
 
     # Generate SHA256 checksum for integrity verification
     log_info "Generating SHA256 checksum for iora-os.img.xz..."
@@ -1765,6 +2158,12 @@ create_raw_image() {
     xz_compress_file "iora-os.img" "iora-os.img.xz"
 
     cp iora-os.img.xz "${RELEASE_DIR}/"
+
+    if [ -f "${FALLBACK_MARKER}" ]; then
+        log_warn "Raw image was generated from fallback mode (rootfs.ext2-only)."
+        log_warn "This artifact is not a validated bootable disk image."
+        log_warn "Rebuild with: sudo ./build.sh all --force-full-image --progress"
+    fi
 
     local size=$(du -h "${RELEASE_DIR}/iora-os.img.xz" | cut -f1)
     log_success "Raw image created: iora-os.img.xz (${size})"

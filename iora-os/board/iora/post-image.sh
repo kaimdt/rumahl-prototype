@@ -10,6 +10,7 @@ HOST_BIN_DIR="$(cd "${IMAGES_DIR}/../host/bin" 2>/dev/null && pwd || true)"
 POST_IMAGE_MODE="${IORA_POST_IMAGE_MODE:-auto}"
 UNATTENDED_MODE="${IORA_UNATTENDED:-false}"
 FALLBACK_MARKER="${IMAGES_DIR}/iora-os.fallback"
+BOOTMODE_MARKER="${IMAGES_DIR}/iora-os.bootmode"
 
 try_privileged() {
     if "$@"; then
@@ -74,6 +75,7 @@ fallback_to_rootfs_ext2() {
 
     if [ -f "${IMAGES_DIR}/rootfs.ext2" ]; then
         : > "${FALLBACK_MARKER}"
+        echo "none" > "${BOOTMODE_MARKER}"
         echo "IORA OS: WARN: switching to rootfs.ext2 fallback image"
         cp -f "${IMAGES_DIR}/rootfs.ext2" "${IMG}"
         echo "IORA OS: Base disk image fallback created: ${IMG}"
@@ -92,6 +94,7 @@ is_mounted() {
 
 echo "IORA OS: Creating bootable disk image..."
 rm -f "${FALLBACK_MARKER}" 2>/dev/null || true
+rm -f "${BOOTMODE_MARKER}" 2>/dev/null || true
 
 case "${POST_IMAGE_MODE}" in
     auto|full|fallback)
@@ -216,16 +219,20 @@ if ! try_privileged "${HOST_GRUB_INSTALL}" --target=x86_64-efi --efi-directory="
 fi
 
 # Install GRUB for BIOS (i386-pc) — uses the BIOS Boot Partition (p1, bios_grub)
+BOOT_MODE="uefi-only"
 if [ -d /usr/lib/grub/i386-pc ]; then
     if try_privileged "${HOST_GRUB_INSTALL}" --target=i386-pc \
         --boot-directory="${MOUNT_DIR}/boot" "${LOOP_DEV}"; then
         echo "IORA OS: GRUB BIOS (i386-pc) installed successfully"
+        BOOT_MODE="dual"
     else
         echo "IORA OS: WARN: grub-install (BIOS) failed — system will be UEFI-only"
     fi
 else
     echo "IORA OS: INFO: i386-pc GRUB modules not found — system will be UEFI-only"
 fi
+
+echo "${BOOT_MODE}" > "${BOOTMODE_MARKER}"
 
 # Create GRUB configuration
 # NOTE: Disk images boot directly from root partition - NO initrd.
