@@ -68,6 +68,10 @@ pub struct AppManifest {
     /// App store metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     pub store_metadata: Option<StoreMetadata>,
+
+    /// Network access configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_access: Option<NetworkAccessConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -381,6 +385,35 @@ pub struct StoreMetadata {
     /// License
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
+}
+
+/// Network access configuration for apps
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkAccessConfig {
+    /// Domains that the app is allowed to access
+    /// If empty and NetworkAccess permission is granted, all domains are allowed
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+
+    /// Whether user can add additional domains in app settings
+    /// Requires app developer to enable this feature
+    #[serde(default)]
+    pub allow_user_domains: bool,
+
+    /// Whether the app can scan the local network
+    /// Requires NetworkScan permission
+    #[serde(default)]
+    pub allow_network_scan: bool,
+
+    /// Whether the app can access local network IPs
+    /// If specific IPs are listed, only those are allowed
+    /// If empty and NetworkLocalAccess permission is granted, all local IPs are allowed
+    #[serde(default)]
+    pub allowed_local_ips: Vec<String>,
+
+    /// Whether user can add additional local IPs in app settings
+    #[serde(default)]
+    pub allow_user_local_ips: bool,
 }
 
 /// Trust level for apps

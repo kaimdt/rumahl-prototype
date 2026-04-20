@@ -24,6 +24,8 @@ pub enum Permission {
     NetworkAccess,
     NetworkOutbound,
     NetworkInbound,
+    NetworkScan,
+    NetworkLocalAccess,
 
     // System permissions
     SystemInfo,
@@ -307,6 +309,8 @@ impl Permission {
             Permission::NetworkAccess => "Zugriff auf das Netzwerk",
             Permission::NetworkOutbound => "Ausgehende Netzwerkverbindungen",
             Permission::NetworkInbound => "Eingehende Netzwerkverbindungen",
+            Permission::NetworkScan => "Scannen des lokalen Netzwerks",
+            Permission::NetworkLocalAccess => "Zugriff auf lokale Netzwerk-IPs",
             Permission::SystemInfo => "Lesen von Systeminformationen",
             Permission::SystemControl => "Steuerung des Systems",
             Permission::SystemRestart => "Neustart des Systems",
@@ -351,10 +355,11 @@ impl Permission {
             | Permission::FileSystemWrite | Permission::WriteUserData | Permission::LocationAccess => RiskLevel::Medium,
 
             Permission::CreateEntities | Permission::DeleteEntities | Permission::StorageDelete
-            | Permission::NetworkOutbound | Permission::NetworkInbound | Permission::DatabaseCreate
-            | Permission::DatabaseDelete | Permission::FileSystemExecute | Permission::InstallPlugins
-            | Permission::UninstallPlugins | Permission::CameraAccess | Permission::MicrophoneAccess
-            | Permission::LocationPrecise | Permission::CreateAutomations | Permission::RunAutomations => RiskLevel::High,
+            | Permission::NetworkOutbound | Permission::NetworkInbound | Permission::NetworkLocalAccess
+            | Permission::DatabaseCreate | Permission::DatabaseDelete | Permission::FileSystemExecute
+            | Permission::InstallPlugins | Permission::UninstallPlugins | Permission::CameraAccess
+            | Permission::MicrophoneAccess | Permission::LocationPrecise | Permission::CreateAutomations
+            | Permission::RunAutomations | Permission::NetworkScan => RiskLevel::High,
 
             Permission::SystemControl | Permission::SystemRestart | Permission::PluginManager => RiskLevel::Critical,
         }
