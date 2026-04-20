@@ -157,6 +157,15 @@
       "icon": "star",
       "items": [
         {
+          "title": "Domain Validation & Resource Management",
+          "path": "DOMAIN_VALIDATION_AND_RESOURCE_MANAGEMENT.md",
+          "highlight": true
+        },
+        {
+          "title": "Network Access & Documentation",
+          "path": "NETWORK_ACCESS_AND_DOCUMENTATION_SUMMARY.md"
+        },
+        {
           "title": "Port & Network Features",
           "path": "PORT_MANAGEMENT_AND_SYSTEM_ENHANCEMENTS.md"
         },

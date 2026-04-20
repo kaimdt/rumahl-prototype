@@ -10,7 +10,6 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { marked } from 'marked'
-import { usePageNavigation } from '@/contexts/PageNavigationContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -49,7 +48,6 @@ marked.setOptions({
 // ─── DocsPage Component ───────────────────────────────────────────────────
 
 export function DocsPage() {
-  const { setDocPath } = usePageNavigation()
   const [config, setConfig] = useState<DocsConfig | null>(null)
   const [currentDoc, setCurrentDoc] = useState<DocContent | null>(null)
   const [loading, setLoading] = useState(false)
@@ -59,6 +57,17 @@ export function DocsPage() {
   // Load documentation configuration on mount
   useEffect(() => {
     loadConfig()
+  }, [])
+
+  // Load document from URL on mount
+  useEffect(() => {
+    const path = window.location.pathname
+    if (path.startsWith('/docs/')) {
+      const docPath = path.slice(6) // Remove '/docs/' prefix
+      if (docPath) {
+        loadDocument(docPath)
+      }
+    }
   }, [])
 
   const loadConfig = async () => {
@@ -81,8 +90,9 @@ export function DocsPage() {
         const data = await response.json()
         setCurrentDoc(data)
         // Update URL without page reload
-        if (setDocPath) {
-          setDocPath(path)
+        const newPath = `/docs/${path}`
+        if (window.location.pathname !== newPath) {
+          window.history.pushState({}, '', newPath)
         }
       }
     } catch (error) {
