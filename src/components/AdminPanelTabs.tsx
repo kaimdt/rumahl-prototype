@@ -5,6 +5,9 @@ import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } fr
 // Export Phase 2 components
 export { RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab } from './AdminPanelPhase2'
 
+// Export App Store Tab
+export { AppStoreTab } from './AppStoreTab'
+
 // ── System Info Tab (Systeminformationen) ──────────────────────────────────
 
 interface SystemInfo {

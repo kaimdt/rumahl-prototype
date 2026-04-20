@@ -41,21 +41,94 @@
       "description": "Zeigt aktuelle Wetterdaten im Dashboard an"
     }
   ],
+  "custom_pages": [
+    {
+      "id": "weather-dashboard",
+      "title": "Wetter Dashboard",
+      "icon": "Cloud",
+      "url": "/apps/weather-service/dashboard",
+      "show_in_nav": true,
+      "order": 100
+    }
+  ],
+  "settings_schema": {
+    "title": "Wetter-Dienst Einstellungen",
+    "description": "Konfiguriere die Wetterdatenquelle und Aktualisierungsintervalle",
+    "fields": [
+      {
+        "key": "api_key",
+        "label": "API-Schlüssel",
+        "description": "Dein API-Schlüssel für den Wetterdienst",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "location",
+        "label": "Standort",
+        "description": "Standard-Standort für Wetterabfragen",
+        "type": "text",
+        "default": "Berlin",
+        "required": true
+      },
+      {
+        "key": "update_interval",
+        "label": "Aktualisierungsintervall (Minuten)",
+        "description": "Wie oft sollen Wetterdaten aktualisiert werden?",
+        "type": "number",
+        "default": 30,
+        "validation": {
+          "min": 5,
+          "max": 120
+        }
+      },
+      {
+        "key": "units",
+        "label": "Einheiten",
+        "type": "select",
+        "default": "metric",
+        "options": [
+          { "value": "metric", "label": "Metrisch (°C)" },
+          { "value": "imperial", "label": "Imperial (°F)" }
+        ]
+      }
+    ]
+  },
   "docker": {
     "auto_build": true,
     "base_image": "node:18-alpine",
     "working_dir": "/app",
     "install_cmd": "npm install",
     "start_cmd": "node server.js",
-    "ports": [
-      "3000:3000"
+    "internal_ports": [
+      {
+        "port": 3000,
+        "protocol": "tcp",
+        "description": "HTTP API für Wetterdaten"
+      }
     ],
     "environment": {
-      "NODE_ENV": "production",
-      "PORT": "3000"
+      "NODE_ENV": "production"
     },
     "volumes": [
       "weather-cache:/app/cache"
-    ]
+    ],
+    "health_check": {
+      "endpoint": "/api/weather/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "store_metadata": {
+    "category": "Wetter",
+    "tags": ["wetter", "vorhersage", "api", "dashboard"],
+    "screenshots": [
+      "https://example.com/weather-screenshot-1.png",
+      "https://example.com/weather-screenshot-2.png"
+    ],
+    "min_iora_version": "1.0.0",
+    "homepage": "https://github.com/iora/weather-app",
+    "source_url": "https://github.com/iora/weather-app",
+    "license": "MIT"
   }
 }

@@ -16,7 +16,7 @@ import {
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
-import { SystemInfoTab, AppsTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab } from './AdminPanelTabs'
+import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 
 interface CloudSettings {
   connectorHost: string
@@ -572,7 +572,7 @@ export function AdminPanel() {
               {activeTab === 'control-mode' && <ControlModeTab token={token} />}
               {activeTab === 'system' && <SystemTab token={token} />}
               {activeTab === 'system-info' && <SystemInfoTab token={token} />}
-              {activeTab === 'apps' && <AppsTab token={token} />}
+              {activeTab === 'apps' && <AppStoreTab token={token} />}
               {activeTab === 'plugins' && <PluginsTab token={token} />}
               {activeTab === 'registrations' && <RegistrationManagementTab token={token} />}
               {activeTab === 'security-monitor' && <SecurityMonitorTab token={token} />}
