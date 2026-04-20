@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{io::Write, process::{Command, Stdio}, sync::Arc, time::Instant};
 
 use axum::{
     extract::{Path, State},
@@ -278,6 +278,353 @@ async fn update_config(
     Json(cfg.clone())
 }
 
+// ─── SSH Management ──────────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct SSHStatus {
+    enabled: bool,
+    running: bool,
+    port: u16,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct SSHUser {
+    username: String,
+    uid: u32,
+    home: String,
+    shell: String,
+    has_ssh_key: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct EnableSSHRequest {
+    enabled: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct CreateUserRequest {
+    username: String,
+    password: Option<String>,
+    ssh_public_key: Option<String>,
+}
+
+/// Get SSH service status
+async fn get_ssh_status() -> Json<serde_json::Value> {
+    // Check if SSH service is enabled and running
+    let enabled = Command::new("systemctl")
+        .args(&["is-enabled", "ssh"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let running = Command::new("systemctl")
+        .args(&["is-active", "ssh"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    // Default SSH port is 22
+    let port = 22;
+
+    Json(serde_json::json!({
+        "enabled": enabled,
+        "running": running,
+        "port": port,
+        "timestamp": Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Enable or disable SSH service
+async fn set_ssh_enabled(Json(req): Json<EnableSSHRequest>) -> impl IntoResponse {
+    let action = if req.enabled { "enable" } else { "disable" };
+
+    // Enable/disable SSH service
+    let enable_result = Command::new("systemctl")
+        .args(&[action, "ssh"])
+        .output();
+
+    match enable_result {
+        Ok(output) if output.status.success() => {
+            // Start/stop the service
+            let start_action = if req.enabled { "start" } else { "stop" };
+            let start_result = Command::new("systemctl")
+                .args(&[start_action, "ssh"])
+                .output();
+
+            match start_result {
+                Ok(start_output) if start_output.status.success() => {
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "success": true,
+                            "enabled": req.enabled,
+                            "message": format!("SSH service {} successfully", if req.enabled { "enabled" } else { "disabled" }),
+                        })),
+                    )
+                        .into_response()
+                }
+                Ok(start_output) => {
+                    let stderr = String::from_utf8_lossy(&start_output.stderr);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "success": false,
+                            "error": format!("Failed to {} SSH service: {}", start_action, stderr),
+                        })),
+                    )
+                        .into_response()
+                }
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to execute systemctl: {}", e),
+                    })),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to {} SSH service: {}", action, stderr),
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to execute systemctl: {}", e),
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// List SSH users (users with /home directories and valid shells)
+async fn list_ssh_users() -> Json<serde_json::Value> {
+    // Read /etc/passwd to get user list
+    let passwd_content = match std::fs::read_to_string("/etc/passwd") {
+        Ok(content) => content,
+        Err(_) => {
+            return Json(serde_json::json!({
+                "users": [],
+                "error": "Failed to read /etc/passwd",
+            }));
+        }
+    };
+
+    let mut users = Vec::new();
+
+    for line in passwd_content.lines() {
+        let parts: Vec<&str> = line.split(':').collect();
+        if parts.len() >= 7 {
+            let username = parts[0];
+            let uid: u32 = parts[2].parse().unwrap_or(0);
+            let home = parts[5];
+            let shell = parts[6];
+
+            // Only include real users (UID >= 1000, has valid shell, has /home dir)
+            if uid >= 1000
+                && uid < 65000
+                && home.starts_with("/home")
+                && !shell.contains("nologin")
+                && !shell.contains("false")
+            {
+                // Check if user has SSH key
+                let ssh_key_path = format!("{}/.ssh/authorized_keys", home);
+                let has_ssh_key = std::path::Path::new(&ssh_key_path).exists();
+
+                users.push(SSHUser {
+                    username: username.to_string(),
+                    uid,
+                    home: home.to_string(),
+                    shell: shell.to_string(),
+                    has_ssh_key,
+                });
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "users": users,
+        "total": users.len(),
+        "timestamp": Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Create a new SSH user
+async fn create_ssh_user(Json(req): Json<CreateUserRequest>) -> impl IntoResponse {
+    // Validate username
+    if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Invalid username. Only alphanumeric characters, hyphens, and underscores are allowed.",
+            })),
+        )
+            .into_response();
+    }
+
+    // Create user with useradd
+    let mut cmd = Command::new("useradd");
+    cmd.args(&[
+        "-m",  // Create home directory
+        "-s", "/bin/bash",  // Set shell to bash
+        &req.username,
+    ]);
+
+    let result = cmd.output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            // Set password if provided
+            if let Some(password) = req.password {
+                let passwd_result = Command::new("chpasswd")
+                    .stdin(Stdio::piped())
+                    .spawn()
+                    .and_then(|mut child| {
+                        if let Some(stdin) = child.stdin.as_mut() {
+                            stdin.write_all(format!("{}:{}", req.username, password).as_bytes())?;
+                        }
+                        child.wait()
+                    });
+
+                if let Err(e) = passwd_result {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "success": false,
+                            "error": format!("User created but failed to set password: {}", e),
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+
+            // Add SSH key if provided
+            if let Some(ssh_key) = req.ssh_public_key {
+                let home_dir = format!("/home/{}", req.username);
+                let ssh_dir = format!("{}/.ssh", home_dir);
+                let authorized_keys = format!("{}/authorized_keys", ssh_dir);
+
+                // Create .ssh directory
+                let _ = std::fs::create_dir_all(&ssh_dir);
+
+                // Write authorized_keys file
+                if let Err(e) = std::fs::write(&authorized_keys, format!("{}\n", ssh_key)) {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "success": false,
+                            "error": format!("User created but failed to add SSH key: {}", e),
+                        })),
+                    )
+                        .into_response();
+                }
+
+                // Set permissions
+                let _ = Command::new("chown")
+                    .args(&["-R", &format!("{}:{}", req.username, req.username), &ssh_dir])
+                    .output();
+
+                let _ = Command::new("chmod")
+                    .args(&["700", &ssh_dir])
+                    .output();
+
+                let _ = Command::new("chmod")
+                    .args(&["600", &authorized_keys])
+                    .output();
+            }
+
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "success": true,
+                    "message": format!("User '{}' created successfully", req.username),
+                    "username": req.username,
+                })),
+            )
+                .into_response()
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to create user: {}", stderr),
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to execute useradd: {}", e),
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// Delete an SSH user
+async fn delete_ssh_user(Path(username): Path<String>) -> impl IntoResponse {
+    // Validate username
+    if !username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Invalid username",
+            })),
+        )
+            .into_response();
+    }
+
+    // Delete user with userdel
+    let result = Command::new("userdel")
+        .args(&["-r", &username])  // -r removes home directory
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("User '{}' deleted successfully", username),
+            })),
+        )
+            .into_response(),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to delete user: {}", stderr),
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to execute userdel: {}", e),
+            })),
+        )
+            .into_response(),
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -302,6 +649,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/plugins/:id", delete(remove_plugin))
         .route("/api/control/users", get(list_users))
         .route("/api/control/config", get(get_config).put(update_config))
+        // SSH Management
+        .route("/api/control/ssh/status", get(get_ssh_status))
+        .route("/api/control/ssh/enable", axum::routing::post(set_ssh_enabled))
+        .route("/api/control/ssh/users", get(list_ssh_users).post(create_ssh_user))
+        .route("/api/control/ssh/users/:username", delete(delete_ssh_user))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
