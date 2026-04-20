@@ -944,6 +944,27 @@ has_mbr_boot_signature() {
     [ "$sig" = "55aa" ]
 }
 
+is_gpt_disk() {
+    local disk="$1"
+    if command -v sgdisk >/dev/null 2>&1; then
+        sgdisk -p "/dev/${disk}" 2>/dev/null | grep -qi "GPT:" && return 0
+    fi
+    parted -s "/dev/${disk}" print 2>/dev/null | grep -qi "Partition Table: gpt"
+}
+
+find_installer_grub_install() {
+    local candidate=""
+
+    for candidate in /usr/sbin/grub-install /usr/bin/grub-install /sbin/grub-install /bin/grub-install; do
+        [ -x "$candidate" ] && echo "$candidate" && return 0
+    done
+
+    candidate=$(command -v grub-install 2>/dev/null || true)
+    [ -x "$candidate" ] && echo "$candidate" && return 0
+
+    return 1
+}
+
 disk_has_existing_data() {
     local disk="$1"
     local parts=0
@@ -1029,10 +1050,10 @@ repair_disk_and_bootloader() {
             && log_r "sgdisk verify OK" \
             || log_r "sgdisk verify: problems remain"
     elif command -v gdisk >/dev/null 2>&1; then
-        # gdisk interactive: send 'v' (verify) then 'w' (write) + 'Y'
-        printf 'v\nw\nY\n' | gdisk "/dev/${disk}" >> "$logfile" 2>&1 \
-            && log_r "gdisk fix OK" \
-            || log_r "gdisk fix returned non-zero"
+        # gdisk fallback: enter experts menu, relocate backup GPT header, write.
+        printf 'x\ne\nm\nw\nY\n' | gdisk "/dev/${disk}" >> "$logfile" 2>&1 \
+            && log_r "gdisk expert fix OK" \
+            || log_r "gdisk expert fix returned non-zero"
     else
         # parted can also rewrite GPT without questions
         parted -s "/dev/${disk}" print fix >> "$logfile" 2>&1 \
@@ -1090,13 +1111,15 @@ repair_disk_and_bootloader() {
     modprobe nls_iso8859_1 2>/dev/null || true
     modprobe nls_utf8 2>/dev/null || true
 
-    mkdir -p "$target" "${target}/boot/efi"
+    mkdir -p "$target"
 
     if ! mount "$root_part" "$target" 2>>"$logfile"; then
         log_r "ERROR: cannot mount root partition ${root_part}"
         return 1
     fi
     log_r "Root mounted: ${root_part} → ${target}"
+
+    mkdir -p "${target}/boot/efi" 2>/dev/null || true
 
     if [ -b "$efi_part" ]; then
         # Load vfat driver – may be a module or built-in
@@ -1202,6 +1225,9 @@ GRUBCFG
         did_bind=true
     fi
 
+    local installer_grub_install=""
+    installer_grub_install=$(find_installer_grub_install || true)
+
     if chroot "$target" /bin/sh -c "command -v grub-install >/dev/null 2>&1" 2>/dev/null; then
         # BIOS (i386-pc)
         if chroot "$target" /bin/sh -c \
@@ -1226,8 +1252,23 @@ GRUBCFG
             "command -v grub-mkconfig >/dev/null 2>&1 && grub-mkconfig -o /boot/grub/grub.cfg" \
             >> "$logfile" 2>&1 || true
         log_r "grub-mkconfig done"
+    elif [ -n "$installer_grub_install" ]; then
+        log_r "grub-install not found in target; using installer copy: ${installer_grub_install}"
+        if "$installer_grub_install" --target=i386-pc --boot-directory="${target}/boot" --recheck --no-floppy "/dev/${disk}" >> "$logfile" 2>&1; then
+            bios_ok=true; log_r "installer grub-install i386-pc OK"
+        else
+            log_r "installer grub-install i386-pc failed"
+        fi
+
+        if [ "$efi_mounted" = true ] || [ -d /sys/firmware/efi ]; then
+            if "$installer_grub_install" --target=x86_64-efi --efi-directory="${target}/boot/efi" --boot-directory="${target}/boot" --removable --recheck "/dev/${disk}" >> "$logfile" 2>&1; then
+                uefi_ok=true; log_r "installer grub-install x86_64-efi OK"
+            else
+                log_r "installer grub-install x86_64-efi failed"
+            fi
+        fi
     else
-        log_r "WARN: grub-install not found in target – using pre-written grub.cfg only"
+        log_r "WARN: grub-install not found in target or installer – using pre-written grub.cfg only"
     fi
 
     # ── Step 7: UEFI fallback loader ────────────────────────────────
@@ -1277,10 +1318,15 @@ GRUBCFG
     sync
     umount "$target" 2>/dev/null || true
 
-    # MBR active flag for BIOS firmware that wants it
-    sfdisk --activate "/dev/${disk}" 1 >> "$logfile" 2>&1 \
-        || parted -s "/dev/${disk}" set 1 boot on >> "$logfile" 2>&1 \
-        || true
+    # Only toggle active flag on DOS/MBR disks. Doing this on GPT mutates the PMBR
+    # and creates warnings that can break EFI implementations.
+    if ! is_gpt_disk "$disk"; then
+        sfdisk --activate "/dev/${disk}" 1 >> "$logfile" 2>&1 \
+            || parted -s "/dev/${disk}" set 1 boot on >> "$logfile" 2>&1 \
+            || true
+    else
+        log_r "Skipping active-flag changes on GPT disk"
+    fi
 
     # Final GPT verify
     if command -v sgdisk >/dev/null 2>&1; then
@@ -1337,8 +1383,10 @@ install_bootloader_fallback() {
         chroot "$target" /bin/sh -c "command -v grub-mkconfig >/dev/null 2>&1 && grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
     fi
 
-    # BIOS fallback: set first partition active if firmware expects an MBR active flag.
-    sfdisk --activate "/dev/${disk}" 1 2>/dev/null || parted -s "/dev/${disk}" set 1 boot on 2>/dev/null || true
+    # BIOS fallback: only set active flag on DOS/MBR disks. GPT uses bios_grub/ESP instead.
+    if ! is_gpt_disk "$disk"; then
+        sfdisk --activate "/dev/${disk}" 1 2>/dev/null || parted -s "/dev/${disk}" set 1 boot on 2>/dev/null || true
+    fi
 
     # Keep removable-path fallback for UEFI firmware lookups.
     if [ "$efi_mounted" = true ]; then
