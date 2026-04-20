@@ -1,0 +1,61 @@
+{
+  "id": "weather-service",
+  "name": "Wetter-Dienst",
+  "version": "1.0.0",
+  "developer": "IORA Team",
+  "description": "Stellt Wetterdaten und Vorhersagen über eine REST API bereit. Der Dienst ruft Wetterdaten von einer externen API ab, cached sie lokal und stellt sie über eigene Endpunkte zur Verfügung.",
+  "icon": "https://example.com/weather-icon.png",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "ReadCache",
+    "WriteCache",
+    "ReadSystemInfo"
+  ],
+  "endpoints": [
+    {
+      "path": "/api/weather/current",
+      "method": "GET",
+      "description": "Aktuelle Wetterdaten abrufen",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/weather/forecast",
+      "method": "GET",
+      "description": "7-Tage Wettervorhersage abrufen",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/weather/health",
+      "method": "GET",
+      "description": "Health Check des Wetter-Dienstes",
+      "requires_auth": false
+    }
+  ],
+  "widgets": [
+    {
+      "id": "weather-widget",
+      "name": "Wetter Widget",
+      "type": "dashboard",
+      "component_url": "http://weather-service:3000/widget.js",
+      "description": "Zeigt aktuelle Wetterdaten im Dashboard an"
+    }
+  ],
+  "docker": {
+    "auto_build": true,
+    "base_image": "node:18-alpine",
+    "working_dir": "/app",
+    "install_cmd": "npm install",
+    "start_cmd": "node server.js",
+    "ports": [
+      "3000:3000"
+    ],
+    "environment": {
+      "NODE_ENV": "production",
+      "PORT": "3000"
+    },
+    "volumes": [
+      "weather-cache:/app/cache"
+    ]
+  }
+}
