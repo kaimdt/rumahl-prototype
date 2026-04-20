@@ -56,6 +56,7 @@ struct PortAssignment {
     internal_port: i32,
     external_port: i32,
     protocol: String,
+    assignment_mode: String,
     assigned_at: DateTime<Utc>,
 }
 
@@ -126,6 +127,7 @@ struct PortInfo {
     internal: u16,
     external: u16,
     protocol: String,
+    assignment_mode: String,
 }
 
 // ─── API Endpoints ──────────────────────────────────────────────────────────
@@ -235,6 +237,7 @@ async fn list_installed(data: web::Data<AppState>) -> impl Responder {
                 internal: p.internal_port as u16,
                 external: p.external_port as u16,
                 protocol: p.protocol,
+                assignment_mode: p.assignment_mode,
             })
             .collect();
 
@@ -287,7 +290,6 @@ async fn install_app(
     };
 
     let source = if req.app_id.is_some() { "store" } else { "zip" };
-
     info!("Installing app: {} ({})", manifest.name, manifest.id);
 
     // Allocate ports if needed
@@ -300,11 +302,17 @@ async fn install_app(
                 iora_shared::port_manager::PortProtocol::Tcp
             };
 
-            match data.port_manager.allocate_port(&manifest.id, internal_port.port, protocol).await {
+            let mode = if internal_port.assignment_mode == "fixed" {
+                iora_shared::port_manager::PortAssignmentMode::Fixed
+            } else {
+                iora_shared::port_manager::PortAssignmentMode::Random
+            };
+
+            match data.port_manager.allocate_port(&manifest.id, internal_port.port, protocol, mode).await {
                 Ok(assignment) => {
                     info!(
-                        "Allocated port {}:{} -> {}",
-                        internal_port.port, assignment.external_port, assignment.protocol
+                        "Allocated port {}:{} -> {} (mode: {:?})",
+                        internal_port.port, assignment.external_port, assignment.protocol, assignment.assignment_mode
                     );
                     port_assignments.push(assignment);
                 }
@@ -354,10 +362,15 @@ async fn install_app(
 
     // Store port assignments in database
     for assignment in &port_assignments {
+        let mode_str = match assignment.assignment_mode {
+            iora_shared::port_manager::PortAssignmentMode::Random => "random",
+            iora_shared::port_manager::PortAssignmentMode::Fixed => "fixed",
+        };
+
         let _ = sqlx::query(
             r#"
-            INSERT INTO port_assignments (id, app_id, internal_port, external_port, protocol, assigned_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO port_assignments (id, app_id, internal_port, external_port, protocol, assignment_mode, assigned_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#
         )
         .bind(Uuid::new_v4())
@@ -365,6 +378,7 @@ async fn install_app(
         .bind(assignment.internal_port as i32)
         .bind(assignment.external_port as i32)
         .bind(assignment.protocol.to_string())
+        .bind(mode_str)
         .bind(Utc::now())
         .execute(&data.db)
         .await;

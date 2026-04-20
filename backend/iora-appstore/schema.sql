@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS port_assignments (
     internal_port INTEGER NOT NULL,
     external_port INTEGER NOT NULL,
     protocol VARCHAR(10) NOT NULL CHECK (protocol IN ('tcp', 'udp')),
+    assignment_mode VARCHAR(10) NOT NULL DEFAULT 'random' CHECK (assignment_mode IN ('random', 'fixed')),
     assigned_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(external_port, protocol),
     UNIQUE(app_id, internal_port, protocol)

@@ -15,6 +15,7 @@ members = [
     "iora-api",
     "iora-supervisor",
     "iora-cli",
+    "iora-appstore",
 ]
 resolver = "2"
 
