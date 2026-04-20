@@ -16,6 +16,7 @@ import {
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
+import { SystemInfoTab, AppsTab, PluginsTab } from './AdminPanelTabs'
 
 interface CloudSettings {
   connectorHost: string
@@ -353,7 +354,7 @@ function CloudSettingsTab({ token }: { token: string }) {
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
 
-async function adminFetch(path: string, token: string, options?: RequestInit) {
+export async function adminFetch(path: string, token: string, options?: RequestInit) {
   const url = `${API_BASE}${path}`
   const res = await fetch(url, {
     ...options,
@@ -566,6 +567,9 @@ export function AdminPanel() {
               {activeTab === 'tasks' && <TasksTab token={token} />}
               {activeTab === 'control-mode' && <ControlModeTab token={token} />}
               {activeTab === 'system' && <SystemTab token={token} />}
+              {activeTab === 'system-info' && <SystemInfoTab token={token} />}
+              {activeTab === 'apps' && <AppsTab token={token} />}
+              {activeTab === 'plugins' && <PluginsTab token={token} />}
               {activeTab === 'users' && <UsersTab token={token} />}
               {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
               {activeTab === 'webhooks' && <WebhooksTab token={token} />}
@@ -1017,7 +1021,7 @@ function ControlModeTab({ token }: { token: string }) {
 
 // ── Card wrapper ──────────────────────────────────────────────────
 
-function AdminCard({ children, title, icon: Icon, className = '' }: {
+export function AdminCard({ children, title, icon: Icon, className = '' }: {
   children: React.ReactNode
   title?: string
   icon?: typeof Cpu
@@ -3766,7 +3770,7 @@ function SystemNotificationsTab({ token }: { token: string }) {
 
 // ── Utilities ──────────────────────────────────────────────────
 
-function LoadingSpinner() {
+export function LoadingSpinner() {
   return (
     <div className="glass-card rounded-2xl p-8 theme-transition flex items-center justify-center">
       <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
@@ -3774,11 +3778,11 @@ function LoadingSpinner() {
   )
 }
 
-function InlineSpinner({ size = 14, className = '' }: { size?: number; className?: string }) {
+export function InlineSpinner({ size = 14, className = '' }: { size?: number; className?: string }) {
   return <div style={{ width: size, height: size }} className={`border-2 border-current/30 border-t-current rounded-full animate-spin shrink-0 ${className}`} />
 }
 
-function ErrorMessage({ children }: { children: React.ReactNode }) {
+export function ErrorMessage({ children }: { children: React.ReactNode }) {
   return (
     <div className="glass-card rounded-2xl p-4 theme-transition">
       <div className="flex items-center gap-2 text-sm text-red-400">
