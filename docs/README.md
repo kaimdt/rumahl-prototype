@@ -59,10 +59,13 @@ IORA is a comprehensive home automation platform that provides:
 - [Creating Custom Pages](guides/custom-pages.md)
 - [Settings Schema](guides/settings-schema.md)
 - [Docker Configuration](guides/docker-config.md)
+- [Domain Validation & Resource Management](DOMAIN_VALIDATION_AND_RESOURCE_MANAGEMENT.md)
 - [Troubleshooting](guides/troubleshooting.md)
 
 ## Recent Updates
 
+- **Domain Validator Service** - Enforces network access policies with domain/IP whitelisting
+- **Resource Manager Service** - Intelligent Docker container resource monitoring and reallocation
 - **Network Access Control** - New domain whitelist and IP access control for apps
 - **Network Monitor Service** - Discover and track devices on your local network
 - **SSH Management** - Control SSH access through the Control Center

@@ -18,6 +18,8 @@ members = [
     "iora-appstore",
     "iora-nginx",
     "iora-network-monitor",
+    "iora-domain-validator",
+    "iora-resource-manager",
 ]
 resolver = "2"
 
