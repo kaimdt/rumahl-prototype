@@ -2,11 +2,15 @@
 //!
 //! Plugins are small code extensions that run on-demand in a sandboxed environment.
 //! They do not run independently but are called when needed by the system.
+//! Plugins can register APIs and widgets which are isolated from the core system.
 
 use std::{collections::HashMap, sync::Arc, time::Instant};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+
+use crate::api_gateway::ApiEndpoint;
+use crate::widget_registry::WidgetDefinition;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMetadata {
@@ -118,6 +122,16 @@ pub trait IPlugin: Send + Sync {
     /// Override this method to implement plugin logic
     async fn run_sandboxed(&self, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         Ok(serde_json::json!({"status": "not_implemented"}))
+    }
+
+    /// Get API endpoints this plugin wants to register
+    async fn get_api_endpoints(&self) -> Vec<ApiEndpoint> {
+        Vec::new()
+    }
+
+    /// Get widgets this plugin wants to register
+    async fn get_widgets(&self) -> Vec<WidgetDefinition> {
+        Vec::new()
     }
 }
 
