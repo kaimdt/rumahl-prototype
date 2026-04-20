@@ -620,46 +620,51 @@ done
 ISO_MOUNT="/mnt/iso"
 ISO_IMAGE="iora-os.img.xz"
 MIN_DISK_GB=8
-BACKTITLE="IORA OS Installer v1.0"
+BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
 IORA_HOSTNAME="iora"
 IORA_TIMEZONE="Europe/Berlin"
 IORA_NETWORK="dhcp"
 
-# ── Modern dialog color theme ─────────────────────────────────────
+# ── Dialog color theme (Ubuntu/Debian terminal-installer style) ──
 setup_dialog_theme() {
     cat > /tmp/.dialogrc <<'DLGRC'
+aspect = 0
+separate_widget = ""
+tab_len = 0
+visit_items = OFF
 use_shadow = ON
 use_colors = ON
 screen_color = (WHITE,BLUE,ON)
+shadow_color = (BLACK,BLACK,ON)
 dialog_color = (BLACK,WHITE,OFF)
-title_color = (BLUE,WHITE,ON)
-border_color = (WHITE,WHITE,ON)
+title_color = (YELLOW,BLUE,ON)
+border_color = (WHITE,BLUE,ON)
+border2_color = (WHITE,BLUE,ON)
 button_active_color = (WHITE,BLUE,ON)
 button_inactive_color = (BLACK,WHITE,OFF)
-button_key_active_color = (WHITE,BLUE,ON)
+button_key_active_color = (YELLOW,BLUE,ON)
 button_key_inactive_color = (RED,WHITE,OFF)
 button_label_active_color = (YELLOW,BLUE,ON)
 button_label_inactive_color = (BLACK,WHITE,ON)
 inputbox_color = (BLACK,WHITE,OFF)
-inputbox_border_color = (BLACK,WHITE,OFF)
+inputbox_border_color = (WHITE,BLUE,ON)
 searchbox_color = (BLACK,WHITE,OFF)
-searchbox_title_color = (BLUE,WHITE,ON)
-searchbox_border_color = (WHITE,WHITE,ON)
-position_indicator_color = (BLUE,WHITE,ON)
+searchbox_title_color = (YELLOW,BLUE,ON)
+searchbox_border_color = (WHITE,BLUE,ON)
+position_indicator_color = (YELLOW,BLUE,ON)
 menubox_color = (BLACK,WHITE,OFF)
-menubox_border_color = (WHITE,WHITE,ON)
+menubox_border_color = (WHITE,BLUE,ON)
 item_color = (BLACK,WHITE,OFF)
 item_selected_color = (WHITE,BLUE,ON)
-tag_color = (BLUE,WHITE,ON)
-tag_selected_color = (YELLOW,BLUE,ON)
-tag_key_color = (RED,WHITE,OFF)
-tag_key_selected_color = (RED,BLUE,ON)
+tag_color = (YELLOW,BLUE,ON)
+tag_selected_color = (WHITE,BLUE,ON)
+tag_key_color = (YELLOW,BLUE,ON)
+tag_key_selected_color = (WHITE,BLUE,ON)
 check_color = (BLACK,WHITE,OFF)
 check_selected_color = (WHITE,BLUE,ON)
-uarrow_color = (GREEN,WHITE,ON)
-darrow_color = (GREEN,WHITE,ON)
+uarrow_color = (GREEN,BLUE,ON)
+darrow_color = (GREEN,BLUE,ON)
 gauge_color = (WHITE,BLUE,ON)
-border2_color = (WHITE,WHITE,ON)
 DLGRC
     export DIALOGRC=/tmp/.dialogrc
 }
@@ -716,6 +721,48 @@ dlg_input() {
         printf "  %s [%s]: " "$prompt" "$default"; read ans
         echo "${ans:-$default}"
     fi
+}
+
+is_uint() {
+    case "$1" in
+        ""|*[!0-9]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+safe_uint() {
+    if is_uint "$1"; then
+        echo "$1"
+    else
+        echo "${2:-0}"
+    fi
+}
+
+valid_hostname() {
+    case "$1" in
+        ""|*[!A-Za-z0-9-]*|-*|*-) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+valid_ipv4() {
+    local old_ifs octet
+    old_ifs="$IFS"
+    IFS=.
+    set -- $1
+    IFS="$old_ifs"
+
+    [ $# -eq 4 ] || return 1
+    for octet in "$@"; do
+        is_uint "$octet" || return 1
+        [ "$octet" -ge 0 ] && [ "$octet" -le 255 ] || return 1
+    done
+    return 0
+}
+
+valid_prefix_length() {
+    is_uint "$1" || return 1
+    [ "$1" -ge 1 ] && [ "$1" -le 32 ]
 }
 
 # ── System info helpers ────────────────────────────────────────────
@@ -788,6 +835,7 @@ get_disks() {
         case "$name" in sr*|loop*|ram*|zram*|dm-*|md*) continue ;; esac
         [ -n "$iso_parent" ] && [ "$name" = "$iso_parent" ] && continue
         local size_sectors=$(cat "${disk_path}/size" 2>/dev/null || echo 0)
+        size_sectors=$(safe_uint "$size_sectors" 0)
         local size_gb=$(( size_sectors / 2097152 ))
         [ "$size_gb" -lt "$MIN_DISK_GB" ] && continue
         echo "$name"
@@ -796,6 +844,7 @@ get_disks() {
 
 get_disk_size_gb() {
     local sz=$(cat "/sys/block/$1/size" 2>/dev/null || echo 0)
+    sz=$(safe_uint "$sz" 0)
     echo $(( sz / 2097152 ))
 }
 
@@ -895,30 +944,25 @@ NETEOF
 
 screen_welcome() {
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title " Welcome to IORA OS " --msgbox "\
-  ___ ___  ____    _      ___  ____
- |_ _/ _ \\|  _ \\  / \\    / _ \\/ ___|
-  | | | | | |_) |/ _ \\  | | | \\___ \\
-  | | |_| |  _ </ ___ \\ | |_| |___) |
- |___\\___/|_| \\_/_/   \\_\\ \\___/|____/
+                dlg --title " IORA OS Setup " --msgbox "\
+ Ready to deploy IORA OS.
 
-         Installation Wizard
+ This guided setup will:
+     1. Inspect this system
+     2. Configure hostname and timezone
+     3. Configure network settings
+     4. Set the root password
+     5. Write the image to the selected drive
 
- This wizard will install IORA OS
- on your system in a few steps.
+ Expect the installation itself to take a few minutes.
+ All data on the selected target drive will be erased.
 
-   [1]  System information
-   [2]  Configure hostname & timezone
-   [3]  Configure network
-   [4]  Set root password
-   [5]  Select disk & install
-
- Press OK to begin." 22 52
+ Select OK to continue." 18 68
     else
         clear 2>/dev/null || true
         echo ""
-        echo "  IORA OS Installation Wizard"
-        echo "  ==========================="
+                echo "  IORA OS Setup"
+                echo "  ============="
         echo ""
         echo "  Press ENTER to begin..."
         read _
@@ -956,16 +1000,31 @@ ${net}
 
 screen_hostname() {
     if [ -z "$DIALOG_BIN" ]; then
-        printf "  Hostname [iora]: "; read ans
-        IORA_HOSTNAME="${ans:-iora}"
-        return 0
+        while true; do
+            printf "  Hostname [iora]: "; read ans
+            ans="${ans:-iora}"
+            if valid_hostname "$ans"; then
+                IORA_HOSTNAME="$ans"
+                return 0
+            fi
+            echo "  Invalid hostname. Use only letters, numbers, and hyphens."
+        done
     fi
 
-    local result
-    result=$(dlg --title " Hostname " --inputbox \
-        "\n Enter a hostname for this system.\n\n Only letters, numbers and hyphens.\n" \
-        12 52 "$IORA_HOSTNAME" 3>&1 1>&2 2>&3)
-    [ $? -eq 0 ] && [ -n "$result" ] && IORA_HOSTNAME="$result"
+    while true; do
+        local result
+        result=$(dlg --title " Hostname " --inputbox \
+            "\n Choose a hostname for this device.\n\n Allowed: letters, numbers, hyphens.\n" \
+            12 60 "$IORA_HOSTNAME" 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 0
+
+        if valid_hostname "$result"; then
+            IORA_HOSTNAME="$result"
+            return 0
+        fi
+
+        dlg_msg " Invalid Hostname " "Use only letters, numbers, and hyphens."
+    done
 }
 
 screen_timezone() {
@@ -973,7 +1032,7 @@ screen_timezone() {
 
     local tz
     tz=$(dlg --title " Timezone " --menu \
-        "\n Select your timezone:\n" 20 52 10 \
+        "\n Select the system timezone.\n" 20 60 10 \
         "Europe/Berlin"    "Germany" \
         "Europe/Vienna"    "Austria" \
         "Europe/Zurich"    "Switzerland" \
@@ -993,33 +1052,52 @@ screen_network() {
     [ -z "$DIALOG_BIN" ] && return 0
 
     local mode
-    mode=$(dlg --title " Network Configuration " --menu \
-        "\n How should the network be configured?\n" 14 52 3 \
-        "dhcp"   "Automatic (DHCP) - recommended" \
-        "static" "Manual (Static IP)" \
-        "skip"   "Do not configure" \
+    mode=$(dlg --title " Network " --menu \
+        "\n Choose how IORA OS should configure networking.\n" 15 60 3 \
+        "dhcp"   "Automatic via DHCP" \
+        "static" "Manual IPv4 configuration" \
+        "skip"   "Leave networking unchanged" \
         3>&1 1>&2 2>&3)
     [ $? -ne 0 ] && return 0
 
     IORA_NETWORK="$mode"
 
     if [ "$mode" = "static" ]; then
-        IORA_IP=$(dlg --title " Static IP " --inputbox \
-            "\n Enter the IP address (e.g. 192.168.1.100):\n" \
-            10 52 "${IORA_IP:-192.168.1.100}" 3>&1 1>&2 2>&3)
-        [ $? -ne 0 ] && return 0
+        while true; do
+            IORA_IP=$(dlg --title " Static IPv4 " --inputbox \
+                "\n Enter the IPv4 address for this device.\n" \
+                10 60 "${IORA_IP:-192.168.1.100}" 3>&1 1>&2 2>&3)
+            [ $? -ne 0 ] && return 0
+            valid_ipv4 "$IORA_IP" && break
+            dlg_msg " Invalid Address " "Enter a valid IPv4 address such as 192.168.1.100."
+        done
 
-        IORA_NETMASK=$(dlg --title " Subnet Mask " --inputbox \
-            "\n Enter the subnet prefix length:\n" \
-            10 52 "${IORA_NETMASK:-24}" 3>&1 1>&2 2>&3)
+        while true; do
+            IORA_NETMASK=$(dlg --title " Prefix Length " --inputbox \
+                "\n Enter the subnet prefix length.\n Example: 24\n" \
+                10 60 "${IORA_NETMASK:-24}" 3>&1 1>&2 2>&3)
+            [ $? -ne 0 ] && return 0
+            valid_prefix_length "$IORA_NETMASK" && break
+            dlg_msg " Invalid Prefix " "Enter a number between 1 and 32."
+        done
 
-        IORA_GATEWAY=$(dlg --title " Gateway " --inputbox \
-            "\n Enter the default gateway:\n" \
-            10 52 "${IORA_GATEWAY:-192.168.1.1}" 3>&1 1>&2 2>&3)
+        while true; do
+            IORA_GATEWAY=$(dlg --title " Gateway " --inputbox \
+                "\n Enter the default gateway IPv4 address.\n" \
+                10 60 "${IORA_GATEWAY:-192.168.1.1}" 3>&1 1>&2 2>&3)
+            [ $? -ne 0 ] && return 0
+            valid_ipv4 "$IORA_GATEWAY" && break
+            dlg_msg " Invalid Gateway " "Enter a valid IPv4 address such as 192.168.1.1."
+        done
 
-        IORA_DNS=$(dlg --title " DNS Server " --inputbox \
-            "\n Enter the DNS server:\n" \
-            10 52 "${IORA_DNS:-8.8.8.8}" 3>&1 1>&2 2>&3)
+        while true; do
+            IORA_DNS=$(dlg --title " DNS Server " --inputbox \
+                "\n Enter the preferred DNS server IPv4 address.\n" \
+                10 60 "${IORA_DNS:-8.8.8.8}" 3>&1 1>&2 2>&3)
+            [ $? -ne 0 ] && return 0
+            valid_ipv4 "$IORA_DNS" && break
+            dlg_msg " Invalid DNS " "Enter a valid IPv4 address such as 8.8.8.8."
+        done
     fi
 }
 
@@ -1029,18 +1107,18 @@ screen_password() {
     local pw1 pw2
 
     pw1=$(dlg --title " Root Password " --insecure --passwordbox \
-        "\n Enter a new root password.\n Leave empty to keep the default.\n" \
-        12 52 3>&1 1>&2 2>&3)
+        "\n Set a new root password.\n Leave this blank to keep the default.\n" \
+        12 60 3>&1 1>&2 2>&3)
     [ $? -ne 0 ] && return 0
     [ -z "$pw1" ] && return 0
 
     pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
-        "\n Re-enter the root password:\n" \
-        10 52 3>&1 1>&2 2>&3)
+        "\n Enter the password again for verification.\n" \
+        10 60 3>&1 1>&2 2>&3)
     [ $? -ne 0 ] && return 0
 
     if [ "$pw1" != "$pw2" ]; then
-        dlg_msg " Error " "Passwords do not match.\nThe default password will be kept."
+        dlg_msg " Password Mismatch " "The passwords do not match. The default password will remain active."
         return 0
     fi
 
@@ -1060,26 +1138,25 @@ screen_select_disk() {
     fi
 
     if [ -n "$DIALOG_BIN" ]; then
-        local menu_args=""
         local disk_count=0
+        set --
         for disk in $disk_list; do
             local sz=$(get_disk_size_gb "$disk")
             local mdl=$(get_disk_model "$disk")
             local bus=$(get_disk_transport "$disk")
             local label="${sz}GB ${bus}"
             [ -n "$mdl" ] && label="${label} - ${mdl}"
-            menu_args="${menu_args} /dev/${disk} \"${label}\""
+            set -- "$@" "/dev/${disk}" "$label"
             disk_count=$((disk_count + 1))
         done
 
-        local menu_h=$((disk_count + 10))
+        local menu_h=$((disk_count + 12))
         [ "$menu_h" -gt 22 ] && menu_h=22
 
-        SEL_DISK=$(eval $DIALOG_BIN --backtitle '"$BACKTITLE"' \
-            --title '" Select Target Disk "' \
-            --menu '"\n Image: ${ISO_IMAGE} (${img_size})\n\n Choose the disk to install IORA OS on:\n"' \
+        SEL_DISK=$(dlg --title " Installation Target " \
+            --menu "\n Release: ${ISO_IMAGE} (${img_size})\n\n Select the drive that should receive IORA OS.\n All existing data on the selected drive will be erased.\n" \
             "$menu_h" 64 "$disk_count" \
-            $menu_args \
+            "$@" \
             3>&1 1>&2 2>&3)
 
         [ $? -ne 0 ] && return 1
@@ -1102,7 +1179,10 @@ screen_select_disk() {
         echo ""
         printf "  Select disk [1-%d]: " "$disk_count"
         read choice
-        SEL_DISK=$(echo "$disk_array" | tr ' ' '\n' | sed -n "${choice}p")
+        if ! is_uint "$choice" || [ "$choice" -lt 1 ] || [ "$choice" -gt "$disk_count" ]; then
+            return 1
+        fi
+        SEL_DISK=$(printf '%s\n' $disk_array | sed -n "${choice}p")
         [ -z "$SEL_DISK" ] && return 1
     fi
     return 0
@@ -1115,6 +1195,7 @@ screen_confirm() {
     local vendor=$(get_disk_vendor "$disk")
     local parts=$(get_disk_partitions "$disk")
     local bus=$(get_disk_transport "$disk")
+    parts=$(safe_uint "$parts" 0)
 
     local summary="Target Disk\n"
     summary="${summary}  Device:     /dev/${disk}\n"
@@ -1175,6 +1256,7 @@ screen_install() {
 
             local img_bytes
             img_bytes=$(xz --robot --list "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '/^totals/{print $5}' || echo 0)
+            img_bytes=$(safe_uint "$img_bytes" 0)
             [ "$img_bytes" -eq 0 ] && img_bytes=2000000000
 
             xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${disk}" bs=4M conv=fsync 2>/tmp/dd_progress &
@@ -1184,6 +1266,7 @@ screen_install() {
             while kill -0 "$dd_pid" 2>/dev/null; do
                 if [ -f /tmp/dd_progress ]; then
                     written=$(grep -o '[0-9]* bytes' /tmp/dd_progress 2>/dev/null | tail -1 | awk '{print $1}' || echo 0)
+                    written=$(safe_uint "$written" 0)
                 fi
                 if [ "$img_bytes" -gt 0 ] && [ "$written" -gt 0 ]; then
                     local pct=$((5 + written * 75 / img_bytes))
@@ -1236,6 +1319,7 @@ screen_install() {
             "  Preparing installation..." 10 64 0
 
         local result=$(cat /tmp/install_result 2>/dev/null || echo 1)
+        result=$(safe_uint "$result" 1)
 
         if [ "$result" -eq 0 ]; then
             # Apply post-install config (hostname, timezone, password, network)
@@ -1284,28 +1368,18 @@ screen_complete() {
 
     if [ -n "$DIALOG_BIN" ]; then
         local action
-        action=$(dlg --title " Installation Complete " --menu "\
-  ___ ___  ____    _      ___  ____
- |_ _/ _ \\|  _ \\  / \\    / _ \\/ ___|
-  | | | | | |_) |/ _ \\  | | | \\___ \\
-  | | |_| |  _ </ ___ \\ | |_| |___) |
- |___\\___/|_| \\_/_/   \\_\\ \\___/|____/
+                action=$(dlg --title " Setup Complete " --menu "\
+ IORA OS has been written to /dev/${SEL_DISK}.
 
- IORA OS was installed on /dev/${SEL_DISK}.
+ Next step after reboot:
+     http://${iora_ip}:8080
 
- After rebooting, open a browser and
- go to the setup wizard:
+ First-boot settings:
+     Hostname: ${IORA_HOSTNAME}
+     Timezone: ${IORA_TIMEZONE}
 
-   http://${iora_ip}:8080
-
- The first-boot setup will guide you
- through configuring IORA Home.
-
- Hostname:  ${IORA_HOSTNAME}
- Timezone:  ${IORA_TIMEZONE}
-
- Remove the installation media first.\n" \
-            24 56 3 \
+ Remove the installation media before continuing.\n" \
+                        18 64 3 \
             "reboot"   "Reboot now (recommended)" \
             "shell"    "Drop to shell" \
             "poweroff" "Shut down" \
@@ -1357,7 +1431,6 @@ run_wizard() {
         return 1
     fi
 
-    local img_size
     img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
 
     # Integrity check
