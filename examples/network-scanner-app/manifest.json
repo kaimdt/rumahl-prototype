@@ -1,0 +1,118 @@
+{
+  "id": "network-scanner",
+  "name": "Network Scanner",
+  "version": "1.0.0",
+  "developer": "IORA Team",
+  "description": "Scan and discover devices on your local network",
+  "type": "app",
+  "icon": "icon.png",
+  "permissions": [
+    "NetworkLocalAccess",
+    "NetworkScan",
+    "ReadEntities",
+    "StorageWrite",
+    "StorageRead",
+    "SendNotifications",
+    "RegisterWidget"
+  ],
+  "docker": {
+    "auto_build": true,
+    "base_image": "rust:1.75-slim",
+    "working_dir": "/app",
+    "install_cmd": "cargo build --release",
+    "start_cmd": "./target/release/network-scanner-app",
+    "internal_ports": [
+      {
+        "port": 3000,
+        "protocol": "tcp",
+        "assignment_mode": "random",
+        "description": "Web API server"
+      }
+    ],
+    "environment": {
+      "RUST_LOG": "info"
+    },
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "custom_pages": [
+    {
+      "id": "scanner-dashboard",
+      "title": "Network Scanner",
+      "icon": "broadcast",
+      "url": "/",
+      "show_in_nav": true,
+      "order": 150,
+      "iframe": true,
+      "iframe_config": {
+        "sandbox": ["allow-scripts", "allow-same-origin"],
+        "allow": [],
+        "security_token": true
+      }
+    }
+  ],
+  "widgets": [
+    {
+      "id": "network-devices-widget",
+      "name": "Network Devices",
+      "type": "dashboard",
+      "component_url": "http://network-scanner:3000/widget.js",
+      "description": "Shows discovered devices on the network",
+      "default_config": {
+        "refresh_interval": 60,
+        "show_offline": false
+      }
+    }
+  ],
+  "settings_schema": {
+    "title": "Network Scanner Settings",
+    "description": "Configure network scanning behavior",
+    "fields": [
+      {
+        "key": "scan_interval",
+        "label": "Scan Interval (seconds)",
+        "type": "number",
+        "default": 300,
+        "required": true
+      },
+      {
+        "key": "network_range",
+        "label": "Network Range (CIDR)",
+        "type": "text",
+        "default": "192.168.1.0/24",
+        "required": true
+      },
+      {
+        "key": "notify_new_devices",
+        "label": "Notify on New Devices",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      {
+        "key": "scan_timeout",
+        "label": "Scan Timeout (seconds)",
+        "type": "number",
+        "default": 5,
+        "required": true
+      }
+    ]
+  },
+  "network_access": {
+    "allowed_domains": [],
+    "allow_user_domains": false,
+    "allowed_local_ips": ["0.0.0.0/0"],
+    "allow_user_local_ips": false,
+    "allow_network_scan": true
+  },
+  "store_metadata": {
+    "category": "Network Tools",
+    "tags": ["network", "scanner", "devices", "monitoring"],
+    "screenshots": ["screenshot1.png", "screenshot2.png"],
+    "homepage": "https://github.com/iora/network-scanner"
+  }
+}
