@@ -644,7 +644,7 @@ fi
 mkdir -p /mnt/iso /mnt/target /tmp /run
 
 # Load modules
-for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci; do
+for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci vfat fat nls_cp437 nls_iso8859_1 nls_utf8; do
     modprobe "$mod" 2>/dev/null || true
 done
 
@@ -996,6 +996,304 @@ detect_target_root_partition() {
     return 1
 }
 
+# ── Disk repair & bootloader auto-repair ───────────────────────────────────
+# Called unconditionally after every dd-write.
+# Mirrors what Ubuntu/Debian installers do post-write:
+#   1. GPT header repair (sgdisk -e / gdisk / parted fix)
+#   2. Kernel partition table reload
+#   3. EFI partition filesystem repair (dosfsck)
+#   4. GRUB reinstall with freshly-read PARTUUIDs
+#   5. grub.cfg rewrite with real PARTUUIDs from the target disk
+#   6. UEFI fallback loader copy (EFI/BOOT/BOOTX64.EFI)
+#   7. Log every step to /tmp/boot-repair.log
+repair_disk_and_bootloader() {
+    local disk="$1"
+    local logfile="/tmp/boot-repair.log"
+    : > "$logfile"
+
+    log_r() { echo "[$(date '+%H:%M:%S')] $*" >> "$logfile"; }
+
+    log_r "=== IORA Boot Repair ==="
+    log_r "Target: /dev/${disk}"
+
+    # ── Step 1: GPT header repair ───────────────────────────────────
+    # When an 8 GB image is written to a larger disk the GPT backup
+    # header is at the wrong offset. sgdisk -e relocates it to the
+    # real disk end. Fall back to gdisk 'v' + 'w' if sgdisk missing.
+    echo "  [1/7] GPT header repair..." >> "$logfile"
+    if command -v sgdisk >/dev/null 2>&1; then
+        sgdisk -e "/dev/${disk}" >> "$logfile" 2>&1 \
+            && log_r "sgdisk -e OK" \
+            || log_r "sgdisk -e returned non-zero (may be ignorable)"
+        sgdisk --verify "/dev/${disk}" >> "$logfile" 2>&1 \
+            && log_r "sgdisk verify OK" \
+            || log_r "sgdisk verify: problems remain"
+    elif command -v gdisk >/dev/null 2>&1; then
+        # gdisk interactive: send 'v' (verify) then 'w' (write) + 'Y'
+        printf 'v\nw\nY\n' | gdisk "/dev/${disk}" >> "$logfile" 2>&1 \
+            && log_r "gdisk fix OK" \
+            || log_r "gdisk fix returned non-zero"
+    else
+        # parted can also rewrite GPT without questions
+        parted -s "/dev/${disk}" print fix >> "$logfile" 2>&1 \
+            && log_r "parted fix OK" \
+            || log_r "parted fix returned non-zero"
+        log_r "WARN: sgdisk not available; GPT backup-header may still be wrong"
+    fi
+
+    # ── Step 2: Re-read partition table ────────────────────────────
+    echo "  [2/7] Refresh partition table..." >> "$logfile"
+    sync
+    blockdev --rereadpt "/dev/${disk}" >> "$logfile" 2>&1 || true
+    partprobe "/dev/${disk}" >> "$logfile" 2>&1 || true
+    sleep 2
+    # Wait until expected partitions appear (up to 10 s)
+    local waited=0
+    while [ "$waited" -lt 10 ]; do
+        local p2; p2=$(disk_part_name "$disk" 2)
+        [ -b "$p2" ] && break
+        sleep 1; waited=$((waited + 1))
+    done
+    log_r "Partition nodes present: $(ls /dev/${disk}* 2>/dev/null | tr '\n' ' ')"
+
+    # ── Step 3: EFI filesystem repair ──────────────────────────────
+    local efi_part; efi_part=$(disk_part_name "$disk" 2)
+    echo "  [3/7] EFI partition fsck..." >> "$logfile"
+    if [ -b "$efi_part" ]; then
+        if command -v dosfsck >/dev/null 2>&1; then
+            dosfsck -a -r "$efi_part" >> "$logfile" 2>&1 \
+                && log_r "dosfsck OK" \
+                || log_r "dosfsck: errors found (attempted auto-fix)"
+        elif command -v fsck.vfat >/dev/null 2>&1; then
+            fsck.vfat -a "$efi_part" >> "$logfile" 2>&1 \
+                && log_r "fsck.vfat OK" \
+                || log_r "fsck.vfat: errors found (attempted auto-fix)"
+        else
+            log_r "No vfat fsck available – skipping"
+        fi
+    else
+        log_r "EFI partition ${efi_part} not found – skipping"
+    fi
+
+    # ── Step 4: Mount EFI + root ────────────────────────────────────
+    echo "  [4/7] Mounting partitions..." >> "$logfile"
+    local target="/mnt/repair-target"
+    local efi_mounted=false
+    local root_part=""
+    root_part=$(detect_target_root_partition "$disk" 2>/dev/null || true)
+    [ -z "$root_part" ] && root_part=$(disk_part_name "$disk" 3)
+
+    # Ensure vfat driver is available for EFI partition
+    modprobe vfat 2>/dev/null || true
+    modprobe fat 2>/dev/null || true
+    modprobe nls_cp437 2>/dev/null || true
+    modprobe nls_iso8859_1 2>/dev/null || true
+    modprobe nls_utf8 2>/dev/null || true
+
+    mkdir -p "$target" "${target}/boot/efi"
+
+    if ! mount "$root_part" "$target" 2>>"$logfile"; then
+        log_r "ERROR: cannot mount root partition ${root_part}"
+        return 1
+    fi
+    log_r "Root mounted: ${root_part} → ${target}"
+
+    if [ -b "$efi_part" ]; then
+        # Load vfat driver – may be a module or built-in
+        modprobe vfat      2>/dev/null || true
+        modprobe fat       2>/dev/null || true
+        modprobe nls_cp437 2>/dev/null || true
+        modprobe nls_utf8  2>/dev/null || true
+
+        if mount -t vfat "$efi_part" "${target}/boot/efi" 2>>"$logfile" || \
+           mount          "$efi_part" "${target}/boot/efi" 2>>"$logfile"; then
+            efi_mounted=true
+            log_r "EFI mounted: ${efi_part} → ${target}/boot/efi"
+        else
+            log_r "WARN: vfat mount failed – reformatting EFI partition to fix corrupted/unreadable filesystem"
+            # If the vfat FS is unreadable (e.g. wrong offsets after image resize),
+            # re-create it and reinstall GRUB from scratch.
+            if command -v mkfs.vfat >/dev/null 2>&1 || command -v mkdosfs >/dev/null 2>&1; then
+                local mkfscmd="mkdosfs"
+                command -v mkfs.vfat >/dev/null 2>&1 && mkfscmd="mkfs.vfat"
+                if ${mkfscmd} -F 32 -n EFI "$efi_part" >> "$logfile" 2>&1; then
+                    log_r "EFI partition reformatted (FAT32)"
+                    if mount -t vfat "$efi_part" "${target}/boot/efi" 2>>"$logfile"; then
+                        efi_mounted=true
+                        log_r "EFI mounted after reformat"
+                    else
+                        log_r "WARN: EFI mount still failing after reformat – UEFI boot may not work"
+                    fi
+                else
+                    log_r "WARN: mkfs.vfat failed – EFI partition not accessible"
+                fi
+            else
+                log_r "WARN: mkfs.vfat not available – cannot repair EFI partition"
+                log_r "      Install dosfstools in the installer initramfs"
+            fi
+        fi
+    fi
+
+    # ── Step 5: Rewrite grub.cfg with real PARTUUIDs ────────────────
+    echo "  [5/7] grub.cfg with real PARTUUIDs..." >> "$logfile"
+    local puuid_a="" puuid_b=""
+    local pa pb
+    pa=$(disk_part_name "$disk" 3)
+    pb=$(disk_part_name "$disk" 4)
+    if [ -b "$pa" ]; then
+        puuid_a=$(blkid -s PARTUUID -o value "$pa" 2>/dev/null || true)
+    fi
+    if [ -b "$pb" ]; then
+        puuid_b=$(blkid -s PARTUUID -o value "$pb" 2>/dev/null || true)
+    fi
+
+    local root_a_ref="/dev/sda3"
+    local root_b_ref="/dev/sda4"
+    [ -n "$puuid_a" ] && root_a_ref="PARTUUID=${puuid_a}"
+    [ -n "$puuid_b" ] && root_b_ref="PARTUUID=${puuid_b}"
+
+    log_r "Root-A: ${root_a_ref}  Root-B: ${root_b_ref}"
+
+    # Find kernel image (bzImage first, then vmlinuz)
+    local kernel_path="/vmlinuz"
+    if [ -f "${target}/boot/vmlinuz" ]; then
+        kernel_path="/boot/vmlinuz"
+    elif [ -f "${target}/boot/bzImage" ]; then
+        kernel_path="/boot/bzImage"
+    fi
+    log_r "Kernel: ${kernel_path}"
+
+    mkdir -p "${target}/boot/grub"
+    cat > "${target}/boot/grub/grub.cfg" <<GRUBCFG
+set default=0
+set timeout=5
+
+menuentry "IORA OS" {
+    search --no-floppy --set=root --label "iora-data" 2>/dev/null || true
+    linux ${kernel_path} root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+}
+
+menuentry "IORA OS (second slot)" {
+    linux ${kernel_path} root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+}
+
+menuentry "IORA OS Recovery" {
+    linux ${kernel_path} root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+}
+GRUBCFG
+    log_r "grub.cfg written"
+
+    # Copy grub.cfg also to EFI boot directory for UEFI GRUB
+    if [ "$efi_mounted" = true ]; then
+        mkdir -p "${target}/boot/efi/boot/grub" 2>/dev/null || true
+        cp "${target}/boot/grub/grub.cfg" "${target}/boot/efi/boot/grub/grub.cfg" 2>/dev/null || true
+    fi
+
+    # ── Step 6: bind-mount proc/dev/sys and (re)install GRUB ───────
+    echo "  [6/7] GRUB reinstall..." >> "$logfile"
+    local did_bind=false
+    local bios_ok=false uefi_ok=false
+
+    mkdir -p "${target}/dev" "${target}/proc" "${target}/sys" "${target}/run"
+    if mount --bind /dev  "${target}/dev"  2>/dev/null && \
+       mount --bind /proc "${target}/proc" 2>/dev/null && \
+       mount --bind /sys  "${target}/sys"  2>/dev/null && \
+       mount --bind /run  "${target}/run"  2>/dev/null; then
+        did_bind=true
+    fi
+
+    if chroot "$target" /bin/sh -c "command -v grub-install >/dev/null 2>&1" 2>/dev/null; then
+        # BIOS (i386-pc)
+        if chroot "$target" /bin/sh -c \
+            "grub-install --target=i386-pc --recheck --no-floppy /dev/${disk}" \
+            >> "$logfile" 2>&1; then
+            bios_ok=true; log_r "grub-install i386-pc OK"
+        else
+            log_r "grub-install i386-pc failed (may be UEFI-only system)"
+        fi
+        # UEFI (x86_64-efi)
+        if [ "$efi_mounted" = true ] || [ -d /sys/firmware/efi ]; then
+            if chroot "$target" /bin/sh -c \
+                "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck /dev/${disk}" \
+                >> "$logfile" 2>&1; then
+                uefi_ok=true; log_r "grub-install x86_64-efi OK"
+            else
+                log_r "grub-install x86_64-efi failed"
+            fi
+        fi
+        # grub-mkconfig
+        chroot "$target" /bin/sh -c \
+            "command -v grub-mkconfig >/dev/null 2>&1 && grub-mkconfig -o /boot/grub/grub.cfg" \
+            >> "$logfile" 2>&1 || true
+        log_r "grub-mkconfig done"
+    else
+        log_r "WARN: grub-install not found in target – using pre-written grub.cfg only"
+    fi
+
+    # ── Step 7: UEFI fallback loader ────────────────────────────────
+    echo "  [7/7] UEFI fallback loader..." >> "$logfile"
+    if [ "$efi_mounted" = true ]; then
+        mkdir -p "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
+        local efi_src=""
+        for _candidate in \
+            "${target}/boot/efi/EFI/ubuntu/grubx64.efi" \
+            "${target}/boot/efi/EFI/debian/grubx64.efi" \
+            "${target}/boot/efi/EFI/grub/grubx64.efi" \
+            "${target}/boot/efi/EFI/GRUB/grubx64.efi"; do
+            [ -f "$_candidate" ] && efi_src="$_candidate" && break
+        done
+        if [ -n "$efi_src" ] && [ ! -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+            cp -f "$efi_src" "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>>"$logfile" \
+                && log_r "BOOTX64.EFI copied from ${efi_src}" \
+                || log_r "WARN: BOOTX64.EFI copy failed"
+        elif [ -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+            log_r "BOOTX64.EFI already present"
+        else
+            log_r "WARN: No grubx64.efi source found for UEFI fallback"
+        fi
+
+        # efibootmgr: register IORA OS boot entry if running in UEFI installer
+        if command -v efibootmgr >/dev/null 2>&1 && [ -d /sys/firmware/efi ]; then
+            local efi_disk_part; efi_disk_part=$(basename "$efi_part")
+            local efi_part_num; efi_part_num=$(echo "$efi_disk_part" | grep -o '[0-9]*$')
+            efibootmgr --create --disk "/dev/${disk}" \
+                --part "$efi_part_num" \
+                --label "IORA OS" \
+                --loader "\\EFI\\BOOT\\BOOTX64.EFI" \
+                >> "$logfile" 2>&1 \
+                && log_r "efibootmgr entry created" \
+                || log_r "efibootmgr failed (non-fatal)"
+        fi
+    fi
+
+    # ── Cleanup ─────────────────────────────────────────────────────
+    [ "$efi_mounted" = true ] && umount "${target}/boot/efi" 2>/dev/null || true
+    if [ "$did_bind" = true ]; then
+        umount "${target}/run"  2>/dev/null || true
+        umount "${target}/sys"  2>/dev/null || true
+        umount "${target}/proc" 2>/dev/null || true
+        umount "${target}/dev"  2>/dev/null || true
+    fi
+    sync
+    umount "$target" 2>/dev/null || true
+
+    # MBR active flag for BIOS firmware that wants it
+    sfdisk --activate "/dev/${disk}" 1 >> "$logfile" 2>&1 \
+        || parted -s "/dev/${disk}" set 1 boot on >> "$logfile" 2>&1 \
+        || true
+
+    # Final GPT verify
+    if command -v sgdisk >/dev/null 2>&1; then
+        sgdisk --verify "/dev/${disk}" >> "$logfile" 2>&1 \
+            && log_r "Final GPT verify: OK" \
+            || log_r "Final GPT verify: issues remain (check log)"
+    fi
+
+    log_r "=== Boot repair complete ==="
+    log_r "BIOS-boot: ${bios_ok}  UEFI-boot: ${uefi_ok}"
+    return 0
+}
+
 install_bootloader_fallback() {
     local disk="$1"
     local target="$2"
@@ -1017,7 +1315,10 @@ install_bootloader_fallback() {
     did_bind=true
 
     if [ -b "$efi_part" ]; then
-        mount "$efi_part" "${target}/boot/efi" 2>/dev/null && efi_mounted=true || true
+        modprobe vfat 2>/dev/null || true
+        modprobe fat  2>/dev/null || true
+        mount -t vfat "$efi_part" "${target}/boot/efi" 2>/dev/null && efi_mounted=true || \
+        mount          "$efi_part" "${target}/boot/efi" 2>/dev/null && efi_mounted=true || true
     fi
 
     if chroot "$target" /bin/sh -c "command -v grub-install >/dev/null 2>&1" >/dev/null 2>&1; then
@@ -1158,8 +1459,11 @@ KBDCONF
     local efi_mounted=false
     efi_part=$(disk_part_name "$disk" 2)
     if [ -b "$efi_part" ]; then
+        modprobe vfat 2>/dev/null || true
+        modprobe fat  2>/dev/null || true
         mkdir -p "${target}/boot/efi" 2>/dev/null || true
-        if mount "$efi_part" "${target}/boot/efi" 2>/dev/null; then
+        if mount -t vfat "$efi_part" "${target}/boot/efi" 2>/dev/null || \
+           mount "$efi_part" "${target}/boot/efi" 2>/dev/null; then
             efi_mounted=true
         fi
     fi
@@ -1613,39 +1917,60 @@ screen_install() {
 
             echo "82"
             echo "XXX"
-            echo "  Saving changes..."
+            echo "  Saving write buffer..."
             echo "XXX"
             sync
             sleep 1
 
-            echo "85"
+            echo "84"
             echo "XXX"
-            echo "  Refreshing device..."
+            echo "  Repairing GPT partition header..."
+            echo "  (required when image is smaller than target disk)"
             echo "XXX"
-            blockdev --rereadpt "/dev/${disk}" 2>/dev/null || true
-            sleep 2
+            # ── GPT backup-header repair ──────────────────────────────────
+            # After dd-writing an 8 GB image onto a larger disk the GPT
+            # secondary header sits at the wrong offset. Move it.
+            if command -v sgdisk >/dev/null 2>&1; then
+                sgdisk -e "/dev/${disk}" >/dev/null 2>&1 || true
+                sgdisk --verify "/dev/${disk}" >/dev/null 2>&1 || true
+            elif command -v gdisk >/dev/null 2>&1; then
+                printf 'v\nw\nY\n' | gdisk "/dev/${disk}" >/dev/null 2>&1 || true
+            else
+                parted -s "/dev/${disk}" print fix >/dev/null 2>&1 || true
+            fi
 
-            # Ensure the first partition is marked active/bootable for BIOS MBR compatibility
-            sfdisk --activate "/dev/${disk}" 1 2>/dev/null || \
-                parted -s "/dev/${disk}" set 1 boot on 2>/dev/null || true
-            sleep 1
-
-            echo "88"
+            echo "87"
             echo "XXX"
-            echo "  Applying settings..."
+            echo "  Refreshing partition table..."
+            echo "XXX"
+            sync
+            blockdev --rereadpt "/dev/${disk}" >/dev/null 2>&1 || true
+            partprobe "/dev/${disk}" >/dev/null 2>&1 || true
+            sleep 3
+
+            echo "90"
+            echo "XXX"
+            echo "  Applying system settings..."
             echo "XXX"
             echo "0" > /tmp/install_result
 
-            echo "95"
+            echo "93"
             echo "XXX"
-            echo "  Almost done..."
+            echo "  Repairing bootloader..."
+            echo "  This ensures the system can boot correctly."
+            echo "XXX"
+            repair_disk_and_bootloader "${disk}" >/dev/null 2>&1 || true
+
+            echo "97"
+            echo "XXX"
+            echo "  Finalizing..."
             echo "XXX"
             sync
             sleep 1
 
             echo "100"
             echo "XXX"
-            echo "  Done."
+            echo "  Installation complete."
             echo "XXX"
         ) | dlg --title " Writing to Drive " --gauge \
             "  Starting..." 10 64 0
@@ -1654,7 +1979,15 @@ screen_install() {
         result=$(safe_uint "$result" 1)
 
         if [ "$result" -eq 0 ]; then
+            repair_disk_and_bootloader "$disk" || true
             apply_post_install_config "$disk"
+            # Show repair log summary if there were warnings
+            if [ -n "$DIALOG_BIN" ] && [ -f /tmp/boot-repair.log ]; then
+                if grep -qi "WARN\|ERROR\|failed" /tmp/boot-repair.log 2>/dev/null; then
+                    # Use textbox for proper scrollable log display (avoids text cramming)
+                    dlg --title " Boot Repair Summary " --textbox /tmp/boot-repair.log 22 78 || true
+                fi
+            fi
             return 0
         else
             dlg_msg " Failed " "\
@@ -1667,8 +2000,19 @@ screen_install() {
         echo ""
         if xzcat "${ISO_MOUNT}/${ISO_IMAGE}" | dd of="/dev/${disk}" bs=4M status=progress conv=fsync 2>&1; then
             sync
+            echo "  Repairing GPT header..."
+            if command -v sgdisk >/dev/null 2>&1; then
+                sgdisk -e "/dev/${disk}" 2>/dev/null || true
+            elif command -v gdisk >/dev/null 2>&1; then
+                printf 'v\nw\nY\n' | gdisk "/dev/${disk}" 2>/dev/null || true
+            else
+                parted -s "/dev/${disk}" print fix 2>/dev/null || true
+            fi
             blockdev --rereadpt "/dev/${disk}" 2>/dev/null || true
-            sleep 2
+            partprobe "/dev/${disk}" 2>/dev/null || true
+            sleep 3
+            echo "  Repairing bootloader..."
+            repair_disk_and_bootloader "$disk"
             apply_post_install_config "$disk"
             return 0
         else
