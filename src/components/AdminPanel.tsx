@@ -16,7 +16,7 @@ import {
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
-import { SystemInfoTab, AppsTab, PluginsTab } from './AdminPanelTabs'
+import { SystemInfoTab, AppsTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab } from './AdminPanelTabs'
 
 interface CloudSettings {
   connectorHost: string
@@ -57,7 +57,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
@@ -69,6 +69,10 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
   { id: 'apps', label: 'Apps', icon: Cube, description: 'Docker-basierte Apps verwalten — installieren, starten, stoppen und deinstallieren' },
   { id: 'plugins', label: 'Plugins', icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
+  { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
+  { id: 'security-monitor', label: 'Sicherheit', icon: ShieldWarning, description: 'Sicherheitswarnungen, Ressourcennutzung und Anomalie-Erkennung überwachen' },
+  { id: 'updates', label: 'Updates', icon: CloudArrowUp, description: 'Verfügbare Updates prüfen, installieren oder zurückrollen' },
+  { id: 'widgets', label: 'Widgets', icon: Cube, description: 'Registrierte Widgets von Apps und Plugins verwalten' },
   { id: 'api-keys', label: 'API Keys', icon: Key, description: 'API-Schlüssel erstellen und verwalten für externe Zugriffe' },
   { id: 'webhooks', label: 'Webhooks', icon: WebhooksLogo, description: 'Ausgehende Webhooks registrieren für Echtzeit-Event-Zustellung mit HMAC-Signaturen' },
   { id: 'ha-config', label: 'HA Config', icon: Gear, description: 'Home Assistant URL und Token konfigurieren' },
@@ -105,7 +109,7 @@ type TabGroup = {
 
 const tabGroups: TabGroup[] = [
   { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'tasks', 'control-mode', 'system', 'system-info', 'network'] },
-  { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins'] },
+  { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
   { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications'] },
@@ -570,6 +574,10 @@ export function AdminPanel() {
               {activeTab === 'system-info' && <SystemInfoTab token={token} />}
               {activeTab === 'apps' && <AppsTab token={token} />}
               {activeTab === 'plugins' && <PluginsTab token={token} />}
+              {activeTab === 'registrations' && <RegistrationManagementTab token={token} />}
+              {activeTab === 'security-monitor' && <SecurityMonitorTab token={token} />}
+              {activeTab === 'updates' && <UpdateManagementTab token={token} />}
+              {activeTab === 'widgets' && <WidgetManagementTab token={token} />}
               {activeTab === 'users' && <UsersTab token={token} />}
               {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
               {activeTab === 'webhooks' && <WebhooksTab token={token} />}

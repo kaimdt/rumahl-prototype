@@ -2,6 +2,9 @@ import { useState, useCallback, useEffect } from 'react'
 import { Cpu, HardDrive, Globe, Plus, Cube, Lightning, ArrowClockwise, Play, Pause, TrashSimple } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 
+// Export Phase 2 components
+export { RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab } from './AdminPanelPhase2'
+
 // ── System Info Tab (Systeminformationen) ──────────────────────────────────
 
 interface SystemInfo {
