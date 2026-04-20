@@ -9,6 +9,9 @@ export * from './iframe';
 export * from './types';
 export * from './permissions';
 export * from './manifest';
+export * from './runtime';
+export * from './runtime-manager';
 
 export { default as IoraClient } from './client';
 export { default as IoraIframe } from './iframe';
+export { RuntimeManager } from './runtime-manager';
