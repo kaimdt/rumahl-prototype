@@ -287,6 +287,10 @@ pub struct InternalPort {
     #[serde(default = "default_tcp")]
     pub protocol: String,
 
+    /// Port assignment mode: "random" (default) or "fixed"
+    #[serde(default = "default_port_mode")]
+    pub assignment_mode: String,
+
     /// Description of what this port is for
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -294,6 +298,10 @@ pub struct InternalPort {
 
 fn default_tcp() -> String {
     "tcp".to_string()
+}
+
+fn default_port_mode() -> String {
+    "random".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
