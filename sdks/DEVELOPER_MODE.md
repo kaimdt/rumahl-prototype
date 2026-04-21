@@ -8,12 +8,12 @@ Developer Mode is a special operational mode in IORA that enables enhanced devel
 
 ## Enabling Developer Mode
 
-Developer Mode must be explicitly enabled in the IORA Control Center before any Developer Mode features become available:
+Developer Mode must be explicitly enabled in the IORA Control Center before any Developer Mode features become available. **When you enable Developer Mode, the IORA Developer App is automatically installed** if not already present.
 
 ```python
 # Python SDK
 async with IoraClient("http://localhost:8080", api_key="your-api-key") as client:
-    # Enable Developer Mode
+    # Enable Developer Mode (auto-installs Developer App)
     await client.toggle_developer_mode(enabled=True)
 
     # Check status
@@ -29,6 +29,29 @@ curl -X POST http://localhost:8080/api/developer/toggle \
   -d '{"enabled": true}'
 ```
 
+## IORA Developer App
+
+The **IORA Developer App** (`io.iora.developer-app`) is the official development tool that provides exclusive hot-reload capabilities and IDE integration. It is automatically installed when you first enable Developer Mode.
+
+### Developer App Features
+
+- **Hot Reload**: Update running apps without full container restart
+- **Version History**: Track all deployments with rollback capability
+- **IDE Integration**: Direct deployment from your development environment
+- **Live Log Streaming**: Real-time logs from any container
+- **Real-Time Metrics**: System performance monitoring
+
+### Exclusive Permission: HotReload
+
+The Developer App has the exclusive `HotReload` permission, which allows it to:
+- Upload app packages for hot deployment
+- Manage version history and rollback
+- Update apps with minimal downtime
+- Preserve app state across updates
+
+**No other app can have this permission** - it is reserved for the official Developer App only.
+
+
 ## Developer Mode Permissions
 
 Apps must declare Developer Mode permissions in their manifest to use these features. All Developer Mode permissions require user consent during installation and are **ONLY** active when Developer Mode is enabled:
@@ -43,6 +66,7 @@ Apps must declare Developer Mode permissions in their manifest to use these feat
 | `DirectDeploy` | IDE integration for build/deploy | Development tools, CI/CD |
 | `DebugAccess` | Access debug interfaces and breakpoints | Debuggers, profilers |
 | `LiveLogs` | Stream live logs from any component | Log viewers, debugging |
+| `HotReload` | **EXCLUSIVE** - Update apps without restart, version history | Developer App only |
 
 ### Manifest Declaration
 
@@ -209,6 +233,72 @@ async for metrics_json in client.stream_metrics():
 - CPU usage
 - Memory usage (used and total)
 
+### 7. Hot Reload (Developer App Exclusive)
+
+The IORA Developer App provides exclusive hot-reload capabilities for updating running apps without full container restarts:
+
+```python
+# Python SDK
+import base64
+
+# Build and encode your app package
+with open("my-app-package.tar.gz", "rb") as f:
+    package_data = base64.b64encode(f.read()).decode()
+
+# Upload for hot reload
+result = await client.hotreload_upload(
+    app_id="com.example.my-app",
+    version="1.1.0",
+    package_data=package_data,
+    description="Fix critical bug and add feature"
+)
+
+print(f"Hot reload status: {result['status']}")
+print(f"Checksum: {result['checksum']}")
+```
+
+**Check deployment status:**
+```python
+status = await client.hotreload_status("com.example.my-app")
+print(f"Current version: {status['version']}")
+print(f"Status: {status['status']}")
+```
+
+**View deployment history:**
+```python
+history = await client.hotreload_history("com.example.my-app")
+for entry in history:
+    print(f"v{entry['version']} - {entry['timestamp']}")
+    print(f"  Description: {entry['description']}")
+    print(f"  Can rollback: {entry['can_rollback']}")
+```
+
+**Rollback to previous version:**
+```python
+result = await client.hotreload_rollback(
+    app_id="com.example.my-app",
+    version="1.0.0"
+)
+print(f"Rolled back: {result['message']}")
+```
+
+**How it works:**
+1. Package your app updates (code, config, assets)
+2. Encode package as base64
+3. Upload via `hotreload_upload()`
+4. Developer App calculates checksum and tracks version
+5. App is updated with minimal downtime
+6. State preserved across update
+7. Can rollback if issues arise
+
+**Benefits:**
+- Faster development iteration (seconds vs minutes)
+- No full container restart needed
+- Preserves app state and connections
+- Version history for audit trail
+- Easy rollback on errors
+- Ideal for development and testing
+
 ## REST API Endpoints
 
 All endpoints require Developer Mode to be enabled. Requests return `403 Forbidden` when Developer Mode is disabled.
@@ -273,6 +363,31 @@ POST /api/developer/deploy
 ```bash
 # Stream logs (SSE)
 GET /api/developer/logs/{container_name}/stream
+```
+
+### Hot Reload (Developer App)
+
+```bash
+# Upload package for hot reload
+POST /api/hotreload/upload
+{
+  "app_id": "com.example.app",
+  "version": "1.1.0",
+  "package_data": "base64_encoded_package...",
+  "description": "Bug fixes and new features"
+}
+
+# Get hot reload status
+GET /api/hotreload/status/{app_id}
+
+# Rollback to previous version
+POST /api/hotreload/rollback/{app_id}
+{
+  "version": "1.0.0"
+}
+
+# Get deployment history
+GET /api/hotreload/history/{app_id}
 ```
 
 ## Example: Development Tool App
