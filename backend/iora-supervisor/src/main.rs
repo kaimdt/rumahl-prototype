@@ -1,4 +1,5 @@
 use actix_web::{get, post, put, web, App, HttpResponse, HttpServer, Responder};
+use actix_web_lab::sse::{self, Sse};
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, RestartContainerOptions,
     StartContainerOptions, StatsOptions, StopContainerOptions,
@@ -13,8 +14,11 @@ use std::default::Default;
 use std::sync::Arc;
 use sysinfo::{System, Disks, Networks};
 use tokio::sync::RwLock;
+use tokio_stream::StreamExt as _;
 use tracing::{error, info, warn};
-use futures_util::stream::TryStreamExt;
+use futures_util::stream::{self, Stream, TryStreamExt};
+use std::time::Duration;
+use std::pin::Pin;
 
 /// IORA Supervisor - Docker orchestration for IORA OS
 ///
@@ -76,6 +80,7 @@ struct AppState {
     docker: Docker,
     start_time: DateTime<Utc>,
     services: Arc<RwLock<HashMap<String, ServiceDefinition>>>,
+    developer_mode: Arc<RwLock<bool>>,
 }
 
 /// Health check endpoint
@@ -820,6 +825,504 @@ async fn get_app_details(
     }
 }
 
+// ─── Developer Mode APIs ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+struct DetailedAppInfo {
+    id: String,
+    name: String,
+    version: String,
+    description: String,
+    author: String,
+    image: String,
+    state: String,
+    status: String,
+    container_id: String,
+    container_name: String,
+    created: i64,
+    ports: Vec<String>,
+    environment: HashMap<String, String>,
+    volumes: Vec<String>,
+    permissions: Vec<String>,
+    labels: HashMap<String, String>,
+    resource_usage: Option<ResourceUsage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ResourceUsage {
+    cpu_percent: f64,
+    memory_usage: u64,
+    memory_limit: u64,
+    memory_percent: f64,
+    network_rx_bytes: u64,
+    network_tx_bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct InterAppCallRequest {
+    target_app_id: String,
+    method: String,
+    endpoint: String,
+    body: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeployRequest {
+    app_id: String,
+    image_tar: String,  // Base64 encoded tar archive
+    restart: bool,
+}
+
+/// Check if Developer Mode is enabled
+async fn check_developer_mode(data: &web::Data<AppState>) -> Result<(), HttpResponse> {
+    let developer_mode = *data.developer_mode.read().await;
+    if !developer_mode {
+        return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Developer Mode is not enabled",
+            "message": "Enable Developer Mode in IORA Control Center to access this endpoint"
+        })));
+    }
+    Ok(())
+}
+
+/// Get developer mode status
+#[get("/api/developer/status")]
+async fn get_developer_mode_status(data: web::Data<AppState>) -> impl Responder {
+    let enabled = *data.developer_mode.read().await;
+    HttpResponse::Ok().json(serde_json::json!({
+        "developer_mode": enabled,
+        "timestamp": Utc::now().to_rfc3339()
+    }))
+}
+
+/// Toggle developer mode
+#[post("/api/developer/toggle")]
+async fn toggle_developer_mode(
+    data: web::Data<AppState>,
+    req: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let enabled = req["enabled"].as_bool().unwrap_or(false);
+
+    let mut dev_mode = data.developer_mode.write().await;
+    *dev_mode = enabled;
+
+    info!("Developer Mode {}", if enabled { "enabled" } else { "disabled" });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "developer_mode": enabled,
+        "message": format!("Developer Mode {}", if enabled { "enabled" } else { "disabled" })
+    }))
+}
+
+/// List all apps with detailed information (Developer Mode only)
+#[get("/api/developer/apps")]
+async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
+    if let Err(response) = check_developer_mode(&data).await {
+        return response;
+    }
+
+    let containers = match data
+        .docker
+        .list_containers(Some(ListContainersOptions::<String> {
+            all: true,
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert("label".to_string(), vec!["iora.type=app".to_string()]);
+                filters
+            },
+            ..Default::default()
+        }))
+        .await
+    {
+        Ok(containers) => containers,
+        Err(e) => {
+            error!("Failed to list app containers: {}", e);
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to list apps"
+            }));
+        }
+    };
+
+    let mut detailed_apps = Vec::new();
+
+    for container in containers {
+        let container_id = container.id.clone().unwrap_or_default();
+        let labels = container.labels.as_ref();
+
+        // Extract environment variables from inspection
+        let inspection = data.docker.inspect_container(&container_id, None).await.ok();
+        let env_vars = inspection
+            .as_ref()
+            .and_then(|i| i.config.as_ref())
+            .and_then(|c| c.env.as_ref())
+            .map(|env| {
+                env.iter()
+                    .filter_map(|e| {
+                        let parts: Vec<&str> = e.splitn(2, '=').collect();
+                        if parts.len() == 2 {
+                            Some((parts[0].to_string(), parts[1].to_string()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let volumes = inspection
+            .as_ref()
+            .and_then(|i| i.host_config.as_ref())
+            .and_then(|h| h.binds.as_ref())
+            .cloned()
+            .unwrap_or_default();
+
+        // Get resource usage stats
+        let resource_usage = match data.docker.stats(&container_id, Some(StatsOptions {
+            stream: false,
+            one_shot: true,
+        }))
+        .try_next()
+        .await
+        {
+            Ok(Some(stats)) => {
+                let cpu_percent = calculate_cpu_percent(&stats);
+                let memory_usage = stats.memory_stats.usage.unwrap_or(0);
+                let memory_limit = stats.memory_stats.limit.unwrap_or(0);
+                let memory_percent = if memory_limit > 0 {
+                    (memory_usage as f64 / memory_limit as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                let (network_rx, network_tx) = stats.networks.as_ref().map(|networks| {
+                    networks.values().fold((0u64, 0u64), |acc, net| {
+                        (
+                            acc.0 + net.rx_bytes,
+                            acc.1 + net.tx_bytes,
+                        )
+                    })
+                }).unwrap_or((0, 0));
+
+                Some(ResourceUsage {
+                    cpu_percent,
+                    memory_usage,
+                    memory_limit,
+                    memory_percent,
+                    network_rx_bytes: network_rx,
+                    network_tx_bytes: network_tx,
+                })
+            }
+            _ => None,
+        };
+
+        let app_info = DetailedAppInfo {
+            id: labels.and_then(|l| l.get("iora.app.id")).cloned().unwrap_or_else(|| "unknown".to_string()),
+            name: labels.and_then(|l| l.get("iora.app.name")).cloned().unwrap_or_else(|| "unknown".to_string()),
+            version: labels.and_then(|l| l.get("iora.app.version")).cloned().unwrap_or_else(|| "unknown".to_string()),
+            description: labels.and_then(|l| l.get("iora.app.description")).cloned().unwrap_or_default(),
+            author: labels.and_then(|l| l.get("iora.app.author")).cloned().unwrap_or_default(),
+            image: container.image.clone().unwrap_or_else(|| "unknown".to_string()),
+            state: container.state.clone().unwrap_or_else(|| "unknown".to_string()),
+            status: container.status.clone().unwrap_or_else(|| "unknown".to_string()),
+            container_id: container_id.clone(),
+            container_name: container.names.as_ref()
+                .and_then(|n| n.first())
+                .map(|s| s.trim_start_matches('/').to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            created: container.created.unwrap_or(0),
+            ports: container.ports.as_ref().map(|ports| {
+                ports.iter().map(|p| {
+                    format!("{}:{}/{}",
+                        p.public_port.unwrap_or(0),
+                        p.private_port,
+                        p.typ.as_ref().map(|s| s.as_str()).unwrap_or("tcp"))
+                }).collect()
+            }).unwrap_or_default(),
+            environment: env_vars,
+            volumes,
+            permissions: labels.and_then(|l| l.get("iora.app.permissions"))
+                .and_then(|p| serde_json::from_str::<Vec<String>>(p).ok())
+                .unwrap_or_default(),
+            labels: labels.cloned().unwrap_or_default(),
+            resource_usage,
+        };
+
+        detailed_apps.push(app_info);
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "apps": detailed_apps,
+        "total": detailed_apps.len(),
+        "developer_mode": true
+    }))
+}
+
+/// Calculate CPU percentage from stats
+fn calculate_cpu_percent(stats: &bollard::container::Stats) -> f64 {
+    let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64
+        - stats.precpu_stats.cpu_usage.total_usage as f64;
+    let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64
+        - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
+    let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
+
+    if system_delta > 0.0 && cpu_delta > 0.0 {
+        (cpu_delta / system_delta) * online_cpus * 100.0
+    } else {
+        0.0
+    }
+}
+
+/// Inter-app communication endpoint (Developer Mode only)
+#[post("/api/developer/apps/call")]
+async fn inter_app_call(
+    data: web::Data<AppState>,
+    req: web::Json<InterAppCallRequest>,
+) -> impl Responder {
+    if let Err(response) = check_developer_mode(&data).await {
+        return response;
+    }
+
+    info!("Inter-app call: {} -> {}{}",
+        req.method, req.target_app_id, req.endpoint);
+
+    // Find target app container
+    let container_name = format!("iora-app-{}", req.target_app_id);
+
+    let inspection = match data.docker.inspect_container(&container_name, None).await {
+        Ok(details) => details,
+        Err(e) => {
+            return HttpResponse::NotFound().json(serde_json::json!({
+                "error": format!("Target app not found: {}", e)
+            }));
+        }
+    };
+
+    // Get the app's internal IP and port
+    let network_settings = inspection.network_settings;
+    let ip_address = network_settings
+        .as_ref()
+        .and_then(|ns| ns.ip_address.as_ref())
+        .cloned()
+        .unwrap_or_else(|| "localhost".to_string());
+
+    // Construct the URL (assuming the app exposes an HTTP API)
+    let url = format!("http://{}{}", ip_address, req.endpoint);
+
+    // Make the HTTP request to the target app
+    let client = reqwest::Client::new();
+    let response = match req.method.to_uppercase().as_str() {
+        "GET" => client.get(&url).send().await,
+        "POST" => client.post(&url).json(&req.body).send().await,
+        "PUT" => client.put(&url).json(&req.body).send().await,
+        "DELETE" => client.delete(&url).send().await,
+        _ => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Unsupported HTTP method"
+            }));
+        }
+    };
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) => HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "status": status.as_u16(),
+                    "data": body
+                })),
+                Err(_) => HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "status": status.as_u16(),
+                    "data": null
+                })),
+            }
+        }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to call target app: {}", e)
+        })),
+    }
+}
+
+/// Get live system metrics (Developer Mode only)
+#[get("/api/developer/metrics")]
+async fn get_live_metrics(data: web::Data<AppState>) -> impl Responder {
+    if let Err(response) = check_developer_mode(&data).await {
+        return response;
+    }
+
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    // Get Docker stats
+    let containers = data
+        .docker
+        .list_containers(Some(ListContainersOptions::<String> {
+            all: true,
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert("label".to_string(), vec!["iora.managed=true".to_string()]);
+                filters
+            },
+            ..Default::default()
+        }))
+        .await
+        .unwrap_or_default();
+
+    let total_containers = containers.len();
+    let running_containers = containers.iter()
+        .filter(|c| c.state == Some("running".to_string()))
+        .count();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "timestamp": Utc::now().to_rfc3339(),
+        "system": {
+            "cpu_usage": sys.global_cpu_info().cpu_usage(),
+            "cpu_count": sys.cpus().len(),
+            "memory_total": sys.total_memory(),
+            "memory_used": sys.used_memory(),
+            "memory_available": sys.available_memory(),
+            "uptime": System::uptime(),
+        },
+        "containers": {
+            "total": total_containers,
+            "running": running_containers,
+            "stopped": total_containers - running_containers,
+        },
+        "developer_mode": true
+    }))
+}
+
+/// Deploy/update app from IDE (Developer Mode only)
+#[post("/api/developer/deploy")]
+async fn deploy_from_ide(
+    data: web::Data<AppState>,
+    req: web::Json<DeployRequest>,
+) -> impl Responder {
+    if let Err(response) = check_developer_mode(&data).await {
+        return response;
+    }
+
+    info!("IDE deployment request for app: {}", req.app_id);
+
+    // Decode base64 tar archive
+    let tar_bytes = match base64::decode(&req.image_tar) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Invalid base64 encoding: {}", e)
+            }));
+        }
+    };
+
+    // Load image into Docker
+    match data.docker.import_image(
+        bollard::image::ImportImageOptions { ..Default::default() },
+        tar_bytes.into(),
+        None,
+    ).try_collect::<Vec<_>>().await {
+        Ok(_) => {
+            info!("Successfully loaded image for app: {}", req.app_id);
+
+            // Restart container if requested
+            if req.restart {
+                let container_name = format!("iora-app-{}", req.app_id);
+                let _ = data.docker.restart_container(&container_name, None::<RestartContainerOptions>).await;
+                info!("Restarted app container: {}", container_name);
+            }
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": format!("App {} deployed successfully", req.app_id),
+                "restarted": req.restart
+            }))
+        }
+        Err(e) => {
+            error!("Failed to load image: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to load image: {}", e)
+            }))
+        }
+    }
+}
+
+/// Stream live logs from container (Developer Mode only, SSE)
+#[get("/api/developer/logs/{container_name}/stream")]
+async fn stream_logs(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(response) = check_developer_mode(&data).await {
+        return response;
+    }
+
+    let container_name = path.into_inner();
+    info!("Starting log stream for container: {}", container_name);
+
+    let docker = data.docker.clone();
+
+    let log_stream = async_stream::stream! {
+        let mut log_stream = docker.logs(
+            &container_name,
+            Some(bollard::container::LogsOptions::<String> {
+                follow: true,
+                stdout: true,
+                stderr: true,
+                tail: "50".to_string(),
+                ..Default::default()
+            }),
+        );
+
+        while let Some(log_result) = log_stream.next().await {
+            match log_result {
+                Ok(log) => {
+                    let log_text = log.to_string();
+                    yield sse::Event::Data(sse::Data::new(log_text));
+                }
+                Err(e) => {
+                    error!("Log stream error: {}", e);
+                    break;
+                }
+            }
+        }
+    };
+
+    Sse::from_stream(log_stream)
+}
+
+/// Stream live metrics (Developer Mode only, SSE)
+#[get("/api/developer/metrics/stream")]
+async fn stream_metrics(data: web::Data<AppState>) -> impl Responder {
+    if let Err(response) = check_developer_mode(&data).await {
+        return response;
+    }
+
+    info!("Starting metrics stream");
+
+    let metrics_stream = async_stream::stream! {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+
+        loop {
+            interval.tick().await;
+
+            let mut sys = System::new_all();
+            sys.refresh_all();
+
+            let metrics = serde_json::json!({
+                "timestamp": Utc::now().to_rfc3339(),
+                "cpu_usage": sys.global_cpu_info().cpu_usage(),
+                "memory_used": sys.used_memory(),
+                "memory_total": sys.total_memory(),
+            });
+
+            yield sse::Event::Data(sse::Data::new(metrics.to_string()));
+        }
+    };
+
+    Sse::from_stream(metrics_stream)
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Initialize tracing
@@ -856,6 +1359,7 @@ async fn main() -> std::io::Result<()> {
         docker,
         start_time: Utc::now(),
         services: Arc::new(RwLock::new(HashMap::new())),
+        developer_mode: Arc::new(RwLock::new(false)),
     });
 
     let port = std::env::var("PORT")
@@ -883,6 +1387,15 @@ async fn main() -> std::io::Result<()> {
             .service(install_app)
             .service(uninstall_app)
             .service(get_app_details)
+            // Developer Mode endpoints
+            .service(get_developer_mode_status)
+            .service(toggle_developer_mode)
+            .service(list_apps_detailed)
+            .service(inter_app_call)
+            .service(get_live_metrics)
+            .service(deploy_from_ide)
+            .service(stream_logs)
+            .service(stream_metrics)
     })
     .bind(("0.0.0.0", port))?
     .run()

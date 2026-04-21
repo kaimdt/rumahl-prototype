@@ -285,3 +285,110 @@ class IoraClient:
         """
         return await self._request("POST", f"/api/automations/{automation_id}/trigger")
 
+    # Developer Mode API
+    async def get_developer_mode_status(self) -> Dict[str, Any]:
+        """
+        Get Developer Mode status
+        """
+        return await self._request("GET", "/api/developer/status")
+
+    async def toggle_developer_mode(self, enabled: bool) -> Dict[str, Any]:
+        """
+        Toggle Developer Mode on/off
+        Requires: Admin access
+        """
+        return await self._request("POST", "/api/developer/toggle", json={"enabled": enabled})
+
+    async def list_apps_detailed(self) -> List[Dict[str, Any]]:
+        """
+        List all apps with detailed information including resource usage
+        Requires: DeveloperAccess permission, Developer Mode enabled
+        """
+        data = await self._request("GET", "/api/developer/apps")
+        return data["apps"]
+
+    async def call_app(
+        self, target_app_id: str, method: str, endpoint: str, body: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Call another app's API endpoint
+        Requires: InterAppCommunication permission, Developer Mode enabled
+
+        Args:
+            target_app_id: ID of the target app
+            method: HTTP method (GET, POST, PUT, DELETE)
+            endpoint: API endpoint path
+            body: Optional request body for POST/PUT
+        """
+        return await self._request(
+            "POST",
+            "/api/developer/apps/call",
+            json={
+                "target_app_id": target_app_id,
+                "method": method,
+                "endpoint": endpoint,
+                "body": body,
+            },
+        )
+
+    async def get_live_metrics(self) -> Dict[str, Any]:
+        """
+        Get live system metrics
+        Requires: LiveMetrics permission, Developer Mode enabled
+        """
+        return await self._request("GET", "/api/developer/metrics")
+
+    async def deploy_from_ide(self, app_id: str, image_tar: str, restart: bool = True) -> Dict[str, Any]:
+        """
+        Deploy/update app from IDE
+        Requires: DirectDeploy permission, Developer Mode enabled
+
+        Args:
+            app_id: App ID to deploy
+            image_tar: Base64 encoded tar archive of Docker image
+            restart: Whether to restart the container after deployment
+        """
+        return await self._request(
+            "POST",
+            "/api/developer/deploy",
+            json={"app_id": app_id, "image_tar": image_tar, "restart": restart},
+        )
+
+    async def stream_logs(self, container_name: str):
+        """
+        Stream live logs from a container (Server-Sent Events)
+        Requires: LiveLogs permission, Developer Mode enabled
+
+        Note: This returns an async iterator. Use:
+            async for log_line in client.stream_logs("container-name"):
+                print(log_line)
+        """
+        url = f"{self.base_url}/api/developer/logs/{container_name}/stream"
+        headers = self._get_headers()
+        headers["Accept"] = "text/event-stream"
+
+        async with self._client.stream("GET", url, headers=headers) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    yield line[6:]  # Remove "data: " prefix
+
+    async def stream_metrics(self):
+        """
+        Stream live metrics (Server-Sent Events)
+        Requires: LiveMetrics permission, Developer Mode enabled
+
+        Note: This returns an async iterator. Use:
+            async for metrics in client.stream_metrics():
+                print(metrics)
+        """
+        url = f"{self.base_url}/api/developer/metrics/stream"
+        headers = self._get_headers()
+        headers["Accept"] = "text/event-stream"
+
+        async with self._client.stream("GET", url, headers=headers) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    yield line[6:]  # Remove "data: " prefix
+

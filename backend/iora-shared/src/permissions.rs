@@ -85,6 +85,14 @@ pub enum Permission {
     FileShareWrite,
     FileShareDelete,
     FileShareManage,
+
+    // Developer Mode permissions (ONLY available when Developer Mode enabled)
+    DeveloperAccess,        // Full system data access including internals
+    InterAppCommunication,  // Call and query other apps
+    LiveMetrics,            // Real-time metrics and monitoring data
+    DirectDeploy,           // IDE integration for build/deploy
+    DebugAccess,            // Access debug interfaces and breakpoints
+    LiveLogs,               // Stream live logs from any component
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -355,6 +363,12 @@ impl Permission {
             Permission::FileShareWrite => "Hochladen von Dateien (iora-share)",
             Permission::FileShareDelete => "Löschen von Dateien (iora-share)",
             Permission::FileShareManage => "Verwaltung von Dateifreigaben und Berechtigungen",
+            Permission::DeveloperAccess => "DEVELOPER MODE: Vollzugriff auf System-Interna",
+            Permission::InterAppCommunication => "DEVELOPER MODE: Kommunikation mit anderen Apps",
+            Permission::LiveMetrics => "DEVELOPER MODE: Echtzeit-Metriken und Monitoring",
+            Permission::DirectDeploy => "DEVELOPER MODE: IDE-Integration für Build/Deploy",
+            Permission::DebugAccess => "DEVELOPER MODE: Zugriff auf Debug-Interfaces",
+            Permission::LiveLogs => "DEVELOPER MODE: Live-Streaming aller Logs",
         }
     }
 
@@ -380,7 +394,9 @@ impl Permission {
 
             Permission::SystemControl | Permission::SystemRestart | Permission::PluginManager
             | Permission::CreateUser | Permission::ModifyUser | Permission::DeleteUser
-            | Permission::FileShareManage => RiskLevel::Critical,
+            | Permission::FileShareManage | Permission::DeveloperAccess | Permission::InterAppCommunication
+            | Permission::LiveMetrics | Permission::DirectDeploy | Permission::DebugAccess
+            | Permission::LiveLogs => RiskLevel::Critical,
         }
     }
 
@@ -418,7 +434,25 @@ impl Permission {
             Permission::MicrophoneAccess |
             Permission::LocationPrecise |
             Permission::NetworkScan |
-            Permission::NetworkInbound
+            Permission::NetworkInbound |
+            Permission::DeveloperAccess |
+            Permission::InterAppCommunication |
+            Permission::LiveMetrics |
+            Permission::DirectDeploy |
+            Permission::DebugAccess |
+            Permission::LiveLogs
+        )
+    }
+
+    /// Check if permission requires Developer Mode to be enabled
+    pub fn requires_developer_mode(&self) -> bool {
+        matches!(self,
+            Permission::DeveloperAccess |
+            Permission::InterAppCommunication |
+            Permission::LiveMetrics |
+            Permission::DirectDeploy |
+            Permission::DebugAccess |
+            Permission::LiveLogs
         )
     }
 }
