@@ -392,3 +392,62 @@ class IoraClient:
                 if line.startswith("data: "):
                     yield line[6:]  # Remove "data: " prefix
 
+    # Developer App - Hot Reload APIs
+    # These methods interact with the IORA Developer App (io.iora.developer-app)
+    # which provides exclusive hot-reload capabilities
+
+    async def hotreload_upload(
+        self, app_id: str, version: str, package_data: str, description: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Upload app package for hot reload
+        Requires: HotReload permission (exclusive to Developer App), Developer Mode enabled
+
+        Args:
+            app_id: ID of the app to update
+            version: Version identifier for this update
+            package_data: Base64 encoded package data
+            description: Optional description of changes
+        """
+        payload = {
+            "app_id": app_id,
+            "version": version,
+            "package_data": package_data,
+        }
+        if description:
+            payload["description"] = description
+
+        return await self._request("POST", "/api/hotreload/upload", json=payload)
+
+    async def hotreload_status(self, app_id: str) -> Dict[str, Any]:
+        """
+        Get hot reload status for an app
+        Requires: HotReload permission, Developer Mode enabled
+
+        Args:
+            app_id: ID of the app to check
+        """
+        return await self._request("GET", f"/api/hotreload/status/{app_id}")
+
+    async def hotreload_rollback(self, app_id: str, version: str) -> Dict[str, Any]:
+        """
+        Rollback app to a previous version
+        Requires: HotReload permission, Developer Mode enabled
+
+        Args:
+            app_id: ID of the app to rollback
+            version: Version to rollback to
+        """
+        return await self._request("POST", f"/api/hotreload/rollback/{app_id}", json={"version": version})
+
+    async def hotreload_history(self, app_id: str) -> List[Dict[str, Any]]:
+        """
+        Get hot reload history for an app
+        Requires: HotReload permission, Developer Mode enabled
+
+        Args:
+            app_id: ID of the app
+        """
+        data = await self._request("GET", f"/api/hotreload/history/{app_id}")
+        return data.get("history", [])
+
