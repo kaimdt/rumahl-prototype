@@ -93,6 +93,9 @@ pub enum Permission {
     DirectDeploy,           // IDE integration for build/deploy
     DebugAccess,            // Access debug interfaces and breakpoints
     LiveLogs,               // Stream live logs from any component
+
+    // EXCLUSIVE Developer App permission (ONLY for system Developer App)
+    HotReload,              // Exclusive: Hot reload and live app upload APIs
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -369,6 +372,7 @@ impl Permission {
             Permission::DirectDeploy => "DEVELOPER MODE: IDE-Integration für Build/Deploy",
             Permission::DebugAccess => "DEVELOPER MODE: Zugriff auf Debug-Interfaces",
             Permission::LiveLogs => "DEVELOPER MODE: Live-Streaming aller Logs",
+            Permission::HotReload => "EXKLUSIV: Hot-Reload und Live-App-Upload (nur Developer App)",
         }
     }
 
@@ -396,7 +400,7 @@ impl Permission {
             | Permission::CreateUser | Permission::ModifyUser | Permission::DeleteUser
             | Permission::FileShareManage | Permission::DeveloperAccess | Permission::InterAppCommunication
             | Permission::LiveMetrics | Permission::DirectDeploy | Permission::DebugAccess
-            | Permission::LiveLogs => RiskLevel::Critical,
+            | Permission::LiveLogs | Permission::HotReload => RiskLevel::Critical,
         }
     }
 
@@ -452,8 +456,14 @@ impl Permission {
             Permission::LiveMetrics |
             Permission::DirectDeploy |
             Permission::DebugAccess |
-            Permission::LiveLogs
+            Permission::LiveLogs |
+            Permission::HotReload
         )
+    }
+
+    /// Check if permission is EXCLUSIVE to Developer App (cannot be granted to any other app)
+    pub fn is_developer_app_exclusive(&self) -> bool {
+        matches!(self, Permission::HotReload)
     }
 }
 

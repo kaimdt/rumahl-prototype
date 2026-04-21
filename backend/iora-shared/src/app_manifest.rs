@@ -72,6 +72,14 @@ pub struct AppManifest {
     /// Network access configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_access: Option<NetworkAccessConfig>,
+
+    /// Developer Mode configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub developer_mode: Option<DeveloperModeConfig>,
+
+    /// Installation source (set by system during installation)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installation_source: Option<InstallationSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -428,6 +436,35 @@ pub enum TrustLevel {
 
     /// Verified by admin
     Verified,
+}
+
+/// Installation source - determines Developer Mode access eligibility
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallationSource {
+    /// From IORA App Store - CANNOT use Developer Mode
+    AppStore,
+
+    /// Manually uploaded (ZIP, direct install) - CAN use Developer Mode
+    ManualUpload,
+
+    /// Special IORA Developer App - exclusive hot-reload access
+    DeveloperApp,
+}
+
+/// Developer Mode configuration in manifest
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeveloperModeConfig {
+    /// Allow this app to use Developer Mode features
+    /// Only effective if installation_source = ManualUpload or DeveloperApp
+    #[serde(default)]
+    pub allowed: bool,
+
+    /// Override production environment restriction
+    /// If true, allows Developer Mode even when ENV=production
+    /// Requires user consent during installation
+    #[serde(default)]
+    pub allow_in_production: bool,
 }
 
 #[cfg(test)]

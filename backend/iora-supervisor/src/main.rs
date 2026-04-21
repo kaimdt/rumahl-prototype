@@ -81,6 +81,79 @@ struct AppState {
     start_time: DateTime<Utc>,
     services: Arc<RwLock<HashMap<String, ServiceDefinition>>>,
     developer_mode: Arc<RwLock<bool>>,
+    environment: String, // "production", "development", etc.
+}
+
+/// Check if app is allowed to use Developer Mode features
+async fn check_developer_mode_access(
+    data: &web::Data<AppState>,
+    app_id: &str,
+) -> Result<(), HttpResponse> {
+    // First, check if Developer Mode is globally enabled
+    let developer_mode = *data.developer_mode.read().await;
+    if !developer_mode {
+        return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Developer Mode is not enabled",
+            "message": "Enable Developer Mode in IORA Control Center to access this endpoint"
+        })));
+    }
+
+    // Get app container and check installation source
+    let container_name = format!("iora-app-{}", app_id);
+    let inspection = match data.docker.inspect_container(&container_name, None).await {
+        Ok(details) => details,
+        Err(_) => {
+            return Err(HttpResponse::NotFound().json(serde_json::json!({
+                "error": "App not found"
+            })));
+        }
+    };
+
+    // Check installation_source label
+    let labels = inspection.config.and_then(|c| c.labels);
+    let installation_source = labels
+        .as_ref()
+        .and_then(|l| l.get("iora.app.installation_source"));
+
+    match installation_source.map(|s| s.as_str()) {
+        Some("app_store") => {
+            // App Store apps NEVER have access to Developer Mode, regardless of settings
+            return Err(HttpResponse::Forbidden().json(serde_json::json!({
+                "error": "Access denied",
+                "message": "App Store apps cannot access Developer Mode features"
+            })));
+        }
+        Some("manual_upload") | Some("developer_app") => {
+            // Manual uploads and Developer App CAN use Developer Mode
+
+            // Check environment restriction
+            if data.environment == "production" {
+                // In production, check if app has explicit allow_in_production flag
+                let allow_in_prod = labels
+                    .as_ref()
+                    .and_then(|l| l.get("iora.app.developer_mode.allow_in_production"))
+                    .and_then(|v| v.parse::<bool>().ok())
+                    .unwrap_or(false);
+
+                if !allow_in_prod {
+                    return Err(HttpResponse::Forbidden().json(serde_json::json!({
+                        "error": "Developer Mode disabled in production",
+                        "message": "Developer Mode is automatically disabled in production environment"
+                    })));
+                }
+            }
+
+            // Access granted
+            Ok(())
+        }
+        _ => {
+            // Unknown or missing installation source - deny access
+            return Err(HttpResponse::Forbidden().json(serde_json::json!({
+                "error": "Invalid installation source",
+                "message": "App installation source is not valid for Developer Mode access"
+            })));
+        }
+    }
 }
 
 /// Health check endpoint
@@ -874,6 +947,7 @@ struct DeployRequest {
 }
 
 /// Check if Developer Mode is enabled
+/// Check if Developer Mode is globally enabled (for endpoints that don't target specific apps)
 async fn check_developer_mode(data: &web::Data<AppState>) -> Result<(), HttpResponse> {
     let developer_mode = *data.developer_mode.read().await;
     if !developer_mode {
@@ -1355,11 +1429,22 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    let environment = std::env::var("ENV")
+        .unwrap_or_else(|_| "development".to_string())
+        .to_lowercase();
+
+    info!("Running in {} environment", environment);
+
+    if environment == "production" {
+        info!("Production mode: Developer Mode will be restricted by default");
+    }
+
     let app_state = web::Data::new(AppState {
         docker,
         start_time: Utc::now(),
         services: Arc::new(RwLock::new(HashMap::new())),
         developer_mode: Arc::new(RwLock::new(false)),
+        environment,
     });
 
     let port = std::env::var("PORT")
