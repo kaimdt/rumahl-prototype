@@ -41,6 +41,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
+import { ORAAssistant } from '@/components/ORAAssistant'
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -767,6 +768,7 @@ function DashboardContent() {
         })()}
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
+      <ORAAssistant />
     </>
   )
 }

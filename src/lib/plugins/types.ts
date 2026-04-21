@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import type { EntityState } from '@/lib/types'
+import type { PluginAIClient } from './ai-integration'
 
 /**
  * Plugin Metadata
@@ -133,6 +134,8 @@ export interface PluginContext {
   notify: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void
   /** Subscribe to entity changes */
   subscribe: (entityId: string, callback: (entity: EntityState) => void) => () => void
+  /** ORA AI Integration - Call AI, register tools, and more */
+  ai: PluginAIClient
 }
 
 /**
