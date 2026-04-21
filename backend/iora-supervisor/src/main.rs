@@ -969,6 +969,108 @@ async fn get_developer_mode_status(data: web::Data<AppState>) -> impl Responder 
     }))
 }
 
+/// Auto-install Developer App if not present
+async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn std::error::Error>> {
+    const DEVELOPER_APP_ID: &str = "io.iora.developer-app";
+    const DEVELOPER_APP_IMAGE: &str = "ghcr.io/kaimdt/iora-developer-app:latest";
+    const DEVELOPER_APP_CONTAINER: &str = "iora-app-io.iora.developer-app";
+
+    // Check if Developer App is already installed
+    let containers = docker
+        .list_containers(Some(ListContainersOptions::<String> {
+            all: true,
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert("name".to_string(), vec![DEVELOPER_APP_CONTAINER.to_string()]);
+                filters
+            },
+            ..Default::default()
+        }))
+        .await?;
+
+    if !containers.is_empty() {
+        info!("Developer App already installed");
+        return Ok(());
+    }
+
+    info!("Developer App not found, auto-installing...");
+
+    // Pull the Developer App image
+    info!("Pulling Developer App image: {}", DEVELOPER_APP_IMAGE);
+    let mut stream = docker.create_image(
+        Some(CreateImageOptions {
+            from_image: DEVELOPER_APP_IMAGE,
+            ..Default::default()
+        }),
+        None,
+        None,
+    );
+
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(info) => {
+                if let Some(status) = info.status {
+                    info!("Image pull: {}", status);
+                }
+            }
+            Err(e) => {
+                error!("Failed to pull Developer App image: {}", e);
+                return Err(Box::new(e));
+            }
+        }
+    }
+
+    // Create container with proper labels and permissions
+    let mut labels = HashMap::new();
+    labels.insert("iora.type".to_string(), "app".to_string());
+    labels.insert("iora.app.id".to_string(), DEVELOPER_APP_ID.to_string());
+    labels.insert("iora.app.name".to_string(), "IORA Developer".to_string());
+    labels.insert("iora.app.version".to_string(), "0.1.0".to_string());
+    labels.insert("iora.app.installation_source".to_string(), "developer_app".to_string());
+    labels.insert("iora.app.permissions".to_string(), "DeveloperAccess,InterAppCommunication,LiveMetrics,DirectDeploy,DebugAccess,LiveLogs,HotReload".to_string());
+
+    let mut env = vec![
+        "RUST_LOG=info".to_string(),
+        "SUPERVISOR_URL=http://iora-supervisor:8097".to_string(),
+        "IORA_API_URL=http://iora-api:8080".to_string(),
+    ];
+
+    let mut host_config = HostConfig::default();
+    host_config.binds = Some(vec![
+        "/var/run/docker.sock:/var/run/docker.sock:ro".to_string(),
+        "iora-developer-data:/app/data".to_string(),
+    ]);
+
+    let config = Config {
+        image: Some(DEVELOPER_APP_IMAGE.to_string()),
+        labels: Some(labels),
+        env: Some(env),
+        host_config: Some(host_config),
+        ..Default::default()
+    };
+
+    let container = docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: DEVELOPER_APP_CONTAINER,
+                platform: None,
+            }),
+            config,
+        )
+        .await?;
+
+    info!("Developer App container created: {}", container.id);
+
+    // Start the container
+    docker
+        .start_container(&container.id, None::<StartContainerOptions<String>>)
+        .await?;
+
+    info!("Developer App started successfully");
+
+    Ok(())
+}
+
 /// Toggle developer mode
 #[post("/api/developer/toggle")]
 async fn toggle_developer_mode(
@@ -981,6 +1083,20 @@ async fn toggle_developer_mode(
     *dev_mode = enabled;
 
     info!("Developer Mode {}", if enabled { "enabled" } else { "disabled" });
+
+    // Auto-install Developer App if enabling Developer Mode
+    if enabled {
+        info!("Auto-installing Developer App...");
+        if let Err(e) = ensure_developer_app_installed(&data.docker).await {
+            error!("Failed to auto-install Developer App: {}", e);
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "developer_mode": enabled,
+                "error": "Failed to install Developer App",
+                "details": e.to_string()
+            }));
+        }
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
