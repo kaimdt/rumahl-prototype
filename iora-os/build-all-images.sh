@@ -1319,17 +1319,19 @@ repair_disk_and_bootloader() {
         fi
     fi
 
-    # ── Step 5: Rewrite grub.cfg with real PARTUUIDs ────────────────
-    echo "  [5/7] grub.cfg with real PARTUUIDs..." >> "$logfile"
-    local puuid_a="" puuid_b=""
+    # ── Step 5: Rewrite grub.cfg with real UUIDs ────────────────────
+    echo "  [5/7] grub.cfg with real UUIDs..." >> "$logfile"
+    local puuid_a="" puuid_b="" fsuuid_a="" fsuuid_b=""
     local pa pb
     pa=$(disk_part_name "$disk" 3)
     pb=$(disk_part_name "$disk" 4)
     if [ -b "$pa" ]; then
         puuid_a=$(blkid -s PARTUUID -o value "$pa" 2>/dev/null || true)
+        fsuuid_a=$(blkid -s UUID     -o value "$pa" 2>/dev/null || true)
     fi
     if [ -b "$pb" ]; then
         puuid_b=$(blkid -s PARTUUID -o value "$pb" 2>/dev/null || true)
+        fsuuid_b=$(blkid -s UUID     -o value "$pb" 2>/dev/null || true)
     fi
 
     local root_a_ref="/dev/sda3"
@@ -1348,13 +1350,28 @@ repair_disk_and_bootloader() {
     fi
     log_r "Kernel: ${kernel_path}"
 
+    # NOTE: grub.cfg is NOT shell. GRUB's `search` command does NOT
+    # support --partuuid, and tokens like `2>/dev/null` or `|| true`
+    # cause "syntax error / Incorrect command". Use --fs-uuid and the
+    # `if search ...; then` conditional pattern instead.
     mkdir -p "${target}/boot/grub"
     cat > "${target}/boot/grub/grub.cfg" <<GRUBCFG
 set default=0
 set timeout=5
 
+insmod part_gpt
+insmod part_msdos
+insmod ext2
+insmod fat
+insmod search
+insmod search_fs_uuid
+insmod search_fs_file
+insmod linux
+insmod echo
+insmod all_video
+
 menuentry "IORA OS" {
-    search --no-floppy --partuuid ${puuid_a:-00000000-0000-0000-0000-000000000000} --set=root 2>/dev/null || true
+    search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
     elif [ -f /vmlinuz ]; then
@@ -1365,7 +1382,7 @@ menuentry "IORA OS" {
 }
 
 menuentry "IORA OS (second slot)" {
-    search --no-floppy --partuuid ${puuid_b:-00000000-0000-0000-0000-000000000000} --set=root 2>/dev/null || true
+    search --no-floppy --set=root --fs-uuid ${fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
     elif [ -f /vmlinuz ]; then
@@ -1376,7 +1393,7 @@ menuentry "IORA OS (second slot)" {
 }
 
 menuentry "IORA OS Recovery" {
-    search --no-floppy --partuuid ${puuid_a:-00000000-0000-0000-0000-000000000000} --set=root 2>/dev/null || true
+    search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
     elif [ -f /vmlinuz ]; then
@@ -1388,10 +1405,28 @@ menuentry "IORA OS Recovery" {
 GRUBCFG
     log_r "grub.cfg written"
 
-    # Copy grub.cfg also to EFI boot directory for UEFI GRUB
+    # Mirror grub.cfg + kernel to the ESP. The originally-shipped core.img
+    # (from post-image.sh) has its prefix pointing at (,gpt2)/boot/grub — if
+    # the ESP was reformatted in Step 3 we must restore a working config
+    # there, otherwise BIOS boot drops to a bare `grub>` prompt.
     if [ "$efi_mounted" = true ]; then
-        mkdir -p "${target}/boot/efi/boot/grub" 2>/dev/null || true
-        cp "${target}/boot/grub/grub.cfg" "${target}/boot/efi/boot/grub/grub.cfg" 2>/dev/null || true
+        mkdir -p "${target}/boot/efi/boot/grub" "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
+        cp -f "${target}/boot/grub/grub.cfg" "${target}/boot/efi/boot/grub/grub.cfg" 2>/dev/null || true
+        # Also provide a small redirect for any UEFI loader whose prefix is /EFI/BOOT.
+        local _root_fsuuid
+        _root_fsuuid=$(blkid -s UUID -o value "$root_part" 2>/dev/null || true)
+        cat > "${target}/boot/efi/EFI/BOOT/grub.cfg" <<EFIREDIR
+search --no-floppy --set=root --fs-uuid ${_root_fsuuid:-0}
+set prefix=(\$root)/boot/grub
+configfile \$prefix/grub.cfg
+EFIREDIR
+        # Restore kernel at /vmlinuz on the ESP (matches post-image.sh layout).
+        if [ -s "${target}/boot/vmlinuz" ]; then
+            cp -f "${target}/boot/vmlinuz" "${target}/boot/efi/vmlinuz" 2>/dev/null || true
+        elif [ -s "${target}/vmlinuz" ]; then
+            cp -f "${target}/vmlinuz" "${target}/boot/efi/vmlinuz" 2>/dev/null || true
+        fi
+        log_r "grub.cfg + vmlinuz mirrored to ESP"
     fi
 
     # ── Step 6: bind-mount proc/dev/sys and (re)install GRUB ───────
@@ -1805,26 +1840,102 @@ install_bootloader_fallback() {
         fi
     fi
 
-    # Always ensure a minimal grub.cfg exists (some distros only leave core.img).
-    if [ ! -s "${target}/boot/grub/grub.cfg" ]; then
-        local root_uuid
-        root_uuid=$(blkid -s UUID -o value "$(detect_target_root_partition "$disk" 2>/dev/null)" 2>/dev/null || true)
+    # ── ALWAYS (re-)generate grub.cfg on the root partition and mirror it to
+    # the ESP.  This is critical because:
+    #   - post-image.sh originally wrote grub.cfg only on the ESP at
+    #     /boot/grub/grub.cfg, expecting core.img's prefix to point there.
+    #   - When we reinstall BIOS grub with --boot-directory="${target}/boot"
+    #     the new core.img's prefix becomes (hd0,gpt3)/boot/grub/grub.cfg
+    #     on the ROOT partition -- a path that didn't exist yet.
+    #   - The resulting symptom is a bare "grub>" shell on boot.
+    # We therefore write the same grub.cfg to every plausible search path.
+    local _rootpart _part_a _part_b _partuuid_a _partuuid_b _root_a _root_b _fsuuid_a _fsuuid_b
+    _rootpart=$(detect_target_root_partition "$disk" 2>/dev/null || true)
+    _part_a=$(disk_part_name "$disk" 3)
+    _part_b=$(disk_part_name "$disk" 4)
+    _partuuid_a=$(blkid -s PARTUUID -o value "$_part_a" 2>/dev/null || true)
+    _partuuid_b=$(blkid -s PARTUUID -o value "$_part_b" 2>/dev/null || true)
+    _fsuuid_a=$(blkid -s UUID     -o value "$_part_a" 2>/dev/null || true)
+    _fsuuid_b=$(blkid -s UUID     -o value "$_part_b" 2>/dev/null || true)
+    if [ -n "$_partuuid_a" ]; then
+        _root_a="PARTUUID=${_partuuid_a}"
+    else
+        _root_a="$_part_a"
+    fi
+    if [ -n "$_partuuid_b" ]; then
+        _root_b="PARTUUID=${_partuuid_b}"
+    else
+        _root_b="$_part_b"
+    fi
+
+    # Respect any LUKS-specific grub.cfg the encryption path already wrote.
+    # NOTE: GRUB's `search` accepts --fs-uuid, NOT --partuuid. Shell tokens
+    # like `2>/dev/null` or `|| true` are syntax errors in grub.cfg, and
+    # there is no `search_part_uuid` module (that caused "Incorrect
+    # command" on boot). Only use constructs grub actually understands.
+    if [ ! -s "${target}/boot/grub/grub.cfg" ] \
+       || ! grep -q 'iora_slot=' "${target}/boot/grub/grub.cfg" 2>/dev/null; then
         mkdir -p "${target}/boot/grub" 2>/dev/null || true
         cat > "${target}/boot/grub/grub.cfg" <<GRUBCFG
-set timeout=5
 set default=0
+set timeout=3
+
 insmod part_gpt
 insmod part_msdos
 insmod ext2
+insmod fat
+insmod search
 insmod search_fs_uuid
-${root_uuid:+search --no-floppy --fs-uuid --set=root ${root_uuid}}
+insmod search_fs_file
+insmod linux
+insmod echo
+insmod all_video
+
 menuentry "IORA OS" {
-    linux /boot/vmlinuz${root_uuid:+ root=UUID=${root_uuid}} ro quiet
+    search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
+    if [ -f /boot/vmlinuz ]; then
+        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset quiet
+    elif [ -f /vmlinuz ]; then
+        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset quiet
+    fi
 }
-menuentry "IORA OS (recovery)" {
-    linux /boot/vmlinuz${root_uuid:+ root=UUID=${root_uuid}} rw init=/bin/sh
+
+menuentry "IORA OS (Partition B)" {
+    search --no-floppy --set=root --fs-uuid ${_fsuuid_b:-00000000-0000-0000-0000-000000000000}
+    if [ -f /boot/vmlinuz ]; then
+        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset quiet
+    elif [ -f /vmlinuz ]; then
+        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset quiet
+    fi
+}
+
+menuentry "IORA OS Recovery" {
+    search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
+    if [ -f /boot/vmlinuz ]; then
+        linux /boot/vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 nomodeset init=/bin/bash
+    elif [ -f /vmlinuz ]; then
+        linux /vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 nomodeset init=/bin/bash
+    fi
 }
 GRUBCFG
+    fi
+
+    # Mirror grub.cfg + kernel onto the ESP so UEFI loaders (prefix on ESP)
+    # and any stage2 that searches ESP first also find a valid config.
+    if [ "$efi_mounted" = true ]; then
+        mkdir -p "${target}/boot/efi/boot/grub" "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
+        cp -f "${target}/boot/grub/grub.cfg" \
+              "${target}/boot/efi/boot/grub/grub.cfg" 2>/dev/null || true
+        # Minimal redirect so a UEFI loader with prefix=/EFI/BOOT still works.
+        cat > "${target}/boot/efi/EFI/BOOT/grub.cfg" <<EFIREDIR
+search --no-floppy --set=root --fs-uuid $(blkid -s UUID -o value "$_rootpart" 2>/dev/null)
+set prefix=(\$root)/boot/grub
+configfile \$prefix/grub.cfg
+EFIREDIR
+        # Ensure a kernel exists at /vmlinuz on the ESP (post-image.sh's layout).
+        if [ ! -s "${target}/boot/efi/vmlinuz" ] && [ -s "${target}/boot/vmlinuz" ]; then
+            cp -f "${target}/boot/vmlinuz" "${target}/boot/efi/vmlinuz" 2>/dev/null || true
+        fi
     fi
 
     if [ "$efi_mounted" = true ]; then
@@ -4215,16 +4326,34 @@ EOF
 
     # Verify the ISO is actually UEFI-bootable: it must contain an EFI boot
     # image (either as El Torito EFI boot catalog entry or an ESP partition).
+    # xorriso's "-report_el_torito plain" output uses columns like:
+    #   El Torito boot img : 1  BIOS  y   none ...
+    #   El Torito boot img : 2  UEFI  y   none ...
+    # or "platform id 0xEF" in older versions. Also accept a GPT/MBR partition
+    # of type 0xEF (ESP) exposed by `-report_system_area plain`.
     local iso_uefi_ok=0
     if [ "${grub_ok}" -eq 1 ] && command -v xorriso >/dev/null 2>&1; then
-        if xorriso -indev "${RELEASE_DIR}/iora-os-installer-boot.iso" -report_el_torito plain 2>/dev/null \
-             | grep -qiE 'El Torito EFI|efi\.img|platform 0xef'; then
+        local _xorep
+        _xorep=$(xorriso -indev "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                         -report_el_torito plain 2>/dev/null)
+        if echo "$_xorep" | grep -qiE 'UEFI|\bEFI\b|efi\.img|platform[[:space:]]+(id[[:space:]]+)?0xef|0xEF'; then
             iso_uefi_ok=1
+        fi
+        # Secondary check: a GPT partition of type EF00 (ESP) inside the ISO.
+        if [ "${iso_uefi_ok}" -eq 0 ]; then
+            if xorriso -indev "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                       -report_system_area plain 2>/dev/null \
+                 | grep -qiE 'ESP|efi|0xef'; then
+                iso_uefi_ok=1
+            fi
         fi
     fi
 
     if [ "${grub_ok}" -eq 1 ] && [ "${iso_uefi_ok}" -eq 0 ]; then
         log_warn "Generated ISO does not expose a UEFI boot entry; rebuilding with explicit ESP..."
+        # Keep the BIOS-only ISO as a backup in case the manual rebuild fails.
+        cp -f "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+              "${RELEASE_DIR}/iora-os-installer-boot.iso.bios-only" 2>/dev/null || true
         grub_ok=0
     fi
 
@@ -4256,21 +4385,52 @@ EOF
             rm -f "${stage_dir}/BOOTX64.EFI"
 
             # 3. Build a BIOS core.img as an El Torito boot image.
+            #    grub-mkstandalone --format=i386-pc-eltorito emits a complete
+            #    cdboot+core image that can be used directly by xorriso.
+            #    NOTE: grub-mkstandalone does NOT accept --install-modules;
+            #    only --modules. Including that flag silently fails on some
+            #    grub versions and produces a non-bootable image.
+            local bios_built=0
             if grub-mkstandalone --format=i386-pc-eltorito \
                  --output="${bios_core}" \
                  --locales="" --fonts="" \
-                 --modules="biosdisk part_gpt part_msdos fat ext2 iso9660 normal configfile linux echo search" \
-                 --install-modules="linux normal iso9660 biosdisk memdisk search tar ls configfile" \
+                 --modules="biosdisk part_gpt part_msdos fat ext2 iso9660 normal configfile linux echo search search_label search_fs_uuid chain cat ls help" \
                  "boot/grub/grub.cfg=${stage_dir}/boot/grub/grub.cfg" \
-                 >>"${grub_log}" 2>&1 \
-               || cp -f /usr/lib/grub/i386-pc/eltorito.img "${bios_core}" 2>/dev/null; then
-                :
+                 >>"${grub_log}" 2>&1; then
+                bios_built=1
+            else
+                # Last resort: concatenate cdboot.img + a separately-built core.img.
+                if [ -f /usr/lib/grub/i386-pc/cdboot.img ] \
+                   && command -v grub-mkimage >/dev/null 2>&1; then
+                    local _core="${stage_dir}/boot/core-tmp.img"
+                    if grub-mkimage -O i386-pc -o "${_core}" -p /boot/grub \
+                         biosdisk part_gpt part_msdos fat ext2 iso9660 \
+                         normal configfile linux echo search search_label \
+                         search_fs_uuid chain cat ls help \
+                         >>"${grub_log}" 2>&1; then
+                        cat /usr/lib/grub/i386-pc/cdboot.img "${_core}" > "${bios_core}"
+                        rm -f "${_core}"
+                        bios_built=1
+                    fi
+                fi
             fi
+            [ "${bios_built}" -eq 0 ] && log_warn "Could not build BIOS el-torito image"
 
-            # 4. Pack everything into a hybrid ISO with xorriso.
-            if xorriso -as mkisofs \
+            # 4. Look up an isohybrid MBR template (lets the ISO boot from USB
+            #    as a hybrid BIOS disk image, not just as a CD).
+            local iso_mbr=""
+            for _mbr in /usr/lib/grub/i386-pc/boot_hybrid.img \
+                        /usr/lib/grub/i386-pc/boot.img \
+                        /usr/lib/ISOLINUX/isohdpfx.bin \
+                        /usr/share/syslinux/isohdpfx.bin; do
+                [ -f "$_mbr" ] && iso_mbr="$_mbr" && break
+            done
+
+            # 5. Pack everything into a hybrid ISO with xorriso.
+            if [ "${bios_built}" -eq 1 ] && xorriso -as mkisofs \
                  -iso-level 3 -full-iso9660-filenames \
                  -volid "IORA_INSTALLER" \
+                 ${iso_mbr:+-isohybrid-mbr "$iso_mbr"} \
                  -eltorito-boot boot/eltorito.img \
                    -no-emul-boot -boot-load-size 4 -boot-info-table \
                  -eltorito-alt-boot \
@@ -4285,8 +4445,21 @@ EOF
     fi
 
     if [ "${grub_ok}" -eq 0 ]; then
-        log_warn "All ISO generation attempts failed. Log:"
-        tail -n 40 "${grub_log}" | while IFS= read -r line; do log_warn "  ${line}"; done
+        # Manual UEFI rebuild failed. If the original grub-mkrescue output
+        # exists as .bios-only, fall back to it — a BIOS-bootable ISO is
+        # still better than nothing, and many test VMs default to BIOS.
+        if [ -f "${RELEASE_DIR}/iora-os-installer-boot.iso.bios-only" ]; then
+            mv -f "${RELEASE_DIR}/iora-os-installer-boot.iso.bios-only" \
+                  "${RELEASE_DIR}/iora-os-installer-boot.iso"
+            log_warn "Restored BIOS-only ISO from grub-mkrescue (UEFI unavailable)."
+            grub_ok=1
+        else
+            log_warn "All ISO generation attempts failed. Log:"
+            tail -n 40 "${grub_log}" | while IFS= read -r line; do log_warn "  ${line}"; done
+        fi
+    else
+        # Success: remove the .bios-only backup if it's still there.
+        rm -f "${RELEASE_DIR}/iora-os-installer-boot.iso.bios-only" 2>/dev/null || true
     fi
 
     rm -f "${grub_log}"

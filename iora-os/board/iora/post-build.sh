@@ -364,26 +364,31 @@ DETECTEOF
 chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-detect-virt"
 
 # systemd service — runs once before multi-user so getty/SSH see correct issue.
+# systemd service — runs once before multi-user so getty/SSH see correct issue.
+# Must run AFTER local-fs.target + systemd-remount-fs so /etc is writable;
+# running it with DefaultDependencies=no before sysinit.target caused
+# `set -e` failures when writing to /etc/iora-virt.conf on a read-only /etc.
 cat > "${TARGET_DIR}/etc/systemd/system/iora-detect-virt.service" <<'EOF'
 [Unit]
 Description=IORA OS virtualization / container detection
-DefaultDependencies=no
-After=systemd-udev-settle.service
-Before=sysinit.target getty.target multi-user.target
+After=local-fs.target systemd-remount-fs.service
+Before=getty.target multi-user.target network.target
 ConditionPathExists=/usr/lib/iora/iora-detect-virt
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/lib/iora/iora-detect-virt
+# Be tolerant: a detection failure must NOT block boot.
+SuccessExitStatus=0 1
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=multi-user.target
 EOF
 
-mkdir -p "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
+mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/iora-detect-virt.service \
-    "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-detect-virt.service"
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-detect-virt.service"
 
 # Shell convenience: `iora-virt` prints the platform label.
 mkdir -p "${TARGET_DIR}/usr/bin"
@@ -718,10 +723,15 @@ mkdir -p "${TARGET_DIR}/etc/iora"
 cat > "${TARGET_DIR}/etc/systemd/system/iora-verify.service" <<'EOF'
 [Unit]
 Description=IORA OS integrity verification
-DefaultDependencies=no
-Before=sysinit.target iora-stack.service iora-update-check.service
+# NOTE: we intentionally keep default dependencies so that local-fs.target,
+# systemd-remount-fs.service and the root mount unit are ordered *before*
+# us via sysinit.target. Using DefaultDependencies=no together with
+# `RequiresMountsFor=/opt /etc /usr` produced a circular ordering
+# (-.mount After=sysinit.target, iora-verify Before=sysinit.target)
+# which systemd resolved by deleting iora-verify + local-fs.target,
+# cascading into ZRAM/Postgres/Chrony start failures.
+Before=iora-stack.service iora-update-check.service
 After=local-fs.target
-RequiresMountsFor=/opt /etc /usr
 ConditionPathExists=/etc/iora/manifest.json
 ConditionPathExists=/etc/iora/manifest.json.sig
 ConditionPathExists=/etc/iora/iora-release.pub
@@ -741,7 +751,7 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=multi-user.target
 EOF
 
 # The tamper target.  Once isolated to, it:
@@ -884,16 +894,20 @@ EOF
 ln -sf /etc/systemd/system/iora-recovery.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-recovery.service"
 
-# Enable iora-verify at sysinit.target so it runs before any iora-* service.
+# Enable iora-verify at multi-user.target so it runs before iora-stack and
+# the update checker but AFTER local-fs + remount-rw (see Unit file above).
 # Skipped on dev images: the tamper screen + verify gate would make hot-
 # reload impossible, which is the whole point of a dev build.
-mkdir -p "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
+mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+# Clean up any stale sysinit.target.wants symlink from older builds that
+# caused ordering cycles with -.mount.
+rm -f "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-verify.service"
 if [ "${IORA_OS_DEV:-0}" = "1" ]; then
     echo "IORA OS: DEV build — iora-verify.service NOT enabled"
-    rm -f "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-verify.service"
+    rm -f "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-verify.service"
 else
     ln -sf /etc/systemd/system/iora-verify.service \
-        "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-verify.service"
+        "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-verify.service"
 fi
 
 # -----------------------------------------------------------------------------
