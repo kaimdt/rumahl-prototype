@@ -630,6 +630,329 @@ fn load_config_from_env() -> (ProviderType, ProviderConfig) {
     (provider, config)
 }
 
+// ============================================================================
+// PROACTIVE MESSAGING (Phase 6)
+// ============================================================================
+
+async fn notification_stream(State(state): State<AppState>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let db_opt = state.db.clone();
+
+    let stream = async_stream::stream! {
+        let Some(db) = db_opt else {
+            yield Ok(Event::default().data("Database not available"));
+            return;
+        };
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+
+        loop {
+            interval.tick().await;
+
+            // Fetch pending notifications
+            match database::notifications::get_pending_notifications(&db, 10).await {
+                Ok(notifications) => {
+                    if notifications.is_empty() {
+                        // Send heartbeat if no notifications
+                        yield Ok(Event::default()
+                            .event("heartbeat")
+                            .data("alive"));
+                    } else {
+                        for notification in notifications {
+                            // Send notification event
+                            let event_data = serde_json::json!({
+                                "id": notification.id,
+                                "user_id": notification.user_id,
+                                "message": notification.message,
+                                "notification_type": notification.notification_type,
+                                "priority": notification.priority,
+                                "created_at": notification.created_at,
+                            });
+
+                            yield Ok(Event::default()
+                                .event("notification")
+                                .data(event_data.to_string()));
+
+                            // Mark as delivered
+                            let _ = database::notifications::mark_delivered(&db, notification.id).await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to fetch notifications: {}", e);
+                    yield Ok(Event::default()
+                        .event("error")
+                        .data(format!("Failed to fetch notifications: {}", e)));
+                }
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ============================================================================
+// CONTROL CENTER API ENDPOINTS (Phase 5)
+// ============================================================================
+
+// Provider Configuration Management
+
+#[derive(Debug, Deserialize)]
+struct CreateProviderRequest {
+    provider_type: String,
+    purpose: String,
+    config: serde_json::Value,
+    priority: Option<i32>,
+}
+
+async fn list_provider_configs(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+
+    match database::providers::get_all_enabled_providers(db).await {
+        Ok(providers) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "providers": providers,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to list providers",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+async fn create_provider_config(
+    State(state): State<AppState>,
+    Json(req): Json<CreateProviderRequest>,
+) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+
+    let priority = req.priority.unwrap_or(0);
+
+    match database::providers::create_provider(
+        db,
+        &req.provider_type,
+        &req.purpose,
+        req.config,
+        priority,
+    )
+    .await
+    {
+        Ok(provider) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "success": true,
+                "provider": provider,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to create provider",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+// Conversation Thread Management
+
+async fn list_conversation_threads(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(conversation_manager) = state.conversation_manager.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Conversation manager not available"})),
+        );
+    };
+
+    match conversation_manager.get_active_threads(None, 50).await {
+        Ok(threads) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "threads": threads,
+                "total": threads.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to list threads",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateThreadRequest {
+    user_id: Option<Uuid>,
+    context: Option<serde_json::Value>,
+}
+
+async fn create_conversation_thread(
+    State(state): State<AppState>,
+    Json(req): Json<CreateThreadRequest>,
+) -> impl IntoResponse {
+    let Some(conversation_manager) = state.conversation_manager.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Conversation manager not available"})),
+        );
+    };
+
+    match conversation_manager
+        .create_thread(req.user_id, req.context)
+        .await
+    {
+        Ok(thread_id) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "success": true,
+                "thread_id": thread_id,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to create thread",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+// Autonomous Task Management
+
+async fn list_autonomous_tasks(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+
+    match database::tasks::get_enabled_tasks(db).await {
+        Ok(tasks) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "tasks": tasks,
+                "total": tasks.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to list tasks",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+// Notification Management
+
+async fn list_pending_notifications(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+
+    match database::notifications::get_pending_notifications(db, 50).await {
+        Ok(notifications) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "notifications": notifications,
+                "total": notifications.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to list notifications",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct SendNotificationRequest {
+    user_id: Option<Uuid>,
+    message: String,
+    notification_type: String,
+    priority: i32,
+}
+
+async fn send_notification(
+    State(state): State<AppState>,
+    Json(req): Json<SendNotificationRequest>,
+) -> impl IntoResponse {
+    let Some(conversation_manager) = state.conversation_manager.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Conversation manager not available"})),
+        );
+    };
+
+    match conversation_manager
+        .send_proactive_notification(
+            req.user_id,
+            &req.message,
+            &req.notification_type,
+            req.priority,
+        )
+        .await
+    {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": "Notification queued",
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Failed to send notification",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+// Orchestrator Stats
+
+async fn get_orchestrator_stats(State(state): State<AppState>) -> impl IntoResponse {
+    let stats = state.orchestrator.get_stats().await;
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "stats": stats,
+        })),
+    )
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -716,6 +1039,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/entities/discover", get(discover_entities))
         .route("/api/assist/automations/suggestions", get(get_automation_suggestions))
         .route("/api/assist/context", get(get_smart_home_context))
+        // Proactive Messaging (Phase 6)
+        .route("/api/assist/notifications/stream", get(notification_stream))
+        // Control Center API (Phase 5)
+        .route("/api/assist/config/providers", get(list_provider_configs))
+        .route("/api/assist/config/providers", post(create_provider_config))
+        .route("/api/assist/config/threads", get(list_conversation_threads))
+        .route("/api/assist/config/threads", post(create_conversation_thread))
+        .route("/api/assist/config/tasks", get(list_autonomous_tasks))
+        .route("/api/assist/config/notifications", get(list_pending_notifications))
+        .route("/api/assist/config/notifications/send", post(send_notification))
+        .route("/api/assist/config/stats", get(get_orchestrator_stats))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

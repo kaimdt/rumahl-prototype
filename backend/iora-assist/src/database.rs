@@ -257,6 +257,31 @@ pub mod providers {
 
         Ok(providers)
     }
+
+    pub async fn create_provider(
+        pool: &DbPool,
+        provider_type: &str,
+        purpose: &str,
+        config: serde_json::Value,
+        priority: i32,
+    ) -> Result<ProviderConfig, sqlx::Error> {
+        let provider = sqlx::query_as::<_, ProviderConfig>(
+            r#"
+            INSERT INTO provider_configs
+            (provider_type, purpose, config, priority, enabled)
+            VALUES ($1, $2, $3, $4, true)
+            RETURNING *
+            "#
+        )
+        .bind(provider_type)
+        .bind(purpose)
+        .bind(config)
+        .bind(priority)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(provider)
+    }
 }
 
 /// Notification queue repository
