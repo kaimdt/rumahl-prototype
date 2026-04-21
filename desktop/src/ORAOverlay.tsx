@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react'
+import { MessageContent } from '@/components/MessageContent'
 
 interface AIChatMessage {
   role: string
@@ -334,7 +335,7 @@ export function ORAOverlay() {
                       : 'bg-white/10 text-white/90'
                   }`}
                 >
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <MessageContent content={msg.content} role={msg.role} />
                   <p className="text-[10px] text-white/40 mt-1">
                     {new Date(msg.timestamp).toLocaleTimeString('de-DE', {
                       hour: '2-digit',

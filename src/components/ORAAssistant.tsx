@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { MessageContent } from '@/components/MessageContent'
 
 interface AIChatMessage {
   role: string
@@ -342,7 +343,7 @@ export function ORAAssistant() {
                         : 'bg-foreground/5 text-foreground/90 border border-foreground/10'
                     }`}
                   >
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    <MessageContent content={msg.content} role={msg.role} />
                     <p className="text-[10px] text-foreground/40 mt-1">
                       {new Date(msg.timestamp).toLocaleTimeString('de-DE', {
                         hour: '2-digit',
