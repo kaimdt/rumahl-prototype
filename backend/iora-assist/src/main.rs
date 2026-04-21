@@ -24,12 +24,14 @@ mod database;
 mod orchestrator;
 mod task_engine;
 mod conversation_manager;
+mod tools;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
 use orchestrator::{ProviderOrchestrator, TaskPurpose};
 use task_engine::TaskEngine;
 use conversation_manager::ConversationManager;
+use tools::ToolExecutor;
 
 use providers::{
     create_provider, AIProvider, ChatMessage as ProviderChatMessage, ProviderConfig,
@@ -46,6 +48,7 @@ struct AppState {
     orchestrator: Arc<ProviderOrchestrator>,
     task_engine: Option<Arc<TaskEngine>>,
     conversation_manager: Option<Arc<ConversationManager>>,
+    tool_executor: Arc<RwLock<ToolExecutor>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -953,6 +956,114 @@ async fn get_orchestrator_stats(State(state): State<AppState>) -> impl IntoRespo
     )
 }
 
+// ============================================================================
+// TOOL EXECUTION API (Internet Search & External Tools)
+// ============================================================================
+
+async fn execute_tool(
+    State(state): State<AppState>,
+    Json(request): Json<tools::ToolRequest>,
+) -> impl IntoResponse {
+    let tool_executor = state.tool_executor.read().await;
+    let result = tool_executor.execute(request).await;
+
+    let status = if result.success {
+        StatusCode::OK
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+
+    (status, Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchRequest {
+    query: String,
+    max_results: Option<usize>,
+}
+
+async fn search_internet(
+    State(state): State<AppState>,
+    Json(req): Json<SearchRequest>,
+) -> impl IntoResponse {
+    let tool_request = tools::ToolRequest {
+        tool_type: tools::ToolType::Search,
+        params: serde_json::json!({
+            "query": req.query,
+            "max_results": req.max_results.unwrap_or(5),
+        }),
+    };
+
+    let tool_executor = state.tool_executor.read().await;
+    let result = tool_executor.execute(tool_request).await;
+
+    let status = if result.success {
+        StatusCode::OK
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+
+    (status, Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+struct ScrapeRequest {
+    url: String,
+    screenshot: Option<bool>,
+}
+
+async fn scrape_webpage(
+    State(state): State<AppState>,
+    Json(req): Json<ScrapeRequest>,
+) -> impl IntoResponse {
+    let tool_request = tools::ToolRequest {
+        tool_type: tools::ToolType::WebScrape,
+        params: serde_json::json!({
+            "url": req.url,
+            "screenshot": req.screenshot.unwrap_or(false),
+        }),
+    };
+
+    let tool_executor = state.tool_executor.read().await;
+    let result = tool_executor.execute(tool_request).await;
+
+    let status = if result.success {
+        StatusCode::OK
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+
+    (status, Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+struct ScreenshotRequest {
+    url: String,
+}
+
+async fn take_webpage_screenshot(
+    State(state): State<AppState>,
+    Json(req): Json<ScreenshotRequest>,
+) -> impl IntoResponse {
+    let tool_request = tools::ToolRequest {
+        tool_type: tools::ToolType::Screenshot,
+        params: serde_json::json!({
+            "url": req.url,
+        }),
+    };
+
+    let tool_executor = state.tool_executor.read().await;
+    let result = tool_executor.execute(tool_request).await;
+
+    let status = if result.success {
+        StatusCode::OK
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+
+    (status, Json(result))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -1012,6 +1123,14 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Initialize tool executor with headless Chrome
+    let mut tool_executor = ToolExecutor::new();
+    if let Err(e) = tool_executor.init_browser() {
+        error!("Failed to initialize headless Chrome: {}. Tool execution will be limited.", e);
+    } else {
+        info!("Headless Chrome browser initialized for tool execution");
+    }
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
@@ -1021,6 +1140,7 @@ async fn main() -> anyhow::Result<()> {
         orchestrator,
         task_engine,
         conversation_manager,
+        tool_executor: Arc::new(RwLock::new(tool_executor)),
     };
 
     let app = Router::new()
@@ -1050,6 +1170,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/config/notifications", get(list_pending_notifications))
         .route("/api/assist/config/notifications/send", post(send_notification))
         .route("/api/assist/config/stats", get(get_orchestrator_stats))
+        // Tool Execution API (Internet Search & External Tools)
+        .route("/api/assist/tools/execute", post(execute_tool))
+        .route("/api/assist/tools/search", post(search_internet))
+        .route("/api/assist/tools/scrape", post(scrape_webpage))
+        .route("/api/assist/tools/screenshot", post(take_webpage_screenshot))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
