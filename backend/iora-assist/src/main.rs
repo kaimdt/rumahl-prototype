@@ -20,8 +20,10 @@ use std::convert::Infallible;
 
 mod providers;
 mod context;
+mod database;
 
 use context::{ContextBuilder, SmartHomeContext};
+use database::DbPool;
 
 use providers::{
     create_provider, AIProvider, ChatMessage as ProviderChatMessage, ProviderConfig,
@@ -34,6 +36,7 @@ struct AppState {
     started_at: Arc<Instant>,
     current_provider: Arc<RwLock<Box<dyn AIProvider>>>,
     context_builder: Arc<ContextBuilder>,
+    db: Option<DbPool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -633,11 +636,24 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting ORA AI (IORA Assist) with provider: {}", initial_provider.name());
 
+    // Initialize database (optional - continues without DB if unavailable)
+    let db = match database::init_database().await {
+        Ok(pool) => {
+            info!("Database connected successfully");
+            Some(pool)
+        }
+        Err(e) => {
+            error!("Database connection failed: {}. Running without database features.", e);
+            None
+        }
+    };
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
         current_provider: Arc::new(RwLock::new(initial_provider)),
         context_builder: Arc::new(ContextBuilder::new()),
+        db,
     };
 
     let app = Router::new()
