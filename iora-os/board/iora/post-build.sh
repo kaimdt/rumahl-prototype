@@ -363,6 +363,44 @@ After=zram.service local-fs.target
 ConditionPathIsDirectory=/var/lib/chrony
 EOF
 
+# ── Hardened PostgreSQL init drop-in ────────────────────────────────────────
+# On a minimal Buildroot rootfs there are no glibc locales available, which
+# makes the default `pg_ctl initdb` fail (it tries to use the system locale).
+# We override ExecStartPre so the cluster is always created with
+# --locale=C --encoding=UTF8, and we make sure the data dir has mode 0700
+# owned by the `postgres` user BEFORE initdb runs. The `+` prefix runs the
+# command as root regardless of `User=postgres` in the upstream unit.
+cat > "${TARGET_DIR}/etc/systemd/system/postgresql.service.d/20-iora-init.conf" <<'EOF'
+[Service]
+# Clear upstream ExecStartPre (which would fail without locales) and replace.
+ExecStartPre=
+ExecStartPre=+/bin/sh -c 'mkdir -p /var/lib/pgsql && chown postgres:postgres /var/lib/pgsql && chmod 700 /var/lib/pgsql'
+ExecStartPre=/bin/sh -c 'if [ ! -f /var/lib/pgsql/PG_VERSION ]; then /usr/bin/pg_ctl initdb -D /var/lib/pgsql -o "--locale=C --encoding=UTF8"; fi'
+Environment=LANG=C LC_ALL=C
+# Be forgiving on first boot; retry instead of giving up.
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+
+[Unit]
+# Don't abort the boot if we ultimately can't start — user can fix later.
+OnFailure=
+EOF
+
+# ── Hardened Chrony drop-in ─────────────────────────────────────────────────
+# Make sure chronyd always has a writable drift directory and log directory.
+# Upstream chrony.conf writes drift to /var/lib/chrony/drift — if /var is a
+# fresh ZRAM filesystem on first boot the directory exists but the drift
+# file does not, and chrony's own user may not be able to create it if
+# ownership isn't correct yet.
+cat > "${TARGET_DIR}/etc/systemd/system/chrony.service.d/20-iora-init.conf" <<'EOF'
+[Service]
+ExecStartPre=+/bin/sh -c 'mkdir -p /var/lib/chrony /var/log/chrony /run/chrony && (getent passwd chrony >/dev/null 2>&1 && chown -R chrony:chrony /var/lib/chrony /var/log/chrony /run/chrony || true) && chmod 0750 /var/lib/chrony /var/log/chrony && touch /var/lib/chrony/drift && (getent passwd chrony >/dev/null 2>&1 && chown chrony:chrony /var/lib/chrony/drift || true)'
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+EOF
+
 # ── IORA virtualization / container detection service ───────────────────────
 # Runs at early boot, writes /run/iora-virt.env + /etc/iora-virt.conf, updates
 # /etc/issue and /etc/motd so the detected platform (VM, LXC, Proxmox, VMware,
