@@ -76,3 +76,138 @@ class IframeMessage(BaseModel):
     result: Optional[Any] = None
     error: Optional[Dict[str, Any]] = None
     event: Optional[IoraEvent] = None
+
+
+class FilePermissions(BaseModel):
+    """File permissions for sharing"""
+
+    read: bool
+    write: bool
+    delete: bool
+    share: bool
+
+
+class FileMetadata(BaseModel):
+    """File metadata from iora-share"""
+
+    id: str
+    name: str
+    path: str
+    size: int
+    mime_type: str
+    created_at: str
+    modified_at: str
+    owner: str
+    shared_with: Optional[List[str]] = None
+    permissions: Optional[FilePermissions] = None
+
+
+class FileUpload(BaseModel):
+    """File upload request"""
+
+    name: str
+    path: str
+    content: bytes
+    mime_type: Optional[str] = None
+
+
+class AutomationTriggerState(BaseModel):
+    """State trigger for automation"""
+
+    type: Literal["state"] = "state"
+    entity_id: str
+    from_state: Optional[str] = Field(None, alias="from")
+    to_state: Optional[str] = Field(None, alias="to")
+
+
+class AutomationTriggerTime(BaseModel):
+    """Time trigger for automation"""
+
+    type: Literal["time"] = "time"
+    at: str
+
+
+class AutomationTriggerEvent(BaseModel):
+    """Event trigger for automation"""
+
+    type: Literal["event"] = "event"
+    event_type: str
+
+
+class AutomationTriggerWebhook(BaseModel):
+    """Webhook trigger for automation"""
+
+    type: Literal["webhook"] = "webhook"
+    webhook_id: str
+
+
+AutomationTrigger = AutomationTriggerState | AutomationTriggerTime | AutomationTriggerEvent | AutomationTriggerWebhook
+
+
+class AutomationConditionState(BaseModel):
+    """State condition for automation"""
+
+    type: Literal["state"] = "state"
+    entity_id: str
+    state: str
+
+
+class AutomationConditionNumericState(BaseModel):
+    """Numeric state condition for automation"""
+
+    type: Literal["numeric_state"] = "numeric_state"
+    entity_id: str
+    above: Optional[float] = None
+    below: Optional[float] = None
+
+
+class AutomationConditionTime(BaseModel):
+    """Time condition for automation"""
+
+    type: Literal["time"] = "time"
+    after: Optional[str] = None
+    before: Optional[str] = None
+
+
+AutomationCondition = AutomationConditionState | AutomationConditionNumericState | AutomationConditionTime
+
+
+class AutomationActionService(BaseModel):
+    """Service action for automation"""
+
+    type: Literal["service"] = "service"
+    domain: str
+    service: str
+    entity_id: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AutomationActionNotification(BaseModel):
+    """Notification action for automation"""
+
+    type: Literal["notification"] = "notification"
+    title: str
+    message: str
+
+
+class AutomationActionDelay(BaseModel):
+    """Delay action for automation"""
+
+    type: Literal["delay"] = "delay"
+    seconds: int
+
+
+AutomationAction = AutomationActionService | AutomationActionNotification | AutomationActionDelay
+
+
+class Automation(BaseModel):
+    """Automation definition"""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    enabled: bool
+    trigger: AutomationTrigger
+    conditions: List[AutomationCondition] = Field(default_factory=list)
+    actions: List[AutomationAction] = Field(default_factory=list)
+

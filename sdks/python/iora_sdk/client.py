@@ -3,8 +3,18 @@ HTTP client for IORA API
 """
 
 import httpx
+import base64
 from typing import Any, Dict, List, Optional
-from iora_sdk.types import Entity, ServiceCall, NotificationPayload, AppSettings
+from iora_sdk.types import (
+    Entity,
+    ServiceCall,
+    NotificationPayload,
+    AppSettings,
+    FileMetadata,
+    FileUpload,
+    FilePermissions,
+    Automation,
+)
 
 
 class IoraClient:
@@ -132,3 +142,146 @@ class IoraClient:
         return await self._request(
             "POST", "/api/appstore/settings", json={"app_id": app_id, "settings": settings}
         )
+
+    # Files API (iora-share)
+    async def list_files(self, path: Optional[str] = None) -> List[FileMetadata]:
+        """
+        List all files accessible to the app
+        Requires: FileShareRead permission
+        """
+        path_param = path or "/"
+        data = await self._request("GET", f"/api/files?path={path_param}")
+        return [FileMetadata(**file) for file in data]
+
+    async def get_file_metadata(self, file_id: str) -> FileMetadata:
+        """
+        Get file metadata
+        Requires: FileShareRead permission
+        """
+        data = await self._request("GET", f"/api/files/{file_id}/metadata")
+        return FileMetadata(**data)
+
+    async def download_file(self, file_id: str) -> bytes:
+        """
+        Download a file
+        Requires: FileShareRead permission
+        """
+        url = f"{self.base_url}/api/files/{file_id}/download"
+        headers = self._get_headers()
+        response = await self._client.get(url, headers=headers)
+        response.raise_for_status()
+        return response.content
+
+    async def upload_file(self, upload: FileUpload) -> FileMetadata:
+        """
+        Upload a file
+        Requires: FileShareWrite permission
+        """
+        content_b64 = base64.b64encode(upload.content).decode("utf-8")
+        data = await self._request(
+            "POST",
+            "/api/files/upload",
+            json={
+                "name": upload.name,
+                "path": upload.path,
+                "content": content_b64,
+                "mime_type": upload.mime_type,
+            },
+        )
+        return FileMetadata(**data)
+
+    async def delete_file(self, file_id: str) -> Any:
+        """
+        Delete a file
+        Requires: FileShareDelete permission
+        """
+        return await self._request("DELETE", f"/api/files/{file_id}")
+
+    async def share_file(
+        self, file_id: str, share_with: List[str], permissions: FilePermissions
+    ) -> Any:
+        """
+        Share a file with other users or apps
+        Requires: FileShareManage permission
+        """
+        return await self._request(
+            "POST",
+            f"/api/files/{file_id}/share",
+            json={"share_with": share_with, "permissions": permissions.model_dump()},
+        )
+
+    async def update_file_permissions(
+        self, file_id: str, user_or_app: str, permissions: FilePermissions
+    ) -> Any:
+        """
+        Update file permissions for a share
+        Requires: FileShareManage permission
+        """
+        return await self._request(
+            "PUT",
+            f"/api/files/{file_id}/permissions",
+            json={"user_or_app": user_or_app, "permissions": permissions.model_dump()},
+        )
+
+    # Automations API
+    async def list_automations(self) -> List[Automation]:
+        """
+        List all automations
+        Requires: Automations permission (App-only)
+        """
+        data = await self._request("GET", "/api/automations")
+        return [Automation(**automation) for automation in data]
+
+    async def get_automation(self, automation_id: str) -> Automation:
+        """
+        Get a specific automation
+        Requires: Automations permission (App-only)
+        """
+        data = await self._request("GET", f"/api/automations/{automation_id}")
+        return Automation(**data)
+
+    async def create_automation(self, automation: Automation) -> Automation:
+        """
+        Create a new automation
+        Requires: Automations permission (App-only)
+        """
+        data = await self._request(
+            "POST", "/api/automations", json=automation.model_dump()
+        )
+        return Automation(**data)
+
+    async def update_automation(
+        self, automation_id: str, automation: Automation
+    ) -> Automation:
+        """
+        Update an existing automation
+        Requires: Automations permission (App-only)
+        """
+        data = await self._request(
+            "PUT", f"/api/automations/{automation_id}", json=automation.model_dump()
+        )
+        return Automation(**data)
+
+    async def delete_automation(self, automation_id: str) -> Any:
+        """
+        Delete an automation
+        Requires: Automations permission (App-only)
+        """
+        return await self._request("DELETE", f"/api/automations/{automation_id}")
+
+    async def set_automation_enabled(self, automation_id: str, enabled: bool) -> Any:
+        """
+        Enable/disable an automation
+        Requires: Automations permission (App-only)
+        """
+        return await self._request(
+            "PUT", f"/api/automations/{automation_id}/enabled", json={"enabled": enabled}
+        )
+
+    async def trigger_automation(self, automation_id: str) -> Any:
+        """
+        Trigger an automation manually
+        Requires: Automations permission (App-only)
+        """
+        return await self._request("POST", f"/api/automations/{automation_id}/trigger")
+
