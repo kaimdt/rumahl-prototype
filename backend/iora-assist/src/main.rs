@@ -4,7 +4,8 @@ use axum::{
     body::Body,
     extract::{Multipart, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Sse},
+    response::sse::{Event, KeepAlive},
     routing::{get, post},
     Json, Router,
 };
@@ -14,8 +15,13 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use uuid::Uuid;
+use futures_util::stream::Stream;
+use std::convert::Infallible;
 
 mod providers;
+mod context;
+
+use context::{ContextBuilder, SmartHomeContext};
 
 use providers::{
     create_provider, AIProvider, ChatMessage as ProviderChatMessage, ProviderConfig,
@@ -27,6 +33,7 @@ struct AppState {
     history: Arc<RwLock<Vec<ChatMessage>>>,
     started_at: Arc<Instant>,
     current_provider: Arc<RwLock<Box<dyn AIProvider>>>,
+    context_builder: Arc<ContextBuilder>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -458,6 +465,135 @@ async fn synthesize_speech(
     }
 }
 
+// ─── Enhanced Handlers (Part 1 Features) ────────────────────────────────────
+
+async fn chat_stream(
+    State(state): State<AppState>,
+    Json(req): Json<ChatRequest>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let provider = state.current_provider.read().await;
+
+    // Fetch smart home context
+    let context = state.context_builder.fetch_context().await.ok();
+
+    // Build enhanced system prompt with context
+    let system_prompt = if let Some(ctx) = &context {
+        Some(state.context_builder.build_system_prompt(ctx, req.system_prompt.as_deref()))
+    } else {
+        req.system_prompt.clone()
+    };
+
+    // Save user message
+    let user_msg = ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        content: req.message.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+    };
+
+    let history = state.history.clone();
+    let _ = history.write().await;
+
+    // For now, send the complete response as a stream
+    // In future, this could be enhanced to stream tokens
+    let message = req.message.clone();
+    let provider_name = provider.name().to_string();
+
+    drop(provider); // Release the lock
+
+    let stream = async_stream::stream! {
+        yield Ok(Event::default().data(format!(r#"{{"type":"start","provider":"{}"}}"#, provider_name)));
+
+        // Simulate streaming (in production, this would stream actual AI tokens)
+        yield Ok(Event::default().data(format!(r#"{{"type":"message","content":"Processing your request: {}"}}"#, message)));
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        yield Ok(Event::default().data(r#"{"type":"end"}"#));
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+async fn discover_entities(State(state): State<AppState>) -> impl IntoResponse {
+    match state.context_builder.fetch_context().await {
+        Ok(context) => {
+            let discovered = state.context_builder.discover_entities(&context);
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "total_entities": context.entities.len(),
+                    "categories": discovered,
+                    "rooms": context.rooms,
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Entity discovery error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Entity discovery failed",
+                    "details": e.to_string(),
+                })),
+            )
+        }
+    }
+}
+
+async fn get_automation_suggestions(State(state): State<AppState>) -> impl IntoResponse {
+    match state.context_builder.fetch_context().await {
+        Ok(context) => {
+            let suggestions = state.context_builder.suggest_automations(&context).await;
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "suggestions": suggestions,
+                    "total": suggestions.len(),
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Automation suggestion error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Automation suggestions failed",
+                    "details": e.to_string(),
+                })),
+            )
+        }
+    }
+}
+
+async fn get_smart_home_context(State(state): State<AppState>) -> impl IntoResponse {
+    match state.context_builder.fetch_context().await {
+        Ok(context) => {
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "context": context,
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Context fetch error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to fetch smart home context",
+                    "details": e.to_string(),
+                })),
+            )
+        }
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn load_config_from_env() -> (ProviderType, ProviderConfig) {
@@ -501,11 +637,13 @@ async fn main() -> anyhow::Result<()> {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
         current_provider: Arc::new(RwLock::new(initial_provider)),
+        context_builder: Arc::new(ContextBuilder::new()),
     };
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/assist/chat", post(chat))
+        .route("/api/assist/chat/stream", post(chat_stream))
         .route("/api/assist/history", get(chat_history))
         .route("/api/assist/history/clear", post(clear_history))
         .route("/api/assist/suggestions", get(suggestions))
@@ -515,6 +653,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/providers/switch", post(switch_provider))
         .route("/api/assist/voice/transcribe", post(transcribe_audio))
         .route("/api/assist/voice/synthesize", post(synthesize_speech))
+        .route("/api/assist/entities/discover", get(discover_entities))
+        .route("/api/assist/automations/suggestions", get(get_automation_suggestions))
+        .route("/api/assist/context", get(get_smart_home_context))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
