@@ -58,6 +58,12 @@ IORA_USER_PW=""
 IORA_USER_FULLNAME=""
 IORA_USER_SUDO=true
 
+# Virtualization / container platform (filled by detect_virtualization)
+IORA_VIRT_TYPE="none"
+IORA_VIRT_VENDOR=""
+IORA_VIRT_CONTAINER="none"
+IORA_VIRT_LABEL="Bare metal"
+
 # Navigation / control flow
 NAV_BACK=10      # step requested "go back"
 NAV_RESTART=11   # step requested "restart wizard"
@@ -600,6 +606,78 @@ install_image() {
     msg "${GREEN}Image written successfully!${NC}"
 }
 
+# ── Virtualization / container detection (mirrors build-all-images.sh) ──
+detect_virtualization() {
+    IORA_VIRT_TYPE="none"
+    IORA_VIRT_VENDOR=""
+    IORA_VIRT_CONTAINER="none"
+    IORA_VIRT_LABEL="Bare metal"
+
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        local _vm _ct
+        _vm=$(systemd-detect-virt --vm 2>/dev/null || true)
+        _ct=$(systemd-detect-virt --container 2>/dev/null || true)
+        [ -n "$_vm" ] && [ "$_vm" != "none" ] && IORA_VIRT_TYPE="$_vm"
+        [ -n "$_ct" ] && [ "$_ct" != "none" ] && IORA_VIRT_CONTAINER="$_ct"
+    fi
+
+    if [ "$IORA_VIRT_CONTAINER" = "none" ]; then
+        if [ -f /.dockerenv ] || grep -qa 'docker\|containerd' /proc/1/cgroup 2>/dev/null; then
+            IORA_VIRT_CONTAINER="docker"
+        elif [ -n "${container:-}" ]; then
+            IORA_VIRT_CONTAINER="$container"
+        elif grep -qa 'lxc\|lxcfs' /proc/1/cgroup 2>/dev/null; then
+            IORA_VIRT_CONTAINER="lxc"
+        elif grep -qi 'microsoft\|wsl' /proc/sys/kernel/osrelease 2>/dev/null; then
+            IORA_VIRT_CONTAINER="wsl"
+        fi
+    fi
+
+    local sys_vendor="" product="" bios_version=""
+    [ -r /sys/class/dmi/id/sys_vendor ]   && sys_vendor=$(tr -d '\0' < /sys/class/dmi/id/sys_vendor   2>/dev/null)
+    [ -r /sys/class/dmi/id/product_name ] && product=$(tr -d '\0' < /sys/class/dmi/id/product_name   2>/dev/null)
+    [ -r /sys/class/dmi/id/bios_version ] && bios_version=$(tr -d '\0' < /sys/class/dmi/id/bios_version 2>/dev/null)
+
+    if [ "$IORA_VIRT_TYPE" = "none" ]; then
+        case "${sys_vendor} ${product}" in
+            *VMware*)               IORA_VIRT_TYPE="vmware" ;;
+            *VirtualBox*|*innotek*) IORA_VIRT_TYPE="oracle" ;;
+            *QEMU*)                 IORA_VIRT_TYPE="qemu" ;;
+            *Xen*)                  IORA_VIRT_TYPE="xen" ;;
+            *Microsoft*|*Hyper-V*)  IORA_VIRT_TYPE="microsoft" ;;
+            *Parallels*)            IORA_VIRT_TYPE="parallels" ;;
+            *Bochs*)                IORA_VIRT_TYPE="bochs" ;;
+        esac
+        if [ "$IORA_VIRT_TYPE" = "none" ] && grep -qa '^flags.*\bhypervisor\b' /proc/cpuinfo 2>/dev/null; then
+            IORA_VIRT_TYPE="kvm"
+        fi
+    fi
+
+    case "$IORA_VIRT_TYPE" in
+        vmware)    IORA_VIRT_VENDOR="VMware" ;;
+        oracle)    IORA_VIRT_VENDOR="Oracle VirtualBox" ;;
+        qemu|kvm)
+            case "$bios_version" in
+                *pve*|*roxmox*) IORA_VIRT_VENDOR="Proxmox VE (KVM)" ;;
+                *)              IORA_VIRT_VENDOR="QEMU/KVM" ;;
+            esac ;;
+        xen)       IORA_VIRT_VENDOR="Xen" ;;
+        microsoft) IORA_VIRT_VENDOR="Microsoft Hyper-V" ;;
+        parallels) IORA_VIRT_VENDOR="Parallels" ;;
+        bochs)     IORA_VIRT_VENDOR="Bochs" ;;
+        none)      IORA_VIRT_VENDOR="" ;;
+        *)         IORA_VIRT_VENDOR="$IORA_VIRT_TYPE" ;;
+    esac
+
+    if [ "$IORA_VIRT_CONTAINER" != "none" ]; then
+        IORA_VIRT_LABEL="Container: ${IORA_VIRT_CONTAINER}"
+    elif [ "$IORA_VIRT_TYPE" != "none" ]; then
+        IORA_VIRT_LABEL="VM: ${IORA_VIRT_VENDOR}"
+    else
+        IORA_VIRT_LABEL="Bare metal"
+    fi
+}
+
 # Persist the user's choices into the freshly-written image so the booted
 # system picks them up on first start.  Best-effort: we don't fail the
 # install if mounting the data partition doesn't work (some images reserve
@@ -654,7 +732,13 @@ apply_system_config() {
     }
   },
   "installed_at": "${INSTALL_STARTED_AT}",
-  "installer_version": "netinstall-2"
+  "installer_version": "netinstall-2",
+  "platform": {
+    "label":     "$(_j "$IORA_VIRT_LABEL")",
+    "vm_type":   "$(_j "$IORA_VIRT_TYPE")",
+    "vm_vendor": "$(_j "$IORA_VIRT_VENDOR")",
+    "container": "$(_j "$IORA_VIRT_CONTAINER")"
+  }
 }
 EOF
     chmod 600 "$mnt/iora/setup-hints.json" 2>/dev/null || true
@@ -1158,6 +1242,10 @@ main() {
     show_banner
     check_dependencies
     detect_boot_mode
+    detect_virtualization
+    if [ "$IORA_VIRT_TYPE" != "none" ] || [ "$IORA_VIRT_CONTAINER" != "none" ]; then
+        msg "${CYAN}Platform detected:${NC} ${IORA_VIRT_LABEL}"
+    fi
     check_system_resources
     fetch_manifest
 

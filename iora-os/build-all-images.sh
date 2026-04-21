@@ -393,6 +393,28 @@ check_dependencies() {
         fi
     fi
 
+    # UEFI boot tooling check — grub-mkrescue silently produces BIOS-only ISOs
+    # when mtools or xorriso are missing. The installer must boot on UEFI too.
+    local need_uefi=()
+    command -v mformat  >/dev/null 2>&1 || need_uefi+=(mtools)
+    command -v xorriso  >/dev/null 2>&1 || need_uefi+=(xorriso)
+    if [ -d /usr/lib/grub/x86_64-efi ] || [ -d /usr/share/grub/x86_64-efi ]; then
+        :
+    else
+        need_uefi+=("grub-efi-amd64-bin")
+    fi
+    if [ "${#need_uefi[@]}" -gt 0 ]; then
+        log_warn "UEFI boot tooling missing: ${need_uefi[*]} — installer ISO may only boot on BIOS."
+        if offer_install_missing_packages "UEFI ISO tooling" "${need_uefi[@]}"; then
+            :
+        else
+            show_install_alternatives "UEFI-bootable installer ISO" "${need_uefi[*]}"
+            if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "Continue without UEFI boot support?" "Y"; then
+                exit 1
+            fi
+        fi
+    fi
+
     if [ "${HAS_VBOXMANAGE}" = false ]; then
         log_warn "VBoxManage not found - OVA export will be skipped"
         if offer_install_missing_packages "OVA export tools" "virtualbox"; then
@@ -667,6 +689,10 @@ IORA_USER=""
 IORA_USER_PW=""
 IORA_USER_FULLNAME=""
 IORA_USER_SUDO=true
+IORA_VIRT_TYPE="none"
+IORA_VIRT_VENDOR=""
+IORA_VIRT_CONTAINER="none"
+IORA_VIRT_LABEL="Bare metal"
 
 # Silence kernel log output that would pollute the UI
 dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
@@ -674,43 +700,48 @@ dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
 # ── Dialog color theme (Ubuntu/Debian terminal-installer style) ──
 setup_dialog_theme() {
     cat > /tmp/.dialogrc <<'DLGRC'
+# IORA OS installer — clean Debian-installer style (red/white/blue)
 aspect = 0
 separate_widget = ""
-tab_len = 0
-visit_items = OFF
+tab_len = 4
+visit_items = ON
 use_shadow = ON
 use_colors = ON
-screen_color = (WHITE,BLUE,ON)
-shadow_color = (BLACK,BLACK,ON)
-dialog_color = (BLACK,WHITE,OFF)
-title_color = (YELLOW,BLUE,ON)
-border_color = (WHITE,BLUE,ON)
-border2_color = (WHITE,BLUE,ON)
-button_active_color = (WHITE,BLUE,ON)
-button_inactive_color = (BLACK,WHITE,OFF)
-button_key_active_color = (YELLOW,BLUE,ON)
-button_key_inactive_color = (RED,WHITE,OFF)
-button_label_active_color = (YELLOW,BLUE,ON)
-button_label_inactive_color = (BLACK,WHITE,ON)
-inputbox_color = (BLACK,WHITE,OFF)
-inputbox_border_color = (WHITE,BLUE,ON)
-searchbox_color = (BLACK,WHITE,OFF)
-searchbox_title_color = (YELLOW,BLUE,ON)
-searchbox_border_color = (WHITE,BLUE,ON)
-position_indicator_color = (YELLOW,BLUE,ON)
-menubox_color = (BLACK,WHITE,OFF)
-menubox_border_color = (WHITE,BLUE,ON)
-item_color = (BLACK,WHITE,OFF)
-item_selected_color = (WHITE,BLUE,ON)
-tag_color = (YELLOW,BLUE,ON)
-tag_selected_color = (WHITE,BLUE,ON)
-tag_key_color = (YELLOW,BLUE,ON)
-tag_key_selected_color = (WHITE,BLUE,ON)
-check_color = (BLACK,WHITE,OFF)
-check_selected_color = (WHITE,BLUE,ON)
-uarrow_color = (GREEN,BLUE,ON)
-darrow_color = (GREEN,BLUE,ON)
-gauge_color = (WHITE,BLUE,ON)
+screen_color               = (WHITE,BLUE,ON)
+shadow_color               = (BLACK,BLACK,ON)
+dialog_color               = (BLACK,WHITE,OFF)
+title_color                = (WHITE,RED,ON)
+border_color               = (WHITE,WHITE,ON)
+border2_color              = (WHITE,WHITE,ON)
+button_active_color        = (WHITE,RED,ON)
+button_inactive_color      = (BLACK,WHITE,OFF)
+button_key_active_color    = (WHITE,RED,ON)
+button_key_inactive_color  = (RED,WHITE,OFF)
+button_label_active_color  = (WHITE,RED,ON)
+button_label_inactive_color= (BLACK,WHITE,ON)
+inputbox_color             = (BLACK,WHITE,OFF)
+inputbox_border_color      = (WHITE,WHITE,ON)
+searchbox_color            = (BLACK,WHITE,OFF)
+searchbox_title_color      = (WHITE,RED,ON)
+searchbox_border_color     = (WHITE,WHITE,ON)
+position_indicator_color   = (WHITE,RED,ON)
+menubox_color              = (BLACK,WHITE,OFF)
+menubox_border_color       = (WHITE,WHITE,ON)
+item_color                 = (BLACK,WHITE,OFF)
+item_selected_color        = (WHITE,RED,ON)
+tag_color                  = (RED,WHITE,ON)
+tag_selected_color         = (WHITE,RED,ON)
+tag_key_color              = (RED,WHITE,ON)
+tag_key_selected_color     = (WHITE,RED,ON)
+check_color                = (BLACK,WHITE,OFF)
+check_selected_color       = (WHITE,RED,ON)
+uarrow_color               = (WHITE,RED,ON)
+darrow_color               = (WHITE,RED,ON)
+itemhelp_color             = (WHITE,BLUE,OFF)
+form_active_text_color     = (WHITE,RED,ON)
+form_text_color            = (BLACK,WHITE,OFF)
+form_item_readonly_color   = (WHITE,WHITE,ON)
+gauge_color                = (WHITE,RED,ON)
 DLGRC
     export DIALOGRC=/tmp/.dialogrc
 }
@@ -724,14 +755,31 @@ elif command -v whiptail >/dev/null 2>&1; then
     DIALOG_BIN="whiptail"
 fi
 
+# Try to use the real terminal geometry; fall back to a roomy 24x80.
+DLG_ROWS=24
+DLG_COLS=80
+if command -v stty >/dev/null 2>&1; then
+    _sz=$(stty size 2>/dev/null)
+    if [ -n "$_sz" ]; then
+        DLG_ROWS=$(echo "$_sz" | awk '{print $1}')
+        DLG_COLS=$(echo "$_sz" | awk '{print $2}')
+        [ "$DLG_ROWS" -lt 20 ] 2>/dev/null && DLG_ROWS=24
+        [ "$DLG_COLS" -lt 72 ] 2>/dev/null && DLG_COLS=80
+    fi
+fi
+
 dlg() {
-    $DIALOG_BIN --backtitle "$BACKTITLE" "$@"
+    if [ "$DIALOG_BIN" = "dialog" ]; then
+        $DIALOG_BIN --backtitle "$BACKTITLE" --colors "$@"
+    else
+        $DIALOG_BIN --backtitle "$BACKTITLE" "$@"
+    fi
 }
 
 dlg_msg() {
     local title="$1"; shift
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --msgbox "$1" 14 64
+        dlg --title "$title" --msgbox "$1" 16 72
     else
         echo ""; echo "=== $title ==="; echo "$1"; echo ""
         echo "Press ENTER to continue..."; read _
@@ -741,7 +789,7 @@ dlg_msg() {
 dlg_yesno() {
     local title="$1"; shift
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --defaultno --yesno "$1" 14 64
+        dlg --title "$title" --defaultno --yesno "$1" 16 72
         return $?
     else
         echo ""; echo "=== $title ==="; echo "$1"
@@ -753,7 +801,7 @@ dlg_yesno() {
 dlg_info() {
     local title="$1"; shift
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --infobox "$1" 8 64
+        dlg --title "$title" --infobox "$1" 10 72
     else
         echo "$1"
     fi
@@ -762,7 +810,7 @@ dlg_info() {
 dlg_input() {
     local title="$1"; local prompt="$2"; local default="$3"
     if [ -n "$DIALOG_BIN" ]; then
-        dlg --title "$title" --inputbox "$prompt" 10 64 "$default" 3>&1 1>&2 2>&3
+        dlg --title "$title" --inputbox "$prompt" 12 72 "$default" 3>&1 1>&2 2>&3
     else
         printf "  %s [%s]: " "$prompt" "$default"; read ans
         echo "${ans:-$default}"
@@ -831,6 +879,106 @@ get_boot_mode() {
     else
         echo "BIOS (Legacy)"
     fi
+}
+
+# ── Virtualization / container detection ───────────────────────────
+# Detects hypervisor, VM platform, or container runtime without relying on
+# systemd-detect-virt (which isn't present in the live installer initramfs).
+# Sets global vars:
+#   IORA_VIRT_TYPE   = none | kvm | qemu | vmware | virtualbox | hyperv |
+#                      xen | bochs | parallels | microsoft | innotek
+#   IORA_VIRT_VENDOR = human-friendly string (e.g. "Proxmox / KVM", "VMware")
+#   IORA_VIRT_CONTAINER = none | lxc | docker | systemd-nspawn | openvz | wsl
+#   IORA_VIRT_LABEL  = short label for UI ("Bare metal", "VM: VMware", ...)
+detect_virtualization() {
+    IORA_VIRT_TYPE="none"
+    IORA_VIRT_VENDOR=""
+    IORA_VIRT_CONTAINER="none"
+    IORA_VIRT_LABEL="Bare metal"
+
+    # ── Container detection first (containers can't run as VMs) ──
+    if [ -f /.dockerenv ] || grep -qa 'docker\|containerd' /proc/1/cgroup 2>/dev/null; then
+        IORA_VIRT_CONTAINER="docker"
+    elif [ -n "${container:-}" ]; then
+        case "$container" in
+            lxc|lxc-libvirt) IORA_VIRT_CONTAINER="lxc" ;;
+            systemd-nspawn)  IORA_VIRT_CONTAINER="systemd-nspawn" ;;
+            docker)          IORA_VIRT_CONTAINER="docker" ;;
+            podman)          IORA_VIRT_CONTAINER="podman" ;;
+            *)               IORA_VIRT_CONTAINER="$container" ;;
+        esac
+    elif grep -qa 'lxc\|lxcfs' /proc/1/cgroup 2>/dev/null; then
+        IORA_VIRT_CONTAINER="lxc"
+    elif [ -d /proc/vz ] && [ ! -d /proc/bc ]; then
+        IORA_VIRT_CONTAINER="openvz"
+    elif grep -qi 'microsoft\|wsl' /proc/sys/kernel/osrelease 2>/dev/null; then
+        IORA_VIRT_CONTAINER="wsl"
+    fi
+
+    # ── Hypervisor detection via DMI (most reliable for x86 VMs) ──
+    local vendor="" product="" sys_vendor=""
+    [ -r /sys/class/dmi/id/sys_vendor ]    && sys_vendor=$(tr -d '\0' < /sys/class/dmi/id/sys_vendor 2>/dev/null)
+    [ -r /sys/class/dmi/id/product_name ]  && product=$(tr -d '\0' < /sys/class/dmi/id/product_name 2>/dev/null)
+    [ -r /sys/class/dmi/id/bios_vendor ]   && vendor=$(tr -d '\0' < /sys/class/dmi/id/bios_vendor 2>/dev/null)
+
+    case "${sys_vendor} ${product} ${vendor}" in
+        *VMware*|*"VMware, Inc."*)
+            IORA_VIRT_TYPE="vmware"
+            IORA_VIRT_VENDOR="VMware (${product:-vSphere/Workstation})" ;;
+        *VirtualBox*|*innotek*|*Oracle*VirtualBox*)
+            IORA_VIRT_TYPE="virtualbox"
+            IORA_VIRT_VENDOR="Oracle VirtualBox" ;;
+        *QEMU*)
+            IORA_VIRT_TYPE="qemu"
+            IORA_VIRT_VENDOR="QEMU/KVM${product:+ (${product})}" ;;
+        *Xen*)
+            IORA_VIRT_TYPE="xen"
+            IORA_VIRT_VENDOR="Xen${product:+ (${product})}" ;;
+        *Microsoft*Hyper-V*|*"Microsoft Corporation Virtual Machine"*|*Hyper-V*)
+            IORA_VIRT_TYPE="hyperv"
+            IORA_VIRT_VENDOR="Microsoft Hyper-V" ;;
+        *Parallels*)
+            IORA_VIRT_TYPE="parallels"
+            IORA_VIRT_VENDOR="Parallels" ;;
+        *Bochs*)
+            IORA_VIRT_TYPE="bochs"
+            IORA_VIRT_VENDOR="Bochs/QEMU (TCG)" ;;
+    esac
+
+    # Proxmox VE heuristic: QEMU with ovmf/seabios + often product="Standard PC (Q35 + ICH9, 2009)"
+    if [ "$IORA_VIRT_TYPE" = "qemu" ]; then
+        if [ -r /sys/class/dmi/id/bios_version ]; then
+            case "$(tr -d '\0' < /sys/class/dmi/id/bios_version 2>/dev/null)" in
+                *pve*|*proxmox*|*Proxmox*)
+                    IORA_VIRT_VENDOR="Proxmox VE (KVM)" ;;
+            esac
+        fi
+    fi
+
+    # ── Fallback: hypervisor CPUID flag in /proc/cpuinfo ──
+    if [ "$IORA_VIRT_TYPE" = "none" ] && grep -qa '^flags.*\bhypervisor\b' /proc/cpuinfo 2>/dev/null; then
+        IORA_VIRT_TYPE="kvm"  # best-effort default when no DMI info is present
+        IORA_VIRT_VENDOR="Unknown hypervisor (CPUID hypervisor flag set)"
+    fi
+
+    # ── Xen-specific: /sys/hypervisor/type ──
+    if [ -r /sys/hypervisor/type ]; then
+        local hv; hv=$(tr -d '\0' < /sys/hypervisor/type 2>/dev/null)
+        case "$hv" in
+            xen) IORA_VIRT_TYPE="xen"; IORA_VIRT_VENDOR="Xen" ;;
+        esac
+    fi
+
+    # ── Build label ──
+    if [ "$IORA_VIRT_CONTAINER" != "none" ]; then
+        IORA_VIRT_LABEL="Container: ${IORA_VIRT_CONTAINER}"
+    elif [ "$IORA_VIRT_TYPE" != "none" ]; then
+        IORA_VIRT_LABEL="VM: ${IORA_VIRT_VENDOR:-$IORA_VIRT_TYPE}"
+    else
+        IORA_VIRT_LABEL="Bare metal"
+    fi
+
+    export IORA_VIRT_TYPE IORA_VIRT_VENDOR IORA_VIRT_CONTAINER IORA_VIRT_LABEL
 }
 
 get_network_interfaces() {
@@ -1513,8 +1661,10 @@ install_bootloader_fallback() {
     local uefi_install_ok=false
     local efi_has_loader=false
     local target_has_grub_install=false
+    local installer_grub_install=""
     local boot_ok=1
     efi_part=$(disk_part_name "$disk" 2)
+    installer_grub_install=$(find_installer_grub_install || true)
 
     mkdir -p "${target}/dev" "${target}/proc" "${target}/sys" "${target}/run" "${target}/boot/efi"
     mount --bind /dev "${target}/dev" 2>/dev/null || true
@@ -1530,20 +1680,87 @@ install_bootloader_fallback() {
         mount          "$efi_part" "${target}/boot/efi" 2>/dev/null && efi_mounted=true || true
     fi
 
+    # ── Tier 1: target has grub-install (preferred, uses target's modules) ──
     if chroot "$target" /bin/sh -c "command -v grub-install >/dev/null 2>&1" >/dev/null 2>&1; then
         target_has_grub_install=true
 
-        if chroot "$target" /bin/sh -c "grub-install --target=i386-pc --recheck /dev/${disk}" >/dev/null 2>&1; then
+        if chroot "$target" /bin/sh -c "grub-install --target=i386-pc --recheck --no-floppy /dev/${disk}" >/dev/null 2>&1; then
             bios_install_ok=true
         fi
 
-        if [ "$efi_mounted" = true ] && [ -d /sys/firmware/efi ]; then
-            if chroot "$target" /bin/sh -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck" >/dev/null 2>&1; then
+        if [ "$efi_mounted" = true ]; then
+            if chroot "$target" /bin/sh -c \
+                "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck /dev/${disk}" \
+                >/dev/null 2>&1; then
                 uefi_install_ok=true
+            fi
+            # Also register a distro path entry if we're running under UEFI.
+            if [ -d /sys/firmware/efi ]; then
+                chroot "$target" /bin/sh -c \
+                    "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --bootloader-id=IORA --recheck /dev/${disk}" \
+                    >/dev/null 2>&1 || true
             fi
         fi
 
-        chroot "$target" /bin/sh -c "command -v grub-mkconfig >/dev/null 2>&1 && grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
+        chroot "$target" /bin/sh -c \
+            "command -v grub-mkconfig >/dev/null 2>&1 && grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true" \
+            >/dev/null 2>&1 || true
+    fi
+
+    # ── Tier 2: installer-bundled grub-install (from HOST_DIR) ──
+    if [ "$target_has_grub_install" = false ] && [ -n "$installer_grub_install" ]; then
+        if "$installer_grub_install" --target=i386-pc --boot-directory="${target}/boot" \
+             --recheck --no-floppy "/dev/${disk}" >/dev/null 2>&1; then
+            bios_install_ok=true
+        fi
+        if [ "$efi_mounted" = true ]; then
+            if "$installer_grub_install" --target=x86_64-efi \
+                 --efi-directory="${target}/boot/efi" --boot-directory="${target}/boot" \
+                 --removable --recheck "/dev/${disk}" >/dev/null 2>&1; then
+                uefi_install_ok=true
+            fi
+        fi
+    fi
+
+    # ── Tier 3: grub-mkimage + grub-bios-setup fallback (no grub-install) ──
+    if [ "$bios_install_ok" = false ] \
+       && command -v grub-mkimage >/dev/null 2>&1 \
+       && command -v grub-bios-setup >/dev/null 2>&1 \
+       && [ -d /usr/lib/grub/i386-pc ]; then
+        local core_img="/tmp/iora-core.img"
+        if grub-mkimage -O i386-pc -o "${core_img}" -p /boot/grub \
+             biosdisk part_gpt part_msdos ext2 fat normal configfile \
+             linux search search_label search_fs_uuid search_fs_file echo \
+             boot chain ls help terminal >/dev/null 2>&1; then
+            mkdir -p "${target}/boot/grub/i386-pc" 2>/dev/null || true
+            cp -a /usr/lib/grub/i386-pc/*.mod "${target}/boot/grub/i386-pc/" 2>/dev/null || true
+            cp -a /usr/lib/grub/i386-pc/*.lst "${target}/boot/grub/i386-pc/" 2>/dev/null || true
+            cp -f "${core_img}" "${target}/boot/grub/i386-pc/core.img" 2>/dev/null || true
+            if grub-bios-setup --boot-image=boot.img --core-image="${core_img}" \
+                 --directory=/usr/lib/grub/i386-pc \
+                 --device-map=/dev/null "/dev/${disk}" >/dev/null 2>&1; then
+                bios_install_ok=true
+            fi
+        fi
+    fi
+
+    # ── Tier 4: grub-mkimage UEFI BOOTX64.EFI fallback ──
+    if [ "$uefi_install_ok" = false ] && [ "$efi_mounted" = true ] \
+       && command -v grub-mkimage >/dev/null 2>&1 \
+       && [ -d /usr/lib/grub/x86_64-efi ]; then
+        mkdir -p "${target}/boot/efi/EFI/BOOT" "${target}/boot/efi/EFI/IORA" 2>/dev/null || true
+        if grub-mkimage -O x86_64-efi -o "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
+             -p /boot/grub \
+             part_gpt part_msdos fat ext2 normal configfile linux \
+             search search_label search_fs_uuid search_fs_file echo \
+             boot chain efi_gop efi_uga gfxterm gfxmenu all_video \
+             ls help terminal >/dev/null 2>&1; then
+            uefi_install_ok=true
+            cp -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
+                  "${target}/boot/efi/EFI/IORA/grubx64.efi" 2>/dev/null || true
+            mkdir -p "${target}/boot/grub/x86_64-efi" 2>/dev/null || true
+            cp -a /usr/lib/grub/x86_64-efi/*.mod "${target}/boot/grub/x86_64-efi/" 2>/dev/null || true
+        fi
     fi
 
     # BIOS fallback: only set active flag on DOS/MBR disks. GPT uses bios_grub/ESP instead.
@@ -1551,18 +1768,63 @@ install_bootloader_fallback() {
         sfdisk --activate "/dev/${disk}" 1 2>/dev/null || parted -s "/dev/${disk}" set 1 boot on 2>/dev/null || true
     fi
 
-    # Keep removable-path fallback for UEFI firmware lookups.
+    # Keep removable-path fallback for UEFI firmware lookups (copy distro loader).
     if [ "$efi_mounted" = true ]; then
         mkdir -p "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
-        if [ -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" ] && [ ! -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
-            cp -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
-        elif [ -f "${target}/boot/efi/EFI/debian/grubx64.efi" ] && [ ! -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
-            cp -f "${target}/boot/efi/EFI/debian/grubx64.efi" "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+        if [ ! -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+            for _src in \
+                "${target}/boot/efi/EFI/IORA/grubx64.efi" \
+                "${target}/boot/efi/EFI/ubuntu/grubx64.efi" \
+                "${target}/boot/efi/EFI/debian/grubx64.efi" \
+                "${target}/boot/efi/EFI/grub/grubx64.efi" \
+                "${target}/boot/efi/EFI/GRUB/grubx64.efi"; do
+                if [ -f "$_src" ]; then
+                    cp -f "$_src" "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+                    break
+                fi
+            done
         fi
 
-        if [ -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ] || [ -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" ] || [ -f "${target}/boot/efi/EFI/debian/grubx64.efi" ]; then
+        if [ -f "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" ] \
+           || [ -f "${target}/boot/efi/EFI/IORA/grubx64.efi" ] \
+           || [ -f "${target}/boot/efi/EFI/ubuntu/grubx64.efi" ] \
+           || [ -f "${target}/boot/efi/EFI/debian/grubx64.efi" ]; then
             efi_has_loader=true
         fi
+
+        # Register an IORA OS NVRAM entry when running on UEFI firmware.
+        if [ "$efi_has_loader" = true ] && [ -d /sys/firmware/efi ] \
+           && command -v efibootmgr >/dev/null 2>&1; then
+            local efi_part_num
+            efi_part_num=$(echo "$(basename "$efi_part")" | grep -oE '[0-9]+$')
+            if [ -n "$efi_part_num" ]; then
+                efibootmgr --create --disk "/dev/${disk}" --part "$efi_part_num" \
+                    --label "IORA OS" --loader '\EFI\BOOT\BOOTX64.EFI' \
+                    >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+
+    # Always ensure a minimal grub.cfg exists (some distros only leave core.img).
+    if [ ! -s "${target}/boot/grub/grub.cfg" ]; then
+        local root_uuid
+        root_uuid=$(blkid -s UUID -o value "$(detect_target_root_partition "$disk" 2>/dev/null)" 2>/dev/null || true)
+        mkdir -p "${target}/boot/grub" 2>/dev/null || true
+        cat > "${target}/boot/grub/grub.cfg" <<GRUBCFG
+set timeout=5
+set default=0
+insmod part_gpt
+insmod part_msdos
+insmod ext2
+insmod search_fs_uuid
+${root_uuid:+search --no-floppy --fs-uuid --set=root ${root_uuid}}
+menuentry "IORA OS" {
+    linux /boot/vmlinuz${root_uuid:+ root=UUID=${root_uuid}} ro quiet
+}
+menuentry "IORA OS (recovery)" {
+    linux /boot/vmlinuz${root_uuid:+ root=UUID=${root_uuid}} rw init=/bin/sh
+}
+GRUBCFG
     fi
 
     if [ "$efi_mounted" = true ]; then
@@ -1574,11 +1836,13 @@ install_bootloader_fallback() {
         umount "${target}/proc" 2>/dev/null || true
         umount "${target}/dev" 2>/dev/null || true
     fi
+    sync
 
-    if target_has_bootloader "$target" || [ "$bios_install_ok" = true ] || [ "$uefi_install_ok" = true ] || [ "$efi_has_loader" = true ]; then
+    if target_has_bootloader "$target" \
+       || [ "$bios_install_ok" = true ] \
+       || [ "$uefi_install_ok" = true ] \
+       || [ "$efi_has_loader" = true ]; then
         boot_ok=0
-    elif [ "$target_has_grub_install" = false ]; then
-        boot_ok=1
     fi
 
     return "$boot_ok"
@@ -1729,12 +1993,27 @@ KBDCONF
         fi
     fi
 
+    # Always run the full disk+bootloader repair pass afterwards. It is
+    # idempotent: if everything is already correct, it's a no-op logged to
+    # /tmp/boot-repair.log. It guarantees GPT integrity, BIOS MBR code and a
+    # UEFI removable-path BOOTX64.EFI exist, and registers the IORA NVRAM
+    # entry on UEFI firmware.
     if [ "$efi_mounted" = true ]; then
         umount "${target}/boot/efi" 2>/dev/null || true
+        efi_mounted=false
     fi
-
     sync
     umount "$target" 2>/dev/null || true
+    local repair_rc=0
+    repair_disk_and_bootloader "$disk" || repair_rc=$?
+    if [ "$repair_rc" -eq 2 ]; then
+        dlg_msg " Boot Repair " "\
+ WARNING: The final boot-repair pass reports that neither BIOS\n\
+ nor UEFI boot could be confirmed on /dev/${disk}.\n\n\
+ Check /tmp/boot-repair.log for details. You can drop to the\n\
+ rescue shell and inspect the disk manually."
+    fi
+    sync
     return 0
 }
 
@@ -1745,27 +2024,29 @@ INSTALLER_MODE="install"   # install | rescue | shell
 screen_welcome() {
     if [ -n "$DIALOG_BIN" ]; then
         local choice
-        choice=$(dlg --title " IORA OS " --menu "\
- Welcome to the IORA OS installer.\n\n\
- Choose an action to continue.\n" 18 68 4 \
+        choice=$(dlg --title " IORA OS Installer " --menu "\
+ Welcome to IORA OS.\n\n\
+ Use the arrow keys to navigate, Tab to switch\n\
+ between the menu and the buttons, and Enter\n\
+ to confirm your selection.\n" 20 72 4 \
             "install" "Install IORA OS on this computer" \
-            "rescue"  "Rescue / repair existing IORA installation" \
-            "shell"   "Drop to rescue shell" \
-            "reboot"  "Reboot / shut down" \
+            "rescue"  "Rescue or repair an existing installation" \
+            "shell"   "Drop to a rescue shell" \
+            "reboot"  "Reboot or shut down" \
             3>&1 1>&2 2>&3)
 
         case "$choice" in
             install)
                 INSTALLER_MODE="install"
                 dlg --title " IORA OS Setup " --msgbox "\
- Guided installation will:
-     1. Inspect this system
-     2. Configure hostname, timezone, keyboard, network
-     3. Set the root password
-     4. Partition the target disk
-     5. Write the image and install the bootloader
-
- Select OK to continue." 18 68
+ The guided installation will walk you through:\n\n\
+     1. System inspection (CPU, RAM, disks, firmware)\n\
+     2. Hostname, timezone, keyboard and locale\n\
+     3. Network configuration (DHCP or static IPv4)\n\
+     4. Root password and optional user account\n\
+     5. Disk and partitioning options\n\
+     6. Image installation and bootloader setup\n\n\
+ Select OK to continue." 18 72
                 return 0
                 ;;
             rescue)
@@ -2106,6 +2387,7 @@ screen_sysinfo() {
  CPU:       ${cpu}
  Memory:    ${ram}
  Boot:      ${boot}
+ Platform:  ${IORA_VIRT_LABEL}
 
  Network Interfaces
  ------------------
@@ -2114,7 +2396,7 @@ ${net}
  -----
  Package:   Installation payload (${img_size})
  Layout:    ${PAYLOAD_LAYOUT}
- ${ver_line}" 22 64
+ ${ver_line}" 23 64
 }
 
 screen_hostname() {
@@ -3536,6 +3818,13 @@ screen_complete() {
 
 # ── Main wizard flow ───────────────────────────────────────────────
 run_wizard() {
+    # Detect virtualization/container environment early so every screen
+    # (welcome, sysinfo, summary) can display it.
+    detect_virtualization
+    if [ "$IORA_VIRT_TYPE" != "none" ] || [ "$IORA_VIRT_CONTAINER" != "none" ]; then
+        BACKTITLE="IORA OS Installer  |  ${IORA_VIRT_LABEL}  |  Tab/Arrows navigate, Enter confirms"
+    fi
+
     # Step 0: Welcome / main menu. Returns non-zero if user picked a side
     # action (rescue/shell/reboot); main dispatch has already handled it.
     if ! screen_welcome; then
@@ -3872,6 +4161,14 @@ EOF
 set timeout=10
 set default=0
 
+# Try to load a pretty font if available
+if loadfont /boot/grub/fonts/unicode.pf2 ; then
+    set gfxmode=auto
+    insmod all_video
+    insmod gfxterm
+    terminal_output gfxterm
+fi
+
 menuentry "IORA OS Installer" {
     linux /boot/vmlinuz nomodeset
     initrd /boot/initrd.img
@@ -3892,54 +4189,104 @@ EOF
     grub_log=$(mktemp)
     local grub_ok=0
 
-    # Try grub-mkrescue. If it fails, fall back to a manual xorriso-based approach.
-    # grub-mkrescue generates a hybrid BIOS+UEFI bootable ISO.
+    # Check whether grub-mkrescue can actually produce a UEFI-bootable ISO.
+    # Its UEFI path needs mtools (mformat/mcopy) and xorriso. Without those,
+    # grub-mkrescue silently produces a BIOS-only ISO that won't boot on UEFI
+    # firmware. Warn loudly so the user knows what to install.
+    local have_mtools=1 have_xorriso=1 have_grub_efi=1
+    command -v mformat   >/dev/null 2>&1 || have_mtools=0
+    command -v mcopy     >/dev/null 2>&1 || have_mtools=0
+    command -v xorriso   >/dev/null 2>&1 || have_xorriso=0
+    command -v grub-mkstandalone >/dev/null 2>&1 || have_grub_efi=0
+    [ -d /usr/lib/grub/x86_64-efi ] || [ -d /usr/share/grub/x86_64-efi ] || have_grub_efi=0
+
+    if [ "${have_mtools}" -eq 0 ] || [ "${have_xorriso}" -eq 0 ]; then
+        log_warn "mtools and/or xorriso missing — grub-mkrescue may produce a BIOS-only ISO."
+        log_warn "Install them for UEFI support:  sudo apt install mtools xorriso"
+    fi
+
+    # Primary path: grub-mkrescue (hybrid BIOS+UEFI ISO)
     if grub-mkrescue \
+        --modules="part_gpt part_msdos fat ext2 normal configfile echo linux all_video" \
         -o "${RELEASE_DIR}/iora-os-installer-boot.iso" \
         "${stage_dir}" >"${grub_log}" 2>&1; then
         grub_ok=1
     fi
 
-    if [ "${grub_ok}" -eq 0 ]; then
-        log_warn "grub-mkrescue failed. Output:"
-        cat "${grub_log}" | while IFS= read -r line; do log_warn "  ${line}"; done
+    # Verify the ISO is actually UEFI-bootable: it must contain an EFI boot
+    # image (either as El Torito EFI boot catalog entry or an ESP partition).
+    local iso_uefi_ok=0
+    if [ "${grub_ok}" -eq 1 ] && command -v xorriso >/dev/null 2>&1; then
+        if xorriso -indev "${RELEASE_DIR}/iora-os-installer-boot.iso" -report_el_torito plain 2>/dev/null \
+             | grep -qiE 'El Torito EFI|efi\.img|platform 0xef'; then
+            iso_uefi_ok=1
+        fi
+    fi
 
-        # Fallback: create a simple UEFI-only bootable ISO using xorriso directly
-        if command -v xorriso &> /dev/null && [ -d /usr/lib/grub/x86_64-efi ]; then
-            log_info "Attempting fallback: manual xorriso UEFI ISO..."
-            local efi_img="${stage_dir}/boot/efi.img"
+    if [ "${grub_ok}" -eq 1 ] && [ "${iso_uefi_ok}" -eq 0 ]; then
+        log_warn "Generated ISO does not expose a UEFI boot entry; rebuilding with explicit ESP..."
+        grub_ok=0
+    fi
 
-            # Create a FAT EFI system partition image
-            dd if=/dev/zero of="${efi_img}" bs=1M count=4 2>/dev/null
-            mkfs.vfat "${efi_img}" >/dev/null 2>&1
-            local efi_mount
-            efi_mount=$(mktemp -d)
-            if mount -o loop "${efi_img}" "${efi_mount}" 2>/dev/null || sudo mount -o loop "${efi_img}" "${efi_mount}" 2>/dev/null; then
-                mkdir -p "${efi_mount}/EFI/BOOT"
-                # Build a standalone GRUB EFI binary
-                if grub-mkstandalone --format=x86_64-efi \
-                    --output="${efi_mount}/EFI/BOOT/BOOTX64.EFI" \
-                    --locales="" --fonts="" \
-                    "boot/grub/grub.cfg=${stage_dir}/boot/grub/grub.cfg" 2>/dev/null; then
-                    umount "${efi_mount}" 2>/dev/null || sudo umount "${efi_mount}" 2>/dev/null || true
-                    rmdir "${efi_mount}" 2>/dev/null || true
+    # Fallback: build the hybrid ISO manually with an explicit ESP image.
+    # Uses mtools (no loop mount -> works without root) + grub-mkstandalone.
+    if [ "${grub_ok}" -eq 0 ] && [ "${have_xorriso}" -eq 1 ] && \
+       [ "${have_mtools}" -eq 1 ] && [ "${have_grub_efi}" -eq 1 ]; then
+        log_info "Building hybrid BIOS+UEFI ISO manually (grub-mkstandalone + mtools + xorriso)..."
 
-                    if xorriso -as mkisofs \
-                        -r -J -V "IORA_INSTALLER" \
-                        -e boot/efi.img -no-emul-boot \
-                        -o "${RELEASE_DIR}/iora-os-installer-boot.iso" \
-                        "${stage_dir}" >/dev/null 2>&1; then
-                        grub_ok=1
-                        log_info "Fallback xorriso UEFI ISO succeeded"
-                    fi
-                else
-                    umount "${efi_mount}" 2>/dev/null || sudo umount "${efi_mount}" 2>/dev/null || true
-                    rmdir "${efi_mount}" 2>/dev/null || true
-                fi
-            else
-                rmdir "${efi_mount}" 2>/dev/null || true
+        local efi_img="${stage_dir}/boot/efi.img"
+        local efi_size_mb=10
+        local bios_core="${stage_dir}/boot/eltorito.img"
+
+        # 1. Build a standalone grub x86_64-efi image that embeds our grub.cfg.
+        #    --locales="" and --fonts="" keep the binary small.
+        if grub-mkstandalone --format=x86_64-efi \
+             --output="${stage_dir}/BOOTX64.EFI" \
+             --locales="" --fonts="" \
+             --modules="part_gpt part_msdos fat ext2 iso9660 normal configfile linux echo search search_label search_fs_uuid chain multiboot2 video all_video efi_gop efi_uga" \
+             "boot/grub/grub.cfg=${stage_dir}/boot/grub/grub.cfg" \
+             >>"${grub_log}" 2>&1; then
+
+            # 2. Create a FAT-formatted ESP image using mtools (no loop mount).
+            dd if=/dev/zero of="${efi_img}" bs=1M count="${efi_size_mb}" status=none 2>/dev/null
+            mformat -i "${efi_img}" -F -v "IORA_EFI" :: >>"${grub_log}" 2>&1 || true
+            mmd -i "${efi_img}" ::/EFI >>"${grub_log}" 2>&1 || true
+            mmd -i "${efi_img}" ::/EFI/BOOT >>"${grub_log}" 2>&1 || true
+            mcopy -i "${efi_img}" "${stage_dir}/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI >>"${grub_log}" 2>&1 || true
+            rm -f "${stage_dir}/BOOTX64.EFI"
+
+            # 3. Build a BIOS core.img as an El Torito boot image.
+            if grub-mkstandalone --format=i386-pc-eltorito \
+                 --output="${bios_core}" \
+                 --locales="" --fonts="" \
+                 --modules="biosdisk part_gpt part_msdos fat ext2 iso9660 normal configfile linux echo search" \
+                 --install-modules="linux normal iso9660 biosdisk memdisk search tar ls configfile" \
+                 "boot/grub/grub.cfg=${stage_dir}/boot/grub/grub.cfg" \
+                 >>"${grub_log}" 2>&1 \
+               || cp -f /usr/lib/grub/i386-pc/eltorito.img "${bios_core}" 2>/dev/null; then
+                :
+            fi
+
+            # 4. Pack everything into a hybrid ISO with xorriso.
+            if xorriso -as mkisofs \
+                 -iso-level 3 -full-iso9660-filenames \
+                 -volid "IORA_INSTALLER" \
+                 -eltorito-boot boot/eltorito.img \
+                   -no-emul-boot -boot-load-size 4 -boot-info-table \
+                 -eltorito-alt-boot \
+                   -e boot/efi.img -no-emul-boot \
+                   -isohybrid-gpt-basdat \
+                 -o "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                 "${stage_dir}" >>"${grub_log}" 2>&1; then
+                grub_ok=1
+                log_info "Hybrid BIOS+UEFI ISO built manually."
             fi
         fi
+    fi
+
+    if [ "${grub_ok}" -eq 0 ]; then
+        log_warn "All ISO generation attempts failed. Log:"
+        tail -n 40 "${grub_log}" | while IFS= read -r line; do log_warn "  ${line}"; done
     fi
 
     rm -f "${grub_log}"

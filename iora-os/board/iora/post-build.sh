@@ -75,10 +75,11 @@ bundle_grub_tools() {
     else
         echo "IORA OS: WARN: grub-install NOT bundled - installer will rely on pre-installed MBR"
     fi
-    [ -d "${TARGET_DIR}/usr/lib/grub/i386-pc" ]    && echo "IORA OS: i386-pc modules bundled"
-    [ -d "${TARGET_DIR}/usr/lib/grub/x86_64-efi" ] && echo "IORA OS: x86_64-efi modules bundled"
+    [ -d "${TARGET_DIR}/usr/lib/grub/i386-pc" ]    && echo "IORA OS: i386-pc modules bundled"    || true
+    [ -d "${TARGET_DIR}/usr/lib/grub/x86_64-efi" ] && echo "IORA OS: x86_64-efi modules bundled" || true
+    return 0
 }
-bundle_grub_tools
+bundle_grub_tools || true
 
 # Create necessary directories
 mkdir -p "${TARGET_DIR}/mnt/data"
@@ -245,6 +246,169 @@ EOF
 
 ln -sf /etc/systemd/system/zram.service \
     "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/zram.service"
+
+# ── IORA virtualization / container detection service ───────────────────────
+# Runs at early boot, writes /run/iora-virt.env + /etc/iora-virt.conf, updates
+# /etc/issue and /etc/motd so the detected platform (VM, LXC, Proxmox, VMware,
+# VirtualBox, Hyper-V, Xen, Docker, WSL, ...) is visible at login and in SSH.
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+cat > "${TARGET_DIR}/usr/lib/iora/iora-detect-virt" <<'DETECTEOF'
+#!/bin/sh
+# IORA OS virtualization/container detector.
+# Writes:
+#   /run/iora-virt.env        - sourceable env file (VIRT_TYPE, VIRT_VENDOR, ...)
+#   /etc/iora-virt.conf       - persistent human-readable summary
+# Updates:
+#   /etc/issue.d/10-iora-virt.issue (systemd reads issue.d)
+#   /etc/motd.d/10-iora-virt  (if /etc/motd.d exists)
+
+set -e
+
+VIRT_TYPE="none"
+VIRT_VENDOR=""
+VIRT_CONTAINER="none"
+VIRT_LABEL="Bare metal"
+
+# Prefer systemd-detect-virt when available (most accurate, maintained list).
+if command -v systemd-detect-virt >/dev/null 2>&1; then
+    _vm=$(systemd-detect-virt --vm 2>/dev/null || true)
+    _ct=$(systemd-detect-virt --container 2>/dev/null || true)
+    [ -n "$_vm" ] && [ "$_vm" != "none" ] && VIRT_TYPE="$_vm"
+    [ -n "$_ct" ] && [ "$_ct" != "none" ] && VIRT_CONTAINER="$_ct"
+fi
+
+# Map systemd-detect-virt keywords to friendly vendor strings, and fill gaps
+# with DMI for stock kernels without systemd-detect-virt.
+sys_vendor=""; product=""; bios_version=""
+[ -r /sys/class/dmi/id/sys_vendor ]    && sys_vendor=$(tr -d '\0' < /sys/class/dmi/id/sys_vendor   2>/dev/null)
+[ -r /sys/class/dmi/id/product_name ]  && product=$(tr -d '\0' < /sys/class/dmi/id/product_name   2>/dev/null)
+[ -r /sys/class/dmi/id/bios_version ]  && bios_version=$(tr -d '\0' < /sys/class/dmi/id/bios_version 2>/dev/null)
+
+if [ "$VIRT_TYPE" = "none" ]; then
+    case "${sys_vendor} ${product}" in
+        *VMware*)             VIRT_TYPE="vmware" ;;
+        *VirtualBox*|*innotek*) VIRT_TYPE="oracle" ;;
+        *QEMU*)               VIRT_TYPE="qemu" ;;
+        *Xen*)                VIRT_TYPE="xen" ;;
+        *Microsoft*|*Hyper-V*) VIRT_TYPE="microsoft" ;;
+        *Parallels*)          VIRT_TYPE="parallels" ;;
+        *Bochs*)              VIRT_TYPE="bochs" ;;
+    esac
+    if [ "$VIRT_TYPE" = "none" ] && grep -qa '^flags.*\bhypervisor\b' /proc/cpuinfo 2>/dev/null; then
+        VIRT_TYPE="kvm"
+    fi
+fi
+
+case "$VIRT_TYPE" in
+    vmware)          VIRT_VENDOR="VMware" ;;
+    oracle)          VIRT_VENDOR="Oracle VirtualBox" ;;
+    qemu)
+        case "$bios_version" in
+            *pve*|*roxmox*) VIRT_VENDOR="Proxmox VE (KVM)" ;;
+            *)              VIRT_VENDOR="QEMU" ;;
+        esac ;;
+    kvm)
+        case "$bios_version" in
+            *pve*|*roxmox*) VIRT_VENDOR="Proxmox VE (KVM)" ;;
+            *)              VIRT_VENDOR="KVM" ;;
+        esac ;;
+    xen)             VIRT_VENDOR="Xen" ;;
+    microsoft)       VIRT_VENDOR="Microsoft Hyper-V" ;;
+    parallels)       VIRT_VENDOR="Parallels" ;;
+    bochs)           VIRT_VENDOR="Bochs" ;;
+    none)            VIRT_VENDOR="" ;;
+    *)               VIRT_VENDOR="$VIRT_TYPE" ;;
+esac
+
+if [ "$VIRT_CONTAINER" != "none" ]; then
+    VIRT_LABEL="Container: ${VIRT_CONTAINER}"
+elif [ "$VIRT_TYPE" != "none" ]; then
+    VIRT_LABEL="VM: ${VIRT_VENDOR}"
+else
+    VIRT_LABEL="Bare metal"
+fi
+
+umask 022
+mkdir -p /run /etc /etc/issue.d /etc/motd.d 2>/dev/null || true
+
+cat > /run/iora-virt.env <<EOF
+IORA_VIRT_TYPE=${VIRT_TYPE}
+IORA_VIRT_VENDOR=${VIRT_VENDOR}
+IORA_VIRT_CONTAINER=${VIRT_CONTAINER}
+IORA_VIRT_LABEL=${VIRT_LABEL}
+EOF
+
+cat > /etc/iora-virt.conf <<EOF
+# IORA OS — auto-detected platform (regenerated at each boot)
+Platform:      ${VIRT_LABEL}
+VM type:       ${VIRT_TYPE}
+VM vendor:     ${VIRT_VENDOR}
+Container:     ${VIRT_CONTAINER}
+DMI sys_vendor: ${sys_vendor}
+DMI product:    ${product}
+DMI BIOS:       ${bios_version}
+EOF
+
+# Per-file issue fragment (systemd reads /etc/issue.d/*.issue)
+cat > /etc/issue.d/10-iora-virt.issue <<EOF
+Platform: ${VIRT_LABEL}
+EOF
+
+# MOTD fragment for login shells / SSH
+cat > /etc/motd.d/10-iora-virt <<EOF
+IORA OS platform: ${VIRT_LABEL}
+EOF
+
+exit 0
+DETECTEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-detect-virt"
+
+# systemd service — runs once before multi-user so getty/SSH see correct issue.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-detect-virt.service" <<'EOF'
+[Unit]
+Description=IORA OS virtualization / container detection
+DefaultDependencies=no
+After=systemd-udev-settle.service
+Before=sysinit.target getty.target multi-user.target
+ConditionPathExists=/usr/lib/iora/iora-detect-virt
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/iora/iora-detect-virt
+
+[Install]
+WantedBy=sysinit.target
+EOF
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
+ln -sf /etc/systemd/system/iora-detect-virt.service \
+    "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-detect-virt.service"
+
+# Shell convenience: `iora-virt` prints the platform label.
+mkdir -p "${TARGET_DIR}/usr/bin"
+cat > "${TARGET_DIR}/usr/bin/iora-virt" <<'EOF'
+#!/bin/sh
+# Print detected IORA platform. Runs iora-detect-virt on demand if needed.
+if [ ! -r /run/iora-virt.env ]; then
+    /usr/lib/iora/iora-detect-virt >/dev/null 2>&1 || true
+fi
+if [ -r /run/iora-virt.env ]; then
+    # shellcheck disable=SC1091
+    . /run/iora-virt.env
+    if [ "${1:-}" = "--verbose" ] || [ "${1:-}" = "-v" ]; then
+        cat /etc/iora-virt.conf 2>/dev/null
+    else
+        echo "${IORA_VIRT_LABEL:-unknown}"
+    fi
+else
+    echo "unknown"
+fi
+EOF
+chmod 755 "${TARGET_DIR}/usr/bin/iora-virt"
+
+# Ensure /etc/issue pulls in issue.d fragments via agetty (systemd default).
+mkdir -p "${TARGET_DIR}/etc/issue.d" "${TARGET_DIR}/etc/motd.d"
 
 # Configure RAUC
 mkdir -p "${TARGET_DIR}/etc/rauc"
