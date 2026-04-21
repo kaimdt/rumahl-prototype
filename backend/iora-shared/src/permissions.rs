@@ -60,9 +60,12 @@ pub enum Permission {
     InstallPlugins,
     UninstallPlugins,
 
-    // User data
+    // User management (DANGEROUS - Apps only, requires consent)
     ReadUserData,
     WriteUserData,
+    CreateUser,          // NEW: Can create regular users (NOT admins)
+    ModifyUser,          // NEW: Can modify user properties (NOT roles)
+    DeleteUser,          // NEW: Can delete users (NOT admins)
 
     // Camera/Media
     CameraAccess,
@@ -76,6 +79,12 @@ pub enum Permission {
     // Automation
     CreateAutomations,
     RunAutomations,
+
+    // File sharing (iora-share)
+    FileShareRead,
+    FileShareWrite,
+    FileShareDelete,
+    FileShareManage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -332,6 +341,9 @@ impl Permission {
             Permission::UninstallPlugins => "Deinstallieren von Plugins",
             Permission::ReadUserData => "Lesen von Benutzerdaten",
             Permission::WriteUserData => "Schreiben von Benutzerdaten",
+            Permission::CreateUser => "Erstellen neuer Benutzer (NICHT Admins!) - GEFÄHRLICH",
+            Permission::ModifyUser => "Bearbeiten von Benutzern (NICHT Rollen!) - GEFÄHRLICH",
+            Permission::DeleteUser => "Löschen von Benutzern (NICHT Admins!) - GEFÄHRLICH",
             Permission::CameraAccess => "Zugriff auf Kameras",
             Permission::MicrophoneAccess => "Zugriff auf Mikrofone",
             Permission::MediaAccess => "Zugriff auf Medien",
@@ -339,6 +351,10 @@ impl Permission {
             Permission::LocationPrecise => "Zugriff auf präzise Standortdaten",
             Permission::CreateAutomations => "Erstellen von Automatisierungen",
             Permission::RunAutomations => "Ausführen von Automatisierungen",
+            Permission::FileShareRead => "Lesen von geteilten Dateien (iora-share)",
+            Permission::FileShareWrite => "Hochladen von Dateien (iora-share)",
+            Permission::FileShareDelete => "Löschen von Dateien (iora-share)",
+            Permission::FileShareManage => "Verwaltung von Dateifreigaben und Berechtigungen",
         }
     }
 
@@ -347,22 +363,63 @@ impl Permission {
         match self {
             Permission::ReadEntities | Permission::StorageRead | Permission::SystemInfo
             | Permission::DatabaseRead | Permission::ReadNotifications | Permission::FileSystemRead
-            | Permission::ReadUserData | Permission::MediaAccess => RiskLevel::Low,
+            | Permission::ReadUserData | Permission::MediaAccess | Permission::FileShareRead => RiskLevel::Low,
 
             Permission::ControlEntities | Permission::StorageWrite | Permission::NetworkAccess
             | Permission::DatabaseWrite | Permission::RegisterApi | Permission::CallApi
             | Permission::RegisterWidget | Permission::ControlWidget | Permission::SendNotifications
-            | Permission::FileSystemWrite | Permission::WriteUserData | Permission::LocationAccess => RiskLevel::Medium,
+            | Permission::FileSystemWrite | Permission::WriteUserData | Permission::LocationAccess
+            | Permission::CreateAutomations | Permission::RunAutomations => RiskLevel::Medium,
 
             Permission::CreateEntities | Permission::DeleteEntities | Permission::StorageDelete
             | Permission::NetworkOutbound | Permission::NetworkInbound | Permission::NetworkLocalAccess
             | Permission::DatabaseCreate | Permission::DatabaseDelete | Permission::FileSystemExecute
             | Permission::InstallPlugins | Permission::UninstallPlugins | Permission::CameraAccess
-            | Permission::MicrophoneAccess | Permission::LocationPrecise | Permission::CreateAutomations
-            | Permission::RunAutomations | Permission::NetworkScan => RiskLevel::High,
+            | Permission::MicrophoneAccess | Permission::LocationPrecise | Permission::NetworkScan
+            | Permission::FileShareWrite | Permission::FileShareDelete => RiskLevel::High,
 
-            Permission::SystemControl | Permission::SystemRestart | Permission::PluginManager => RiskLevel::Critical,
+            Permission::SystemControl | Permission::SystemRestart | Permission::PluginManager
+            | Permission::CreateUser | Permission::ModifyUser | Permission::DeleteUser
+            | Permission::FileShareManage => RiskLevel::Critical,
         }
+    }
+
+    /// Check if permission is allowed for plugins (false = app-only)
+    pub fn is_plugin_allowed(&self) -> bool {
+        matches!(self,
+            Permission::ReadEntities |
+            Permission::ControlEntities |
+            Permission::StorageRead |
+            Permission::StorageWrite |
+            Permission::NetworkOutbound |
+            Permission::SystemInfo |
+            Permission::CallApi |
+            Permission::SendNotifications |
+            Permission::ReadNotifications |
+            Permission::MediaAccess
+        )
+    }
+
+    /// Check if permission requires explicit user consent
+    pub fn requires_user_consent(&self) -> bool {
+        matches!(self,
+            Permission::SystemControl |
+            Permission::SystemRestart |
+            Permission::PluginManager |
+            Permission::CreateUser |
+            Permission::ModifyUser |
+            Permission::DeleteUser |
+            Permission::FileSystemWrite |
+            Permission::FileSystemExecute |
+            Permission::FileShareWrite |
+            Permission::FileShareDelete |
+            Permission::FileShareManage |
+            Permission::CameraAccess |
+            Permission::MicrophoneAccess |
+            Permission::LocationPrecise |
+            Permission::NetworkScan |
+            Permission::NetworkInbound
+        )
     }
 }
 
