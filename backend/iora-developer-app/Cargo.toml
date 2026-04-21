@@ -23,3 +23,7 @@ async-stream = "0.3"
 tar = "0.4"
 flate2 = "1.0"
 sha2 = "0.10"
+
+# API documentation
+utoipa = { version = "4", features = ["actix_extras"] }
+utoipa-swagger-ui = { version = "7", features = ["actix-web"] }

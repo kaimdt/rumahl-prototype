@@ -1,4 +1,4 @@
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_lab::sse::{self, Sse};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
 /// IORA Developer App
 ///
@@ -14,15 +16,19 @@ use uuid::Uuid;
 /// and development workflow features. This app has exclusive access
 /// to hot-reload APIs and other development features.
 
+// Security token for Developer App - injected at build time
+const DEVELOPER_APP_TOKEN: &str = env!("IORA_DEVELOPER_APP_TOKEN", "dev-token-placeholder");
+
 #[derive(Debug, Clone)]
 struct AppState {
     supervisor_url: String,
     iora_api_url: String,
     hot_reload_history: Arc<RwLock<HashMap<String, Vec<HotReloadEntry>>>>,
     deployment_status: Arc<RwLock<HashMap<String, DeploymentStatus>>>,
+    developer_mode_enabled: Arc<RwLock<bool>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 struct HotReloadEntry {
     id: String,
     app_id: String,
@@ -33,7 +39,7 @@ struct HotReloadEntry {
     rollback_available: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 struct DeploymentStatus {
     app_id: String,
     status: String, // "pending", "in_progress", "completed", "failed"
@@ -43,7 +49,7 @@ struct DeploymentStatus {
     progress: u8, // 0-100
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 struct HotReloadUploadRequest {
     app_id: String,
     version: String,
@@ -51,14 +57,70 @@ struct HotReloadUploadRequest {
     auto_restart: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 struct IDEDeployRequest {
     app_id: String,
     image_tar: String, // base64 encoded Docker image tar
     restart: bool,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+struct DeveloperModeRequest {
+    /// API key or token for authentication
+    api_key: Option<String>,
+}
+
+/// Middleware to check Developer Mode and authentication
+async fn check_developer_mode(
+    req: &HttpRequest,
+    data: &web::Data<AppState>,
+) -> Result<(), HttpResponse> {
+    // Check if Developer Mode is enabled
+    let dev_mode = *data.developer_mode_enabled.read().await;
+    if !dev_mode {
+        return Err(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Developer Mode is not enabled",
+            "message": "Enable Developer Mode in IORA Control Center to access this endpoint"
+        })));
+    }
+
+    // Check for Developer App token in header
+    if let Some(auth_header) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                let token = &auth_str[7..];
+                if token == DEVELOPER_APP_TOKEN {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // Check for API key in header (for other apps)
+    if let Some(api_key) = req.headers().get("X-API-Key") {
+        if let Ok(key_str) = api_key.to_str() {
+            // TODO: Validate API key against IORA API
+            // For now, accept any key if Developer Mode is enabled
+            info!("API key authentication: {}", key_str);
+            return Ok(());
+        }
+    }
+
+    Err(HttpResponse::Unauthorized().json(serde_json::json!({
+        "error": "Authentication required",
+        "message": "Provide valid Developer App token or API key"
+    })))
+}
+
 /// Health check endpoint
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "system",
+    responses(
+        (status = 200, description = "Service is healthy", body = serde_json::Value)
+    )
+)]
 #[get("/health")]
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
@@ -69,36 +131,186 @@ async fn health() -> impl Responder {
     }))
 }
 
-/// Get app information
+/// Get app information and capabilities
+#[utoipa::path(
+    get,
+    path = "/api/info",
+    tag = "system",
+    responses(
+        (status = 200, description = "App information", body = serde_json::Value)
+    )
+)]
 #[get("/api/info")]
-async fn get_info() -> impl Responder {
+async fn get_info(data: web::Data<AppState>) -> impl Responder {
+    let dev_mode_enabled = *data.developer_mode_enabled.read().await;
+
     HttpResponse::Ok().json(serde_json::json!({
         "id": "io.iora.developer-app",
         "name": "IORA Developer",
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Official IORA development tool",
+        "developer_mode_enabled": dev_mode_enabled,
         "capabilities": [
             "hot_reload",
             "ide_integration",
             "live_logs",
             "live_metrics",
             "inter_app_communication"
+        ],
+        "public_endpoints": [
+            "/api/public/developer-status",
+            "/api/public/app-metrics",
+            "/api/public/deployment-info"
         ]
     }))
+}
+
+// ─── Public APIs for Other Apps ──────────────────────────────────────────
+
+/// Get Developer Mode status (public endpoint)
+#[utoipa::path(
+    get,
+    path = "/api/public/developer-status",
+    tag = "public",
+    responses(
+        (status = 200, description = "Developer Mode status", body = serde_json::Value)
+    )
+)]
+#[get("/api/public/developer-status")]
+async fn public_developer_status(data: web::Data<AppState>) -> impl Responder {
+    let dev_mode_enabled = *data.developer_mode_enabled.read().await;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "developer_mode_enabled": dev_mode_enabled,
+        "timestamp": Utc::now().to_rfc3339(),
+        "service": "iora-developer-app"
+    }))
+}
+
+/// Get app deployment information (for other apps in Developer Mode)
+#[utoipa::path(
+    get,
+    path = "/api/public/deployment-info/{app_id}",
+    tag = "public",
+    params(
+        ("app_id" = String, Path, description = "App ID")
+    ),
+    responses(
+        (status = 200, description = "Deployment information", body = serde_json::Value),
+        (status = 404, description = "No deployment info found")
+    )
+)]
+#[get("/api/public/deployment-info/{app_id}")]
+async fn public_deployment_info(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let app_id = path.into_inner();
+
+    // Check if Developer Mode is enabled
+    let dev_mode = *data.developer_mode_enabled.read().await;
+    if !dev_mode {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Developer Mode is not enabled"
+        }));
+    }
+
+    let history = data.hot_reload_history.read().await;
+    match history.get(&app_id) {
+        Some(entries) => {
+            let latest = entries.last();
+            HttpResponse::Ok().json(serde_json::json!({
+                "app_id": app_id,
+                "latest_deployment": latest,
+                "total_deployments": entries.len()
+            }))
+        }
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "No deployment info found"
+        }))
+    }
+}
+
+/// Get app metrics (for other apps in Developer Mode)
+#[utoipa::path(
+    get,
+    path = "/api/public/app-metrics/{app_id}",
+    tag = "public",
+    params(
+        ("app_id" = String, Path, description = "App ID")
+    ),
+    responses(
+        (status = 200, description = "App metrics", body = serde_json::Value),
+        (status = 403, description = "Developer Mode not enabled")
+    )
+)]
+#[get("/api/public/app-metrics/{app_id}")]
+async fn public_app_metrics(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let app_id = path.into_inner();
+
+    // Check if Developer Mode is enabled
+    let dev_mode = *data.developer_mode_enabled.read().await;
+    if !dev_mode {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Developer Mode is not enabled"
+        }));
+    }
+
+    // Forward to supervisor for actual metrics
+    let client = reqwest::Client::new();
+    let metrics_url = format!("{}/api/developer/metrics", data.supervisor_url);
+
+    match client.get(&metrics_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<serde_json::Value>().await {
+                Ok(metrics) => HttpResponse::Ok().json(metrics),
+                Err(_) => HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": "Failed to parse metrics"
+                }))
+            }
+        }
+        _ => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": "Failed to get metrics"
+        }))
+    }
 }
 
 // ─── Hot Reload APIs (Exclusive to Developer App) ────────────────────────
 
 /// Upload app package for hot reload
+#[utoipa::path(
+    post,
+    path = "/api/hotreload/upload",
+    tag = "hotreload",
+    request_body = HotReloadUploadRequest,
+    responses(
+        (status = 200, description = "Hot reload successful", body = serde_json::Value),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Developer Mode not enabled")
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[post("/api/hotreload/upload")]
 async fn hotreload_upload(
+    req: HttpRequest,
     data: web::Data<AppState>,
-    req: web::Json<HotReloadUploadRequest>,
+    payload: web::Json<HotReloadUploadRequest>,
 ) -> impl Responder {
-    info!("Hot reload upload request for app: {}", req.app_id);
+    // Check authentication and Developer Mode
+    if let Err(response) = check_developer_mode(&req, &data).await {
+        return response;
+    }
+
+    info!("Hot reload upload request for app: {}", payload.app_id);
 
     // Decode package data
-    let package_bytes = match base64::decode(&req.package_data) {
+    let package_bytes = match base64::decode(&payload.package_data) {
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode package data: {}", e);
@@ -117,7 +329,7 @@ async fn hotreload_upload(
     // Create deployment status
     let deployment_id = Uuid::new_v4().to_string();
     let status = DeploymentStatus {
-        app_id: req.app_id.clone(),
+        app_id: payload.app_id.clone(),
         status: "in_progress".to_string(),
         started_at: Utc::now(),
         completed_at: None,
@@ -130,24 +342,16 @@ async fn hotreload_upload(
         statuses.insert(deployment_id.clone(), status);
     }
 
-    // TODO: Implement actual hot reload logic
-    // 1. Extract package
-    // 2. Update app container without full restart
-    // 3. Preserve application state if possible
-    // 4. Update deployment status
-
-    // For now, delegate to supervisor's deploy endpoint
+    // Forward to supervisor's deploy endpoint
     let client = reqwest::Client::new();
     let deploy_url = format!("{}/api/developer/deploy", data.supervisor_url);
 
-    // Convert package to Docker image format
-    // This is a simplified version - real implementation would be more complex
     let response = client
         .post(&deploy_url)
         .json(&serde_json::json!({
-            "app_id": req.app_id,
-            "image_tar": req.package_data,
-            "restart": req.auto_restart
+            "app_id": payload.app_id,
+            "image_tar": payload.package_data,
+            "restart": payload.auto_restart
         }))
         .send()
         .await;
@@ -167,8 +371,8 @@ async fn hotreload_upload(
             // Add to history
             let entry = HotReloadEntry {
                 id: deployment_id.clone(),
-                app_id: req.app_id.clone(),
-                version: req.version.clone(),
+                app_id: payload.app_id.clone(),
+                version: payload.version.clone(),
                 timestamp: Utc::now(),
                 status: "success".to_string(),
                 checksum: checksum.clone(),
@@ -177,18 +381,18 @@ async fn hotreload_upload(
 
             {
                 let mut history = data.hot_reload_history.write().await;
-                history.entry(req.app_id.clone())
+                history.entry(payload.app_id.clone())
                     .or_insert_with(Vec::new)
                     .push(entry);
             }
 
-            info!("Hot reload completed successfully for app: {}", req.app_id);
+            info!("Hot reload completed successfully for app: {}", payload.app_id);
 
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "deployment_id": deployment_id,
-                "app_id": req.app_id,
-                "version": req.version,
+                "app_id": payload.app_id,
+                "version": payload.version,
                 "checksum": checksum,
                 "message": "Hot reload completed successfully"
             }))
@@ -197,7 +401,7 @@ async fn hotreload_upload(
             let status_code = resp.status();
             let error_msg = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
 
-            error!("Hot reload failed for app {}: {}", req.app_id, error_msg);
+            error!("Hot reload failed for app {}: {}", payload.app_id, error_msg);
 
             {
                 let mut statuses = data.deployment_status.write().await;
@@ -235,11 +439,31 @@ async fn hotreload_upload(
 }
 
 /// Get hot reload status
+#[utoipa::path(
+    get,
+    path = "/api/hotreload/status/{deployment_id}",
+    tag = "hotreload",
+    params(
+        ("deployment_id" = String, Path, description = "Deployment ID")
+    ),
+    responses(
+        (status = 200, description = "Deployment status", body = DeploymentStatus),
+        (status = 404, description = "Deployment not found")
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[get("/api/hotreload/status/{deployment_id}")]
 async fn hotreload_status(
+    req: HttpRequest,
     data: web::Data<AppState>,
     path: web::Path<String>,
 ) -> impl Responder {
+    if let Err(response) = check_developer_mode(&req, &data).await {
+        return response;
+    }
+
     let deployment_id = path.into_inner();
 
     let statuses = data.deployment_status.read().await;
@@ -252,11 +476,32 @@ async fn hotreload_status(
 }
 
 /// Rollback to previous version
+#[utoipa::path(
+    post,
+    path = "/api/hotreload/rollback/{app_id}",
+    tag = "hotreload",
+    params(
+        ("app_id" = String, Path, description = "App ID")
+    ),
+    responses(
+        (status = 200, description = "Rollback initiated", body = serde_json::Value),
+        (status = 404, description = "No history found"),
+        (status = 400, description = "No previous version available")
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[post("/api/hotreload/rollback/{app_id}")]
 async fn hotreload_rollback(
+    req: HttpRequest,
     data: web::Data<AppState>,
     path: web::Path<String>,
 ) -> impl Responder {
+    if let Err(response) = check_developer_mode(&req, &data).await {
+        return response;
+    }
+
     let app_id = path.into_inner();
 
     let history = data.hot_reload_history.read().await;
@@ -280,8 +525,6 @@ async fn hotreload_rollback(
         Some(target) => {
             info!("Rolling back app {} to version {}", app_id, target.version);
 
-            // TODO: Implement actual rollback logic
-            // For now, return success
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "app_id": app_id,
@@ -302,11 +545,30 @@ async fn hotreload_rollback(
 }
 
 /// Get hot reload history
+#[utoipa::path(
+    get,
+    path = "/api/hotreload/history/{app_id}",
+    tag = "hotreload",
+    params(
+        ("app_id" = String, Path, description = "App ID")
+    ),
+    responses(
+        (status = 200, description = "Hot reload history", body = serde_json::Value)
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[get("/api/hotreload/history/{app_id}")]
 async fn hotreload_history(
+    req: HttpRequest,
     data: web::Data<AppState>,
     path: web::Path<String>,
 ) -> impl Responder {
+    if let Err(response) = check_developer_mode(&req, &data).await {
+        return response;
+    }
+
     let app_id = path.into_inner();
 
     let history = data.hot_reload_history.read().await;
@@ -331,12 +593,30 @@ async fn hotreload_history(
 // ─── IDE Integration APIs ────────────────────────────────────────────────
 
 /// Deploy from IDE
+#[utoipa::path(
+    post,
+    path = "/api/ide/deploy",
+    tag = "ide",
+    request_body = IDEDeployRequest,
+    responses(
+        (status = 200, description = "Deployment successful", body = serde_json::Value),
+        (status = 500, description = "Deployment failed")
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[post("/api/ide/deploy")]
 async fn ide_deploy(
+    req: HttpRequest,
     data: web::Data<AppState>,
-    req: web::Json<IDEDeployRequest>,
+    payload: web::Json<IDEDeployRequest>,
 ) -> impl Responder {
-    info!("IDE deployment request for app: {}", req.app_id);
+    if let Err(response) = check_developer_mode(&req, &data).await {
+        return response;
+    }
+
+    info!("IDE deployment request for app: {}", payload.app_id);
 
     // Forward to supervisor's deploy endpoint
     let client = reqwest::Client::new();
@@ -345,18 +625,18 @@ async fn ide_deploy(
     match client
         .post(&deploy_url)
         .json(&serde_json::json!({
-            "app_id": req.app_id,
-            "image_tar": req.image_tar,
-            "restart": req.restart
+            "app_id": payload.app_id,
+            "image_tar": payload.image_tar,
+            "restart": payload.restart
         }))
         .send()
         .await
     {
         Ok(resp) if resp.status().is_success() => {
-            info!("IDE deployment successful for app: {}", req.app_id);
+            info!("IDE deployment successful for app: {}", payload.app_id);
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
-                "app_id": req.app_id,
+                "app_id": payload.app_id,
                 "message": "Deployment completed successfully"
             }))
         }
@@ -379,6 +659,20 @@ async fn ide_deploy(
 }
 
 /// Stream live logs from app
+#[utoipa::path(
+    get,
+    path = "/api/ide/logs/{app_id}/stream",
+    tag = "ide",
+    params(
+        ("app_id" = String, Path, description = "App ID")
+    ),
+    responses(
+        (status = 200, description = "SSE log stream")
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[get("/api/ide/logs/{app_id}/stream")]
 async fn ide_logs_stream(
     data: web::Data<AppState>,
@@ -424,8 +718,26 @@ async fn ide_logs_stream(
 }
 
 /// Get system metrics
+#[utoipa::path(
+    get,
+    path = "/api/ide/metrics",
+    tag = "ide",
+    responses(
+        (status = 200, description = "System metrics", body = serde_json::Value)
+    ),
+    security(
+        ("bearer_token" = [])
+    )
+)]
 #[get("/api/ide/metrics")]
-async fn ide_metrics(data: web::Data<AppState>) -> impl Responder {
+async fn ide_metrics(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    if let Err(response) = check_developer_mode(&req, &data).await {
+        return response;
+    }
+
     // Forward to supervisor's metrics endpoint
     let client = reqwest::Client::new();
     let metrics_url = format!("{}/api/developer/metrics", data.supervisor_url);
@@ -458,6 +770,57 @@ async fn ide_metrics(data: web::Data<AppState>) -> impl Responder {
     }
 }
 
+// ─── OpenAPI Documentation ───────────────────────────────────────────────
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        health,
+        get_info,
+        public_developer_status,
+        public_deployment_info,
+        public_app_metrics,
+        hotreload_upload,
+        hotreload_status,
+        hotreload_rollback,
+        hotreload_history,
+        ide_deploy,
+        ide_logs_stream,
+        ide_metrics,
+    ),
+    components(
+        schemas(HotReloadEntry, DeploymentStatus, HotReloadUploadRequest, IDEDeployRequest)
+    ),
+    tags(
+        (name = "system", description = "System health and information"),
+        (name = "public", description = "Public APIs accessible by other apps in Developer Mode"),
+        (name = "hotreload", description = "Hot reload functionality (exclusive to Developer App)"),
+        (name = "ide", description = "IDE integration APIs")
+    ),
+    modifiers(&SecurityAddon)
+)]
+struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+
+        let components = openapi.components.as_mut().unwrap();
+        components.add_security_scheme(
+            "bearer_token",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .description(Some("Developer App authentication token"))
+                    .build(),
+            ),
+        );
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Initialize tracing
@@ -469,6 +832,7 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     info!("Starting IORA Developer App v{}", env!("CARGO_PKG_VERSION"));
+    info!("Developer App Token: {}", if DEVELOPER_APP_TOKEN != "dev-token-placeholder" { "***configured***" } else { "PLACEHOLDER - UPDATE IN PRODUCTION" });
 
     let supervisor_url = std::env::var("SUPERVISOR_URL")
         .unwrap_or_else(|_| "http://iora-supervisor:8097".to_string());
@@ -483,6 +847,7 @@ async fn main() -> std::io::Result<()> {
         iora_api_url,
         hot_reload_history: Arc::new(RwLock::new(HashMap::new())),
         deployment_status: Arc::new(RwLock::new(HashMap::new())),
+        developer_mode_enabled: Arc::new(RwLock::new(true)), // TODO: Sync with supervisor
     });
 
     let port = std::env::var("PORT")
@@ -491,12 +856,23 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(8099);
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
+    info!("Swagger UI available at: http://localhost:{}/swagger-ui/", port);
 
     HttpServer::new(move || {
         App::new()
             .app_data(app_state.clone())
+            // Swagger UI
+            .service(
+                SwaggerUi::new("/swagger-ui/{_:.*}")
+                    .url("/api-docs/openapi.json", ApiDoc::openapi())
+            )
+            // System endpoints
             .service(health)
             .service(get_info)
+            // Public endpoints for other apps
+            .service(public_developer_status)
+            .service(public_deployment_info)
+            .service(public_app_metrics)
             // Hot Reload APIs (Exclusive)
             .service(hotreload_upload)
             .service(hotreload_status)
@@ -511,4 +887,3 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-

@@ -28,6 +28,12 @@ echo "Build context: $BACKEND_DIR"
 echo "Target: iora-developer-app"
 echo ""
 
+# Generate unique security token for this build
+echo "Generating security token..."
+IORA_DEVELOPER_APP_TOKEN=$(openssl rand -hex 32)
+echo "Token generated: ${IORA_DEVELOPER_APP_TOKEN:0:16}... (truncated for security)"
+echo ""
+
 cd "$REPO_ROOT"
 
 docker build \
@@ -35,6 +41,7 @@ docker build \
     -t iora-developer-app:local \
     --target iora-developer-app \
     --build-arg IORA_DEVELOPER_APP_OFFICIAL=true \
+    --build-arg IORA_DEVELOPER_APP_TOKEN="$IORA_DEVELOPER_APP_TOKEN" \
     backend/
 
 if [ $? -eq 0 ]; then

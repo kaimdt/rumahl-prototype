@@ -5,6 +5,10 @@ FROM rust:1.77-bookworm AS builder
 
 WORKDIR /app/backend
 
+# Build arguments for security tokens
+ARG IORA_DEVELOPER_APP_TOKEN=dev-token-placeholder
+ARG IORA_DEVELOPER_APP_OFFICIAL=false
+
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
 COPY iora-shared ./iora-shared
@@ -23,7 +27,9 @@ COPY iora-installer ./iora-installer
 COPY iora-supervisor ./iora-supervisor
 COPY iora-developer-app ./iora-developer-app
 
-# Build all release binaries
+# Build all release binaries with Developer App token injected at compile time
+ENV IORA_DEVELOPER_APP_TOKEN=${IORA_DEVELOPER_APP_TOKEN}
+ENV IORA_DEVELOPER_APP_OFFICIAL=${IORA_DEVELOPER_APP_OFFICIAL}
 RUN cargo build --release --workspace
 
 # Runtime base image
