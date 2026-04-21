@@ -60,6 +60,20 @@ const (
 	// Other permissions
 	PermissionLocationAccess Permission = "LocationAccess"
 	PermissionAutomations    Permission = "Automations"
+
+	// File sharing permissions (iora-share)
+	PermissionFileShareRead   Permission = "FileShareRead"
+	PermissionFileShareWrite  Permission = "FileShareWrite"
+	PermissionFileShareDelete Permission = "FileShareDelete"
+	PermissionFileShareManage Permission = "FileShareManage"
+
+	// Advanced app-only permissions
+	PermissionBackupAccess       Permission = "BackupAccess"
+	PermissionLogAccess          Permission = "LogAccess"
+	PermissionUserManagement     Permission = "UserManagement"
+	PermissionSecuritySettings   Permission = "SecuritySettings"
+	PermissionNetworkMonitoring  Permission = "NetworkMonitoring"
+	PermissionProcessControl     Permission = "ProcessControl"
 )
 
 // RiskLevel represents the risk level of a permission
@@ -71,6 +85,26 @@ const (
 	RiskLevelHigh     RiskLevel = "High"
 	RiskLevelCritical RiskLevel = "Critical"
 )
+
+// PermissionCategory defines access level and approval requirements
+type PermissionCategory string
+
+const (
+	// PluginAllowed - Available to both Apps and Plugins, auto-approved based on manifest
+	PermissionCategoryPluginAllowed PermissionCategory = "PluginAllowed"
+	// AppOnly - Only available to Apps, auto-approved based on manifest
+	PermissionCategoryAppOnly PermissionCategory = "AppOnly"
+	// AppOnlyWithConsent - Only available to Apps, requires explicit user consent per installation
+	PermissionCategoryAppOnlyWithConsent PermissionCategory = "AppOnlyWithConsent"
+)
+
+// PermissionMetadata contains metadata for a permission
+type PermissionMetadata struct {
+	Permission  Permission
+	Category    PermissionCategory
+	RiskLevel   RiskLevel
+	Description string
+}
 
 // GetPermissionRiskLevel returns the risk level for a permission
 func GetPermissionRiskLevel(permission Permission) RiskLevel {
