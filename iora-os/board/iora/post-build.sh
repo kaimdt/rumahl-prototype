@@ -225,6 +225,97 @@ ln -sf /etc/systemd/system/iora-stack.service \
 # comes After=local-fs.target (via systemd-tmpfiles-setup), and we have
 # Before=local-fs.target -> ordering cycle that systemd breaks by deleting
 # local-fs.target, which then kills PostgreSQL, Chrony, and mount units.
+# ZRAM setup script — best-effort. If the kernel doesn't have CONFIG_ZRAM
+# or the LZ4 crypto module, we fall back to tmpfs for /tmp and leave /var
+# on the rootfs. The important thing is that /var/lib/{pgsql,chrony} etc.
+# always exist so PostgreSQL + Chrony can still start.
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+cat > "${TARGET_DIR}/usr/lib/iora/iora-zram-setup" <<'ZRAMEOF'
+#!/bin/sh
+# Set up ZRAM-backed /tmp and /var. All failures are non-fatal: on error
+# we fall back to tmpfs (for /tmp) or just use the rootfs /var.
+#
+# Exit codes are intentionally always 0 — we do NOT want to cascade into
+# failure for PostgreSQL, Chrony, journald, iora-stack, etc.
+
+log() { echo "iora-zram: $*"; }
+
+ensure_var_skeleton() {
+    mkdir -p /var/lib /var/log /var/cache /var/spool /var/run \
+             /var/tmp /var/empty /var/lock /var/log/journal \
+             /var/lib/pgsql /var/lib/chrony /var/log/chrony 2>/dev/null || true
+    chmod 1777 /var/tmp 2>/dev/null || true
+    if getent passwd postgres >/dev/null 2>&1; then
+        chown -R postgres:postgres /var/lib/pgsql 2>/dev/null || true
+        chmod 700 /var/lib/pgsql 2>/dev/null || true
+    fi
+    if getent passwd chrony >/dev/null 2>&1; then
+        chown -R chrony:chrony /var/lib/chrony /var/log/chrony 2>/dev/null || true
+    fi
+}
+
+setup_zram() {
+    local dev="$1" size="$2" mountpoint="$3" algo
+    # Try lz4 first, then lzo, then fall back to whatever the default is.
+    for algo in lz4 lzo zstd deflate ""; do
+        if [ -z "$algo" ]; then break; fi
+        if echo "$algo" > "/sys/block/${dev}/comp_algorithm" 2>/dev/null; then
+            log "${dev}: using ${algo}"
+            break
+        fi
+    done
+    if ! echo "$size" > "/sys/block/${dev}/disksize" 2>/dev/null; then
+        log "${dev}: cannot set disksize to ${size}"
+        return 1
+    fi
+    if ! /usr/sbin/mkfs.ext4 -q -F "/dev/${dev}" >/dev/null 2>&1; then
+        log "${dev}: mkfs.ext4 failed"
+        return 1
+    fi
+    mkdir -p "$mountpoint" 2>/dev/null || true
+    if ! /bin/mount -o noatime "/dev/${dev}" "$mountpoint" 2>/dev/null; then
+        log "${dev}: mount on ${mountpoint} failed"
+        return 1
+    fi
+    log "${dev}: mounted on ${mountpoint} (${size})"
+    return 0
+}
+
+# 1. Load the zram module if possible. If it's not available we still
+#    continue so at least the /var skeleton gets recreated.
+if /usr/bin/modprobe zram num_devices=2 2>/dev/null \
+   || [ -d /sys/module/zram ]; then
+    :  # zram available
+else
+    log "zram module not available — falling back to tmpfs /tmp only"
+    # tmpfs /tmp is harmless even if already mounted tmpfs by systemd.
+    mountpoint -q /tmp 2>/dev/null || /bin/mount -t tmpfs -o noatime,size=512M tmpfs /tmp 2>/dev/null || true
+    ensure_var_skeleton
+    exit 0
+fi
+
+# 2. Wait briefly for /sys/block/zram{0,1} to appear.
+for _i in 1 2 3 4 5; do
+    [ -d /sys/block/zram0 ] && [ -d /sys/block/zram1 ] && break
+    sleep 1
+done
+
+# 3. Configure and mount. Each is independent; failure to set up one
+#    must not prevent the other from being tried.
+setup_zram zram0 2G /tmp || \
+    /bin/mount -t tmpfs -o noatime,size=512M tmpfs /tmp 2>/dev/null || true
+setup_zram zram1 4G /var || \
+    log "/var stays on rootfs"
+
+chmod 1777 /tmp 2>/dev/null || true
+
+# 4. Always create the skeleton so PostgreSQL/Chrony/journald can start.
+ensure_var_skeleton
+
+exit 0
+ZRAMEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-zram-setup"
+
 cat > "${TARGET_DIR}/etc/systemd/system/zram.service" <<'EOF'
 [Unit]
 Description=Setup ZRAM for /tmp and /var
@@ -236,25 +327,14 @@ After=systemd-remount-fs.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/modprobe zram num_devices=2
-ExecStart=/bin/sh -c 'echo lz4 > /sys/block/zram0/comp_algorithm'
-ExecStart=/bin/sh -c 'echo 2G > /sys/block/zram0/disksize'
-ExecStart=/usr/sbin/mkfs.ext4 -q /dev/zram0
-ExecStart=/bin/mount -o noatime /dev/zram0 /tmp
-ExecStart=/bin/sh -c 'echo lz4 > /sys/block/zram1/comp_algorithm'
-ExecStart=/bin/sh -c 'echo 4G > /sys/block/zram1/disksize'
-ExecStart=/usr/sbin/mkfs.ext4 -q /dev/zram1
-ExecStart=/bin/mount -o noatime /dev/zram1 /var
-# /var is freshly-formatted ZRAM — recreate the directory skeleton that
-# PostgreSQL, Chrony, journald, etc. expect or they fail to start.
-ExecStartPost=/bin/sh -c 'chmod 1777 /tmp'
-ExecStartPost=/bin/mkdir -p /var/lib /var/log /var/cache /var/spool /var/run /var/tmp /var/empty /var/lock
-ExecStartPost=/bin/chmod 1777 /var/tmp
-ExecStartPost=/bin/mkdir -p /var/lib/pgsql /var/lib/chrony /var/log/chrony
-ExecStartPost=/bin/sh -c 'getent passwd postgres >/dev/null 2>&1 && chown -R postgres:postgres /var/lib/pgsql && chmod 700 /var/lib/pgsql || true'
-ExecStartPost=/bin/sh -c 'getent passwd chrony   >/dev/null 2>&1 && chown -R chrony:chrony   /var/lib/chrony /var/log/chrony || true'
-ExecStartPost=/bin/mkdir -p /var/log/journal
-ExecStopPost=/bin/sh -c 'umount /tmp 2>/dev/null; umount /var 2>/dev/null; true'
+# Always succeeds — the script handles all failure modes internally so
+# that a missing kernel feature never breaks Postgres/Chrony/iora-stack.
+ExecStart=/usr/lib/iora/iora-zram-setup
+# Best-effort unmount so shutdown isn't blocked.
+ExecStop=/bin/sh -c 'umount /tmp 2>/dev/null; umount /var 2>/dev/null; true'
+SuccessExitStatus=0 1 2 3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=local-fs.target
@@ -270,14 +350,16 @@ mkdir -p "${TARGET_DIR}/etc/systemd/system/postgresql.service.d" \
          "${TARGET_DIR}/etc/systemd/system/chrony.service.d" 2>/dev/null || true
 cat > "${TARGET_DIR}/etc/systemd/system/postgresql.service.d/10-iora-zram.conf" <<'EOF'
 [Unit]
+# ZRAM service creates /var/lib/pgsql. We only *want* it — if it fails
+# the skeleton is still created on rootfs /var, so Postgres can start.
+Wants=zram.service
 After=zram.service local-fs.target
-Requires=zram.service
 ConditionPathIsDirectory=/var/lib/pgsql
 EOF
 cat > "${TARGET_DIR}/etc/systemd/system/chrony.service.d/10-iora-zram.conf" <<'EOF'
 [Unit]
+Wants=zram.service
 After=zram.service local-fs.target
-Requires=zram.service
 ConditionPathIsDirectory=/var/lib/chrony
 EOF
 
