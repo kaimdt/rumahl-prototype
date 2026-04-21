@@ -20,6 +20,7 @@ members = [
     "iora-network-monitor",
     "iora-domain-validator",
     "iora-resource-manager",
+    "iora-developer-app",
 ]
 resolver = "2"
 
