@@ -1,0 +1,351 @@
+import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+
+interface AIChatMessage {
+  role: string
+  content: string
+  timestamp: string
+}
+
+interface AIChatResponse {
+  message: string
+  provider: string
+  message_id: string
+}
+
+type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+
+const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
+
+export function ORAAssistant() {
+  const [isOpen, setIsOpen] = useState(false)
+  const [state, setState] = useState<ORAState>('idle')
+  const [messages, setMessages] = useState<AIChatMessage[]>([])
+  const [input, setInput] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const sendMessage = async (text: string) => {
+    if (!text.trim()) return
+
+    const userMessage: AIChatMessage = {
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+    }
+
+    setMessages(prev => [...prev, userMessage])
+    setInput('')
+    setState('thinking')
+    setError(null)
+
+    try {
+      const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, context: null }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data: AIChatResponse = await response.json()
+
+      const aiMessage: AIChatMessage = {
+        role: 'assistant',
+        content: data.message,
+        timestamp: new Date().toISOString(),
+      }
+
+      setMessages(prev => [...prev, aiMessage])
+      setState('speaking')
+
+      // Return to idle after animation
+      setTimeout(() => setState('idle'), 2000)
+    } catch (e) {
+      console.error('Failed to send message:', e)
+      setError(e instanceof Error ? e.message : 'Nachricht konnte nicht gesendet werden')
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+    }
+  }
+
+  const handleVoiceInput = () => {
+    setState('listening')
+    // TODO: Implement voice input with Web Speech API
+    setTimeout(() => setState('idle'), 2000)
+  }
+
+  const handleSearchInternet = async (query: string) => {
+    try {
+      setState('thinking')
+      const response = await fetch(`${ASSIST_URL}/api/assist/tools/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, max_results: 5 }),
+      })
+
+      if (response.ok) {
+        const results = await response.json()
+        console.log('Search results:', results)
+      }
+      setState('idle')
+    } catch (e) {
+      console.error('Search failed:', e)
+      setError(e instanceof Error ? e.message : 'Suche fehlgeschlagen')
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+    }
+  }
+
+  const getStateColor = () => {
+    switch (state) {
+      case 'listening': return 'from-blue-500/40 to-cyan-500/40'
+      case 'thinking': return 'from-purple-500/40 to-pink-500/40'
+      case 'speaking': return 'from-green-500/40 to-emerald-500/40'
+      case 'error': return 'from-red-500/40 to-orange-500/40'
+      default: return 'from-gray-500/30 to-gray-600/30'
+    }
+  }
+
+  const getStateIcon = () => {
+    switch (state) {
+      case 'listening': return <Microphone size={20} weight="fill" className="animate-pulse" />
+      case 'thinking': return <Sparkle size={20} weight="fill" className="animate-spin" />
+      case 'speaking': return <Sparkle size={20} weight="fill" className="animate-pulse" />
+      default: return <Sparkle size={20} weight="duotone" />
+    }
+  }
+
+  return (
+    <>
+      {/* Floating Action Button */}
+      <motion.button
+        onClick={() => setIsOpen(true)}
+        className={`fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-2xl flex items-center justify-center transition-all ${
+          state !== 'idle' ? 'scale-110' : ''
+        }`}
+        style={{
+          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.9), rgba(236, 72, 153, 0.9))',
+          backdropFilter: 'blur(10px)',
+        }}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        animate={{
+          boxShadow: state !== 'idle'
+            ? '0 0 40px rgba(139, 92, 246, 0.6)'
+            : '0 10px 30px rgba(0, 0, 0, 0.3)',
+        }}
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={state}
+            initial={{ scale: 0, rotate: -180 }}
+            animate={{ scale: 1, rotate: 0 }}
+            exit={{ scale: 0, rotate: 180 }}
+            transition={{ duration: 0.3 }}
+            className="text-white"
+          >
+            {getStateIcon()}
+          </motion.div>
+        </AnimatePresence>
+      </motion.button>
+
+      {/* Chat Dialog */}
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-[550px] h-[700px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10">
+          {/* Header */}
+          <div
+            className="relative px-6 py-4 border-b border-foreground/10"
+            style={{
+              background: `linear-gradient(135deg, ${getStateColor().replace('/40', '/20')})`,
+            }}
+          >
+            <motion.div
+              className={`absolute inset-0 bg-gradient-to-br ${getStateColor()} opacity-50 pointer-events-none`}
+              animate={{
+                scale: state === 'thinking' ? [1, 1.2, 1] : 1,
+                rotate: state === 'thinking' ? [0, 360] : 0,
+              }}
+              transition={{
+                duration: 3,
+                repeat: state === 'thinking' ? Infinity : 0,
+                ease: 'linear',
+              }}
+            />
+            <div className="relative flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <motion.div
+                  animate={{
+                    scale: state !== 'idle' ? [1, 1.2, 1] : 1,
+                  }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: state !== 'idle' ? Infinity : 0,
+                    ease: 'easeInOut',
+                  }}
+                  className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500/30 to-pink-500/30 flex items-center justify-center"
+                >
+                  {getStateIcon()}
+                </motion.div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">ORA AI</h2>
+                  <p className="text-xs text-foreground/50">
+                    {state === 'listening' && 'Höre zu...'}
+                    {state === 'thinking' && 'Denke nach...'}
+                    {state === 'speaking' && 'Antworte...'}
+                    {state === 'error' && 'Fehler'}
+                    {state === 'idle' && 'Bereit'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="w-8 h-8 rounded-full bg-foreground/10 hover:bg-foreground/20 transition-colors flex items-center justify-center text-foreground/70 hover:text-foreground"
+              >
+                <X size={18} weight="bold" />
+              </button>
+            </div>
+          </div>
+
+          {/* Messages container */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            <AnimatePresence mode="popLayout">
+              {messages.map((msg, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] px-4 py-2 rounded-2xl ${
+                      msg.role === 'user'
+                        ? 'bg-blue-500/20 text-foreground border border-blue-500/20'
+                        : 'bg-foreground/5 text-foreground/90 border border-foreground/10'
+                    }`}
+                  >
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    <p className="text-[10px] text-foreground/40 mt-1">
+                      {new Date(msg.timestamp).toLocaleTimeString('de-DE', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            {messages.length === 0 && (
+              <div className="text-center py-12 text-foreground/50 text-sm">
+                <Sparkle size={48} weight="duotone" className="mx-auto mb-4 opacity-30" />
+                <p className="font-medium mb-2">Hallo! Ich bin ORA, dein AI-Assistent</p>
+                <p className="text-xs">Stelle mir eine Frage oder bitte mich um Hilfe</p>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Error display */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="mx-6 mb-3 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs"
+              >
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Input area */}
+          <div className="px-6 py-4 border-t border-foreground/10 bg-background/50">
+            <div className="flex items-center gap-2">
+              {/* Voice input button */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleVoiceInput}
+                disabled={state === 'thinking' || state === 'speaking'}
+                className={`h-11 w-11 rounded-full ${
+                  state === 'listening'
+                    ? 'bg-blue-500/20 border-blue-500/40 text-blue-500'
+                    : ''
+                }`}
+              >
+                <Microphone size={20} weight={state === 'listening' ? 'fill' : 'regular'} />
+              </Button>
+
+              {/* Text input */}
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    sendMessage(input)
+                  }
+                }}
+                placeholder="Nachricht an ORA..."
+                disabled={state === 'thinking' || state === 'speaking'}
+                className="flex-1 px-4 py-2.5 rounded-2xl bg-foreground/5 border border-foreground/10 text-foreground placeholder-foreground/40 text-sm focus:outline-none focus:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+
+              {/* Send button */}
+              <Button
+                onClick={() => sendMessage(input)}
+                disabled={!input.trim() || state === 'thinking' || state === 'speaking'}
+                className="h-11 w-11 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                size="icon"
+              >
+                <PaperPlaneRight size={18} weight="fill" />
+              </Button>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 mt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleSearchInternet(input || 'latest news')}
+                disabled={state === 'thinking'}
+                className="h-8 text-xs"
+              >
+                <Globe size={14} className="mr-1.5" />
+                <span>Internet suchen</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled
+                className="h-8 text-xs opacity-50"
+              >
+                <ImageSquare size={14} className="mr-1.5" />
+                <span>Screenshot</span>
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
