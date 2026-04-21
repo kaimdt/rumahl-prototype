@@ -4,8 +4,22 @@ use colored::Colorize;
 use dialoguer::{Confirm, Input};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::process::Command;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn, error};
+
+/// Services managed by the installer, with the HTTP port each exposes for
+/// health checks.  Keep this list in sync with [`create_systemd_services`].
+const MANAGED_SERVICES: &[(&str, u16)] = &[
+    ("iora-core",     8090),
+    ("iora-home",     8080),
+    ("iora-secrets",  8093),
+    ("iora-watchdog", 8094),
+    ("iora-control",  8091),
+    ("iora-assist",   8092),
+];
+
+const BACKUP_DIR_DEFAULT: &str = "/var/backups/iora";
+const STATE_DIR: &str = "/var/lib/iora";
 
 #[derive(Parser)]
 #[command(name = "iora-installer")]
@@ -48,8 +62,12 @@ enum Commands {
     },
     /// Run database migrations
     Migrate,
-    /// Validate system integrity
-    Validate,
+    /// Validate system integrity (health-check all managed services)
+    Validate {
+        /// Automatically restart any service that is not healthy
+        #[arg(long)]
+        enforce: bool,
+    },
 }
 
 // ─── Installation ────────────────────────────────────────────────────────────
@@ -171,8 +189,37 @@ fn check_permissions() -> Result<()> {
 }
 
 fn check_disk_space() -> Result<()> {
-    // Simplified check - in production would use proper disk space checking
-    println!("  ✓ Sufficient disk space available");
+    // Require at least 2 GiB free on / and on /var (best effort across
+    // platforms: we shell out to `df` which is universally available on
+    // Debian-based systems).  If the check cannot be performed we warn
+    // instead of failing the install.
+    const MIN_FREE_MB: u64 = 2048;
+
+    for mount in ["/", "/var"] {
+        let output = match Command::new("df")
+            .args(["-Pm", "--output=avail", mount])
+            .output()
+        {
+            Ok(o) if o.status.success() => o,
+            _ => {
+                println!("  ⚠ Could not check free space on {mount}");
+                continue;
+            }
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let avail_mb: u64 = stdout
+            .lines()
+            .nth(1)
+            .and_then(|l| l.split_whitespace().next())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if avail_mb < MIN_FREE_MB {
+            anyhow::bail!(
+                "Insufficient disk space on {mount}: {avail_mb} MiB free, need >= {MIN_FREE_MB} MiB"
+            );
+        }
+        println!("  ✓ {mount}: {avail_mb} MiB free");
+    }
     Ok(())
 }
 
@@ -331,66 +378,127 @@ fn generate_configuration(non_interactive: bool) -> Result<()> {
 }
 
 fn create_systemd_services() -> Result<()> {
-    let services = vec![
-        ("iora-core", 8090),
-        ("iora-home", 8080),
-        ("iora-secrets", 8093),
-        ("iora-watchdog", 8094),
-        ("iora-control", 8091),
-        ("iora-assist", 8092),
-    ];
+    std::fs::create_dir_all(STATE_DIR).ok();
 
-    for (name, _port) in services {
+    for (name, port) in MANAGED_SERVICES {
+        // iora-core is a hard dependency for most downstream services; keep
+        // the dependency graph explicit so the unit order is stable.
+        let wants = if *name == "iora-core" {
+            "".to_string()
+        } else {
+            "Wants=iora-core.service\nAfter=iora-core.service\n".to_string()
+        };
+
         let unit_content = format!(
-            "[Unit]\n\
-             Description=IORA {} Service\n\
-             After=network.target postgresql.service\n\
-             Requires=postgresql.service\n\
-             \n\
-             [Service]\n\
-             Type=simple\n\
-             User=iora\n\
-             WorkingDirectory=/opt/iora\n\
-             EnvironmentFile=/etc/iora/{}.env\n\
-             ExecStart=/opt/iora/bin/{}\n\
-             Restart=always\n\
-             RestartSec=10\n\
-             \n\
-             [Install]\n\
-             WantedBy=multi-user.target\n",
-            name, name, name
+"[Unit]
+Description=IORA {name} Service
+Documentation=https://github.com/kaimdt/home-assistant-dashb
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+{wants}StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=iora
+Group=iora
+WorkingDirectory=/opt/iora
+EnvironmentFile=-/etc/iora/{name}.env
+ExecStart=/opt/iora/bin/{name}
+ExecStartPre=/bin/sh -c 'test -x /opt/iora/bin/{name}'
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+# systemd watchdog: the binary must ping sd_notify() every WatchdogSec;
+# services that do not yet implement that still benefit from Restart=always.
+WatchdogSec=60
+NotifyAccess=main
+# Crash/Abort handling
+LimitNOFILE=65536
+LimitNPROC=4096
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=/var/log/iora /var/lib/iora /tmp /mnt/data
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={name}
+# Expose port for healthchecks
+Environment=IORA_SERVICE_PORT={port}
+
+[Install]
+WantedBy=multi-user.target
+"
         );
 
         let unit_path = format!("/etc/systemd/system/{}.service", name);
         std::fs::write(&unit_path, unit_content)?;
     }
 
+    // Periodic health enforcement: a timer that invokes the installer's
+    // `validate` subcommand and restarts any service that is not healthy.
+    let health_service = "[Unit]
+Description=IORA Health Enforcer
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/iora/bin/iora-installer validate --enforce
+User=root
+StandardOutput=journal
+StandardError=journal
+";
+    std::fs::write("/etc/systemd/system/iora-health.service", health_service)?;
+
+    let health_timer = "[Unit]
+Description=IORA Health Enforcer Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+";
+    std::fs::write("/etc/systemd/system/iora-health.timer", health_timer)?;
+
     Command::new("systemctl")
         .arg("daemon-reload")
         .status()?;
+    let _ = Command::new("systemctl")
+        .args(["enable", "--now", "iora-health.timer"])
+        .status();
 
-    println!("  ✓ Systemd services created");
+    println!("  ✓ Systemd services created (hardened, with watchdog + health timer)");
     Ok(())
 }
 
 fn start_services() -> Result<()> {
-    let services = vec![
-        "iora-core",
-        "iora-home",
-        "iora-secrets",
-        "iora-watchdog",
-        "iora-control",
-        "iora-assist",
-    ];
+    // iora-core must come up first so dependent services find the event bus.
+    let mut ordered: Vec<&str> = MANAGED_SERVICES.iter().map(|(n, _)| *n).collect();
+    ordered.sort_by_key(|n| if *n == "iora-core" { 0 } else { 1 });
 
-    for service in services {
+    for service in ordered {
         println!("  Starting {}...", service);
         Command::new("systemctl")
-            .args(&["enable", service])
+            .args(["enable", service])
             .status()
             .ok();
         Command::new("systemctl")
-            .args(&["start", service])
+            .args(["restart", service])
             .status()
             .ok();
     }
@@ -401,10 +509,52 @@ fn start_services() -> Result<()> {
 
 fn validate_installation() -> Result<()> {
     println!("  Checking service health...");
-
-    // In real implementation, would check each service's /health endpoint
-    println!("  ✓ All services responding");
+    let results = collect_health();
+    let mut unhealthy = 0;
+    for (name, ok, detail) in &results {
+        if *ok {
+            println!("  ✓ {name}: healthy");
+        } else {
+            unhealthy += 1;
+            println!("  ✗ {name}: {detail}");
+        }
+    }
+    if unhealthy > 0 {
+        anyhow::bail!("{unhealthy} service(s) reported unhealthy");
+    }
     Ok(())
+}
+
+/// Run an HTTP GET /health against each managed service and report results.
+fn collect_health() -> Vec<(String, bool, String)> {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return MANAGED_SERVICES
+                .iter()
+                .map(|(n, _)| (n.to_string(), false, format!("client init failed: {e}")))
+                .collect();
+        }
+    };
+
+    MANAGED_SERVICES
+        .iter()
+        .map(|(name, port)| {
+            let url = format!("http://127.0.0.1:{port}/health");
+            match client.get(&url).send() {
+                Ok(r) if r.status().is_success() => (name.to_string(), true, "ok".to_string()),
+                Ok(r) => (
+                    name.to_string(),
+                    false,
+                    format!("HTTP {}", r.status().as_u16()),
+                ),
+                Err(e) => (name.to_string(), false, format!("unreachable: {e}")),
+            }
+        })
+        .collect()
 }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -428,8 +578,31 @@ fn update(version: Option<String>) -> Result<()> {
 
 fn rollback() -> Result<()> {
     println!("{}", "⏪ IORA Rollback".bright_yellow().bold());
-    println!("  ℹ️  Rollback functionality not yet implemented");
-    Ok(())
+
+    let backup_dir = Path::new(BACKUP_DIR_DEFAULT);
+    if !backup_dir.exists() {
+        anyhow::bail!("No backup directory at {}", backup_dir.display());
+    }
+
+    // Find newest backup
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(backup_dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().and_then(|s| s.to_str()) == Some("gz")
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("iora-backup-"))
+                    .unwrap_or(false)
+        })
+        .collect();
+    if entries.is_empty() {
+        anyhow::bail!("No backups found in {}", backup_dir.display());
+    }
+    entries.sort();
+    let latest = entries.last().unwrap().clone();
+    println!("  Restoring from {}", latest.display());
+    restore(latest.to_string_lossy().to_string())
 }
 
 fn config() -> Result<()> {
@@ -443,24 +616,29 @@ fn status() -> Result<()> {
     println!("{}", "📊 IORA Status".bright_blue().bold());
     println!();
 
-    let services = vec![
-        "iora-core",
-        "iora-home",
-        "iora-secrets",
-        "iora-watchdog",
-        "iora-control",
-        "iora-assist",
-    ];
+    let health = collect_health();
 
-    for service in services {
+    for ((name, _port), (_, healthy, detail)) in MANAGED_SERVICES.iter().zip(health.iter()) {
         let status_output = Command::new("systemctl")
-            .args(&["is-active", service])
-            .output()?;
+            .args(["is-active", name])
+            .output()
+            .ok();
+        let systemd_state = status_output
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
 
-        let status = String::from_utf8_lossy(&status_output.stdout).trim().to_string();
-        let icon = if status == "active" { "✓".green() } else { "✗".red() };
+        let icon = if *healthy && systemd_state == "active" {
+            "✓".green()
+        } else if systemd_state == "active" {
+            "⚠".yellow()
+        } else {
+            "✗".red()
+        };
 
-        println!("  {} {}: {}", icon, service, status);
+        println!(
+            "  {icon} {name:<15} systemd={systemd_state:<10} health={}",
+            if *healthy { "ok".green().to_string() } else { detail.red().to_string() }
+        );
     }
 
     Ok(())
@@ -521,6 +699,6 @@ fn main() -> Result<()> {
         Commands::Backup { output } => backup(output),
         Commands::Restore { backup_file } => restore(backup_file),
         Commands::Migrate => migrate(),
-        Commands::Validate => validate(),
+        Commands::Validate { enforce } => validate(enforce),
     }
 }

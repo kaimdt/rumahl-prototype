@@ -28,8 +28,25 @@ cat > "${TARGET_DIR}/etc/docker/daemon.json" <<EOF
   },
   "live-restore": true,
   "userland-proxy": false,
-  "ipv6": false
+  "ipv6": false,
+  "default-ulimits": {
+    "nofile": { "Name": "nofile", "Hard": 65536, "Soft": 65536 }
+  },
+  "default-runtime": "runc",
+  "exec-opts": ["native.cgroupdriver=systemd"]
 }
+EOF
+
+# Make sure docker.service itself auto-restarts on crashes
+mkdir -p "${TARGET_DIR}/etc/systemd/system/docker.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/docker.service.d/override.conf" <<'EOF'
+[Service]
+Restart=always
+RestartSec=5
+StartLimitBurst=10
+StartLimitIntervalSec=60
+LimitNOFILE=1048576
+LimitNPROC=1048576
 EOF
 
 # Auto-mount data partition at /mnt/data
@@ -61,19 +78,69 @@ Requires=docker.service mnt-data.mount
 After=docker.service network-online.target mnt-data.mount
 Wants=network-online.target
 ConditionPathIsDirectory=/mnt/data/iora
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
-ExecStartPre=/usr/bin/docker compose pull
-ExecStart=/usr/bin/docker compose up -d
+# Retry pulls if the network is flaky during first boot (best-effort).
+ExecStartPre=/bin/sh -c 'for i in 1 2 3; do /usr/bin/docker compose pull && exit 0 || sleep 10; done; exit 0'
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+# Repeat `up` after a short pause so containers that failed because a
+# dependency wasn't ready yet get a second chance.
+ExecStartPost=/bin/sh -c 'sleep 15 && /usr/bin/docker compose up -d --remove-orphans || true'
 ExecStop=/usr/bin/docker compose down
-TimeoutStartSec=0
+ExecReload=/usr/bin/docker compose up -d --remove-orphans
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=600
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Periodic watchdog for the stack: if any compose service has exited, run
+# `compose up -d` again.  Complements the in-container iora-watchdog.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.service" <<'EOF'
+[Unit]
+Description=IORA Stack Watchdog
+After=iora-stack.service
+ConditionPathIsDirectory=/mnt/data/iora
+
+[Service]
+Type=oneshot
+WorkingDirectory=/mnt/data/iora
+ExecStart=/bin/sh -c '\
+  set -e; \
+  STOPPED=$(/usr/bin/docker compose ps --status exited --services 2>/dev/null | wc -l); \
+  if [ "$STOPPED" -gt 0 ]; then \
+    echo "[iora-stack-watchdog] restarting $STOPPED stopped service(s)"; \
+    /usr/bin/docker compose up -d --remove-orphans; \
+  fi'
+StandardOutput=journal
+StandardError=journal
+EOF
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.timer" <<'EOF'
+[Unit]
+Description=IORA Stack Watchdog Timer
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/timers.target.wants"
+ln -sf /etc/systemd/system/iora-stack-watchdog.timer \
+    "${TARGET_DIR}/etc/systemd/system/timers.target.wants/iora-stack-watchdog.timer"
 
 # Enable IORA stack service
 ln -sf /etc/systemd/system/iora-stack.service \
@@ -246,109 +313,39 @@ EOF
 ln -sf /etc/systemd/system/iora-setup.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-setup.service"
 
-# Install IORA OS Update Client
+# Install IORA OS Update Client (Rust binary replaces the old shell script)
+#
+# Skipped entirely on IORA OS Dev builds: dev images do not have a unique,
+# server-known version and would trash themselves on the first check.  The
+# wrapper script is still installed on dev images so tooling that calls it
+# gets a clear error instead of a cryptic 404.
+if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+    echo "IORA OS: DEV build — update client DISABLED"
+    mkdir -p "${TARGET_DIR}/opt/iora/update"
+    cat > "${TARGET_DIR}/opt/iora/update/check-update.sh" <<'UPDATESCRIPT'
+#!/bin/sh
+echo "iora-updater: refusing to run on an IORA OS Dev build" >&2
+echo "(no unique version — see /etc/iora/build-info.json)" >&2
+exit 64
+UPDATESCRIPT
+    chmod 755 "${TARGET_DIR}/opt/iora/update/check-update.sh"
+    # Make sure no stale units from an earlier production rebuild remain.
+    rm -f "${TARGET_DIR}/etc/systemd/system/iora-update-check.service" \
+          "${TARGET_DIR}/etc/systemd/system/iora-update-check.timer" \
+          "${TARGET_DIR}/etc/systemd/system/timers.target.wants/iora-update-check.timer"
+else
+
 echo "IORA OS: Installing update client..."
 mkdir -p "${TARGET_DIR}/opt/iora/update"
 
+# The actual binary (`iora-updater`) is installed as /usr/bin/iora-updater
+# by the Buildroot package below.  We keep a stable wrapper at the legacy
+# path so old systemd units and documentation keep working.
 cat > "${TARGET_DIR}/opt/iora/update/check-update.sh" <<'UPDATESCRIPT'
-#!/bin/bash
-# IORA OS Update Client - checks update.kaimdt.com for OS updates
-# and installs RAUC bundles for atomic A/B updates.
-
-set -euo pipefail
-
-UPDATE_SERVER="https://update.kaimdt.com"
-DOWNLOAD_SERVER="https://dist.kaimdt.com"
-CHANNEL="stable"
-TMPDIR="/tmp/iora-update"
-LOGFILE="/var/log/iora-update.log"
-
-log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOGFILE"; }
-
-# Read current version
-CURRENT_VERSION=$(cat /etc/iora-version 2>/dev/null | awk '{print $NF}' || echo "unknown")
-
-# Check for update
-log "Checking for update (current: ${CURRENT_VERSION}, channel: ${CHANNEL})"
-
-DEVICE_ID=$(cat /etc/machine-id 2>/dev/null || hostname)
-RESPONSE=$(curl -sSf "${UPDATE_SERVER}/v1/iora/os/check?version=${CURRENT_VERSION}&channel=${CHANNEL}&arch=x86_64&device_id=${DEVICE_ID}" 2>/dev/null) || {
-    log "ERROR: Failed to contact update server"
-    exit 1
-}
-
-# Parse response
-if command -v jq >/dev/null 2>&1; then
-    UPDATE_AVAILABLE=$(echo "$RESPONSE" | jq -r '.update_available')
-    LATEST_VERSION=$(echo "$RESPONSE" | jq -r '.latest_version // empty')
-    DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.release.download_url // empty')
-    SHA256=$(echo "$RESPONSE" | jq -r '.release.sha256_checksum // empty')
-else
-    UPDATE_AVAILABLE=$(echo "$RESPONSE" | grep -o '"update_available":true' | head -1)
-    [ -n "$UPDATE_AVAILABLE" ] && UPDATE_AVAILABLE="true" || UPDATE_AVAILABLE="false"
-fi
-
-if [ "$UPDATE_AVAILABLE" != "true" ]; then
-    log "No update available. System is up to date."
-    exit 0
-fi
-
-log "Update available: ${LATEST_VERSION}"
-
-# Download RAUC bundle
-mkdir -p "$TMPDIR"
-BUNDLE_FILE="${TMPDIR}/iora-update-${LATEST_VERSION}.raucb"
-
-if [ -f "$BUNDLE_FILE" ]; then
-    EXISTING_SHA=$(sha256sum "$BUNDLE_FILE" | awk '{print $1}')
-    if [ "$EXISTING_SHA" = "$SHA256" ]; then
-        log "Using cached bundle"
-    else
-        rm -f "$BUNDLE_FILE"
-    fi
-fi
-
-if [ ! -f "$BUNDLE_FILE" ]; then
-    log "Downloading update bundle..."
-    curl -fL -o "$BUNDLE_FILE" "$DOWNLOAD_URL" || {
-        log "ERROR: Download failed"
-        rm -f "$BUNDLE_FILE"
-        exit 1
-    }
-
-    # Verify checksum
-    DL_SHA=$(sha256sum "$BUNDLE_FILE" | awk '{print $1}')
-    if [ -n "$SHA256" ] && [ "$DL_SHA" != "$SHA256" ]; then
-        log "ERROR: Checksum mismatch!"
-        rm -f "$BUNDLE_FILE"
-        exit 1
-    fi
-    log "Download verified: OK"
-fi
-
-# Install via RAUC
-if command -v rauc >/dev/null 2>&1; then
-    log "Installing RAUC bundle..."
-    if rauc install "$BUNDLE_FILE" 2>&1 | tee -a "$LOGFILE"; then
-        log "Update installed successfully! Reboot to apply."
-        # Report success to update server
-        curl -sSf -X POST "${UPDATE_SERVER}/v1/iora/os/report" \
-            -H "Content-Type: application/json" \
-            -d "{\"device_id\":\"${DEVICE_ID}\",\"version\":\"${LATEST_VERSION}\",\"status\":\"completed\"}" \
-            2>/dev/null || true
-        rm -f "$BUNDLE_FILE"
-    else
-        log "ERROR: RAUC install failed"
-        curl -sSf -X POST "${UPDATE_SERVER}/v1/iora/os/report" \
-            -H "Content-Type: application/json" \
-            -d "{\"device_id\":\"${DEVICE_ID}\",\"version\":\"${LATEST_VERSION}\",\"status\":\"failed\"}" \
-            2>/dev/null || true
-        exit 1
-    fi
-else
-    log "RAUC not found - cannot install update"
-    exit 1
-fi
+#!/bin/sh
+# Thin wrapper around the Rust updater.  Kept only for backwards
+# compatibility — all real logic lives in /usr/bin/iora-updater.
+exec /usr/bin/iora-updater "$@"
 UPDATESCRIPT
 chmod 755 "${TARGET_DIR}/opt/iora/update/check-update.sh"
 
@@ -356,15 +353,24 @@ chmod 755 "${TARGET_DIR}/opt/iora/update/check-update.sh"
 cat > "${TARGET_DIR}/etc/systemd/system/iora-update-check.service" <<'EOF'
 [Unit]
 Description=IORA OS Update Check
-After=network-online.target
+After=network-online.target iora-verify.service
+Requires=iora-verify.service
 Wants=network-online.target
 ConditionPathExists=/mnt/data/iora/.setup-complete
+ConditionPathExists=!/run/iora-tamper
 
 [Service]
 Type=oneshot
-ExecStart=/opt/iora/update/check-update.sh
+ExecStart=/usr/bin/iora-updater --yes
 StandardOutput=journal
 StandardError=journal
+# Hardening: the updater only needs network + /tmp + /var/log + rauc.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/log /tmp /data/rauc /mnt/data
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
 EOF
 
 cat > "${TARGET_DIR}/etc/systemd/system/iora-update-check.timer" <<'EOF'
@@ -385,8 +391,54 @@ mkdir -p "${TARGET_DIR}/etc/systemd/system/timers.target.wants"
 ln -sf /etc/systemd/system/iora-update-check.timer \
     "${TARGET_DIR}/etc/systemd/system/timers.target.wants/iora-update-check.timer"
 
-# Create version file
-echo "IORA OS $(date +%Y%m%d)" > "${TARGET_DIR}/etc/iora-version"
+fi  # end of "not IORA_OS_DEV" branch for the update client
+
+# -----------------------------------------------------------------------------
+# Version / build metadata
+# -----------------------------------------------------------------------------
+# We emit TWO things:
+#   * /etc/iora-version          — one-line human-friendly string ("IORA OS
+#                                   v1.4.2"), unchanged for compatibility.
+#   * /etc/iora/build-info.json  — structured record that all services,
+#                                   `ora system version` and iora-updater
+#                                   read.  The `variant` field distinguishes
+#                                   a production build from an IORA OS Dev
+#                                   build; the updater refuses to install
+#                                   anything on an os-dev image because its
+#                                   version is not unique.
+#
+# Inputs (all optional, from the build host's env):
+#   IORA_VERSION      e.g. "1.4.2"        (default: date-based)
+#   IORA_GIT_SHA      e.g. "a1b2c3d"      (default: "unknown")
+#   IORA_CHANNEL      stable|beta|edge    (default: "stable")
+# -----------------------------------------------------------------------------
+IORA_VERSION_STR="${IORA_VERSION:-$(date +%Y.%m.%d)}"
+IORA_GIT_SHA="${IORA_GIT_SHA:-unknown}"
+IORA_CHANNEL="${IORA_CHANNEL:-stable}"
+IORA_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+    IORA_VARIANT="os-dev"
+    IORA_VERSION_STR="${IORA_VERSION_STR}+dev.${IORA_GIT_SHA}"
+else
+    IORA_VARIANT="production"
+fi
+
+echo "IORA OS ${IORA_VERSION_STR}" > "${TARGET_DIR}/etc/iora-version"
+
+mkdir -p "${TARGET_DIR}/etc/iora"
+cat > "${TARGET_DIR}/etc/iora/build-info.json" <<EOF
+{
+  "version":   "${IORA_VERSION_STR}",
+  "variant":   "${IORA_VARIANT}",
+  "channel":   "${IORA_CHANNEL}",
+  "target":    "${IORA_TARGET:-pc}",
+  "arch":      "${IORA_ARCH:-x86_64}",
+  "git_sha":   "${IORA_GIT_SHA}",
+  "built_at":  "${IORA_BUILT_AT}",
+  "updates_enabled": $([ "${IORA_VARIANT}" = "production" ] && echo true || echo false)
+}
+EOF
+chmod 0644 "${TARGET_DIR}/etc/iora/build-info.json"
 
 # Install welcome message
 cat > "${TARGET_DIR}/etc/motd" <<'EOF'
@@ -405,5 +457,300 @@ cat > "${TARGET_DIR}/etc/motd" <<'EOF'
   First Boot:    http://[this-device-ip]:8080/setup
 
 EOF
+
+# =============================================================================
+# Integrity verification + tamper-screen (iora-verify)
+# =============================================================================
+# We install two Rust binaries on the target:
+#   - /usr/bin/iora-verify   : hashes /opt/iora/** + a few critical units
+#                              against a signed manifest at boot.  Failure
+#                              isolates the system to iora-tamper.target.
+#   - /usr/bin/iora-updater  : replaces the old check-update.sh (signature
+#                              check + RAUC install).
+#
+# The binaries themselves and the signed manifest are produced by
+# board/iora/build-integrity.sh (called just below).  That helper uses the
+# host-built `iora-sign` tool and a release key pair whose public half is
+# embedded into the image at /etc/iora/iora-release.pub.
+echo "IORA OS: Installing integrity verification..."
+
+mkdir -p "${TARGET_DIR}/etc/iora"
+
+# iora-verify.service runs before anything reads from /opt/iora or talks to
+# the network.  On failure it isolates to iora-tamper.target, which shows
+# the bluescreen and refuses to proceed.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-verify.service" <<'EOF'
+[Unit]
+Description=IORA OS integrity verification
+DefaultDependencies=no
+Before=sysinit.target iora-stack.service iora-update-check.service
+After=local-fs.target
+RequiresMountsFor=/opt /etc /usr
+ConditionPathExists=/etc/iora/manifest.json
+ConditionPathExists=/etc/iora/manifest.json.sig
+ConditionPathExists=/etc/iora/iora-release.pub
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/iora-verify
+# Hardening — verify must itself be minimal-privilege.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/run /var/log
+CapabilityBoundingSet=
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=sysinit.target
+EOF
+
+# The tamper target.  Once isolated to, it:
+#   * stops all other services (systemd `isolate` semantics)
+#   * starts only iora-tamper-screen.service on tty1
+#   * allows switching to tty2 for `ora recovery …`
+cat > "${TARGET_DIR}/etc/systemd/system/iora-tamper.target" <<'EOF'
+[Unit]
+Description=IORA OS tamper-detected halt target
+Documentation=https://iora.kaimdt.com/recovery
+Requires=iora-tamper-screen.service
+After=iora-tamper-screen.service
+AllowIsolate=yes
+# Explicitly DO NOT pull in multi-user.target or graphical.target.
+EOF
+
+# The bluescreen renderer.  Clears tty1, prints a red banner in English,
+# and then sleeps forever.  The service is `Restart=always` so there is no
+# "press ctrl+c to drop to shell" path.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-tamper-screen.service" <<'EOF'
+[Unit]
+Description=IORA OS tamper screen (bluescreen)
+DefaultDependencies=no
+
+[Service]
+Type=simple
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+ExecStart=/opt/iora/security/tamper-screen
+Restart=always
+RestartSec=1s
+# Cannot be stopped by the user: even Ctrl+C just re-spawns.
+KillSignal=SIGKILL
+SuccessExitStatus=
+# Run as root so we can write to /dev/tty1 directly.
+User=root
+Nice=-5
+EOF
+
+mkdir -p "${TARGET_DIR}/opt/iora/security"
+cat > "${TARGET_DIR}/opt/iora/security/tamper-screen" <<'SCREEN'
+#!/bin/sh
+# Tamper screen — displayed when iora-verify has detected integrity damage.
+# We deliberately avoid sourcing anything from /opt/iora/** here: that is
+# exactly the surface we just failed to trust.  Only busybox built-ins.
+set -u
+
+BG="$(printf '\033[44m')"       # blue background
+FG="$(printf '\033[97m')"       # bright white
+RED="$(printf '\033[1;91m')"    # bold red
+RST="$(printf '\033[0m')"
+CLS="$(printf '\033c')"         # full reset
+HOME_POS="$(printf '\033[H')"
+
+REASON="unknown"
+if [ -r /run/iora-tamper ]; then
+    REASON="$(head -c 400 /run/iora-tamper 2>/dev/null)"
+fi
+
+DEV=$(cat /etc/machine-id 2>/dev/null || echo unknown)
+VER=$(cat /etc/iora-version 2>/dev/null || echo unknown)
+
+# Infinite redraw so that whatever the user presses, the screen stays put.
+while :; do
+    printf '%s' "$CLS"
+    printf '%s%s' "$BG" "$FG"
+    # fill the screen with blue — crude but effective on a Linux console.
+    i=0; while [ $i -lt 40 ]; do printf '%80s\n' ' '; i=$((i+1)); done
+    printf '%s' "$HOME_POS"
+
+    cat <<BANNER
+
+  ${RED}   ██╗ ██████╗ ██████╗  █████╗    ██████╗ ███████╗${FG}
+  ${RED}   ██║██╔═══██╗██╔══██╗██╔══██╗  ██╔═══██╗██╔════╝${FG}
+  ${RED}   ██║██║   ██║██████╔╝███████║  ██║   ██║███████╗${FG}
+  ${RED}   ██║██║   ██║██╔══██╗██╔══██║  ██║   ██║╚════██║${FG}
+  ${RED}   ██║╚██████╔╝██║  ██║██║  ██║  ╚██████╔╝███████║${FG}
+  ${RED}   ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═════╝ ╚══════╝${FG}
+
+  ${RED}*** SYSTEM INTEGRITY FAILURE ***${FG}
+
+  Unauthorized modifications have been detected on this IORA OS
+  installation. The files that have been altered are NOT signed by
+  IORA and may have been installed by malware or a third party.
+
+  For your safety this device will NOT continue booting.
+
+  What to do:
+    1. Reboot the machine.
+    2. At the boot menu, select  "IORA OS - Recovery"  (or hold
+       SHIFT during boot) to start the online recovery image.
+    3. The recovery image will reach out to  update.kaimdt.com
+       and reinstall the original, signed IORA OS files.
+
+  If this screen appeared without you doing anything unusual,
+  please contact IORA support and keep the details below.
+
+  -----------------------------------------------------------------
+   Device ID :  ${DEV}
+   Version   :  ${VER}
+   Reason    :  ${REASON}
+  -----------------------------------------------------------------
+
+  This screen will remain until you reboot into recovery.
+BANNER
+    printf '%s' "$RST"
+    # Never exit.  Even if `sleep` gets killed, the while loop (and the
+    # Restart=always on the systemd unit) bring us right back.
+    sleep 300 || true
+done
+SCREEN
+chmod 755 "${TARGET_DIR}/opt/iora/security/tamper-screen"
+
+# The recovery service boots from a secondary grub entry.  When the user
+# selects it, grub passes `iora.recovery=1` on the kernel command line; a
+# tiny unit checks for that and, if present, runs iora-updater with a
+# --recover flag that forces a RAUC install of the latest stable bundle.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-recovery.service" <<'EOF'
+[Unit]
+Description=IORA OS online recovery
+After=network-online.target
+Wants=network-online.target
+ConditionKernelCommandLine=iora.recovery=1
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/iora-updater --yes --channel stable
+ExecStartPost=/bin/systemctl reboot
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-recovery.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-recovery.service"
+
+# Enable iora-verify at sysinit.target so it runs before any iora-* service.
+# Skipped on dev images: the tamper screen + verify gate would make hot-
+# reload impossible, which is the whole point of a dev build.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
+if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+    echo "IORA OS: DEV build — iora-verify.service NOT enabled"
+    rm -f "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-verify.service"
+else
+    ln -sf /etc/systemd/system/iora-verify.service \
+        "${TARGET_DIR}/etc/systemd/system/sysinit.target.wants/iora-verify.service"
+fi
+
+# -----------------------------------------------------------------------------
+# Dev bridge (only on images built with IORA_OS_DEV=1 / `build.sh --dev`)
+# -----------------------------------------------------------------------------
+# Installs /usr/bin/iora-dev-bridge, a systemd unit that keeps it running
+# on 127.0.0.1:8099, plus /etc/iora/dev-mode and /etc/iora/dev-token.  The
+# Developer App reads /dev/status to detect the image and authenticates
+# with the freshly-generated token.  None of this is present on a stock
+# production image, so enabling it after the fact is impossible.
+if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+    echo "IORA OS: Installing OS dev bridge..."
+    mkdir -p "${TARGET_DIR}/etc/iora"
+
+    # NOTE: this marker is specifically for the *OS*-level dev mode (the
+    # one that lets the Developer App swap binaries and restart services).
+    # It is intentionally distinct from the *public* developer-mode toggle
+    # in iora-developer-app, which is purely a per-user setting and does
+    # NOT grant OS-level privileges.
+    cat > "${TARGET_DIR}/etc/iora/os-dev-mode" <<EOF
+# Presence of this file marks the image as an IORA OS Dev build.
+# The iora-dev-bridge binary refuses to start without it, and the IORA
+# Developer App keys its hot-reload UI off of it.
+#
+# This is NOT the same as the public Developer Mode that app/plugin
+# authors toggle on a normal device — that one only affects the
+# Developer App and cannot touch the host OS.
+built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+target=${IORA_TARGET:-unknown}
+EOF
+    chmod 0644 "${TARGET_DIR}/etc/iora/os-dev-mode"
+
+    # Per-image random token so even multiple dev images on one LAN don't
+    # share credentials.
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' \
+        > "${TARGET_DIR}/etc/iora/dev-token"
+    chmod 0600 "${TARGET_DIR}/etc/iora/dev-token"
+
+    cat > "${TARGET_DIR}/etc/systemd/system/iora-dev-bridge.service" <<'EOF'
+[Unit]
+Description=IORA Developer Bridge (OS dev images only)
+After=network.target docker.service
+Wants=network.target
+ConditionPathExists=/etc/iora/os-dev-mode
+ConditionPathExists=/usr/bin/iora-dev-bridge
+
+[Service]
+Type=simple
+Environment=IORA_DEV_BIND=127.0.0.1:8099
+EnvironmentFile=-/etc/iora/dev-bridge.env
+ExecStart=/usr/bin/iora-dev-bridge
+Restart=on-failure
+RestartSec=2
+# Dev mode needs broad rights to swap binaries and talk to docker/systemctl,
+# but we still strip the obvious sharp edges.
+ProtectHome=yes
+NoNewPrivileges=no
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    ln -sf /etc/systemd/system/iora-dev-bridge.service \
+        "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-dev-bridge.service"
+else
+    # Defence in depth: on a production build, make absolutely sure no
+    # stale dev artefacts from a previous build survive in the rootfs.
+    rm -f "${TARGET_DIR}/etc/iora/os-dev-mode" \
+          "${TARGET_DIR}/etc/iora/dev-mode" \
+          "${TARGET_DIR}/etc/iora/dev-token" \
+          "${TARGET_DIR}/etc/systemd/system/iora-dev-bridge.service" \
+          "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-dev-bridge.service" \
+          "${TARGET_DIR}/usr/bin/iora-dev-bridge"
+fi
+
+# The public key and signed manifest are populated by build-integrity.sh,
+# which is invoked from post-image.sh after Buildroot finished installing
+# the iora-verify / iora-updater binaries.  If the build-host key does not
+# yet exist, build-integrity.sh will autogenerate a dev key pair — do NOT
+# use that for production images.
+
+# Build + install the Rust integrity binaries (iora-verify, iora-updater)
+# and generate the signed manifest.  Failure here is NOT fatal to the
+# overall image build — the tamper screen simply refuses to boot without
+# a valid manifest, which is the safe default.
+BOARD_DIR="$(dirname "$0")"
+if [ -x "${BOARD_DIR}/build-integrity.sh" ]; then
+    TARGET_DIR="${TARGET_DIR}" IORA_ARCH="${IORA_ARCH:-x86_64}" \
+        "${BOARD_DIR}/build-integrity.sh" "${TARGET_DIR}" || \
+        echo "IORA OS: WARNING: build-integrity.sh failed; image will not boot past iora-verify"
+else
+    echo "IORA OS: WARNING: build-integrity.sh missing; skipping signed manifest"
+fi
 
 echo "IORA OS: Post-build script completed successfully"

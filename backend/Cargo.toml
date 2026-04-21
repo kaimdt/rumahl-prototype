@@ -21,6 +21,10 @@ members = [
     "iora-domain-validator",
     "iora-resource-manager",
     "iora-developer-app",
+    "iora-verify",
+    "iora-updater",
+    "iora-sign",
+    "iora-dev-bridge",
 ]
 resolver = "2"
 

@@ -76,6 +76,102 @@ EOF
 
 normalize_shell_scripts
 
+# ── Target selection (pc / rpi3 / rpi4 / rpi5 / generic-arm64) ──────────────
+#
+# The selected target drives which Buildroot defconfig / board overlay is
+# used.  Users normally don't need to think about this — setup.sh persists
+# the detected target in .setup-target, and any --target flag on the command
+# line wins.  Non-PC targets export `IORA_TARGET` so the downstream scripts
+# (build-all-images.sh / resume-build.sh) can pick up the right configuration.
+
+TARGET_FILE="${SCRIPT_DIR}/.setup-target"
+TARGET_DEFAULT="pc"
+if [ -r "${TARGET_FILE}" ]; then
+    TARGET_DEFAULT=$(tr -d '\n' < "${TARGET_FILE}" || echo pc)
+fi
+IORA_TARGET="${IORA_TARGET:-${TARGET_DEFAULT}}"
+
+# Pull --target / --dev out of the argument list early so they apply to
+# every subcommand below.  Any other flags pass through unchanged.
+IORA_OS_DEV="${IORA_OS_DEV:-0}"
+FILTERED_ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --target|-t)
+            IORA_TARGET="${2:-pc}"
+            shift 2 || true
+            ;;
+        --target=*)
+            IORA_TARGET="${1#*=}"
+            shift
+            ;;
+        --dev)
+            IORA_OS_DEV=1
+            shift
+            ;;
+        --no-dev)
+            IORA_OS_DEV=0
+            shift
+            ;;
+        *)
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+# Restore positional args minus the consumed --target/-t options.
+if [ ${#FILTERED_ARGS[@]} -gt 0 ]; then
+    set -- "${FILTERED_ARGS[@]}"
+else
+    set --
+fi
+
+export IORA_TARGET
+case "${IORA_TARGET}" in
+    pc)
+        export IORA_DEFCONFIG="iora_defconfig"
+        export IORA_ARCH="x86_64"
+        ;;
+    rpi3)
+        export IORA_DEFCONFIG="raspberrypi3_64_defconfig"
+        export IORA_ARCH="aarch64"
+        ;;
+    rpi4)
+        export IORA_DEFCONFIG="raspberrypi4_64_defconfig"
+        export IORA_ARCH="aarch64"
+        ;;
+    rpi5)
+        export IORA_DEFCONFIG="raspberrypi5_defconfig"
+        export IORA_ARCH="aarch64"
+        ;;
+    generic-arm64)
+        export IORA_DEFCONFIG="generic_arm64_defconfig"
+        export IORA_ARCH="aarch64"
+        ;;
+    *)
+        echo "Unknown --target: ${IORA_TARGET} (expected pc|rpi3|rpi4|rpi5|generic-arm64)"
+        exit 1
+        ;;
+esac
+echo "[IORA] Build target: ${IORA_TARGET} (arch=${IORA_ARCH}, defconfig=${IORA_DEFCONFIG})"
+
+# ----------------------------------------------------------------------------
+# Dev-mode flag (--dev).  This is DELIBERATELY only settable at build time:
+# it gates whether the iora-dev-bridge binary + its systemd unit + the
+# /etc/iora/dev-mode marker get baked into the image.  A production image
+# does not carry the binary, so the marker cannot be faked into granting
+# elevated capabilities at runtime.  Never honour an environment override
+# here — we want this visible in build logs.
+# ----------------------------------------------------------------------------
+export IORA_OS_DEV
+if [ "${IORA_OS_DEV}" = "1" ]; then
+    echo "[IORA] ***** DEV BUILD *****"
+    echo "[IORA] Integrity verification will be installed but NOT enabled."
+    echo "[IORA] iora-dev-bridge will be installed and listens on 127.0.0.1:8099."
+    echo "[IORA] Do not distribute this image."
+fi
+
+
 case "${1:-all}" in
     all)
         shift

@@ -179,12 +179,50 @@ async fn get_info(data: web::Data<AppState>) -> impl Responder {
 #[get("/api/public/developer-status")]
 async fn public_developer_status(data: web::Data<AppState>) -> impl Responder {
     let dev_mode_enabled = *data.developer_mode_enabled.read().await;
+    let os_dev = detect_os_dev_mode().await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "developer_mode_enabled": dev_mode_enabled,
         "timestamp": Utc::now().to_rfc3339(),
-        "service": "iora-developer-app"
+        "service": "iora-developer-app",
+        "os_dev": os_dev,
     }))
+}
+
+/// Returns whether the underlying IORA OS image was built with
+/// `build.sh --dev` and, if so, the capabilities exposed by
+/// `iora-dev-bridge` on 127.0.0.1:8099.  On a production image this
+/// always reports `{ "enabled": false }`.  Because the bridge binary is
+/// only present on dev images, there is no way for the Developer App to
+/// fake elevated capabilities on a stock system.
+async fn detect_os_dev_mode() -> serde_json::Value {
+    let marker = std::path::Path::new("/etc/iora/os-dev-mode").exists();
+    if !marker {
+        return serde_json::json!({ "enabled": false });
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(750))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return serde_json::json!({ "enabled": true, "bridge": "unavailable" }),
+    };
+    match client
+        .get("http://127.0.0.1:8099/dev/status")
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => {
+            let body: serde_json::Value = r.json().await.unwrap_or_default();
+            serde_json::json!({
+                "enabled": true,
+                "bridge":  "reachable",
+                "build":   body.get("build"),
+                "capabilities": body.get("capabilities"),
+            })
+        }
+        _ => serde_json::json!({ "enabled": true, "bridge": "unreachable" }),
+    }
 }
 
 /// Get app deployment information (for other apps in Developer Mode)

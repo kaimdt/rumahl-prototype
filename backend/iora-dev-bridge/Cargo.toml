@@ -1,0 +1,25 @@
+[package]
+name = "iora-dev-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Localhost bridge that lets IORA Developer App hot-reload services on a dev image"
+publish = false
+
+[[bin]]
+name = "iora-dev-bridge"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "fs", "process", "time", "signal"] }
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
+futures-util = "0.3"
