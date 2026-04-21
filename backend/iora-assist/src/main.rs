@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use axum::{
     body::Body,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},

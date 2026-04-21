@@ -186,29 +186,152 @@ GET  /api/control/warnings     ← system warnings
 GET  /api/control/notifications← system notification feed
 ```
 
-### `iora-assist` – AI Assistant (port 8092)
+### `iora-assist` – ORA AI / IORA Assist (port 8092)
 
-Skeleton service for the future IORA Assist AI component. All AI endpoints return
-`501 Not Implemented` with instructions for connecting an AI backend.
+**ORA AI (IORA Assist)** is the AI platform for IORA, providing access to AI capabilities
+through multiple providers: external AI services (OpenAI, Anthropic Claude), local AI
+models (Ollama, LocalAI, LM Studio), or AI provided by the IORA Desktop client.
 
-**Responsibilities (future):**
-- Natural-language chat interface
+ORA AI functions as both a text-based AI assistant and a voice assistant, supporting:
+- Speech-to-text (STT) for voice input
+- Text-to-speech (TTS) for voice output
+- Live audio AI processing
+- Multi-provider architecture for flexibility
+
+**Responsibilities:**
+- Natural-language chat interface with contextual smart home awareness
 - Automation suggestions based on entity history
 - Home insights and anomaly detection
 - Natural-language automation creation
+- Voice interaction (speech-to-text and text-to-speech)
+- Live audio streaming and processing
+- Dynamic AI provider switching
+
+**AI Provider Support:**
+
+| Provider | Chat | STT | TTS | API Key Required | Notes |
+|----------|------|-----|-----|------------------|-------|
+| OpenAI | ✅ | ✅ (Whisper) | ✅ | Yes | GPT-4, GPT-3.5, Whisper, TTS-1 |
+| Anthropic | ✅ | ❌ | ❌ | Yes | Claude 3.5 Sonnet, Claude 3 |
+| LocalAI | ✅ | ✅ | ✅ | No | Ollama, LM Studio, LocalAI |
+| DesktopAI | ✅ | ✅ | ✅ | No | Via IORA Desktop proxy |
 
 **Key endpoints:**
 ```
-GET  /health
-POST /api/assist/chat          ← chat with AI (requires AI backend)
-GET  /api/assist/history       ← chat history
-GET  /api/assist/suggestions   ← automation suggestions
-POST /api/assist/automate      ← create automation from description
-GET  /api/assist/insights      ← home insights
+GET  /health                              ← Service health + AI provider status
+POST /api/assist/chat                     ← Chat with AI assistant
+GET  /api/assist/history                  ← Chat history
+POST /api/assist/history/clear            ← Clear chat history
+GET  /api/assist/suggestions              ← Automation suggestions
+POST /api/assist/automate                 ← Create automation from description
+GET  /api/assist/insights                 ← Home insights and anomaly detection
+GET  /api/assist/providers                ← List available AI providers
+POST /api/assist/providers/switch         ← Switch active AI provider
+POST /api/assist/voice/transcribe         ← Speech-to-text (multipart upload)
+POST /api/assist/voice/synthesize         ← Text-to-speech (returns audio)
 ```
 
-To enable AI features set `ASSIST_AI_BACKEND_URL` and `ASSIST_AI_API_KEY` in the
-environment.
+**Configuration:**
+
+Configure ORA AI via environment variables:
+
+```env
+# Provider selection (openai, anthropic, local, desktop)
+ORA_AI_PROVIDER=local
+
+# Provider-specific settings
+ORA_AI_API_KEY=sk-your-api-key-here      # For OpenAI/Anthropic
+ORA_AI_BASE_URL=http://localhost:11434   # For Local/Desktop
+ORA_AI_MODEL=llama3.2                    # Model name
+ORA_AI_API_VERSION=2023-06-01            # For Anthropic
+
+# Service port
+PORT=8092
+```
+
+**Provider Examples:**
+
+OpenAI:
+```env
+ORA_AI_PROVIDER=openai
+ORA_AI_API_KEY=sk-proj-...
+ORA_AI_MODEL=gpt-4o-mini
+```
+
+Anthropic Claude:
+```env
+ORA_AI_PROVIDER=anthropic
+ORA_AI_API_KEY=sk-ant-...
+ORA_AI_MODEL=claude-3-5-sonnet-20241022
+```
+
+Local AI (Ollama):
+```env
+ORA_AI_PROVIDER=local
+ORA_AI_BASE_URL=http://localhost:11434
+ORA_AI_MODEL=llama3.2
+```
+
+Desktop AI (via IORA Desktop):
+```env
+ORA_AI_PROVIDER=desktop
+ORA_AI_BASE_URL=http://localhost:11435
+```
+
+**Voice Capabilities:**
+
+ORA AI supports full voice interaction:
+
+1. **Speech-to-Text (STT)**: Upload audio files (WebM, MP3, WAV, OGG) to `/api/assist/voice/transcribe`
+   - Returns transcribed text and detected language
+   - Supports multiple audio formats
+   - Powered by Whisper (OpenAI, Local) or compatible STT engines
+
+2. **Text-to-Speech (TTS)**: Send text to `/api/assist/voice/synthesize`
+   - Returns audio file (MP3, WAV, or OGG)
+   - Multiple voice options available (provider-dependent)
+   - Configurable voice selection
+
+3. **Live Audio Processing**: Real-time audio streaming for voice assistant mode
+   - Stream audio chunks for continuous transcription
+   - Immediate AI response generation
+   - Voice feedback via TTS
+
+**Architecture:**
+
+ORA AI uses a trait-based provider abstraction layer:
+
+```rust
+trait AIProvider {
+    fn name(&self) -> &str;
+    async fn is_available(&self) -> bool;
+    async fn chat(messages, system_prompt) -> ChatResponse;
+    async fn transcribe_audio(audio_data, format) -> AudioTranscription;
+    async fn synthesize_speech(text, voice) -> SpeechSynthesis;
+}
+```
+
+Each provider implements this trait, allowing runtime switching between AI backends
+without code changes.
+
+**Integration with IORA Desktop:**
+
+The Desktop AI provider connects to the IORA Desktop client, which:
+- Runs LM Studio locally on the user's machine
+- Proxies requests to local AI models
+- Provides OpenAI-compatible API endpoint
+- Enables fully offline AI operation
+
+See `iora-desktop` documentation for proxy setup.
+
+**Future Enhancements:**
+- Streaming chat responses (SSE)
+- Multimodal AI (image understanding)
+- Voice activity detection (VAD)
+- Conversation summarization
+- Smart home context injection
+- Automated entity discovery and control
+- Personalized automation suggestions
 
 ### `iora-secrets` – Encrypted Secrets Storage (port 8093)
 
