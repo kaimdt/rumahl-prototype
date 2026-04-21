@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare } from '@phosphor-icons/react'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
@@ -26,11 +26,54 @@ export function ORAAssistant() {
   const [messages, setMessages] = useState<AIChatMessage[]>([])
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  const [isTTSEnabled, setIsTTSEnabled] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<any>(null)
+  const synthRef = useRef<SpeechSynthesis | null>(null)
+
+  // Check for Web Speech API support
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    setIsSpeechSupported(!!SpeechRecognition)
+
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition()
+      recognitionRef.current.continuous = false
+      recognitionRef.current.interimResults = false
+      recognitionRef.current.lang = 'de-DE'
+    }
+
+    if ('speechSynthesis' in window) {
+      synthRef.current = window.speechSynthesis
+    }
+  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Text-to-Speech function
+  const speak = (text: string) => {
+    if (!isTTSEnabled || !synthRef.current) return
+
+    // Cancel any ongoing speech
+    synthRef.current.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'de-DE'
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+
+    utterance.onstart = () => setState('speaking')
+    utterance.onend = () => setState('idle')
+    utterance.onerror = (e) => {
+      console.error('TTS error:', e)
+      setState('idle')
+    }
+
+    synthRef.current.speak(utterance)
+  }
 
   const sendMessage = async (text: string) => {
     if (!text.trim()) return
@@ -68,8 +111,13 @@ export function ORAAssistant() {
       setMessages(prev => [...prev, aiMessage])
       setState('speaking')
 
-      // Return to idle after animation
-      setTimeout(() => setState('idle'), 2000)
+      // Speak the AI response if TTS is enabled
+      if (isTTSEnabled) {
+        speak(data.message)
+      } else {
+        // Return to idle after animation if TTS is disabled
+        setTimeout(() => setState('idle'), 2000)
+      }
     } catch (e) {
       console.error('Failed to send message:', e)
       setError(e instanceof Error ? e.message : 'Nachricht konnte nicht gesendet werden')
@@ -82,9 +130,51 @@ export function ORAAssistant() {
   }
 
   const handleVoiceInput = () => {
+    if (!recognitionRef.current || !isSpeechSupported) {
+      setError('Spracherkennung wird nicht unterstützt')
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+      return
+    }
+
     setState('listening')
-    // TODO: Implement voice input with Web Speech API
-    setTimeout(() => setState('idle'), 2000)
+
+    recognitionRef.current.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setInput(transcript)
+      setState('idle')
+    }
+
+    recognitionRef.current.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error)
+      setError(`Sprachfehler: ${event.error}`)
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+    }
+
+    recognitionRef.current.onend = () => {
+      if (state === 'listening') {
+        setState('idle')
+      }
+    }
+
+    try {
+      recognitionRef.current.start()
+    } catch (e) {
+      console.error('Failed to start recognition:', e)
+      setError('Konnte Spracherkennung nicht starten')
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+    }
   }
 
   const handleSearchInternet = async (query: string) => {
@@ -213,12 +303,23 @@ export function ORAAssistant() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="w-8 h-8 rounded-full bg-foreground/10 hover:bg-foreground/20 transition-colors flex items-center justify-center text-foreground/70 hover:text-foreground"
-              >
-                <X size={18} weight="bold" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* TTS Toggle */}
+                <button
+                  onClick={() => setIsTTSEnabled(!isTTSEnabled)}
+                  className="w-8 h-8 rounded-full bg-foreground/10 hover:bg-foreground/20 transition-colors flex items-center justify-center text-foreground/70 hover:text-foreground"
+                  title={isTTSEnabled ? 'Sprachausgabe deaktivieren' : 'Sprachausgabe aktivieren'}
+                >
+                  {isTTSEnabled ? <SpeakerHigh size={16} /> : <SpeakerSlash size={16} />}
+                </button>
+                {/* Close button */}
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="w-8 h-8 rounded-full bg-foreground/10 hover:bg-foreground/20 transition-colors flex items-center justify-center text-foreground/70 hover:text-foreground"
+                >
+                  <X size={18} weight="bold" />
+                </button>
+              </div>
             </div>
           </div>
 
