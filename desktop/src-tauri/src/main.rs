@@ -12,6 +12,7 @@ mod iora_notifications;
 mod lm_studio;
 mod system_commands;
 mod system_info;
+mod ora_ai;
 
 use commands::AppState;
 use ha_integration::{HaClient, HaConfig};
@@ -242,6 +243,14 @@ fn main() {
             autostart::set_autostart,
             autostart::get_autostart_status,
             autostart::set_autostart_options,
+            // ORA AI commands
+            ora_ai::ora_send_chat,
+            ora_ai::ora_search_internet,
+            ora_ai::ora_show_overlay,
+            ora_ai::ora_hide_overlay,
+            ora_ai::ora_toggle_overlay,
+            ora_ai::ora_capture_screenshot,
+            ora_ai::ora_execute_desktop_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IORA Desktop");
