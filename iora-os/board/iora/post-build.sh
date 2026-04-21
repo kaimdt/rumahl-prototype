@@ -245,8 +245,16 @@ ExecStart=/bin/sh -c 'echo lz4 > /sys/block/zram1/comp_algorithm'
 ExecStart=/bin/sh -c 'echo 4G > /sys/block/zram1/disksize'
 ExecStart=/usr/sbin/mkfs.ext4 -q /dev/zram1
 ExecStart=/bin/mount -o noatime /dev/zram1 /var
-ExecStop=/bin/umount /tmp
-ExecStop=/bin/umount /var
+# /var is freshly-formatted ZRAM — recreate the directory skeleton that
+# PostgreSQL, Chrony, journald, etc. expect or they fail to start.
+ExecStartPost=/bin/sh -c 'chmod 1777 /tmp'
+ExecStartPost=/bin/mkdir -p /var/lib /var/log /var/cache /var/spool /var/run /var/tmp /var/empty /var/lock
+ExecStartPost=/bin/chmod 1777 /var/tmp
+ExecStartPost=/bin/mkdir -p /var/lib/pgsql /var/lib/chrony /var/log/chrony
+ExecStartPost=/bin/sh -c 'getent passwd postgres >/dev/null 2>&1 && chown -R postgres:postgres /var/lib/pgsql && chmod 700 /var/lib/pgsql || true'
+ExecStartPost=/bin/sh -c 'getent passwd chrony   >/dev/null 2>&1 && chown -R chrony:chrony   /var/lib/chrony /var/log/chrony || true'
+ExecStartPost=/bin/mkdir -p /var/log/journal
+ExecStopPost=/bin/sh -c 'umount /tmp 2>/dev/null; umount /var 2>/dev/null; true'
 
 [Install]
 WantedBy=local-fs.target
@@ -254,6 +262,24 @@ EOF
 
 ln -sf /etc/systemd/system/zram.service \
     "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/zram.service"
+
+# Ensure PostgreSQL and Chrony wait for zram.service to have created
+# /var/lib/pgsql and /var/lib/chrony — otherwise their first-boot initdb
+# and chronyd write paths fail because /var is a freshly mounted ZRAM fs.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/postgresql.service.d" \
+         "${TARGET_DIR}/etc/systemd/system/chrony.service.d" 2>/dev/null || true
+cat > "${TARGET_DIR}/etc/systemd/system/postgresql.service.d/10-iora-zram.conf" <<'EOF'
+[Unit]
+After=zram.service local-fs.target
+Requires=zram.service
+ConditionPathIsDirectory=/var/lib/pgsql
+EOF
+cat > "${TARGET_DIR}/etc/systemd/system/chrony.service.d/10-iora-zram.conf" <<'EOF'
+[Unit]
+After=zram.service local-fs.target
+Requires=zram.service
+ConditionPathIsDirectory=/var/lib/chrony
+EOF
 
 # ── IORA virtualization / container detection service ───────────────────────
 # Runs at early boot, writes /run/iora-virt.env + /etc/iora-virt.conf, updates
