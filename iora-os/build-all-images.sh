@@ -663,6 +663,10 @@ IORA_NETWORK="dhcp"
 IORA_LOCALE="en_US.UTF-8"
 IORA_KEYBOARD="de"
 IORA_INSTALL_MODE="guided"
+IORA_USER=""
+IORA_USER_PW=""
+IORA_USER_FULLNAME=""
+IORA_USER_SUDO=true
 
 # Silence kernel log output that would pollute the UI
 dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
@@ -1299,6 +1303,53 @@ GRUBCFG
         fi
     else
         log_r "WARN: grub-install not found in target or installer – using pre-written grub.cfg only"
+
+        # Last-resort fallback: grub-bios-setup + grub-mkimage from modules.
+        # This can rebuild BIOS boot (MBR stage1 + BIOS boot partition core.img)
+        # entirely from bundled grub modules, without needing grub-install.
+        if [ -d /usr/lib/grub/i386-pc ] && command -v grub-mkimage >/dev/null 2>&1 \
+           && command -v grub-bios-setup >/dev/null 2>&1; then
+            log_r "Attempting BIOS install via grub-mkimage + grub-bios-setup"
+            local core_img="/tmp/iora-core.img"
+            if grub-mkimage -O i386-pc -o "${core_img}" -p /boot/grub \
+                 biosdisk part_gpt part_msdos ext2 fat normal configfile \
+                 linux search search_label search_fs_uuid search_fs_file echo \
+                 boot chain ls help terminal >> "$logfile" 2>&1; then
+                if grub-bios-setup --boot-image=boot.img --core-image="${core_img}" \
+                     --directory=/usr/lib/grub/i386-pc \
+                     --device-map=/dev/null "/dev/${disk}" >> "$logfile" 2>&1; then
+                    bios_ok=true
+                    log_r "grub-bios-setup OK (fallback core.img)"
+                    mkdir -p "${target}/boot/grub/i386-pc" 2>/dev/null || true
+                    cp -a /usr/lib/grub/i386-pc/*.mod "${target}/boot/grub/i386-pc/" 2>/dev/null || true
+                    cp -a /usr/lib/grub/i386-pc/*.lst "${target}/boot/grub/i386-pc/" 2>/dev/null || true
+                else
+                    log_r "grub-bios-setup failed"
+                fi
+            else
+                log_r "grub-mkimage failed"
+            fi
+        fi
+
+        # UEFI fallback: build grubx64.efi from modules and drop it on the ESP.
+        if [ "$efi_mounted" = true ] && [ -d /sys/firmware/efi ] \
+           && [ -d /usr/lib/grub/x86_64-efi ] && command -v grub-mkimage >/dev/null 2>&1; then
+            log_r "Attempting UEFI install via grub-mkimage"
+            mkdir -p "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
+            if grub-mkimage -O x86_64-efi -o "${target}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
+                 -p /boot/grub \
+                 part_gpt part_msdos fat ext2 normal configfile linux \
+                 search search_label search_fs_uuid search_fs_file echo \
+                 boot chain efi_gop efi_uga gfxterm gfxmenu all_video \
+                 ls help terminal >> "$logfile" 2>&1; then
+                uefi_ok=true
+                log_r "grub-mkimage BOOTX64.EFI OK (fallback)"
+                mkdir -p "${target}/boot/grub/x86_64-efi" 2>/dev/null || true
+                cp -a /usr/lib/grub/x86_64-efi/*.mod "${target}/boot/grub/x86_64-efi/" 2>/dev/null || true
+            else
+                log_r "grub-mkimage x86_64-efi failed"
+            fi
+        fi
     fi
 
     # ── Step 7: UEFI fallback loader ────────────────────────────────
@@ -1370,18 +1421,85 @@ GRUBCFG
             || log_r "Final GPT verify: issues remain (check log)"
     fi
 
-    # If BIOS grub-install wasn't possible, but GPT has a BIOS boot partition,
-    # keep BIOS status as possible because the dd-written image may already
-    # contain embedded core.img from post-image creation.
-    if [ "$bios_ok" = false ] && is_gpt_disk "$disk" && command -v sgdisk >/dev/null 2>&1; then
-        if sgdisk -i 1 "/dev/${disk}" 2>/dev/null | grep -qi "EF02\|BIOS boot"; then
-            bios_ok=true
-            log_r "BIOS boot partition detected (EF02); BIOS boot may be available"
+    # ── Final bootability assessment ─────────────────────────────────────
+    # Our base image is built with working MBR + BIOS core.img + UEFI
+    # BOOTX64.EFI at post-image time. After dd these remain bootable as long
+    # as the GPT header and the MBR boot code are intact.
+    #
+    # BIOS: considered OK if
+    #   (a) grub-install just succeeded, OR
+    #   (b) MBR 0x55AA signature present AND either GPT has bios_grub partition
+    #       OR MBR boot code region is non-zero (pre-installed stage1).
+    if [ "$bios_ok" = false ]; then
+        if has_mbr_boot_signature "$disk"; then
+            local bios_reason=""
+            if is_gpt_disk "$disk"; then
+                # Check for bios_grub flag via sgdisk or parted.
+                if command -v sgdisk >/dev/null 2>&1; then
+                    if sgdisk -p "/dev/${disk}" 2>/dev/null | grep -qiE "EF02|BIOS[[:space:]]*boot"; then
+                        bios_reason="bios_grub partition present"
+                    fi
+                fi
+                if [ -z "$bios_reason" ] && command -v parted >/dev/null 2>&1; then
+                    if parted -s "/dev/${disk}" print 2>/dev/null | grep -qi "bios_grub"; then
+                        bios_reason="bios_grub flag set"
+                    fi
+                fi
+            fi
+            # Fallback: check MBR bootstrap code area (first 440 bytes) is non-zero.
+            if [ -z "$bios_reason" ]; then
+                local mbr_nonzero
+                mbr_nonzero=$(dd if="/dev/${disk}" bs=1 count=440 2>/dev/null | tr -d '\0' | wc -c 2>/dev/null || echo 0)
+                mbr_nonzero=$(safe_uint "$mbr_nonzero" 0)
+                if [ "$mbr_nonzero" -gt 32 ]; then
+                    bios_reason="pre-installed MBR boot code (${mbr_nonzero} non-zero bytes)"
+                fi
+            fi
+            if [ -n "$bios_reason" ]; then
+                bios_ok=true
+                log_r "BIOS boot accepted: ${bios_reason}"
+            fi
+        fi
+    fi
+
+    # UEFI: OK if BOOTX64.EFI (removable fallback) exists on the ESP. We also
+    # accept a distro-path grubx64.efi because firmware with NVRAM entries
+    # uses those instead of the removable path.
+    if [ "$uefi_ok" = false ]; then
+        if [ -b "$efi_part" ]; then
+            local esp_probe; esp_probe=$(mktemp -d 2>/dev/null || echo /tmp/esp-probe.$$)
+            mkdir -p "$esp_probe" 2>/dev/null || true
+            if mount -t vfat "$efi_part" "$esp_probe" 2>/dev/null; then
+                for _efi in \
+                    "$esp_probe/EFI/BOOT/BOOTX64.EFI" \
+                    "$esp_probe/EFI/boot/bootx64.efi" \
+                    "$esp_probe/EFI/ubuntu/grubx64.efi" \
+                    "$esp_probe/EFI/debian/grubx64.efi" \
+                    "$esp_probe/EFI/GRUB/grubx64.efi" \
+                    "$esp_probe/EFI/grub/grubx64.efi"; do
+                    if [ -f "$_efi" ]; then
+                        uefi_ok=true
+                        log_r "UEFI boot accepted: $(basename "$_efi") present on ESP"
+                        break
+                    fi
+                done
+                umount "$esp_probe" 2>/dev/null || true
+            fi
+            rmdir "$esp_probe" 2>/dev/null || true
         fi
     fi
 
     log_r "=== Boot repair complete ==="
     log_r "BIOS-boot: ${bios_ok}  UEFI-boot: ${uefi_ok}"
+
+    # Expose result for callers that want to surface it in the UI.
+    echo "${bios_ok}:${uefi_ok}" > /tmp/boot-repair.status 2>/dev/null || true
+
+    # Final outcome: fail only when BOTH are not bootable.
+    if [ "$bios_ok" = false ] && [ "$uefi_ok" = false ]; then
+        log_r "ERROR: neither BIOS nor UEFI boot path is viable"
+        return 2
+    fi
     return 0
 }
 
@@ -1511,6 +1629,44 @@ apply_post_install_config() {
         fi
     fi
 
+    # Create an additional user account (Ubuntu/Debian-style)
+    if [ -n "$IORA_USER" ] && [ -f "${target}/etc/passwd" ]; then
+        if ! grep -q "^${IORA_USER}:" "${target}/etc/passwd" 2>/dev/null; then
+            local uid=1000
+            while grep -q ":${uid}:" "${target}/etc/passwd" 2>/dev/null; do
+                uid=$((uid + 1))
+            done
+            local gid="$uid"
+            echo "${IORA_USER}:x:${uid}:${gid}:${IORA_USER_FULLNAME:-${IORA_USER}}:/home/${IORA_USER}:/bin/sh" \
+                >> "${target}/etc/passwd"
+            echo "${IORA_USER}:x:${gid}:" >> "${target}/etc/group" 2>/dev/null || true
+            local uhash='!'  # Locked by default
+            if [ -n "$IORA_USER_PW" ]; then
+                local usalt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
+                uhash=$(echo "$IORA_USER_PW" | openssl passwd -6 -stdin -salt "$usalt" 2>/dev/null || echo '!')
+            fi
+            echo "${IORA_USER}:${uhash}:19000:0:99999:7:::" >> "${target}/etc/shadow" 2>/dev/null || true
+            mkdir -p "${target}/home/${IORA_USER}" 2>/dev/null || true
+            if [ -d "${target}/etc/skel" ]; then
+                cp -a "${target}/etc/skel/." "${target}/home/${IORA_USER}/" 2>/dev/null || true
+            fi
+            chown -R "${uid}:${gid}" "${target}/home/${IORA_USER}" 2>/dev/null || true
+            chmod 750 "${target}/home/${IORA_USER}" 2>/dev/null || true
+            if [ "$IORA_USER_SUDO" = true ]; then
+                # Add to wheel and sudo groups if they exist; create sudoers.d entry
+                for grp in wheel sudo; do
+                    if grep -q "^${grp}:" "${target}/etc/group" 2>/dev/null; then
+                        sed -i "s|^\(${grp}:[^:]*:[^:]*:\)\(.*\)$|\1\2${IORA_USER},|; s|,,|,|g; s|,$||" \
+                            "${target}/etc/group" 2>/dev/null || true
+                    fi
+                done
+                mkdir -p "${target}/etc/sudoers.d" 2>/dev/null || true
+                echo "${IORA_USER} ALL=(ALL) ALL" > "${target}/etc/sudoers.d/10-iora-user"
+                chmod 440 "${target}/etc/sudoers.d/10-iora-user" 2>/dev/null || true
+            fi
+        fi
+    fi
+
     # Configure static network if chosen
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
         mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
@@ -1584,31 +1740,351 @@ KBDCONF
 
 # ── Wizard screens ─────────────────────────────────────────────────
 
+INSTALLER_MODE="install"   # install | rescue | shell
+
 screen_welcome() {
     if [ -n "$DIALOG_BIN" ]; then
+        local choice
+        choice=$(dlg --title " IORA OS " --menu "\
+ Welcome to the IORA OS installer.\n\n\
+ Choose an action to continue.\n" 18 68 4 \
+            "install" "Install IORA OS on this computer" \
+            "rescue"  "Rescue / repair existing IORA installation" \
+            "shell"   "Drop to rescue shell" \
+            "reboot"  "Reboot / shut down" \
+            3>&1 1>&2 2>&3)
+
+        case "$choice" in
+            install)
+                INSTALLER_MODE="install"
                 dlg --title " IORA OS Setup " --msgbox "\
- Ready to deploy IORA OS.
-
- This guided setup will:
+ Guided installation will:
      1. Inspect this system
-     2. Configure hostname and timezone
-     3. Configure network settings
-     4. Set the root password
-     5. Write the image to the selected drive
-
- Expect the installation itself to take a few minutes.
- All data on the selected target drive will be erased.
+     2. Configure hostname, timezone, keyboard, network
+     3. Set the root password
+     4. Partition the target disk
+     5. Write the image and install the bootloader
 
  Select OK to continue." 18 68
+                return 0
+                ;;
+            rescue)
+                INSTALLER_MODE="rescue"
+                run_rescue_mode
+                # After rescue exits, re-run the main menu.
+                screen_welcome
+                return 1
+                ;;
+            shell)
+                INSTALLER_MODE="shell"
+                clear 2>/dev/null || true
+                echo ""
+                echo "  IORA Rescue Shell.  Type 'exit' to return to the installer."
+                echo ""
+                sh -i || true
+                screen_welcome
+                return 1
+                ;;
+            reboot)
+                local act
+                act=$(dlg --title " Reboot " --menu \
+                    "\n Choose action:\n" 12 60 2 \
+                    "reboot"   "Reboot the machine" \
+                    "poweroff" "Power off the machine" \
+                    3>&1 1>&2 2>&3)
+                case "$act" in
+                    reboot)   sync; reboot -f ;;
+                    poweroff) sync; poweroff -f ;;
+                esac
+                screen_welcome
+                return 1
+                ;;
+            *)
+                INSTALLER_MODE="install"
+                return 0
+                ;;
+        esac
     else
         clear 2>/dev/null || true
         echo ""
-                echo "  IORA OS Setup"
-                echo "  ============="
+        echo "  IORA OS Setup"
+        echo "  ============="
         echo ""
-        echo "  Press ENTER to begin..."
-        read _
+        echo "    1) Install IORA OS"
+        echo "    2) Rescue / repair existing installation"
+        echo "    3) Drop to shell"
+        echo ""
+        printf "  Choice [1-3]: "
+        read _ch
+        case "$_ch" in
+            2) INSTALLER_MODE="rescue"; run_rescue_mode; screen_welcome; return 1 ;;
+            3) INSTALLER_MODE="shell"; sh -i || true; screen_welcome; return 1 ;;
+            *) INSTALLER_MODE="install" ;;
+        esac
     fi
+}
+
+# ── Rescue mode ─────────────────────────────────────────────────────────
+# Finds an existing IORA installation, re-runs repair_disk_and_bootloader
+# on it, optionally resets the root password, and dumps diagnostics.
+run_rescue_mode() {
+    # 1) Pick a disk that contains a plausible IORA install
+    local disk_list candidates
+    disk_list=$(get_disks)
+
+    candidates=""
+    for disk in $disk_list; do
+        # Consider the disk a candidate if its 3rd partition looks like a
+        # rootfs (ext4 with /etc/os-release).
+        local p3 p3_probe
+        p3=$(disk_part_name "$disk" 3)
+        [ -b "$p3" ] || continue
+        p3_probe="/mnt/rescue-probe"
+        mkdir -p "$p3_probe"
+        if mount -o ro "$p3" "$p3_probe" 2>/dev/null; then
+            if [ -f "$p3_probe/etc/os-release" ]; then
+                candidates="${candidates}${disk} "
+            fi
+            umount "$p3_probe" 2>/dev/null || true
+        fi
+    done
+
+    if [ -z "$candidates" ]; then
+        dlg_msg " No Installation Found " "\
+ Could not locate an existing IORA OS installation on\n\
+ any connected drive.\n\n\
+ Tip: use 'Drop to shell' and mount manually if you\n\
+ know where the root filesystem lives."
+        return 1
+    fi
+
+    # 2) Disk picker
+    local target_disk=""
+    if [ -n "$DIALOG_BIN" ]; then
+        set --
+        for d in $candidates; do
+            local sz mdl
+            sz=$(get_disk_size_gb "$d")
+            mdl=$(get_disk_model "$d")
+            set -- "$@" "$d" "${sz}GB ${mdl}"
+        done
+        target_disk=$(dlg --title " Rescue - Select Disk " \
+            --menu "\n Select the disk with the IORA installation to repair.\n" \
+            18 64 6 "$@" 3>&1 1>&2 2>&3)
+        [ -z "$target_disk" ] && return 1
+    else
+        target_disk=$(echo "$candidates" | awk '{print $1}')
+    fi
+
+    # 3) Rescue action menu
+    while true; do
+        local action
+        if [ -n "$DIALOG_BIN" ]; then
+            action=$(dlg --title " Rescue /dev/${target_disk} " --menu "\
+ Choose a repair action.\n" 20 68 8 \
+                "boot"    "Reinstall bootloader (GRUB + grub.cfg)" \
+                "gpt"     "Repair GPT partition table" \
+                "fsck"    "Run fsck on root partitions" \
+                "passwd"  "Reset root password" \
+                "chroot"  "Enter chroot shell in the installation" \
+                "logs"    "Show /var/log/iora-netinstall.log from target" \
+                "status"  "Show boot repair status" \
+                "back"    "Back to main menu" \
+                3>&1 1>&2 2>&3)
+        else
+            echo ""
+            echo "  Rescue actions for /dev/${target_disk}:"
+            echo "    1) Reinstall bootloader"
+            echo "    2) Repair GPT"
+            echo "    3) fsck"
+            echo "    4) Reset root password"
+            echo "    5) chroot"
+            echo "    6) Back"
+            printf "  Choice: "
+            read _ra
+            case "$_ra" in
+                1) action=boot ;; 2) action=gpt ;; 3) action=fsck ;;
+                4) action=passwd ;; 5) action=chroot ;; *) action=back ;;
+            esac
+        fi
+
+        case "$action" in
+            boot)
+                dlg_info " Rescue " "  Running full boot repair on /dev/${target_disk}..."
+                repair_disk_and_bootloader "$target_disk" >/tmp/rescue-boot.log 2>&1 || true
+                dlg --title " Boot Repair Log " --textbox /tmp/boot-repair.log 22 78 2>/dev/null || {
+                    clear; cat /tmp/boot-repair.log 2>/dev/null; echo "Press ENTER..."; read _
+                }
+                ;;
+            gpt)
+                (
+                    if command -v sgdisk >/dev/null 2>&1; then
+                        sgdisk -e "/dev/${target_disk}" 2>&1
+                        sgdisk --verify "/dev/${target_disk}" 2>&1
+                    else
+                        parted -s "/dev/${target_disk}" print fix 2>&1
+                    fi
+                    sync
+                    blockdev --rereadpt "/dev/${target_disk}" 2>/dev/null || true
+                ) > /tmp/rescue-gpt.log 2>&1
+                dlg --title " GPT Repair " --textbox /tmp/rescue-gpt.log 18 72 2>/dev/null || {
+                    clear; cat /tmp/rescue-gpt.log; echo "Press ENTER..."; read _
+                }
+                ;;
+            fsck)
+                (
+                    local p
+                    for p in 3 4; do
+                        local part
+                        part=$(disk_part_name "$target_disk" "$p")
+                        [ -b "$part" ] || continue
+                        echo ">>> fsck $part"
+                        e2fsck -f -y "$part" 2>&1 || true
+                    done
+                ) > /tmp/rescue-fsck.log 2>&1
+                dlg --title " fsck Output " --textbox /tmp/rescue-fsck.log 22 78 2>/dev/null || {
+                    clear; cat /tmp/rescue-fsck.log; echo "Press ENTER..."; read _
+                }
+                ;;
+            passwd)
+                rescue_reset_password "$target_disk"
+                ;;
+            chroot)
+                rescue_chroot "$target_disk"
+                ;;
+            logs)
+                local p3 mnt log_path
+                p3=$(disk_part_name "$target_disk" 3)
+                mnt="/mnt/rescue-target"
+                mkdir -p "$mnt"
+                if mount -o ro "$p3" "$mnt" 2>/dev/null; then
+                    log_path="$mnt/var/log/iora-netinstall.log"
+                    if [ -f "$log_path" ]; then
+                        dlg --title " Netinstall Log " --textbox "$log_path" 22 78 2>/dev/null || {
+                            clear; cat "$log_path"; echo "Press ENTER..."; read _
+                        }
+                    else
+                        dlg_msg " No Log " "No netinstall log present on /dev/${target_disk}."
+                    fi
+                    umount "$mnt" 2>/dev/null || true
+                fi
+                ;;
+            status)
+                if [ -f /tmp/boot-repair.status ]; then
+                    dlg_msg " Boot Status " "\
+ Last boot repair status (BIOS:UEFI):\n\n\
+   $(cat /tmp/boot-repair.status)\n\n\
+ See /tmp/boot-repair.log for details."
+                else
+                    dlg_msg " No Status " "No boot repair has been run yet."
+                fi
+                ;;
+            back|"")
+                return 0
+                ;;
+        esac
+    done
+}
+
+rescue_reset_password() {
+    local disk="$1"
+    local p3 mnt
+    p3=$(disk_part_name "$disk" 3)
+    mnt="/mnt/rescue-target"
+    mkdir -p "$mnt"
+    if ! mount "$p3" "$mnt" 2>/dev/null; then
+        dlg_msg " Error " "Could not mount ${p3}. Is the disk encrypted?"
+        return 1
+    fi
+
+    local pw1 pw2
+    if [ -n "$DIALOG_BIN" ]; then
+        pw1=$(dlg --title " New Root Password " --insecure --passwordbox \
+            "\n Enter the new root password.\n" 10 60 3>&1 1>&2 2>&3)
+        pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
+            "\n Enter the password again.\n" 10 60 3>&1 1>&2 2>&3)
+    else
+        printf "  New root password: "; stty -echo; read pw1; stty echo; echo
+        printf "  Confirm:           "; stty -echo; read pw2; stty echo; echo
+    fi
+
+    if [ -z "$pw1" ] || [ "$pw1" != "$pw2" ]; then
+        dlg_msg " Error " "Passwords empty or did not match."
+        umount "$mnt" 2>/dev/null || true
+        return 1
+    fi
+
+    # Write hashed password directly into /etc/shadow
+    local hash
+    if command -v openssl >/dev/null 2>&1; then
+        hash=$(openssl passwd -6 "$pw1" 2>/dev/null || true)
+    fi
+    if [ -z "$hash" ] && command -v mkpasswd >/dev/null 2>&1; then
+        hash=$(mkpasswd -m sha-512 "$pw1" 2>/dev/null || true)
+    fi
+    if [ -z "$hash" ]; then
+        # Try chroot + passwd as last resort.
+        mkdir -p "$mnt/dev" "$mnt/proc" "$mnt/sys"
+        mount --bind /dev "$mnt/dev"  2>/dev/null || true
+        mount --bind /proc "$mnt/proc" 2>/dev/null || true
+        mount --bind /sys "$mnt/sys"  2>/dev/null || true
+        printf '%s\n%s\n' "$pw1" "$pw1" | chroot "$mnt" passwd root >/dev/null 2>&1 || true
+        umount "$mnt/sys" "$mnt/proc" "$mnt/dev" 2>/dev/null || true
+        umount "$mnt" 2>/dev/null || true
+        dlg_msg " Done " "Password reset attempted via chroot passwd."
+        return 0
+    fi
+
+    if [ -f "$mnt/etc/shadow" ]; then
+        # Escape / and & for sed replacement side
+        local esc
+        esc=$(printf '%s\n' "$hash" | sed -e 's/[\/&]/\\&/g')
+        sed -i "s/^root:[^:]*:/root:${esc}:/" "$mnt/etc/shadow"
+        sync
+        dlg_msg " Done " "Root password reset on /dev/${disk}."
+    else
+        dlg_msg " Error " "/etc/shadow not found on ${p3}."
+    fi
+    umount "$mnt" 2>/dev/null || true
+}
+
+rescue_chroot() {
+    local disk="$1"
+    local p3 mnt
+    p3=$(disk_part_name "$disk" 3)
+    mnt="/mnt/rescue-target"
+    mkdir -p "$mnt"
+    if ! mount "$p3" "$mnt" 2>/dev/null; then
+        dlg_msg " Error " "Could not mount ${p3}."
+        return 1
+    fi
+
+    local p2
+    p2=$(disk_part_name "$disk" 2)
+    if [ -b "$p2" ]; then
+        mkdir -p "$mnt/boot/efi"
+        mount -t vfat "$p2" "$mnt/boot/efi" 2>/dev/null || true
+    fi
+
+    mkdir -p "$mnt/dev" "$mnt/proc" "$mnt/sys" "$mnt/run"
+    mount --bind /dev  "$mnt/dev"  2>/dev/null || true
+    mount --bind /proc "$mnt/proc" 2>/dev/null || true
+    mount --bind /sys  "$mnt/sys"  2>/dev/null || true
+    mount --bind /run  "$mnt/run"  2>/dev/null || true
+
+    clear 2>/dev/null || true
+    echo ""
+    echo "  Entering chroot at ${mnt}."
+    echo "  Type 'exit' to leave."
+    echo ""
+    chroot "$mnt" /bin/sh -l || chroot "$mnt" /bin/sh || true
+
+    umount "$mnt/run"  2>/dev/null || true
+    umount "$mnt/sys"  2>/dev/null || true
+    umount "$mnt/proc" 2>/dev/null || true
+    umount "$mnt/dev"  2>/dev/null || true
+    umount "$mnt/boot/efi" 2>/dev/null || true
+    umount "$mnt" 2>/dev/null || true
 }
 
 screen_sysinfo() {
@@ -1826,6 +2302,59 @@ screen_password() {
     IORA_ROOT_PW="$pw1"
 }
 
+screen_user() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local name full pw1 pw2 sudo_choice
+
+    name=$(dlg --title " Create User " --inputbox \
+        "\n Enter a username for a new login account.\n Leave empty to skip (root-only system).\n" \
+        12 60 "" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+    [ -z "$name" ] && return 0
+
+    # POSIX username validation
+    if ! echo "$name" | grep -Eq '^[a-z_][a-z0-9_-]{0,31}$'; then
+        dlg_msg " Invalid Username " "\
+ Username must start with a lowercase letter or '_' and\n\
+ contain only lowercase letters, digits, '_' or '-'.\n\n\
+ User account creation skipped."
+        return 0
+    fi
+    IORA_USER="$name"
+
+    full=$(dlg --title " Full Name " --inputbox \
+        "\n Full name (GECOS) for ${IORA_USER}.\n Leave empty to skip.\n" \
+        10 60 "" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && full=""
+    IORA_USER_FULLNAME="$full"
+
+    pw1=$(dlg --title " User Password " --insecure --passwordbox \
+        "\n Password for ${IORA_USER} (min. 6 characters, empty = lock account).\n" \
+        10 60 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+    if [ -n "$pw1" ]; then
+        pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
+            "\n Enter the password again.\n" \
+            10 60 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 0
+        if [ "$pw1" != "$pw2" ]; then
+            dlg_msg " Password Mismatch " "Passwords do not match. User account will be LOCKED."
+            IORA_USER_PW=""
+        else
+            IORA_USER_PW="$pw1"
+        fi
+    fi
+
+    if dlg --title " Administrator " --yesno \
+        "\n Grant ${IORA_USER} sudo (administrator) rights?\n" \
+        8 60; then
+        IORA_USER_SUDO=true
+    else
+        IORA_USER_SUDO=false
+    fi
+}
+
 screen_select_disk() {
     local disk_list
     disk_list=$(get_disks)
@@ -1845,7 +2374,16 @@ screen_select_disk() {
             local sz=$(get_disk_size_gb "$disk")
             local mdl=$(get_disk_model "$disk")
             local bus=$(get_disk_transport "$disk")
-            local label="${sz}GB ${bus}"
+            local health=""
+            if command -v smartctl >/dev/null 2>&1; then
+                local smart_out
+                smart_out=$(smartctl -H "/dev/${disk}" 2>/dev/null | grep -i "health\|SMART overall" | head -1 || true)
+                case "$smart_out" in
+                    *PASSED*|*OK*)   health=" [SMART:OK]" ;;
+                    *FAILED*|*FAIL*) health=" [SMART:FAIL]" ;;
+                esac
+            fi
+            local label="${sz}GB ${bus}${health}"
             [ -n "$mdl" ] && label="${label} - ${mdl}"
             set -- "$@" "/dev/${disk}" "$label"
             disk_count=$((disk_count + 1))
@@ -1862,6 +2400,20 @@ screen_select_disk() {
 
         [ $? -ne 0 ] && return 1
         SEL_DISK=$(basename "$SEL_DISK")
+
+        # SMART health warning
+        if command -v smartctl >/dev/null 2>&1; then
+            local smart_out
+            smart_out=$(smartctl -H "/dev/${SEL_DISK}" 2>/dev/null || true)
+            if echo "$smart_out" | grep -qi "FAILED\|FAILING"; then
+                if ! dlg_yesno " Disk Health Warning " "\
+ SMART reports that /dev/${SEL_DISK} is FAILING.\n\n\
+ Installing onto a failing drive is not recommended.\n\n\
+ Proceed anyway?"; then
+                    return 1
+                fi
+            fi
+        fi
     else
         echo ""
         echo "  === Select Target Disk ==="
@@ -1886,6 +2438,169 @@ screen_select_disk() {
         SEL_DISK=$(printf '%s\n' $disk_array | sed -n "${choice}p")
         [ -z "$SEL_DISK" ] && return 1
     fi
+    return 0
+}
+
+# ── Partitioning screen ─────────────────────────────────────────────────
+# Modes (similar to Calamares/Ubiquity/Anaconda):
+#   auto      – Erase entire selected disk and lay out A/B + ESP + data
+#               (classic IORA image via dd, this is the default)
+#   keep      – Keep existing partition table; reuse existing ESP and install
+#               rootfs into a user-picked free partition. Advanced/multi-boot.
+#   manual    – Drop to cfdisk/parted for hand partitioning before continuing.
+#   encrypted – Same as "auto" but LUKS-encrypts root partitions before copy.
+PARTITION_MODE="auto"
+KEEP_TARGET_ROOT=""
+KEEP_TARGET_ESP=""
+LUKS_ENABLED=false
+LUKS_PASSPHRASE=""
+
+screen_partitioning() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local has_cfdisk=false has_luks=false
+    command -v cfdisk     >/dev/null 2>&1 && has_cfdisk=true
+    command -v cryptsetup >/dev/null 2>&1 && has_luks=true
+
+    # Build menu dynamically based on available tools.
+    set --
+    set -- "$@" "auto"     "Erase entire disk and install (recommended)"
+    if [ "$has_luks" = true ]; then
+        set -- "$@" "encrypted" "Erase disk, encrypt root with LUKS"
+    fi
+    set -- "$@" "keep"     "Keep existing partitions (advanced, multi-boot)"
+    if [ "$has_cfdisk" = true ]; then
+        set -- "$@" "manual"   "Manual (open cfdisk / parted now)"
+    else
+        set -- "$@" "manual"   "Manual (drop to shell for parted)"
+    fi
+
+    local mode
+    mode=$(dlg --title " Disk Partitioning " --menu \
+        "\n Choose how /dev/${SEL_DISK} should be partitioned.\n\n\
+ 'Erase entire disk' is safe for new installs. 'Keep existing'\n\
+ preserves other OSes and re-uses the existing ESP. 'Manual'\n\
+ gives you a partitioning tool.\n" \
+        18 70 5 "$@" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 1
+
+    PARTITION_MODE="$mode"
+
+    case "$mode" in
+        encrypted)
+            LUKS_ENABLED=true
+            local p1 p2
+            while true; do
+                p1=$(dlg --title " LUKS Passphrase " --insecure --passwordbox \
+                    "\n Enter a passphrase to encrypt the root filesystem.\n\
+ You will be asked for it at every boot.\n\n\
+ Minimum 8 characters recommended.\n" \
+                    14 64 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && { PARTITION_MODE="auto"; LUKS_ENABLED=false; return 0; }
+                if [ "${#p1}" -lt 6 ]; then
+                    dlg_msg " Too Short " "Passphrase must be at least 6 characters."
+                    continue
+                fi
+                p2=$(dlg --title " Confirm Passphrase " --insecure --passwordbox \
+                    "\n Enter the passphrase again for verification.\n" \
+                    10 64 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && { PARTITION_MODE="auto"; LUKS_ENABLED=false; return 0; }
+                if [ "$p1" != "$p2" ]; then
+                    dlg_msg " Mismatch " "The passphrases do not match. Try again."
+                    continue
+                fi
+                LUKS_PASSPHRASE="$p1"
+                break
+            done
+            if ! dlg_yesno " LUKS Notice " "\
+ Root partitions will be encrypted with LUKS2 after the image\n\
+ is written. Losing the passphrase means losing all data on\n\
+ this device. Continue?"; then
+                PARTITION_MODE="auto"
+                LUKS_ENABLED=false
+                LUKS_PASSPHRASE=""
+            fi
+            ;;
+        keep)
+            # Build list of existing partitions and let user choose root + ESP.
+            local num sz fstype label part
+            set --
+            for num in $(seq 1 16); do
+                part=$(disk_part_name "$SEL_DISK" "$num")
+                [ -b "$part" ] || continue
+                sz=$(blockdev --getsize64 "$part" 2>/dev/null || echo 0)
+                sz=$(( sz / 1024 / 1024 ))
+                fstype=$(blkid -s TYPE  -o value "$part" 2>/dev/null || echo "")
+                label=$(blkid  -s LABEL -o value "$part" 2>/dev/null || echo "")
+                set -- "$@" "$part" "${sz}MB ${fstype:-unknown} ${label}"
+            done
+
+            if [ "$#" -eq 0 ]; then
+                dlg_msg " No Partitions " "\
+ No existing partitions found on /dev/${SEL_DISK}.\n\
+ Falling back to 'Erase entire disk'."
+                PARTITION_MODE="auto"
+                return 0
+            fi
+
+            KEEP_TARGET_ROOT=$(dlg --title " Pick Root Partition " \
+                --menu "\n Select the partition to install IORA OS into.\n\
+ WARNING: this partition will be reformatted.\n" \
+                18 72 8 "$@" 3>&1 1>&2 2>&3)
+            [ $? -ne 0 ] && return 1
+
+            KEEP_TARGET_ESP=$(dlg --title " Pick EFI System Partition " \
+                --menu "\n Select the existing EFI System Partition (usually\n\
+ FAT32 ~100-512MB). Pick SKIP for BIOS-only systems.\n" \
+                18 72 8 "$@" "SKIP" "Do not touch an ESP (BIOS-only)" \
+                3>&1 1>&2 2>&3)
+            [ $? -ne 0 ] && return 1
+            [ "$KEEP_TARGET_ESP" = "SKIP" ] && KEEP_TARGET_ESP=""
+
+            if ! dlg_yesno " Keep Partitions - Confirm " "\
+ Root   : ${KEEP_TARGET_ROOT} (will be REFORMATTED)\n\
+ ESP    : ${KEEP_TARGET_ESP:-<none>}\n\
+ Other partitions on /dev/${SEL_DISK} stay intact.\n\n\
+ Proceed?"; then
+                return 1
+            fi
+            ;;
+        manual)
+            clear
+            echo ""
+            echo "  === Manual Partitioning ==="
+            echo ""
+            echo "  /dev/${SEL_DISK}: $(get_disk_size_gb "$SEL_DISK") GB"
+            echo ""
+            if [ "$has_cfdisk" = true ]; then
+                echo "  Opening cfdisk. When done, write changes (W) and quit (Q)."
+                echo "  Press ENTER to continue..."
+                read _
+                cfdisk "/dev/${SEL_DISK}" || true
+            else
+                echo "  cfdisk not available. Dropping to shell."
+                echo "  Use parted/sgdisk/fdisk to prepare partitions, then"
+                echo "  type 'exit' to return to the installer."
+                echo ""
+                sh -i || true
+            fi
+            sync
+            partprobe "/dev/${SEL_DISK}" 2>/dev/null || true
+            blockdev --rereadpt "/dev/${SEL_DISK}" 2>/dev/null || true
+            sleep 2
+
+            # After manual editing, user still needs to pick root/ESP → treat as 'keep'.
+            PARTITION_MODE="keep"
+            # Re-run the keep branch to pick root+ESP.
+            if ! screen_partitioning; then
+                return 1
+            fi
+            ;;
+        auto|*)
+            PARTITION_MODE="auto"
+            LUKS_ENABLED=false
+            ;;
+    esac
     return 0
 }
 
@@ -1922,16 +2637,643 @@ screen_confirm() {
         summary="${summary}  Password:   (default)\n"
     fi
 
-    summary="${summary}\n +------------------------------------+"
-    summary="${summary}\n |  WARNING: ALL data on /dev/${disk}    |"
-    summary="${summary}\n |  will be permanently ERASED!       |"
-    summary="${summary}\n +------------------------------------+"
+    summary="${summary}\nPartitioning\n"
+    case "$PARTITION_MODE" in
+        auto)
+            summary="${summary}  Mode:       Erase entire disk (A/B layout)\n"
+            summary="${summary}\n +------------------------------------+"
+            summary="${summary}\n |  WARNING: ALL data on /dev/${disk}    |"
+            summary="${summary}\n |  will be permanently ERASED!       |"
+            summary="${summary}\n +------------------------------------+"
+            ;;
+        encrypted)
+            summary="${summary}  Mode:       Erase disk + LUKS encryption\n"
+            summary="${summary}  Cipher:     aes-xts-plain64, argon2id\n"
+            summary="${summary}\n +------------------------------------+"
+            summary="${summary}\n |  WARNING: ALL data on /dev/${disk}    |"
+            summary="${summary}\n |  will be permanently ERASED AND    |"
+            summary="${summary}\n |  encrypted with your passphrase.   |"
+            summary="${summary}\n +------------------------------------+"
+            ;;
+        keep)
+            summary="${summary}  Mode:       Keep existing partitions\n"
+            summary="${summary}  Root:       ${KEEP_TARGET_ROOT} (will be reformatted)\n"
+            summary="${summary}  ESP:        ${KEEP_TARGET_ESP:-<none, BIOS only>}\n"
+            summary="${summary}\n +----------------------------------------+"
+            summary="${summary}\n |  Only ${KEEP_TARGET_ROOT} will be reformatted.   |"
+            summary="${summary}\n |  Other partitions on /dev/${disk} stay.   |"
+            summary="${summary}\n +----------------------------------------+"
+            ;;
+        *)
+            summary="${summary}  Mode:       ${PARTITION_MODE}\n"
+            ;;
+    esac
     summary="${summary}\n\n Proceed with installation?"
 
     if ! dlg_yesno " Confirm " "$summary"; then
         return 1
     fi
     return 0
+}
+
+# ── LUKS initramfs builder ──────────────────────────────────────────────
+# Creates a minimal initramfs (cpio.gz) that:
+#   1. Mounts /proc /sys /dev
+#   2. Loads crypto + dm-crypt kernel modules
+#   3. Reads /etc/iora-crypt.conf (baked into the initramfs) for the UUIDs
+#   4. Runs `cryptsetup open` on the chosen slot (from kernel cmdline
+#      root=/dev/mapper/iora_root_a | iora_root_b)
+#   5. Pivots into the real rootfs with switch_root
+#
+# The initramfs is assembled from binaries that already live in THIS
+# running system (the installer rootfs is the same Buildroot build as the
+# target rootfs, so cryptsetup + deps are present).
+build_luks_initramfs() {
+    local output="$1"        # absolute output path (initrd.img)
+    local uuid_a="$2"
+    local uuid_b="$3"
+    local work_dir
+
+    work_dir=$(mktemp -d 2>/dev/null || echo "/tmp/iora-initrd.$$")
+    mkdir -p "$work_dir" || return 1
+    rm -rf "$work_dir"/*
+
+    # Directory skeleton
+    mkdir -p "$work_dir"/{bin,sbin,usr/bin,usr/sbin,etc,proc,sys,dev,run,tmp,mnt/root,lib,lib64,usr/lib,usr/lib64}
+
+    # ── Copy binary + its shared libraries ──────────────────────────
+    _copy_with_deps() {
+        local bin="$1"
+        local dst_bin
+        [ -x "$bin" ] || return 1
+        dst_bin="$work_dir${bin}"
+        mkdir -p "$(dirname "$dst_bin")"
+        cp -f "$bin" "$dst_bin" 2>/dev/null || return 1
+
+        # ldd → copy every resolved shared-object path
+        if command -v ldd >/dev/null 2>&1; then
+            ldd "$bin" 2>/dev/null | awk '
+                /=>/   { print $3 }
+                /^\t\// { print $1 }
+            ' | while read -r lib; do
+                [ -z "$lib" ] && continue
+                [ "$lib" = "not" ] && continue
+                [ -f "$lib" ] || continue
+                local ldst
+                ldst="$work_dir${lib}"
+                mkdir -p "$(dirname "$ldst")"
+                [ -f "$ldst" ] || cp -f "$lib" "$ldst" 2>/dev/null || true
+            done
+        fi
+    }
+
+    # Shell + core utils via busybox if present, else individual tools.
+    local have_busybox=false
+    if [ -x /bin/busybox ]; then
+        _copy_with_deps /bin/busybox
+        have_busybox=true
+        # Create common tool symlinks so our init script works regardless of
+        # whether the installer's shell supports `command -v`.
+        for t in sh ash mount umount mkdir cat echo sleep ls cp ln mknod \
+                 switch_root modprobe insmod lsmod dd sync poweroff \
+                 reboot blkid awk sed grep; do
+            ln -sf busybox "$work_dir/bin/$t" 2>/dev/null || true
+        done
+    fi
+
+    # Guarantee a working /bin/sh even if busybox is missing.
+    if [ ! -e "$work_dir/bin/sh" ]; then
+        if [ -x /bin/sh ]; then _copy_with_deps /bin/sh; fi
+        if [ -x /bin/bash ]; then
+            _copy_with_deps /bin/bash
+            ln -sf bash "$work_dir/bin/sh" 2>/dev/null || true
+        fi
+    fi
+
+    # cryptsetup + dependencies (libcryptsetup, libargon2, libjson-c, ...)
+    local cs_bin=""
+    for c in /sbin/cryptsetup /usr/sbin/cryptsetup /usr/bin/cryptsetup /bin/cryptsetup; do
+        [ -x "$c" ] && cs_bin="$c" && break
+    done
+    if [ -z "$cs_bin" ]; then
+        echo "build_luks_initramfs: cryptsetup binary not found" >&2
+        rm -rf "$work_dir"
+        return 1
+    fi
+    _copy_with_deps "$cs_bin"
+    # cryptsetup expects to be at /sbin/cryptsetup inside initramfs
+    [ -x "$work_dir/sbin/cryptsetup" ] || ln -sf "..${cs_bin}" "$work_dir/sbin/cryptsetup" 2>/dev/null || true
+
+    # Copy blkid and findmnt for debugging/search (optional)
+    for extra in /sbin/blkid /usr/sbin/blkid /sbin/findmnt /usr/bin/findmnt; do
+        [ -x "$extra" ] && _copy_with_deps "$extra"
+    done
+
+    # Copy dynamic linker explicitly (glibc-ism) to canonical paths the binaries expect
+    for ld in /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /lib/ld-musl-x86_64.so.1; do
+        if [ -f "$ld" ]; then
+            mkdir -p "$work_dir$(dirname "$ld")"
+            cp -f "$ld" "$work_dir$ld" 2>/dev/null || true
+        fi
+    done
+
+    # ── Kernel modules needed for LUKS ──────────────────────────────
+    local kver
+    kver=$(uname -r 2>/dev/null || true)
+    if [ -n "$kver" ] && [ -d "/lib/modules/$kver" ]; then
+        mkdir -p "$work_dir/lib/modules/$kver"
+        # Copy minimal set + modules.* resolver files. depmod inside rootfs
+        # has already written those during buildroot.
+        for f in modules.dep modules.alias modules.builtin modules.symbols \
+                 modules.dep.bin modules.alias.bin modules.symbols.bin \
+                 modules.builtin.bin modules.builtin.modinfo; do
+            [ -f "/lib/modules/$kver/$f" ] && \
+                cp -f "/lib/modules/$kver/$f" "$work_dir/lib/modules/$kver/" 2>/dev/null || true
+        done
+        # Required crypto + block modules.
+        for modname in dm-mod dm-crypt aes aes_generic aes-x86_64 aesni-intel \
+                       xts sha256 sha256_generic cbc ecb cryptd gf128mul \
+                       libaes libsha256 crypto_simd crc32 crc32c_generic \
+                       crc32c-intel ext4 mbcache jbd2 crc16 loop virtio_blk \
+                       ahci libahci sd_mod scsi_mod; do
+            local modpath
+            modpath=$(find "/lib/modules/$kver" -name "${modname}.ko*" 2>/dev/null | head -1)
+            if [ -n "$modpath" ] && [ -f "$modpath" ]; then
+                mkdir -p "$work_dir$(dirname "$modpath")"
+                cp -f "$modpath" "$work_dir${modpath}" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # ── /etc/iora-crypt.conf inside initramfs ───────────────────────
+    cat > "$work_dir/etc/iora-crypt.conf" <<CONF
+LUKS_ROOT_A_UUID=${uuid_a}
+LUKS_ROOT_B_UUID=${uuid_b}
+LUKS_ROOT_A_NAME=iora_root_a
+LUKS_ROOT_B_NAME=iora_root_b
+CONF
+
+    # ── /init script ────────────────────────────────────────────────
+    cat > "$work_dir/init" <<'LUKSINIT'
+#!/bin/sh
+# IORA LUKS initramfs
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t tmpfs tmpfs /dev 2>/dev/null
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+
+[ -e /dev/console ] || mknod -m 600 /dev/console c 5 1 2>/dev/null
+[ -e /dev/null    ] || mknod -m 666 /dev/null    c 1 3 2>/dev/null
+
+# Load crypto + dm modules. depmod -n file must already exist.
+for m in dm-mod dm-crypt xts aes sha256 aesni_intel ahci libahci sd_mod \
+         virtio_blk ext4; do
+    modprobe "$m" 2>/dev/null
+done
+
+# Parse kernel cmdline for iora_slot=a|b (set by grub entry) OR
+# root=/dev/mapper/iora_root_X
+slot="a"
+for word in $(cat /proc/cmdline); do
+    case "$word" in
+        iora_slot=a) slot=a ;;
+        iora_slot=b) slot=b ;;
+        root=/dev/mapper/iora_root_a) slot=a ;;
+        root=/dev/mapper/iora_root_b) slot=b ;;
+    esac
+done
+
+# Load UUIDs
+[ -r /etc/iora-crypt.conf ] && . /etc/iora-crypt.conf
+
+if [ "$slot" = "b" ]; then
+    uuid="$LUKS_ROOT_B_UUID"; name="${LUKS_ROOT_B_NAME:-iora_root_b}"
+else
+    uuid="$LUKS_ROOT_A_UUID"; name="${LUKS_ROOT_A_NAME:-iora_root_a}"
+fi
+
+if [ -z "$uuid" ]; then
+    echo "IORA initramfs: missing LUKS UUID in /etc/iora-crypt.conf"
+    exec sh
+fi
+
+# Wait for backing device
+echo "IORA initramfs: waiting for /dev/disk/by-uuid/${uuid} ..."
+i=0
+while [ "$i" -lt 30 ] && [ ! -e "/dev/disk/by-uuid/${uuid}" ]; do
+    sleep 1
+    i=$((i+1))
+done
+
+if [ ! -e "/dev/disk/by-uuid/${uuid}" ]; then
+    echo "IORA initramfs: device with UUID ${uuid} not found, dropping to shell"
+    exec sh
+fi
+
+# Unlock loop (3 attempts)
+attempts=0
+while [ "$attempts" -lt 3 ]; do
+    echo ""
+    printf "Enter passphrase for IORA OS root (%s): " "$name"
+    if cryptsetup open --type luks --tries 1 "/dev/disk/by-uuid/${uuid}" "$name"; then
+        break
+    fi
+    attempts=$((attempts+1))
+    echo "Wrong passphrase (attempt $attempts of 3)"
+done
+
+if [ ! -e "/dev/mapper/${name}" ]; then
+    echo "IORA initramfs: unlock failed, dropping to shell"
+    exec sh
+fi
+
+# Mount and pivot
+mount -t ext4 -o ro "/dev/mapper/${name}" /mnt/root 2>/dev/null \
+    || mount "/dev/mapper/${name}" /mnt/root 2>/dev/null
+
+if [ ! -x /mnt/root/sbin/init ] && [ ! -x /mnt/root/lib/systemd/systemd ] \
+   && [ ! -x /mnt/root/bin/sh ]; then
+    echo "IORA initramfs: /mnt/root has no init, dropping to shell"
+    exec sh
+fi
+
+# Hand off to real init
+for initpath in /sbin/init /lib/systemd/systemd /bin/init /bin/sh; do
+    if [ -x "/mnt/root${initpath}" ]; then
+        exec switch_root /mnt/root "$initpath"
+    fi
+done
+
+echo "IORA initramfs: switch_root failed"
+exec sh
+LUKSINIT
+    chmod 755 "$work_dir/init"
+
+    # ── Package into cpio.gz ────────────────────────────────────────
+    (
+        cd "$work_dir" || exit 1
+        find . | cpio -H newc -o 2>/dev/null | gzip -9
+    ) > "$output" || {
+        rm -rf "$work_dir"
+        return 1
+    }
+
+    local sz
+    sz=$(stat -c %s "$output" 2>/dev/null || echo 0)
+    echo "LUKS initramfs written: $output (${sz} bytes)"
+
+    rm -rf "$work_dir"
+    return 0
+}
+
+# ── LUKS root encryption (in-place) ─────────────────────────────────────
+# Encrypts both A and B root partitions using cryptsetup reencrypt --encrypt.
+# The original rootfs stays intact; a LUKS2 header is added at the start of
+# the partition, shifting data by the header size (default 16 MiB). After
+# this we also rewrite grub.cfg to unlock and mount the encrypted rootfs.
+# Requires cryptsetup 2.4+.
+encrypt_root_partitions() {
+    local disk="$1"
+    local root_a root_b esp rootfs
+    root_a=$(disk_part_name "$disk" 3)
+    root_b=$(disk_part_name "$disk" 4)
+    esp=$(disk_part_name "$disk" 2)
+
+    if ! command -v cryptsetup >/dev/null 2>&1; then
+        echo "cryptsetup not available"
+        return 1
+    fi
+    if [ -z "$LUKS_PASSPHRASE" ]; then
+        echo "LUKS passphrase not set"
+        return 1
+    fi
+
+    # Check cryptsetup supports reencrypt --encrypt (cryptsetup 2.4+)
+    if ! cryptsetup --help 2>&1 | grep -q "reencrypt"; then
+        echo "cryptsetup lacks reencrypt support - cannot encrypt in place"
+        return 1
+    fi
+
+    _encrypt_one() {
+        local part="$1"
+        local name="$2"
+        [ -b "$part" ] || { echo "skip $part (not a block device)"; return 0; }
+
+        echo "Encrypting $part as $name..."
+        # Reduce device size by 32 MiB to make room for the LUKS header without
+        # truncating filesystem data. The rootfs inside is smaller than the
+        # partition so this is always safe for IORA's 2 GB root partitions.
+        printf '%s' "$LUKS_PASSPHRASE" | cryptsetup reencrypt \
+            --encrypt \
+            --type luks2 \
+            --reduce-device-size 32M \
+            --cipher aes-xts-plain64 \
+            --hash sha256 \
+            --key-size 512 \
+            --pbkdf argon2id \
+            --batch-mode \
+            "$part" 2>&1 || {
+                echo "reencrypt failed for $part"
+                return 1
+            }
+        echo "$part encrypted OK"
+    }
+
+    _encrypt_one "$root_a" "iora_root_a" || return 1
+    _encrypt_one "$root_b" "iora_root_b" || return 1
+
+    # Open A, rewrite /etc/crypttab + /etc/default/grub inside, close.
+    if ! printf '%s' "$LUKS_PASSPHRASE" | cryptsetup open --batch-mode "$root_a" iora_root_a 2>&1; then
+        echo "could not open encrypted root A"
+        return 1
+    fi
+
+    local mnt="/mnt/luks-target"
+    mkdir -p "$mnt"
+    if ! mount /dev/mapper/iora_root_a "$mnt" 2>&1; then
+        echo "cannot mount encrypted root A"
+        cryptsetup close iora_root_a 2>/dev/null || true
+        return 1
+    fi
+
+    local uuid_a uuid_b
+    uuid_a=$(cryptsetup luksUUID "$root_a" 2>/dev/null || true)
+    uuid_b=$(cryptsetup luksUUID "$root_b" 2>/dev/null || true)
+
+    mkdir -p "$mnt/etc"
+    cat > "$mnt/etc/crypttab" <<CRYPTTAB
+# Generated by IORA installer
+iora_root_a UUID=${uuid_a} none luks,discard
+iora_root_b UUID=${uuid_b} none luks,discard
+CRYPTTAB
+
+    # Write /etc/iora-crypt.conf so the initramfs hook picks it up.
+    cat > "$mnt/etc/iora-crypt.conf" <<CRYPTCONF
+LUKS_ROOT_A_UUID=${uuid_a}
+LUKS_ROOT_B_UUID=${uuid_b}
+LUKS_ROOT_A_NAME=iora_root_a
+LUKS_ROOT_B_NAME=iora_root_b
+CRYPTCONF
+
+    sync
+    umount "$mnt" 2>/dev/null || true
+    cryptsetup close iora_root_a 2>/dev/null || true
+
+    # Rewrite grub.cfg on ESP to use cryptomount.
+    local esp_mnt="/mnt/luks-esp"
+    mkdir -p "$esp_mnt"
+    if mount -t vfat "$esp" "$esp_mnt" 2>&1; then
+        mkdir -p "$esp_mnt/boot/grub" 2>/dev/null || true
+
+        # Build and install the LUKS initramfs onto the ESP.
+        local initrd_ok=false
+        if build_luks_initramfs "$esp_mnt/initrd-luks.img" "$uuid_a" "$uuid_b"; then
+            initrd_ok=true
+        fi
+
+        local initrd_line=""
+        if [ "$initrd_ok" = true ]; then
+            initrd_line="    initrd /initrd-luks.img"
+        fi
+
+        cat > "$esp_mnt/boot/grub/grub.cfg" <<LUKSGRUB
+# Generated by IORA installer (LUKS)
+insmod cryptodisk
+insmod luks
+insmod gcry_rijndael
+insmod gcry_sha256
+insmod part_gpt
+insmod ext2
+
+set default=0
+set timeout=5
+
+menuentry "IORA OS (encrypted)" {
+    cryptomount -u ${uuid_a}
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 nomodeset quiet iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+${initrd_line}
+}
+
+menuentry "IORA OS - second slot (encrypted)" {
+    cryptomount -u ${uuid_b}
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 nomodeset quiet iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
+${initrd_line}
+}
+
+menuentry "IORA OS Recovery (encrypted)" {
+    cryptomount -u ${uuid_a}
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait rw rootfstype=ext4 nomodeset init=/bin/sh iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+${initrd_line}
+}
+LUKSGRUB
+        sync
+        umount "$esp_mnt" 2>/dev/null || true
+    fi
+    rmdir "$esp_mnt" 2>/dev/null || true
+    rmdir "$mnt" 2>/dev/null || true
+
+    echo "LUKS setup complete; A-UUID=${uuid_a} B-UUID=${uuid_b}"
+    return 0
+}
+
+# ── Keep-mode installer ─────────────────────────────────────────────────
+# Installs IORA OS into an existing partition without touching other
+# partitions on the disk. The user has already picked KEEP_TARGET_ROOT
+# (always reformatted) and optionally KEEP_TARGET_ESP.
+install_keep_mode() {
+    local disk="$1"
+    local root_part="$KEEP_TARGET_ROOT"
+    local esp_part="$KEEP_TARGET_ESP"
+    local target="/mnt/keep-target"
+    local rc=0
+    local progress="/tmp/keep-install.log"
+    : > "$progress"
+
+    if [ ! -b "$root_part" ]; then
+        dlg_msg " Invalid Target " "Root partition ${root_part} is not a block device."
+        return 1
+    fi
+
+    # Extract rootfs image from the compressed installer payload. The payload
+    # is a disk image (iora-os.img.xz) containing the full A/B layout. We only
+    # need the root partition (p3) contents. Easiest: decompress to a temp
+    # file, loop-mount, then copy partition 3 to the target root partition.
+    local tmp_img="/tmp/iora-payload.img"
+
+    local steps_total=8
+    _keep_gauge() {
+        local pct="$1" msg="$2"
+        echo "$pct"; echo "XXX"; echo "  $msg"; echo "XXX"
+        echo "[$(date '+%H:%M:%S')] ${pct}% ${msg}" >> "$progress"
+    }
+
+    (
+        _keep_gauge 2  "Preparing target partition ${root_part}..."
+        umount "$root_part" 2>/dev/null || true
+        [ -n "$esp_part" ] && umount "$esp_part" 2>/dev/null || true
+
+        _keep_gauge 5  "Decompressing installer payload..."
+        if ! xz -dk -c "${ISO_MOUNT}/${ISO_IMAGE}" > "${tmp_img}" 2>>"$progress"; then
+            echo 1 > /tmp/install_result
+            exit 1
+        fi
+
+        _keep_gauge 30 "Finding payload partitions..."
+        local loop
+        loop=$(losetup -fP --show "${tmp_img}" 2>>"$progress")
+        if [ -z "$loop" ] || [ ! -b "${loop}p3" ]; then
+            echo "[$(date '+%H:%M:%S')] ERROR: could not attach payload loop device" >> "$progress"
+            [ -n "$loop" ] && losetup -d "$loop" 2>/dev/null || true
+            echo 1 > /tmp/install_result
+            exit 1
+        fi
+
+        _keep_gauge 35 "Formatting ${root_part} (ext4)..."
+        mkfs.ext4 -F -L iora-root "$root_part" >>"$progress" 2>&1 || {
+            losetup -d "$loop" 2>/dev/null || true
+            echo 1 > /tmp/install_result
+            exit 1
+        }
+
+        _keep_gauge 40 "Copying rootfs to ${root_part}..."
+        # Use dd with progress for a predictable copy (partition-sized).
+        local src_size dst_size
+        src_size=$(blockdev --getsize64 "${loop}p3" 2>/dev/null || echo 0)
+        dst_size=$(blockdev --getsize64 "${root_part}" 2>/dev/null || echo 0)
+        if [ "$dst_size" -lt "$src_size" ]; then
+            echo "[$(date '+%H:%M:%S')] ERROR: target ${root_part} (${dst_size} B) smaller than source (${src_size} B)" >> "$progress"
+            losetup -d "$loop" 2>/dev/null || true
+            echo 1 > /tmp/install_result
+            exit 1
+        fi
+
+        # Mount source, target; copy with cp -a (preserves xattrs/perms/links).
+        mkdir -p /mnt/keep-src /mnt/keep-dst
+        mount -o ro "${loop}p3" /mnt/keep-src 2>>"$progress" || {
+            losetup -d "$loop" 2>/dev/null || true
+            echo 1 > /tmp/install_result
+            exit 1
+        }
+        mount "$root_part" /mnt/keep-dst 2>>"$progress" || {
+            umount /mnt/keep-src 2>/dev/null
+            losetup -d "$loop" 2>/dev/null || true
+            echo 1 > /tmp/install_result
+            exit 1
+        }
+        cp -a /mnt/keep-src/. /mnt/keep-dst/ >>"$progress" 2>&1 || {
+            umount /mnt/keep-dst /mnt/keep-src 2>/dev/null
+            losetup -d "$loop" 2>/dev/null || true
+            echo 1 > /tmp/install_result
+            exit 1
+        }
+
+        _keep_gauge 75 "Copying kernel + bootloader files..."
+        # Copy kernel from source payload's ESP (p2)
+        if [ -b "${loop}p2" ] && [ -n "$esp_part" ]; then
+            mkdir -p /mnt/keep-src-esp /mnt/keep-dst-esp
+            if mount -o ro -t vfat "${loop}p2" /mnt/keep-src-esp 2>>"$progress" \
+               && mount -t vfat "$esp_part" /mnt/keep-dst-esp 2>>"$progress"; then
+                # Preserve existing ESP content (other OSes); add/overwrite only IORA files.
+                [ -f /mnt/keep-src-esp/vmlinuz ] && cp -f /mnt/keep-src-esp/vmlinuz /mnt/keep-dst-esp/iora-vmlinuz 2>>"$progress" || true
+                mkdir -p /mnt/keep-dst-esp/EFI/IORA 2>/dev/null || true
+                if [ -d /mnt/keep-src-esp/EFI ]; then
+                    cp -a /mnt/keep-src-esp/EFI/. /mnt/keep-dst-esp/EFI/ 2>>"$progress" || true
+                fi
+                umount /mnt/keep-dst-esp 2>/dev/null || true
+                umount /mnt/keep-src-esp 2>/dev/null || true
+            fi
+        fi
+
+        _keep_gauge 85 "Writing grub.cfg..."
+        mkdir -p /mnt/keep-dst/boot/grub 2>/dev/null || true
+        local root_uuid root_partuuid
+        root_partuuid=$(blkid -s PARTUUID -o value "$root_part" 2>/dev/null || true)
+        root_uuid=$(blkid -s UUID -o value "$root_part" 2>/dev/null || true)
+        local root_ref="/dev/$(basename "$root_part")"
+        [ -n "$root_partuuid" ] && root_ref="PARTUUID=${root_partuuid}"
+        [ -n "$root_uuid" ] && root_ref="UUID=${root_uuid}"
+
+        cat > /mnt/keep-dst/boot/grub/grub.cfg <<GRUBCFG
+set default=0
+set timeout=5
+
+menuentry "IORA OS" {
+    search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
+    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+}
+
+menuentry "IORA OS Recovery" {
+    search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
+    linux /boot/vmlinuz root=${root_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+}
+GRUBCFG
+
+        _keep_gauge 90 "Installing bootloader..."
+        local had_esp=false
+        if [ -n "$esp_part" ] && [ -b "$esp_part" ]; then
+            mkdir -p /mnt/keep-dst/boot/efi
+            if mount -t vfat "$esp_part" /mnt/keep-dst/boot/efi 2>>"$progress"; then
+                had_esp=true
+            fi
+        fi
+
+        # Bind mount for grub-install chroot
+        mkdir -p /mnt/keep-dst/dev /mnt/keep-dst/proc /mnt/keep-dst/sys /mnt/keep-dst/run
+        mount --bind /dev  /mnt/keep-dst/dev  2>/dev/null || true
+        mount --bind /proc /mnt/keep-dst/proc 2>/dev/null || true
+        mount --bind /sys  /mnt/keep-dst/sys  2>/dev/null || true
+        mount --bind /run  /mnt/keep-dst/run  2>/dev/null || true
+
+        if chroot /mnt/keep-dst /bin/sh -c "command -v grub-install >/dev/null 2>&1" 2>/dev/null; then
+            chroot /mnt/keep-dst /bin/sh -c "grub-install --target=i386-pc --recheck --no-floppy /dev/${disk}" >>"$progress" 2>&1 || true
+            if [ "$had_esp" = true ] && [ -d /sys/firmware/efi ]; then
+                chroot /mnt/keep-dst /bin/sh -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --recheck /dev/${disk}" >>"$progress" 2>&1 || true
+            fi
+        elif command -v grub-install >/dev/null 2>&1; then
+            grub-install --target=i386-pc --boot-directory=/mnt/keep-dst/boot --recheck --no-floppy "/dev/${disk}" >>"$progress" 2>&1 || true
+            if [ "$had_esp" = true ] && [ -d /sys/firmware/efi ]; then
+                grub-install --target=x86_64-efi --efi-directory=/mnt/keep-dst/boot/efi --boot-directory=/mnt/keep-dst/boot --removable --recheck "/dev/${disk}" >>"$progress" 2>&1 || true
+            fi
+        fi
+
+        umount /mnt/keep-dst/run  2>/dev/null || true
+        umount /mnt/keep-dst/sys  2>/dev/null || true
+        umount /mnt/keep-dst/proc 2>/dev/null || true
+        umount /mnt/keep-dst/dev  2>/dev/null || true
+        [ "$had_esp" = true ] && umount /mnt/keep-dst/boot/efi 2>/dev/null || true
+
+        _keep_gauge 97 "Finalizing..."
+        sync
+        umount /mnt/keep-dst 2>/dev/null || true
+        umount /mnt/keep-src 2>/dev/null || true
+        losetup -d "$loop" 2>/dev/null || true
+        rm -f "${tmp_img}" 2>/dev/null || true
+
+        _keep_gauge 100 "Installation complete."
+        echo 0 > /tmp/install_result
+    ) | dlg --title " Installing into existing partition " --gauge \
+        "  Starting..." 12 72 0
+
+    local result
+    result=$(cat /tmp/install_result 2>/dev/null || echo 1)
+    result=$(safe_uint "$result" 1)
+
+    if [ "$result" -eq 0 ]; then
+        apply_post_install_config "$disk"
+        # Surface any warnings from the install log
+        if [ -n "$DIALOG_BIN" ] && [ -f "$progress" ]; then
+            if grep -qi "WARN\|ERROR\|failed" "$progress" 2>/dev/null; then
+                dlg --title " Install Log " --textbox "$progress" 22 78 || true
+            fi
+        fi
+        return 0
+    else
+        dlg_msg " Failed " "\
+ Install into existing partition failed.\n See ${progress} for details."
+        return 1
+    fi
 }
 
 screen_install() {
@@ -1941,6 +3283,15 @@ screen_install() {
     for part in /dev/${disk}*; do
         [ -b "$part" ] && umount "$part" 2>/dev/null || true
     done
+
+    # ── Keep mode: install into an existing partition instead of dd-ing ─────
+    # This preserves other operating systems on the disk. The selected root
+    # partition is reformatted, the rootfs is unpacked into it, and the
+    # existing ESP (if any) gets grub + grub.cfg + kernel.
+    if [ "$PARTITION_MODE" = "keep" ]; then
+        install_keep_mode "$disk"
+        return $?
+    fi
 
     if [ -n "$DIALOG_BIN" ]; then
         (
@@ -2046,6 +3397,17 @@ screen_install() {
             echo "  Applying system settings..."
             echo "XXX"
             echo "0" > /tmp/install_result
+
+            if [ "$LUKS_ENABLED" = true ]; then
+                echo "91"
+                echo "XXX"
+                echo "  Encrypting root partitions (LUKS)..."
+                echo "  This may take a few minutes."
+                echo "XXX"
+                encrypt_root_partitions "${disk}" >/tmp/luks.log 2>&1 || {
+                    echo "  LUKS encryption failed — see /tmp/luks.log" >> /tmp/luks.log
+                }
+            fi
 
             echo "93"
             echo "XXX"
@@ -2174,8 +3536,11 @@ screen_complete() {
 
 # ── Main wizard flow ───────────────────────────────────────────────
 run_wizard() {
-    # Step 0: Welcome
-    screen_welcome
+    # Step 0: Welcome / main menu. Returns non-zero if user picked a side
+    # action (rescue/shell/reboot); main dispatch has already handled it.
+    if ! screen_welcome; then
+        return 0
+    fi
 
     # Mount media with retries
     dlg_info " Scanning " "  Searching for installation media..."
@@ -2260,6 +3625,9 @@ run_wizard() {
     # Step 7: Root password
     screen_password
 
+    # Step 7b: Optional user account
+    screen_user
+
     # Step 8: Installation type
     if ! screen_installation_type; then
         return 1
@@ -2271,13 +3639,21 @@ run_wizard() {
         return 1
     fi
 
-    if disk_has_existing_data "$SEL_DISK"; then
-        if ! dlg_yesno " Existing Data Detected " "\
+    # Step 9b: Partitioning strategy (auto / keep / manual / encrypted)
+    if ! screen_partitioning; then
+        dlg_msg " Cancelled " "Partitioning was cancelled."
+        return 1
+    fi
+
+    if [ "$PARTITION_MODE" = "auto" ] || [ "$PARTITION_MODE" = "encrypted" ]; then
+        if disk_has_existing_data "$SEL_DISK"; then
+            if ! dlg_yesno " Existing Data Detected " "\
  Data or partitions were found on /dev/${SEL_DISK}.\n\n\
  Continuing will delete everything on this drive.\n\n\
  Do you want to erase the entire drive and continue?"; then
-            dlg_msg " Cancelled " "No changes were made."
-            return 1
+                dlg_msg " Cancelled " "No changes were made."
+                return 1
+            fi
         fi
     fi
 

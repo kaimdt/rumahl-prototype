@@ -51,6 +51,13 @@ STATIC_IP=""
 STATIC_GW=""
 STATIC_DNS=""
 
+# User accounts (hashed before being written to disk)
+IORA_ROOT_PW=""             # empty = keep default
+IORA_USER=""                # empty = no extra user
+IORA_USER_PW=""
+IORA_USER_FULLNAME=""
+IORA_USER_SUDO=true
+
 # Navigation / control flow
 NAV_BACK=10      # step requested "go back"
 NAV_RESTART=11   # step requested "restart wizard"
@@ -616,23 +623,107 @@ apply_system_config() {
         return 0
     fi
 
+    # Hash passwords with SHA-512 (-6). Never store the cleartext on disk.
+    local root_hash="" user_hash=""
+    if [ -n "$IORA_ROOT_PW" ] && command -v openssl >/dev/null 2>&1; then
+        root_hash=$(printf '%s' "$IORA_ROOT_PW" | openssl passwd -6 -stdin 2>/dev/null || echo "")
+    fi
+    if [ -n "$IORA_USER_PW" ] && command -v openssl >/dev/null 2>&1; then
+        user_hash=$(printf '%s' "$IORA_USER_PW" | openssl passwd -6 -stdin 2>/dev/null || echo "")
+    fi
+
     mkdir -p "$mnt/iora"
+    # JSON escape helper
+    _j() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
     cat > "$mnt/iora/setup-hints.json" <<EOF
 {
-  "hostname": "${IORA_HOSTNAME}",
-  "timezone": "${IORA_TIMEZONE}",
-  "keyboard": "${IORA_KEYBOARD}",
-  "locale":   "${IORA_LOCALE}",
-  "network":  { "mode": "${NETWORK_MODE}", "ip": "${STATIC_IP}", "gateway": "${STATIC_GW}", "dns": "${STATIC_DNS}" },
-  "disk":     { "target": "${TARGET_DISK}", "wipe": "${WIPE_METHOD}", "layout": "${PARTITION_MODE}", "encrypted": ${ENABLE_LUKS}, "swap_mb": ${SWAP_SIZE_MB} },
+  "hostname": "$(_j "$IORA_HOSTNAME")",
+  "timezone": "$(_j "$IORA_TIMEZONE")",
+  "keyboard": "$(_j "$IORA_KEYBOARD")",
+  "locale":   "$(_j "$IORA_LOCALE")",
+  "network":  { "mode": "$(_j "$NETWORK_MODE")", "ip": "$(_j "$STATIC_IP")", "gateway": "$(_j "$STATIC_GW")", "dns": "$(_j "$STATIC_DNS")" },
+  "disk":     { "target": "$(_j "$TARGET_DISK")", "wipe": "$(_j "$WIPE_METHOD")", "layout": "$(_j "$PARTITION_MODE")", "encrypted": ${ENABLE_LUKS}, "swap_mb": ${SWAP_SIZE_MB} },
+  "users": {
+    "root":   { "password_hash": "$(_j "$root_hash")" },
+    "first":  {
+      "name":          "$(_j "$IORA_USER")",
+      "full_name":     "$(_j "$IORA_USER_FULLNAME")",
+      "password_hash": "$(_j "$user_hash")",
+      "sudo":          ${IORA_USER_SUDO}
+    }
+  },
   "installed_at": "${INSTALL_STARTED_AT}",
-  "installer_version": "netinstall-1"
+  "installer_version": "netinstall-2"
 }
 EOF
     chmod 600 "$mnt/iora/setup-hints.json" 2>/dev/null || true
+
+    # Swap file
+    if [ "${SWAP_SIZE_MB:-0}" -gt 0 ] && command -v dd >/dev/null 2>&1; then
+        msg "Creating ${SWAP_SIZE_MB} MB swap file on data partition..."
+        if dd if=/dev/zero of="$mnt/swapfile" bs=1M count="${SWAP_SIZE_MB}" status=none 2>/dev/null; then
+            chmod 600 "$mnt/swapfile" 2>/dev/null || true
+            command -v mkswap >/dev/null 2>&1 && mkswap "$mnt/swapfile" >/dev/null 2>&1 || true
+            # Hint so first-boot can enable it via /etc/fstab
+            echo "SWAPFILE=/iora-data/swapfile SIZE_MB=${SWAP_SIZE_MB}" > "$mnt/iora/swap.conf"
+        else
+            warn "Swap file creation failed."
+        fi
+    fi
     sync
     umount "$mnt" 2>/dev/null || true
     msg "System configuration written to data partition."
+}
+
+# Optional: encrypt the root partitions of the freshly-written image with LUKS2.
+# Runs only when ENABLE_LUKS=true and cryptsetup is available. Best-effort —
+# logs a warning and returns 0 on failure so the user still has a bootable
+# unencrypted system.
+apply_luks_encryption() {
+    [ "$ENABLE_LUKS" = true ] || return 0
+    [ -n "$LUKS_PASSPHRASE" ] || { warn "No LUKS passphrase set, skipping encryption."; return 0; }
+    if ! command -v cryptsetup >/dev/null 2>&1; then
+        warn "cryptsetup not available; skipping LUKS encryption."
+        warn "Use the ISO installer for encrypted installations or install"
+        warn "cryptsetup in the live environment before running netinstall."
+        return 0
+    fi
+
+    # Identify root-A / root-B partitions by label iora-root-a / iora-root-b,
+    # falling back to partition ordering (p3/p4 on GPT images).
+    local root_a root_b
+    root_a=$(blkid -L iora-root-a 2>/dev/null || true)
+    root_b=$(blkid -L iora-root-b 2>/dev/null || true)
+    if [ -z "$root_a" ]; then
+        local base="$TARGET_DISK"
+        case "$base" in *[0-9]) sep="p" ;; *) sep="" ;; esac
+        root_a="${base}${sep}3"
+        root_b="${base}${sep}4"
+    fi
+    [ -b "$root_a" ] || { warn "Root-A partition not found, cannot encrypt."; return 0; }
+
+    msg "Encrypting ${root_a}${root_b:+ and $root_b} with LUKS2..."
+    local rc=0
+    printf '%s' "$LUKS_PASSPHRASE" | cryptsetup reencrypt --encrypt --type luks2 \
+        --reduce-device-size 32M --cipher aes-xts-plain64 --hash sha256 \
+        --key-size 512 --pbkdf argon2id --batch-mode --key-file=- "$root_a" \
+        2>>"$LOG_FILE" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        warn "LUKS encryption of ${root_a} failed (rc=$rc); root is unencrypted."
+        return 0
+    fi
+    if [ -b "$root_b" ]; then
+        printf '%s' "$LUKS_PASSPHRASE" | cryptsetup reencrypt --encrypt --type luks2 \
+            --reduce-device-size 32M --cipher aes-xts-plain64 --hash sha256 \
+            --key-size 512 --pbkdf argon2id --batch-mode --key-file=- "$root_b" \
+            2>>"$LOG_FILE" || warn "LUKS encryption of ${root_b} failed."
+    fi
+    # Clear in-memory passphrase
+    LUKS_PASSPHRASE=""
+    msg "${GREEN}LUKS encryption applied.${NC} A boot-time initramfs is required"
+    msg "to unlock the volume; this is included in images built with --encrypt."
+    return 0
 }
 
 verify_install() {
@@ -759,6 +850,246 @@ parse_args() {
     done
 }
 
+# ── Interactive wizard steps ───────────────────────────────────────────────
+#
+# Each step function returns:
+#   0             -> advance to next step
+#   $NAV_BACK     -> previous step
+#   $NAV_RESTART  -> restart the wizard
+#   $NAV_SHELL    -> exit to CLI
+#
+# Steps re-ask only on clearly invalid input.  They honour the reserved
+# navigation tokens via the ask() helper.
+
+# Read a password twice, echo the plain password on fd 1 (caller captures).
+_read_password_twice() {
+    local label="$1"
+    local p1 p2
+    while true; do
+        read -rsp "$(echo -e "${BOLD}${label}:${NC} ")" p1 || p1=""
+        echo ""
+        if [ -z "$p1" ]; then
+            echo "(empty — leaving unchanged)" >&2
+            printf ''
+            return 0
+        fi
+        if [ ${#p1} -lt 6 ]; then
+            warn "Password must be at least 6 characters."
+            continue
+        fi
+        read -rsp "$(echo -e "${BOLD}${label} (again):${NC} ")" p2 || p2=""
+        echo ""
+        if [ "$p1" != "$p2" ]; then
+            warn "Passwords do not match, try again."
+            continue
+        fi
+        printf '%s' "$p1"
+        return 0
+    done
+}
+
+step_disk_options() {
+    local rc answer
+
+    # 1) Partitioning strategy
+    echo ""
+    echo -e "${CYAN}${BOLD}─── Disk options ───${NC}"
+    echo "  1) Guided - Use entire disk (default)"
+    echo "  2) Guided - Use entire disk and encrypt (LUKS)"
+    echo "  3) Keep existing partitions (advanced — install into existing layout)"
+    echo ""
+    ask "Partition mode [1-3]" "1" || return $?
+    case "$REPLY" in
+        2)  PARTITION_MODE="auto-encrypted"; ENABLE_LUKS=true ;;
+        3)  PARTITION_MODE="keep"; ENABLE_LUKS=false
+            warn "Keep-mode writes into an existing partition. The downloaded"
+            warn "image already contains a full partition table; keep-mode for"
+            warn "the net installer is only supported via the ISO installer."
+            ask "Switch to guided (entire disk)? [Y/n]" "Y" || return $?
+            case "$REPLY" in
+                [nN]*) warn "Keep-mode selected - installer will abort later if unsafe." ;;
+                *)     PARTITION_MODE="auto" ;;
+            esac
+            ;;
+        *)  PARTITION_MODE="auto"; ENABLE_LUKS=false ;;
+    esac
+
+    # 2) LUKS passphrase
+    if [ "$ENABLE_LUKS" = true ]; then
+        echo ""
+        echo -e "${YELLOW}You chose full-disk encryption. Choose a strong passphrase;${NC}"
+        echo -e "${YELLOW}without it your data cannot be recovered.${NC}"
+        local pw
+        pw=$(_read_password_twice "LUKS passphrase") || return 1
+        if [ -z "$pw" ]; then
+            warn "Empty passphrase - disabling LUKS."
+            ENABLE_LUKS=false
+            PARTITION_MODE="auto"
+        else
+            LUKS_PASSPHRASE="$pw"
+        fi
+    fi
+
+    # 3) Wipe method
+    echo ""
+    echo "  How should the disk be prepared?"
+    echo "    1) Quick (just overwrite with the new image)"
+    echo "    2) Zero-fill entire disk (slow, deletes all residual data)"
+    echo "    3) Random-fill (very slow)"
+    echo "    4) ATA secure-erase (if the drive supports it)"
+    echo ""
+    ask "Wipe method [1-4]" "1" || return $?
+    case "$REPLY" in
+        2) WIPE_METHOD="zero" ;;
+        3) WIPE_METHOD="random" ;;
+        4) WIPE_METHOD="secure-erase" ;;
+        *) WIPE_METHOD="quick" ;;
+    esac
+
+    # 4) Swap
+    echo ""
+    ask "Swap file size in MB (0 = none)" "0" || return $?
+    if [[ "$REPLY" =~ ^[0-9]+$ ]]; then
+        SWAP_SIZE_MB="$REPLY"
+    else
+        SWAP_SIZE_MB=0
+    fi
+
+    return 0
+}
+
+step_system_options() {
+    # Hostname
+    ask "Hostname" "${IORA_HOSTNAME}" || return $?
+    # Enforce RFC 1123-ish hostname: alphanumerics and hyphens, <=63 chars
+    if [[ "$REPLY" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ ]]; then
+        IORA_HOSTNAME="$REPLY"
+    else
+        warn "Invalid hostname; keeping '${IORA_HOSTNAME}'."
+    fi
+
+    # Timezone
+    local tz_default="${IORA_TIMEZONE:-$(cat /etc/timezone 2>/dev/null || echo UTC)}"
+    ask "Timezone (e.g. Europe/Berlin, UTC)" "$tz_default" || return $?
+    IORA_TIMEZONE="$REPLY"
+
+    # Keyboard
+    ask "Keyboard layout (us, de, fr, ...)" "${IORA_KEYBOARD}" || return $?
+    IORA_KEYBOARD="$REPLY"
+
+    # Locale
+    ask "Locale" "${IORA_LOCALE}" || return $?
+    IORA_LOCALE="$REPLY"
+
+    # Root password
+    echo ""
+    echo -e "${CYAN}${BOLD}─── Root password ───${NC}"
+    echo "  Press Enter on both prompts to keep the image default."
+    local rpw
+    rpw=$(_read_password_twice "Root password (leave blank to keep default)") || return 1
+    IORA_ROOT_PW="$rpw"
+
+    # User account
+    echo ""
+    echo -e "${CYAN}${BOLD}─── First user account ───${NC}"
+    ask "Username (leave empty to skip)" "" || return $?
+    IORA_USER="$REPLY"
+    if [ -n "$IORA_USER" ]; then
+        # POSIX username rules: [a-z_][a-z0-9_-]*$
+        if ! [[ "$IORA_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+            warn "Invalid username - must start with a lowercase letter or _ and"
+            warn "contain only lowercase letters, digits, _ or -."
+            IORA_USER=""
+            return 0
+        fi
+        ask "Full name" "" || return $?
+        IORA_USER_FULLNAME="$REPLY"
+        local upw
+        upw=$(_read_password_twice "Password for ${IORA_USER}") || return 1
+        if [ -z "$upw" ]; then
+            warn "Empty password - user will be created with account LOCKED."
+        fi
+        IORA_USER_PW="$upw"
+
+        ask "Grant sudo/admin rights to ${IORA_USER}? [Y/n]" "Y" || return $?
+        case "$REPLY" in
+            [nN]*) IORA_USER_SUDO=false ;;
+            *)     IORA_USER_SUDO=true ;;
+        esac
+    fi
+
+    return 0
+}
+
+step_network_options() {
+    echo ""
+    echo -e "${CYAN}${BOLD}─── Network configuration ───${NC}"
+    echo "  1) DHCP - automatic (default)"
+    echo "  2) Static IP"
+    echo ""
+    ask "Network mode [1-2]" "1" || return $?
+    case "$REPLY" in
+        2)
+            NETWORK_MODE="static"
+            ask "Static IPv4 address (CIDR e.g. 192.168.1.50/24)" "$STATIC_IP" || return $?
+            STATIC_IP="$REPLY"
+            ask "Default gateway" "$STATIC_GW" || return $?
+            STATIC_GW="$REPLY"
+            ask "DNS servers (space-separated)" "${STATIC_DNS:-1.1.1.1 8.8.8.8}" || return $?
+            STATIC_DNS="$REPLY"
+            ;;
+        *)
+            NETWORK_MODE="dhcp"
+            STATIC_IP=""; STATIC_GW=""; STATIC_DNS=""
+            ;;
+    esac
+    return 0
+}
+
+step_review() {
+    local disk_size_gb=0
+    if [ -n "$TARGET_DISK" ]; then
+        disk_size_gb=$(cat "/sys/block/$(basename "$TARGET_DISK")/size" 2>/dev/null || echo 0)
+        disk_size_gb=$((disk_size_gb * 512 / 1024 / 1024 / 1024))
+    fi
+
+    echo ""
+    echo -e "${CYAN}${BOLD}─── Installation summary ───${NC}"
+    printf "  %-22s %s\n" "Target disk:"    "${TARGET_DISK} (${disk_size_gb} GB)"
+    printf "  %-22s %s\n" "Boot mode:"      "${BOOT_MODE}"
+    printf "  %-22s %s\n" "Channel:"        "${CHANNEL}"
+    printf "  %-22s %s\n" "IORA version:"   "${OS_VERSION:-<from server>}"
+    printf "  %-22s %s\n" "Partition mode:" "${PARTITION_MODE}"
+    printf "  %-22s %s\n" "Disk wipe:"      "${WIPE_METHOD}"
+    printf "  %-22s %s\n" "Encryption:"     "$([ "$ENABLE_LUKS" = true ] && echo "LUKS (enabled)" || echo "none")"
+    printf "  %-22s %s\n" "Swap file:"      "$([ "$SWAP_SIZE_MB" -gt 0 ] && echo "${SWAP_SIZE_MB} MB" || echo "none")"
+    printf "  %-22s %s\n" "Hostname:"       "${IORA_HOSTNAME}"
+    printf "  %-22s %s\n" "Timezone:"       "${IORA_TIMEZONE:-<system>}"
+    printf "  %-22s %s\n" "Locale:"         "${IORA_LOCALE}"
+    printf "  %-22s %s\n" "Keyboard:"       "${IORA_KEYBOARD}"
+    printf "  %-22s %s\n" "Network:"        "${NETWORK_MODE}"
+    if [ "$NETWORK_MODE" = static ]; then
+        printf "  %-22s %s\n" "  Static IP:"    "${STATIC_IP}"
+        printf "  %-22s %s\n" "  Gateway:"      "${STATIC_GW}"
+        printf "  %-22s %s\n" "  DNS:"          "${STATIC_DNS}"
+    fi
+    printf "  %-22s %s\n" "Root password:"  "$([ -n "$IORA_ROOT_PW" ] && echo "(changed)" || echo "(image default)")"
+    if [ -n "$IORA_USER" ]; then
+        printf "  %-22s %s\n" "User account:"    "${IORA_USER} ($([ "$IORA_USER_SUDO" = true ] && echo sudo || echo nosudo))"
+    else
+        printf "  %-22s %s\n" "User account:"    "(none)"
+    fi
+    echo ""
+    echo -e "${RED}${BOLD}  ALL DATA ON ${TARGET_DISK} WILL BE ERASED!${NC}"
+    echo ""
+
+    ask "Start installation? [y/N]" "N" || return $?
+    case "$REPLY" in
+        [yY]|[yY][eE][sS]) return 0 ;;
+        *) return "$NAV_BACK" ;;
+    esac
+}
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 #
 # The installer is a linear wizard with a fixed step list. Each step may
@@ -837,6 +1168,7 @@ main() {
     report_status "started" "netinstall ${OS_VERSION} -> ${TARGET_DISK} (${BOOT_MODE})" || true
     download_image
     install_image
+    apply_luks_encryption
     apply_system_config
     verify_install
     show_complete

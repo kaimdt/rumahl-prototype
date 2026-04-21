@@ -8,6 +8,78 @@ TARGET_DIR=$1
 
 echo "IORA OS: Running post-build script..."
 
+# ── Bundle grub tools into target rootfs ─────────────────────────────────────
+# Buildroot's BR2_TARGET_GRUB2 only installs grub-install into HOST_DIR (for
+# post-image.sh use). The live installer initramfs IS this target rootfs, and
+# it needs grub-install + grub modules to robustly repair/install bootloaders
+# on the user's disk after dd. Without this, the repair step can only write
+# grub.cfg and hope that the MBR/core.img survived the dd unchanged.
+bundle_grub_tools() {
+    local host_dir=""
+    # Buildroot exports HOST_DIR; fall back to derived path.
+    if [ -n "${HOST_DIR:-}" ] && [ -d "${HOST_DIR}" ]; then
+        host_dir="${HOST_DIR}"
+    elif [ -d "${TARGET_DIR}/../host" ]; then
+        host_dir="$(cd "${TARGET_DIR}/../host" && pwd)"
+    fi
+    if [ -z "${host_dir}" ] || [ ! -d "${host_dir}" ]; then
+        echo "IORA OS: WARN: HOST_DIR not resolvable; skipping grub bundling"
+        return 0
+    fi
+
+    echo "IORA OS: Bundling grub tools from ${host_dir} into installer rootfs"
+
+    mkdir -p "${TARGET_DIR}/usr/sbin" "${TARGET_DIR}/usr/bin" "${TARGET_DIR}/usr/lib/grub"
+
+    # grub-install and friends (shell scripts + binaries)
+    for tool in grub-install grub-mkimage grub-mkconfig grub-mkrescue \
+                grub-bios-setup grub-editenv grub-probe grub-mkdevicemap \
+                grub-reboot grub-set-default; do
+        for src in "${host_dir}/sbin/${tool}" \
+                   "${host_dir}/bin/${tool}" \
+                   "${host_dir}/usr/sbin/${tool}" \
+                   "${host_dir}/usr/bin/${tool}"; do
+            if [ -x "${src}" ] && [ ! -e "${TARGET_DIR}/usr/sbin/${tool}" ]; then
+                cp -f "${src}" "${TARGET_DIR}/usr/sbin/${tool}" 2>/dev/null || true
+                chmod 755 "${TARGET_DIR}/usr/sbin/${tool}" 2>/dev/null || true
+                break
+            fi
+        done
+    done
+
+    # Copy grub modules & prefixes required for BIOS + UEFI install
+    for arch in i386-pc x86_64-efi; do
+        for src in "${host_dir}/lib/grub/${arch}" \
+                   "${host_dir}/usr/lib/grub/${arch}" \
+                   "${host_dir}/share/grub/${arch}"; do
+            if [ -d "${src}" ] && [ ! -d "${TARGET_DIR}/usr/lib/grub/${arch}" ]; then
+                cp -a "${src}" "${TARGET_DIR}/usr/lib/grub/${arch}" 2>/dev/null || true
+                break
+            fi
+        done
+    done
+
+    # grub shared data (unicode.pf2, themes) — small, speeds up rescues
+    for src in "${host_dir}/share/grub/unicode.pf2" \
+               "${host_dir}/usr/share/grub/unicode.pf2"; do
+        if [ -f "${src}" ]; then
+            mkdir -p "${TARGET_DIR}/usr/share/grub"
+            cp -f "${src}" "${TARGET_DIR}/usr/share/grub/unicode.pf2" 2>/dev/null || true
+            break
+        fi
+    done
+
+    # Report status
+    if [ -x "${TARGET_DIR}/usr/sbin/grub-install" ]; then
+        echo "IORA OS: grub-install bundled OK"
+    else
+        echo "IORA OS: WARN: grub-install NOT bundled - installer will rely on pre-installed MBR"
+    fi
+    [ -d "${TARGET_DIR}/usr/lib/grub/i386-pc" ]    && echo "IORA OS: i386-pc modules bundled"
+    [ -d "${TARGET_DIR}/usr/lib/grub/x86_64-efi" ] && echo "IORA OS: x86_64-efi modules bundled"
+}
+bundle_grub_tools
+
 # Create necessary directories
 mkdir -p "${TARGET_DIR}/mnt/data"
 mkdir -p "${TARGET_DIR}/var/lib/docker"
