@@ -24,6 +24,7 @@ export function ORAOverlay() {
   const [error, setError] = useState<string | null>(null)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
   const [isTTSEnabled, setIsTTSEnabled] = useState(true)
+  const [screenshotData, setScreenshotData] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
@@ -193,6 +194,31 @@ export function ORAOverlay() {
     }
   }
 
+  const handleCaptureScreenshot = async () => {
+    try {
+      setState('thinking')
+      const result = await invoke<{ image_base64: string; timestamp: string }>('ora_capture_screenshot')
+      setScreenshotData(result.image_base64)
+
+      // Add system message about screenshot
+      const screenshotMessage: AIChatMessage = {
+        role: 'system',
+        content: 'Screenshot aufgenommen und bereit zur Analyse',
+        timestamp: result.timestamp,
+      }
+      setMessages(prev => [...prev, screenshotMessage])
+      setState('idle')
+    } catch (e) {
+      console.error('Screenshot failed:', e)
+      setError(e instanceof Error ? e.message : 'Screenshot fehlgeschlagen')
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+    }
+  }
+
   const getStateColor = () => {
     switch (state) {
       case 'listening': return 'from-blue-500/40 to-cyan-500/40'
@@ -343,6 +369,32 @@ export function ORAOverlay() {
           )}
         </AnimatePresence>
 
+        {/* Screenshot preview */}
+        <AnimatePresence>
+          {screenshotData && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="relative z-10 mx-6 mb-3"
+            >
+              <div className="relative rounded-xl overflow-hidden border border-white/20 bg-white/5">
+                <img
+                  src={`data:image/png;base64,${screenshotData}`}
+                  alt="Screenshot"
+                  className="w-full h-auto"
+                />
+                <button
+                  onClick={() => setScreenshotData(null)}
+                  className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 transition-colors flex items-center justify-center text-white"
+                >
+                  <X size={14} weight="bold" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Input area */}
         <div className="relative z-10 px-6 py-4 border-t border-white/10">
           <div className="flex items-center gap-2">
@@ -396,8 +448,9 @@ export function ORAOverlay() {
               <span>Internet suchen</span>
             </button>
             <button
-              disabled
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 text-white/30 text-xs cursor-not-allowed"
+              onClick={handleCaptureScreenshot}
+              disabled={state === 'thinking'}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ImageSquare size={14} />
               <span>Screenshot</span>

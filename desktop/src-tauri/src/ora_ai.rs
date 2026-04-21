@@ -4,6 +4,9 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use crate::commands::AppState;
+use screenshots::Screen;
+use image::ImageFormat;
+use std::io::Cursor;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIChatMessage {
@@ -179,10 +182,29 @@ pub async fn ora_toggle_overlay(app: AppHandle) -> Result<(), String> {
 /// Capture a screenshot of the current screen
 #[tauri::command]
 pub async fn ora_capture_screenshot() -> Result<ScreenshotData, String> {
-    // This is a placeholder - actual implementation would use platform-specific APIs
-    // For now, return empty data
+    // Get all available screens
+    let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+
+    // Use the primary screen (first one)
+    let screen = screens.first()
+        .ok_or_else(|| "No screens available".to_string())?;
+
+    // Capture the screenshot
+    let image = screen.capture()
+        .map_err(|e| format!("Failed to capture screenshot: {}", e))?;
+
+    // Convert to PNG and encode as base64
+    let mut png_data = Vec::new();
+    {
+        let mut cursor = Cursor::new(&mut png_data);
+        image.save(&mut cursor, ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+    }
+
+    let image_base64 = base64::encode(&png_data);
+
     Ok(ScreenshotData {
-        image_base64: String::new(),
+        image_base64,
         timestamp: chrono::Utc::now().to_rfc3339(),
     })
 }
