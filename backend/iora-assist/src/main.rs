@@ -21,9 +21,15 @@ use std::convert::Infallible;
 mod providers;
 mod context;
 mod database;
+mod orchestrator;
+mod task_engine;
+mod conversation_manager;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
+use orchestrator::{ProviderOrchestrator, TaskPurpose};
+use task_engine::TaskEngine;
+use conversation_manager::ConversationManager;
 
 use providers::{
     create_provider, AIProvider, ChatMessage as ProviderChatMessage, ProviderConfig,
@@ -37,6 +43,9 @@ struct AppState {
     current_provider: Arc<RwLock<Box<dyn AIProvider>>>,
     context_builder: Arc<ContextBuilder>,
     db: Option<DbPool>,
+    orchestrator: Arc<ProviderOrchestrator>,
+    task_engine: Option<Arc<TaskEngine>>,
+    conversation_manager: Option<Arc<ConversationManager>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -648,12 +657,47 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // Initialize multi-provider orchestrator
+    let orchestrator = Arc::new(ProviderOrchestrator::new(db.clone()));
+
+    // Initialize providers from database if available
+    if db.is_some() {
+        if let Err(e) = orchestrator.init_from_database().await {
+            error!("Failed to initialize providers from database: {}", e);
+        }
+    }
+
+    // Initialize task engine if database is available
+    let task_engine = if let Some(ref db_pool) = db {
+        let engine = Arc::new(TaskEngine::new(db_pool.clone(), orchestrator.clone()));
+        engine.start().await;
+        info!("Task engine started successfully");
+        Some(engine)
+    } else {
+        info!("Task engine disabled (no database connection)");
+        None
+    };
+
+    // Initialize conversation manager if database is available
+    let conversation_manager = if let Some(ref db_pool) = db {
+        let manager = Arc::new(ConversationManager::new(db_pool.clone(), orchestrator.clone()));
+        manager.start().await;
+        info!("Conversation manager started successfully");
+        Some(manager)
+    } else {
+        info!("Conversation manager disabled (no database connection)");
+        None
+    };
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
         current_provider: Arc::new(RwLock::new(initial_provider)),
         context_builder: Arc::new(ContextBuilder::new()),
         db,
+        orchestrator,
+        task_engine,
+        conversation_manager,
     };
 
     let app = Router::new()
