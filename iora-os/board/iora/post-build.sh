@@ -220,10 +220,18 @@ ln -sf /etc/systemd/system/iora-stack.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-stack.service"
 
 # Configure ZRAM for /tmp and /var
+# Must use DefaultDependencies=no + explicit shutdown ordering: default
+# deps would add After=sysinit.target, but sysinit.target transitively
+# comes After=local-fs.target (via systemd-tmpfiles-setup), and we have
+# Before=local-fs.target -> ordering cycle that systemd breaks by deleting
+# local-fs.target, which then kills PostgreSQL, Chrony, and mount units.
 cat > "${TARGET_DIR}/etc/systemd/system/zram.service" <<'EOF'
 [Unit]
 Description=Setup ZRAM for /tmp and /var
-Before=local-fs.target
+DefaultDependencies=no
+Before=local-fs.target shutdown.target
+Conflicts=shutdown.target
+After=systemd-remount-fs.service
 
 [Service]
 Type=oneshot

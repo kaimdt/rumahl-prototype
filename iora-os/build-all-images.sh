@@ -3927,6 +3927,148 @@ screen_complete() {
     fi
 }
 
+# ── Cancel / Interrupt handler ─────────────────────────────────────
+# Called whenever a wizard step returns non-zero (user pressed Cancel or
+# Esc). Instead of aborting the installer straight away, show a menu:
+#   - Retry current step
+#   - Jump to a specific step
+#   - Start the wizard over
+#   - Reboot / Power off
+#   - Drop to a rescue shell
+#   - Confirm abort
+#
+# Communicates back via the global WIZARD_NEXT_STEP:
+#   <N>  = jump to step N (1 = start)
+#   0    = current step (retry)
+#   -1   = abort confirmed
+wizard_cancel_menu() {
+    local current_step="$1"
+    local current_name="${2:-current step}"
+    local choice
+
+    if [ -z "$DIALOG_BIN" ]; then
+        # Fallback for raw TTYs without dialog: keep legacy behavior.
+        WIZARD_NEXT_STEP=-1
+        return 0
+    fi
+
+    choice=$(dlg --title " Cancelled — what next? " \
+        --cancel-label "Back" \
+        --menu "\n You cancelled '${current_name}'.\n\n What would you like to do?\n" \
+        20 72 10 \
+        "retry"    "Stay on this step and try again" \
+        "back"     "Go back one step" \
+        "jump"     "Jump to a specific step..." \
+        "restart"  "Start the wizard from the beginning" \
+        "shell"    "Drop to a rescue shell (/bin/sh)" \
+        "reboot"   "Cancel installation and reboot" \
+        "poweroff" "Cancel installation and power off" \
+        "abort"    "Exit the installer (return to main menu)" \
+        3>&1 1>&2 2>&3) || {
+        # User pressed Cancel/Back in the cancel menu itself -> retry.
+        WIZARD_NEXT_STEP=0
+        return 0
+    }
+
+    case "$choice" in
+        retry)
+            WIZARD_NEXT_STEP=0
+            ;;
+        back)
+            if [ "$current_step" -gt 1 ]; then
+                WIZARD_NEXT_STEP=$((current_step - 1))
+            else
+                WIZARD_NEXT_STEP=1
+            fi
+            ;;
+        jump)
+            local target
+            target=$(dlg --title " Jump to step " \
+                --cancel-label "Back" \
+                --menu "\n Select which step to jump to:\n" 22 72 14 \
+                "1"  "System information" \
+                "2"  "Hostname" \
+                "3"  "Timezone" \
+                "4"  "Language / locale" \
+                "5"  "Keyboard layout" \
+                "6"  "Network configuration" \
+                "7"  "Root password" \
+                "8"  "User account" \
+                "9"  "Installation type" \
+                "10" "Disk selection" \
+                "11" "Partitioning strategy" \
+                "12" "Final confirmation" \
+                3>&1 1>&2 2>&3) || {
+                # Cancel inside jump submenu -> retry.
+                WIZARD_NEXT_STEP=0
+                return 0
+            }
+            WIZARD_NEXT_STEP="$target"
+            ;;
+        restart)
+            WIZARD_NEXT_STEP=1
+            ;;
+        shell)
+            dlg_msg " Rescue shell " "\
+ You will now be dropped into /bin/sh.\n\n\
+ Type 'exit' to return to the installer."
+            clear 2>/dev/null || true
+            /bin/sh || true
+            WIZARD_NEXT_STEP=0
+            ;;
+        reboot)
+            if dlg_yesno " Reboot " "\
+ Cancel the installation and reboot now?"; then
+                umount "${ISO_MOUNT}" 2>/dev/null || true
+                sync
+                reboot -f
+                exit 0
+            fi
+            WIZARD_NEXT_STEP=0
+            ;;
+        poweroff)
+            if dlg_yesno " Power off " "\
+ Cancel the installation and power off now?"; then
+                umount "${ISO_MOUNT}" 2>/dev/null || true
+                sync
+                poweroff -f
+                exit 0
+            fi
+            WIZARD_NEXT_STEP=0
+            ;;
+        abort)
+            if dlg_yesno " Abort installation " "\
+ Exit the installer back to the main menu?\n\n\
+ No changes have been made to the disk."; then
+                WIZARD_NEXT_STEP=-1
+            else
+                WIZARD_NEXT_STEP=0
+            fi
+            ;;
+        *)
+            WIZARD_NEXT_STEP=0
+            ;;
+    esac
+    return 0
+}
+
+# Wrap a wizard step so that cancel opens the cancel menu. Sets
+# WIZARD_NEXT_STEP either to the current step number (advance on
+# success) or to whatever the cancel menu decided.
+#
+# Usage:  wizard_step <step_number> <step_name> <function_to_call>
+wizard_step() {
+    local step_num="$1"
+    local step_name="$2"
+    local step_func="$3"
+    if "$step_func"; then
+        WIZARD_NEXT_STEP=$((step_num + 1))
+        return 0
+    fi
+    wizard_cancel_menu "$step_num" "$step_name"
+    return 1
+}
+
 # ── Main wizard flow ───────────────────────────────────────────────
 run_wizard() {
     # Detect virtualization/container environment early so every screen
@@ -4004,54 +4146,57 @@ run_wizard() {
         fi
     fi
 
-    # Step 1: System info
-    screen_sysinfo
+    # ── State-machine step dispatch ────────────────────────────────
+    # Each cancellable step is wrapped so that pressing Cancel opens the
+    # cancel menu (retry / back / jump / restart / shell / reboot /
+    # poweroff / abort) instead of aborting immediately.
+    local step=1
+    WIZARD_NEXT_STEP=1
+    while [ "$step" -ge 1 ] && [ "$step" -le 12 ]; do
+        case "$step" in
+            1)  wizard_step 1  "System information" screen_sysinfo          || true ;;
+            2)  wizard_step 2  "Hostname"           screen_hostname          || true ;;
+            3)  wizard_step 3  "Timezone"           screen_timezone          || true ;;
+            4)  wizard_step 4  "Language / locale"  screen_locale            || true ;;
+            5)  wizard_step 5  "Keyboard layout"    screen_keyboard          || true ;;
+            6)  wizard_step 6  "Network"            screen_network           || true ;;
+            7)  wizard_step 7  "Root password"      screen_password          || true ;;
+            8)  wizard_step 8  "User account"       screen_user              || true ;;
+            9)  wizard_step 9  "Installation type"  screen_installation_type || true ;;
+            10) wizard_step 10 "Disk selection"     screen_select_disk       || true ;;
+            11) wizard_step 11 "Partitioning"       screen_partitioning      || true ;;
+            12) wizard_step 12 "Final confirmation" _wizard_final_confirm    || true ;;
+        esac
 
-    # Step 2: Hostname
-    screen_hostname
+        if [ "$WIZARD_NEXT_STEP" = "-1" ]; then
+            return 1
+        fi
+        if [ "$WIZARD_NEXT_STEP" = "0" ]; then
+            # retry current step
+            continue
+        fi
+        step="$WIZARD_NEXT_STEP"
+    done
 
-    # Step 3: Timezone
-    screen_timezone
-
-    # Step 4: Language
-    screen_locale
-
-    # Step 5: Keyboard
-    screen_keyboard
-
-    # Step 6: Network
-    screen_network
-
-    # Step 7: Root password
-    screen_password
-
-    # Step 7b: Optional user account
-    screen_user
-
-    # Step 8: Installation type
-    if ! screen_installation_type; then
+    # Step 13: Install (not cancellable from here on — actual write).
+    if ! screen_install; then
         return 1
     fi
 
-    # Step 9: Disk selection
-    if ! screen_select_disk; then
-        dlg_msg " Cancelled " "Setup was cancelled."
-        return 1
-    fi
+    # Step 14: Done
+    screen_complete
+}
 
-    # Step 9b: Partitioning strategy (auto / keep / manual / encrypted)
-    if ! screen_partitioning; then
-        dlg_msg " Cancelled " "Partitioning was cancelled."
-        return 1
-    fi
-
+# Helper for the "final confirmation" step — combines the existing
+# post-partitioning safety prompts and screen_confirm into a single
+# cancellable unit so the cancel menu can treat it as step 12.
+_wizard_final_confirm() {
     if [ "$PARTITION_MODE" = "auto" ] || [ "$PARTITION_MODE" = "encrypted" ]; then
         if disk_has_existing_data "$SEL_DISK"; then
             if ! dlg_yesno " Existing Data Detected " "\
  Data or partitions were found on /dev/${SEL_DISK}.\n\n\
  Continuing will delete everything on this drive.\n\n\
  Do you want to erase the entire drive and continue?"; then
-                dlg_msg " Cancelled " "No changes were made."
                 return 1
             fi
         fi
@@ -4062,24 +4207,11 @@ run_wizard() {
  Final safety check for /dev/${SEL_DISK}.\n\n\
  Confirm again that all data on this drive\n\
  may be removed permanently."; then
-            dlg_msg " Cancelled " "No changes were made."
             return 1
         fi
     fi
 
-    # Step 10: Confirm
-    if ! screen_confirm; then
-        dlg_msg " Cancelled " "No changes were made."
-        return 1
-    fi
-
-    # Step 11: Install
-    if ! screen_install; then
-        return 1
-    fi
-
-    # Step 12: Done
-    screen_complete
+    screen_confirm
 }
 
 # ── Entry point ────────────────────────────────────────────────────
