@@ -40,26 +40,41 @@ A complete Rust application using Actix-web that provides:
 - `GET /api/ide/logs/:app_id/stream` - Stream live logs (SSE)
 - `GET /api/ide/metrics` - Get system metrics
 
-### 2. Auto-Installation Logic
+### 2. Auto-Installation Logic and Local Build
 **Location:** `backend/iora-supervisor/src/main.rs`
 
-Modified the supervisor to automatically install the Developer App when Developer Mode is enabled:
+Modified the supervisor to automatically install the Developer App when Developer Mode is enabled. **The Developer App is now built locally from the main backend Dockerfile** instead of pulling from a registry.
 
 **Implementation:**
 - Added `ensure_developer_app_installed()` function
 - Checks if Developer App already exists
-- Pulls image from `ghcr.io/kaimdt/iora-developer-app:latest`
+- **Uses locally-built image `iora-developer-app:local`** (no registry pull)
+- Image is built from main `backend/Dockerfile` target `iora-developer-app`
 - Creates container with proper labels and permissions
 - Mounts Docker socket and data volume
 - Starts container automatically
 - Modified `toggle_developer_mode()` to call auto-install
 
+**Local Build Integration:**
+- Developer App is included in main backend Dockerfile
+- Built alongside other IORA services (Core, Supervisor, etc.)
+- Uses same Rust toolchain and dependencies
+- **Bundled with IORA Core/Supervisor updates** - no separate updates needed
+- Special build argument `IORA_DEVELOPER_APP_OFFICIAL=true` for security
+- Build script: `scripts/build-developer-app.sh`
+
 **Behavior:**
-- When Developer Mode is enabled → Developer App auto-installs
+- When Developer Mode is enabled → Developer App auto-installs from local image
 - If already installed → skips installation
-- If installation fails → returns error with details
+- If image not found → provides helpful error with build command
 - Sets `iora.app.installation_source=developer_app` label
 - Grants all necessary permissions including exclusive `HotReload`
+
+**Security & Flexibility:**
+- System builds image itself with full control over build parameters
+- Can pass special build arguments for enhanced security
+- No external dependencies on container registries
+- Updated when IORA Core/Supervisor is updated
 
 ### 3. Python SDK Enhancements
 **Location:** `sdks/python/iora_sdk/client.py`
@@ -312,20 +327,93 @@ await client.hotreload_rollback(
 )
 ```
 
+## Building the Developer App
+
+The Developer App is built locally as part of the IORA system build process, not pulled from a registry.
+
+### Manual Build
+
+To build the Developer App image manually:
+
+```bash
+# From repository root
+./scripts/build-developer-app.sh
+
+# Or with version tag
+./scripts/build-developer-app.sh v1.0.0
+```
+
+This builds the image as `iora-developer-app:local` using the main backend Dockerfile.
+
+### Automated Build
+
+The Developer App should be built automatically during IORA system updates:
+
+```bash
+# Build all IORA backend services including Developer App
+cd backend
+docker build -t iora-backend:latest .
+
+# Build only Developer App
+docker build \
+  -f Dockerfile \
+  -t iora-developer-app:local \
+  --target iora-developer-app \
+  --build-arg IORA_DEVELOPER_APP_OFFICIAL=true \
+  .
+```
+
+### Build Integration
+
+The Developer App is integrated into the main build process:
+
+1. **Added to `backend/Dockerfile`**:
+   - Workspace includes `iora-developer-app`
+   - Source files copied during build stage
+   - Binary built with `cargo build --release --workspace`
+   - Dedicated runtime stage `iora-developer-app`
+
+2. **Build script** (`scripts/build-developer-app.sh`):
+   - Standalone script for building Developer App
+   - Uses main Dockerfile with target selection
+   - Passes special build arguments for security
+   - Can tag with version number
+
+3. **No registry dependency**:
+   - Image built locally with full control
+   - No external image pulls required
+   - System has complete control over build parameters
+   - Can inject security-specific build arguments
+
+### Update Strategy
+
+The Developer App is updated alongside IORA Core/Supervisor:
+
+1. When IORA Core/Supervisor receives an update
+2. The update includes new Developer App source
+3. Build process rebuilds all services including Developer App
+4. New `iora-developer-app:local` image is created
+5. Next Developer Mode enable uses updated image
+
+**No separate update mechanism needed** - Developer App versions are tied to IORA system versions.
+
 ## Files Modified/Created
 
 ### Created
 - `backend/iora-developer-app/Cargo.toml`
 - `backend/iora-developer-app/src/main.rs`
 - `backend/iora-developer-app/manifest.json`
-- `backend/iora-developer-app/Dockerfile`
+- `backend/iora-developer-app/Dockerfile` (standalone, for reference)
+- `scripts/build-developer-app.sh` (build script)
 - `sdks/python/examples/developer_app_hotreload.py`
 
 ### Modified
 - `backend/Cargo.toml` - Added developer-app to workspace
-- `backend/iora-supervisor/src/main.rs` - Auto-installation logic
+- `backend/Dockerfile` - Added Developer App build stages
+- `backend/iora-supervisor/src/main.rs` - Local build logic, no registry pull
 - `sdks/python/iora_sdk/client.py` - Hot-reload SDK methods
 - `sdks/DEVELOPER_MODE.md` - Comprehensive documentation updates
+- `DEVELOPER_APP_IMPLEMENTATION.md` - Updated with local build details
 
 ## Commits Made
 
@@ -349,10 +437,26 @@ await client.hotreload_rollback(
    - Enhanced documentation
    - New sections and API reference
 
+6. **Add comprehensive implementation summary for Developer App**
+   - Detailed documentation
+   - Architecture and design decisions
+
+7. **Build Developer App locally instead of pulling from registry**
+   - Integrated into main backend Dockerfile
+   - Local build with security parameters
+   - Bundled with IORA Core/Supervisor updates
+   - Build script for standalone builds
+
 ## Summary
 
 The IORA Developer App is now fully implemented and integrated into the IORA ecosystem. It provides developers with powerful hot-reload capabilities, IDE integration, and advanced development workflows while maintaining security through exclusive permissions and automatic installation.
 
+**Key Achievement:** The Developer App is now **built locally** as part of the IORA system, not pulled from an external registry. This provides:
+- Full control over build parameters
+- Enhanced security through local builds
+- No external dependencies
+- Automatic updates bundled with IORA Core/Supervisor
+
 **Status:** ✅ Complete and ready for use
 
-**Next Steps:** Build the Docker image and test the full workflow in a development environment.
+**Next Steps:** Build the Docker image using `./scripts/build-developer-app.sh` and test the full workflow in a development environment.
