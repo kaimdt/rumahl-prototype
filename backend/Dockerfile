@@ -21,6 +21,7 @@ COPY iora-connector ./iora-connector
 COPY iora-api ./iora-api
 COPY iora-installer ./iora-installer
 COPY iora-supervisor ./iora-supervisor
+COPY iora-developer-app ./iora-developer-app
 
 # Build all release binaries
 RUN cargo build --release --workspace
@@ -134,3 +135,17 @@ EXPOSE 8097
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8097/health || exit 1
 CMD ["/app/iora-supervisor"]
+
+# iora-developer-app service (Developer Mode tool with exclusive HotReload permission)
+FROM runtime-base AS iora-developer-app
+RUN apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/backend/target/release/iora-developer-app /app/
+COPY iora-developer-app/manifest.json /app/manifest.json
+RUN mkdir -p /app/data && chown -R iora:iora /app
+USER iora
+EXPOSE 8099
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8099/health || exit 1
+CMD ["/app/iora-developer-app"]

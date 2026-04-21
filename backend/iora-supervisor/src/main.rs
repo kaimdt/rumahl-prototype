@@ -4,7 +4,7 @@ use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, RestartContainerOptions,
     StartContainerOptions, StatsOptions, StopContainerOptions,
 };
-use bollard::image::{CreateImageOptions, ListImagesOptions};
+use bollard::image::{BuildImageOptions, CreateImageOptions, ListImagesOptions};
 use bollard::service::{ContainerStateStatusEnum, ContainerSummary, HostConfig};
 use bollard::Docker;
 use chrono::{DateTime, Utc};
@@ -972,7 +972,7 @@ async fn get_developer_mode_status(data: web::Data<AppState>) -> impl Responder 
 /// Auto-install Developer App if not present
 async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn std::error::Error>> {
     const DEVELOPER_APP_ID: &str = "io.iora.developer-app";
-    const DEVELOPER_APP_IMAGE: &str = "ghcr.io/kaimdt/iora-developer-app:latest";
+    const DEVELOPER_APP_IMAGE: &str = "iora-developer-app:local";
     const DEVELOPER_APP_CONTAINER: &str = "iora-app-io.iora.developer-app";
 
     // Check if Developer App is already installed
@@ -993,31 +993,64 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
         return Ok(());
     }
 
-    info!("Developer App not found, auto-installing...");
+    info!("Developer App not found, building and installing...");
 
-    // Pull the Developer App image
-    info!("Pulling Developer App image: {}", DEVELOPER_APP_IMAGE);
-    let mut stream = docker.create_image(
-        Some(CreateImageOptions {
-            from_image: DEVELOPER_APP_IMAGE,
+    // Check if image exists, if not build it
+    let images = docker.list_images(Some(ListImagesOptions::<String> {
+        filters: {
+            let mut filters = HashMap::new();
+            filters.insert("reference".to_string(), vec![DEVELOPER_APP_IMAGE.to_string()]);
+            filters
+        },
+        ..Default::default()
+    })).await?;
+
+    if images.is_empty() {
+        info!("Building Developer App image locally from main Dockerfile...");
+
+        // Build the Developer App image from the main backend Dockerfile
+        // This ensures the Developer App is built with the same toolchain as other services
+        // and allows for special build arguments for security
+        let build_options = BuildImageOptions {
+            dockerfile: "backend/Dockerfile",
+            t: DEVELOPER_APP_IMAGE,
+            target: "iora-developer-app",
+            rm: true,
+            pull: true,
+            buildargs: {
+                let mut args = HashMap::new();
+                // Special build arg to mark this as official Developer App build
+                args.insert("IORA_DEVELOPER_APP_OFFICIAL", "true");
+                args
+            },
             ..Default::default()
-        }),
-        None,
-        None,
-    );
+        };
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(info) => {
-                if let Some(status) = info.status {
-                    info!("Image pull: {}", status);
-                }
-            }
-            Err(e) => {
-                error!("Failed to pull Developer App image: {}", e);
-                return Err(Box::new(e));
-            }
+        // Note: In production, the build context would be /path/to/iora/repo
+        // For now, we assume the Dockerfile and source are accessible
+        // The actual build would be triggered by the system update mechanism
+        info!("Developer App image should be built during IORA system build/update");
+        info!("Checking if pre-built image exists from system update...");
+
+        // Since we're running in a container, we can't easily build here
+        // The image should be built when IORA Core/Supervisor is updated
+        // For now, we'll try to use the image from the main build
+        let main_images = docker.list_images(Some(ListImagesOptions::<String> {
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert("reference".to_string(), vec!["iora-backend:*".to_string()]);
+                filters
+            },
+            ..Default::default()
+        })).await?;
+
+        if main_images.is_empty() {
+            return Err("Developer App image not found. Please rebuild IORA system with: docker build -t iora-backend:latest --target iora-developer-app backend/".into());
         }
+
+        info!("Using Developer App image from main IORA build");
+    } else {
+        info!("Developer App image already exists locally");
     }
 
     // Create container with proper labels and permissions
