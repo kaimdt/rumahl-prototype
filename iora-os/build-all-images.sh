@@ -1959,6 +1959,110 @@ EFIREDIR
     return "$boot_ok"
 }
 
+# ── Password hashing helper ────────────────────────────────────────
+# Set $user's password in $target/etc/shadow using the first hashing
+# backend that works in the current installer environment. Tries, in
+# order: mkpasswd, openssl passwd, python3 crypt, busybox cryptpw,
+# chroot+chpasswd, chroot+passwd via expect-less stdin. Returns 0
+# only when /etc/shadow actually contains the new hashed entry.
+iora_hash_password() {
+    local pw="$1"
+    local salt hash
+    salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 \
+           | tr -d ' \n' | cut -c1-16)
+    [ -z "$salt" ] && salt="iorainstaller"
+
+    # 1) mkpasswd (whois package on Debian/Ubuntu installers)
+    if command -v mkpasswd >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | mkpasswd -m sha-512 -s -S "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    # 2) openssl passwd -6 (SHA-512)
+    if command -v openssl >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+        # Older openssl: try -1 (MD5)
+        hash=$(printf '%s' "$pw" | openssl passwd -1 -stdin -salt "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    # 3) python3 crypt
+    if command -v python3 >/dev/null 2>&1; then
+        hash=$(PW="$pw" SALT="$salt" python3 -c '
+import crypt, os, sys
+try:
+    h = crypt.crypt(os.environ["PW"], crypt.mksalt(crypt.METHOD_SHA512))
+except Exception:
+    h = crypt.crypt(os.environ["PW"], "$6$" + os.environ["SALT"])
+sys.stdout.write(h or "")
+' 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    # 4) busybox cryptpw
+    if command -v cryptpw >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | cryptpw -m sha512 -S "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    return 1
+}
+
+iora_set_account_password() {
+    local target="$1"
+    local user="$2"
+    local pw="$3"
+    local shadow="${target}/etc/shadow"
+    [ -f "$shadow" ] || return 1
+    [ -z "$user" ] && return 1
+    [ -z "$pw" ] && return 1
+
+    local hash
+    hash=$(iora_hash_password "$pw") || hash=""
+
+    if [ -n "$hash" ]; then
+        # Rewrite the user's shadow line atomically. Use awk+FS=: to
+        # avoid sed quoting pitfalls with the '$6$...' hash content.
+        local tmp="${shadow}.iora.tmp"
+        USER="$user" HASH="$hash" awk -F: -v OFS=: '
+            BEGIN { u=ENVIRON["USER"]; h=ENVIRON["HASH"] }
+            $1==u { $2=h; if ($3=="" || $3=="0") $3=19000 }
+            { print }
+        ' "$shadow" > "$tmp" 2>/dev/null && mv "$tmp" "$shadow" 2>/dev/null
+        chmod 0640 "$shadow" 2>/dev/null || true
+        if grep -q "^${user}:\$" "$shadow" 2>/dev/null; then
+            : # empty password still — fall through to chroot attempt
+        elif grep -q "^${user}:[!*]" "$shadow" 2>/dev/null; then
+            : # locked — fall through
+        else
+            # Verify the hash is actually there.
+            if grep -q "^${user}:[^:]\{8,\}:" "$shadow" 2>/dev/null; then
+                return 0
+            fi
+        fi
+    fi
+
+    # Last-resort fallback: chroot into target and use chpasswd/passwd.
+    # Requires /bin/sh inside the target; the IORA rootfs always has it.
+    if [ -x "${target}/usr/sbin/chpasswd" ] || [ -x "${target}/usr/bin/chpasswd" ]; then
+        # Bind-mount /dev, /proc, /sys so PAM/chpasswd work.
+        local did_dev=false did_proc=false did_sys=false
+        [ ! -e "${target}/dev/null" ] && mount --bind /dev "${target}/dev" 2>/dev/null && did_dev=true
+        [ ! -e "${target}/proc/self" ] && mount --bind /proc "${target}/proc" 2>/dev/null && did_proc=true
+        [ ! -e "${target}/sys/class" ] && mount --bind /sys "${target}/sys" 2>/dev/null && did_sys=true
+        printf '%s:%s\n' "$user" "$pw" \
+            | chroot "$target" /bin/sh -c 'chpasswd 2>/dev/null || passwd' >/dev/null 2>&1
+        local rc=$?
+        $did_dev  && umount "${target}/dev"  2>/dev/null || true
+        $did_proc && umount "${target}/proc" 2>/dev/null || true
+        $did_sys  && umount "${target}/sys"  2>/dev/null || true
+        [ $rc -eq 0 ] && grep -q "^${user}:[^:!*]\{8,\}:" "$shadow" 2>/dev/null && return 0
+    fi
+
+    return 1
+}
+
 # ── Post-install configuration ─────────────────────────────────────
 apply_post_install_config() {
     local disk="$1"
@@ -1995,13 +2099,20 @@ apply_post_install_config() {
         echo "$IORA_TIMEZONE" > "${target}/etc/timezone" 2>/dev/null || true
     fi
 
-    # Set root password if changed
+    # Set root password if changed.
+    # openssl may be missing in minimal installer environments and
+    # `sed -i` can silently fail if /etc/shadow has unusual line
+    # endings → account would stay with empty/locked password and
+    # the user's chosen password wouldn't work at login. Use the
+    # robust helper which tries mkpasswd / openssl / python3 / busybox
+    # cryptpw / chroot+chpasswd and verifies the shadow update.
     if [ -n "$IORA_ROOT_PW" ]; then
-        local salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
-        local hash=$(echo "$IORA_ROOT_PW" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null || true)
-        if [ -n "$hash" ] && [ -f "${target}/etc/shadow" ]; then
-            sed -i "s|^root:[^:]*:|root:${hash}:|" "${target}/etc/shadow" 2>/dev/null || true
-        fi
+        iora_set_account_password "$target" "root" "$IORA_ROOT_PW" \
+            || dlg_msg " Password Warning " "\
+ Could not set the root password on the target disk.\n\
+ Login will fall back to the default password.\n\n\
+ You can reset it later from the installer's\n\
+ Repair menu (Reset root password)."
     fi
 
     # Create an additional user account (Ubuntu/Debian-style)
@@ -2015,12 +2126,18 @@ apply_post_install_config() {
             echo "${IORA_USER}:x:${uid}:${gid}:${IORA_USER_FULLNAME:-${IORA_USER}}:/home/${IORA_USER}:/bin/sh" \
                 >> "${target}/etc/passwd"
             echo "${IORA_USER}:x:${gid}:" >> "${target}/etc/group" 2>/dev/null || true
-            local uhash='!'  # Locked by default
+            # Create the shadow entry with a locked placeholder; the
+            # real hash (if any) is applied immediately after via the
+            # shared helper which handles the hashing fallbacks and
+            # verifies the result.
+            echo "${IORA_USER}:!:19000:0:99999:7:::" >> "${target}/etc/shadow" 2>/dev/null || true
             if [ -n "$IORA_USER_PW" ]; then
-                local usalt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
-                uhash=$(echo "$IORA_USER_PW" | openssl passwd -6 -stdin -salt "$usalt" 2>/dev/null || echo '!')
+                iora_set_account_password "$target" "$IORA_USER" "$IORA_USER_PW" \
+                    || dlg_msg " Password Warning " "\
+ Could not set the password for '${IORA_USER}'.\n\
+ The account has been created but is LOCKED.\n\
+ Use 'passwd ${IORA_USER}' after first boot to set it."
             fi
-            echo "${IORA_USER}:${uhash}:19000:0:99999:7:::" >> "${target}/etc/shadow" 2>/dev/null || true
             mkdir -p "${target}/home/${IORA_USER}" 2>/dev/null || true
             if [ -d "${target}/etc/skel" ]; then
                 cp -a "${target}/etc/skel/." "${target}/home/${IORA_USER}/" 2>/dev/null || true
@@ -2689,25 +2806,36 @@ screen_network() {
 screen_password() {
     [ -z "$DIALOG_BIN" ] && return 0
 
-    local pw1 pw2
+    local pw1 pw2 rc
 
-    pw1=$(dlg --title " Root Password " --insecure --passwordbox \
-        "\n Set a new root password.\n Leave this blank to keep the default.\n" \
-        12 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
-    [ -z "$pw1" ] && return 0
+    # Loop until the user either (a) enters two matching passwords,
+    # (b) submits an empty password (keep default), or (c) cancels.
+    # Cancel returns non-zero so the wizard's cancel menu shows up
+    # (retry / back / jump / shell / reboot / abort) instead of
+    # silently advancing to the next step.
+    while true; do
+        pw1=$(dlg --title " Root Password " --insecure --passwordbox \
+            "\n Set a new root password.\n Leave this blank to keep the default.\n" \
+            12 60 3>&1 1>&2 2>&3)
+        rc=$?
+        [ $rc -ne 0 ] && return 1
+        [ -z "$pw1" ] && return 0
 
-    pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
-        "\n Enter the password again for verification.\n" \
-        10 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
+        pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
+            "\n Enter the password again for verification.\n" \
+            10 60 3>&1 1>&2 2>&3)
+        rc=$?
+        [ $rc -ne 0 ] && return 1
 
-    if [ "$pw1" != "$pw2" ]; then
-        dlg_msg " Password Mismatch " "The passwords do not match. The default password will remain active."
-        return 0
-    fi
+        if [ "$pw1" = "$pw2" ]; then
+            IORA_ROOT_PW="$pw1"
+            return 0
+        fi
 
-    IORA_ROOT_PW="$pw1"
+        dlg_msg " Password Mismatch " "\
+ The passwords do not match.\n\n\
+ Please enter the password and the confirmation again."
+    done
 }
 
 screen_user() {
@@ -2737,22 +2865,28 @@ screen_user() {
     [ $? -ne 0 ] && full=""
     IORA_USER_FULLNAME="$full"
 
-    pw1=$(dlg --title " User Password " --insecure --passwordbox \
-        "\n Password for ${IORA_USER} (min. 6 characters, empty = lock account).\n" \
-        10 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
-    if [ -n "$pw1" ]; then
+    # Loop user password entry until matched, empty (lock), or cancelled.
+    while true; do
+        pw1=$(dlg --title " User Password " --insecure --passwordbox \
+            "\n Password for ${IORA_USER} (min. 6 characters, empty = lock account).\n" \
+            10 60 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 1
+        if [ -z "$pw1" ]; then
+            IORA_USER_PW=""
+            break
+        fi
         pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
             "\n Enter the password again.\n" \
             10 60 3>&1 1>&2 2>&3)
-        [ $? -ne 0 ] && return 0
-        if [ "$pw1" != "$pw2" ]; then
-            dlg_msg " Password Mismatch " "Passwords do not match. User account will be LOCKED."
-            IORA_USER_PW=""
-        else
+        [ $? -ne 0 ] && return 1
+        if [ "$pw1" = "$pw2" ]; then
             IORA_USER_PW="$pw1"
+            break
         fi
-    fi
+        dlg_msg " Password Mismatch " "\
+ The passwords do not match.\n\n\
+ Please enter the password and the confirmation again."
+    done
 
     if dlg --title " Administrator " --yesno \
         "\n Grant ${IORA_USER} sudo (administrator) rights?\n" \
