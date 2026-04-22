@@ -90,6 +90,10 @@ impl MemoryManager {
         let tags: Vec<String> = req.tags.clone().unwrap_or_default();
 
         let memory = sqlx::query_as::<_, AiMemory>(
+            // COALESCE(user_id::TEXT, 'global') maps NULL user_id to the string 'global',
+            // so both user-specific memories (e.g. user A's "user_name") and global memories
+            // (shared across all users, stored with user_id = NULL) can have the same `key`
+            // without conflicting with each other.
             r#"
             INSERT INTO ai_memories
                 (user_id, key, value, category, importance, source, tags, expires_at)
@@ -235,7 +239,16 @@ impl MemoryManager {
             }
         };
 
-        let query_terms: Vec<&str> = user_message.split_whitespace().collect();
+        // Normalize the query: replace punctuation with spaces so that e.g.
+        // "home,automation" becomes ["home", "automation"] rather than one term.
+        let normalized: String = user_message
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { ' ' })
+            .collect();
+        let query_terms: Vec<&str> = normalized
+            .split_whitespace()
+            .filter(|t| t.len() >= 3)
+            .collect();
 
         let mut scored: Vec<(f64, AiMemory)> = all
             .into_iter()
@@ -526,6 +539,20 @@ fn titlecase(s: &str) -> String {
         .join(" ")
 }
 
+/// Truncate a string at the nearest word boundary at or before `max_chars` characters.
+/// Uses character count (not byte count) to handle multi-byte UTF-8 correctly.
+fn truncate_at_word_boundary(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.trim().to_string();
+    }
+    // Collect up to max_chars characters then step back to the last space
+    let truncated: String = s.chars().take(max_chars).collect();
+    match truncated.rfind(' ') {
+        Some(space_pos) => truncated[..space_pos].trim().to_string(),
+        None => truncated.trim().to_string(),
+    }
+}
+
 // ─── Task intent detection ────────────────────────────────────────────────────
 
 struct DetectedTask {
@@ -564,13 +591,9 @@ fn detect_task_intent(original: &str, lower: &str) -> Option<DetectedTask> {
     // Try to parse a time reference from the text
     let trigger_at = parse_time_reference(lower)?;
 
-    // Build a brief name from the original text (first 80 chars)
-    let name = original
-        .chars()
-        .take(80)
-        .collect::<String>()
-        .trim()
-        .to_string();
+    // Build a brief name from the original text, truncated at a word boundary
+    // so we don't split multi-byte characters or leave a partial word.
+    let name = truncate_at_word_boundary(original, 100);
 
     let description = original.to_string();
 
@@ -648,22 +671,30 @@ fn extract_number_before(text: &str, keyword: &str) -> Option<i64> {
     before.split_whitespace().last()?.parse::<i64>().ok()
 }
 
-/// Extract HH:MM pattern from text.
+/// Extract HH:MM pattern from text using colon positions to avoid O(n²) scan.
+/// Enforces exactly 2 digits for minutes (e.g. "15:09" is valid; "15:9" is not).
 fn extract_hhmm(text: &str) -> Option<NaiveTime> {
-    // Look for "HH:MM" anywhere
-    let text_bytes = text.as_bytes();
+    for (colon_pos, _) in text.match_indices(':') {
+        // Extract potential minute digits immediately after the colon (must be exactly 2)
+        let after_colon = &text[colon_pos + 1..];
+        let m_str: String = after_colon.chars().take(2).collect();
+        if m_str.len() != 2 || !m_str.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
 
-    for i in 0..text_bytes.len().saturating_sub(4) {
-        let slice = &text[i..];
-        // Check for digit:digit:digit pattern
-        let mut parts = slice.splitn(3, ':');
-        if let (Some(h_str), Some(m_str)) = (parts.next(), parts.next()) {
-            let h_str = h_str.split_whitespace().last().unwrap_or("");
-            let m_str: String = m_str.chars().take_while(|c| c.is_ascii_digit()).collect();
-            if let (Ok(h), Ok(m)) = (h_str.parse::<u32>(), m_str.parse::<u32>()) {
-                if h < 24 && m < 60 {
-                    return NaiveTime::from_hms_opt(h, m, 0);
-                }
+        // Extract potential hour digits immediately before the colon
+        let before_colon = &text[..colon_pos];
+        let h_str = before_colon
+            .split(|c: char| !c.is_ascii_digit())
+            .last()
+            .unwrap_or("");
+        if h_str.is_empty() {
+            continue;
+        }
+
+        if let (Ok(h), Ok(m)) = (h_str.parse::<u32>(), m_str.parse::<u32>()) {
+            if h < 24 && m < 60 {
+                return NaiveTime::from_hms_opt(h, m, 0);
             }
         }
     }
@@ -716,18 +747,22 @@ fn extract_hour_only(text: &str) -> Option<NaiveTime> {
 }
 
 /// Combine a NaiveTime with today's date; if the time has already passed today,
-/// schedule it for tomorrow instead.
+/// schedule it for tomorrow instead.  Uses `checked_add_days` to safely handle
+/// edge cases near date boundaries.
 fn combine_with_today_or_tomorrow(now: DateTime<Utc>, time: NaiveTime) -> DateTime<Utc> {
     let today = now.date_naive();
-    let candidate = today
-        .and_time(time)
-        .and_utc();
+    let candidate = today.and_time(time).and_utc();
 
     if candidate > now {
         candidate
     } else {
-        (today + chrono::Days::new(1))
-            .and_time(time)
-            .and_utc()
+        // Use checked_add_days to avoid potential panics near date boundaries
+        match today.checked_add_days(chrono::Days::new(1)) {
+            Some(tomorrow) => tomorrow.and_time(time).and_utc(),
+            None => {
+                tracing::warn!("Date overflow when calculating tomorrow; defaulting to +24h");
+                now + Duration::hours(24)
+            }
+        }
     }
 }

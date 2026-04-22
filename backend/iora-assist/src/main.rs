@@ -181,7 +181,8 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
             };
             state.history.write().await.push(assistant_msg.clone());
 
-            // Post-chat: extract memories and detect tasks in the background
+            // Post-chat: extract memories and detect tasks in the background.
+            // Errors are logged but intentionally do not affect the chat response.
             if let Some(mm) = state.memory_manager.clone() {
                 let user_msg = req.message.clone();
                 let ai_resp = response.message.clone();
@@ -189,6 +190,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                     mm.auto_extract_from_conversation(&user_msg, &ai_resp, None)
                         .await;
                     mm.detect_and_create_tasks(&user_msg, &ai_resp, None).await;
+                    tracing::debug!("Post-chat memory extraction and task detection complete");
                 });
             }
 

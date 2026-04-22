@@ -74,7 +74,11 @@ impl TaskEngine {
         let now = Utc::now();
 
         for task in tasks {
-            // For one-shot tasks, use trigger_at as the execution time
+            // Determine when the task should next run:
+            //   - One-shot user/AI tasks carry a specific `trigger_at` timestamp.
+            //   - Recurring system tasks use `next_execution_at` (derived from their cron schedule).
+            // `trigger_at` takes precedence so that user-requested reminders fire at the
+            // exact time requested rather than the cron-calculated slot.
             let exec_time = task
                 .trigger_at
                 .as_ref()
