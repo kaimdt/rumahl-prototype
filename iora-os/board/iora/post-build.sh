@@ -1193,4 +1193,37 @@ else
     echo "IORA OS: WARNING: build-integrity.sh missing; skipping signed manifest"
 fi
 
+# Install IORA startup validator
+echo "IORA OS: Installing startup validator..."
+BOARD_DIR="$(dirname "$0")"
+
+if [ -f "${BOARD_DIR}/iora-startup-validator.sh" ]; then
+    install -D -m 0755 "${BOARD_DIR}/iora-startup-validator.sh" \
+        "${TARGET_DIR}/usr/bin/iora-startup-validator"
+    echo "IORA OS: Installed startup validator script"
+else
+    echo "IORA OS: WARNING: iora-startup-validator.sh not found"
+fi
+
+if [ -f "${BOARD_DIR}/iora-startup-validator.service" ]; then
+    install -D -m 0644 "${BOARD_DIR}/iora-startup-validator.service" \
+        "${TARGET_DIR}/etc/systemd/system/iora-startup-validator.service"
+
+    # Enable the service
+    mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+    ln -sf /etc/systemd/system/iora-startup-validator.service \
+        "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-startup-validator.service"
+
+    echo "IORA OS: Enabled startup validator service"
+else
+    echo "IORA OS: WARNING: iora-startup-validator.service not found"
+fi
+
+# Install healthcheck script for IORA OS
+if [ -f "${BOARD_DIR}/../../scripts/healthcheck.sh" ]; then
+    install -D -m 0755 "${BOARD_DIR}/../../scripts/healthcheck.sh" \
+        "${TARGET_DIR}/usr/bin/iora-healthcheck"
+    echo "IORA OS: Installed healthcheck script"
+fi
+
 echo "IORA OS: Post-build script completed successfully"

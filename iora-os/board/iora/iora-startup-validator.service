@@ -1,0 +1,16 @@
+[Unit]
+Description=IORA OS Startup Validator
+Documentation=https://github.com/your-org/iora
+After=docker.service iora-supervisor.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/iora-startup-validator
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
