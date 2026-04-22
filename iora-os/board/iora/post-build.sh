@@ -628,19 +628,38 @@ StartLimitBurst=3
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
-# First ensure docker-compose.yml exists; if not, create a minimal placeholder
-ExecStartPre=/bin/sh -c 'if [ ! -f /mnt/data/iora/docker-compose.yml ]; then \
-  echo "version: '\''3.8'\''" > /mnt/data/iora/docker-compose.yml; \
-  echo "services:" >> /mnt/data/iora/docker-compose.yml; \
-  echo "  placeholder:" >> /mnt/data/iora/docker-compose.yml; \
-  echo "    image: hello-world" >> /mnt/data/iora/docker-compose.yml; \
-fi'
-# Retry pulls if the network is flaky during first boot (best-effort).
-ExecStartPre=/bin/sh -c 'for i in 1 2 3; do /usr/bin/docker compose pull && exit 0 || sleep 10; done; exit 0'
-ExecStart=/usr/bin/docker compose up -d --remove-orphans
-# Repeat `up` after a short pause so containers that failed because a
-# dependency wasn't ready yet get a second chance.
-ExecStartPost=/bin/sh -c 'sleep 15 && /usr/bin/docker compose up -d --remove-orphans || true'
+# Skip everything when we're running on the hello-world placeholder —
+# otherwise `docker compose pull` downloads hello-world + sleeps 15s +
+# retries, adding a minute to every boot on a fresh install that the
+# user hasn't populated yet. Once real services are dropped in this
+# pre-check exits 0 and the rest of ExecStartPre runs normally.
+ExecStartPre=/bin/sh -c '\
+  if [ ! -f /mnt/data/iora/docker-compose.yml ]; then \
+    printf "version: \\"3.8\\"\\nservices:\\n  placeholder:\\n    image: hello-world\\n" \
+      > /mnt/data/iora/docker-compose.yml; \
+  fi; \
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
+     && ! grep -q "ghcr.io/.*iora" /mnt/data/iora/docker-compose.yml; then \
+    echo "iora-stack: placeholder compose detected, skipping pull/up"; \
+    exit 0; \
+  fi; \
+  # Retry pulls if the network is flaky (best-effort; exit 0 anyway). \
+  for i in 1 2 3; do /usr/bin/docker compose pull && break || sleep 5; done; \
+  exit 0'
+ExecStart=/bin/sh -c '\
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
+     && ! grep -q "ghcr.io/.*iora" /mnt/data/iora/docker-compose.yml; then \
+    echo "iora-stack: placeholder compose, not starting containers"; \
+    exit 0; \
+  fi; \
+  /usr/bin/docker compose up -d --remove-orphans || true'
+# Only reconcile a second time when we have a real stack.
+ExecStartPost=/bin/sh -c '\
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
+     && ! grep -q "ghcr.io/.*iora" /mnt/data/iora/docker-compose.yml; then \
+    exit 0; \
+  fi; \
+  sleep 10 && /usr/bin/docker compose up -d --remove-orphans || true'
 ExecStop=/usr/bin/docker compose down
 ExecReload=/usr/bin/docker compose up -d --remove-orphans
 # Don't cascade "Failed to start" on every retry when the user simply
@@ -648,8 +667,10 @@ ExecReload=/usr/bin/docker compose up -d --remove-orphans
 # exit 0 on compose errors, let iora-stack-watchdog.timer pick it up later.
 SuccessExitStatus=0 1
 Restart=no
-TimeoutStartSec=600
-TimeoutStopSec=120
+# Generous but not crazy: 3 min covers a normal pull+up of a real stack.
+# Placeholder path returns in <1s.
+TimeoutStartSec=180
+TimeoutStopSec=60
 
 [Install]
 WantedBy=multi-user.target
@@ -883,6 +904,60 @@ Restart=on-failure
 RestartSec=10
 TimeoutStartSec=60
 EOF
+
+# Buildroot's chrony package does NOT install a default /etc/chrony.conf, so
+# `chronyd -n` starts without any sources and exits with status 1 → endless
+# restart loop + "Failed with result 'exit-code'". Provide a sensible
+# minimal config pointing at public NTP pools.
+#
+#   pool : let chrony auto-manage the source pool
+#   iburst : 4 quick packets on startup for fast initial sync
+#   makestep 1.0 3 : step the clock if off by >1s during first 3 updates
+#   rtcsync : hook RTC drift compensation (ignored if no /dev/rtc)
+#   driftfile : writable location (ensured by the drop-in above)
+#   leapsectz : best-effort; works without zoneinfo too
+#   logdir : writable location
+cat > "${TARGET_DIR}/etc/chrony.conf" <<'EOF'
+# /etc/chrony.conf — IORA OS defaults.
+# Change NTP pools via the Control Center or edit this file and
+# `systemctl restart chrony.service`.
+
+pool 2.pool.ntp.org iburst maxsources 4
+pool time.cloudflare.com iburst maxsources 2
+
+# Allow the clock to be stepped in the first 3 updates if it's >1s off.
+makestep 1.0 3
+
+# Keep kernel RTC in sync (no-op in VMs without /dev/rtc).
+rtcsync
+
+# Save drift + RTC data to persistent storage.
+driftfile /var/lib/chrony/drift
+
+# Log files (directory created by the systemd drop-in above).
+logdir /var/log/chrony
+
+# Serve time to localhost so docker containers can sync if configured.
+allow 127.0.0.1/32
+allow ::1/128
+
+# Don't try to load the leap-seconds file if missing (common on Buildroot).
+#leapsectz right/UTC
+EOF
+
+# Disable rngd on VMs — rng-tools repeatedly exits with status 1 when
+# /dev/hwrng is absent (every QEMU/KVM/Hyper-V VM without virtio-rng),
+# filling the boot console with red FAILED lines. haveged is already
+# installed and is the correct entropy source for virtualised hosts;
+# we mask rngd unconditionally and let haveged handle entropy.
+mkdir -p "${TARGET_DIR}/etc/systemd/system"
+ln -sf /dev/null "${TARGET_DIR}/etc/systemd/system/rngd.service" 2>/dev/null || true
+# Ensure haveged is enabled if its unit exists (Buildroot ships one).
+if [ -f "${TARGET_DIR}/usr/lib/systemd/system/haveged.service" ] || \
+   [ -f "${TARGET_DIR}/lib/systemd/system/haveged.service" ]; then
+    ln -sf /usr/lib/systemd/system/haveged.service \
+        "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/haveged.service" 2>/dev/null || true
+fi
 
 # ── IORA virtualization / container detection service ───────────────────────
 # Runs at early boot, writes /run/iora-virt.env + /etc/iora-virt.conf, updates
