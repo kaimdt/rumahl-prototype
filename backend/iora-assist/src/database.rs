@@ -36,6 +36,10 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    sqlx::query(include_str!("../migrations/004_temporary_pause.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -174,6 +178,9 @@ pub mod tasks {
         pub occurrence_count: i32,
         pub user_timezone: String,
         pub input_mode: String,
+        // Extended fields (migration 004 – temporary pause)
+        pub paused_until: Option<DateTime<Utc>>,
+        pub paused_temporarily: bool,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -246,6 +253,47 @@ pub mod tasks {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    /// Temporarily disable a task until `resume_at`.
+    /// The task engine will automatically re-enable it when the time comes.
+    pub async fn temporary_pause(
+        pool: &DbPool,
+        task_id: Uuid,
+        resume_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE autonomous_tasks
+               SET enabled = false,
+                   paused_until = $1,
+                   paused_temporarily = true,
+                   updated_at = NOW()
+               WHERE id = $2"#
+        )
+        .bind(resume_at)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Re-enable all tasks whose temporary pause has expired.
+    /// Called by the task engine on every tick.
+    /// Returns the number of tasks that were auto-resumed.
+    pub async fn resume_expired_pauses(pool: &DbPool) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE autonomous_tasks
+               SET enabled = true,
+                   paused_until = NULL,
+                   paused_temporarily = false,
+                   updated_at = NOW()
+               WHERE paused_temporarily = true
+                 AND paused_until IS NOT NULL
+                 AND paused_until <= NOW()"#
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     /// Delete a task by id.

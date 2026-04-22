@@ -498,6 +498,15 @@ impl MemoryManager {
         crate::database::tasks::set_enabled(&self.db, task_id, enabled).await
     }
 
+    /// Temporarily pause a task until `resume_at`.
+    pub async fn temporary_pause_task(
+        &self,
+        task_id: Uuid,
+        resume_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        crate::database::tasks::temporary_pause(&self.db, task_id, resume_at).await
+    }
+
     /// Delete a task permanently.
     pub async fn delete_task(&self, task_id: Uuid) -> Result<(), sqlx::Error> {
         crate::database::tasks::delete(&self.db, task_id).await
@@ -512,6 +521,21 @@ impl MemoryManager {
         next_execution_at: Option<DateTime<Utc>>,
     ) -> Result<(), sqlx::Error> {
         crate::database::tasks::update_task(&self.db, task_id, name, description, next_execution_at).await
+    }
+
+    /// Build a system-prompt segment that includes:
+    ///  1. The user's active task list (for AI awareness)
+    ///  2. Instructions on how the AI should express task modifications
+    pub async fn build_tasks_system_prompt(&self, user_id: Option<Uuid>) -> String {
+        use crate::task_resolver::TaskResolver;
+        let tasks = match crate::database::tasks::list_user_tasks(&self.db, user_id, true, 50).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("Failed to load tasks for system prompt: {}", e);
+                return String::new();
+            }
+        };
+        TaskResolver::build_system_prompt_section(&tasks)
     }
 }
 

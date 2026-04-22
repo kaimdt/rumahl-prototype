@@ -55,6 +55,13 @@ impl TaskEngine {
                 if let Err(e) = Self::execute_pending_tasks(&db, &orchestrator).await {
                     tracing::error!("Error executing pending tasks: {}", e);
                 }
+
+                // Auto-resume tasks whose temporary pause has expired
+                match crate::database::tasks::resume_expired_pauses(&db).await {
+                    Ok(n) if n > 0 => tracing::info!("Auto-resumed {} temporarily paused task(s)", n),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("Failed to resume expired pauses: {}", e),
+                }
             }
         });
     }

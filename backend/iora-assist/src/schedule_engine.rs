@@ -585,6 +585,50 @@ pub fn build_conversation_context(messages: &[(String, String)], limit: usize) -
         .join(" | ")
 }
 
+/// Extract a duration in days from a natural-language phrase.
+/// Understands German and English duration patterns and written numbers.
+///
+/// Examples: "2 Wochen" → 14, "einen Monat" → 30, "30 Tage" → 30
+/// Returns `None` if no duration is found.
+pub fn extract_duration_days(lower: &str) -> Option<i64> {
+    // Weeks
+    if let Some(weeks) = extract_number_before(lower, "wochen")
+        .or_else(|| extract_number_before(lower, "week"))
+        .or_else(|| extract_number_before(lower, "weeks"))
+    {
+        return Some(weeks * 7);
+    }
+    // "eine Woche" / "for a week"
+    if lower.contains("eine woche") || lower.contains("for a week") || lower.contains("for one week") {
+        return Some(7);
+    }
+
+    // Months
+    if let Some(months) = extract_number_before(lower, "monate")
+        .or_else(|| extract_number_before(lower, "monat"))
+        .or_else(|| extract_number_before(lower, "month"))
+        .or_else(|| extract_number_before(lower, "months"))
+    {
+        return Some(months * 30);
+    }
+    if lower.contains("einen monat") || lower.contains("ein monat")
+        || lower.contains("for a month") || lower.contains("for one month")
+    {
+        return Some(30);
+    }
+
+    // Days
+    if let Some(days) = extract_number_before(lower, "tagen")
+        .or_else(|| extract_number_before(lower, "tage"))
+        .or_else(|| extract_number_before(lower, " days"))
+        .or_else(|| extract_number_before(lower, " day"))
+    {
+        return Some(days);
+    }
+
+    None
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {

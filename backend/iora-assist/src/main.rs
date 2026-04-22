@@ -23,6 +23,7 @@ mod context;
 mod database;
 mod memory;
 mod schedule_engine;
+mod task_resolver;
 mod orchestrator;
 mod task_engine;
 mod conversation_manager;
@@ -160,12 +161,11 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
          You help users manage their home automation, answer questions, and provide insights."
     ).to_string();
 
-    // Inject relevant memories into the system prompt (if memory manager is available)
+    // Inject relevant memories AND task context into the system prompt
     let system_prompt = if let Some(ref mm) = state.memory_manager {
-        Some(
-            mm.inject_into_prompt(&base_system_prompt, &req.message, None)
-                .await,
-        )
+        let memory_prompt = mm.inject_into_prompt(&base_system_prompt, &req.message, None).await;
+        let tasks_section = mm.build_tasks_system_prompt(None).await;
+        Some(format!("{}{}", memory_prompt, tasks_section))
     } else {
         Some(base_system_prompt)
     };
@@ -173,20 +173,38 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     // Call AI provider
     match provider.chat(messages, system_prompt).await {
         Ok(response) => {
-            // Save assistant message
+            // Parse structured task commands out of the AI response
+            let (clean_response, maybe_cmd) =
+                task_resolver::TaskResolver::parse_ai_response(&response.message);
+
+            // Execute high-confidence task commands immediately in the background
+            if let Some(cmd) = maybe_cmd.clone() {
+                if !cmd.requires_confirmation {
+                    if let (Some(mm), Some(task_id)) =
+                        (state.memory_manager.clone(), cmd.task_id)
+                    {
+                        let action = cmd.action.clone();
+                        let resume_at = cmd.resume_at;
+                        tokio::spawn(async move {
+                            execute_task_command(&mm, task_id, &action, resume_at).await;
+                        });
+                    }
+                }
+            }
+
+            // Save assistant message (using the cleaned text without markers)
             let assistant_msg = ChatMessage {
                 id: Uuid::new_v4().to_string(),
                 role: "assistant".to_string(),
-                content: response.message.clone(),
+                content: clean_response.clone(),
                 timestamp: Utc::now().to_rfc3339(),
             };
             state.history.write().await.push(assistant_msg.clone());
 
-            // Post-chat: extract memories and detect tasks in the background.
-            // Errors are logged but intentionally do not affect the chat response.
+            // Post-chat: extract memories and detect new tasks in the background.
             if let Some(mm) = state.memory_manager.clone() {
                 let user_msg = req.message.clone();
-                let ai_resp = response.message.clone();
+                let ai_resp = clean_response.clone();
                 tokio::spawn(async move {
                     mm.auto_extract_from_conversation(&user_msg, &ai_resp, None)
                         .await;
@@ -195,15 +213,26 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                 });
             }
 
+            // Build response: include task action metadata so the frontend can
+            // show a confirmation UI when required.
+            let task_action_json = maybe_cmd.as_ref().map(|cmd| serde_json::json!({
+                "action": cmd.action,
+                "task_id": cmd.task_id,
+                "resume_at": cmd.resume_at,
+                "question": cmd.question,
+                "requires_confirmation": cmd.requires_confirmation,
+            }));
+
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
-                    "message": response.message,
+                    "message": clean_response,
                     "model": response.model,
                     "provider": response.provider,
                     "tokens_used": response.tokens_used,
                     "message_id": assistant_msg.id,
                     "timestamp": assistant_msg.timestamp,
+                    "task_action": task_action_json,
                 })),
             )
         }
@@ -1370,6 +1399,73 @@ async fn detect_tasks_from_conversation(
     }
 }
 
+// ─── Task command execution helper ────────────────────────────────────────────
+
+/// Execute a structured task command parsed from an AI response.
+/// Called both for immediate (high-confidence) actions and after user confirmation.
+async fn execute_task_command(
+    mm: &MemoryManager,
+    task_id: Uuid,
+    action: &str,
+    resume_at: Option<chrono::DateTime<chrono::Utc>>,
+) {
+    let result = match action {
+        "pause_until" => {
+            if let Some(until) = resume_at {
+                mm.temporary_pause_task(task_id, until).await
+            } else {
+                mm.set_task_enabled(task_id, false).await
+            }
+        }
+        "disable" => mm.set_task_enabled(task_id, false).await,
+        "resume"  => mm.set_task_enabled(task_id, true).await,
+        "delete"  => mm.delete_task(task_id).await,
+        other => {
+            tracing::warn!("Unknown task action from AI: {}", other);
+            return;
+        }
+    };
+
+    match result {
+        Ok(()) => tracing::info!("Task command '{}' on {} executed successfully", action, task_id),
+        Err(e) => tracing::error!("Task command '{}' on {} failed: {}", action, task_id, e),
+    }
+}
+
+// ─── Confirm task action endpoint ─────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ConfirmTaskActionRequest {
+    task_id: Uuid,
+    action: String,
+    resume_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// If false, the user declined – do nothing
+    confirmed: bool,
+}
+
+async fn confirm_task_action(
+    State(state): State<AppState>,
+    Json(req): Json<ConfirmTaskActionRequest>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    if !req.confirmed {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": false, "message": "Action declined by user"})),
+        );
+    }
+
+    execute_task_command(mm, req.task_id, &req.action, req.resume_at).await;
+
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "action": req.action})))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -1504,6 +1600,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/tasks/active/:id", axum::routing::delete(delete_active_task))
         // Multi-message conversation task detection
         .route("/api/assist/tasks/detect", post(detect_tasks_from_conversation))
+        // User-confirmed task action (after AI asked for confirmation)
+        .route("/api/assist/tasks/confirm", post(confirm_task_action))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

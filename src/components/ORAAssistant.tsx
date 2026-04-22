@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat } from '@phosphor-icons/react'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { MessageContent } from '@/components/MessageContent'
@@ -16,6 +16,21 @@ interface AIChatResponse {
   message: string
   provider: string
   message_id: string
+  task_action?: {
+    action: string
+    task_id?: string
+    resume_at?: string
+    question?: string
+    requires_confirmation: boolean
+  } | null
+}
+
+// A pending action waiting for the user to confirm or decline
+interface PendingTaskAction {
+  action: string
+  task_id: string
+  resume_at?: string
+  question: string
 }
 
 type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
@@ -33,6 +48,8 @@ export function ORAAssistant() {
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
   // Toast shown when a task was automatically created
   const [taskCreatedToast, setTaskCreatedToast] = useState<string | null>(null)
+  // Pending task action awaiting user confirmation
+  const [pendingTaskAction, setPendingTaskAction] = useState<PendingTaskAction | null>(null)
   const [isTTSEnabled, setIsTTSEnabled] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
@@ -94,6 +111,8 @@ export function ORAAssistant() {
     setInput('')
     setState('thinking')
     setError(null)
+    // Clear any pending confirmation when user sends a new message
+    setPendingTaskAction(null)
 
     try {
       const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
@@ -118,29 +137,44 @@ export function ORAAssistant() {
       setMessages(updatedMessages)
       setState('speaking')
 
-      // After receiving the AI reply, run multi-message task detection in the background.
-      // We pass the last 8 messages so the backend can detect tasks spanning several turns.
-      const payload = updatedMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
-      fetch(`${ASSIST_URL}/api/assist/tasks/detect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: payload, input_mode: 'conversation' }),
-      })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
-          if (d?.success && d?.task_id) {
-            // Show a brief toast so the user knows a task was created
-            setTaskCreatedToast('Aufgabe wurde erstellt ✓')
-            setTimeout(() => setTaskCreatedToast(null), 4000)
-          }
+      // Handle structured task action from AI response
+      if (data.task_action) {
+        const ta = data.task_action
+        if (ta.requires_confirmation && ta.task_id && ta.question) {
+          // AI is unsure – show confirmation UI to user
+          setPendingTaskAction({
+            action: ta.action,
+            task_id: ta.task_id,
+            resume_at: ta.resume_at,
+            question: ta.question,
+          })
+        } else if (!ta.requires_confirmation && ta.task_id) {
+          // High confidence – already executed on backend, show toast
+          setTaskCreatedToast(`Aufgabe ${ta.action === 'pause_until' ? 'pausiert' : ta.action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
+          setTimeout(() => setTaskCreatedToast(null), 4000)
+        }
+      } else {
+        // Fall back to multi-message task detection for new task creation
+        const payload = updatedMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
+        fetch(`${ASSIST_URL}/api/assist/tasks/detect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: payload, input_mode: 'conversation' }),
         })
-        .catch(() => { /* silent – task detection is best-effort */ })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d?.success && d?.task_id) {
+              setTaskCreatedToast('Aufgabe wurde erstellt ✓')
+              setTimeout(() => setTaskCreatedToast(null), 4000)
+            }
+          })
+          .catch(() => { /* silent */ })
+      }
 
       // Speak the AI response if TTS is enabled
       if (isTTSEnabled) {
         speak(data.message)
       } else {
-        // Return to idle after animation if TTS is disabled
         setTimeout(() => setState('idle'), 2000)
       }
     } catch (e) {
@@ -151,6 +185,26 @@ export function ORAAssistant() {
         setState('idle')
         setError(null)
       }, 3000)
+    }
+  }
+
+  const handleTaskConfirmation = async (confirmed: boolean) => {
+    if (!pendingTaskAction) return
+    const { action, task_id, resume_at } = pendingTaskAction
+    setPendingTaskAction(null)
+
+    try {
+      const res = await fetch(`${ASSIST_URL}/api/assist/tasks/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed, action, task_id, resume_at }),
+      })
+      if (res.ok && confirmed) {
+        setTaskCreatedToast(`Aufgabe ${action === 'pause_until' ? 'pausiert' : action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
+        setTimeout(() => setTaskCreatedToast(null), 4000)
+      }
+    } catch (e) {
+      console.error('Confirmation failed:', e)
     }
   }
 
@@ -386,6 +440,37 @@ export function ORAAssistant() {
               >
                 <BellRinging size={13} weight="fill" />
                 {taskCreatedToast}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Confirmation banner – shown when AI is unsure and needs user approval */}
+          <AnimatePresence>
+            {pendingTaskAction && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-4 mb-0 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs"
+              >
+                <div className="flex items-start gap-2 mb-2">
+                  <Warning size={14} weight="fill" className="text-amber-400 mt-0.5 shrink-0" />
+                  <p className="text-amber-200 leading-snug">{pendingTaskAction.question}</p>
+                </div>
+                <div className="flex items-center gap-2 ml-5">
+                  <button
+                    onClick={() => handleTaskConfirmation(true)}
+                    className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-colors"
+                  >
+                    <Check size={11} weight="bold" /> Ja, deaktivieren
+                  </button>
+                  <button
+                    onClick={() => handleTaskConfirmation(false)}
+                    className="flex items-center gap-1 px-3 py-1 rounded-lg bg-foreground/10 hover:bg-foreground/15 text-foreground/60 text-xs transition-colors"
+                  >
+                    <X size={11} weight="bold" /> Nein
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

@@ -42,6 +42,9 @@ interface ActiveTask {
   origin: string
   priority: number
   created_at: string
+  // Temporary pause (migration 004)
+  paused_until?: string
+  paused_temporarily?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -186,6 +189,11 @@ function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
   const recLabel = recurrenceLabel(task)
   const isRecurring = task.recurrence_type !== 'once'
 
+  // Format "resume on ..." label for temporarily paused tasks
+  const pausedUntilLabel = task.paused_temporarily && task.paused_until
+    ? `Weiter am ${new Date(task.paused_until).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`
+    : null
+
   return (
     <motion.div
       layout
@@ -196,13 +204,15 @@ function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
       className={`relative rounded-xl border p-4 transition-all ${
         task.enabled
           ? 'border-foreground/10 bg-foreground/5'
-          : 'border-foreground/5 bg-foreground/3 opacity-60'
+          : task.paused_temporarily
+            ? 'border-amber-500/20 bg-amber-500/5 opacity-80'
+            : 'border-foreground/5 bg-foreground/3 opacity-60'
       }`}
     >
       {/* Status dot */}
       <div
         className={`absolute top-3 right-3 w-2 h-2 rounded-full ${
-          task.enabled ? 'bg-green-400' : 'bg-foreground/30'
+          task.enabled ? 'bg-green-400' : task.paused_temporarily ? 'bg-amber-400' : 'bg-foreground/30'
         }`}
       />
 
@@ -220,6 +230,11 @@ function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
           {task.description && task.description !== task.name && (
             <p className="text-xs text-foreground/50 mt-0.5 line-clamp-2">{task.description}</p>
           )}
+          {pausedUntilLabel && (
+            <p className="text-xs text-amber-400/80 mt-0.5 flex items-center gap-1">
+              <Clock size={10} /> {pausedUntilLabel}
+            </p>
+          )}
         </div>
       </div>
 
@@ -233,9 +248,11 @@ function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
         <span className="flex items-center gap-1">
           <CalendarBlank size={11} /> {recLabel}
         </span>
-        <span className="flex items-center gap-1">
-          <BellRinging size={11} /> {nextLabel}
-        </span>
+        {!task.paused_temporarily && (
+          <span className="flex items-center gap-1">
+            <BellRinging size={11} /> {nextLabel}
+          </span>
+        )}
         {task.occurrence_limit && (
           <span className="flex items-center gap-1">
             <Repeat size={11} /> {task.occurrence_count}/{task.occurrence_limit}×
