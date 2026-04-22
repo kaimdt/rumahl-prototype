@@ -143,12 +143,38 @@ EOF
 ln -sf /etc/systemd/system/mnt-data.mount \
     "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/mnt-data.mount"
 
+# Create service to initialize /mnt/data/iora directory structure
+cat > "${TARGET_DIR}/etc/systemd/system/iora-init-data.service" <<'EOF'
+[Unit]
+Description=Initialize IORA data directory
+DefaultDependencies=no
+After=mnt-data.mount
+Before=iora-stack.service iora-setup.service docker.service
+RequiresMountsFor=/mnt/data
+ConditionPathIsMountPoint=/mnt/data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+  mkdir -p /mnt/data/iora /mnt/data/rauc /mnt/data/backups && \
+  chmod 755 /mnt/data/iora /mnt/data/rauc /mnt/data/backups'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=local-fs.target
+EOF
+
+ln -sf /etc/systemd/system/iora-init-data.service \
+    "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/iora-init-data.service"
+
 # Install systemd service for Docker Compose
 cat > "${TARGET_DIR}/etc/systemd/system/iora-stack.service" <<'EOF'
 [Unit]
 Description=IORA Docker Stack
-Requires=docker.service mnt-data.mount
-After=docker.service network-online.target mnt-data.mount
+Requires=docker.service iora-init-data.service
+After=docker.service network-online.target iora-init-data.service
 Wants=network-online.target
 ConditionPathIsDirectory=/mnt/data/iora
 StartLimitIntervalSec=600
@@ -158,6 +184,13 @@ StartLimitBurst=10
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
+# First ensure docker-compose.yml exists; if not, create a minimal placeholder
+ExecStartPre=/bin/sh -c 'if [ ! -f /mnt/data/iora/docker-compose.yml ]; then \
+  echo "version: '\''3.8'\''" > /mnt/data/iora/docker-compose.yml; \
+  echo "services:" >> /mnt/data/iora/docker-compose.yml; \
+  echo "  placeholder:" >> /mnt/data/iora/docker-compose.yml; \
+  echo "    image: hello-world" >> /mnt/data/iora/docker-compose.yml; \
+fi'
 # Retry pulls if the network is flaky during first boot (best-effort).
 ExecStartPre=/bin/sh -c 'for i in 1 2 3; do /usr/bin/docker compose pull && exit 0 || sleep 10; done; exit 0'
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
@@ -182,6 +215,7 @@ cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.service" <<'EOF'
 Description=IORA Stack Watchdog
 After=iora-stack.service
 ConditionPathIsDirectory=/mnt/data/iora
+ConditionPathExists=/mnt/data/iora/docker-compose.yml
 
 [Service]
 Type=oneshot
@@ -688,9 +722,11 @@ fi
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup.service" <<'EOF'
 [Unit]
 Description=IORA Home First-Boot Setup Wizard
-After=network-online.target mnt-data.mount docker.service
+After=network-online.target iora-init-data.service docker.service
 Wants=network-online.target
+Before=iora-stack.service
 ConditionPathExists=!/mnt/data/iora/.setup-complete
+ConditionPathIsDirectory=/mnt/data/iora
 
 [Service]
 Type=simple
@@ -748,11 +784,11 @@ chmod 755 "${TARGET_DIR}/opt/iora/update/check-update.sh"
 cat > "${TARGET_DIR}/etc/systemd/system/iora-update-check.service" <<'EOF'
 [Unit]
 Description=IORA OS Update Check
-After=network-online.target iora-verify.service
-Requires=iora-verify.service
+After=network-online.target iora-verify.service iora-init-data.service
 Wants=network-online.target
 ConditionPathExists=/mnt/data/iora/.setup-complete
 ConditionPathExists=!/run/iora-tamper
+ConditionPathIsDirectory=/mnt/data/iora
 
 [Service]
 Type=oneshot
@@ -1031,7 +1067,7 @@ chmod 755 "${TARGET_DIR}/opt/iora/security/tamper-screen"
 cat > "${TARGET_DIR}/etc/systemd/system/iora-recovery.service" <<'EOF'
 [Unit]
 Description=IORA OS online recovery
-After=network-online.target
+After=network-online.target iora-init-data.service
 Wants=network-online.target
 ConditionKernelCommandLine=iora.recovery=1
 
@@ -1103,7 +1139,7 @@ EOF
     cat > "${TARGET_DIR}/etc/systemd/system/iora-dev-bridge.service" <<'EOF'
 [Unit]
 Description=IORA Developer Bridge (OS dev images only)
-After=network.target docker.service
+After=network.target docker.service iora-init-data.service
 Wants=network.target
 ConditionPathExists=/etc/iora/os-dev-mode
 ConditionPathExists=/usr/bin/iora-dev-bridge
