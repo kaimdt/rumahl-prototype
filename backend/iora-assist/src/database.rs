@@ -40,6 +40,10 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    sqlx::query(include_str!("../migrations/005_instant_tasks.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -548,5 +552,159 @@ pub mod notifications {
         .await?;
 
         Ok(())
+    }
+}
+
+/// Instant Task repository
+pub mod instant_tasks {
+    use super::*;
+    use chrono::{DateTime, Utc};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+    pub struct InstantTask {
+        pub id: Uuid,
+        pub session_id: Option<String>,
+        pub user_id: Option<Uuid>,
+        pub task_type: String,
+        pub query: String,
+        pub params: serde_json::Value,
+        pub status: String,
+        pub result_text: Option<String>,
+        pub result_data: Option<serde_json::Value>,
+        pub error_message: Option<String>,
+        pub created_at: DateTime<Utc>,
+        pub started_at: Option<DateTime<Utc>>,
+        pub completed_at: Option<DateTime<Utc>>,
+    }
+
+    /// Create a new instant task and return it.
+    pub async fn create(
+        pool: &DbPool,
+        session_id: Option<&str>,
+        user_id: Option<Uuid>,
+        task_type: &str,
+        query: &str,
+        params: serde_json::Value,
+    ) -> Result<InstantTask, sqlx::Error> {
+        let task = sqlx::query_as::<_, InstantTask>(
+            r#"
+            INSERT INTO instant_tasks (session_id, user_id, task_type, query, params)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+            "#,
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(task_type)
+        .bind(query)
+        .bind(params)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(task)
+    }
+
+    /// Fetch a single instant task by id.
+    pub async fn get_by_id(
+        pool: &DbPool,
+        task_id: Uuid,
+    ) -> Result<Option<InstantTask>, sqlx::Error> {
+        sqlx::query_as::<_, InstantTask>(
+            "SELECT * FROM instant_tasks WHERE id = $1",
+        )
+        .bind(task_id)
+        .fetch_optional(pool)
+        .await
+    }
+
+    /// Atomically claim one pending task – set status to "processing".
+    /// Returns the task if one was claimed, None otherwise.
+    pub async fn claim_pending(pool: &DbPool) -> Result<Option<InstantTask>, sqlx::Error> {
+        sqlx::query_as::<_, InstantTask>(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'processing', started_at = NOW()
+            WHERE id = (
+                SELECT id FROM instant_tasks
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *
+            "#,
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
+    /// Mark a task as completed with its result.
+    pub async fn complete(
+        pool: &DbPool,
+        task_id: Uuid,
+        result_text: &str,
+        result_data: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'completed',
+                result_text = $1,
+                result_data = $2,
+                completed_at = NOW()
+            WHERE id = $3
+            "#,
+        )
+        .bind(result_text)
+        .bind(result_data)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Mark a task as failed.
+    pub async fn fail(
+        pool: &DbPool,
+        task_id: Uuid,
+        error: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'failed',
+                error_message = $1,
+                completed_at = NOW()
+            WHERE id = $2
+            "#,
+        )
+        .bind(error)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// List recent instant tasks for a session.
+    pub async fn list_for_session(
+        pool: &DbPool,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<InstantTask>, sqlx::Error> {
+        sqlx::query_as::<_, InstantTask>(
+            r#"
+            SELECT * FROM instant_tasks
+            WHERE session_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(session_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
     }
 }

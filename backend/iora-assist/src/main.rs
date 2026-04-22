@@ -24,6 +24,7 @@ mod database;
 mod memory;
 mod schedule_engine;
 mod task_resolver;
+mod instant_task_engine;
 mod orchestrator;
 mod task_engine;
 mod conversation_manager;
@@ -34,6 +35,7 @@ use database::DbPool;
 use memory::{ActiveTaskRequest, CreateMemoryRequest, MemoryManager};
 use orchestrator::{ProviderOrchestrator, TaskPurpose};
 use task_engine::TaskEngine;
+use instant_task_engine::{InstantTaskEngine, InstantTaskResult};
 use conversation_manager::ConversationManager;
 use tools::ToolExecutor;
 
@@ -51,6 +53,7 @@ struct AppState {
     db: Option<DbPool>,
     orchestrator: Arc<ProviderOrchestrator>,
     task_engine: Option<Arc<TaskEngine>>,
+    instant_task_engine: Option<Arc<InstantTaskEngine>>,
     conversation_manager: Option<Arc<ConversationManager>>,
     tool_executor: Arc<RwLock<ToolExecutor>>,
     memory_manager: Option<Arc<MemoryManager>>,
@@ -60,6 +63,91 @@ struct AppState {
 const DEFAULT_SYSTEM_PROMPT: &str =
     "You are IORA Assist, an AI assistant integrated into the IORA smart home system. \
      You help users manage their home automation, answer questions, and provide insights.";
+
+/// System-prompt section that teaches the AI when and how to emit Instant Tasks.
+const INSTANT_TASK_PROMPT_SECTION: &str = r#"
+
+### Instant Tasks (Echtzeit-Aufgaben)
+Wenn du eine Frage **nicht direkt** aus deinem Wissen beantworten kannst, weil du aktuelle
+Daten benötigst (Wetter, Nachrichten, Musik, aktuelle Preise, …), erstelle einen Instant Task.
+Füge am **Ende** deiner Antwort genau einen Instant-Task-Block ein:
+
+[INSTANT_TASK: {"type":"search","query":"...","params":{}}]
+
+Unterstützte Typen:
+- "search"  – allgemeine Internetsuche
+- "weather" – aktuelles Wetter (params: {"location":"Berlin"})
+- "news"    – aktuelle Nachrichten
+- "music"   – Musik / Charts / neue Releases
+- "generic" – alles andere
+
+Verwende KEINEN Instant Task, wenn du die Frage direkt beantworten kannst.
+Füge NIEMALS mehr als einen [INSTANT_TASK:] Block ein.
+Sage dem Nutzer kurz (1–2 Sätze), dass du gerade Informationen abrufst, bevor du den Block
+anhängst. Beispiel: "Ich rufe gerade die aktuellen Wetterdaten für dich ab."
+"#;
+
+// ─── Instant Task marker helpers ─────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct InstantTaskSpec {
+    task_type: String,
+    query: String,
+    params: serde_json::Value,
+}
+
+/// Remove `[INSTANT_TASK: {...}]` from AI response text and return both the
+/// cleaned text and the parsed spec (if present).
+fn parse_instant_task_marker(text: &str) -> (String, Option<InstantTaskSpec>) {
+    let marker = "[INSTANT_TASK:";
+    let start = match text.find(marker) {
+        Some(s) => s,
+        None => return (text.to_string(), None),
+    };
+
+    let after = &text[start + marker.len()..];
+    let end_offset = match after.find(']') {
+        Some(e) => e,
+        None => return (text.to_string(), None),
+    };
+
+    let json_str = after[..end_offset].trim();
+    let v: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return (text.to_string(), None),
+    };
+
+    let task_type = v.get("type")
+        .and_then(|x| x.as_str())
+        .unwrap_or("generic")
+        .to_string();
+
+    // Normalise task_type to known variants
+    let task_type = match task_type.as_str() {
+        "search" | "weather" | "news" | "music" | "generic" => task_type,
+        _ => "generic".to_string(),
+    };
+
+    let query = v.get("query")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let params = v.get("params")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+
+    let end_abs = start + marker.len() + end_offset + 1;
+    let cleaned = format!(
+        "{}{}",
+        text[..start].trim_end(),
+        text[end_abs..].trim_start()
+    )
+    .trim()
+    .to_string();
+
+    (cleaned, Some(InstantTaskSpec { task_type, query, params }))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChatMessage {
@@ -164,20 +252,26 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     let base_system_prompt = req.system_prompt.as_deref().unwrap_or(DEFAULT_SYSTEM_PROMPT).to_string();
 
     // Inject relevant memories AND task context into the system prompt
-    let system_prompt = if let Some(ref mm) = state.memory_manager {
+    let mut system_prompt = if let Some(ref mm) = state.memory_manager {
         let memory_prompt = mm.inject_into_prompt(&base_system_prompt, &req.message, None).await;
         let tasks_section = mm.build_tasks_system_prompt(None).await;
-        Some(format!("{}{}", memory_prompt, tasks_section))
+        format!("{}{}", memory_prompt, tasks_section)
     } else {
-        Some(base_system_prompt)
+        base_system_prompt
     };
 
+    // Append Instant Task instructions so the AI knows when to delegate
+    system_prompt.push_str(INSTANT_TASK_PROMPT_SECTION);
+
     // Call AI provider
-    match provider.chat(messages, system_prompt).await {
+    match provider.chat(messages, Some(system_prompt)).await {
         Ok(response) => {
             // Parse structured task commands out of the AI response
-            let (clean_response, maybe_cmd) =
+            let (after_task_cmd, maybe_cmd) =
                 task_resolver::TaskResolver::parse_ai_response(&response.message);
+
+            // Parse instant task marker (may coexist with or replace task_cmd)
+            let (clean_response, maybe_instant) = parse_instant_task_marker(&after_task_cmd);
 
             // Execute high-confidence task commands immediately in the background
             if let Some(cmd) = maybe_cmd.clone() {
@@ -193,6 +287,46 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                     }
                 }
             }
+
+            // Create and dispatch instant task if the AI requested one
+            let instant_task_id: Option<Uuid> = if let (Some(ref ite), Some(ref spec)) =
+                (state.instant_task_engine.as_ref(), maybe_instant.as_ref())
+            {
+                if let Some(ref db) = state.db {
+                    let session_id = req.context
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+
+                    match database::instant_tasks::create(
+                        db,
+                        session_id.as_deref(),
+                        None,
+                        &spec.task_type,
+                        &spec.query,
+                        spec.params.clone(),
+                    )
+                    .await
+                    {
+                        Ok(task) => {
+                            tracing::info!(
+                                "Instant task {} created (type={}, query={:?})",
+                                task.id, task.task_type, task.query
+                            );
+                            // The engine will pick it up within POLL_INTERVAL_SECS
+                            Some(task.id)
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to create instant task: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             // Save assistant message (using the cleaned text without markers)
             let assistant_msg = ChatMessage {
@@ -215,8 +349,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                 });
             }
 
-            // Build response: include task action metadata so the frontend can
-            // show a confirmation UI when required.
+            // Build response
             let task_action_json = maybe_cmd.as_ref().map(|cmd| serde_json::json!({
                 "action": cmd.action,
                 "task_id": cmd.task_id,
@@ -235,6 +368,9 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                     "message_id": assistant_msg.id,
                     "timestamp": assistant_msg.timestamp,
                     "task_action": task_action_json,
+                    // If set, frontend should open SSE stream and show "searching…"
+                    "instant_task_id": instant_task_id,
+                    "instant_task_type": maybe_instant.as_ref().map(|s| &s.task_type),
                 })),
             )
         }
@@ -1468,6 +1604,102 @@ async fn confirm_task_action(
     (StatusCode::OK, Json(serde_json::json!({"success": true, "action": req.action})))
 }
 
+// ─── Instant Task API ─────────────────────────────────────────────────────────
+
+/// Poll the status of an instant task.
+async fn get_instant_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(ref db) = state.db else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+
+    match database::instant_tasks::get_by_id(db, id).await {
+        Ok(Some(task)) => (StatusCode::OK, Json(serde_json::to_value(&task).unwrap_or_default())),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Instant task not found"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+/// SSE stream for a single instant task.
+/// The client subscribes immediately and receives one event when the result arrives.
+async fn stream_instant_task(
+    State(state): State<AppState>,
+    axum::extract::Path(task_id): axum::extract::Path<Uuid>,
+) -> impl IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use futures_util::stream::{self, StreamExt};
+    use tokio_stream::wrappers::BroadcastStream;
+
+    // Check if the task is already done (fast path)
+    if let Some(ref db) = state.db {
+        if let Ok(Some(task)) = database::instant_tasks::get_by_id(db, task_id).await {
+            if task.status == "completed" || task.status == "failed" {
+                let data = serde_json::json!({
+                    "task_id": task_id,
+                    "status": task.status,
+                    "result_text": task.result_text,
+                    "result_data": task.result_data,
+                    "error": task.error_message,
+                });
+                let event = Event::default()
+                    .event("instant_task_result")
+                    .data(data.to_string());
+                let s = stream::once(async move { Ok::<Event, std::convert::Infallible>(event) });
+                return Sse::new(s).keep_alive(KeepAlive::default()).into_response();
+            }
+        }
+    }
+
+    // Subscribe to live broadcast
+    let rx = if let Some(ref ite) = state.instant_task_engine {
+        ite.subscribe()
+    } else {
+        // No engine – return immediately with an error event
+        let data = serde_json::json!({"error": "Instant task engine not available"});
+        let s = stream::once(async move {
+            Ok::<Event, std::convert::Infallible>(
+                Event::default().event("error").data(data.to_string())
+            )
+        });
+        return Sse::new(s).keep_alive(KeepAlive::default()).into_response();
+    };
+
+    // Convert the broadcast receiver into an SSE stream
+    let broadcast_stream = BroadcastStream::new(rx);
+
+    let sse_stream = broadcast_stream.filter_map(move |msg| async move {
+        let result: InstantTaskResult = msg.ok()?;
+        if result.task_id != task_id {
+            return None; // Not the task we care about
+        }
+        let data = serde_json::json!({
+            "task_id": result.task_id,
+            "status": result.status,
+            "result_text": result.result_text,
+            "result_data": result.result_data,
+            "error": result.error,
+        });
+        Some(Ok::<Event, std::convert::Infallible>(
+            Event::default()
+                .event("instant_task_result")
+                .data(data.to_string()),
+        ))
+    });
+
+    Sse::new(sse_stream).keep_alive(KeepAlive::default()).into_response()
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -1479,9 +1711,14 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let (provider_type, config) = load_config_from_env();
-    let initial_provider = create_provider(provider_type, config);
+    // Wrap provider in an Arc<RwLock<>> so it can be shared with the instant task engine
+    let shared_provider: Arc<RwLock<Box<dyn AIProvider>>> =
+        Arc::new(RwLock::new(create_provider(provider_type, config)));
 
-    info!("Starting ORA AI (IORA Assist) with provider: {}", initial_provider.name());
+    {
+        let p = shared_provider.read().await;
+        info!("Starting ORA AI (IORA Assist) with provider: {}", p.name());
+    }
 
     // Initialize database (optional - continues without DB if unavailable)
     let db = match database::init_database().await {
@@ -1534,6 +1771,22 @@ async fn main() -> anyhow::Result<()> {
     } else {
         info!("Headless Chrome browser initialized for tool execution");
     }
+    let tool_executor = Arc::new(RwLock::new(tool_executor));
+
+    // Initialize instant task engine if database is available
+    let instant_task_engine = if let Some(ref db_pool) = db {
+        let engine = Arc::new(InstantTaskEngine::new(
+            db_pool.clone(),
+            shared_provider.clone(),
+            tool_executor.clone(),
+        ));
+        engine.start().await;
+        info!("Instant task engine started successfully");
+        Some(engine)
+    } else {
+        info!("Instant task engine disabled (no database connection)");
+        None
+    };
 
     // Initialize memory manager if database is available
     let memory_manager = if let Some(ref db_pool) = db {
@@ -1547,13 +1800,14 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
-        current_provider: Arc::new(RwLock::new(initial_provider)),
+        current_provider: shared_provider,
         context_builder: Arc::new(ContextBuilder::new()),
         db,
         orchestrator,
         task_engine,
+        instant_task_engine,
         conversation_manager,
-        tool_executor: Arc::new(RwLock::new(tool_executor)),
+        tool_executor,
         memory_manager,
     };
 
@@ -1604,6 +1858,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/tasks/detect", post(detect_tasks_from_conversation))
         // User-confirmed task action (after AI asked for confirmation)
         .route("/api/assist/tasks/confirm", post(confirm_task_action))
+        // Instant Tasks API – real-time one-shot tasks
+        .route("/api/assist/tasks/instant/:id", get(get_instant_task))
+        .route("/api/assist/tasks/instant/:id/stream", get(stream_instant_task))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

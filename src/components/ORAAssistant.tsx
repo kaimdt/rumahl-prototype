@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning } from '@phosphor-icons/react'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { MessageContent } from '@/components/MessageContent'
@@ -10,6 +10,11 @@ interface AIChatMessage {
   role: string
   content: string
   timestamp: string
+  // If present, an instant task is resolving in background for this message
+  instantTaskId?: string
+  instantTaskType?: string
+  instantTaskStatus?: 'pending' | 'completed' | 'failed'
+  instantTaskResult?: string
 }
 
 interface AIChatResponse {
@@ -23,6 +28,8 @@ interface AIChatResponse {
     question?: string
     requires_confirmation: boolean
   } | null
+  instant_task_id?: string | null
+  instant_task_type?: string | null
 }
 
 // A pending action waiting for the user to confirm or decline
@@ -37,6 +44,16 @@ type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
 type DialogTab = 'chat' | 'tasks'
 
 const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
+
+// ─── Instant Task type badge labels ──────────────────────────────────────────
+
+const INSTANT_TASK_LABELS: Record<string, string> = {
+  search:  'Suche',
+  weather: 'Wetter',
+  news:    'Nachrichten',
+  music:   'Musik',
+  generic: 'Suche',
+}
 
 export function ORAAssistant() {
   const [isOpen, setIsOpen] = useState(false)
@@ -54,6 +71,58 @@ export function ORAAssistant() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
+  // Active SSE connections keyed by instant task id
+  const instantTaskSources = useRef<Map<string, EventSource>>(new Map())
+
+  // Subscribe to an instant task result via SSE and update the corresponding message.
+  const subscribeToInstantTask = useCallback((taskId: string, msgTimestamp: string) => {
+    if (instantTaskSources.current.has(taskId)) return // already subscribed
+
+    const url = `${ASSIST_URL}/api/assist/tasks/instant/${taskId}/stream`
+    const es = new EventSource(url)
+
+    es.addEventListener('instant_task_result', (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        const resultText: string = data.result_text || data.error || 'Keine Antwort erhalten.'
+        const status: 'completed' | 'failed' = data.status === 'completed' ? 'completed' : 'failed'
+
+        setMessages(prev =>
+          prev.map(m =>
+            m.timestamp === msgTimestamp
+              ? { ...m, instantTaskStatus: status, instantTaskResult: resultText }
+              : m
+          )
+        )
+        // TTS the result if enabled
+        if (status === 'completed' && isTTSEnabled) speak(resultText)
+      } catch { /* parse error – ignore */ }
+      es.close()
+      instantTaskSources.current.delete(taskId)
+    })
+
+    es.onerror = () => {
+      setMessages(prev =>
+        prev.map(m =>
+          m.timestamp === msgTimestamp && m.instantTaskStatus === 'pending'
+            ? { ...m, instantTaskStatus: 'failed', instantTaskResult: 'Suche fehlgeschlagen.' }
+            : m
+        )
+      )
+      es.close()
+      instantTaskSources.current.delete(taskId)
+    }
+
+    instantTaskSources.current.set(taskId, es)
+  }, [isTTSEnabled])
+
+  // Clean up SSE connections when dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      instantTaskSources.current.forEach(es => es.close())
+      instantTaskSources.current.clear()
+    }
+  }, [isOpen])
 
   // Check for Web Speech API support
   useEffect(() => {
@@ -127,21 +196,40 @@ export function ORAAssistant() {
 
       const data: AIChatResponse = await response.json()
 
+      // Build the AI message – mark it as pending instant task if one was created
+      const msgTimestamp = new Date().toISOString()
       const aiMessage: AIChatMessage = {
         role: 'assistant',
         content: data.message,
-        timestamp: new Date().toISOString(),
+        timestamp: msgTimestamp,
+        ...(data.instant_task_id
+          ? {
+              instantTaskId: data.instant_task_id,
+              instantTaskType: data.instant_task_type ?? 'search',
+              instantTaskStatus: 'pending' as const,
+            }
+          : {}),
       }
 
       const updatedMessages = [...messages, userMessage, aiMessage]
       setMessages(updatedMessages)
       setState('speaking')
 
+      // Subscribe to instant task result if one was requested
+      if (data.instant_task_id) {
+        subscribeToInstantTask(data.instant_task_id, msgTimestamp)
+        // Don't speak the holding message – we'll speak the real result later
+        setState('idle')
+      } else if (isTTSEnabled) {
+        speak(data.message)
+      } else {
+        setTimeout(() => setState('idle'), 2000)
+      }
+
       // Handle structured task action from AI response
       if (data.task_action) {
         const ta = data.task_action
         if (ta.requires_confirmation && ta.task_id && ta.question) {
-          // AI is unsure – show confirmation UI to user
           setPendingTaskAction({
             action: ta.action,
             task_id: ta.task_id,
@@ -149,11 +237,10 @@ export function ORAAssistant() {
             question: ta.question,
           })
         } else if (!ta.requires_confirmation && ta.task_id) {
-          // High confidence – already executed on backend, show toast
           setTaskCreatedToast(`Aufgabe ${ta.action === 'pause_until' ? 'pausiert' : ta.action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
           setTimeout(() => setTaskCreatedToast(null), 4000)
         }
-      } else {
+      } else if (!data.instant_task_id) {
         // Fall back to multi-message task detection for new task creation
         const payload = updatedMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
         fetch(`${ASSIST_URL}/api/assist/tasks/detect`, {
@@ -169,13 +256,6 @@ export function ORAAssistant() {
             }
           })
           .catch(() => { /* silent */ })
-      }
-
-      // Speak the AI response if TTS is enabled
-      if (isTTSEnabled) {
-        speak(data.message)
-      } else {
-        setTimeout(() => setState('idle'), 2000)
       }
     } catch (e) {
       console.error('Failed to send message:', e)
@@ -521,6 +601,40 @@ export function ORAAssistant() {
                     }`}
                   >
                     <MessageContent content={msg.content} role={msg.role} />
+
+                    {/* Instant Task result area */}
+                    {msg.instantTaskId && (
+                      <div className="mt-2 pt-2 border-t border-foreground/10">
+                        {msg.instantTaskStatus === 'pending' && (
+                          <div className="flex items-center gap-1.5 text-xs text-foreground/50">
+                            <MagnifyingGlass size={12} className="animate-pulse" />
+                            <span>
+                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? 'Suche'} läuft…
+                            </span>
+                          </div>
+                        )}
+                        {msg.instantTaskStatus === 'completed' && msg.instantTaskResult && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-sm text-foreground/90 leading-relaxed"
+                          >
+                            <div className="flex items-center gap-1 text-[10px] text-accent mb-1">
+                              <Check size={10} weight="bold" />
+                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? 'Ergebnis'}
+                            </div>
+                            <MessageContent content={msg.instantTaskResult} role="assistant" />
+                          </motion.div>
+                        )}
+                        {msg.instantTaskStatus === 'failed' && (
+                          <p className="text-xs text-red-400/80 flex items-center gap-1">
+                            <Warning size={11} weight="fill" />
+                            {msg.instantTaskResult ?? 'Suche fehlgeschlagen.'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <p className="text-[10px] text-foreground/40 mt-1">
                       {new Date(msg.timestamp).toLocaleTimeString('de-DE', {
                         hour: '2-digit',
