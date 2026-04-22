@@ -1,7 +1,11 @@
 [Unit]
 Description=IORA OS Startup Validator
 Documentation=https://github.com/your-org/iora
-After=docker.service iora-supervisor.service
+# iora-supervisor is a docker container, NOT a systemd unit — referring
+# to it with After= produced a dangling dependency warning in journalctl.
+# We only need docker + network to be ordered before us; the validator
+# itself is informational and never fails (script always exits 0).
+After=docker.service network-online.target
 Wants=docker.service
 
 [Service]
@@ -11,6 +15,8 @@ RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=300
+# The validator is purely informational; never let it fail the boot.
+SuccessExitStatus=0 1
 
 [Install]
 WantedBy=multi-user.target

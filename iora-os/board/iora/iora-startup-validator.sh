@@ -2,8 +2,13 @@
 # IORA OS Startup Validator
 # Runs during boot to validate all required services are healthy
 # Should be installed as a systemd service on IORA OS
+#
+# IMPORTANT: this script must NEVER exit non-zero — a failing validator on
+# the boot console ("Failed to start IORA OS Startup Validator") is far
+# worse UX than a log-only warning. All checks are best-effort and their
+# results go to the log file only. The unit exits 0 unconditionally.
 
-set -e
+set +e
 
 LOG_FILE="/var/log/iora-startup-validator.log"
 MAX_WAIT_TIME=180  # 3 minutes
@@ -132,15 +137,16 @@ validate_startup() {
 }
 
 # Main execution
-mkdir -p "$(dirname "$LOG_FILE")"
-validate_startup
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+validate_startup || true
 
 exit_code=$?
 
 if [ $exit_code -eq 0 ]; then
     log "✓ IORA OS started successfully"
 else
-    log "✗ IORA OS startup validation failed"
+    log "✗ IORA OS startup validation reported issues (see log above) — continuing boot"
 fi
 
-exit $exit_code
+# Always exit 0: the validator is informational, not gating.
+exit 0

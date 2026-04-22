@@ -628,43 +628,72 @@ apply_post_install_config() {
 
     # Configure network
     mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
+    # Remove any default wildcard so admin-chosen static/dhcp config wins
+    # regardless of the lexical sort order. We do it both here AND keep
+    # 90-iora-wired-default.network as fallback in case the admin never
+    # runs through networking.
+    rm -f "${target}/etc/systemd/network/eth0.network" 2>/dev/null || true
 
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
-        # Static network configuration
-        cat > "${target}/etc/systemd/network/10-static.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-Address=${IORA_IP}/${IORA_NETMASK:-24}
-Gateway=${IORA_GATEWAY:-}
-DNS=${IORA_DNS:-8.8.8.8}
-NETEOF
+        # Static network configuration (IPv4 + optional IPv6).
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "Address=${IORA_IP}/${IORA_NETMASK:-24}"
+            [ -n "${IORA_GATEWAY:-}" ]  && echo "Gateway=${IORA_GATEWAY}"
+            echo "DNS=${IORA_DNS:-8.8.8.8}"
+            [ -n "${IORA_DNS2:-}" ]     && echo "DNS=${IORA_DNS2}"
+            # IPv6: accept RA for SLAAC unless the admin gave us a fixed v6.
+            if [ -n "${IORA_IP6:-}" ]; then
+                echo "Address=${IORA_IP6}/${IORA_PREFIX6:-64}"
+                [ -n "${IORA_GATEWAY6:-}" ] && echo "Gateway=${IORA_GATEWAY6}"
+                [ -n "${IORA_DNS6:-}" ]     && echo "DNS=${IORA_DNS6}"
+                echo "IPv6AcceptRA=no"
+            else
+                echo "IPv6AcceptRA=yes"
+            fi
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-static.network"
     elif [ "$IORA_NETWORK" = "dhcp" ]; then
-        # DHCP configuration
-        if [ "$IORA_CUSTOM_DNS" = "yes" ] && [ -n "$IORA_DNS" ]; then
-            # DHCP with custom DNS
-            cat > "${target}/etc/systemd/network/10-dhcp.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-DHCP=yes
-DNS=${IORA_DNS}
-
-[DHCP]
-UseDNS=false
-NETEOF
-        else
-            # Standard DHCP (use DNS from DHCP server)
-            cat > "${target}/etc/systemd/network/10-dhcp.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-DHCP=yes
-NETEOF
-        fi
+        # DHCP configuration (IPv4 + IPv6 via DHCPv6/RA).
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "DHCP=yes"
+            echo "IPv6AcceptRA=yes"
+            if [ "${IORA_CUSTOM_DNS:-no}" = "yes" ] && [ -n "${IORA_DNS:-}" ]; then
+                echo "DNS=${IORA_DNS}"
+                [ -n "${IORA_DNS2:-}" ] && echo "DNS=${IORA_DNS2}"
+            fi
+            echo ""
+            echo "[DHCPv4]"
+            if [ "${IORA_CUSTOM_DNS:-no}" = "yes" ] && [ -n "${IORA_DNS:-}" ]; then
+                echo "UseDNS=false"
+            else
+                echo "UseDNS=true"
+            fi
+            echo "UseNTP=true"
+            echo "RouteMetric=100"
+            echo ""
+            echo "[DHCPv6]"
+            if [ "${IORA_CUSTOM_DNS:-no}" = "yes" ] && [ -n "${IORA_DNS:-}" ]; then
+                echo "UseDNS=false"
+            else
+                echo "UseDNS=true"
+            fi
+            echo "UseNTP=true"
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-dhcp.network"
     fi
 
     # Apply SD card optimizations if detected

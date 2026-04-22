@@ -90,6 +90,441 @@ mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
 mkdir -p "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants"
 mkdir -p "${TARGET_DIR}/etc/apparmor.d"
 
+# ── Robust DHCP for *any* wired NIC name (eth0, ens3, enp0s3, …) ────────────
+# Buildroot's BR2_SYSTEM_DHCP="eth0" only writes /etc/systemd/network/eth0.network
+# that matches literally Name=eth0. Modern VMs (Proxmox/KVM/VMware/Hyper-V/VirtualBox)
+# use predictable interface names like ens3/enp0s3, so nothing matches →
+# systemd-networkd-wait-online times out and "Failed to start Wait for Network
+# to be Configured" cascades into iora-stack / watchdog / startup-validator.
+#
+# Replace it with a wildcard profile that matches any physical ethernet NIC.
+# IMPORTANT: this is the *default / fallback* — filename prefix is 90- so the
+# installer-written 10-static.network / 10-dhcp.network / 20-iora.network
+# (written at runtime by iora-netctl) always WINS over this one. Without the
+# 90- prefix, an admin-configured static IP would be silently ignored because
+# "10-iora-wired" sorts BEFORE "10-static" in systemd-networkd's lexical
+# load order.
+mkdir -p "${TARGET_DIR}/etc/systemd/network"
+# Remove Buildroot's single-NIC default + any stale wildcard from older builds.
+rm -f "${TARGET_DIR}/etc/systemd/network/eth0.network" \
+      "${TARGET_DIR}/etc/systemd/network/10-iora-wired.network" 2>/dev/null || true
+cat > "${TARGET_DIR}/etc/systemd/network/90-iora-wired-default.network" <<'EOF'
+# IORA OS default wired profile — ONLY active when no higher-priority
+# (10-* / 20-*) .network file matches the interface. Replaced automatically
+# by iora-netctl when the admin configures a static IP or different DHCP
+# options via the Control Center.
+[Match]
+Name=eth* en* eno* ens* enp* enx*
+Type=ether
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+LLMNR=no
+MulticastDNS=no
+
+[DHCPv4]
+UseDNS=yes
+UseNTP=yes
+UseHostname=no
+RouteMetric=100
+
+[DHCPv6]
+UseDNS=yes
+UseNTP=yes
+
+# Don't block boot forever if DHCP takes a while: consider the link online
+# as soon as it has an IP (degraded is enough for iora-stack / docker pulls
+# are retried anyway).
+[Link]
+RequiredForOnline=degraded
+EOF
+
+# ── iora-netctl: runtime network configurator ───────────────────────────────
+# Used by the IORA Control Center (via docker host-bind or an SSH / REST hop)
+# and by CLI admins to switch IPv4 / IPv6 / DHCP / DNS at runtime WITHOUT
+# dropping the connection permanently — writes a new file atomically, asks
+# networkd to reload, sanity-checks link+default route, and rolls back on
+# failure. JSON in / JSON out so the Control Center can shell out to it.
+#
+# Usage:
+#   iora-netctl status                          # show current config + leases
+#   iora-netctl get                             # print current .network file as JSON
+#   iora-netctl set <json>                      # apply new config from JSON on stdin or $1
+#   iora-netctl set --dhcp [--custom-dns 1.1.1.1 1.0.0.1]
+#   iora-netctl set --static --ipv4 192.168.1.50/24 --gw4 192.168.1.1 \
+#                          [--dns 1.1.1.1] [--ipv6 2001:db8::1/64 --gw6 2001:db8::]
+#   iora-netctl rollback                        # restore the previous config
+#
+# JSON schema (POST /api/network in the Control Center would send this):
+#   {"mode":"dhcp"|"static","ipv4":"…/…","gateway4":"…","ipv6":"…/…",
+#    "gateway6":"…","dns":["…","…"],"accept_ra":true,
+#    "match":"eth* en* eno* ens* enp* enx*","hostname":"foo"}
+mkdir -p "${TARGET_DIR}/usr/bin" "${TARGET_DIR}/usr/lib/iora"
+cat > "${TARGET_DIR}/usr/bin/iora-netctl" <<'NETCTLEOF'
+#!/usr/bin/env python3
+# IORA OS network configurator.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Writes /etc/systemd/network/20-iora.network atomically (filename prefix
+# 20- so admin config beats the 90-iora-wired-default.network fallback but
+# can still be overridden by the installer's 10-*.network if present).
+#
+# Safety features:
+#   * Always writes to a temp file + rename (crash-safe).
+#   * Keeps the previous file as 20-iora.network.bak for one-shot rollback.
+#   * After reload, polls `networkctl status --no-pager` for up to 30 s to
+#     confirm at least one interface is "routable" or "degraded". If not,
+#     auto-rollback to the previous config.
+#   * Sanitises all user-provided values with strict regexes before they
+#     touch the filesystem — no injection of arbitrary INI keys.
+
+import argparse
+import ipaddress
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+NET_DIR     = pathlib.Path("/etc/systemd/network")
+CUR_FILE    = NET_DIR / "20-iora.network"
+BAK_FILE    = NET_DIR / "20-iora.network.bak"
+DEFAULT_MATCH = "eth* en* eno* ens* enp* enx*"
+MATCH_RE    = re.compile(r"^[A-Za-z0-9_*? .-]+$")
+HOSTNAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+def die(msg, rc=1):
+    print(json.dumps({"ok": False, "error": msg}), file=sys.stderr)
+    sys.exit(rc)
+
+
+def ok(payload=None):
+    out = {"ok": True}
+    if payload:
+        out.update(payload)
+    print(json.dumps(out))
+    sys.exit(0)
+
+
+def run(cmd, check=True, timeout=15):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except Exception as e:
+        if check:
+            die(f"cmd failed: {' '.join(cmd)}: {e}")
+        return None
+    if check and r.returncode != 0:
+        die(f"{' '.join(cmd)} exit {r.returncode}: {r.stderr.strip() or r.stdout.strip()}")
+    return r
+
+
+def validate_cidr(value, family):
+    try:
+        net = ipaddress.ip_interface(value)
+    except ValueError as e:
+        die(f"invalid {family} CIDR {value!r}: {e}")
+    if family == "v4" and not isinstance(net.ip, ipaddress.IPv4Address):
+        die(f"expected IPv4, got {value!r}")
+    if family == "v6" and not isinstance(net.ip, ipaddress.IPv6Address):
+        die(f"expected IPv6, got {value!r}")
+    return str(net)
+
+
+def validate_ip(value, family):
+    try:
+        addr = ipaddress.ip_address(value)
+    except ValueError as e:
+        die(f"invalid {family} address {value!r}: {e}")
+    if family == "v4" and not isinstance(addr, ipaddress.IPv4Address):
+        die(f"expected IPv4 gateway, got {value!r}")
+    if family == "v6" and not isinstance(addr, ipaddress.IPv6Address):
+        die(f"expected IPv6 gateway, got {value!r}")
+    return str(addr)
+
+
+def cfg_to_ini(cfg):
+    mode = cfg.get("mode", "dhcp").lower()
+    if mode not in ("dhcp", "static"):
+        die(f"invalid mode {mode!r}")
+    match = cfg.get("match") or DEFAULT_MATCH
+    if not MATCH_RE.match(match):
+        die("invalid match pattern")
+
+    lines = [
+        "# Managed by iora-netctl — do not edit by hand.",
+        "# Remove this file and run `iora-netctl set --dhcp` to reset.",
+        "[Match]",
+        f"Name={match}",
+        "Type=ether",
+        "",
+        "[Network]",
+    ]
+    dns = cfg.get("dns") or []
+    if not isinstance(dns, list):
+        die("dns must be an array")
+    for s in dns:
+        try:
+            ipaddress.ip_address(s)
+        except ValueError as e:
+            die(f"invalid DNS {s!r}: {e}")
+
+    accept_ra = cfg.get("accept_ra", True)
+
+    if mode == "dhcp":
+        lines.append("DHCP=yes")
+        lines.append(f"IPv6AcceptRA={'yes' if accept_ra else 'no'}")
+        for s in dns:
+            lines.append(f"DNS={s}")
+        lines += [
+            "", "[DHCPv4]",
+            f"UseDNS={'false' if dns else 'true'}",
+            "UseNTP=true",
+            "UseHostname=no",
+            "RouteMetric=100",
+            "", "[DHCPv6]",
+            f"UseDNS={'false' if dns else 'true'}",
+            "UseNTP=true",
+        ]
+    else:  # static
+        v4 = cfg.get("ipv4")
+        gw4 = cfg.get("gateway4")
+        v6 = cfg.get("ipv6")
+        gw6 = cfg.get("gateway6")
+        if not v4 and not v6:
+            die("static mode requires at least one of ipv4/ipv6")
+        if v4:
+            v4 = validate_cidr(v4, "v4")
+            lines.append(f"Address={v4}")
+            if gw4:
+                gw4 = validate_ip(gw4, "v4")
+                lines.append(f"Gateway={gw4}")
+        if v6:
+            v6 = validate_cidr(v6, "v6")
+            lines.append(f"Address={v6}")
+            if gw6:
+                gw6 = validate_ip(gw6, "v6")
+                lines.append(f"Gateway={gw6}")
+            lines.append(f"IPv6AcceptRA={'yes' if accept_ra and not gw6 else 'no'}")
+        else:
+            lines.append(f"IPv6AcceptRA={'yes' if accept_ra else 'no'}")
+        for s in dns:
+            lines.append(f"DNS={s}")
+
+    lines += [
+        "",
+        "[Link]",
+        "RequiredForOnline=degraded",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_atomic(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".iora-netctl.")
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def backup_current():
+    if CUR_FILE.exists():
+        shutil.copy2(CUR_FILE, BAK_FILE)
+
+
+def restore_backup():
+    if BAK_FILE.exists():
+        shutil.copy2(BAK_FILE, CUR_FILE)
+    else:
+        try:
+            CUR_FILE.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def reload_networkd():
+    # `networkctl reload` is the non-disruptive path (systemd >= 244).
+    r = run(["networkctl", "reload"], check=False)
+    if r is None or r.returncode != 0:
+        # Fall back to service reload/restart.
+        run(["systemctl", "restart", "systemd-networkd.service"], check=False, timeout=30)
+    # Nudge the per-interface state machine.
+    run(["networkctl", "reconfigure"] + list_managed_ifaces(), check=False)
+
+
+def list_managed_ifaces():
+    try:
+        entries = [p.name for p in pathlib.Path("/sys/class/net").iterdir()]
+    except Exception:
+        return []
+    return [n for n in entries
+            if n != "lo" and not n.startswith(("docker", "br-", "veth", "vnet", "virbr"))]
+
+
+def wait_for_online(timeout=30):
+    # Poll networkctl for an interface that's at least "routable" or
+    # "degraded" (degraded = link up, no default route — still counts as
+    # "we can talk to this box on the LAN").
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = run(["networkctl", "--no-pager", "--no-legend", "list"], check=False, timeout=5)
+        if r and r.returncode == 0:
+            for line in r.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 5:
+                    setup, oper = parts[-2], parts[-1]
+                    if oper in ("routable", "degraded") and setup == "configured":
+                        return True
+        time.sleep(1)
+    return False
+
+
+def cmd_status():
+    data = {"file": str(CUR_FILE), "exists": CUR_FILE.exists()}
+    if CUR_FILE.exists():
+        data["content"] = CUR_FILE.read_text()
+    r = run(["networkctl", "--no-pager", "--no-legend", "list"], check=False, timeout=5)
+    data["networkctl"] = r.stdout if r else ""
+    r = run(["ip", "-j", "addr"], check=False, timeout=5)
+    if r and r.returncode == 0:
+        try:
+            data["addrs"] = json.loads(r.stdout)
+        except Exception:
+            pass
+    ok(data)
+
+
+def cmd_get():
+    if not CUR_FILE.exists():
+        ok({"mode": "default", "file": None})
+    ok({"file": str(CUR_FILE), "content": CUR_FILE.read_text()})
+
+
+def cmd_set(cfg, no_verify=False):
+    ini = cfg_to_ini(cfg)
+    backup_current()
+    write_atomic(CUR_FILE, ini)
+    hostname = cfg.get("hostname")
+    if hostname:
+        if not HOSTNAME_RE.match(hostname):
+            die("invalid hostname")
+        try:
+            run(["hostnamectl", "set-hostname", hostname], check=False, timeout=5)
+        except Exception:
+            pathlib.Path("/etc/hostname").write_text(hostname + "\n")
+    reload_networkd()
+    if no_verify:
+        ok({"applied": True, "verified": False})
+    if not wait_for_online(timeout=30):
+        restore_backup()
+        reload_networkd()
+        die("new config did not come up within 30s — rolled back")
+    ok({"applied": True, "verified": True})
+
+
+def cmd_rollback():
+    if not BAK_FILE.exists():
+        die("no backup to roll back to")
+    restore_backup()
+    reload_networkd()
+    ok({"rolled_back": True})
+
+
+def parse_cli():
+    ap = argparse.ArgumentParser(prog="iora-netctl")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("status")
+    sub.add_parser("get")
+    sub.add_parser("rollback")
+    s = sub.add_parser("set")
+    s.add_argument("json", nargs="?", help='JSON config, "-" for stdin')
+    s.add_argument("--dhcp", action="store_true")
+    s.add_argument("--static", action="store_true")
+    s.add_argument("--ipv4")
+    s.add_argument("--gw4")
+    s.add_argument("--ipv6")
+    s.add_argument("--gw6")
+    s.add_argument("--dns", nargs="*", default=[])
+    s.add_argument("--custom-dns", nargs="*", default=[])
+    s.add_argument("--hostname")
+    s.add_argument("--match")
+    s.add_argument("--no-verify", action="store_true")
+    return ap.parse_args()
+
+
+def main():
+    if os.geteuid() != 0:
+        die("must run as root", 77)
+    args = parse_cli()
+    if args.cmd == "status":
+        cmd_status()
+    if args.cmd == "get":
+        cmd_get()
+    if args.cmd == "rollback":
+        cmd_rollback()
+    if args.cmd == "set":
+        if args.json:
+            raw = sys.stdin.read() if args.json == "-" else args.json
+            try:
+                cfg = json.loads(raw)
+            except Exception as e:
+                die(f"invalid JSON: {e}")
+        else:
+            if args.dhcp and args.static:
+                die("--dhcp and --static are mutually exclusive")
+            cfg = {"mode": "dhcp" if args.dhcp or not args.static else "static"}
+            if args.ipv4:   cfg["ipv4"] = args.ipv4
+            if args.gw4:    cfg["gateway4"] = args.gw4
+            if args.ipv6:   cfg["ipv6"] = args.ipv6
+            if args.gw6:    cfg["gateway6"] = args.gw6
+            dns = list(args.dns) + list(args.custom_dns)
+            if dns:         cfg["dns"] = dns
+            if args.match:  cfg["match"] = args.match
+            if args.hostname: cfg["hostname"] = args.hostname
+        cmd_set(cfg, no_verify=args.no_verify)
+
+
+if __name__ == "__main__":
+    main()
+NETCTLEOF
+chmod 755 "${TARGET_DIR}/usr/bin/iora-netctl"
+
+# Enable systemd-networkd + resolved (they're built by BR2_PACKAGE_SYSTEMD_*).
+# Buildroot doesn't always symlink them into network.target.wants on its own.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/network-online.target.wants"
+ln -sf /usr/lib/systemd/system/systemd-networkd.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" 2>/dev/null || true
+ln -sf /usr/lib/systemd/system/systemd-networkd.socket \
+    "${TARGET_DIR}/etc/systemd/system/sockets.target.wants/systemd-networkd.socket" 2>/dev/null || true
+mkdir -p "${TARGET_DIR}/etc/systemd/system/sockets.target.wants"
+ln -sf /usr/lib/systemd/system/systemd-networkd.socket \
+    "${TARGET_DIR}/etc/systemd/system/sockets.target.wants/systemd-networkd.socket" 2>/dev/null || true
+ln -sf /usr/lib/systemd/system/systemd-networkd-wait-online.service \
+    "${TARGET_DIR}/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service" 2>/dev/null || true
+
+# Cap networkd-wait-online so a missing cable never blocks the boot for
+# 2 minutes: "any" means as soon as ONE interface is online we're done,
+# 20s timeout prevents endless hangs in headless VMs.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/systemd-networkd-wait-online.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/systemd-networkd-wait-online.service.d/10-iora.conf" <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=20
+# Don't fail the unit if no link is up — network-online.target should still
+# be reached so iora-stack, docker, etc. can start (with retries).
+SuccessExitStatus=0 1
+EOF
+
 # Configure Docker daemon
 cat > "${TARGET_DIR}/etc/docker/daemon.json" <<EOF
 {
@@ -122,19 +557,26 @@ LimitNOFILE=1048576
 LimitNPROC=1048576
 EOF
 
-# Auto-mount data partition at /mnt/data
+# Auto-mount data partition at /mnt/data.
+# `nofail` is critical: on a freshly-dd'd disk, in VMs where the iora-data
+# label is not present yet, or when the installer hasn't run, a missing
+# label would drop the system into emergency.target. With nofail the mount
+# unit simply stays inactive and dependent services skip via their
+# ConditionPathIsMountPoint=/mnt/data.
 cat > "${TARGET_DIR}/etc/systemd/system/mnt-data.mount" <<'EOF'
 [Unit]
 Description=IORA Data Partition
 DefaultDependencies=no
 After=systemd-fsck@dev-disk-by\x2dlabel-iora\x2ddata.service
 Before=local-fs.target
+# Don't consider a missing data label a boot failure.
+ConditionPathExists=/dev/disk/by-label/iora-data
 
 [Mount]
 What=/dev/disk/by-label/iora-data
 Where=/mnt/data
 Type=ext4
-Options=defaults,noatime
+Options=defaults,noatime,nofail,x-systemd.device-timeout=10s
 
 [Install]
 WantedBy=local-fs.target
@@ -173,12 +615,14 @@ ln -sf /etc/systemd/system/iora-init-data.service \
 cat > "${TARGET_DIR}/etc/systemd/system/iora-stack.service" <<'EOF'
 [Unit]
 Description=IORA Docker Stack
-Requires=docker.service iora-init-data.service
+# Wants (not Requires): if docker/network are briefly unavailable we still
+# try and simply exit cleanly on retry rather than spamming "Failed to start"
+# on every Restart= attempt.
+Wants=docker.service iora-init-data.service network-online.target
 After=docker.service network-online.target iora-init-data.service
-Wants=network-online.target
 ConditionPathIsDirectory=/mnt/data/iora
 StartLimitIntervalSec=600
-StartLimitBurst=10
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -199,8 +643,11 @@ ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStartPost=/bin/sh -c 'sleep 15 && /usr/bin/docker compose up -d --remove-orphans || true'
 ExecStop=/usr/bin/docker compose down
 ExecReload=/usr/bin/docker compose up -d --remove-orphans
-Restart=on-failure
-RestartSec=30
+# Don't cascade "Failed to start" on every retry when the user simply
+# hasn't populated /mnt/data/iora yet or docker is briefly unavailable:
+# exit 0 on compose errors, let iora-stack-watchdog.timer pick it up later.
+SuccessExitStatus=0 1
+Restart=no
 TimeoutStartSec=600
 TimeoutStopSec=120
 
@@ -213,7 +660,8 @@ EOF
 cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.service" <<'EOF'
 [Unit]
 Description=IORA Stack Watchdog
-After=iora-stack.service
+After=iora-stack.service docker.service
+Wants=docker.service
 ConditionPathIsDirectory=/mnt/data/iora
 ConditionPathExists=/mnt/data/iora/docker-compose.yml
 
@@ -221,12 +669,13 @@ ConditionPathExists=/mnt/data/iora/docker-compose.yml
 Type=oneshot
 WorkingDirectory=/mnt/data/iora
 ExecStart=/bin/sh -c '\
-  set -e; \
   STOPPED=$(/usr/bin/docker compose ps --status exited --services 2>/dev/null | wc -l); \
   if [ "$STOPPED" -gt 0 ]; then \
     echo "[iora-stack-watchdog] restarting $STOPPED stopped service(s)"; \
-    /usr/bin/docker compose up -d --remove-orphans; \
-  fi'
+    /usr/bin/docker compose up -d --remove-orphans || true; \
+  fi; \
+  exit 0'
+SuccessExitStatus=0 1
 StandardOutput=journal
 StandardError=journal
 EOF
@@ -800,8 +1249,10 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/var/log /tmp /data/rauc /mnt/data
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+# /data/rauc was a typo — the mount point is /mnt/data, and rauc writes
+# bundles to /mnt/data/rauc (created by iora-init-data.service).
+ReadWritePaths=/var/log /mnt/data
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
 EOF
 
 cat > "${TARGET_DIR}/etc/systemd/system/iora-update-check.timer" <<'EOF'

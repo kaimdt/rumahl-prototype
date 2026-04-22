@@ -2042,18 +2042,33 @@ apply_post_install_config() {
         fi
     fi
 
-    # Configure static network if chosen
+    # Configure network (IPv4 + IPv6). Use 10-static so it wins over the
+    # build-in 90-iora-wired-default.network fallback.
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
         mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
-        cat > "${target}/etc/systemd/network/10-static.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-Address=${IORA_IP}/${IORA_NETMASK:-24}
-Gateway=${IORA_GATEWAY:-}
-DNS=${IORA_DNS:-8.8.8.8}
-NETEOF
+        rm -f "${target}/etc/systemd/network/eth0.network" 2>/dev/null || true
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "Address=${IORA_IP}/${IORA_NETMASK:-24}"
+            [ -n "${IORA_GATEWAY:-}" ] && echo "Gateway=${IORA_GATEWAY}"
+            echo "DNS=${IORA_DNS:-8.8.8.8}"
+            [ -n "${IORA_DNS2:-}" ]    && echo "DNS=${IORA_DNS2}"
+            if [ -n "${IORA_IP6:-}" ]; then
+                echo "Address=${IORA_IP6}/${IORA_PREFIX6:-64}"
+                [ -n "${IORA_GATEWAY6:-}" ] && echo "Gateway=${IORA_GATEWAY6}"
+                [ -n "${IORA_DNS6:-}" ]     && echo "DNS=${IORA_DNS6}"
+                echo "IPv6AcceptRA=no"
+            else
+                echo "IPv6AcceptRA=yes"
+            fi
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-static.network"
     fi
 
     # Locale / keyboard defaults similar to common installers

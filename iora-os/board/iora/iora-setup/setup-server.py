@@ -1007,11 +1007,49 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(fetch_available_packages())
         elif path == "/api/os-update":
             self._send_json(check_os_update())
+        elif path == "/api/network":
+            # Read current network config via iora-netctl.
+            self._send_json(self._call_netctl(["status"]))
         else:
             self.send_error(404)
 
+    def _call_netctl(self, args, body=None):
+        """Shell out to /usr/bin/iora-netctl — the canonical network
+        configurator. Returns the parsed JSON dict on success, or a dict
+        with {ok: False, error: …} on failure. Keeping this as a CLI hop
+        means the Control Center (which runs in a container) can use the
+        exact same interface via `docker exec`, SSH, or an HTTP proxy.
+        """
+        try:
+            cmd = ["/usr/bin/iora-netctl"] + list(args)
+            input_bytes = body.encode("utf-8") if body else None
+            r = subprocess.run(cmd, input=input_bytes, capture_output=True,
+                               timeout=60)
+            try:
+                return json.loads(r.stdout or r.stderr or b"{}")
+            except Exception:
+                return {"ok": r.returncode == 0,
+                        "stdout": r.stdout.decode("utf-8", "replace"),
+                        "stderr": r.stderr.decode("utf-8", "replace")}
+        except FileNotFoundError:
+            return {"ok": False, "error": "iora-netctl not installed"}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "iora-netctl timed out"}
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+
+        if path == "/api/network":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode("utf-8", "replace")
+            result = self._call_netctl(["set", "-"], body=body)
+            status = 200 if result.get("ok") else 400
+            self._send_json(result, status)
+            return
+
+        if path == "/api/network/rollback":
+            self._send_json(self._call_netctl(["rollback"]))
+            return
 
         if path == "/api/apply":
             length = int(self.headers.get("Content-Length", 0))
