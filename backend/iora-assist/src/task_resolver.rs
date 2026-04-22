@@ -256,7 +256,7 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
     if let Some(tod) = task.time_of_day {
         let hhmm = format!("{}:{:02}", tod.hour(), tod.minute());
         let h_only = format!("{} uhr", tod.hour());
-        let h_colon = format!("{}:{}",tod.hour(), tod.minute());
+        let h_colon = format!("{}:{}", tod.hour(), tod.minute());
         if lower.contains(&hhmm) || lower.contains(&h_colon) {
             score += 0.45;
         } else if lower.contains(&h_only) {

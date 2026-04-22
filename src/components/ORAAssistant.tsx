@@ -84,7 +84,7 @@ export function ORAAssistant() {
     es.addEventListener('instant_task_result', (e) => {
       try {
         const data = JSON.parse(e.data)
-        const resultText: string = data.result_text || data.error || 'Keine Antwort erhalten.'
+        const resultText: string = data.result_text ?? data.error ?? 'Keine Antwort erhalten.'
         const status: 'completed' | 'failed' = data.status === 'completed' ? 'completed' : 'failed'
 
         setMessages(prev =>
