@@ -68,25 +68,139 @@ export function ORAAssistant() {
   // Pending task action awaiting user confirmation
   const [pendingTaskAction, setPendingTaskAction] = useState<PendingTaskAction | null>(null)
   const [isTTSEnabled, setIsTTSEnabled] = useState(true)
+  // Whether the last user interaction was via voice (microphone)
+  const [voiceLastUsed, setVoiceLastUsed] = useState(false)
+  // Label shown in the voice-task slow-path banner ("Suche läuft…")
+  const [voiceTaskBanner, setVoiceTaskBanner] = useState<string | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
   // Active SSE connections keyed by instant task id
   const instantTaskSources = useRef<Map<string, EventSource>>(new Map())
 
-  // Subscribe to an instant task result via SSE and update the corresponding message.
+  // ─── Voice instant-task multitask state (refs avoid stale-closure issues in SSE callbacks) ──
+  /** How many ms to silently wait before switching to slow-path and starting conversation. */
+  const FAST_PATH_MS = 4000
+  /** Tracks the active voice instant task – used from SSE callbacks. */
+  const voiceInstantTask = useRef<{
+    taskId: string
+    msgTimestamp: string
+    holdingMsg: string
+    taskType: string
+    phase: 'fast-wait' | 'slow-talking'
+  } | null>(null)
+  /** The fast-path setTimeout handle. */
+  const fastPathTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Sync refs so SSE callbacks always read the latest values without re-subscription
+  const isTTSEnabledRef = useRef(isTTSEnabled)
+  useEffect(() => { isTTSEnabledRef.current = isTTSEnabled }, [isTTSEnabled])
+  const voiceLastUsedRef = useRef(voiceLastUsed)
+  useEffect(() => { voiceLastUsedRef.current = voiceLastUsed }, [voiceLastUsed])
+
+  // ─── Text-to-Speech ────────────────────────────────────────────────────────
+  /**
+   * Speak `text` via the browser's speech synthesis engine.
+   * `onDone` is called once the utterance finishes (or errors).
+   */
+  const speak = useCallback((text: string, onDone?: () => void) => {
+    if (!isTTSEnabledRef.current || !synthRef.current) {
+      onDone?.()
+      return
+    }
+    synthRef.current.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'de-DE'
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+    utterance.onstart = () => setState('speaking')
+    utterance.onend = () => { setState('idle'); onDone?.() }
+    utterance.onerror = (e) => {
+      console.error('TTS error:', e)
+      setState('idle')
+      onDone?.()
+    }
+    synthRef.current.speak(utterance)
+  }, [])
+
+  // ─── Voice conversation helpers ────────────────────────────────────────────
+  /**
+   * Start a new round of speech recognition for voice-mode conversation.
+   * Used during the slow-path so the user can keep chatting while the instant task runs.
+   * This function references `sendMessage` via a forward-declared ref to avoid circular deps.
+   */
+  const sendMessageRef = useRef<((text: string, opts?: { fromVoice?: boolean }) => Promise<void>) | null>(null)
+
+  const startVoiceConversation = useCallback(() => {
+    if (!recognitionRef.current || !isSpeechSupported) return
+    try { recognitionRef.current.abort() } catch { /* already stopped */ }
+
+    setState('listening')
+    recognitionRef.current.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setState('idle')
+      sendMessageRef.current?.(transcript, { fromVoice: true })
+    }
+    recognitionRef.current.onerror = () => setState('idle')
+    recognitionRef.current.onend = () => {
+      // Auto-restart mic only while still in slow-talking phase
+      if (voiceInstantTask.current?.phase === 'slow-talking') {
+        setTimeout(() => {
+          if (voiceInstantTask.current?.phase === 'slow-talking') {
+            startVoiceConversation()
+          }
+        }, 600)
+      } else {
+        setState(s => s === 'listening' ? 'idle' : s)
+      }
+    }
+    try { recognitionRef.current.start() } catch { /* already started */ }
+  }, [isSpeechSupported])
+
+  /**
+   * Clear all voice instant-task state – called when a result arrives or on cleanup.
+   */
+  const clearVoiceInstantTask = useCallback(() => {
+    if (fastPathTimerRef.current) {
+      clearTimeout(fastPathTimerRef.current)
+      fastPathTimerRef.current = null
+    }
+    voiceInstantTask.current = null
+    setVoiceTaskBanner(null)
+  }, [])
+
+  /**
+   * Activate the slow path: speak the holding sentence, then re-enable the microphone
+   * so the user can continue the conversation while the task finishes.
+   */
+  const activateSlowPath = useCallback(() => {
+    const task = voiceInstantTask.current
+    if (!task) return
+    task.phase = 'slow-talking'
+    setVoiceTaskBanner(INSTANT_TASK_LABELS[task.taskType] ?? 'Suche')
+
+    // Speak the AI's holding sentence, then start listening for conversation
+    speak(task.holdingMsg, () => {
+      if (voiceInstantTask.current?.phase === 'slow-talking') {
+        startVoiceConversation()
+      }
+    })
+  }, [speak, startVoiceConversation])
+
+  // ─── Instant task SSE subscription ────────────────────────────────────────
   const subscribeToInstantTask = useCallback((taskId: string, msgTimestamp: string) => {
-    if (instantTaskSources.current.has(taskId)) return // already subscribed
+    if (instantTaskSources.current.has(taskId)) return
 
     const url = `${ASSIST_URL}/api/assist/tasks/instant/${taskId}/stream`
     const es = new EventSource(url)
 
-    es.addEventListener('instant_task_result', (e) => {
+    es.addEventListener('instant_task_result', (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data)
         const resultText: string = data.result_text ?? data.error ?? 'Keine Antwort erhalten.'
         const status: 'completed' | 'failed' = data.status === 'completed' ? 'completed' : 'failed'
 
+        // Update the chat message bubble
         setMessages(prev =>
           prev.map(m =>
             m.timestamp === msgTimestamp
@@ -94,8 +208,40 @@ export function ORAAssistant() {
               : m
           )
         )
-        // TTS the result if enabled
-        if (status === 'completed' && isTTSEnabled) speak(resultText)
+
+        // ── Voice-mode result delivery ─────────────────────────────────────
+        const viTask = voiceInstantTask.current
+        const wasVoiceFast = viTask?.taskId === taskId && viTask.phase === 'fast-wait'
+        const wasVoiceSlow = viTask?.taskId === taskId && viTask.phase === 'slow-talking'
+
+        // Always clear voice task state
+        if (viTask?.taskId === taskId) {
+          clearVoiceInstantTask()
+        } else {
+          // Different task – clear generic fast-path timer just in case
+          if (fastPathTimerRef.current) clearTimeout(fastPathTimerRef.current)
+        }
+
+        if (status === 'completed' && isTTSEnabledRef.current) {
+          if (wasVoiceFast) {
+            // Fast path: result arrived quickly – speak directly (no holding sentence was spoken)
+            try { recognitionRef.current?.abort() } catch { /* ok */ }
+            speak(resultText)
+          } else if (wasVoiceSlow) {
+            // Slow path: user might be mid-conversation – interrupt, announce, then re-listen
+            try { recognitionRef.current?.abort() } catch { /* ok */ }
+            synthRef.current?.cancel()
+            speak(`Ich hab's gefunden! ${resultText}`, () => {
+              // Offer continued listening after announcement
+              if (voiceLastUsedRef.current) {
+                setTimeout(startVoiceConversation, 800)
+              }
+            })
+          } else {
+            // Text mode: normal TTS
+            speak(resultText)
+          }
+        }
       } catch { /* parse error – ignore */ }
       es.close()
       instantTaskSources.current.delete(taskId)
@@ -109,20 +255,24 @@ export function ORAAssistant() {
             : m
         )
       )
+      // Clean up voice state on error too
+      const viTask = voiceInstantTask.current
+      if (viTask?.taskId === taskId) clearVoiceInstantTask()
       es.close()
       instantTaskSources.current.delete(taskId)
     }
 
     instantTaskSources.current.set(taskId, es)
-  }, [isTTSEnabled])
+  }, [speak, startVoiceConversation, clearVoiceInstantTask])
 
   // Clean up SSE connections when dialog closes
   useEffect(() => {
     if (!isOpen) {
       instantTaskSources.current.forEach(es => es.close())
       instantTaskSources.current.clear()
+      clearVoiceInstantTask()
     }
-  }, [isOpen])
+  }, [isOpen, clearVoiceInstantTask])
 
   // Check for Web Speech API support
   useEffect(() => {
@@ -145,30 +295,11 @@ export function ORAAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Text-to-Speech function
-  const speak = (text: string) => {
-    if (!isTTSEnabled || !synthRef.current) return
-
-    // Cancel any ongoing speech
-    synthRef.current.cancel()
-
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'de-DE'
-    utterance.rate = 1.0
-    utterance.pitch = 1.0
-
-    utterance.onstart = () => setState('speaking')
-    utterance.onend = () => setState('idle')
-    utterance.onerror = (e) => {
-      console.error('TTS error:', e)
-      setState('idle')
-    }
-
-    synthRef.current.speak(utterance)
-  }
-
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, opts?: { fromVoice?: boolean }) => {
     if (!text.trim()) return
+
+    const fromVoice = opts?.fromVoice ?? false
+    if (fromVoice) setVoiceLastUsed(true)
 
     const userMessage: AIChatMessage = {
       role: 'user',
@@ -187,7 +318,7 @@ export function ORAAssistant() {
       const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, context: null }),
+        body: JSON.stringify({ message: text, context: null, voice_mode: fromVoice }),
       })
 
       if (!response.ok) {
@@ -215,11 +346,31 @@ export function ORAAssistant() {
       setMessages(updatedMessages)
       setState('speaking')
 
-      // Subscribe to instant task result if one was requested
+      // Handle instant task response
       if (data.instant_task_id) {
         subscribeToInstantTask(data.instant_task_id, msgTimestamp)
-        // Don't speak the holding message – we'll speak the real result later
-        setState('idle')
+
+        if (fromVoice) {
+          // ── Voice fast-path: wait silently for FAST_PATH_MS before speaking holding message
+          voiceInstantTask.current = {
+            taskId: data.instant_task_id,
+            msgTimestamp,
+            holdingMsg: data.message,
+            taskType: data.instant_task_type ?? 'search',
+            phase: 'fast-wait',
+          }
+          setState('thinking') // show "thinking" while silently waiting
+
+          fastPathTimerRef.current = setTimeout(() => {
+            // Still waiting → switch to slow path
+            if (voiceInstantTask.current?.taskId === data.instant_task_id) {
+              activateSlowPath()
+            }
+          }, FAST_PATH_MS)
+        } else {
+          // Text mode: just leave the spinner bubble, no TTS on holding message
+          setState('idle')
+        }
       } else if (isTTSEnabled) {
         speak(data.message)
       } else {
@@ -268,6 +419,9 @@ export function ORAAssistant() {
     }
   }
 
+  // Keep the sendMessageRef in sync so startVoiceConversation can call it
+  useEffect(() => { sendMessageRef.current = sendMessage })
+
   const handleTaskConfirmation = async (confirmed: boolean) => {
     if (!pendingTaskAction) return
     const { action, task_id, resume_at } = pendingTaskAction
@@ -299,12 +453,14 @@ export function ORAAssistant() {
       return
     }
 
+    setVoiceLastUsed(true)
     setState('listening')
 
     recognitionRef.current.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript
-      setInput(transcript)
       setState('idle')
+      // Dispatch immediately with fromVoice=true so the TTS/instant-task flow activates
+      sendMessage(transcript, { fromVoice: true })
     }
 
     recognitionRef.current.onerror = (event: any) => {
@@ -454,11 +610,11 @@ export function ORAAssistant() {
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">ORA AI</h2>
                   <p className="text-xs text-foreground/50">
-                    {state === 'listening' && 'Höre zu...'}
-                    {state === 'thinking' && 'Denke nach...'}
+                    {state === 'listening' && (voiceTaskBanner ? 'Höre zu… (sucht noch)' : 'Höre zu...')}
+                    {state === 'thinking' && (voiceTaskBanner ? `Sucht: ${voiceTaskBanner}…` : 'Denke nach...')}
                     {state === 'speaking' && 'Antworte...'}
                     {state === 'error' && 'Fehler'}
-                    {state === 'idle' && 'Bereit'}
+                    {state === 'idle' && (voiceTaskBanner ? `Sucht: ${voiceTaskBanner}…` : 'Bereit')}
                   </p>
                 </div>
               </div>
@@ -520,6 +676,23 @@ export function ORAAssistant() {
               >
                 <BellRinging size={13} weight="fill" />
                 {taskCreatedToast}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Voice slow-path banner: shown while ORA searches and user can keep talking */}
+          <AnimatePresence>
+            {voiceTaskBanner && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-4 mb-0 px-4 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs flex items-center gap-2"
+              >
+                <MagnifyingGlass size={13} weight="bold" className="animate-pulse shrink-0" />
+                <span>
+                  ORA sucht: <strong>{voiceTaskBanner}</strong> – du kannst weiter sprechen 🎙
+                </span>
               </motion.div>
             )}
           </AnimatePresence>

@@ -87,6 +87,14 @@ Sage dem Nutzer kurz (1–2 Sätze), dass du gerade Informationen abrufst, bevor
 anhängst. Beispiel: "Ich rufe gerade die aktuellen Wetterdaten für dich ab."
 "#;
 
+/// Additional instructions injected when the request comes from the voice assistant.
+/// The AI's holding sentence will be read aloud – it must be exactly 1 short sentence.
+const VOICE_MODE_PROMPT_SUFFIX: &str = "\n\n\
+### Sprach-Modus (Voice Mode)\n\
+Der Nutzer interagiert per Sprachassistent. Halte alle Antworten kurz und natürlich klingend.\n\
+Wenn du einen Instant Task erstellst, sage GENAU EINEN kurzen Satz wie:\
+\"Einen Moment, ich suche das für dich.\" – keine Listen, keine Markdown-Formatierung.\n";
+
 // ─── Instant Task marker helpers ─────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -164,6 +172,10 @@ struct ChatRequest {
     context: serde_json::Value,
     #[serde(default)]
     system_prompt: Option<String>,
+    /// True when the request comes from the voice assistant (microphone).
+    /// Instructs the AI to keep its holding sentence very brief and natural-sounding.
+    #[serde(default)]
+    voice_mode: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,6 +274,9 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
 
     // Append Instant Task instructions so the AI knows when to delegate
     system_prompt.push_str(INSTANT_TASK_PROMPT_SECTION);
+    if req.voice_mode {
+        system_prompt.push_str(VOICE_MODE_PROMPT_SUFFIX);
+    }
 
     // Call AI provider
     match provider.chat(messages, Some(system_prompt)).await {
