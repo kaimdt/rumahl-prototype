@@ -22,6 +22,7 @@ mod providers;
 mod context;
 mod database;
 mod memory;
+mod schedule_engine;
 mod orchestrator;
 mod task_engine;
 mod conversation_manager;
@@ -1213,7 +1214,8 @@ async fn list_active_tasks(State(state): State<AppState>) -> impl IntoResponse {
         );
     };
 
-    match mm.list_active_tasks(None, 50).await {
+    // Include paused tasks so the dashboard can show/manage all tasks
+    match mm.list_active_tasks(None, true, 100).await {
         Ok(tasks) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -1249,6 +1251,121 @@ async fn create_active_task(
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Failed to create active task", "details": e.to_string()})),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskUpdateRequest {
+    /// `true` = resume, `false` = pause
+    enabled: Option<bool>,
+    name: Option<String>,
+    description: Option<String>,
+}
+
+async fn update_active_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    Json(req): Json<TaskUpdateRequest>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    // Pause / resume
+    if let Some(enabled) = req.enabled {
+        if let Err(e) = mm.set_task_enabled(id, enabled).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to update task", "details": e.to_string()})),
+            );
+        }
+    }
+
+    // Name / description update
+    if req.name.is_some() || req.description.is_some() {
+        if let Err(e) = mm
+            .update_task(
+                id,
+                req.name.as_deref(),
+                req.description.as_deref(),
+                None,
+            )
+            .await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to update task fields", "details": e.to_string()})),
+            );
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"success": true})))
+}
+
+async fn delete_active_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    match mm.delete_task(id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to delete task", "details": e.to_string()})),
+        ),
+    }
+}
+
+/// Detect tasks from a full conversation history (multi-message support).
+#[derive(Debug, Deserialize)]
+struct ConversationDetectRequest {
+    /// List of `{role, content}` pairs
+    messages: Vec<serde_json::Value>,
+    /// "chat" | "voice" | "conversation"
+    input_mode: Option<String>,
+}
+
+async fn detect_tasks_from_conversation(
+    State(state): State<AppState>,
+    Json(req): Json<ConversationDetectRequest>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    let pairs: Vec<(String, String)> = req
+        .messages
+        .iter()
+        .filter_map(|m| {
+            let role = m.get("role")?.as_str()?.to_string();
+            let content = m.get("content")?.as_str()?.to_string();
+            Some((role, content))
+        })
+        .collect();
+
+    let input_mode = req.input_mode.as_deref().unwrap_or("conversation");
+
+    match mm.detect_from_conversation(&pairs, None, input_mode).await {
+        Some(task_id) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "task_id": task_id})),
+        ),
+        None => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": false, "message": "No task detected in conversation"})),
         ),
     }
 }
@@ -1379,9 +1496,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/memory", post(create_memory))
         .route("/api/assist/memory/search", post(search_memories))
         .route("/api/assist/memory/:id", axum::routing::delete(delete_memory))
-        // Active Tasks API
+        // Active Tasks API – list, create
         .route("/api/assist/tasks/active", get(list_active_tasks))
         .route("/api/assist/tasks/active", post(create_active_task))
+        // Active Tasks API – update (pause/resume/edit), delete by id
+        .route("/api/assist/tasks/active/:id", axum::routing::patch(update_active_task))
+        .route("/api/assist/tasks/active/:id", axum::routing::delete(delete_active_task))
+        // Multi-message conversation task detection
+        .route("/api/assist/tasks/detect", post(detect_tasks_from_conversation))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

@@ -32,6 +32,10 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    sqlx::query(include_str!("../migrations/003_recurring_tasks.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -161,6 +165,15 @@ pub mod tasks {
         pub is_one_shot: bool,
         pub origin: String,
         pub priority: i32,
+        // Extended fields (migration 003 – recurrence)
+        pub recurrence_type: String,
+        pub recurrence_days: serde_json::Value,
+        pub time_of_day: Option<chrono::NaiveTime>,
+        pub recurrence_end_at: Option<DateTime<Utc>>,
+        pub occurrence_limit: Option<i32>,
+        pub occurrence_count: i32,
+        pub user_timezone: String,
+        pub input_mode: String,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -212,13 +225,130 @@ pub mod tasks {
         .fetch_one(pool)
         .await?;
 
-        // Update task last_executed_at
-        sqlx::query("UPDATE autonomous_tasks SET last_executed_at = NOW() WHERE id = $1")
+        // Update task last_executed_at and occurrence_count
+        sqlx::query(
+            "UPDATE autonomous_tasks SET last_executed_at = NOW(), occurrence_count = occurrence_count + 1 WHERE id = $1"
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+
+        Ok(execution)
+    }
+
+    /// Set the `enabled` flag on a task (pause or resume).
+    pub async fn set_enabled(pool: &DbPool, task_id: Uuid, enabled: bool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE autonomous_tasks SET enabled = $1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(enabled)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a task by id.
+    pub async fn delete(pool: &DbPool, task_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM autonomous_tasks WHERE id = $1")
             .bind(task_id)
             .execute(pool)
             .await?;
+        Ok(())
+    }
 
-        Ok(execution)
+    /// Update the `next_execution_at` of a recurring task after it fires.
+    pub async fn update_next_execution(
+        pool: &DbPool,
+        task_id: Uuid,
+        next_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE autonomous_tasks SET next_execution_at = $1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(next_at)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch a single task by id.
+    pub async fn get_by_id(pool: &DbPool, task_id: Uuid) -> Result<Option<AutonomousTask>, sqlx::Error> {
+        let task = sqlx::query_as::<_, AutonomousTask>(
+            "SELECT * FROM autonomous_tasks WHERE id = $1"
+        )
+        .bind(task_id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(task)
+    }
+
+    /// List all user-visible active tasks (one-shot and recurring), including paused ones.
+    pub async fn list_user_tasks(
+        pool: &DbPool,
+        user_id: Option<Uuid>,
+        include_paused: bool,
+        limit: i64,
+    ) -> Result<Vec<AutonomousTask>, sqlx::Error> {
+        let tasks = if include_paused {
+            sqlx::query_as::<_, AutonomousTask>(
+                r#"
+                SELECT * FROM autonomous_tasks
+                WHERE (origin IN ('user', 'ai'))
+                  AND (user_id = $1 OR $1 IS NULL)
+                ORDER BY COALESCE(trigger_at, next_execution_at) ASC NULLS LAST
+                LIMIT $2
+                "#
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, AutonomousTask>(
+                r#"
+                SELECT * FROM autonomous_tasks
+                WHERE (origin IN ('user', 'ai'))
+                  AND enabled = true
+                  AND (user_id = $1 OR $1 IS NULL)
+                ORDER BY COALESCE(trigger_at, next_execution_at) ASC NULLS LAST
+                LIMIT $2
+                "#
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        };
+        Ok(tasks)
+    }
+
+    /// Update task name, description, or schedule fields.
+    pub async fn update_task(
+        pool: &DbPool,
+        task_id: Uuid,
+        name: Option<&str>,
+        description: Option<&str>,
+        next_execution_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE autonomous_tasks
+            SET name = COALESCE($1, name),
+                description = COALESCE($2, description),
+                next_execution_at = COALESCE($3, next_execution_at),
+                updated_at = NOW()
+            WHERE id = $4
+            "#
+        )
+        .bind(name)
+        .bind(description)
+        .bind(next_execution_at)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 }
 

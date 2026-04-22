@@ -8,9 +8,12 @@
 // Additionally provides *task detection*: after every AI response the module scans
 // both the user message and the AI reply for time-bound task intent (reminders,
 // scheduled actions, etc.) and creates an autonomous task if one is detected.
+//
+// Supports both single-message detection and multi-message conversation context.
 
 use crate::database::DbPool;
-use chrono::{DateTime, Datelike, Duration, NaiveTime, Timelike, Utc};
+use crate::schedule_engine::{build_conversation_context, ParsedSchedule, RecurrenceType, ScheduleEngine};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -60,10 +63,26 @@ pub struct ActiveTaskRequest {
     pub user_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
+    /// UTC timestamp of first/only trigger
     pub trigger_at: DateTime<Utc>,
-    /// E.g. "reminder" | "notify" | "automation"
+    /// "reminder" | "notify" | "automation"
     pub task_type: String,
     pub config: serde_json::Value,
+    // ── Recurrence fields (from schedule engine) ──────────────────────────────
+    /// "once" | "daily" | "weekdays" | "weekly" | "custom"
+    pub recurrence_type: Option<String>,
+    /// ISO weekday numbers 1=Mon…7=Sun
+    pub recurrence_days: Option<Vec<u8>>,
+    /// Local time-of-day at which recurring tasks fire
+    pub time_of_day: Option<NaiveTime>,
+    /// Stop recurring after this timestamp
+    pub recurrence_end_at: Option<DateTime<Utc>>,
+    /// Maximum number of executions
+    pub occurrence_limit: Option<i32>,
+    /// IANA timezone
+    pub user_timezone: Option<String>,
+    /// "chat" | "voice" | "conversation"
+    pub input_mode: Option<String>,
 }
 
 // ─── MemoryManager ────────────────────────────────────────────────────────────
@@ -326,35 +345,56 @@ impl MemoryManager {
 
     /// Scan user message and AI response for task/reminder intent and create an
     /// autonomous task in the database when found.  This acts as the fallback
-    /// detection layer described in the problem statement.
+    /// detection layer: if the AI did not explicitly create a task, this function
+    /// still catches it via NLP.
     pub async fn detect_and_create_tasks(
         &self,
         user_message: &str,
         ai_response: &str,
         user_id: Option<Uuid>,
     ) {
-        let combined = format!("{} {}", user_message, ai_response).to_lowercase();
-
-        if let Some(task) = detect_task_intent(user_message, &combined) {
-            let req = ActiveTaskRequest {
-                user_id,
-                name: task.name.clone(),
-                description: Some(task.description.clone()),
-                trigger_at: task.trigger_at,
-                task_type: task.task_type.clone(),
-                config: task.config.clone(),
-            };
+        // Combine user + AI text and run the schedule engine
+        let combined = format!("{} {}", user_message, ai_response);
+        if let Some(sched) = ScheduleEngine::parse(&combined, "UTC") {
+            let req = schedule_to_task_request(&sched, user_id, "chat");
             match self.create_active_task(&req, user_id).await {
-                Ok(id) => {
-                    tracing::info!(
-                        "Auto-detected and created active task '{}' (id={})",
-                        task.name,
-                        id
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to create auto-detected task '{}': {}", task.name, e);
-                }
+                Ok(id) => tracing::info!(
+                    "Auto-detected active task '{}' (id={}) recurrence={}",
+                    sched.name,
+                    id,
+                    sched.recurrence_type.as_str()
+                ),
+                Err(e) => tracing::warn!("Failed to persist auto-detected task: {}", e),
+            }
+        }
+    }
+
+    /// Detect a task from a slice of (role, content) conversation messages.
+    /// Useful when a task is constructed across several turns (multi-message).
+    pub async fn detect_from_conversation(
+        &self,
+        messages: &[(String, String)],
+        user_id: Option<Uuid>,
+        input_mode: &str,
+    ) -> Option<Uuid> {
+        // Build combined context from the last 8 messages
+        let context = build_conversation_context(messages, 8);
+        let sched = ScheduleEngine::parse(&context, "UTC")?;
+
+        let req = schedule_to_task_request(&sched, user_id, input_mode);
+        match self.create_active_task(&req, user_id).await {
+            Ok(id) => {
+                tracing::info!(
+                    "Conversation-derived task '{}' (id={}) recurrence={}",
+                    sched.name,
+                    id,
+                    sched.recurrence_type.as_str()
+                );
+                Some(id)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to persist conversation-derived task: {}", e);
+                None
             }
         }
     }
@@ -366,14 +406,26 @@ impl MemoryManager {
         user_id: Option<Uuid>,
     ) -> Result<Uuid, sqlx::Error> {
         let uid = user_id.or(req.user_id);
+        let is_one_shot = req.recurrence_type.as_deref().unwrap_or("once") == "once";
+        let recurrence_type = req.recurrence_type.as_deref().unwrap_or("once");
+        let recurrence_days = serde_json::to_value(
+            req.recurrence_days.clone().unwrap_or_default(),
+        ).unwrap_or(serde_json::json!([]));
+        let user_timezone = req.user_timezone.as_deref().unwrap_or("UTC");
+        let input_mode = req.input_mode.as_deref().unwrap_or("chat");
 
         let id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO autonomous_tasks
-                (task_type, name, description, enabled, config,
-                 user_id, trigger_at, is_one_shot, origin, next_execution_at, priority)
+            INSERT INTO autonomous_tasks (
+                task_type, name, description, enabled, config,
+                user_id, trigger_at, is_one_shot, origin, next_execution_at, priority,
+                recurrence_type, recurrence_days, time_of_day,
+                recurrence_end_at, occurrence_limit, user_timezone, input_mode
+            )
             VALUES ($1, $2, $3, true, $4,
-                    $5, $6, true, 'ai', $6, 1)
+                    $5, $6, $7, 'ai', $6, 1,
+                    $8, $9, $10,
+                    $11, $12, $13, $14)
             RETURNING id
             "#,
         )
@@ -383,55 +435,118 @@ impl MemoryManager {
         .bind(&req.config)
         .bind(uid)
         .bind(req.trigger_at)
+        .bind(is_one_shot)
+        .bind(recurrence_type)
+        .bind(recurrence_days)
+        .bind(req.time_of_day)
+        .bind(req.recurrence_end_at)
+        .bind(req.occurrence_limit)
+        .bind(user_timezone)
+        .bind(input_mode)
         .fetch_one(&self.db)
         .await?;
 
         Ok(id)
     }
 
-    /// List active (pending) one-shot tasks for a user.
+    /// List active tasks for a user (includes paused ones so the dashboard can show them).
     pub async fn list_active_tasks(
         &self,
         user_id: Option<Uuid>,
+        include_paused: bool,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<DateTime<Utc>>, DateTime<Utc>)>(
-            r#"
-            SELECT id, name, description, trigger_at, created_at
-            FROM autonomous_tasks
-            WHERE is_one_shot = true
-              AND enabled = true
-              AND (user_id = $1 OR $1 IS NULL)
-              AND (trigger_at IS NULL OR trigger_at > NOW())
-            ORDER BY trigger_at ASC NULLS LAST
-            LIMIT $2
-            "#,
-        )
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(&self.db)
-        .await?;
+        let tasks =
+            crate::database::tasks::list_user_tasks(&self.db, user_id, include_paused, limit)
+                .await?;
 
-        let tasks = rows
+        let out = tasks
             .into_iter()
-            .map(|(id, name, desc, trigger_at, created_at)| {
+            .map(|t| {
                 serde_json::json!({
-                    "id": id,
-                    "name": name,
-                    "description": desc,
-                    "trigger_at": trigger_at,
-                    "created_at": created_at,
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "enabled": t.enabled,
+                    "task_type": t.task_type,
+                    "trigger_at": t.trigger_at,
+                    "next_execution_at": t.next_execution_at,
+                    "recurrence_type": t.recurrence_type,
+                    "recurrence_days": t.recurrence_days,
+                    "recurrence_end_at": t.recurrence_end_at,
+                    "time_of_day": t.time_of_day.map(|t| t.to_string()),
+                    "occurrence_count": t.occurrence_count,
+                    "occurrence_limit": t.occurrence_limit,
+                    "user_timezone": t.user_timezone,
+                    "input_mode": t.input_mode,
+                    "origin": t.origin,
+                    "priority": t.priority,
+                    "created_at": t.created_at,
                 })
             })
             .collect();
 
-        Ok(tasks)
+        Ok(out)
+    }
+
+    /// Pause or resume a task.
+    pub async fn set_task_enabled(
+        &self,
+        task_id: Uuid,
+        enabled: bool,
+    ) -> Result<(), sqlx::Error> {
+        crate::database::tasks::set_enabled(&self.db, task_id, enabled).await
+    }
+
+    /// Delete a task permanently.
+    pub async fn delete_task(&self, task_id: Uuid) -> Result<(), sqlx::Error> {
+        crate::database::tasks::delete(&self.db, task_id).await
+    }
+
+    /// Update a task's name, description, or next execution time.
+    pub async fn update_task(
+        &self,
+        task_id: Uuid,
+        name: Option<&str>,
+        description: Option<&str>,
+        next_execution_at: Option<DateTime<Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        crate::database::tasks::update_task(&self.db, task_id, name, description, next_execution_at).await
     }
 }
 
 // ─── Helper functions ─────────────────────────────────────────────────────────
 
-/// Compute a simple relevance score (0.0–1.0) for a memory given query terms.
+/// Convert a `ParsedSchedule` from the schedule engine into an `ActiveTaskRequest`.
+pub fn schedule_to_task_request(
+    sched: &ParsedSchedule,
+    user_id: Option<Uuid>,
+    input_mode: &str,
+) -> ActiveTaskRequest {
+    ActiveTaskRequest {
+        user_id,
+        name: sched.name.clone(),
+        description: Some(sched.description.clone()),
+        trigger_at: sched.first_trigger_at,
+        task_type: sched.task_type.clone(),
+        config: serde_json::json!({
+            "reminder_text": sched.description,
+            "auto_detected": true,
+            "recurrence_type": sched.recurrence_type.as_str(),
+        }),
+        recurrence_type: Some(sched.recurrence_type.as_str().to_string()),
+        recurrence_days: if sched.days_of_week.is_empty() {
+            None
+        } else {
+            Some(sched.days_of_week.clone())
+        },
+        time_of_day: sched.time_of_day,
+        recurrence_end_at: sched.recurrence_end_at,
+        occurrence_limit: sched.occurrence_limit,
+        user_timezone: Some(sched.user_timezone.clone()),
+        input_mode: Some(input_mode.to_string()),
+    }
+}
 fn relevance_score(mem: &AiMemory, query_terms: &[&str]) -> f64 {
     if query_terms.is_empty() {
         return 0.0;
@@ -537,232 +652,4 @@ fn titlecase(s: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-/// Truncate a string at the nearest word boundary at or before `max_chars` characters.
-/// Uses character count (not byte count) to handle multi-byte UTF-8 correctly.
-fn truncate_at_word_boundary(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        return s.trim().to_string();
-    }
-    // Collect up to max_chars characters then step back to the last space
-    let truncated: String = s.chars().take(max_chars).collect();
-    match truncated.rfind(' ') {
-        Some(space_pos) => truncated[..space_pos].trim().to_string(),
-        None => truncated.trim().to_string(),
-    }
-}
-
-// ─── Task intent detection ────────────────────────────────────────────────────
-
-struct DetectedTask {
-    name: String,
-    description: String,
-    task_type: String,
-    trigger_at: DateTime<Utc>,
-    config: serde_json::Value,
-}
-
-/// Scan the combined text for time-bound task patterns (German + English).
-/// Returns the first match found, if any.
-fn detect_task_intent(original: &str, lower: &str) -> Option<DetectedTask> {
-    // Guard: must mention a reminder/task trigger word
-    let trigger_words = [
-        "erinnere mich",
-        "erinner mich",
-        "erinnerung",
-        "remind me",
-        "reminder",
-        "alarm",
-        "wecker",
-        "benachrichtige mich",
-        "notify me",
-        "später",
-        "schedule",
-        "plane",
-        "task",
-        "aufgabe",
-    ];
-
-    if !trigger_words.iter().any(|w| lower.contains(w)) {
-        return None;
-    }
-
-    // Try to parse a time reference from the text
-    let trigger_at = parse_time_reference(lower)?;
-
-    // Build a brief name from the original text, truncated at a word boundary
-    // so we don't split multi-byte characters or leave a partial word.
-    let name = truncate_at_word_boundary(original, 100);
-
-    let description = original.to_string();
-
-    Some(DetectedTask {
-        name,
-        description: description.clone(),
-        task_type: "reminder".to_string(),
-        trigger_at,
-        config: serde_json::json!({
-            "reminder_text": description,
-            "auto_detected": true,
-        }),
-    })
-}
-
-/// Attempt to extract a `DateTime<Utc>` from natural-language time expressions.
-/// Supports common German and English patterns.
-fn parse_time_reference(text: &str) -> Option<DateTime<Utc>> {
-    let now = Utc::now();
-
-    // ── relative offsets ──────────────────────────────────────────────────────
-
-    // "in X minuten/stunden" / "in X minutes/hours"
-    let relative_patterns: &[(&str, i64, &str)] = &[
-        ("minuten", 60, "seconds"),
-        ("minute", 60, "seconds"),
-        ("minutes", 60, "seconds"),
-        ("mins", 60, "seconds"),
-        ("stunden", 3600, "seconds"),
-        ("stunde", 3600, "seconds"),
-        ("hours", 3600, "seconds"),
-        ("hour", 3600, "seconds"),
-        ("tagen", 86400, "seconds"),
-        ("tag", 86400, "seconds"),
-        ("days", 86400, "seconds"),
-        ("day", 86400, "seconds"),
-    ];
-
-    for (unit, factor, _) in relative_patterns {
-        if let Some(n) = extract_number_before(text, unit) {
-            return Some(now + Duration::seconds(n * factor));
-        }
-    }
-
-    // "morgen" / "tomorrow"
-    if text.contains("morgen") || text.contains("tomorrow") {
-        return Some(now + Duration::days(1));
-    }
-
-    // "übermorgen" / "day after tomorrow"
-    if text.contains("übermorgen") || text.contains("day after tomorrow") {
-        return Some(now + Duration::days(2));
-    }
-
-    // ── absolute clock times ──────────────────────────────────────────────────
-    // Patterns: "um 15:30", "um 15 uhr", "at 3pm", "at 15:00"
-
-    // "um HH:MM" or "at HH:MM"
-    if let Some(t) = extract_hhmm(text) {
-        return Some(combine_with_today_or_tomorrow(now, t));
-    }
-
-    // "um X uhr" / "at X am/pm"
-    if let Some(t) = extract_hour_only(text) {
-        return Some(combine_with_today_or_tomorrow(now, t));
-    }
-
-    None
-}
-
-/// Extract a number that appears immediately before a keyword.
-fn extract_number_before(text: &str, keyword: &str) -> Option<i64> {
-    let pos = text.find(keyword)?;
-    let before = text[..pos].trim();
-    before.split_whitespace().last()?.parse::<i64>().ok()
-}
-
-/// Extract HH:MM pattern from text using colon positions to avoid O(n²) scan.
-/// Enforces exactly 2 digits for minutes (e.g. "15:09" is valid; "15:9" is not).
-fn extract_hhmm(text: &str) -> Option<NaiveTime> {
-    for (colon_pos, _) in text.match_indices(':') {
-        // Extract potential minute digits immediately after the colon (must be exactly 2)
-        let after_colon = &text[colon_pos + 1..];
-        let m_str: String = after_colon.chars().take(2).collect();
-        if m_str.len() != 2 || !m_str.chars().all(|c| c.is_ascii_digit()) {
-            continue;
-        }
-
-        // Extract potential hour digits immediately before the colon
-        let before_colon = &text[..colon_pos];
-        let h_str = before_colon
-            .split(|c: char| !c.is_ascii_digit())
-            .last()
-            .unwrap_or("");
-        if h_str.is_empty() {
-            continue;
-        }
-
-        if let (Ok(h), Ok(m)) = (h_str.parse::<u32>(), m_str.parse::<u32>()) {
-            if h < 24 && m < 60 {
-                return NaiveTime::from_hms_opt(h, m, 0);
-            }
-        }
-    }
-    None
-}
-
-/// Extract a bare hour reference: "um 15 uhr", "at 3pm", "at 3 pm".
-fn extract_hour_only(text: &str) -> Option<NaiveTime> {
-    // German: "um X uhr"
-    if let Some(pos) = text.find("um ") {
-        let after = &text[pos + 3..];
-        let num_str: String = after
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        if let Ok(h) = num_str.parse::<u32>() {
-            if h < 24 {
-                // Check for " uhr" following
-                let rest = &after[num_str.len()..].trim_start();
-                if rest.starts_with("uhr") || rest.starts_with(':') || rest.is_empty() {
-                    return NaiveTime::from_hms_opt(h, 0, 0);
-                }
-            }
-        }
-    }
-
-    // English: "at Xpm" / "at X pm" / "at X am"
-    for marker in &["at "] {
-        if let Some(pos) = text.find(marker) {
-            let after = &text[pos + marker.len()..];
-            let num_str: String = after
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            if let Ok(mut h) = num_str.parse::<u32>() {
-                let rest = &after[num_str.len()..].trim_start().to_lowercase();
-                if rest.starts_with("pm") && h < 12 {
-                    h += 12;
-                } else if rest.starts_with("am") && h == 12 {
-                    h = 0;
-                }
-                if h < 24 {
-                    return NaiveTime::from_hms_opt(h, 0, 0);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Combine a NaiveTime with today's date; if the time has already passed today,
-/// schedule it for tomorrow instead.  Uses `checked_add_days` to safely handle
-/// edge cases near date boundaries.
-fn combine_with_today_or_tomorrow(now: DateTime<Utc>, time: NaiveTime) -> DateTime<Utc> {
-    let today = now.date_naive();
-    let candidate = today.and_time(time).and_utc();
-
-    if candidate > now {
-        candidate
-    } else {
-        // Use checked_add_days to avoid potential panics near date boundaries
-        match today.checked_add_days(chrono::Days::new(1)) {
-            Some(tomorrow) => tomorrow.and_time(time).and_utc(),
-            None => {
-                tracing::warn!("Date overflow when calculating tomorrow; defaulting to +24h");
-                now + Duration::hours(24)
-            }
-        }
-    }
 }

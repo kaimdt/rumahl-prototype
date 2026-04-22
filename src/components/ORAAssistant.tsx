@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { MessageContent } from '@/components/MessageContent'
+import { ActiveTasksPanel } from '@/components/ActiveTasksPanel'
 
 interface AIChatMessage {
   role: string
@@ -18,16 +19,20 @@ interface AIChatResponse {
 }
 
 type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+type DialogTab = 'chat' | 'tasks'
 
 const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
 
 export function ORAAssistant() {
   const [isOpen, setIsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<DialogTab>('chat')
   const [state, setState] = useState<ORAState>('idle')
   const [messages, setMessages] = useState<AIChatMessage[]>([])
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  // Toast shown when a task was automatically created
+  const [taskCreatedToast, setTaskCreatedToast] = useState<string | null>(null)
   const [isTTSEnabled, setIsTTSEnabled] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
@@ -109,8 +114,27 @@ export function ORAAssistant() {
         timestamp: new Date().toISOString(),
       }
 
-      setMessages(prev => [...prev, aiMessage])
+      const updatedMessages = [...messages, userMessage, aiMessage]
+      setMessages(updatedMessages)
       setState('speaking')
+
+      // After receiving the AI reply, run multi-message task detection in the background.
+      // We pass the last 8 messages so the backend can detect tasks spanning several turns.
+      const payload = updatedMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
+      fetch(`${ASSIST_URL}/api/assist/tasks/detect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: payload, input_mode: 'conversation' }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d?.success && d?.task_id) {
+            // Show a brief toast so the user knows a task was created
+            setTaskCreatedToast('Aufgabe wurde erstellt ✓')
+            setTimeout(() => setTaskCreatedToast(null), 4000)
+          }
+        })
+        .catch(() => { /* silent – task detection is best-effort */ })
 
       // Speak the AI response if TTS is enabled
       if (isTTSEnabled) {
@@ -305,6 +329,33 @@ export function ORAAssistant() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {/* Tab switcher */}
+                <div className="flex items-center rounded-full bg-foreground/10 p-0.5">
+                  <button
+                    onClick={() => setActiveTab('chat')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-all ${
+                      activeTab === 'chat'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/60 hover:text-foreground'
+                    }`}
+                    title="Chat"
+                  >
+                    <Chat size={12} />
+                    <span>Chat</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('tasks')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-all ${
+                      activeTab === 'tasks'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/60 hover:text-foreground'
+                    }`}
+                    title="Aufgaben"
+                  >
+                    <BellRinging size={12} />
+                    <span>Aufgaben</span>
+                  </button>
+                </div>
                 {/* TTS Toggle */}
                 <button
                   onClick={() => setIsTTSEnabled(!isTTSEnabled)}
@@ -323,6 +374,44 @@ export function ORAAssistant() {
               </div>
             </div>
           </div>
+
+          {/* Task-created toast notification */}
+          <AnimatePresence>
+            {taskCreatedToast && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-4 mb-0 px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs flex items-center gap-2"
+              >
+                <BellRinging size={13} weight="fill" />
+                {taskCreatedToast}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Tab content */}
+          <AnimatePresence mode="wait">
+            {activeTab === 'tasks' ? (
+              <motion.div
+                key="tasks"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 overflow-hidden px-4 py-4"
+              >
+                <ActiveTasksPanel isVisible={activeTab === 'tasks'} />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="chat"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 flex flex-col overflow-hidden"
+              >
 
           {/* Messages container */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
@@ -446,6 +535,10 @@ export function ORAAssistant() {
               </Button>
             </div>
           </div>
+          {/* End of chat tab inner flex */}
+          </motion.div>
+        )}
+        </AnimatePresence>
         </DialogContent>
       </Dialog>
     </>
