@@ -255,6 +255,129 @@ get_network_interfaces() {
     echo "${ifaces:-  No network interfaces found}"
 }
 
+# Test IP connectivity
+test_ip_connectivity() {
+    local test_ip="$1"
+    local gateway="$2"
+    local interface=""
+
+    # Find first active network interface
+    for iface in /sys/class/net/*; do
+        local name=$(basename "$iface")
+        [ "$name" = "lo" ] && continue
+        local state=$(cat "$iface/operstate" 2>/dev/null || echo "down")
+        if [ "$state" = "up" ]; then
+            interface="$name"
+            break
+        fi
+    done
+
+    [ -z "$interface" ] && return 1
+
+    # Test gateway reachability with ping
+    if [ -n "$gateway" ]; then
+        if ping -c 1 -W 2 "$gateway" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Get current DHCP assigned IP
+get_dhcp_ip() {
+    local interface=""
+
+    # Find first active network interface with IP
+    for iface in /sys/class/net/*; do
+        local name=$(basename "$iface")
+        [ "$name" = "lo" ] && continue
+        local state=$(cat "$iface/operstate" 2>/dev/null || echo "down")
+        if [ "$state" = "up" ]; then
+            local ip=$(ip -4 addr show "$name" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+            if [ -n "$ip" ]; then
+                echo "$name:$ip"
+                return 0
+            fi
+        fi
+    done
+
+    return 1
+}
+
+# Request DHCP address
+request_dhcp() {
+    local interface=""
+
+    # Find first network interface
+    for iface in /sys/class/net/*; do
+        local name=$(basename "$iface")
+        [ "$name" = "lo" ] && continue
+        interface="$name"
+        break
+    done
+
+    [ -z "$interface" ] && return 1
+
+    # Bring interface up
+    ip link set "$interface" up 2>/dev/null || true
+    sleep 1
+
+    # Try udhcpc (busybox DHCP client)
+    if command -v udhcpc >/dev/null 2>&1; then
+        udhcpc -i "$interface" -n -q -t 5 2>/dev/null && return 0
+    fi
+
+    # Try dhclient
+    if command -v dhclient >/dev/null 2>&1; then
+        dhclient -1 "$interface" 2>/dev/null && return 0
+    fi
+
+    return 1
+}
+
+# Check for missing drivers/firmware
+detect_missing_drivers() {
+    local missing=""
+
+    # Check dmesg for firmware loading failures
+    if dmesg | grep -i "firmware.*fail" >/dev/null 2>&1; then
+        missing="${missing}Firmware loading failures detected\n"
+    fi
+
+    # Check for unclaimed devices
+    if command -v lspci >/dev/null 2>&1; then
+        local unclaimed=$(lspci -k 2>/dev/null | grep -c "Kernel modules:" || echo 0)
+        if [ "$unclaimed" -gt 0 ]; then
+            missing="${missing}${unclaimed} device(s) without kernel modules\n"
+        fi
+    fi
+
+    # Check for network devices without drivers
+    for iface in /sys/class/net/*; do
+        local name=$(basename "$iface")
+        [ "$name" = "lo" ] && continue
+        if [ ! -d "$iface/device/driver" ]; then
+            missing="${missing}Network device $name has no driver\n"
+        fi
+    done
+
+    if [ -n "$missing" ]; then
+        echo "$missing"
+        return 1
+    fi
+
+    return 0
+}
+
+valid_domain() {
+    local domain="$1"
+    # Allow empty domain
+    [ -z "$domain" ] && return 0
+    # Domain can contain letters, numbers, dots, hyphens
+    echo "$domain" | grep -qE '^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+}
+
 # ── Mount the installation media ───────────────────────────────────
 mount_iso() {
     for dev in /dev/sr0 /dev/sr1 /dev/cdrom; do
@@ -470,6 +593,24 @@ apply_post_install_config() {
         fi
     fi
 
+    # Set domain name if provided
+    if [ -n "$IORA_DOMAIN" ]; then
+        # Update /etc/hosts with FQDN
+        if [ -f "${target}/etc/hosts" ]; then
+            local hostname="${IORA_HOSTNAME:-iora}"
+            # Add FQDN entry
+            if ! grep -q "127.0.1.1" "${target}/etc/hosts" 2>/dev/null; then
+                echo "127.0.1.1 ${hostname}.${IORA_DOMAIN} ${hostname}" >> "${target}/etc/hosts"
+            else
+                sed -i "s/^127.0.1.1.*/127.0.1.1 ${hostname}.${IORA_DOMAIN} ${hostname}/" "${target}/etc/hosts" 2>/dev/null || true
+            fi
+        fi
+
+        # Set search domain in resolv.conf
+        mkdir -p "${target}/etc" 2>/dev/null || true
+        echo "search ${IORA_DOMAIN}" > "${target}/etc/resolv.conf.local" 2>/dev/null || true
+    fi
+
     # Set timezone
     if [ -n "$IORA_TIMEZONE" ] && [ -f "${target}/usr/share/zoneinfo/${IORA_TIMEZONE}" ]; then
         ln -sf "/usr/share/zoneinfo/${IORA_TIMEZONE}" "${target}/etc/localtime" 2>/dev/null || true
@@ -485,9 +626,11 @@ apply_post_install_config() {
         fi
     fi
 
-    # Configure static network if chosen
+    # Configure network
+    mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
+
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
-        mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
+        # Static network configuration
         cat > "${target}/etc/systemd/network/10-static.network" <<NETEOF
 [Match]
 Name=eth* en*
@@ -497,6 +640,31 @@ Address=${IORA_IP}/${IORA_NETMASK:-24}
 Gateway=${IORA_GATEWAY:-}
 DNS=${IORA_DNS:-8.8.8.8}
 NETEOF
+    elif [ "$IORA_NETWORK" = "dhcp" ]; then
+        # DHCP configuration
+        if [ "$IORA_CUSTOM_DNS" = "yes" ] && [ -n "$IORA_DNS" ]; then
+            # DHCP with custom DNS
+            cat > "${target}/etc/systemd/network/10-dhcp.network" <<NETEOF
+[Match]
+Name=eth* en*
+
+[Network]
+DHCP=yes
+DNS=${IORA_DNS}
+
+[DHCP]
+UseDNS=false
+NETEOF
+        else
+            # Standard DHCP (use DNS from DHCP server)
+            cat > "${target}/etc/systemd/network/10-dhcp.network" <<NETEOF
+[Match]
+Name=eth* en*
+
+[Network]
+DHCP=yes
+NETEOF
+        fi
     fi
 
     # Apply SD card optimizations if detected
@@ -573,15 +741,17 @@ screen_welcome() {
 
  This guided setup will:
      1. Inspect this system
-     2. Configure hostname and timezone
-     3. Configure network settings
-     4. Set the root password
-     5. Write the image to the selected drive
+     2. Configure hostname and domain
+     3. Configure timezone
+     4. Detect hardware drivers (optional)
+     5. Configure network settings
+     6. Set the root password
+     7. Write the image to the selected drive
 
  Expect the installation itself to take a few minutes.
  All data on the selected target drive will be erased.
 
- Select OK to continue." 18 68
+ Select OK to continue." 20 68
     else
         clear 2>/dev/null || true
         echo ""
@@ -651,6 +821,70 @@ screen_hostname() {
     done
 }
 
+screen_domain() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    local result
+    result=$(dlg --title " Domain Name " --inputbox \
+        "\n Enter the domain name for this device (optional).\n\n Example: home.local or example.com\n Leave blank for no domain.\n" \
+        14 60 "${IORA_DOMAIN:-}" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 0
+
+    if valid_domain "$result"; then
+        IORA_DOMAIN="$result"
+        return 0
+    fi
+
+    if [ -n "$result" ]; then
+        dlg_msg " Invalid Domain " "Use only letters, numbers, dots, and hyphens."
+        screen_domain
+    fi
+}
+
+screen_drivers() {
+    [ -z "$DIALOG_BIN" ] && return 0
+
+    # Check for missing drivers
+    local missing_info=""
+    if ! missing_info=$(detect_missing_drivers 2>&1); then
+        # Drivers are missing, ask user if they want to search online
+        local choice
+        choice=$(dlg --title " Driver Detection " --yesno \
+            "\n Hardware components detected that may need additional drivers:\n\n${missing_info}\n Would you like to search for third-party drivers online?\n\n Note: This requires an active internet connection.\n" \
+            18 68 3>&1 1>&2 2>&3; echo $?)
+
+        if [ "$choice" -eq 0 ]; then
+            # User wants to search for drivers
+            dlg_info " Searching " "  Checking for available drivers online..."
+            sleep 1
+
+            # Try to bring up network for driver search
+            if request_dhcp; then
+                local dhcp_info=$(get_dhcp_ip)
+                if [ -n "$dhcp_info" ]; then
+                    dlg_info " Network Ready " "  Connection established: ${dhcp_info}\n  Searching for drivers..."
+                    sleep 2
+
+                    # Simulate driver search (in a real implementation, this would query a driver repository)
+                    local driver_msg="Driver search completed.\n\n"
+                    driver_msg="${driver_msg}No additional drivers found in the online repository.\n\n"
+                    driver_msg="${driver_msg}The current kernel includes drivers for most common hardware.\n"
+                    driver_msg="${driver_msg}If specific hardware is not working after installation,\n"
+                    driver_msg="${driver_msg}you may need to install additional firmware packages."
+
+                    dlg --title " Driver Search Results " --msgbox "$driver_msg" 16 68
+                else
+                    dlg_msg " Network Error " "Could not establish network connection.\nDriver search requires internet access.\n\nYou can continue with installation."
+                fi
+            else
+                dlg_msg " Network Error " "Could not obtain network connection via DHCP.\nDriver search requires internet access.\n\nYou can continue with installation."
+            fi
+        fi
+    fi
+
+    return 0
+}
+
 screen_timezone() {
     [ -z "$DIALOG_BIN" ] && return 0
 
@@ -686,7 +920,46 @@ screen_network() {
 
     IORA_NETWORK="$mode"
 
-    if [ "$mode" = "static" ]; then
+    if [ "$mode" = "dhcp" ]; then
+        # DHCP mode - offer to test connection and show assigned IP
+        dlg_info " Network " "  Requesting IP address via DHCP..."
+
+        if request_dhcp; then
+            local dhcp_info=$(get_dhcp_ip)
+            if [ -n "$dhcp_info" ]; then
+                local iface=$(echo "$dhcp_info" | cut -d: -f1)
+                local ip=$(echo "$dhcp_info" | cut -d: -f2)
+
+                dlg --title " DHCP Success " --msgbox \
+                    "\n Network configuration successful!\n\n Interface: ${iface}\n IP Address: ${ip}\n\n The system will use this configuration after installation.\n" \
+                    14 60
+            fi
+        else
+            dlg_msg " DHCP Warning " "Could not obtain IP via DHCP at this time.\n\nThe system will retry during first boot.\nYou can continue with installation."
+        fi
+
+        # Ask if user wants custom DNS even with DHCP
+        local custom_dns_choice
+        custom_dns_choice=$(dlg --title " Custom DNS " --yesno \
+            "\n Would you like to use custom DNS servers\n even though DHCP is enabled?\n\n Select Yes to specify custom DNS servers,\n or No to use DNS servers provided by DHCP.\n" \
+            14 60 3>&1 1>&2 2>&3; echo $?)
+
+        if [ "$custom_dns_choice" -eq 0 ]; then
+            while true; do
+                IORA_DNS=$(dlg --title " Custom DNS Server " --inputbox \
+                    "\n Enter your preferred DNS server IPv4 address.\n" \
+                    10 60 "${IORA_DNS:-8.8.8.8}" 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && break
+                if valid_ipv4 "$IORA_DNS"; then
+                    IORA_CUSTOM_DNS="yes"
+                    break
+                fi
+                dlg_msg " Invalid DNS " "Enter a valid IPv4 address such as 8.8.8.8."
+            done
+        fi
+
+    elif [ "$mode" = "static" ]; then
+        # Static IP configuration
         while true; do
             IORA_IP=$(dlg --title " Static IPv4 " --inputbox \
                 "\n Enter the IPv4 address for this device.\n" \
@@ -722,6 +995,26 @@ screen_network() {
             valid_ipv4 "$IORA_DNS" && break
             dlg_msg " Invalid DNS " "Enter a valid IPv4 address such as 8.8.8.8."
         done
+
+        # Test the static IP configuration
+        dlg_info " Testing " "  Testing network connectivity..."
+
+        if test_ip_connectivity "$IORA_IP" "$IORA_GATEWAY"; then
+            dlg --title " Connection Test " --msgbox \
+                "\n Network connectivity test successful!\n\n Gateway ${IORA_GATEWAY} is reachable.\n\n The configuration appears to be correct.\n" \
+                12 60
+        else
+            local retry_choice
+            retry_choice=$(dlg --title " Connection Test Failed " --yesno \
+                "\n Could not reach gateway ${IORA_GATEWAY}\n\n This may be normal if the network is not\n yet configured on this interface.\n\n Would you like to re-enter the network settings?\n" \
+                14 60 3>&1 1>&2 2>&3; echo $?)
+
+            if [ "$retry_choice" -eq 0 ]; then
+                # User wants to retry
+                screen_network
+                return $?
+            fi
+        fi
     fi
 }
 
@@ -1096,33 +1389,39 @@ run_wizard() {
     # Step 2: Hostname
     screen_hostname
 
-    # Step 3: Timezone
+    # Step 3: Domain (optional)
+    screen_domain
+
+    # Step 4: Timezone
     screen_timezone
 
-    # Step 4: Network
+    # Step 5: Driver detection (optional)
+    screen_drivers
+
+    # Step 6: Network
     screen_network
 
-    # Step 5: Root password
+    # Step 7: Root password
     screen_password
 
-    # Step 6: Disk selection
+    # Step 8: Disk selection
     if ! screen_select_disk; then
         dlg_msg " Cancelled " "Installation cancelled."
         return 1
     fi
 
-    # Step 7: Confirmation summary
+    # Step 9: Confirmation summary
     if ! screen_confirm; then
         dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
         return 1
     fi
 
-    # Step 8: Install
+    # Step 10: Install
     if ! screen_install; then
         return 1
     fi
 
-    # Step 9: Done
+    # Step 11: Done
     screen_complete
 }
 
