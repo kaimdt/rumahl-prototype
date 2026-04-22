@@ -74,9 +74,14 @@ impl TaskEngine {
         let now = Utc::now();
 
         for task in tasks {
-            // Check if task should be executed
-            if let Some(next_exec) = task.next_execution_at {
-                if next_exec > now {
+            // For one-shot tasks, use trigger_at as the execution time
+            let exec_time = task
+                .trigger_at
+                .as_ref()
+                .or(task.next_execution_at.as_ref());
+
+            if let Some(next_exec) = exec_time {
+                if *next_exec > now {
                     continue; // Not yet time
                 }
             }
@@ -104,6 +109,19 @@ impl TaskEngine {
             .await
             {
                 tracing::error!("Failed to record task execution: {}", e);
+            }
+
+            // Disable one-shot tasks after execution
+            if task.is_one_shot {
+                if let Err(e) = sqlx::query(
+                    "UPDATE autonomous_tasks SET enabled = false WHERE id = $1",
+                )
+                .bind(task.id)
+                .execute(db)
+                .await
+                {
+                    tracing::error!("Failed to disable one-shot task {}: {}", task.id, e);
+                }
             }
         }
 

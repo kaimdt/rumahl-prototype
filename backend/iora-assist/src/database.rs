@@ -28,6 +28,10 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    sqlx::query(include_str!("../migrations/002_memory_and_tasks.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -151,6 +155,12 @@ pub mod tasks {
         pub next_execution_at: Option<DateTime<Utc>>,
         pub created_at: DateTime<Utc>,
         pub updated_at: DateTime<Utc>,
+        // Extended fields (migration 002)
+        pub user_id: Option<Uuid>,
+        pub trigger_at: Option<DateTime<Utc>>,
+        pub is_one_shot: bool,
+        pub origin: String,
+        pub priority: i32,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

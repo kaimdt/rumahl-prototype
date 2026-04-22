@@ -21,6 +21,7 @@ use std::convert::Infallible;
 mod providers;
 mod context;
 mod database;
+mod memory;
 mod orchestrator;
 mod task_engine;
 mod conversation_manager;
@@ -28,6 +29,7 @@ mod tools;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
+use memory::{ActiveTaskRequest, CreateMemoryRequest, MemoryManager};
 use orchestrator::{ProviderOrchestrator, TaskPurpose};
 use task_engine::TaskEngine;
 use conversation_manager::ConversationManager;
@@ -49,6 +51,7 @@ struct AppState {
     task_engine: Option<Arc<TaskEngine>>,
     conversation_manager: Option<Arc<ConversationManager>>,
     tool_executor: Arc<RwLock<ToolExecutor>>,
+    memory_manager: Option<Arc<MemoryManager>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,10 +153,21 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         })
         .collect();
 
-    // Get system prompt
-    let system_prompt = req.system_prompt.or_else(|| {
-        Some("You are IORA Assist, an AI assistant integrated into the IORA smart home system. You help users manage their home automation, answer questions, and provide insights.".to_string())
-    });
+    // Build base system prompt
+    let base_system_prompt = req.system_prompt.as_deref().unwrap_or(
+        "You are IORA Assist, an AI assistant integrated into the IORA smart home system. \
+         You help users manage their home automation, answer questions, and provide insights."
+    ).to_string();
+
+    // Inject relevant memories into the system prompt (if memory manager is available)
+    let system_prompt = if let Some(ref mm) = state.memory_manager {
+        Some(
+            mm.inject_into_prompt(&base_system_prompt, &req.message, None)
+                .await,
+        )
+    } else {
+        Some(base_system_prompt)
+    };
 
     // Call AI provider
     match provider.chat(messages, system_prompt).await {
@@ -166,6 +180,17 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                 timestamp: Utc::now().to_rfc3339(),
             };
             state.history.write().await.push(assistant_msg.clone());
+
+            // Post-chat: extract memories and detect tasks in the background
+            if let Some(mm) = state.memory_manager.clone() {
+                let user_msg = req.message.clone();
+                let ai_resp = response.message.clone();
+                tokio::spawn(async move {
+                    mm.auto_extract_from_conversation(&user_msg, &ai_resp, None)
+                        .await;
+                    mm.detect_and_create_tasks(&user_msg, &ai_resp, None).await;
+                });
+            }
 
             (
                 StatusCode::OK,
@@ -1064,6 +1089,168 @@ async fn take_webpage_screenshot(
     (status, Json(result))
 }
 
+// ============================================================================
+// MEMORY API ENDPOINTS
+// ============================================================================
+
+async fn list_memories(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    match mm.list(None, 100).await {
+        Ok(memories) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "memories": memories,
+                "total": memories.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to list memories", "details": e.to_string()})),
+        ),
+    }
+}
+
+async fn create_memory(
+    State(state): State<AppState>,
+    Json(req): Json<CreateMemoryRequest>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    match mm.store(&req).await {
+        Ok(memory) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "memory": memory})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to create memory", "details": e.to_string()})),
+        ),
+    }
+}
+
+async fn delete_memory(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    match mm.delete(id).await {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to delete memory", "details": e.to_string()})),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct MemorySearchRequest {
+    query: String,
+    limit: Option<i64>,
+}
+
+async fn search_memories(
+    State(state): State<AppState>,
+    Json(req): Json<MemorySearchRequest>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    let limit = req.limit.unwrap_or(20);
+
+    match mm.search(&req.query, None, limit).await {
+        Ok(memories) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "query": req.query,
+                "memories": memories,
+                "total": memories.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to search memories", "details": e.to_string()})),
+        ),
+    }
+}
+
+// ============================================================================
+// ACTIVE TASKS API ENDPOINTS
+// ============================================================================
+
+async fn list_active_tasks(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    match mm.list_active_tasks(None, 50).await {
+        Ok(tasks) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "tasks": tasks,
+                "total": tasks.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to list active tasks", "details": e.to_string()})),
+        ),
+    }
+}
+
+async fn create_active_task(
+    State(state): State<AppState>,
+    Json(req): Json<ActiveTaskRequest>,
+) -> impl IntoResponse {
+    let Some(ref mm) = state.memory_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Memory manager not available"})),
+        );
+    };
+
+    let user_id = req.user_id;
+    match mm.create_active_task(&req, user_id).await {
+        Ok(id) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "task_id": id})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Failed to create active task", "details": e.to_string()})),
+        ),
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -1131,6 +1318,15 @@ async fn main() -> anyhow::Result<()> {
         info!("Headless Chrome browser initialized for tool execution");
     }
 
+    // Initialize memory manager if database is available
+    let memory_manager = if let Some(ref db_pool) = db {
+        info!("Memory manager initialized successfully");
+        Some(Arc::new(MemoryManager::new(db_pool.clone())))
+    } else {
+        info!("Memory manager disabled (no database connection)");
+        None
+    };
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
@@ -1141,6 +1337,7 @@ async fn main() -> anyhow::Result<()> {
         task_engine,
         conversation_manager,
         tool_executor: Arc::new(RwLock::new(tool_executor)),
+        memory_manager,
     };
 
     let app = Router::new()
@@ -1175,6 +1372,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/tools/search", post(search_internet))
         .route("/api/assist/tools/scrape", post(scrape_webpage))
         .route("/api/assist/tools/screenshot", post(take_webpage_screenshot))
+        // Memory API
+        .route("/api/assist/memory", get(list_memories))
+        .route("/api/assist/memory", post(create_memory))
+        .route("/api/assist/memory/search", post(search_memories))
+        .route("/api/assist/memory/:id", axum::routing::delete(delete_memory))
+        // Active Tasks API
+        .route("/api/assist/tasks/active", get(list_active_tasks))
+        .route("/api/assist/tasks/active", post(create_active_task))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
