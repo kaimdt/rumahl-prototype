@@ -719,6 +719,32 @@ mkdir -p "${TARGET_DIR}/etc/systemd/system/timers.target.wants"
 ln -sf /etc/systemd/system/iora-stack-watchdog.timer \
     "${TARGET_DIR}/etc/systemd/system/timers.target.wants/iora-stack-watchdog.timer"
 
+# ── Ensure getty@tty1 is enabled ────────────────────────────────────────────
+# Without an explicit WantedBy symlink, Buildroot systemd doesn't always
+# spawn a login prompt on tty1 → the user sees "Startup finished ..." and
+# nothing else. systemctl preset would normally do this but Buildroot skips
+# that, so we create the symlink ourselves. Also enable serial-getty@ttyS0
+# so boards wired to a serial console get a prompt there too.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/getty.target.wants"
+ln -sf /usr/lib/systemd/system/getty@.service \
+    "${TARGET_DIR}/etc/systemd/system/getty.target.wants/getty@tty1.service"
+ln -sf /usr/lib/systemd/system/serial-getty@.service \
+    "${TARGET_DIR}/etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service"
+
+# ── Quiet kernel printk once boot is complete ───────────────────────────────
+# After multi-user is up, late mount deactivations and watchdog timers print
+# "Deactivated successfully" to /dev/console, overwriting the getty login
+# prompt. Lowering printk's console log level to 3 (errors only) as soon as
+# userspace comes up means the prompt stays visible, but kernel errors still
+# appear. Warnings/info still go to journald.
+mkdir -p "${TARGET_DIR}/etc/sysctl.d"
+cat > "${TARGET_DIR}/etc/sysctl.d/10-iora-console-quiet.conf" <<'EOF'
+# kernel.printk = console_loglevel default_message_loglevel minimum_console_loglevel default_console_loglevel
+# 3 = KERN_ERR and below → only errors appear on the tty; everything else
+# is still captured by journald and visible via `journalctl -k`.
+kernel.printk = 3 4 1 7
+EOF
+
 # Enable IORA stack service
 ln -sf /etc/systemd/system/iora-stack.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-stack.service"
