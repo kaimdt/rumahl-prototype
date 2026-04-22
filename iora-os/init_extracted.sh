@@ -3,6 +3,60 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 export TERM=linux
 export NCURSES_NO_UTF8_ACS=1
 
+# ── Boot Splash Screen ─────────────────────────────────────────────
+show_boot_splash() {
+    # Clear screen and hide cursor
+    clear 2>/dev/null || true
+    printf '\033[?25l'  # Hide cursor
+
+    # ANSI colors
+    local CYAN='\033[0;36m'
+    local WHITE='\033[1;37m'
+    local BLUE='\033[0;34m'
+    local RESET='\033[0m'
+
+    # Display IORA logo and loading message
+    cat <<'SPLASH'
+
+
+          ██╗ ██████╗ ██████╗  █████╗
+          ██║██╔═══██╗██╔══██╗██╔══██╗
+          ██║██║   ██║██████╔╝███████║
+          ██║██║   ██║██╔══██╗██╔══██║
+          ██║╚██████╔╝██║  ██║██║  ██║
+          ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+
+       Interface for Optimized Residential Autonomy
+
+
+SPLASH
+
+    printf "\n          ${CYAN}Starting IORA OS Installer...${RESET}\n"
+    printf "          "
+
+    # Show animated loading spinner
+    local spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    local delay=0.1
+
+    # Run spinner for ~2 seconds while system initializes
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        local char="${spinner:i:1}"
+        printf "\r          ${BLUE}${char}${RESET} Loading system components..."
+        i=$(( (i + 1) % 10 ))
+        sleep "$delay" 2>/dev/null || sleep 1
+    done
+
+    printf "\r          ${CYAN}✓${RESET} System ready                    \n\n"
+    sleep 0.5
+
+    # Show cursor again
+    printf '\033[?25h'
+}
+
+# Display boot splash at startup
+show_boot_splash
+
 # ── Mount virtual filesystems ──────────────────────────────────────
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mount -t proc proc /proc 2>/dev/null || true
@@ -892,14 +946,31 @@ run_wizard() {
 # Helper commands for the recovery shell
 cat > /bin/install <<'SHEOF'
 #!/bin/sh
+# Restart the IORA OS installation wizard
+echo ""
+echo "  ╔══════════════════════════════════════════════════╗"
+echo "  ║  Restarting IORA OS Installation Wizard...      ║"
+echo "  ╚══════════════════════════════════════════════════╝"
+echo ""
+sleep 1
 exec /init
 SHEOF
 chmod +x /bin/install 2>/dev/null || true
 
+cat > /bin/installer <<'SHEOF'
+#!/bin/sh
+# Alias for install command
+exec /bin/install
+SHEOF
+chmod +x /bin/installer 2>/dev/null || true
+
 cat > /bin/sysinfo <<'SHEOF'
 #!/bin/sh
 echo ""
-echo "  === System Information ==="
+echo "  ╔══════════════════════════════════════════════════╗"
+echo "  ║         IORA OS System Information               ║"
+echo "  ╚══════════════════════════════════════════════════╝"
+echo ""
 echo "  CPU:     $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')"
 echo "  Cores:   $(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
 echo "  Memory:  $(awk '/MemTotal/{printf "%.0f MB", $2/1024}' /proc/meminfo 2>/dev/null)"
@@ -916,28 +987,73 @@ chmod +x /bin/sysinfo 2>/dev/null || true
 
 cat > /bin/netsetup <<'SHEOF'
 #!/bin/sh
+echo ""
+echo "  ╔══════════════════════════════════════════════════╗"
+echo "  ║         Network Configuration                    ║"
+echo "  ╚══════════════════════════════════════════════════╝"
+echo ""
 echo "  Bringing up network interfaces..."
 for iface in /sys/class/net/*; do
     name=$(basename "$iface")
     [ "$name" = "lo" ] && continue
     ip link set "$name" up 2>/dev/null
-    udhcpc -i "$name" -n -q 2>/dev/null && echo "  $name: DHCP OK" && exit 0
-    dhclient "$name" 2>/dev/null && echo "  $name: DHCP OK" && exit 0
+    udhcpc -i "$name" -n -q 2>/dev/null && echo "  ✓ $name: DHCP configured" && exit 0
+    dhclient "$name" 2>/dev/null && echo "  ✓ $name: DHCP configured" && exit 0
 done
-echo "  No DHCP lease obtained."
+echo "  ✗ No DHCP lease obtained."
+echo ""
 SHEOF
 chmod +x /bin/netsetup 2>/dev/null || true
+
+cat > /bin/help <<'SHEOF'
+#!/bin/sh
+echo ""
+echo "  ╔══════════════════════════════════════════════════╗"
+echo "  ║     IORA OS Installer - Available Commands      ║"
+echo "  ╚══════════════════════════════════════════════════╝"
+echo ""
+echo "  install     - Restart the IORA OS installation wizard"
+echo "  installer   - Alias for 'install' command"
+echo "  sysinfo     - Display system information"
+echo "  netsetup    - Configure network via DHCP"
+echo "  help        - Show this help message"
+echo "  reboot      - Reboot the system"
+echo "  poweroff    - Shut down the system"
+echo ""
+echo "  To return to the installer at any time, type:"
+echo "  ${CYAN}install${RESET} or ${CYAN}installer${RESET}"
+echo ""
+SHEOF
+chmod +x /bin/help 2>/dev/null || true
 
 run_wizard
 rc=$?
 
+# Display enhanced help after wizard exits
+clear 2>/dev/null || true
+cat <<'BANNER'
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║                                                              ║
+  ║          IORA OS Installation - Recovery Shell              ║
+  ║                                                              ║
+  ╚══════════════════════════════════════════════════════════════╝
+
+BANNER
+
+echo "  The installation wizard has exited."
+echo "  You are now in a recovery shell."
 echo ""
 echo "  Available commands:"
-echo "    install  - Restart the installation wizard"
-echo "    sysinfo  - Show system information"
-echo "    netsetup - Configure network via DHCP"
-echo "    reboot   - Reboot the system"
-echo "    poweroff - Shut down"
+echo "    install     - Restart the installation wizard"
+echo "    installer   - Restart the installation wizard (alias)"
+echo "    sysinfo     - Show system information"
+echo "    netsetup    - Configure network via DHCP"
+echo "    help        - Show all available commands"
+echo "    reboot      - Reboot the system"
+echo "    poweroff    - Shut down"
+echo ""
+echo "  Type 'install' or 'installer' to return to the installation wizard."
 echo ""
 
 if [ -x /bin/bash ]; then
