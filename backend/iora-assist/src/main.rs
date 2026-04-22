@@ -1659,13 +1659,15 @@ async fn stream_instant_task(
     // Check if the task is already done (fast path)
     if let Some(ref db) = state.db {
         if let Ok(Some(task)) = database::instant_tasks::get_by_id(db, task_id).await {
-            if task.status == "completed" || task.status == "failed" {
+            if task.status == "completed" || task.status == "failed" || task.status == "deferred" {
                 let data = serde_json::json!({
                     "task_id": task_id,
+                    "event_type": task.status,
                     "status": task.status,
                     "result_text": task.result_text,
                     "result_data": task.result_data,
                     "error": task.error_message,
+                    "elapsed_secs": null,
                 });
                 let event = Event::default()
                     .event("instant_task_result")
@@ -1700,10 +1702,12 @@ async fn stream_instant_task(
         }
         let data = serde_json::json!({
             "task_id": result.task_id,
+            "event_type": result.event_type,
             "status": result.status,
             "result_text": result.result_text,
             "result_data": result.result_data,
             "error": result.error,
+            "elapsed_secs": result.elapsed_secs,
         });
         Some(Ok::<Event, std::convert::Infallible>(
             Event::default()

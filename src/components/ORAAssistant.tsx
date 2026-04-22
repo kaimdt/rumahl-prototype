@@ -13,7 +13,7 @@ interface AIChatMessage {
   // If present, an instant task is resolving in background for this message
   instantTaskId?: string
   instantTaskType?: string
-  instantTaskStatus?: 'pending' | 'completed' | 'failed'
+  instantTaskStatus?: 'pending' | 'completed' | 'failed' | 'deferred'
   instantTaskResult?: string
 }
 
@@ -197,6 +197,61 @@ export function ORAAssistant() {
     es.addEventListener('instant_task_result', (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data)
+        const eventType: string = data.event_type ?? 'completed'
+
+        // ── Progress: taking longer ──────────────────────────────────────────
+        if (eventType === 'taking_longer') {
+          // In voice fast-wait phase: activate slow path immediately (server confirmed it's slow)
+          const viTask = voiceInstantTask.current
+          if (viTask?.taskId === taskId && viTask.phase === 'fast-wait') {
+            // Cancel the local 4s timer – the server already told us it's slow
+            if (fastPathTimerRef.current) {
+              clearTimeout(fastPathTimerRef.current)
+              fastPathTimerRef.current = null
+            }
+            activateSlowPath()
+          }
+          // Keep SSE open – more events will follow
+          return
+        }
+
+        // ── Progress: deferred (>1 min threshold exceeded) ──────────────────
+        if (eventType === 'deferred') {
+          // Update message bubble to "deferred" state
+          setMessages(prev =>
+            prev.map(m =>
+              m.timestamp === msgTimestamp
+                ? { ...m, instantTaskStatus: 'deferred', instantTaskResult: 'Die Antwort dauert etwas länger – du bekommst eine Benachrichtigung.' }
+                : m
+            )
+          )
+
+          // Persist task id in sessionStorage so on next dialog open we can recover it
+          try {
+            sessionStorage.setItem('ora_deferred_task', JSON.stringify({ taskId, msgTimestamp, ts: Date.now() }))
+          } catch { /* storage unavailable */ }
+
+          // Voice: announce deferral context-aware
+          const viTask = voiceInstantTask.current
+          if (viTask?.taskId === taskId && isTTSEnabledRef.current) {
+            const inConversation = viTask.phase === 'slow-talking'
+            const announcement = inConversation
+              ? 'Das dauert noch etwas länger. Ich melde mich gleich, wenn ich das Ergebnis habe.'
+              : 'Das dauert etwas länger. Ich melde mich sobald ich fertig bin.'
+            try { recognitionRef.current?.abort() } catch { /* ok */ }
+            synthRef.current?.cancel()
+            speak(announcement)
+          }
+          clearVoiceInstantTask()
+          setVoiceTaskBanner(null)
+
+          // Close SSE – result will arrive via notification queue
+          es.close()
+          instantTaskSources.current.delete(taskId)
+          return
+        }
+
+        // ── Final result (completed / failed) ────────────────────────────────
         const resultText: string = data.result_text ?? data.error ?? 'Keine Antwort erhalten.'
         const status: 'completed' | 'failed' = data.status === 'completed' ? 'completed' : 'failed'
 
@@ -209,36 +264,33 @@ export function ORAAssistant() {
           )
         )
 
+        // Clear deferred sessionStorage entry if we got the final result live
+        try { sessionStorage.removeItem('ora_deferred_task') } catch { /* ok */ }
+
         // ── Voice-mode result delivery ─────────────────────────────────────
         const viTask = voiceInstantTask.current
         const wasVoiceFast = viTask?.taskId === taskId && viTask.phase === 'fast-wait'
         const wasVoiceSlow = viTask?.taskId === taskId && viTask.phase === 'slow-talking'
 
-        // Always clear voice task state
         if (viTask?.taskId === taskId) {
           clearVoiceInstantTask()
         } else {
-          // Different task – clear generic fast-path timer just in case
           if (fastPathTimerRef.current) clearTimeout(fastPathTimerRef.current)
         }
 
         if (status === 'completed' && isTTSEnabledRef.current) {
           if (wasVoiceFast) {
-            // Fast path: result arrived quickly – speak directly (no holding sentence was spoken)
             try { recognitionRef.current?.abort() } catch { /* ok */ }
             speak(resultText)
           } else if (wasVoiceSlow) {
-            // Slow path: user might be mid-conversation – interrupt, announce, then re-listen
             try { recognitionRef.current?.abort() } catch { /* ok */ }
             synthRef.current?.cancel()
             speak(`Ich hab's gefunden! ${resultText}`, () => {
-              // Offer continued listening after announcement
               if (voiceLastUsedRef.current) {
                 setTimeout(startVoiceConversation, 800)
               }
             })
           } else {
-            // Text mode: normal TTS
             speak(resultText)
           }
         }
@@ -255,7 +307,6 @@ export function ORAAssistant() {
             : m
         )
       )
-      // Clean up voice state on error too
       const viTask = voiceInstantTask.current
       if (viTask?.taskId === taskId) clearVoiceInstantTask()
       es.close()
@@ -263,7 +314,7 @@ export function ORAAssistant() {
     }
 
     instantTaskSources.current.set(taskId, es)
-  }, [speak, startVoiceConversation, clearVoiceInstantTask])
+  }, [speak, startVoiceConversation, clearVoiceInstantTask, activateSlowPath])
 
   // Clean up SSE connections when dialog closes
   useEffect(() => {
@@ -271,7 +322,43 @@ export function ORAAssistant() {
       instantTaskSources.current.forEach(es => es.close())
       instantTaskSources.current.clear()
       clearVoiceInstantTask()
+      return
     }
+
+    // Dialog just opened: check if we have a deferred task result waiting in the DB.
+    const raw = (() => { try { return sessionStorage.getItem('ora_deferred_task') } catch { return null } })()
+    if (!raw) return
+    try {
+      const saved: { taskId: string; msgTimestamp: string; ts: number } = JSON.parse(raw)
+      // Only recover tasks deferred within the last 30 minutes
+      if (Date.now() - saved.ts > 30 * 60 * 1000) {
+        sessionStorage.removeItem('ora_deferred_task')
+        return
+      }
+      // Poll the REST endpoint for the task result
+      fetch(`${ASSIST_URL}/api/assist/tasks/instant/${saved.taskId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((task: { status?: string; result_text?: string; error_message?: string } | null) => {
+          if (!task) return
+          if (task.status === 'completed' || task.status === 'failed') {
+            sessionStorage.removeItem('ora_deferred_task')
+            const resultText = task.result_text ?? task.error_message ?? 'Keine Antwort erhalten.'
+            const status = task.status === 'completed' ? 'completed' : 'failed'
+            // Inject as a notification-style message into the chat
+            setMessages(prev => [
+              ...prev,
+              {
+                role: 'assistant' as const,
+                content: status === 'completed'
+                  ? `📬 ORA hat die Antwort gefunden:\n\n${resultText}`
+                  : `❌ Die Suche ist leider fehlgeschlagen.`,
+                timestamp: new Date().toISOString(),
+              }
+            ])
+          }
+        })
+        .catch(() => { /* network error – ignore */ })
+    } catch { /* bad stored value */ }
   }, [isOpen, clearVoiceInstantTask])
 
   // Check for Web Speech API support
@@ -804,6 +891,16 @@ export function ORAAssistant() {
                             <Warning size={11} weight="fill" />
                             {msg.instantTaskResult ?? 'Suche fehlgeschlagen.'}
                           </p>
+                        )}
+                        {msg.instantTaskStatus === 'deferred' && (
+                          <motion.p
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-xs text-purple-400/80 flex items-center gap-1"
+                          >
+                            <BellRinging size={11} weight="fill" />
+                            Dauert etwas länger – du bekommst eine Meldung, sobald die Antwort da ist.
+                          </motion.p>
                         )}
                       </div>
                     )}

@@ -44,6 +44,10 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    sqlx::query(include_str!("../migrations/006_instant_tasks_deferred.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -576,6 +580,11 @@ pub mod instant_tasks {
         pub created_at: DateTime<Utc>,
         pub started_at: Option<DateTime<Utc>>,
         pub completed_at: Option<DateTime<Utc>>,
+        /// Set to true when the SSE listener disconnected before the result arrived;
+        /// the engine will queue a notification on completion.
+        pub notify_on_complete: bool,
+        /// Timestamp when the task was marked as "deferred" (>1 min threshold).
+        pub deferred_at: Option<DateTime<Utc>>,
     }
 
     /// Create a new instant task and return it.
@@ -706,5 +715,41 @@ pub mod instant_tasks {
         .bind(limit)
         .fetch_all(pool)
         .await
+    }
+
+    /// Mark a task as "deferred" – the engine exceeded the long-task threshold but
+    /// is still running.  The frontend should close its SSE stream; the result will
+    /// be delivered via the notification queue when it eventually finishes.
+    pub async fn mark_deferred(pool: &DbPool, task_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'deferred',
+                deferred_at = NOW(),
+                notify_on_complete = TRUE
+            WHERE id = $1
+            "#,
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Set notify_on_complete so the engine knows to deliver the result as a
+    /// notification when the SSE listener has disconnected.
+    pub async fn set_notify_on_complete(
+        pool: &DbPool,
+        task_id: Uuid,
+        value: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE instant_tasks SET notify_on_complete = $1 WHERE id = $2",
+        )
+        .bind(value)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 }
