@@ -1373,22 +1373,22 @@ insmod all_video
 menuentry "IORA OS" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     fi
 }
 
 menuentry "IORA OS (second slot)" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     fi
 }
 
@@ -1894,18 +1894,18 @@ insmod all_video
 menuentry "IORA OS" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     fi
 }
 
 menuentry "IORA OS (Partition B)" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
     fi
 }
 
@@ -3460,13 +3460,13 @@ set timeout=5
 
 menuentry "IORA OS (encrypted)" {
     cryptomount -u ${uuid_a}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 nomodeset quiet iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
 ${initrd_line}
 }
 
 menuentry "IORA OS - second slot (encrypted)" {
     cryptomount -u ${uuid_b}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 nomodeset quiet iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
 ${initrd_line}
 }
 
@@ -3609,7 +3609,7 @@ set timeout=5
 
 menuentry "IORA OS" {
     search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
-    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
 }
 
 menuentry "IORA OS Recovery" {

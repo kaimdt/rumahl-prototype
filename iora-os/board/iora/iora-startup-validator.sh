@@ -1,152 +1,119 @@
 #!/bin/bash
-# IORA OS Startup Validator
-# Runs during boot to validate all required services are healthy
-# Should be installed as a systemd service on IORA OS
+# IORA OS Startup Validator — informational only.
 #
-# IMPORTANT: this script must NEVER exit non-zero — a failing validator on
-# the boot console ("Failed to start IORA OS Startup Validator") is far
-# worse UX than a log-only warning. All checks are best-effort and their
-# results go to the log file only. The unit exits 0 unconditionally.
+# Runs once at boot (multi-user.target) to take a quick snapshot of Docker
+# + IORA containers + core health endpoints and write a status file.  It
+# MUST complete quickly and MUST NEVER fail:
+#   * 30 s hard deadline for the whole run (TimeoutStartSec=60 keeps
+#     headroom for systemd itself).
+#   * All waits are 1 s polling with tiny per-check budgets so we don't
+#     hang the boot console for minutes.
+#   * Always exits 0.  If we detect the stack isn't up yet (first boot /
+#     .setup-complete missing / placeholder compose), we just log that
+#     fact and return immediately instead of waiting in vain.
+#
+# If you want deep post-boot validation, run this out of a systemd timer
+# AFTER multi-user.target, not during boot.
 
 set +e
 
 LOG_FILE="/var/log/iora-startup-validator.log"
-MAX_WAIT_TIME=180  # 3 minutes
-CHECK_INTERVAL=10  # 10 seconds
+STATUS_FILE="/run/iora-validated"
+HARD_DEADLINE=$(( $(date +%s) + 30 ))   # never spend >30s total
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" \
+        | tee -a "$LOG_FILE" >/dev/null 2>&1
+    # Mirror to the boot console via /dev/kmsg so the user can see progress.
+    printf '<6>iora-validator: %s\n' "$1" > /dev/kmsg 2>/dev/null || true
 }
 
-wait_for_docker() {
-    log "Waiting for Docker daemon to start..."
-    local waited=0
+over_budget() {
+    [ "$(date +%s)" -ge "$HARD_DEADLINE" ]
+}
 
-    while [ $waited -lt $MAX_WAIT_TIME ]; do
-        if docker info > /dev/null 2>&1; then
-            log "Docker daemon is ready"
+quick_wait_docker() {
+    local waited=0
+    while [ $waited -lt 10 ]; do
+        over_budget && return 1
+        if docker info >/dev/null 2>&1; then
+            log "Docker daemon ready after ${waited}s"
             return 0
         fi
-        sleep $CHECK_INTERVAL
-        waited=$((waited + CHECK_INTERVAL))
+        sleep 1
+        waited=$((waited + 1))
     done
-
-    log "ERROR: Docker daemon did not start within $MAX_WAIT_TIME seconds"
+    log "Docker daemon not ready within 10s (may still come up; continuing)"
     return 1
 }
 
-wait_for_service() {
-    local service_name="$1"
-    local port="$2"
-    local max_wait="${3:-$MAX_WAIT_TIME}"
-
-    log "Waiting for $service_name on port $port..."
-    local waited=0
-
-    while [ $waited -lt $max_wait ]; do
-        if curl -sf "http://localhost:$port/health" > /dev/null 2>&1; then
-            log "$service_name is healthy"
-            return 0
-        fi
-        sleep $CHECK_INTERVAL
-        waited=$((waited + CHECK_INTERVAL))
-    done
-
-    log "WARNING: $service_name did not become healthy within $max_wait seconds"
-    return 1
+has_container() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^$1$"
 }
 
-wait_for_container() {
-    local container_name="$1"
-    local max_wait="${2:-$MAX_WAIT_TIME}"
-
-    log "Waiting for container $container_name..."
-    local waited=0
-
-    while [ $waited -lt $max_wait ]; do
-        if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-            log "Container $container_name is running"
-            return 0
-        fi
-        sleep $CHECK_INTERVAL
-        waited=$((waited + CHECK_INTERVAL))
-    done
-
-    log "WARNING: Container $container_name did not start within $max_wait seconds"
-    return 1
+peek_container() {
+    local name="$1"
+    if has_container "$name"; then
+        log "container $name: running"
+    else
+        log "container $name: not running (yet)"
+    fi
 }
 
-validate_startup() {
+peek_health() {
+    local name="$1" port="$2"
+    if curl -sf --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+        log "health $name:${port}: ok"
+    else
+        log "health $name:${port}: not responding"
+    fi
+}
+
+validate() {
     log "=== IORA OS Startup Validation ==="
-    log "Starting validation at $(date)"
 
-    # Wait for Docker
-    if ! wait_for_docker; then
-        log "CRITICAL: Docker failed to start"
-        return 1
+    # First-boot / fresh install: nothing to validate yet.
+    if [ ! -e /mnt/data/iora/.setup-complete ]; then
+        log "setup not complete yet (missing .setup-complete) — skipping stack checks"
+        return 0
     fi
 
-    # Wait for critical containers
-    log ""
-    log "Checking critical containers..."
-
-    wait_for_container "iora-postgres" 60 || log "WARNING: postgres slow to start"
-    wait_for_container "iora-core" 90 || log "WARNING: iora-core slow to start"
-    wait_for_container "iora-secrets" 90 || log "WARNING: iora-secrets slow to start"
-    wait_for_container "iora-home" 120 || log "WARNING: iora-home slow to start"
-
-    # Wait for critical service health checks
-    log ""
-    log "Checking service health..."
-
-    wait_for_service "iora-core" 8090 120 || log "WARNING: iora-core health check failed"
-    wait_for_service "iora-secrets" 8093 120 || log "WARNING: iora-secrets health check failed"
-    wait_for_service "iora-home" 8080 180 || log "WARNING: iora-home health check failed"
-
-    # Check optional services (don't fail if not present)
-    log ""
-    log "Checking optional services..."
-
-    if docker ps --format '{{.Names}}' | grep -q "^iora-supervisor$"; then
-        wait_for_service "iora-supervisor" 8097 60 || log "INFO: iora-supervisor not responding"
-    else
-        log "INFO: iora-supervisor not enabled"
+    # Placeholder compose (hello-world only) — user hasn't dropped their
+    # real docker-compose.yml yet. No point timing out on iora-* containers.
+    if [ -f /mnt/data/iora/docker-compose.yml ] && \
+       grep -q '^\s*image:\s*hello-world\s*$' /mnt/data/iora/docker-compose.yml 2>/dev/null && \
+       ! grep -q '^\s*image:\s*ghcr.io/.*iora' /mnt/data/iora/docker-compose.yml 2>/dev/null; then
+        log "placeholder docker-compose.yml detected — skipping stack checks"
+        return 0
     fi
 
-    if docker ps --format '{{.Names}}' | grep -q "^iora-watchdog$"; then
-        wait_for_service "iora-watchdog" 8094 60 || log "INFO: iora-watchdog not responding"
-    else
-        log "INFO: iora-watchdog not enabled"
-    fi
+    quick_wait_docker || return 0
 
-    if docker ps --format '{{.Names}}' | grep -q "^iora-security$"; then
-        wait_for_service "iora-security" 8095 60 || log "INFO: iora-security not responding"
-    else
-        log "INFO: iora-security not enabled"
-    fi
+    # Snapshot critical containers (no long waits).
+    for c in iora-postgres iora-core iora-secrets iora-home; do
+        over_budget && { log "deadline reached; abort snapshot"; return 0; }
+        peek_container "$c"
+    done
 
-    log ""
-    log "=== Validation Complete ==="
-    log "IORA OS startup validation finished at $(date)"
+    # Light health probes with 2 s timeout each.
+    for entry in "iora-core:8090" "iora-secrets:8093" "iora-home:8080"; do
+        over_budget && { log "deadline reached; abort health probes"; return 0; }
+        name="${entry%:*}"; port="${entry##*:}"
+        has_container "$name" && peek_health "$name" "$port"
+    done
 
-    # Create status file
-    echo "VALIDATED" > /var/run/iora-validated
-    echo "$(date +%s)" >> /var/run/iora-validated
-
+    log "validation snapshot complete"
     return 0
 }
 
-# Main execution
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-validate_startup || true
+validate || true
 
-exit_code=$?
+{
+    echo "VALIDATED"
+    date +%s
+} > "$STATUS_FILE" 2>/dev/null || true
 
-if [ $exit_code -eq 0 ]; then
-    log "✓ IORA OS started successfully"
-else
-    log "✗ IORA OS startup validation reported issues (see log above) — continuing boot"
-fi
-
-# Always exit 0: the validator is informational, not gating.
+log "iora-startup-validator finished"
+# ALWAYS exit 0 — validator is informational.
 exit 0

@@ -263,12 +263,21 @@ cat > "${GRUB_CFG_TMP}" <<GRUBEOF
 set default=0
 set timeout=3
 
+# IORA OS cmdline notes:
+#   systemd.show_status=true + systemd.log_target=console : show every
+#     "Starting/Started/Failed" line on the boot console, so users can see
+#     *what* the box is doing instead of just a blinking cursor.
+#   loglevel=4 keeps the kernel log at KERN_WARNING — same volume as before
+#     (we dropped "quiet" but don't want a flood of info/debug messages).
+#   printk.devkmsg=on lets userspace write to /dev/kmsg during boot which
+#     is useful for iora scripts that want to log boot progress.
+
 menuentry "IORA OS" {
-    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 nomodeset quiet
+    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
 }
 
 menuentry "IORA OS (Partition B)" {
-    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 nomodeset quiet
+    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true systemd.log_target=console printk.devkmsg=on
 }
 
 menuentry "IORA OS Recovery" {
