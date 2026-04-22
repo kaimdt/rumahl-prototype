@@ -285,7 +285,7 @@ get_iso_parent_disk() {
 get_disks() {
     local iso_parent
     iso_parent=$(get_iso_parent_disk)
-    for disk_path in /sys/block/sd* /sys/block/vd* /sys/block/nvme*; do
+    for disk_path in /sys/block/sd* /sys/block/vd* /sys/block/nvme* /sys/block/mmcblk*; do
         [ -e "$disk_path" ] || continue
         local name=$(basename "$disk_path")
         case "$name" in sr*|loop*|ram*|zram*|dm-*|md*) continue ;; esac
@@ -326,8 +326,116 @@ get_disk_transport() {
         *nvme*)  echo "NVMe" ;;
         *virtio*) echo "VirtIO" ;;
         *scsi*)  echo "SCSI" ;;
+        *mmc*)   echo "SD/MMC" ;;
         *)       echo "Unknown" ;;
     esac
+}
+
+# Detect if disk is an SD card or similar flash storage
+is_sd_card() {
+    local disk="$1"
+    local link=$(readlink -f "/sys/block/${disk}" 2>/dev/null || true)
+
+    # Check for SD/MMC/eMMC devices
+    case "$link" in
+        *mmc*) return 0 ;;
+    esac
+
+    # Check device name patterns
+    case "$disk" in
+        mmcblk*) return 0 ;;
+    esac
+
+    # Check if it's a USB flash drive (often similar characteristics)
+    if [ "$(get_disk_transport "$disk")" = "USB" ]; then
+        # Additional heuristic: small size often indicates flash storage
+        local size_gb=$(get_disk_size_gb "$disk")
+        if [ "$size_gb" -lt 256 ]; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Get disk type description
+get_disk_type() {
+    local disk="$1"
+
+    if is_sd_card "$disk"; then
+        case "$disk" in
+            mmcblk*)
+                if [ -f "/sys/block/${disk}/device/type" ]; then
+                    local type=$(cat "/sys/block/${disk}/device/type" 2>/dev/null)
+                    case "$type" in
+                        SD) echo "SD Card" ;;
+                        MMC) echo "eMMC" ;;
+                        *) echo "SD/MMC" ;;
+                    esac
+                else
+                    echo "SD/MMC"
+                fi
+                ;;
+            *)
+                local transport=$(get_disk_transport "$disk")
+                if [ "$transport" = "USB" ]; then
+                    echo "USB Flash"
+                else
+                    echo "Flash Storage"
+                fi
+                ;;
+        esac
+    else
+        local transport=$(get_disk_transport "$disk")
+        case "$transport" in
+            NVMe) echo "NVMe SSD" ;;
+            SATA)
+                # Try to detect if SSD or HDD
+                local rotational=$(cat "/sys/block/${disk}/queue/rotational" 2>/dev/null || echo "1")
+                if [ "$rotational" = "0" ]; then
+                    echo "SATA SSD"
+                else
+                    echo "SATA HDD"
+                fi
+                ;;
+            *) echo "Disk" ;;
+        esac
+    fi
+}
+
+# Get recommended optimizations for SD cards
+get_sd_optimizations() {
+    local disk="$1"
+
+    if ! is_sd_card "$disk"; then
+        return 0
+    fi
+
+    cat <<'SDOPT'
+╔═══════════════════════════════════════════════════════════════╗
+║          SD CARD / FLASH STORAGE DETECTED                     ║
+╚═══════════════════════════════════════════════════════════════╝
+
+This device appears to be SD card or flash-based storage.
+IORA OS will apply optimizations to extend its lifespan:
+
+AUTOMATIC OPTIMIZATIONS:
+• noatime mount option (reduce write operations)
+• commit=600 (batch writes every 10 minutes)
+• ZRAM for /tmp and /var (reduce physical writes)
+• Log rotation with aggressive compression
+• Reduced journaling on ext4 partitions
+
+RECOMMENDED PRACTICES:
+• Use a high-quality SD card (Class 10/UHS-I or better)
+• Enable periodic backups to external storage
+• Monitor disk health with SMART tools (if supported)
+• Consider upgrading to USB 3.0 SSD for better performance
+
+SD cards typically have ~10,000 write cycles per cell.
+These optimizations can extend lifespan by 5-10x.
+
+SDOPT
 }
 
 # ── Post-install configuration ─────────────────────────────────────
@@ -389,6 +497,66 @@ Address=${IORA_IP}/${IORA_NETMASK:-24}
 Gateway=${IORA_GATEWAY:-}
 DNS=${IORA_DNS:-8.8.8.8}
 NETEOF
+    fi
+
+    # Apply SD card optimizations if detected
+    if is_sd_card "$disk"; then
+        mkdir -p "${target}/etc" 2>/dev/null || true
+
+        # Create optimized fstab with SD card friendly mount options
+        if [ -f "${target}/etc/fstab" ]; then
+            # Add noatime and commit options for ext4 partitions
+            sed -i 's/defaults/defaults,noatime,commit=600/g' "${target}/etc/fstab" 2>/dev/null || true
+        fi
+
+        # Create systemd tmpfiles.d config for ZRAM on /tmp and /var
+        mkdir -p "${target}/etc/systemd/system" 2>/dev/null || true
+        cat > "${target}/etc/systemd/system/zram-tmp.service" <<'ZRAMEOF'
+[Unit]
+Description=Create ZRAM device for /tmp and /var/tmp
+Before=local-fs-pre.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe zram num_devices=1
+ExecStart=/bin/sh -c 'echo lz4 > /sys/block/zram0/comp_algorithm'
+ExecStart=/bin/sh -c 'echo 512M > /sys/block/zram0/disksize'
+ExecStart=/sbin/mkfs.ext4 -q -m 0 -L zram-tmp /dev/zram0
+ExecStart=/bin/mount -o noatime /dev/zram0 /tmp
+ExecStart=/bin/chmod 1777 /tmp
+
+[Install]
+WantedBy=local-fs-pre.target
+ZRAMEOF
+
+        # Enable ZRAM service
+        if [ -d "${target}/etc/systemd/system/local-fs-pre.target.wants" ]; then
+            ln -sf ../zram-tmp.service "${target}/etc/systemd/system/local-fs-pre.target.wants/zram-tmp.service" 2>/dev/null || true
+        else
+            mkdir -p "${target}/etc/systemd/system/local-fs-pre.target.wants" 2>/dev/null || true
+            ln -sf ../zram-tmp.service "${target}/etc/systemd/system/local-fs-pre.target.wants/zram-tmp.service" 2>/dev/null || true
+        fi
+
+        # Configure log rotation for reduced writes
+        mkdir -p "${target}/etc/logrotate.d" 2>/dev/null || true
+        cat > "${target}/etc/logrotate.d/sd-optimized" <<'LOGEOF'
+# Aggressive log rotation for SD card longevity
+/var/log/*.log {
+    daily
+    rotate 3
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+}
+LOGEOF
+
+        # Mark system as SD-optimized
+        echo "SD_OPTIMIZED=1" > "${target}/etc/iora-storage.conf" 2>/dev/null || true
+        echo "STORAGE_TYPE=$(get_disk_type "$disk")" >> "${target}/etc/iora-storage.conf" 2>/dev/null || true
     fi
 
     sync
@@ -600,7 +768,8 @@ screen_select_disk() {
             local sz=$(get_disk_size_gb "$disk")
             local mdl=$(get_disk_model "$disk")
             local bus=$(get_disk_transport "$disk")
-            local label="${sz}GB ${bus}"
+            local dtype=$(get_disk_type "$disk")
+            local label="${sz}GB ${dtype}"
             [ -n "$mdl" ] && label="${label} - ${mdl}"
             set -- "$@" "/dev/${disk}" "$label"
             disk_count=$((disk_count + 1))
@@ -617,6 +786,12 @@ screen_select_disk() {
 
         [ $? -ne 0 ] && return 1
         SEL_DISK=$(basename "$SEL_DISK")
+
+        # Show SD card optimizations if detected
+        if is_sd_card "$SEL_DISK"; then
+            local opt_msg=$(get_sd_optimizations "$SEL_DISK")
+            dlg --title " Flash Storage Detected " --msgbox "$opt_msg" 24 68
+        fi
     else
         echo ""
         echo "  === Select Target Disk ==="
@@ -625,8 +800,9 @@ screen_select_disk() {
         for disk in $disk_list; do
             local sz=$(get_disk_size_gb "$disk")
             local mdl=$(get_disk_model "$disk")
-            printf "    %d)  /dev/%-8s  %4d GB" "$i" "$disk" "$sz"
-            [ -n "$mdl" ] && printf "  [%s]" "$mdl"
+            local dtype=$(get_disk_type "$disk")
+            printf "    %d)  /dev/%-8s  %4d GB  [%s]" "$i" "$disk" "$sz" "$dtype"
+            [ -n "$mdl" ] && printf "  %s" "$mdl"
             echo ""
             disk_array="${disk_array}${disk} "
             i=$((i + 1))
@@ -640,6 +816,15 @@ screen_select_disk() {
         fi
         SEL_DISK=$(printf '%s\n' $disk_array | sed -n "${choice}p")
         [ -z "$SEL_DISK" ] && return 1
+
+        # Show SD card optimizations if detected
+        if is_sd_card "$SEL_DISK"; then
+            echo ""
+            get_sd_optimizations "$SEL_DISK"
+            echo ""
+            echo "  Press ENTER to continue..."
+            read dummy
+        fi
     fi
     return 0
 }

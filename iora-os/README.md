@@ -527,12 +527,35 @@ reboot
 
 ## Security Hardening
 
+IORA OS implements comprehensive security features for smart home infrastructure:
+
+### Core Security Features
 - Root filesystem is read-only (SquashFS)
 - AppArmor profiles limit container capabilities
 - No SSH by default (enable only if needed)
 - Automatic security updates via RAUC
 - PostgreSQL runs in container with encrypted databases
 - All secrets stored encrypted via iora-secrets
+
+### Platform-Specific Security (x86_64)
+- **TPM 2.0 Support** - Hardware-based key storage and attestation
+- **Secure Boot** - UEFI secure boot with custom key enrollment
+- **Full Disk Encryption** - LUKS support for data partitions
+- **Hardware RNG** - Hardware random number generation
+
+### Platform-Specific Security (ARM64/Raspberry Pi)
+- **Hardware RNG** - Raspberry Pi hardware random number generator
+- **Optional TPM** - Support for external TPM modules
+- **Optimized Security** - Lightweight security stack for ARM platforms
+
+### SD Card & Flash Storage Optimizations
+When installed on SD cards, USB flash, or eMMC, IORA OS automatically:
+- Applies `noatime` and `commit=600` mount options
+- Configures ZRAM for temporary storage
+- Enables aggressive log rotation
+- Reduces write amplification to extend storage lifespan
+
+**For detailed security information, see [SECURITY_FEATURES.md](SECURITY_FEATURES.md)**
 
 ## Performance Tuning
 
