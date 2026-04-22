@@ -289,6 +289,37 @@ services:
       iora.managed: "true"
       iora.service: "appstore"
 
+  # IORA Backup - Backup and restore for IORA OS
+  iora-backup:
+    build:
+      context: .
+      dockerfile: backend/iora-backup/Dockerfile
+    container_name: iora-backup
+    image: iora/backup:latest
+    ports:
+      - "${BACKUP_PORT:-8100}:8100"
+    environment:
+      - PORT=8100
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_backup
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-iora}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - BACKUP_DIR=/var/lib/iora/backups
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - backup_data:/var/lib/iora/backups
+      - /var/run/docker.sock:/var/run/docker.sock # For backing up Docker volumes
+      - postgres_data:/backup-postgres:ro # Read-only access to postgres data
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      iora.managed: "true"
+      iora.service: "backup"
+
 networks:
   iora-network:
     driver: bridge
@@ -303,4 +334,6 @@ volumes:
   security_data:
     driver: local
   gateway_data:
+    driver: local
+  backup_data:
     driver: local

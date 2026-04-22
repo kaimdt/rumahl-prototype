@@ -215,6 +215,14 @@ async fn main() -> Result<()> {
         log("Ed25519 signature OK").await;
     }
 
+    // Create pre-update backup if backup service is available
+    log("checking for backup service").await;
+    if let Ok(()) = create_pre_update_backup().await {
+        log("pre-update backup completed").await;
+    } else {
+        log("pre-update backup skipped (service unavailable or disabled)").await;
+    }
+
     log("installing via rauc").await;
     let status = Command::new("/usr/bin/rauc")
         .arg("install")
@@ -378,5 +386,63 @@ async fn log(msg: &str) {
         .await
     {
         let _ = f.write_all(format!("{msg}\n").as_bytes()).await;
+    }
+}
+
+/// Create a pre-update backup by calling the backup service
+async fn create_pre_update_backup() -> Result<()> {
+    // Check if backup service is available
+    let backup_url = std::env::var("BACKUP_SERVICE_URL")
+        .unwrap_or_else(|_| "http://iora-backup:8100".to_string());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600)) // 10 minutes for backup
+        .build()?;
+
+    // Call the pre-update backup endpoint
+    let response = client
+        .post(format!("{}/api/backup/pre-update", backup_url))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let result: serde_json::Value = response.json().await?;
+
+        // Check if backup was skipped or started
+        if result.get("skipped").and_then(|v| v.as_bool()) == Some(true) {
+            return Ok(()); // Backup disabled, not an error
+        }
+
+        // Wait for backup to complete (poll for status)
+        if let Some(backup_id) = result.get("backup_id").and_then(|v| v.as_str()) {
+            // Poll backup status for up to 10 minutes
+            for _ in 0..60 {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+                let status_response = client
+                    .get(format!("{}/api/backup/{}", backup_url, backup_id))
+                    .send()
+                    .await?;
+
+                if let Ok(backup) = status_response.json::<serde_json::Value>().await {
+                    match backup.get("status").and_then(|v| v.as_str()) {
+                        Some("completed") => return Ok(()),
+                        Some("failed") => {
+                            let error = backup.get("error_message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown error");
+                            bail!("Pre-update backup failed: {}", error);
+                        }
+                        _ => continue, // Still creating
+                    }
+                }
+            }
+
+            bail!("Pre-update backup timed out");
+        }
+
+        Ok(())
+    } else {
+        bail!("Backup service returned error: {}", response.status());
     }
 }

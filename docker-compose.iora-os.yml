@@ -38,6 +38,43 @@ services:
       iora-core:
         condition: service_started
 
+  # IORA Backup - Enhanced backup with full system access (IORA OS)
+  # On IORA OS, backup service has full system access for complete backups
+  iora-backup:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: iora-backup
+    container_name: iora-backup
+    image: iora/backup:latest
+    ports:
+      - "${BACKUP_PORT:-8100}:8100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/iora:/var/lib/iora
+      - /mnt/data:/mnt/data
+      - /etc/iora:/etc/iora:ro
+    networks:
+      - iora-network
+    restart: unless-stopped
+    environment:
+      - PORT=8100
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_backup
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-iora}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - BACKUP_DIR=/var/lib/iora/backups
+      - RUST_LOG=${RUST_LOG:-info}
+      - IORA_OS=true
+    labels:
+      iora.managed: "true"
+      iora.service: "backup"
+      iora.critical: "false"
+      iora.os_only: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 networks:
   iora-network:
     external: true
