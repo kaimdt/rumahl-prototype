@@ -354,9 +354,21 @@ qemu-system-x86_64 \
 ## First Boot
 
 1. Boot from the IORA OS image
-2. System automatically starts Docker and iora-supervisor
-3. iora-supervisor starts all IORA services
-4. Access IORA Home at `http://[device-ip]:8080`
+2. **Boot splash screen** displays IORA logo with loading spinner
+3. Installation wizard starts automatically
+4. Configure system settings (hostname, timezone, network)
+5. Select installation disk and confirm
+6. System installs and reboots
+7. Access IORA Home at `http://[device-ip]:8080`
+
+### Installer Features
+
+- **Boot Splash Screen**: Professional boot experience with IORA logo and animated spinner
+- **CLI Navigation**: Type `install` or `installer` from recovery shell to restart the wizard
+- **Helper Commands**: `sysinfo`, `netsetup`, `help` available at any time
+- **Recovery Shell**: Access full shell for troubleshooting if needed
+
+See [INSTALLER_BOOT_SPLASH.md](INSTALLER_BOOT_SPLASH.md) for detailed installer documentation.
 
 ## Default Credentials
 
