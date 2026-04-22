@@ -1,12 +1,17 @@
-FROM rust:1.75-slim as builder
+# IORA Backup Service - Alpine Linux
+# Minimal footprint for Raspberry Pi compatibility
+
+FROM rust:1.77-alpine as builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install build dependencies for Alpine
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconfig \
+    postgresql-dev
 
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
@@ -16,17 +21,21 @@ COPY iora-backup ./iora-backup
 # Build the application
 RUN cargo build --release --package iora-backup
 
-# Runtime stage
-FROM debian:bookworm-slim
+# Runtime stage - Alpine Linux (~7MB base vs ~120MB Debian)
+FROM alpine:3.19
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     ca-certificates \
+    libgcc \
     libssl3 \
+    libpq \
     postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    tar \
+    gzip
 
 # Copy the binary
 COPY --from=builder /app/target/release/iora-backup /usr/local/bin/iora-backup

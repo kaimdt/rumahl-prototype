@@ -1,9 +1,18 @@
 # Multi-stage Dockerfile for all IORA backend services
 # Builds all services in one image, then creates individual service images
+# Now using Alpine Linux for minimal footprint (~7MB base vs ~120MB Debian)
 
-FROM rust:1.77-bookworm AS builder
+FROM rust:1.77-alpine AS builder
 
 WORKDIR /app/backend
+
+# Install build dependencies for Alpine
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconfig \
+    postgresql-dev
 
 # Build arguments for security tokens
 ARG IORA_DEVELOPER_APP_TOKEN=dev-token-placeholder
@@ -32,21 +41,21 @@ ENV IORA_DEVELOPER_APP_TOKEN=${IORA_DEVELOPER_APP_TOKEN}
 ENV IORA_DEVELOPER_APP_OFFICIAL=${IORA_DEVELOPER_APP_OFFICIAL}
 RUN cargo build --release --workspace
 
-# Runtime base image
-FROM debian:bookworm-slim AS runtime-base
+# Runtime base image - Alpine Linux for minimal footprint
+FROM alpine:3.19 AS runtime-base
 
-RUN apt-get update && \
-    apt-get install -y \
-        ca-certificates \
-        libssl3 \
-        libpq5 \
-        && \
-    rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    libgcc \
+    libssl3 \
+    libpq \
+    curl
 
 WORKDIR /app
 
 # Create iora user
-RUN useradd -r -s /bin/false iora
+RUN adduser -D -s /sbin/nologin iora
 
 # iora-home service
 FROM runtime-base AS iora-home
@@ -132,9 +141,6 @@ CMD ["/app/iora-gateway"]
 
 # iora-supervisor service (requires Docker socket access)
 FROM runtime-base AS iora-supervisor
-RUN apt-get update && \
-    apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/backend/target/release/iora-supervisor /app/
 # Supervisor runs as root to access Docker socket
 EXPOSE 8097
@@ -144,9 +150,6 @@ CMD ["/app/iora-supervisor"]
 
 # iora-developer-app service (Developer Mode tool with exclusive HotReload permission)
 FROM runtime-base AS iora-developer-app
-RUN apt-get update && \
-    apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/backend/target/release/iora-developer-app /app/
 COPY iora-developer-app/manifest.json /app/manifest.json
 RUN mkdir -p /app/data && chown -R iora:iora /app

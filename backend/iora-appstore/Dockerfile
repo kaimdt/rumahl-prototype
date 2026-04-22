@@ -1,12 +1,16 @@
-FROM rust:1.75-slim as builder
+# IORA App Store - Alpine Linux
+# Minimal footprint for Raspberry Pi compatibility
+
+FROM rust:1.77-alpine as builder
 
 WORKDIR /app
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install build dependencies for Alpine
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconfig
 
 # Copy workspace files
 COPY backend/iora-shared backend/iora-shared
@@ -16,13 +20,14 @@ COPY backend/iora-appstore backend/iora-appstore
 WORKDIR /app/backend/iora-appstore
 RUN cargo build --release
 
-# Runtime stage
-FROM debian:bookworm-slim
+# Runtime stage - Alpine Linux (~7MB base vs ~120MB Debian)
+FROM alpine:3.19
 
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies
+RUN apk add --no-cache \
     ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+    libgcc \
+    libssl3
 
 WORKDIR /app
 
