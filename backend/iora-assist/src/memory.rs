@@ -474,7 +474,7 @@ impl MemoryManager {
                     "recurrence_type": t.recurrence_type,
                     "recurrence_days": t.recurrence_days,
                     "recurrence_end_at": t.recurrence_end_at,
-                    "time_of_day": t.time_of_day.map(|t| t.to_string()),
+                    "time_of_day": t.time_of_day.map(|tod| tod.to_string()),
                     "occurrence_count": t.occurrence_count,
                     "occurrence_limit": t.occurrence_limit,
                     "user_timezone": t.user_timezone,

@@ -462,7 +462,10 @@ export function ORAAssistant() {
                     onClick={() => handleTaskConfirmation(true)}
                     className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-colors"
                   >
-                    <Check size={11} weight="bold" /> Ja, deaktivieren
+                    <Check size={11} weight="bold" />
+                    {pendingTaskAction?.action === 'delete' ? 'Ja, löschen'
+                      : pendingTaskAction?.action === 'resume' ? 'Ja, aktivieren'
+                      : 'Ja, deaktivieren'}
                   </button>
                   <button
                     onClick={() => handleTaskConfirmation(false)}

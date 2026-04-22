@@ -446,7 +446,11 @@ fn compute_next_trigger_for_task(
         .as_array()
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .filter_map(|v| {
+                    // ISO weekday values are 1–7; reject anything outside that range
+                    let n = v.as_u64()?;
+                    if (1..=7).contains(&n) { u8::try_from(n).ok() } else { None }
+                })
                 .collect()
         })
         .unwrap_or_default();

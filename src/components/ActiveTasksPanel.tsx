@@ -438,11 +438,14 @@ export function ActiveTasksPanel({ isVisible = true }: ActiveTasksPanelProps) {
               className="text-center py-10 text-foreground/40"
             >
               <BellRinging size={36} weight="duotone" className="mx-auto mb-3 opacity-30" />
-              <p className="text-xs">
-                {filter === 'paused'
-                  ? 'Keine pausierten Aufgaben'
-                  : 'Noch keine Aufgaben.\nFrage ORA: „Wecke mich unter der Woche um 6:30 Uhr"'}
-              </p>
+              {filter === 'paused' ? (
+                <p className="text-xs">Keine pausierten Aufgaben</p>
+              ) : (
+                <>
+                  <p className="text-xs">Noch keine Aufgaben.</p>
+                  <p className="text-xs mt-1 opacity-70">Frage ORA: „Wecke mich unter der Woche um 6:30 Uhr"</p>
+                </>
+              )}
             </motion.div>
           )}
           {visibleTasks.map((task) => (

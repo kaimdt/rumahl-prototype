@@ -56,6 +56,11 @@ struct AppState {
     memory_manager: Option<Arc<MemoryManager>>,
 }
 
+/// Default system prompt injected when no custom prompt is provided.
+const DEFAULT_SYSTEM_PROMPT: &str =
+    "You are IORA Assist, an AI assistant integrated into the IORA smart home system. \
+     You help users manage their home automation, answer questions, and provide insights.";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChatMessage {
     id: String,
@@ -156,10 +161,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         .collect();
 
     // Build base system prompt
-    let base_system_prompt = req.system_prompt.as_deref().unwrap_or(
-        "You are IORA Assist, an AI assistant integrated into the IORA smart home system. \
-         You help users manage their home automation, answer questions, and provide insights."
-    ).to_string();
+    let base_system_prompt = req.system_prompt.as_deref().unwrap_or(DEFAULT_SYSTEM_PROMPT).to_string();
 
     // Inject relevant memories AND task context into the system prompt
     let system_prompt = if let Some(ref mm) = state.memory_manager {
