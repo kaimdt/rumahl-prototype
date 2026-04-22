@@ -6,8 +6,22 @@ This document ensures both IORA installation methods work securely and that IORA
 
 IORA supports two primary installation methods:
 
-1. **IORA OS** - Custom Linux operating system (recommended for production)
+1. **IORA OS** - Custom Linux operating system (**RECOMMENDED** for production)
 2. **Docker Compose** - Containerized deployment on any Docker-compatible system
+
+### Key Differences
+
+| Feature | IORA OS | Docker Compose |
+|---------|---------|----------------|
+| **iora-supervisor** | ✅ Included (automatic container management) | ❌ Not available (manual management) |
+| **AppArmor profiles** | ✅ Built-in security | ⚠️ Requires manual setup |
+| **RAUC updates** | ✅ Atomic updates with rollback | ❌ Manual updates |
+| **System integration** | ✅ Optimized OS | ⚠️ Depends on host OS |
+| **App installation** | ✅ Full app store functionality | ⚠️ Limited (no supervisor) |
+| **Ease of updates** | ✅ One-click updates | ⚠️ Manual docker compose pull |
+| **Resource usage** | ✅ Minimal OS footprint | ⚠️ Depends on host OS |
+
+**Recommendation**: Use **IORA OS** for production deployments. Use Docker Compose for development or testing.
 
 ## Minimal Service Requirements
 
@@ -28,17 +42,21 @@ These services are essential for basic IORA functionality:
 
 These services provide additional functionality but are not required for basic operation:
 
-| Service | Port | Purpose | Can be Disabled? |
-|---------|------|---------|------------------|
-| `iora-supervisor` | 8097 | Docker container orchestration | ✅ Yes (not needed for manual Docker Compose) |
-| `iora-security` | 8095 | Security monitoring and threat detection | ✅ Yes (reduces security features) |
-| `iora-watchdog` | 8094 | Health monitoring and alerting | ✅ Yes (reduces monitoring) |
-| `iora-gateway` | 8096 | External integrations (email, webhooks) | ✅ Yes (disables external notifications) |
-| `iora-control` | 8091 | Admin panel for system management | ✅ Yes (use iora-home for basic admin) |
-| `iora-assist` | 8092 | AI assistant | ✅ Yes (disables AI features) |
-| `iora-appstore` | 8098 | App marketplace and management | ✅ Yes (disables app installation) |
+| Service | Port | Purpose | Can be Disabled? | IORA OS Only? |
+|---------|------|---------|------------------|---------------|
+| `iora-supervisor` | 8097 | Docker container orchestration | ✅ Yes | ✅ **Yes** (requires privileged Docker access) |
+| `iora-security` | 8095 | Security monitoring and threat detection | ✅ Yes (reduces security features) | ❌ No |
+| `iora-watchdog` | 8094 | Health monitoring and alerting | ✅ Yes (reduces monitoring) | ❌ No |
+| `iora-gateway` | 8096 | External integrations (email, webhooks) | ✅ Yes (disables external notifications) | ❌ No |
+| `iora-control` | 8091 | Admin panel for system management | ✅ Yes (use iora-home for basic admin) | ❌ No |
+| `iora-assist` | 8092 | AI assistant | ✅ Yes (disables AI features) | ❌ No |
+| `iora-appstore` | 8098 | App marketplace and management | ✅ Yes (limited without supervisor) | ❌ No |
+
+**Important**: `iora-supervisor` is **ONLY** available on IORA OS as it requires privileged access to the Docker socket. On Docker Compose installations, containers must be managed manually via `docker compose` commands.
 
 ## Installation Method 1: Docker Compose
+
+**Note**: This method does NOT include `iora-supervisor`. Container management must be done manually using `docker compose` commands. For automatic container management, use **IORA OS**.
 
 ### Full Stack Installation
 
@@ -118,12 +136,18 @@ This starts only critical services:
 - Disk: ~2GB
 
 **Limitations:**
-- No supervisor (manual Docker management required)
+- No supervisor (manual Docker management required via `docker compose` commands)
+- No automatic app installation (iora-appstore has limited functionality without supervisor)
 - No security monitoring
 - No health monitoring
 - No external integrations
 - No AI assistant
-- No app store
+
+**Note**: Use `docker compose` commands to manage containers:
+- Start: `docker compose -f docker-compose.minimal.yml up -d`
+- Stop: `docker compose -f docker-compose.minimal.yml down`
+- Restart: `docker compose -f docker-compose.minimal.yml restart`
+- View logs: `docker compose -f docker-compose.minimal.yml logs`
 
 ## Installation Method 2: IORA OS
 
@@ -161,7 +185,7 @@ This starts only critical services:
 5. **First boot**
    - System boots into IORA OS
    - Docker starts automatically
-   - iora-supervisor launches all services
+   - **iora-supervisor launches all services automatically**
    - Wait 2-3 minutes for all containers to start
 
 6. **Verify installation**
@@ -173,14 +197,17 @@ This starts only critical services:
 7. **Access IORA**
    - IORA Home: http://[device-ip]:8080
    - IORA Control: http://[device-ip]:8091
+   - **IORA Supervisor**: http://[device-ip]:8097
 
 **Expected behavior:**
 - ✅ System boots within 30 seconds
 - ✅ Docker starts automatically
+- ✅ **iora-supervisor starts and manages all containers**
 - ✅ All containers launch within 2 minutes
 - ✅ Health checks pass
 - ✅ IORA Home accessible via network
 - ✅ Can register and login
+- ✅ **Apps can be installed via App Store**
 
 ### IORA OS Minimal Mode
 

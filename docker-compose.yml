@@ -1,7 +1,20 @@
 version: '3.8'
 
-# IORA - Fully Containerized Smart Home System
-# All services run as Docker containers managed by iora-supervisor
+# IORA - Docker Compose Installation
+# For standard Docker Compose installations (not IORA OS)
+#
+# RECOMMENDED: Use IORA OS for production deployments
+# IORA OS provides additional features:
+#   - iora-supervisor for automatic container management
+#   - AppArmor security profiles
+#   - RAUC atomic updates with rollback
+#   - Optimized minimal OS footprint
+#
+# This configuration provides all core IORA functionality
+# Services are managed manually via docker compose commands
+#
+# Note: iora-supervisor is ONLY available on IORA OS
+# See docker-compose.iora-os.yml for IORA OS specific services
 
 services:
   # PostgreSQL Database
@@ -28,31 +41,6 @@ services:
     labels:
       iora.managed: "true"
       iora.service: "postgres"
-
-  # IORA Supervisor - Docker orchestration
-  iora-supervisor:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: iora-supervisor
-    container_name: iora-supervisor
-    image: iora/supervisor:latest
-    ports:
-      - "${SUPERVISOR_PORT:-8097}:8097"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - supervisor_data:/var/lib/iora
-    networks:
-      - iora-network
-    restart: unless-stopped
-    privileged: true
-    environment:
-      - PORT=8097
-      - RUST_LOG=${RUST_LOG:-info}
-    labels:
-      iora.managed: "true"
-      iora.service: "supervisor"
-      iora.critical: "true"
 
   # IORA Core - Central orchestrator
   iora-core:
@@ -276,6 +264,8 @@ services:
       iora.service: "assist"
 
   # IORA App Store - App marketplace and management
+  # Note: Without iora-supervisor, app installation/management features are limited
+  # Use IORA OS for full app management capabilities
   iora-appstore:
     build:
       context: .
@@ -287,7 +277,7 @@ services:
     environment:
       - PORT=8098
       - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_appstore
-      - SUPERVISOR_URL=http://iora-supervisor:8097
+      - SUPERVISOR_URL=${SUPERVISOR_URL:-}
       - RUST_LOG=${RUST_LOG:-info}
     networks:
       - iora-network
@@ -295,8 +285,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      iora-supervisor:
-        condition: service_started
     labels:
       iora.managed: "true"
       iora.service: "appstore"
@@ -315,6 +303,4 @@ volumes:
   security_data:
     driver: local
   gateway_data:
-    driver: local
-  supervisor_data:
     driver: local

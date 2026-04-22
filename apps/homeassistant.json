@@ -1,0 +1,178 @@
+{
+  "id": "homeassistant",
+  "name": "Home Assistant",
+  "version": "2024.4.0",
+  "developer": "Home Assistant Team",
+  "description": "Open source home automation platform. Control all your smart home devices from a single, privacy-focused interface. Fully integrated with IORA for seamless smart home management.",
+  "icon": "https://brands.home-assistant.io/homeassistant/icon.png",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "NetworkLocalAccess",
+    "NetworkScan",
+    "FileSystem",
+    "HomeAutomation",
+    "DeviceControl"
+  ],
+  "endpoints": [
+    {
+      "path": "/api/homeassistant/*",
+      "method": "GET",
+      "description": "Home Assistant REST API proxy",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/homeassistant/*",
+      "method": "POST",
+      "description": "Home Assistant service calls",
+      "requires_auth": true
+    }
+  ],
+  "widgets": [
+    {
+      "id": "ha-entity-card",
+      "name": "Entity Card",
+      "type": "entity",
+      "component_url": "/widgets/ha-entity-card.js",
+      "description": "Display and control a single Home Assistant entity"
+    },
+    {
+      "id": "ha-entities-card",
+      "name": "Entities Card",
+      "type": "entities",
+      "component_url": "/widgets/ha-entities-card.js",
+      "description": "Display multiple Home Assistant entities in a list"
+    },
+    {
+      "id": "ha-climate-card",
+      "name": "Climate Control",
+      "type": "climate",
+      "component_url": "/widgets/ha-climate-card.js",
+      "description": "Control climate devices (thermostat, AC, etc.)"
+    },
+    {
+      "id": "ha-light-card",
+      "name": "Light Control",
+      "type": "light",
+      "component_url": "/widgets/ha-light-card.js",
+      "description": "Control lights with brightness and color"
+    }
+  ],
+  "custom_pages": [
+    {
+      "id": "homeassistant-dashboard",
+      "title": "Home Assistant",
+      "icon": "home",
+      "url": "/apps/homeassistant",
+      "show_in_nav": true,
+      "order": 10
+    }
+  ],
+  "settings_schema": {
+    "title": "Home Assistant Configuration",
+    "description": "Configure Home Assistant connection and integration settings",
+    "fields": [
+      {
+        "key": "ha_url",
+        "label": "Home Assistant URL",
+        "description": "Full URL to your Home Assistant instance (e.g., http://homeassistant.local:8123)",
+        "type": "url",
+        "required": true,
+        "validation": {
+          "pattern": "^https?://.+"
+        }
+      },
+      {
+        "key": "ha_token",
+        "label": "Long-Lived Access Token",
+        "description": "Generate this in Home Assistant under Profile > Security > Long-Lived Access Tokens",
+        "type": "password",
+        "required": true,
+        "validation": {
+          "min_length": 20
+        }
+      },
+      {
+        "key": "websocket_enabled",
+        "label": "Enable WebSocket Connection",
+        "description": "Use WebSocket for real-time updates (recommended)",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "sync_interval",
+        "label": "Sync Interval (seconds)",
+        "description": "How often to sync entity states (only used if WebSocket is disabled)",
+        "type": "number",
+        "default": 30,
+        "validation": {
+          "min": 5,
+          "max": 300
+        }
+      },
+      {
+        "key": "discover_devices",
+        "label": "Auto-discover Devices",
+        "description": "Automatically discover Home Assistant devices on the local network",
+        "type": "boolean",
+        "default": true
+      }
+    ]
+  },
+  "docker": {
+    "auto_build": false,
+    "image": "ghcr.io/home-assistant/home-assistant:stable",
+    "working_dir": "/config",
+    "start_cmd": null,
+    "internal_ports": [
+      {
+        "port": 8123,
+        "protocol": "tcp",
+        "assignment_mode": "fixed",
+        "description": "Home Assistant web interface"
+      }
+    ],
+    "environment": {
+      "TZ": "UTC"
+    },
+    "volumes": [
+      "/var/lib/iora/apps/homeassistant/config:/config",
+      "/etc/localtime:/etc/localtime:ro"
+    ],
+    "health_check": {
+      "endpoint": "/api/",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "network_access": {
+    "allowed_domains": [],
+    "allow_user_domains": true,
+    "allow_network_scan": true,
+    "allowed_local_ips": [],
+    "allow_user_local_ips": true
+  },
+  "store_metadata": {
+    "category": "Smart Home",
+    "tags": [
+      "smart-home",
+      "automation",
+      "iot",
+      "home-automation",
+      "devices"
+    ],
+    "screenshots": [
+      "https://www.home-assistant.io/images/homepage/hero.png"
+    ],
+    "min_iora_version": "0.1.0",
+    "homepage": "https://www.home-assistant.io",
+    "source_url": "https://github.com/home-assistant/core",
+    "support_url": "https://community.home-assistant.io",
+    "license": "Apache-2.0"
+  },
+  "developer_mode": {
+    "allowed": false,
+    "allow_in_production": false
+  }
+}
