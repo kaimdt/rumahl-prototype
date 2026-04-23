@@ -1902,4 +1902,414 @@ if [ -f "${BOARD_DIR}/../../scripts/healthcheck.sh" ]; then
     echo "IORA OS: Installed healthcheck script"
 fi
 
+# =============================================================================
+# 'ora' CLI command — shorthand for IORA OS system management
+# =============================================================================
+echo "IORA OS: Installing 'ora' CLI command..."
+mkdir -p "${TARGET_DIR}/usr/bin"
+cat > "${TARGET_DIR}/usr/bin/ora" <<'ORAEOF'
+#!/bin/sh
+# ora — IORA OS system management CLI
+# Usage: ora <command> [subcommand] [args...]
+#
+# Commands:
+#   system info          Show system information
+#   system version       Show IORA OS version
+#   system reboot        Reboot the system
+#   system shutdown      Shut down the system
+#   system resources     Show CPU, RAM, disk usage
+#   service list         List all systemd services
+#   service start NAME   Start a service
+#   service stop NAME    Stop a service
+#   service restart NAME Restart a service
+#   service status NAME  Show service status
+#   service logs NAME    Show service logs
+#   container list       List running Docker containers
+#   container start NAME Start a container
+#   container stop NAME  Stop a container
+#   container restart N  Restart a container
+#   container logs NAME  Show container logs
+#   container stats      Show container resource usage
+#   update check         Check for OS updates
+#   update install       Install available updates
+#   status               Show overall IORA status
+#   recovery             Enter recovery mode information
+#   help                 Show this help
+
+set -e
+
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+RST='\033[0m'
+
+iora_version() {
+    cat /etc/iora-version 2>/dev/null || echo "IORA OS (version unknown)"
+}
+
+print_header() {
+    printf "${BOLD}${CYAN}%s${RST}\n" "$1"
+}
+
+print_ok() {
+    printf "  ${GREEN}✓${RST} %s\n" "$1"
+}
+
+print_warn() {
+    printf "  ${YELLOW}⚠${RST} %s\n" "$1"
+}
+
+print_err() {
+    printf "  ${RED}✗${RST} %s\n" "$1" >&2
+}
+
+cmd_system() {
+    local sub="${1:-info}"
+    shift 2>/dev/null || true
+    case "$sub" in
+        info)
+            print_header "IORA OS — System Information"
+            echo ""
+            printf "  %-16s %s\n" "Version:"   "$(iora_version)"
+            printf "  %-16s %s\n" "Hostname:"  "$(hostname 2>/dev/null || echo unknown)"
+            printf "  %-16s %s\n" "Uptime:"    "$(uptime -p 2>/dev/null || uptime)"
+            printf "  %-16s %s\n" "CPU:"       "$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo unknown)"
+            printf "  %-16s %s\n" "Cores:"     "$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo '?')"
+            printf "  %-16s %s\n" "Memory:"    "$(awk '/MemTotal/{printf "%.0f MB", $2/1024}' /proc/meminfo 2>/dev/null || echo unknown)"
+            printf "  %-16s %s\n" "Kernel:"    "$(uname -r 2>/dev/null || echo unknown)"
+            printf "  %-16s %s\n" "Arch:"      "$(uname -m 2>/dev/null || echo unknown)"
+            printf "  %-16s %s\n" "Boot mode:" "$([ -d /sys/firmware/efi ] && echo UEFI || echo 'BIOS (Legacy)')"
+            echo ""
+            ;;
+        version)
+            iora_version
+            ;;
+        resources)
+            print_header "IORA OS — Resource Usage"
+            echo ""
+            # CPU
+            local cpu_idle
+            cpu_idle=$(top -bn1 2>/dev/null | grep '%Cpu' | awk '{print $8}' | tr -d '%' || echo '?')
+            if [ "$cpu_idle" != '?' ]; then
+                local cpu_used=$(echo "$cpu_idle" | awk '{printf "%.1f", 100-$1}')
+                printf "  %-12s %s%%\n" "CPU:"  "$cpu_used"
+            fi
+            # Memory
+            awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{
+                printf "  %-12s %.0f MB used / %.0f MB total\n",
+                    "Memory:", (t-a)/1024, t/1024
+            }' /proc/meminfo 2>/dev/null || true
+            # Disk
+            echo ""
+            df -h /mnt/data 2>/dev/null | awk 'NR==2{printf "  %-12s %s used / %s total (%s full)\n", "Data disk:", $3, $2, $5}' || \
+            df -h / 2>/dev/null | awk 'NR==2{printf "  %-12s %s used / %s total (%s full)\n", "Root disk:", $3, $2, $5}' || true
+            echo ""
+            ;;
+        reboot)
+            printf "${YELLOW}Rebooting IORA OS...${RST}\n"
+            systemctl reboot 2>/dev/null || reboot -f 2>/dev/null || busybox reboot 2>/dev/null
+            ;;
+        shutdown|poweroff)
+            printf "${YELLOW}Shutting down IORA OS...${RST}\n"
+            systemctl poweroff 2>/dev/null || poweroff -f 2>/dev/null || busybox poweroff 2>/dev/null
+            ;;
+        *)
+            print_err "Unknown system subcommand: $sub"
+            echo "  Usage: ora system {info|version|resources|reboot|shutdown}"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_service() {
+    local sub="${1:-list}"
+    local name="${2:-}"
+    shift 2>/dev/null || true
+    case "$sub" in
+        list)
+            print_header "IORA Services"
+            echo ""
+            systemctl list-units --type=service --no-pager 2>/dev/null | \
+                grep -E 'iora|docker|postgres|chrony' || \
+                systemctl list-units --type=service --no-pager 2>/dev/null | head -30
+            ;;
+        start|stop|restart|status)
+            [ -z "$name" ] && { print_err "Usage: ora service $sub <name>"; exit 1; }
+            systemctl "$sub" "$name" 2>/dev/null
+            ;;
+        logs)
+            [ -z "$name" ] && { print_err "Usage: ora service logs <name>"; exit 1; }
+            journalctl -u "$name" --no-pager -n 50 2>/dev/null
+            ;;
+        *)
+            print_err "Unknown service subcommand: $sub"
+            echo "  Usage: ora service {list|start|stop|restart|status|logs} [name]"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_container() {
+    local sub="${1:-list}"
+    local name="${2:-}"
+    shift 2>/dev/null || true
+    case "$sub" in
+        list)
+            print_header "IORA Containers"
+            echo ""
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}" 2>/dev/null || \
+                print_warn "Docker not available or no containers running"
+            ;;
+        start|stop|restart)
+            [ -z "$name" ] && { print_err "Usage: ora container $sub <name>"; exit 1; }
+            docker "$sub" "$name" 2>/dev/null
+            ;;
+        logs)
+            [ -z "$name" ] && { print_err "Usage: ora container logs <name>"; exit 1; }
+            docker logs --tail 50 "$name" 2>/dev/null
+            ;;
+        stats)
+            docker stats --no-stream 2>/dev/null || print_warn "Docker not available"
+            ;;
+        *)
+            print_err "Unknown container subcommand: $sub"
+            echo "  Usage: ora container {list|start|stop|restart|logs|stats} [name]"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_update() {
+    local sub="${1:-check}"
+    shift 2>/dev/null || true
+    case "$sub" in
+        check)
+            print_header "IORA OS — Update Check"
+            echo ""
+            if command -v iora-updater >/dev/null 2>&1; then
+                iora-updater --check 2>/dev/null || print_warn "Update check failed"
+            else
+                print_warn "iora-updater not installed"
+            fi
+            ;;
+        install)
+            print_header "IORA OS — Installing Updates"
+            echo ""
+            if command -v iora-updater >/dev/null 2>&1; then
+                iora-updater --yes 2>/dev/null
+            else
+                print_warn "iora-updater not installed"
+            fi
+            ;;
+        *)
+            print_err "Unknown update subcommand: $sub"
+            echo "  Usage: ora update {check|install}"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_status() {
+    print_header "IORA OS — System Status"
+    echo ""
+    printf "  %-20s %s\n" "OS Version:"     "$(iora_version)"
+    printf "  %-20s %s\n" "Hostname:"       "$(hostname 2>/dev/null || echo unknown)"
+    printf "  %-20s %s\n" "Uptime:"         "$(uptime -p 2>/dev/null || uptime | sed 's/.*up /up /' | sed 's/,.*//')"
+    echo ""
+
+    # Docker stack
+    if docker info >/dev/null 2>&1; then
+        local running stopped
+        running=$(docker ps -q 2>/dev/null | wc -l)
+        stopped=$(docker ps -aq 2>/dev/null | wc -l)
+        stopped=$((stopped - running))
+        printf "  %-20s %s running" "Containers:"  "$running"
+        [ "$stopped" -gt 0 ] && printf ", %s stopped" "$stopped"
+        echo ""
+    else
+        printf "  %-20s %s\n" "Containers:" "Docker not running"
+    fi
+
+    # Key services
+    echo ""
+    for svc in iora-stack iora-supervisor docker postgresql chrony; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            print_ok "$svc: active"
+        elif systemctl list-unit-files --quiet "$svc.service" >/dev/null 2>&1; then
+            print_warn "$svc: inactive"
+        fi
+    done
+    echo ""
+}
+
+cmd_recovery() {
+    print_header "IORA OS — Recovery"
+    echo ""
+    echo "  Recovery options:"
+    echo ""
+    echo "    ora system reboot       Reboot the system"
+    echo "    ora system shutdown     Shut down the system"
+    echo "    ora service restart NAME  Restart a service"
+    echo "    ora container restart N   Restart a container"
+    echo "    ora update check        Check for OS updates"
+    echo "    ora update install      Install OS updates"
+    echo ""
+    echo "  System logs:"
+    echo "    journalctl -xe          Recent system errors"
+    echo "    journalctl -u iora-stack  IORA stack logs"
+    echo ""
+    echo "  Documentation: /opt/iora/docs"
+    echo "  Support: https://iora.kaimdt.com"
+    echo ""
+}
+
+cmd_help() {
+    print_header "ora — IORA OS CLI"
+    echo ""
+    echo "  Usage: ora <command> [subcommand] [args...]"
+    echo ""
+    printf "  ${BOLD}System:${RST}\n"
+    echo "    ora system info           Show system information"
+    echo "    ora system version        Show IORA OS version"
+    echo "    ora system resources      Show CPU/RAM/disk usage"
+    echo "    ora system reboot         Reboot the system"
+    echo "    ora system shutdown       Shut down the system"
+    echo ""
+    printf "  ${BOLD}Services:${RST}\n"
+    echo "    ora service list          List services"
+    echo "    ora service start NAME    Start a service"
+    echo "    ora service stop NAME     Stop a service"
+    echo "    ora service restart NAME  Restart a service"
+    echo "    ora service status NAME   Show service status"
+    echo "    ora service logs NAME     Show service logs"
+    echo ""
+    printf "  ${BOLD}Containers:${RST}\n"
+    echo "    ora container list        List containers"
+    echo "    ora container start NAME  Start a container"
+    echo "    ora container stop NAME   Stop a container"
+    echo "    ora container restart N   Restart a container"
+    echo "    ora container logs NAME   Show container logs"
+    echo "    ora container stats       Show resource usage"
+    echo ""
+    printf "  ${BOLD}Updates:${RST}\n"
+    echo "    ora update check          Check for updates"
+    echo "    ora update install        Install updates"
+    echo ""
+    printf "  ${BOLD}Other:${RST}\n"
+    echo "    ora status                Show overall status"
+    echo "    ora recovery              Show recovery options"
+    echo "    ora help                  Show this help"
+    echo ""
+}
+
+# ── Main dispatch ──────────────────────────────────────────────────
+CMD="${1:-help}"
+shift 2>/dev/null || true
+
+case "$CMD" in
+    system)     cmd_system "$@" ;;
+    service)    cmd_service "$@" ;;
+    container)  cmd_container "$@" ;;
+    update)     cmd_update "$@" ;;
+    status)     cmd_status ;;
+    recovery)   cmd_recovery ;;
+    help|--help|-h) cmd_help ;;
+    version|--version|-v) iora_version ;;
+    *)
+        print_err "Unknown command: $CMD"
+        echo "  Run 'ora help' for usage."
+        exit 1
+        ;;
+esac
+ORAEOF
+chmod 755 "${TARGET_DIR}/usr/bin/ora"
+
+# =============================================================================
+# System power commands — reboot, shutdown, poweroff, restart
+# =============================================================================
+# Ensure reboot/poweroff/halt/shutdown are accessible and use systemd where
+# available, falling back to busybox/kernel calls.  Also create 'restart'
+# which is not a standard POSIX command but many users expect it.
+echo "IORA OS: Ensuring system power commands are accessible..."
+
+# Create /usr/bin wrappers if the commands are only in /sbin or missing.
+for _cmd in reboot halt poweroff; do
+    if [ ! -e "${TARGET_DIR}/usr/bin/${_cmd}" ] && \
+       [ ! -L "${TARGET_DIR}/usr/bin/${_cmd}" ]; then
+        # Prefer a symlink to the existing /sbin version (systemd or busybox)
+        if [ -e "${TARGET_DIR}/sbin/${_cmd}" ] || [ -L "${TARGET_DIR}/sbin/${_cmd}" ]; then
+            ln -sf "/sbin/${_cmd}" "${TARGET_DIR}/usr/bin/${_cmd}" 2>/dev/null || true
+        elif [ -e "${TARGET_DIR}/usr/sbin/${_cmd}" ] || [ -L "${TARGET_DIR}/usr/sbin/${_cmd}" ]; then
+            ln -sf "/usr/sbin/${_cmd}" "${TARGET_DIR}/usr/bin/${_cmd}" 2>/dev/null || true
+        else
+            # Create a minimal wrapper that tries systemctl, then kernel calls
+            cat > "${TARGET_DIR}/usr/bin/${_cmd}" <<PWREOF
+#!/bin/sh
+# IORA OS ${_cmd} wrapper
+systemctl ${_cmd} 2>/dev/null || \
+    busybox ${_cmd} 2>/dev/null || \
+    exec /sbin/${_cmd} "\$@"
+PWREOF
+            chmod 755 "${TARGET_DIR}/usr/bin/${_cmd}" 2>/dev/null || true
+        fi
+    fi
+done
+
+# 'shutdown' wrapper — supports common flags like 'shutdown now', '-h', '-r'
+if [ ! -e "${TARGET_DIR}/usr/bin/shutdown" ] && \
+   [ ! -L "${TARGET_DIR}/usr/bin/shutdown" ]; then
+    if [ -e "${TARGET_DIR}/sbin/shutdown" ] || [ -L "${TARGET_DIR}/sbin/shutdown" ]; then
+        ln -sf "/sbin/shutdown" "${TARGET_DIR}/usr/bin/shutdown" 2>/dev/null || true
+    else
+        cat > "${TARGET_DIR}/usr/bin/shutdown" <<'SHUTEOF'
+#!/bin/sh
+# IORA OS shutdown wrapper
+case "${1:-}" in
+    -r|--reboot)     systemctl reboot   2>/dev/null || busybox reboot   2>/dev/null ;;
+    -h|-P|--poweroff) systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
+    -H|--halt)       systemctl halt     2>/dev/null || busybox halt     2>/dev/null ;;
+    now)             systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
+    *)               systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
+esac
+SHUTEOF
+        chmod 755 "${TARGET_DIR}/usr/bin/shutdown" 2>/dev/null || true
+    fi
+fi
+
+# 'restart' — convenience alias for reboot (common expectation on some systems)
+if [ ! -e "${TARGET_DIR}/usr/bin/restart" ] && \
+   [ ! -L "${TARGET_DIR}/usr/bin/restart" ]; then
+    cat > "${TARGET_DIR}/usr/bin/restart" <<'RESTEOF'
+#!/bin/sh
+# IORA OS restart — reboots the system
+printf "Restarting IORA OS...\n"
+systemctl reboot 2>/dev/null || \
+    busybox reboot 2>/dev/null || \
+    exec reboot "$@"
+RESTEOF
+    chmod 755 "${TARGET_DIR}/usr/bin/restart" 2>/dev/null || true
+fi
+
+# =============================================================================
+# Console font — smaller font like Ubuntu's default
+# =============================================================================
+# systemd reads /etc/vconsole.conf on every boot and applies FONT= via
+# systemd-vconsole-setup.service.  If the kbd package is not installed
+# (common on minimal Buildroot) this is silently ignored — no harm done.
+echo "IORA OS: Configuring console font..."
+if [ ! -f "${TARGET_DIR}/etc/vconsole.conf" ]; then
+    cat > "${TARGET_DIR}/etc/vconsole.conf" <<'EOF'
+KEYMAP=us
+# Terminus 16px — compact and readable, similar to Ubuntu's default console
+FONT=Lat15-Terminus16
+EOF
+else
+    # Preserve existing vconsole.conf but ensure FONT is set
+    if ! grep -q '^FONT=' "${TARGET_DIR}/etc/vconsole.conf" 2>/dev/null; then
+        echo "FONT=Lat15-Terminus16" >> "${TARGET_DIR}/etc/vconsole.conf"
+    fi
+fi
+
 echo "IORA OS: Post-build script completed successfully"

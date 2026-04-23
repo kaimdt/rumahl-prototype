@@ -72,6 +72,34 @@ fi
 
 mkdir -p /mnt/iso /mnt/target /tmp /run
 
+# ── Set smaller console font (like Ubuntu) ─────────────────────────
+# Try a compact but readable 14/16px Terminus-style font.  Falls back
+# gracefully if the kbd package or font files are missing.
+set_console_font() {
+    # Try setfont with progressively smaller fonts
+    for font in \
+        Lat15-Terminus14 \
+        Lat15-Terminus16 \
+        TerminusBold14 \
+        default8x14 \
+        default8x16; do
+        if setfont "$font" 2>/dev/null; then
+            return 0
+        fi
+    done
+    # Try with explicit path
+    for font in \
+        /usr/share/consolefonts/Lat15-Terminus14.psf.gz \
+        /usr/share/consolefonts/Lat15-Terminus16.psf.gz \
+        /usr/share/kbd/consolefonts/Lat15-Terminus14.psf.gz; do
+        if [ -f "$font" ] && setfont "$font" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 0
+}
+set_console_font
+
 # Load modules
 for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci; do
     modprobe "$mod" 2>/dev/null || true
@@ -1046,21 +1074,30 @@ screen_network() {
     IORA_NETWORK="$mode"
 
     if [ "$mode" = "dhcp" ]; then
-        # DHCP mode - offer to test connection and show assigned IP
-        dlg_info " Network " "  Requesting IP address via DHCP..."
+        # Ask user if they want to try fetching an IP now, with skip option
+        local try_now
+        try_now=$(dlg --title " DHCP Network " --yesno \
+            "\n DHCP mode selected.\n\n Would you like to request an IP address now\n to confirm the network is working?\n\n (You can skip this — DHCP will be configured on boot.)\n" \
+            13 60 3>&1 1>&2 2>&3; echo $?)
 
-        if request_dhcp; then
-            local dhcp_info=$(get_dhcp_ip)
-            if [ -n "$dhcp_info" ]; then
-                local iface=$(echo "$dhcp_info" | cut -d: -f1)
-                local ip=$(echo "$dhcp_info" | cut -d: -f2)
+        if [ "$try_now" -eq 0 ]; then
+            dlg_info " Network " "  Requesting IP address via DHCP..."
 
-                dlg --title " DHCP Success " --msgbox \
-                    "\n Network configuration successful!\n\n Interface: ${iface}\n IP Address: ${ip}\n\n The system will use this configuration after installation.\n" \
-                    14 60
+            if request_dhcp; then
+                local dhcp_info=$(get_dhcp_ip)
+                if [ -n "$dhcp_info" ]; then
+                    local iface=$(echo "$dhcp_info" | cut -d: -f1)
+                    local ip=$(echo "$dhcp_info" | cut -d: -f2)
+
+                    dlg --title " DHCP Success " --msgbox \
+                        "\n Network configuration successful!\n\n Interface: ${iface}\n IP Address: ${ip}\n\n The system will use this configuration after installation.\n" \
+                        14 60
+                fi
+            else
+                dlg_msg " DHCP Warning " "Could not obtain IP via DHCP at this time.\n\nThe system will retry during first boot.\nYou can continue with installation."
             fi
         else
-            dlg_msg " DHCP Warning " "Could not obtain IP via DHCP at this time.\n\nThe system will retry during first boot.\nYou can continue with installation."
+            dlg_msg " DHCP Selected " "DHCP will be configured automatically on first boot.\n\nThe system will obtain an IP address when it starts."
         fi
 
         # Ask if user wants custom DNS even with DHCP
@@ -1144,21 +1181,46 @@ screen_network() {
 }
 
 screen_password() {
-    [ -z "$DIALOG_BIN" ] && return 0
-
     local pw1 pw2 rc
 
-    # Loop: re-prompt on mismatch so the user can try again instead
-    # of the wizard silently skipping the password. Cancel returns
-    # non-zero so the wizard's cancel menu is shown instead of
-    # quietly advancing to the next step.
+    # Text-only (no dialog binary) path
+    if [ -z "$DIALOG_BIN" ]; then
+        while true; do
+            printf "  Root password (required): "
+            stty -echo 2>/dev/null; read pw1; stty echo 2>/dev/null; echo ""
+            if [ -z "$pw1" ]; then
+                echo "  ERROR: A root password is required. Please try again."
+                continue
+            fi
+            printf "  Confirm password: "
+            stty -echo 2>/dev/null; read pw2; stty echo 2>/dev/null; echo ""
+            if [ "$pw1" = "$pw2" ]; then
+                IORA_ROOT_PW="$pw1"
+                return 0
+            fi
+            echo "  ERROR: Passwords do not match. Please try again."
+        done
+        return 0
+    fi
+
+    # Loop: re-prompt until a non-empty matching password is entered.
+    # Cancel returns non-zero so the wizard's cancel menu is shown.
     while true; do
         pw1=$(dlg --title " Root Password " --insecure --passwordbox \
-            "\n Set a new root password.\n Leave this blank to keep the default.\n" \
-            12 60 3>&1 1>&2 2>&3)
+            "\n Set the root password for this device.\n\n A password is REQUIRED — the root account\n has full system access and must be protected.\n" \
+            13 60 3>&1 1>&2 2>&3)
         rc=$?
         [ $rc -ne 0 ] && return 1
-        [ -z "$pw1" ] && return 0
+
+        # Require a non-empty password
+        if [ -z "$pw1" ]; then
+            dlg_msg " Password Required " "\
+ A root password is required.\n\n\
+ The root account is the system administrator.\n\
+ Leaving it blank is a serious security risk.\n\n\
+ Please enter a secure password to continue."
+            continue
+        fi
 
         pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
             "\n Enter the password again for verification.\n" \
@@ -1197,23 +1259,45 @@ screen_select_disk() {
             local mdl=$(get_disk_model "$disk")
             local bus=$(get_disk_transport "$disk")
             local dtype=$(get_disk_type "$disk")
-            local label="${sz}GB ${dtype}"
-            [ -n "$mdl" ] && label="${label} - ${mdl}"
+            local parts=$(get_disk_partitions "$disk")
+            # Build compact label: size, type, bus, model
+            local label="${sz}GB ${dtype} [${bus}]"
+            [ -n "$mdl" ] && label="${label} ${mdl}"
+            [ "$parts" -gt 0 ] && label="${label} (${parts}p)"
             set -- "$@" "/dev/${disk}" "$label"
             disk_count=$((disk_count + 1))
         done
 
-        local menu_h=$((disk_count + 12))
+        local menu_h=$((disk_count + 13))
         [ "$menu_h" -gt 22 ] && menu_h=22
 
         SEL_DISK=$(dlg --title " Installation Target " \
-            --menu "\n Release: ${ISO_IMAGE} (${img_size})\n\n Select the drive that should receive IORA OS.\n All existing data on the selected drive will be erased.\n" \
-            "$menu_h" 64 "$disk_count" \
+            --menu "\n Release: ${ISO_IMAGE} (${img_size})\n\n Select the drive for IORA OS installation.\n ALL existing data on the selected drive will be ERASED.\n" \
+            "$menu_h" 70 "$disk_count" \
             "$@" \
             3>&1 1>&2 2>&3)
 
         [ $? -ne 0 ] && return 1
         SEL_DISK=$(basename "$SEL_DISK")
+
+        # Show detailed disk info before confirming
+        local sel_sz=$(get_disk_size_gb "$SEL_DISK")
+        local sel_mdl=$(get_disk_model "$SEL_DISK")
+        local sel_bus=$(get_disk_transport "$SEL_DISK")
+        local sel_dtype=$(get_disk_type "$SEL_DISK")
+        local sel_vendor=$(get_disk_vendor "$SEL_DISK")
+        local sel_parts=$(get_disk_partitions "$SEL_DISK")
+        local disk_details=" Device:      /dev/${SEL_DISK}\n"
+        disk_details="${disk_details} Size:        ${sel_sz} GB\n"
+        disk_details="${disk_details} Type:        ${sel_dtype}\n"
+        disk_details="${disk_details} Interface:   ${sel_bus}\n"
+        [ -n "$sel_mdl" ] && disk_details="${disk_details} Model:       ${sel_mdl}\n"
+        [ -n "$sel_vendor" ] && disk_details="${disk_details} Vendor:      ${sel_vendor}\n"
+        disk_details="${disk_details} Partitions:  ${sel_parts} (will all be erased)\n"
+
+        dlg --title " Selected Disk Details " --msgbox \
+            "\n${disk_details}\n All data on this disk will be permanently erased.\n" \
+            16 64
 
         # Show SD card optimizations if detected
         if is_sd_card "$SEL_DISK"; then
@@ -1536,18 +1620,21 @@ run_wizard() {
     # Step 6: Network
     screen_network
 
-    # Step 7: Root password. If the user presses Cancel, ask them
-    # explicitly what to do instead of silently skipping (that was
-    # the previous behavior — the wizard just moved on with no
-    # password, which caused confusing "Login incorrect" later).
+    # Step 7: Root password.  A password is now REQUIRED.
+    # If the user cancels, offer to go back.  We do NOT allow skipping
+    # with an empty password because that would leave root accessible
+    # without authentication.
     while true; do
         if screen_password; then
             break
         fi
+        # User pressed Cancel on the password dialog
         if dlg_yesno " Skip password? " "\
  You cancelled the root password step.\n\n\
- Yes  -> skip and keep the default root password\n\
- No   -> go back and try again"; then
+ WARNING: Skipping leaves the root account with\n\
+ its DEFAULT password, which is a security risk!\n\n\
+ Yes  -> skip (keep default password — NOT recommended)\n\
+ No   -> go back and set a secure password"; then
             break
         fi
     done
