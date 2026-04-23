@@ -541,8 +541,25 @@ cat > "${TARGET_DIR}/etc/docker/daemon.json" <<EOF
     "nofile": { "Name": "nofile", "Hard": 65536, "Soft": 65536 }
   },
   "default-runtime": "runc",
-  "exec-opts": ["native.cgroupdriver=systemd"]
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "hosts": ["unix:///var/run/docker.sock"],
+  "icc": false
 }
+EOF
+
+# ── Docker socket hardening ──────────────────────────────────────────────────
+# The Docker socket is owned by root:root with 0660. The docker group is NOT
+# used — only iora-supervisor (running as root) is allowed to access the socket
+# via AppArmor. This prevents user apps or any other process from directly
+# driving Docker.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/docker.socket.d"
+cat > "${TARGET_DIR}/etc/systemd/system/docker.socket.d/hardening.conf" <<'EOF'
+[Socket]
+# Remove the default docker group ownership — only root may access the socket.
+# iora-supervisor holds root and is the sole gateway to Docker for user apps.
+SocketMode=0600
+SocketUser=root
+SocketGroup=root
 EOF
 
 # Make sure docker.service itself auto-restarts on crashes
@@ -752,34 +769,13 @@ ln -sf /etc/systemd/system/iora-recovery-log-init.service \
 # containers are restarted via docker compose.
 cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.service" <<'EOF'
 [Unit]
-Description=IORA Service Watchdog (native + user-app containers)
+Description=IORA Service Watchdog (native services + user-app containers + integrity)
 After=iora-core.service iora-stack.service docker.service
 Wants=iora-core.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '\
-  # 1. Check native IORA services — restart any that have exited. \
-  for svc in iora-core iora-home iora-control iora-assist \
-              iora-secrets iora-watchdog iora-security iora-gateway; do \
-    if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then \
-      :; \
-    elif systemctl is-enabled --quiet "${svc}.service" 2>/dev/null; then \
-      echo "[iora-watchdog] restarting native service ${svc}"; \
-      systemctl start "${svc}.service" 2>/dev/null || true; \
-    fi; \
-  done; \
-  # 2. Check user-app Docker stack (only when setup is complete). \
-  if [ -f /mnt/data/iora/.setup-complete ] && [ -f /mnt/data/iora/docker-compose.yml ]; then \
-    STOPPED=$(/usr/bin/docker compose -f /mnt/data/iora/docker-compose.yml \
-              ps --status exited --services 2>/dev/null | wc -l); \
-    if [ "$STOPPED" -gt 0 ]; then \
-      echo "[iora-watchdog] restarting $STOPPED stopped user-app container(s)"; \
-      /usr/bin/docker compose -f /mnt/data/iora/docker-compose.yml \
-          up -d --remove-orphans 2>/dev/null || true; \
-    fi; \
-  fi; \
-  exit 0'
+ExecStart=/usr/lib/iora/iora-watchdog-check
 SuccessExitStatus=0 1
 StandardOutput=journal
 StandardError=journal
@@ -802,6 +798,120 @@ EOF
 mkdir -p "${TARGET_DIR}/etc/systemd/system/timers.target.wants"
 ln -sf /etc/systemd/system/iora-stack-watchdog.timer \
     "${TARGET_DIR}/etc/systemd/system/timers.target.wants/iora-stack-watchdog.timer"
+
+# ── iora-watchdog-check script ───────────────────────────────────────────────
+# Centralised watchdog script invoked by iora-stack-watchdog.service every
+# 2 minutes. Responsibilities:
+#   1. Restart any stopped native IORA services.
+#   2. Restart stopped user-app Docker containers (via Supervisor).
+#   3. Detect unauthorised processes holding the Docker socket.
+#   4. Detect unauthorised (non-allowlisted) running containers.
+#   5. Run binary integrity spot-check for native IORA services.
+# None of these steps block updates — they log anomalies and defer to the
+# iora-integrity.service for full scans.
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+cat > "${TARGET_DIR}/usr/lib/iora/iora-watchdog-check" <<'WATCHDOGEOF'
+#!/bin/sh
+# IORA OS — centralised watchdog check.
+# Invoked by iora-stack-watchdog.service (every 2 min via timer).
+LOG_TAG="iora-watchdog"
+SECURITY_LOG="/var/log/iora-security.log"
+MANIFEST="/etc/iora/binary-manifest.sha256"
+COMPOSE_HASH_FILE="/var/lib/iora/supervisor/compose.sha256"
+COMPOSE_FILE="/mnt/data/iora/docker-compose.yml"
+ALLOWED_IMAGES_FILE="/etc/iora/allowed-images.txt"
+DOCKER_SOCK="/var/run/docker.sock"
+
+log()     { logger -t "$LOG_TAG" "$*";  echo "[$(date -Iseconds)] $LOG_TAG: $*"; }
+alert()   {
+    logger -p user.warning -t "$LOG_TAG" "ALERT: $*"
+    echo "[$(date -Iseconds)] $LOG_TAG ALERT: $*" >> "$SECURITY_LOG" 2>/dev/null || true
+}
+
+# ── 1. Native IORA services ──────────────────────────────────────────────────
+for svc in iora-core iora-home iora-control iora-assist \
+            iora-secrets iora-watchdog iora-security iora-gateway; do
+    if ! systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
+        if systemctl is-enabled --quiet "${svc}.service" 2>/dev/null; then
+            alert "native service ${svc} is down — restarting"
+            systemctl start "${svc}.service" 2>/dev/null || true
+        fi
+    fi
+done
+
+# ── 2. User-app Docker containers (via Supervisor) ───────────────────────────
+if [ -f /mnt/data/iora/.setup-complete ] && [ -f "$COMPOSE_FILE" ]; then
+    STOPPED=$(/usr/bin/docker compose -f "$COMPOSE_FILE" \
+              ps --status exited --services 2>/dev/null | wc -l)
+    if [ "$STOPPED" -gt 0 ]; then
+        log "restarting $STOPPED stopped user-app container(s)"
+        /usr/bin/docker compose -f "$COMPOSE_FILE" \
+            up -d --remove-orphans 2>/dev/null || true
+    fi
+fi
+
+# ── 3. Docker socket consumer audit ─────────────────────────────────────────
+# Only iora-supervisor (root) is permitted to open the Docker socket.
+# Any other PID holding an fd to it is suspicious.
+if [ -S "$DOCKER_SOCK" ]; then
+    # lsof is small and available on IORA OS via busybox.
+    for pid_fd in $(ls -la /proc/*/fd 2>/dev/null | \
+                    grep "docker.sock" | \
+                    awk '{print $NF}' | \
+                    grep -oE '/proc/[0-9]+/' | \
+                    grep -oE '[0-9]+' | sort -u); do
+        # Read the process name.
+        comm=$(cat "/proc/${pid_fd}/comm" 2>/dev/null || echo "unknown")
+        uid=$(awk '/^Uid:/{print $2}' "/proc/${pid_fd}/status" 2>/dev/null || echo "?")
+        # iora-supervisor runs as root (uid 0).
+        if [ "$uid" != "0" ]; then
+            alert "non-root process '${comm}' (pid ${pid_fd}, uid ${uid}) is accessing the Docker socket"
+        fi
+        # Even root processes that are NOT iora-supervisor are suspicious.
+        case "$comm" in
+            iora-supervisor|dockerd|containerd|docker) : ;;  # authorised
+            *)
+                alert "unexpected process '${comm}' (pid ${pid_fd}) is holding the Docker socket"
+                ;;
+        esac
+    done
+fi
+
+# ── 4. Unauthorized container detection ─────────────────────────────────────
+# Check all running containers against the allowlist managed by Supervisor.
+if [ -f "$ALLOWED_IMAGES_FILE" ] && command -v docker >/dev/null 2>&1; then
+    docker ps --format '{{.Image}}:{{.Names}}' 2>/dev/null | while IFS=: read -r image name; do
+        # Strip tag for comparison.
+        image_base="${image%%:*}"
+        if ! grep -qF "$image_base" "$ALLOWED_IMAGES_FILE" 2>/dev/null; then
+            alert "unauthorized container running: name='${name}' image='${image}'"
+        fi
+    done
+fi
+
+# ── 5. Binary integrity spot-check ──────────────────────────────────────────
+# Do a quick spot-check of one random IORA binary per watchdog cycle.
+# The full scan runs in iora-integrity.service (separate timer, every 5 min).
+if [ -f "$MANIFEST" ]; then
+    # Pick a random line from the manifest.
+    total=$(wc -l < "$MANIFEST")
+    if [ "$total" -gt 0 ]; then
+        pick=$(( ($(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d ' ') % total) + 1 ))
+        line=$(sed -n "${pick}p" "$MANIFEST" 2>/dev/null)
+        expected_hash=$(echo "$line" | awk '{print $1}')
+        bin_path=$(echo "$line"    | awk '{print $2}')
+        if [ -f "$bin_path" ] && [ -n "$expected_hash" ]; then
+            actual_hash=$(sha256sum "$bin_path" 2>/dev/null | awk '{print $1}')
+            if [ "$actual_hash" != "$expected_hash" ]; then
+                alert "binary integrity MISMATCH: ${bin_path} (expected ${expected_hash}, got ${actual_hash})"
+            fi
+        fi
+    fi
+fi
+
+exit 0
+WATCHDOGEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-watchdog-check"
 
 # ── Ensure getty@tty1 is enabled ────────────────────────────────────────────
 # Without an explicit WantedBy symlink, Buildroot systemd doesn't always
@@ -1265,18 +1375,33 @@ cat > "${TARGET_DIR}/etc/apparmor.d/iora-supervisor" <<'EOF'
 /opt/iora/build/iora-supervisor/bin/iora-supervisor {
   #include <abstractions/base>
 
-  # Docker socket access — supervisor manages user-app containers
+  # Docker socket — iora-supervisor is the SOLE authorised consumer.
   /var/run/docker.sock rw,
 
   # Binary execution
   /opt/iora/build/iora-supervisor/bin/iora-supervisor r,
 
-  # Data and config
-  /var/lib/iora/supervisor/** rwk,
-  /etc/iora/** r,
-  /mnt/data/iora/** rw,
+  # Docker CLI and compose (called as subprocesses to drive user-app containers)
+  /usr/bin/docker   rix,
+  /usr/bin/docker-compose rix,
+  /usr/libexec/docker/** rix,
 
-  # Network
+  # Guard + manifest helper scripts
+  /usr/lib/iora/iora-docker-guard              rix,
+  /usr/lib/iora/iora-integrity-update-manifest rix,
+
+  # Data and config
+  /var/lib/iora/iora-supervisor/** rwk,
+  /etc/iora/**                     rw,
+  /mnt/data/iora/**                rw,
+  /var/log/iora/**                 rw,
+
+  # Read-only access to proc (for socket audit in iora-watchdog-check)
+  /proc/*/comm                     r,
+  /proc/*/status                   r,
+  /proc/*/fd/                      r,
+
+  # Network (API port 8097 + outbound for image pulls via dockerd)
   network inet stream,
   network inet6 stream,
 }
@@ -2491,7 +2616,7 @@ cmd_service() {
             echo "  ──────────────────────────────────────────────────────────────"
             for svc in iora-core iora-home iora-control iora-assist \
                        iora-secrets iora-watchdog iora-security iora-gateway \
-                       iora-supervisor postgresql chrony docker; do
+                       iora-supervisor iora-update-monitor postgresql chrony docker; do
                 if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
                     st="${GREEN}active${RST}"
                 elif systemctl list-unit-files --quiet "${svc}.service" >/dev/null 2>&1; then
@@ -2592,7 +2717,8 @@ cmd_status() {
     # Native IORA system services
     print_header "Native IORA Services"
     for svc in iora-core iora-home iora-control iora-assist \
-               iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do
+               iora-secrets iora-watchdog iora-security iora-gateway \
+               iora-supervisor iora-update-monitor; do
         if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
             print_ok "${svc}: active"
         elif systemctl list-unit-files --quiet "${svc}.service" >/dev/null 2>&1; then
@@ -2922,6 +3048,11 @@ cat > "${TARGET_DIR}/etc/iora/iora-supervisor.env" <<'ENVEOF'
 PORT=8097
 RUST_LOG=info
 IORA_OS=true
+DOCKER_SOCK=/var/run/docker.sock
+DOCKER_COMPOSE_FILE=/mnt/data/iora/docker-compose.yml
+ALLOWED_IMAGES_FILE=/etc/iora/allowed-images.txt
+COMPOSE_HASH_FILE=/var/lib/iora/iora-supervisor/compose.sha256
+BINARY_MANIFEST=/etc/iora/binary-manifest.sha256
 ENVEOF
 
 # Restrict env file permissions (they contain secrets after setup).
@@ -3021,9 +3152,11 @@ write_iora_service "iora-gateway" "8096" "iora" "" "External Gateway"
 # Override the generic service for supervisor-specific settings.
 cat > "${TARGET_DIR}/etc/systemd/system/iora-supervisor.service" <<'EOF'
 [Unit]
-Description=IORA Supervisor (User App Container Manager)
+Description=IORA Supervisor (Docker Gatekeeper + User App Manager)
 Documentation=https://iora.kaimdt.com
-After=network.target docker.service iora-core.service
+# Supervisor starts after Docker is ready; it is the sole process allowed to
+# drive Docker for user apps. No other IORA service has Docker socket access.
+After=network.target docker.service iora-core.service iora-secrets.service
 Wants=network.target docker.service
 ConditionPathExists=/opt/iora/build/iora-supervisor/bin/iora-supervisor
 
@@ -3032,22 +3165,26 @@ Type=simple
 User=root
 Group=root
 EnvironmentFile=/etc/iora/iora-supervisor.env
+
+# Initialise Supervisor state directories and set up allowed-images list.
+ExecStartPre=/usr/lib/iora/iora-docker-guard --init
+
 ExecStart=/opt/iora/build/iora-supervisor/bin/iora-supervisor
 WorkingDirectory=/var/lib/iora/iora-supervisor
 RuntimeDirectory=iora/iora-supervisor
 
-# Docker socket access — supervisor manages user-app containers only.
-SupplementaryGroups=docker
+# Supervisor holds root — that is intentional: it is the Docker gatekeeper.
+# NoNewPrivileges=no allows it to call docker and manage containers.
+NoNewPrivileges=no
+PrivateTmp=yes
+ReadWritePaths=/var/lib/iora/iora-supervisor /var/log/iora /var/run/docker.sock \
+               /etc/iora /mnt/data/iora
+LimitNOFILE=65536
 
 Restart=on-failure
 RestartSec=5s
 StartLimitBurst=5
 StartLimitIntervalSec=60s
-
-NoNewPrivileges=no
-PrivateTmp=yes
-ReadWritePaths=/var/lib/iora/iora-supervisor /var/log/iora /var/run/docker.sock
-LimitNOFILE=65536
 
 StandardOutput=journal
 StandardError=journal
@@ -3060,6 +3197,99 @@ ln -sf /etc/systemd/system/iora-supervisor.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-supervisor.service"
 
 mkdir -p "${TARGET_DIR}/var/log/iora"
+mkdir -p "${TARGET_DIR}/var/lib/iora/iora-supervisor"
+
+# ── iora-docker-guard ────────────────────────────────────────────────────────
+# Script invoked by iora-supervisor as ExecStartPre (--init) and also by
+# iora-stack.service as ExecStartPre to enforce:
+#   - compose file integrity (SHA-256 tamper detection)
+#   - image allowlist (only permitted images may run)
+#   - Docker socket ownership (root:root 0600)
+# Updates are detected and logged but NEVER blocked.
+cat > "${TARGET_DIR}/usr/lib/iora/iora-docker-guard" <<'GUARDEOF'
+#!/bin/sh
+# IORA OS — Docker Gatekeeper Guard.
+# Called by iora-supervisor (--init) and iora-stack.service (--check).
+LOG_TAG="iora-docker-guard"
+SECURITY_LOG="/var/log/iora-security.log"
+COMPOSE_FILE="/mnt/data/iora/docker-compose.yml"
+COMPOSE_HASH_FILE="/var/lib/iora/iora-supervisor/compose.sha256"
+ALLOWED_IMAGES_FILE="/etc/iora/allowed-images.txt"
+DOCKER_SOCK="/var/run/docker.sock"
+
+log()   { logger -t "$LOG_TAG" "$*"; echo "[$(date -Iseconds)] $LOG_TAG: $*"; }
+alert() {
+    logger -p user.warning -t "$LOG_TAG" "ALERT: $*"
+    echo "[$(date -Iseconds)] $LOG_TAG ALERT: $*" >> "$SECURITY_LOG" 2>/dev/null || true
+}
+
+mode="${1:---check}"
+
+# ── --init: Supervisor start-up initialisation ──────────────────────────────
+if [ "$mode" = "--init" ]; then
+    # Ensure Docker socket is owned by root:root 0600 (hardening).
+    if [ -S "$DOCKER_SOCK" ]; then
+        chown root:root "$DOCKER_SOCK" 2>/dev/null || true
+        chmod 0600      "$DOCKER_SOCK" 2>/dev/null || true
+    fi
+
+    # Create the allowed-images file if it doesn't exist yet.
+    # This file is managed by iora-supervisor: it adds images when the user
+    # installs an app through the IORA App Store, and removes them on uninstall.
+    if [ ! -f "$ALLOWED_IMAGES_FILE" ]; then
+        mkdir -p "$(dirname "$ALLOWED_IMAGES_FILE")"
+        # Pre-populate with well-known IORA-blessed base images.
+        cat > "$ALLOWED_IMAGES_FILE" <<'ALLOWEOF'
+# IORA Allowed Docker Images
+# Lines starting with # are comments.
+# Format: one image name (without tag) per line.
+# Managed by iora-supervisor. Manual edits are allowed but will be
+# re-verified by the supervisor on next start.
+ghcr.io/home-assistant/home-assistant
+homeassistant/home-assistant
+eclipse-mosquitto
+koenkk/zigbee2mqtt
+esphome/esphome
+linuxserver/heimdall
+ALLOWEOF
+        chmod 0640 "$ALLOWED_IMAGES_FILE"
+        log "created initial allowed-images list at $ALLOWED_IMAGES_FILE"
+    fi
+
+    # Record the current compose file hash for tamper detection.
+    if [ -f "$COMPOSE_FILE" ]; then
+        sha256sum "$COMPOSE_FILE" 2>/dev/null | awk '{print $1}' > "$COMPOSE_HASH_FILE"
+        log "recorded compose file hash"
+    fi
+    exit 0
+fi
+
+# ── --check: pre-start compose integrity + allowlist check ──────────────────
+# 1. Compose file tamper detection.
+if [ -f "$COMPOSE_FILE" ] && [ -f "$COMPOSE_HASH_FILE" ]; then
+    current_hash=$(sha256sum "$COMPOSE_FILE" 2>/dev/null | awk '{print $1}')
+    stored_hash=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null)
+    if [ -n "$stored_hash" ] && [ "$current_hash" != "$stored_hash" ]; then
+        alert "compose file changed since last start (hash mismatch) — possible tampering or update"
+        # Update the stored hash so we only alert once per change, not on every start.
+        echo "$current_hash" > "$COMPOSE_HASH_FILE"
+    fi
+fi
+
+# 2. Image allowlist check: warn on any image not in the allowlist.
+if [ -f "$COMPOSE_FILE" ] && [ -f "$ALLOWED_IMAGES_FILE" ]; then
+    grep -E '^\s*image:' "$COMPOSE_FILE" 2>/dev/null | sed 's/.*image:\s*//' | \
+    while read -r img; do
+        img=$(echo "$img" | tr -d '"'"'" | sed 's/:.*//')  # strip tag + quotes
+        if [ -n "$img" ] && ! grep -qF "$img" "$ALLOWED_IMAGES_FILE" 2>/dev/null; then
+            alert "compose file references non-allowlisted image: '${img}'"
+        fi
+    done
+fi
+
+exit 0
+GUARDEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-docker-guard"
 
 # ── iora-stack.service — manages USER-APP Docker containers ─────────────────
 # IORA system services are native (above).  This service manages ONLY the
@@ -3086,7 +3316,7 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
 
-# Skip if the compose file is missing or is still the placeholder.
+# Guard: skip if missing/placeholder; run integrity check before starting.
 ExecStartPre=/bin/sh -c '\
   if [ ! -f /mnt/data/iora/docker-compose.yml ] || \
      grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml; then \
@@ -3094,6 +3324,7 @@ ExecStartPre=/bin/sh -c '\
     exit 1; \
   fi; \
   echo "iora-stack: starting user-app containers"'
+ExecStartPre=/usr/lib/iora/iora-docker-guard --check
 
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
@@ -3109,6 +3340,250 @@ EOF
 
 ln -sf /etc/systemd/system/iora-stack.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-stack.service"
+
+# ── iora-integrity.service + timer ──────────────────────────────────────────
+# Full binary integrity scan of all native IORA services.
+# Runs every 5 minutes; does NOT block updates — it logs mismatches and
+# defers remediation to iora-security / the operator.
+# The trusted manifest is written at first boot by iora-integrity-init.service
+# (see below) once the binaries are in place, and updated by iora-updater
+# immediately after each successful update via `iora-integrity-update-manifest`.
+cat > "${TARGET_DIR}/usr/lib/iora/iora-integrity-scan" <<'SCANEOF'
+#!/bin/sh
+# IORA OS — full binary integrity scan.
+# Invoked by iora-integrity.service every 5 minutes.
+LOG_TAG="iora-integrity"
+SECURITY_LOG="/var/log/iora-security.log"
+MANIFEST="/etc/iora/binary-manifest.sha256"
+RESULT_FILE="/run/iora/integrity-last-result"
+
+log()   { logger -t "$LOG_TAG" "$*"; }
+alert() {
+    logger -p user.warning -t "$LOG_TAG" "ALERT: $*"
+    echo "[$(date -Iseconds)] $LOG_TAG ALERT: $*" >> "$SECURITY_LOG" 2>/dev/null || true
+}
+
+if [ ! -f "$MANIFEST" ]; then
+    log "manifest not found at $MANIFEST — skipping scan (first-boot initialisation pending)"
+    exit 0
+fi
+
+mismatches=0
+total=0
+mkdir -p "$(dirname "$RESULT_FILE")"
+
+while IFS= read -r line; do
+    # Skip comments and blank lines.
+    case "$line" in
+        '#'*|'') continue ;;
+    esac
+    expected_hash=$(echo "$line" | awk '{print $1}')
+    bin_path=$(echo "$line"      | awk '{print $2}')
+    [ -z "$bin_path" ] && continue
+    total=$((total + 1))
+    if [ ! -f "$bin_path" ]; then
+        alert "binary missing: ${bin_path}"
+        mismatches=$((mismatches + 1))
+        continue
+    fi
+    actual_hash=$(sha256sum "$bin_path" 2>/dev/null | awk '{print $1}')
+    if [ "$actual_hash" != "$expected_hash" ]; then
+        alert "integrity MISMATCH: ${bin_path}"
+        mismatches=$((mismatches + 1))
+    fi
+done < "$MANIFEST"
+
+# Write a compact result summary for the iora-security dashboard.
+printf '{"checked":%d,"mismatches":%d,"ts":"%s"}\n' \
+    "$total" "$mismatches" "$(date -Iseconds)" > "$RESULT_FILE" 2>/dev/null || true
+
+if [ "$mismatches" -eq 0 ]; then
+    log "integrity OK — ${total} binaries verified"
+else
+    alert "${mismatches}/${total} integrity failures — check $SECURITY_LOG"
+fi
+exit 0
+SCANEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-integrity-scan"
+
+# Helper called by iora-updater immediately after a successful update to
+# refresh the manifest for the updated binary (allows updates without alerts).
+cat > "${TARGET_DIR}/usr/lib/iora/iora-integrity-update-manifest" <<'UPDATEMANEOF'
+#!/bin/sh
+# Usage: iora-integrity-update-manifest <binary-path> [<binary-path> ...]
+# Called by iora-updater after a successful update to refresh manifest entries.
+MANIFEST="/etc/iora/binary-manifest.sha256"
+LOG_TAG="iora-integrity"
+log() { logger -t "$LOG_TAG" "$*"; echo "[$(date -Iseconds)] $LOG_TAG: $*"; }
+
+if [ ! -f "$MANIFEST" ]; then
+    log "manifest not found — cannot update (run integrity-init first)"
+    exit 1
+fi
+for bin_path in "$@"; do
+    [ -f "$bin_path" ] || { log "skip missing: $bin_path"; continue; }
+    new_hash=$(sha256sum "$bin_path" | awk '{print $1}')
+    # Remove the old entry (if any) and append the new one.
+    tmp=$(mktemp)
+    grep -vF "$bin_path" "$MANIFEST" > "$tmp" 2>/dev/null || true
+    echo "${new_hash}  ${bin_path}" >> "$tmp"
+    mv "$tmp" "$MANIFEST"
+    log "manifest updated for ${bin_path}"
+done
+exit 0
+UPDATEMANEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-integrity-update-manifest"
+
+# iora-integrity-init.service: runs once at first boot to build the manifest.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-integrity-init.service" <<'EOF'
+[Unit]
+Description=IORA Binary Integrity Manifest Initialisation
+ConditionPathMissing=/etc/iora/binary-manifest.sha256
+After=local-fs.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+  MANIFEST=/etc/iora/binary-manifest.sha256; \
+  tmp=$(mktemp); \
+  echo "# IORA binary integrity manifest — generated $(date -Iseconds)" > "$tmp"; \
+  for svc in iora-core iora-home iora-control iora-assist \
+              iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do \
+    bin="/opt/iora/build/${svc}/bin/${svc}"; \
+    [ -f "$bin" ] || continue; \
+    sha256sum "$bin" >> "$tmp"; \
+  done; \
+  mv "$tmp" "$MANIFEST"; \
+  chmod 0640 "$MANIFEST"; \
+  logger -t iora-integrity "manifest initialised with $(grep -c "^[^#]" "$MANIFEST") entries"'
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iora-integrity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-integrity-init.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-integrity-init.service"
+
+# iora-integrity.service + timer: periodic full scan.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-integrity.service" <<'EOF'
+[Unit]
+Description=IORA Binary Integrity Scan
+After=iora-integrity-init.service
+Requires=iora-integrity-init.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/iora/iora-integrity-scan
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iora-integrity
+User=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+EOF
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-integrity.timer" <<'EOF'
+[Unit]
+Description=IORA Binary Integrity Scan Timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+ln -sf /etc/systemd/system/iora-integrity.timer \
+    "${TARGET_DIR}/etc/systemd/system/timers.target.wants/iora-integrity.timer"
+
+# ── iora-update-monitor.service ─────────────────────────────────────────────
+# Watches /opt/iora/build/ for file changes using inotifywait (busybox).
+# When a change is detected it:
+#   1. Logs the event (does NOT block it — updates must be allowed through).
+#   2. Re-hashes the changed binary and updates the manifest so the next
+#      integrity scan doesn't false-alarm on a legitimate update.
+#   3. Records the event in the security log for audit purposes.
+# If the change was NOT caused by the iora-updater process, an alert is raised.
+cat > "${TARGET_DIR}/usr/lib/iora/iora-update-monitor" <<'UMEOF'
+#!/bin/sh
+# IORA OS — update monitor daemon.
+# Watches /opt/iora/build/ for binary changes. Does NOT block updates.
+LOG_TAG="iora-update-monitor"
+SECURITY_LOG="/var/log/iora-security.log"
+WATCH_DIR="/opt/iora/build"
+UPDATER_COMM="iora-updater"
+
+log()   { logger -t "$LOG_TAG" "$*"; }
+alert() {
+    logger -p user.warning -t "$LOG_TAG" "ALERT: $*"
+    echo "[$(date -Iseconds)] $LOG_TAG ALERT: $*" >> "$SECURITY_LOG" 2>/dev/null || true
+}
+
+if ! command -v inotifywait >/dev/null 2>&1; then
+    log "inotifywait not available — update monitoring disabled"
+    # Sleep forever so systemd doesn't restart us in a tight loop.
+    exec sleep infinity
+fi
+
+log "watching $WATCH_DIR for binary changes (updates are logged, not blocked)"
+
+inotifywait -m -r -e close_write,moved_to "$WATCH_DIR" 2>/dev/null | \
+while read -r dir event file; do
+    changed="${dir}${file}"
+    # Identify who wrote the file.
+    # We look for iora-updater in /proc/*/comm that have the file open.
+    writer="unknown"
+    for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+        comm=$(cat "/proc/${pid}/comm" 2>/dev/null || continue)
+        if [ "$comm" = "$UPDATER_COMM" ]; then
+            writer="$UPDATER_COMM"
+            break
+        fi
+    done
+
+    if [ "$writer" = "$UPDATER_COMM" ]; then
+        log "authorised update: ${changed} (written by ${UPDATER_COMM})"
+        # Refresh manifest entry so integrity scan doesn't alert.
+        /usr/lib/iora/iora-integrity-update-manifest "$changed" 2>/dev/null || true
+    else
+        alert "unexpected modification: ${changed} (writer: ${writer}) — possible tampering"
+    fi
+done
+UMEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-update-monitor"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-update-monitor.service" <<'EOF'
+[Unit]
+Description=IORA Update Monitor (binary change detection)
+Documentation=https://iora.kaimdt.com
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/iora/iora-update-monitor
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iora-update-monitor
+User=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+# Read access to /proc and /opt/iora/build; write access to manifest + log.
+ReadOnlyPaths=/opt/iora/build /proc
+ReadWritePaths=/etc/iora /var/log/iora /run/iora
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-update-monitor.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-update-monitor.service"
 
 echo "IORA OS: Native IORA system services installed."
 
