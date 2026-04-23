@@ -1423,7 +1423,10 @@ cat > "${TARGET_DIR}/etc/iora/build-info.json" <<EOF
 EOF
 chmod 0644 "${TARGET_DIR}/etc/iora/build-info.json"
 
-# Install welcome message
+# Install welcome message. We use a STATIC placeholder for /etc/motd
+# that is overwritten on every boot by iora-motd.service with the real
+# IP addresses. Users who log in before networking is up see the
+# placeholder; afterwards they see actual URLs they can click.
 cat > "${TARGET_DIR}/etc/motd" <<'EOF'
 
   ██╗ ██████╗ ██████╗  █████╗     ██████╗ ███████╗
@@ -1436,10 +1439,131 @@ cat > "${TARGET_DIR}/etc/motd" <<'EOF'
   Interface for Optimized Residential Autonomy
 
   Documentation: /opt/iora/docs
-  Web Interface: http://[this-device-ip]:8080
-  First Boot:    http://[this-device-ip]:8080/setup
+  (Waiting for network — log in again once IPs are assigned.)
 
 EOF
+
+# /usr/lib/iora/iora-motd-update: render /etc/motd with live IPs.
+# Called by iora-motd.service at boot AND by a networkd-dispatcher hook
+# on every address change so the motd always reflects the current state.
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+cat > "${TARGET_DIR}/usr/lib/iora/iora-motd-update" <<'MOTDEOF'
+#!/bin/sh
+# Render /etc/motd with the current IPv4/IPv6 addresses and the
+# real URLs for the IORA Setup Wizard / Control Center / IORA Home.
+set -eu
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+# Gather primary IPv4 (first non-loopback global-scope address).
+ipv4=""
+ipv6=""
+if command -v ip >/dev/null 2>&1; then
+    ipv4=$(ip -4 -o addr show scope global 2>/dev/null \
+            | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    ipv6=$(ip -6 -o addr show scope global 2>/dev/null \
+            | awk '{print $4}' | cut -d/ -f1 \
+            | grep -v '^fe80' | head -n1)
+fi
+
+# Hostname (fallback chain).
+host="$(hostname 2>/dev/null || echo iora)"
+
+# Decide which URL host-part to use: prefer IPv4, else IPv6 (bracketed),
+# else hostname.
+if [ -n "$ipv4" ]; then
+    hostpart="$ipv4"
+elif [ -n "$ipv6" ]; then
+    hostpart="[$ipv6]"
+else
+    hostpart="$host"
+fi
+
+# Pick the Home Assistant web port: 8126 (IORA default, not the HA
+# default 8123) is used when the setup wizard has written a compose
+# file. Before first-boot setup, only the setup wizard on :8080 is up.
+ha_port=8126
+setup_done_flag=/mnt/data/iora/.setup-complete
+if [ ! -e "$setup_done_flag" ]; then
+    primary_url="http://${hostpart}:8080/setup"
+    primary_lbl="First Boot Setup"
+else
+    primary_url="http://${hostpart}:8126"
+    primary_lbl="IORA Home Dashboard"
+fi
+
+{
+    cat <<'BANNER'
+
+  ██╗ ██████╗ ██████╗  █████╗     ██████╗ ███████╗
+  ██║██╔═══██╗██╔══██╗██╔══██╗   ██╔═══██╗██╔════╝
+  ██║██║   ██║██████╔╝███████║   ██║   ██║███████╗
+  ██║██║   ██║██╔══██╗██╔══██║   ██║   ██║╚════██║
+  ██║╚██████╔╝██║  ██║██║  ██║   ╚██████╔╝███████║
+  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝
+
+  Interface for Optimized Residential Autonomy
+
+BANNER
+    printf "  Host:          %s\n" "$host"
+    [ -n "$ipv4" ] && printf "  IPv4:          %s\n" "$ipv4"
+    [ -n "$ipv6" ] && printf "  IPv6:          %s\n" "$ipv6"
+    printf "\n"
+    printf "  %-14s %s\n" "$primary_lbl:" "$primary_url"
+    if [ -e "$setup_done_flag" ]; then
+        printf "  %-14s http://%s:8080\n" "Control Center:" "$hostpart"
+    fi
+    printf "  %-14s /opt/iora/docs\n" "Documentation:"
+    printf "\n"
+} > "$tmp"
+
+# Atomically replace /etc/motd.
+install -m 0644 "$tmp" /etc/motd
+MOTDEOF
+chmod 0755 "${TARGET_DIR}/usr/lib/iora/iora-motd-update"
+
+# Service that keeps /etc/motd in sync with the current network state.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-motd.service" <<'EOF'
+[Unit]
+Description=IORA OS dynamic /etc/motd
+After=network-online.target iora-setup.service
+Wants=network-online.target
+# Not conditional on setup-complete — we render a different motd
+# before/after first-boot setup, both cases want live IPs.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/iora/iora-motd-update
+# Re-render on network changes via the .path unit below.
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Path unit: re-run iora-motd-update whenever the network state changes
+# (new lease, interface up, static IP applied). We watch the setup-done
+# flag as well so switching from the pre-setup motd to the post-setup
+# motd happens automatically.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-motd.path" <<'EOF'
+[Unit]
+Description=Trigger iora-motd-update on network or setup changes
+
+[Path]
+PathChanged=/run/systemd/netif/state
+PathChanged=/etc/hostname
+PathExistsGlob=/mnt/data/iora/.setup-complete
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+ln -sf /etc/systemd/system/iora-motd.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-motd.service"
+ln -sf /etc/systemd/system/iora-motd.path \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-motd.path"
 
 # =============================================================================
 # Integrity verification + tamper-screen (iora-verify)

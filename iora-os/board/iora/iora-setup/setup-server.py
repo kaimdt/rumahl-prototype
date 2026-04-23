@@ -220,17 +220,41 @@ def apply_config(config):
         except Exception:
             pass
 
-    # Start the IORA stack
+    # Start the IORA stack. Do this *synchronously* via systemctl so we
+    # surface pull/start errors in the web UI instead of firing-and-
+    # forgetting `docker compose up`, which hid every failure and left
+    # the user with no ports open. We call iora-stack.service so the
+    # unit's ExecStartPre (retry pull) + ExecStart + reconcile loop
+    # apply to the user-chosen compose.yml, not just at first boot.
     if config.get("auto_start", True):
         try:
-            subprocess.Popen(
-                ["docker", "compose", "up", "-d"],
-                cwd=DATA_DIR,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
+            if IS_IORA_OS:
+                # Block (up to 4 min) so the UI can show pull errors
+                # instead of returning immediately and leaving the user
+                # staring at a "Setup Complete!" page while nothing is
+                # actually listening.
+                cp = subprocess.run(
+                    ["systemctl", "restart", "iora-stack.service"],
+                    capture_output=True, text=True, timeout=240,
+                )
+                if cp.returncode != 0:
+                    errors.append(
+                        f"iora-stack.service failed to start: "
+                        f"{(cp.stderr or cp.stdout or '').strip()[:400]}"
+                    )
+            else:
+                cp = subprocess.run(
+                    ["docker", "compose", "up", "-d", "--remove-orphans"],
+                    cwd=DATA_DIR,
+                    capture_output=True, text=True, timeout=300,
+                )
+                if cp.returncode != 0:
+                    errors.append(
+                        f"docker compose up failed: "
+                        f"{(cp.stderr or cp.stdout or '').strip()[:400]}"
+                    )
+        except Exception as e:
+            errors.append(f"Failed to start stack: {e}")
 
     return errors
 
@@ -247,11 +271,18 @@ def generate_compose(config):
 version: "3.8"
 
 services:
+  # IORA Core — IORA Home's own backend. Exposed on port 8126 (not the
+  # HA default 8123) so nothing collides with a vanilla Home Assistant
+  # that may already be running on the LAN.
+  #
+  # NOTE: ghcr.io/iora-home/core is IORA's own image, NOT Home Assistant.
+  # If the pull fails on first start, the Control Center will report the
+  # error — build the image locally or set IORA_CORE_IMAGE in
+  # /mnt/data/iora/.env to point to an accessible registry.
   iora-core:
-    image: ghcr.io/iora-home/core:latest
+    image: ${{IORA_CORE_IMAGE:-ghcr.io/iora-home/core:latest}}
     container_name: iora-core
     restart: unless-stopped
-    network_mode: host
     environment:
       - TZ={tz}
       - IORA_HOSTNAME={hostname}
@@ -261,11 +292,15 @@ services:
     volumes:
       - ${{IORA_DATA_DIR:-/mnt/data/iora}}/config:/config
       - /run/dbus:/run/dbus:ro
+      - /etc/localtime:/etc/localtime:ro
     ports:
-      - "8123:8123"
+      # Host 8126 -> container 8126 (IORA Core listens on 8126)
+      - "8126:8126"
 
+  # IORA Supervisor — orchestrates add-ons and integrations.
+  # Again: IORA's own image, not Home Assistant's supervisor.
   iora-supervisor:
-    image: ghcr.io/iora-home/supervisor:latest
+    image: ${{IORA_SUPERVISOR_IMAGE:-ghcr.io/iora-home/supervisor:latest}}
     container_name: iora-supervisor
     restart: unless-stopped
     environment:
@@ -274,8 +309,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${{IORA_DATA_DIR:-/mnt/data/iora}}:/data
+    # Supervisor API on 8125 (Control Center already uses host :8080
+    # via the iora-setup.service; keep them disjoint).
     ports:
-      - "8080:8080"
+      - "8125:8125"
 
   iora-db:
     image: postgres:16-alpine
@@ -845,7 +882,7 @@ body {
     <div class="icon">&#10003;</div>
     <h2>Setup Complete!</h2>
     <p class="subtitle">Your IORA Home instance is ready.</p>
-    <div class="url" id="finalUrl">http://iora:8123</div>
+    <div class="url" id="finalUrl">http://iora:8126</div>
     <p class="subtitle" style="margin-top:16px">
       The IORA Home dashboard will be available<br>
       at the address above in a few moments.
@@ -951,9 +988,19 @@ async function doInstall() {
     setTimeout(() => {
       document.getElementById('applyingBox').style.display = 'none';
       document.getElementById('doneBox').style.display = 'block';
-      const host = config.hostname || location.hostname;
       const ip = location.hostname;
-      document.getElementById('finalUrl').textContent = 'http://' + ip + ':8123';
+      document.getElementById('finalUrl').textContent = 'http://' + ip + ':8126';
+      // Surface any backend errors (pull failures, compose errors, ...)
+      // instead of pretending setup finished cleanly. The user complained
+      // "nothing happens after setup" precisely because these were hidden.
+      if (result && result.errors && result.errors.length) {
+        const box = document.getElementById('doneBox');
+        const warn = document.createElement('div');
+        warn.className = 'subtitle';
+        warn.style.cssText = 'margin-top:16px;color:#c94f4f;white-space:pre-wrap;text-align:left;font-family:monospace;font-size:12px;background:#2a1a1a;padding:12px;border-radius:6px;max-height:180px;overflow:auto';
+        warn.textContent = 'Warnings:\n' + result.errors.join('\n');
+        box.appendChild(warn);
+      }
     }, 3000);
   } catch(e) {
     alert('Setup failed: ' + e);
