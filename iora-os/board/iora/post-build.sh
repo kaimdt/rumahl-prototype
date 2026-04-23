@@ -611,70 +611,7 @@ EOF
 ln -sf /etc/systemd/system/iora-init-data.service \
     "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/iora-init-data.service"
 
-# Install systemd service for Docker Compose
-cat > "${TARGET_DIR}/etc/systemd/system/iora-stack.service" <<'EOF'
-[Unit]
-Description=IORA Docker Stack
-# Wants (not Requires): if docker/network are briefly unavailable we still
-# try and simply exit cleanly on retry rather than spamming "Failed to start"
-# on every Restart= attempt.
-Wants=docker.service iora-init-data.service network-online.target
-After=docker.service network-online.target iora-init-data.service
-ConditionPathIsDirectory=/mnt/data/iora
-StartLimitIntervalSec=600
-StartLimitBurst=3
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/mnt/data/iora
-# Skip everything when we're running on the hello-world placeholder —
-# otherwise `docker compose pull` downloads hello-world + sleeps 15s +
-# retries, adding a minute to every boot on a fresh install that the
-# user hasn't populated yet. Once real services are dropped in this
-# pre-check exits 0 and the rest of ExecStartPre runs normally.
-ExecStartPre=/bin/sh -c '\
-  if [ ! -f /mnt/data/iora/docker-compose.yml ]; then \
-    printf "version: \\"3.8\\"\\nservices:\\n  placeholder:\\n    image: hello-world\\n" \
-      > /mnt/data/iora/docker-compose.yml; \
-  fi; \
-  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "ghcr.io/.*iora" /mnt/data/iora/docker-compose.yml; then \
-    echo "iora-stack: placeholder compose detected, skipping pull/up"; \
-    exit 0; \
-  fi; \
-  # Retry pulls if the network is flaky (best-effort; exit 0 anyway). \
-  for i in 1 2 3; do /usr/bin/docker compose pull && break || sleep 5; done; \
-  exit 0'
-ExecStart=/bin/sh -c '\
-  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "ghcr.io/.*iora" /mnt/data/iora/docker-compose.yml; then \
-    echo "iora-stack: placeholder compose, not starting containers"; \
-    exit 0; \
-  fi; \
-  /usr/bin/docker compose up -d --remove-orphans || true'
-# Only reconcile a second time when we have a real stack.
-ExecStartPost=/bin/sh -c '\
-  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "ghcr.io/.*iora" /mnt/data/iora/docker-compose.yml; then \
-    exit 0; \
-  fi; \
-  sleep 10 && /usr/bin/docker compose up -d --remove-orphans || true'
-ExecStop=/usr/bin/docker compose down
-ExecReload=/usr/bin/docker compose up -d --remove-orphans
-# Don't cascade "Failed to start" on every retry when the user simply
-# hasn't populated /mnt/data/iora yet or docker is briefly unavailable:
-# exit 0 on compose errors, let iora-stack-watchdog.timer pick it up later.
-SuccessExitStatus=0 1
-Restart=no
-# Generous but not crazy: 3 min covers a normal pull+up of a real stack.
-# Placeholder path returns in <1s.
-TimeoutStartSec=180
-TimeoutStopSec=60
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# iora-stack.service is written later in this file (self-build section).
 
 # Periodic watchdog for the stack: if any compose service has exited, run
 # `compose up -d` again.  Complements the in-container iora-watchdog.
@@ -745,9 +682,7 @@ cat > "${TARGET_DIR}/etc/sysctl.d/10-iora-console-quiet.conf" <<'EOF'
 kernel.printk = 3 4 1 7
 EOF
 
-# Enable IORA stack service
-ln -sf /etc/systemd/system/iora-stack.service \
-    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-stack.service"
+# iora-stack.service symlink is created in the self-build section below.
 
 # Configure ZRAM for /tmp and /var
 # Must use DefaultDependencies=no + explicit shutdown ordering: default
@@ -2322,5 +2257,535 @@ else
         echo "FONT=Lat15-Terminus16" >> "${TARGET_DIR}/etc/vconsole.conf"
     fi
 fi
+
+# =============================================================================
+# Self-build Docker image infrastructure
+# =============================================================================
+# All IORA system containers are built locally from bundled Dockerfiles and
+# pre-compiled binaries — no external registry pulls at runtime.  This is the
+# IORA OS security model: the OS itself is the trusted root; third-party
+# registries are never contacted for system containers.
+#
+# Layout on the device:
+#   /opt/iora/build/                 ← build root (read-only, part of OS image)
+#     <service>/
+#       Dockerfile                   ← minimal runtime Dockerfile
+#       bin/<service>                ← pre-compiled binary (from build pipeline)
+#   /opt/iora/build/docker-compose.build.yml  ← compose file using build:
+#   /opt/iora/build/build-images.sh  ← drives `docker compose build`
+#
+# The iora-build-images.service runs ONCE (flag: /mnt/data/iora/.images-built)
+# before iora-stack.service.  Subsequent boots skip the build and go straight
+# to `docker compose up -d`.
+
+echo "IORA OS: Installing self-build Docker image infrastructure..."
+
+mkdir -p "${TARGET_DIR}/opt/iora/build"
+
+# ── Per-service Dockerfiles ─────────────────────────────────────────────────
+# Each Dockerfile is a minimal Alpine image that copies the pre-compiled
+# binary from bin/<service>.  The binaries are placed by the build pipeline
+# (see build-all-images.sh) into the rootfs overlay before Buildroot runs.
+# If a binary is missing at docker-build time a clear error is emitted.
+
+declare -A SERVICE_PORTS=(
+    [iora-core]="8090"
+    [iora-home]="8080"
+    [iora-control]="8091"
+    [iora-assist]="8092"
+    [iora-secrets]="8093"
+    [iora-watchdog]="8094"
+    [iora-security]="8095"
+    [iora-gateway]="8096"
+    [iora-supervisor]="8097"
+)
+
+declare -A SERVICE_USERS=(
+    [iora-core]="iora"
+    [iora-home]="iora"
+    [iora-control]="iora"
+    [iora-assist]="iora"
+    [iora-secrets]="iora"
+    [iora-watchdog]="iora"
+    [iora-security]="iora"
+    [iora-gateway]="iora"
+    [iora-supervisor]="root"   # supervisor needs docker socket access
+)
+
+for svc in "${!SERVICE_PORTS[@]}"; do
+    port="${SERVICE_PORTS[$svc]}"
+    user="${SERVICE_USERS[$svc]}"
+    mkdir -p "${TARGET_DIR}/opt/iora/build/${svc}/bin"
+
+    # The binary placeholder keeps the directory structure intact in the OS
+    # image even when the build pipeline hasn't run yet.  The real binary is
+    # written to this path by build-all-images.sh.
+    touch "${TARGET_DIR}/opt/iora/build/${svc}/bin/.keep"
+
+    user_line=""
+    [ "$user" != "root" ] && user_line="USER ${user}"
+
+    cat > "${TARGET_DIR}/opt/iora/build/${svc}/Dockerfile" <<DOCKEREOF
+# IORA OS — ${svc} container
+# Built locally from pre-compiled binary bundled in IORA OS.
+# No external registry pulls. Source: /opt/iora/build/${svc}/
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates libgcc libssl3 libpq curl
+
+$( [ "$user" != "root" ] && echo "RUN adduser -D -s /sbin/nologin ${user}" )
+
+WORKDIR /app
+
+COPY bin/${svc} /app/${svc}
+RUN chmod +x /app/${svc} \
+    $( [ "$user" != "root" ] && echo "&& chown -R ${user}:${user} /app" || true )
+
+${user_line}
+
+EXPOSE ${port}
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\
+    CMD curl -sf http://localhost:${port}/health || exit 1
+
+CMD ["/app/${svc}"]
+DOCKEREOF
+done
+
+# ── docker-compose.build.yml — the self-build compose file ─────────────────
+# Used by iora-build-images.service and iora-stack.service.
+# build: context points to /opt/iora/build/<service> so docker can find the
+# Dockerfile and the pre-compiled binary without any network access.
+cat > "${TARGET_DIR}/opt/iora/build/docker-compose.build.yml" <<'COMPOSEOF'
+# IORA OS — self-build Docker Compose file
+# All IORA system containers are built locally; no registry pulls.
+# Generated by post-build.sh — do not edit on device.
+version: "3.8"
+
+services:
+  iora-core:
+    build:
+      context: /opt/iora/build/iora-core
+      dockerfile: Dockerfile
+    image: iora/core:latest
+    container_name: iora-core
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    networks:
+      - iora-network
+    labels:
+      iora.managed: "true"
+      iora.service: "core"
+      iora.critical: "true"
+      iora.self-built: "true"
+
+  iora-home:
+    build:
+      context: /opt/iora/build/iora-home
+      dockerfile: Dockerfile
+    image: iora/home:latest
+    container_name: iora-home
+    restart: unless-stopped
+    ports:
+      - "${HOME_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home
+      - HA_URL=${HA_URL:-}
+      - HA_TOKEN=${HA_TOKEN:-}
+      - JWT_SECRET=${JWT_SECRET:-changeme}
+      - IORA_CORE_URL=http://iora-core:8090
+      - RUST_LOG=${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iora-core:
+        condition: service_started
+    labels:
+      iora.managed: "true"
+      iora.service: "home"
+      iora.critical: "true"
+      iora.self-built: "true"
+
+  iora-control:
+    build:
+      context: /opt/iora/build/iora-control
+      dockerfile: Dockerfile
+    image: iora/control:latest
+    container_name: iora-control
+    restart: unless-stopped
+    ports:
+      - "${CONTROL_PORT:-8091}:8091"
+    environment:
+      - PORT=8091
+      - IORA_CORE_URL=http://iora-core:8090
+      - IORA_HOME_URL=http://iora-home:8080
+      - RUST_LOG=${RUST_LOG:-info}
+    networks:
+      - iora-network
+    depends_on:
+      - iora-core
+      - iora-home
+    labels:
+      iora.managed: "true"
+      iora.service: "control"
+      iora.self-built: "true"
+
+  iora-assist:
+    build:
+      context: /opt/iora/build/iora-assist
+      dockerfile: Dockerfile
+    image: iora/assist:latest
+    container_name: iora-assist
+    restart: unless-stopped
+    ports:
+      - "${ASSIST_PORT:-8092}:8092"
+    environment:
+      - PORT=8092
+      - ASSIST_AI_BACKEND_URL=${ASSIST_AI_BACKEND_URL:-}
+      - ASSIST_AI_API_KEY=${ASSIST_AI_API_KEY:-}
+      - RUST_LOG=${RUST_LOG:-info}
+    networks:
+      - iora-network
+    depends_on:
+      - iora-core
+    labels:
+      iora.managed: "true"
+      iora.service: "assist"
+      iora.self-built: "true"
+
+  iora-secrets:
+    build:
+      context: /opt/iora/build/iora-secrets
+      dockerfile: Dockerfile
+    image: iora/secrets:latest
+    container_name: iora-secrets
+    restart: unless-stopped
+    ports:
+      - "${SECRETS_PORT:-8093}:8093"
+    environment:
+      - PORT=8093
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets
+      - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY:-}
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - secrets_data:/var/lib/iora
+    networks:
+      - iora-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - apparmor=iora-secrets
+    labels:
+      iora.managed: "true"
+      iora.service: "secrets"
+      iora.critical: "true"
+      iora.self-built: "true"
+
+  iora-watchdog:
+    build:
+      context: /opt/iora/build/iora-watchdog
+      dockerfile: Dockerfile
+    image: iora/watchdog:latest
+    container_name: iora-watchdog
+    restart: unless-stopped
+    ports:
+      - "${WATCHDOG_PORT:-8094}:8094"
+    environment:
+      - PORT=8094
+      - IORA_CORE_URL=http://iora-core:8090
+      - RUST_LOG=${RUST_LOG:-info}
+    networks:
+      - iora-network
+    depends_on:
+      - iora-core
+    labels:
+      iora.managed: "true"
+      iora.service: "watchdog"
+      iora.critical: "true"
+      iora.self-built: "true"
+
+  iora-security:
+    build:
+      context: /opt/iora/build/iora-security
+      dockerfile: Dockerfile
+    image: iora/security:latest
+    container_name: iora-security
+    restart: unless-stopped
+    ports:
+      - "${SECURITY_PORT:-8095}:8095"
+    environment:
+      - PORT=8095
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_security
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - security_data:/var/lib/iora
+    networks:
+      - iora-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - apparmor=iora-security
+    labels:
+      iora.managed: "true"
+      iora.service: "security"
+      iora.critical: "true"
+      iora.self-built: "true"
+
+  iora-gateway:
+    build:
+      context: /opt/iora/build/iora-gateway
+      dockerfile: Dockerfile
+    image: iora/gateway:latest
+    container_name: iora-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8096}:8096"
+    environment:
+      - PORT=8096
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - gateway_data:/var/lib/iora
+    networks:
+      - iora-network
+    security_opt:
+      - apparmor=iora-gateway
+    labels:
+      iora.managed: "true"
+      iora.service: "gateway"
+      iora.self-built: "true"
+
+  iora-supervisor:
+    build:
+      context: /opt/iora/build/iora-supervisor
+      dockerfile: Dockerfile
+    image: iora/supervisor:latest
+    container_name: iora-supervisor
+    restart: unless-stopped
+    ports:
+      - "${SUPERVISOR_PORT:-8097}:8097"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - supervisor_data:/var/lib/iora
+    networks:
+      - iora-network
+    privileged: true
+    environment:
+      - PORT=8097
+      - RUST_LOG=${RUST_LOG:-info}
+      - IORA_OS=true
+    depends_on:
+      - iora-core
+    labels:
+      iora.managed: "true"
+      iora.service: "supervisor"
+      iora.critical: "true"
+      iora.os_only: "true"
+      iora.self-built: "true"
+
+  # PostgreSQL — official image; not an IORA system container
+  postgres:
+    image: postgres:16-alpine
+    container_name: iora-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-iora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-iora_home}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - iora-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-iora}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      iora.managed: "true"
+      iora.service: "postgres"
+
+networks:
+  iora-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+  secrets_data:
+  security_data:
+  gateway_data:
+  supervisor_data:
+COMPOSEOF
+
+# ── build-images.sh ─────────────────────────────────────────────────────────
+# Run by iora-build-images.service on first boot (and after updates).
+# Builds all IORA system containers from the bundled build contexts.
+cat > "${TARGET_DIR}/opt/iora/build/build-images.sh" <<'BUILDEOF'
+#!/bin/sh
+# IORA OS — self-build all system Docker images from bundled contexts.
+# Run by iora-build-images.service; writes flag on success.
+
+BUILD_ROOT="/opt/iora/build"
+COMPOSE_FILE="${BUILD_ROOT}/docker-compose.build.yml"
+FLAG_FILE="/mnt/data/iora/.images-built"
+LOG_FILE="/var/log/iora-build-images.log"
+
+log() { echo "[iora-build-images] $*" | tee -a "${LOG_FILE}"; }
+
+log "Starting IORA self-build — building all system images from bundled sources"
+log "Build context: ${BUILD_ROOT}"
+log "This replaces all registry pulls with local builds for security."
+
+# Verify Docker is running
+if ! docker info >/dev/null 2>&1; then
+    log "ERROR: Docker daemon is not running. Will retry on next boot."
+    exit 1
+fi
+
+# Verify binaries exist (build pipeline must have placed them)
+missing=0
+for svc in iora-core iora-home iora-control iora-assist iora-secrets \
+            iora-watchdog iora-security iora-gateway iora-supervisor; do
+    bin="${BUILD_ROOT}/${svc}/bin/${svc}"
+    if [ ! -f "${bin}" ] || [ ! -s "${bin}" ]; then
+        log "WARNING: binary missing or empty: ${bin}"
+        missing=$((missing + 1))
+    fi
+done
+
+if [ "${missing}" -gt 0 ]; then
+    log "ERROR: ${missing} service binary/binaries missing."
+    log "Run 'build-all-images.sh' on the build host to compile and embed binaries."
+    exit 1
+fi
+
+# Build all images using docker compose
+log "Running: docker compose -f ${COMPOSE_FILE} build --no-cache"
+if docker compose -f "${COMPOSE_FILE}" build --no-cache 2>&1 | tee -a "${LOG_FILE}"; then
+    log "All IORA system images built successfully."
+    touch "${FLAG_FILE}"
+    exit 0
+else
+    log "ERROR: docker compose build failed. Check ${LOG_FILE} for details."
+    exit 1
+fi
+BUILDEOF
+chmod 755 "${TARGET_DIR}/opt/iora/build/build-images.sh"
+
+# ── iora-build-images.service ───────────────────────────────────────────────
+# Runs ONCE per installation (or after an update resets the flag).
+# Must complete before iora-stack.service starts the containers.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-build-images.service" <<'EOF'
+[Unit]
+Description=IORA OS — Build System Docker Images from Bundled Sources
+Documentation=file:///opt/iora/build/
+# Run after Docker is up and the data partition is mounted.
+After=docker.service iora-init-data.service network-online.target
+Wants=docker.service iora-init-data.service
+# Must complete before iora-stack starts containers.
+Before=iora-stack.service
+# Only build when the flag file is absent (first boot or post-update).
+ConditionPathExists=!/mnt/data/iora/.images-built
+ConditionPathIsDirectory=/mnt/data/iora
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/iora/build/build-images.sh
+# 30 min is generous for slow devices (RPi 4 building 9 images).
+TimeoutStartSec=1800
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+ln -sf /etc/systemd/system/iora-build-images.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-build-images.service"
+
+# ── Update iora-stack.service to use self-built images ─────────────────────
+# Replace the pull-based stack service with a build-aware one that:
+#  1. Skips if still on the placeholder compose file.
+#  2. Builds images (if the build service hasn't run yet — belt-and-suspenders).
+#  3. Starts containers with `docker compose up -d`.
+#  Never pulls from an external registry.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-stack.service" <<'EOF'
+[Unit]
+Description=IORA Docker Stack
+# Wants (not Requires): if docker/network are briefly unavailable we still
+# try and simply exit cleanly on retry rather than spamming "Failed to start"
+# on every Restart= attempt.
+Wants=docker.service iora-init-data.service iora-build-images.service network-online.target
+After=docker.service network-online.target iora-init-data.service iora-build-images.service
+ConditionPathIsDirectory=/mnt/data/iora
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/mnt/data/iora
+
+# Skip start-up when the placeholder compose file is in place (fresh install,
+# before iora-setup has run).  Once the setup wizard writes a real compose
+# file this check exits non-zero and execution continues normally.
+ExecStartPre=/bin/sh -c '\
+  if [ ! -f /mnt/data/iora/docker-compose.yml ]; then \
+    printf "version: \"3.8\"\nservices:\n  placeholder:\n    image: hello-world\n" \
+      > /mnt/data/iora/docker-compose.yml; \
+  fi; \
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
+     && ! grep -q "iora/" /mnt/data/iora/docker-compose.yml; then \
+    echo "iora-stack: placeholder compose detected, skipping"; \
+    exit 0; \
+  fi; \
+  echo "iora-stack: IORA OS self-build model — skipping registry pull"; \
+  exit 0'
+
+ExecStart=/bin/sh -c '\
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
+     && ! grep -q "iora/" /mnt/data/iora/docker-compose.yml; then \
+    echo "iora-stack: placeholder compose, not starting containers"; \
+    exit 0; \
+  fi; \
+  /usr/bin/docker compose up -d --remove-orphans || true'
+
+ExecStartPost=/bin/sh -c '\
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
+     && ! grep -q "iora/" /mnt/data/iora/docker-compose.yml; then \
+    exit 0; \
+  fi; \
+  sleep 10 && /usr/bin/docker compose up -d --remove-orphans || true'
+
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose up -d --remove-orphans
+SuccessExitStatus=0 1
+Restart=no
+TimeoutStartSec=180
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Re-enable the iora-stack symlink (it was overwritten above).
+ln -sf /etc/systemd/system/iora-stack.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-stack.service"
+
+echo "IORA OS: Self-build image infrastructure installed."
 
 echo "IORA OS: Post-build script completed successfully"

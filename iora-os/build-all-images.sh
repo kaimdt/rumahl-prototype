@@ -551,6 +551,84 @@ build_base_image() {
     log_success "Base image built successfully"
 }
 
+# =============================================================================
+# Compile IORA service binaries and embed them in the rootfs overlay
+# =============================================================================
+# All IORA system containers are self-built on the device (no registry pulls).
+# To make the on-device build fast we pre-compile the Rust service binaries
+# here (on the build host) and place them into the rootfs overlay so that
+# post-build.sh can bundle them into /opt/iora/build/<service>/bin/.
+#
+# Requirements: Docker must be available on the build host.
+build_service_binaries() {
+    local OVERLAY="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/build"
+    local BACKEND_DIR="${SCRIPT_DIR}/../backend"
+
+    # Resolve backend path (the repo root is one level up from iora-os/).
+    if [ ! -d "${BACKEND_DIR}" ]; then
+        BACKEND_DIR="${SCRIPT_DIR}/../../backend"
+    fi
+    if [ ! -f "${BACKEND_DIR}/Dockerfile" ]; then
+        log_warn "backend/Dockerfile not found at ${BACKEND_DIR}; skipping binary embedding."
+        log_warn "On-device self-build will still work but requires the build pipeline to place"
+        log_warn "the binaries in ${OVERLAY}/<service>/bin/ before flashing."
+        return 0
+    fi
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log_warn "docker not found; skipping pre-compilation of IORA service binaries."
+        log_warn "On-device self-build still works but the first boot will fail without binaries."
+        return 0
+    fi
+
+    log_info "Pre-compiling IORA service binaries for self-build embedding..."
+    log_info "Backend source: ${BACKEND_DIR}"
+
+    local BUILDER_TAG="iora-builder-tmp:$(date +%s)"
+
+    # Build the compilation stage only (--target builder) — avoids running
+    # the runtime stages and is much faster on repeat builds if layer cache hits.
+    log_info "docker build --target builder ..."
+    if ! docker build \
+            --target builder \
+            --tag "${BUILDER_TAG}" \
+            --file "${BACKEND_DIR}/Dockerfile" \
+            "${BACKEND_DIR}"; then
+        log_warn "Failed to build iora-builder image; skipping binary embedding."
+        return 0
+    fi
+
+    local SERVICES="iora-core iora-home iora-control iora-assist iora-secrets \
+                    iora-watchdog iora-security iora-gateway iora-supervisor"
+    local failed=0
+
+    for svc in ${SERVICES}; do
+        local dest="${OVERLAY}/${svc}/bin"
+        mkdir -p "${dest}"
+
+        log_info "  Extracting ${svc}..."
+        if docker run --rm "${BUILDER_TAG}" \
+                cat "/app/backend/target/release/${svc}" > "${dest}/${svc}" 2>/dev/null; then
+            chmod +x "${dest}/${svc}"
+            log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
+        else
+            log_warn "  ${svc}: binary not found in builder image (service may not be compiled yet)"
+            rm -f "${dest}/${svc}"
+            failed=$((failed + 1))
+        fi
+    done
+
+    # Clean up the temporary builder image
+    docker rmi "${BUILDER_TAG}" >/dev/null 2>&1 || true
+
+    if [ "${failed}" -gt 0 ]; then
+        log_warn "${failed} service binary/binaries could not be extracted."
+        log_warn "On-device first boot will fail for those services."
+    else
+        log_success "All IORA service binaries embedded in rootfs overlay."
+    fi
+}
+
 create_iso_image() {
     log_info "Creating archive ISO image (not directly bootable)..."
 
@@ -5238,6 +5316,10 @@ main() {
     # Run build steps
     check_dependencies
     if [ "${IMAGES_ONLY}" = false ]; then
+        # Pre-compile IORA service binaries and embed them in the rootfs overlay
+        # so the on-device self-build (iora-build-images.service) has binaries
+        # available without needing a compiler on the device.
+        build_service_binaries
         download_buildroot
         configure_buildroot
         build_base_image
