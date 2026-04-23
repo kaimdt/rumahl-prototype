@@ -2658,8 +2658,10 @@ fi
 
 # Verify binaries exist (build pipeline must have placed them)
 missing=0
+total=0
 for svc in iora-core iora-home iora-control iora-assist iora-secrets \
             iora-watchdog iora-security iora-gateway iora-supervisor; do
+    total=$((total + 1))
     bin="${BUILD_ROOT}/${svc}/bin/${svc}"
     if [ ! -f "${bin}" ] || [ ! -s "${bin}" ]; then
         log "WARNING: binary missing or empty: ${bin}"
@@ -2667,8 +2669,20 @@ for svc in iora-core iora-home iora-control iora-assist iora-secrets \
     fi
 done
 
+if [ "${missing}" -eq "${total}" ]; then
+    # All binaries missing — this is a dev/CI build without pre-compiled IORA
+    # service binaries.  Skip gracefully so the system doesn't show a failed
+    # unit; the setup wizard (iora-setup.service) works independently of the
+    # IORA service stack.
+    log "SKIP: No IORA service binaries found in ${BUILD_ROOT}."
+    log "This is normal for dev builds or images built without 'build-all-images.sh'."
+    log "The setup wizard at :8080 is unaffected and will guide through configuration."
+    touch "${FLAG_FILE}"
+    exit 0
+fi
+
 if [ "${missing}" -gt 0 ]; then
-    log "ERROR: ${missing} service binary/binaries missing."
+    log "ERROR: ${missing} of ${total} service binary/binaries missing."
     log "Run 'build-all-images.sh' on the build host to compile and embed binaries."
     exit 1
 fi
