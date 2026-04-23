@@ -39,24 +39,26 @@ PIN_DIGITS = 16
 
 def generate_recovery_pin() -> str:
     """Generate a cryptographically secure 16-digit Recovery PIN."""
-    return "".join(str(secrets.randbelow(10)) for _ in range(PIN_DIGITS))
+    # Generate as a zero-padded integer from a single secrets call for efficiency.
+    return f"{secrets.randbelow(10 ** PIN_DIGITS):0{PIN_DIGITS}d}"
 
 
 def hash_recovery_pin(pin: str, salt: str | None = None) -> str:
     """Hash a Recovery PIN with PBKDF2-HMAC-SHA256.
 
-    Storage format: ``sha256:<salt>:<iterations>:<hex-hash>``
-    The salt and hash are both hex-encoded.
+    Uses Python's standard ``hashlib.pbkdf2_hmac`` for a correct PBKDF2
+    implementation.  Storage format: ``pbkdf2-sha256:<hex_salt>:<iter>:<hex>``
     """
     if salt is None:
         salt = secrets.token_hex(16)
     iterations = PIN_HASH_ITERATIONS
-    # Simple iterative SHA-256 stretch (matches the shell implementation in
-    # iora-recovery-tui which cannot easily call PBKDF2).
-    h = hashlib.sha256((salt + pin).encode()).digest()
-    for _ in range(1, iterations):
-        h = hashlib.sha256(h).digest()
-    return f"sha256:{salt}:{iterations}:{h.hex()}"
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        pin.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations,
+    )
+    return f"pbkdf2-sha256:{salt}:{iterations}:{digest.hex()}"
 
 
 def store_recovery_pin_hash(pin_hash: str) -> None:
@@ -131,7 +133,7 @@ def generate_and_store_luks_keyfile() -> str | None:
     os.makedirs("/etc/iora", exist_ok=True)
     tmp = DATA_KEYFILE + ".tmp"
     try:
-        key_bytes = secrets.token_bytes(4096)
+        key_bytes = secrets.token_bytes(32)  # 256-bit key — LUKS2 derives its own master key from this
         with open(tmp, "wb") as f:
             f.write(key_bytes)
         os.chmod(tmp, 0o600)

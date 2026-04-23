@@ -610,6 +610,10 @@ else
     log "iora-data is plain ext4 — creating pass-through device alias"
     # Resolve the by-label symlink to the actual block device.
     real=$(readlink -f "$DEV" 2>/dev/null) || real="$DEV"
+    # Validate that 'real' is actually a block device before using it.
+    if [ ! -b "$real" ]; then
+        fail "resolved device '$real' is not a block device — cannot create alias"
+    fi
     # Create a linear device-mapper device so mnt-data.mount always works.
     sectors=$(blockdev --getsz "$real" 2>/dev/null) || sectors=""
     if [ -n "$sectors" ] && command -v dmsetup >/dev/null 2>&1; then
@@ -1929,41 +1933,62 @@ verify_pin() {
     stty echo 2>/dev/null || true
     printf "\n"
 
-    # Validate format: exactly 16 digits.
+    # Validate format: exactly 16 decimal digits.
+    # Note: the 16-character pattern below must match PIN_DIGITS (= 16) in
+    # setup-server.py. If PIN length ever changes, update both together.
     case "$entered_pin" in
         [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
         *)
             printf "  ${RED}✗ Invalid format — PIN must be exactly 16 digits.${RST}\n\n"
+            audit_log "pin-verify" "yes" "invalid-format"
             return 1
             ;;
     esac
 
-    # Hash with PBKDF2-HMAC-SHA256 using openssl (always available).
+    # Use Python 3 for PBKDF2-HMAC-SHA256 verification (consistent with
+    # the storage implementation in setup-server.py, which uses
+    # hashlib.pbkdf2_hmac). Python 3 is always available on IORA OS
+    # (/usr/bin/python3 is installed by the iora-setup package).
     stored_hash="$(cat "$PIN_HASH_FILE" 2>/dev/null)"
-    # The stored hash format: "sha256:<salt>:<iterations>:<hex-hash>"
-    salt="$(echo "$stored_hash"    | cut -d: -f2)"
-    iters="$(echo "$stored_hash"   | cut -d: -f3)"
+    # Stored format: "pbkdf2-sha256:<hex_salt>:<iterations>:<hex_digest>"
+    salt="$(echo "$stored_hash"     | cut -d: -f2)"
+    iters="$(echo "$stored_hash"    | cut -d: -f3)"
     expected="$(echo "$stored_hash" | cut -d: -f4)"
-    computed="$(printf '%s%s' "$salt" "$entered_pin" \
-        | openssl dgst -sha256 -binary \
-        | od -An -tx1 | tr -d ' \n' 2>/dev/null)"
 
-    # Simple multi-round stretching (without openssl pbkdf2 CLI availability).
-    i=1
-    while [ "$i" -lt "${iters:-1000}" ]; do
-        computed="$(printf '%s' "$computed" \
-            | openssl dgst -sha256 -binary \
-            | od -An -tx1 | tr -d ' \n' 2>/dev/null)"
-        i=$((i + 1))
-    done
+    if [ -z "$salt" ] || [ -z "$iters" ] || [ -z "$expected" ]; then
+        printf "  ${RED}✗ Recovery PIN file is corrupt.${RST}\n\n"
+        audit_log "pin-verify" "yes" "hash-corrupt"
+        return 1
+    fi
+
+    computed="$(python3 - "$entered_pin" "$salt" "$iters" 2>/dev/null <<'PYEOF'
+import hashlib, sys
+pin, salt, iters = sys.argv[1], sys.argv[2], int(sys.argv[3])
+print(hashlib.pbkdf2_hmac('sha256', pin.encode(), salt.encode(), iters).hex())
+PYEOF
+)"
+
+    if [ -z "$computed" ]; then
+        printf "  ${RED}✗ PIN verification failed (python3 not available).${RST}\n\n"
+        audit_log "pin-verify" "yes" "python-unavailable"
+        return 1
+    fi
 
     if [ "$computed" = "$expected" ]; then
         printf "  ${GREEN}✓ PIN accepted.${RST}\n\n"
         return 0
     else
         printf "  ${RED}✗ Incorrect PIN.${RST}\n\n"
-        # Slow down brute-force attempts.
-        sleep 3
+        audit_log "pin-verify" "yes" "wrong-pin"
+        # Exponential backoff: after each failure the delay doubles (3s, 6s, 12s…)
+        # up to a maximum of 60 seconds.  This is stored in a run-time file so
+        # it persists within the session but resets on reboot.
+        BACKOFF_FILE="/run/iora-recovery-backoff"
+        last="$(cat "$BACKOFF_FILE" 2>/dev/null || echo 0)"
+        next=$(( last < 30 ? (last == 0 ? 3 : last * 2) : 60 ))
+        printf "%s" "$next" > "$BACKOFF_FILE" 2>/dev/null || true
+        printf "  ${DIM}Waiting %ds before next attempt...${RST}\n\n" "$next"
+        sleep "$next"
         return 1
     fi
 }
@@ -2073,11 +2098,17 @@ do_unlock_data() {
     fi
 
     printf "\n  ${GREEN}Data access granted. User data is at /mnt/data${RST}\n"
-    printf "  ${YELLOW}Opening a restricted shell. Type 'exit' to return to Recovery TUI.${RST}\n\n"
+    printf "  ${YELLOW}Opening a recovery shell. Type 'exit' to return to Recovery TUI.${RST}\n\n"
     audit_log "unlock-data" "yes" "shell-opened"
-    # Restricted shell: no SUID, no sudo, audit every command via PS1.
-    env - HOME=/root TERM="${TERM:-linux}" PATH=/usr/bin:/bin \
-        PS1="[IORA-RECOVERY]# " \
+    # Recovery shell: intentionally grants full root filesystem access because
+    # the operator has already authenticated with the Recovery PIN (the
+    # security gate). The shell has a clean environment and a distinct prompt
+    # so the user knows they are in recovery mode. Capabilities are set on the
+    # service unit; CAP_SYS_ADMIN is required for mount/umount operations.
+    # This is equivalent to physical access — the Recovery PIN IS the
+    # authentication factor for data recovery.
+    env - HOME=/root TERM="${TERM:-linux}" PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+        PS1="[IORA-RECOVERY \w]# " \
         sh --norc 2>/dev/null
     audit_log "unlock-data" "yes" "shell-exited"
     # Re-lock data partition on exit if we mounted it.
