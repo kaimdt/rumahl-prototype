@@ -2399,7 +2399,6 @@ services:
       - RUST_LOG=${RUST_LOG:-info}
     networks:
       - iora-network
-    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -2749,7 +2748,7 @@ ExecStartPre=/bin/sh -c '\
       > /mnt/data/iora/docker-compose.yml; \
   fi; \
   if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "iora/" /mnt/data/iora/docker-compose.yml; then \
+     && ! grep -q "image: iora/" /mnt/data/iora/docker-compose.yml; then \
     echo "iora-stack: placeholder compose detected, skipping"; \
     exit 0; \
   fi; \
@@ -2758,7 +2757,7 @@ ExecStartPre=/bin/sh -c '\
 
 ExecStart=/bin/sh -c '\
   if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "iora/" /mnt/data/iora/docker-compose.yml; then \
+     && ! grep -q "image: iora/" /mnt/data/iora/docker-compose.yml; then \
     echo "iora-stack: placeholder compose, not starting containers"; \
     exit 0; \
   fi; \
@@ -2766,7 +2765,7 @@ ExecStart=/bin/sh -c '\
 
 ExecStartPost=/bin/sh -c '\
   if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "iora/" /mnt/data/iora/docker-compose.yml; then \
+     && ! grep -q "image: iora/" /mnt/data/iora/docker-compose.yml; then \
     exit 0; \
   fi; \
   sleep 10 && /usr/bin/docker compose up -d --remove-orphans || true'
