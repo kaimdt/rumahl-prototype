@@ -2009,11 +2009,11 @@ cmd_system() {
             ;;
         reboot)
             printf "${YELLOW}Rebooting IORA OS...${RST}\n"
-            systemctl reboot 2>/dev/null || reboot -f 2>/dev/null || busybox reboot 2>/dev/null
+            systemctl reboot 2>/dev/null || busybox reboot 2>/dev/null || reboot -f 2>/dev/null
             ;;
         shutdown|poweroff)
             printf "${YELLOW}Shutting down IORA OS...${RST}\n"
-            systemctl poweroff 2>/dev/null || poweroff -f 2>/dev/null || busybox poweroff 2>/dev/null
+            systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null || poweroff -f 2>/dev/null
             ;;
         *)
             print_err "Unknown system subcommand: $sub"
@@ -2244,13 +2244,15 @@ for _cmd in reboot halt poweroff; do
         elif [ -e "${TARGET_DIR}/usr/sbin/${_cmd}" ] || [ -L "${TARGET_DIR}/usr/sbin/${_cmd}" ]; then
             ln -sf "/usr/sbin/${_cmd}" "${TARGET_DIR}/usr/bin/${_cmd}" 2>/dev/null || true
         else
-            # Create a minimal wrapper that tries systemctl, then kernel calls
+            # Create a minimal wrapper that tries systemctl, then busybox;
+            # no further exec fallback to avoid calling a non-existent /sbin binary.
             cat > "${TARGET_DIR}/usr/bin/${_cmd}" <<PWREOF
 #!/bin/sh
 # IORA OS ${_cmd} wrapper
-systemctl ${_cmd} 2>/dev/null || \
-    busybox ${_cmd} 2>/dev/null || \
-    exec /sbin/${_cmd} "\$@"
+if systemctl ${_cmd} 2>/dev/null; then
+    exit 0
+fi
+busybox ${_cmd} 2>/dev/null || echo "ERROR: ${_cmd} failed — no suitable command found" >&2
 PWREOF
             chmod 755 "${TARGET_DIR}/usr/bin/${_cmd}" 2>/dev/null || true
         fi
@@ -2267,11 +2269,11 @@ if [ ! -e "${TARGET_DIR}/usr/bin/shutdown" ] && \
 #!/bin/sh
 # IORA OS shutdown wrapper
 case "${1:-}" in
-    -r|--reboot)     systemctl reboot   2>/dev/null || busybox reboot   2>/dev/null ;;
+    -r|--reboot)      systemctl reboot   2>/dev/null || busybox reboot   2>/dev/null ;;
     -h|-P|--poweroff) systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
-    -H|--halt)       systemctl halt     2>/dev/null || busybox halt     2>/dev/null ;;
-    now)             systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
-    *)               systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
+    -H|--halt)        systemctl halt     2>/dev/null || busybox halt     2>/dev/null ;;
+    now)              systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
+    *)                systemctl poweroff 2>/dev/null || busybox poweroff 2>/dev/null ;;
 esac
 SHUTEOF
         chmod 755 "${TARGET_DIR}/usr/bin/shutdown" 2>/dev/null || true
@@ -2285,9 +2287,18 @@ if [ ! -e "${TARGET_DIR}/usr/bin/restart" ] && \
 #!/bin/sh
 # IORA OS restart — reboots the system
 printf "Restarting IORA OS...\n"
-systemctl reboot 2>/dev/null || \
-    busybox reboot 2>/dev/null || \
-    exec reboot "$@"
+if systemctl reboot 2>/dev/null; then
+    exit 0
+fi
+if busybox reboot 2>/dev/null; then
+    exit 0
+fi
+# Last resort: try /sbin/reboot or /usr/bin/reboot directly
+for _rb in /sbin/reboot /usr/bin/reboot; do
+    [ -x "$_rb" ] && exec "$_rb" "$@"
+done
+echo "ERROR: reboot failed — no suitable command found" >&2
+exit 1
 RESTEOF
     chmod 755 "${TARGET_DIR}/usr/bin/restart" 2>/dev/null || true
 fi

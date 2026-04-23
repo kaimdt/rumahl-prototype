@@ -1187,13 +1187,13 @@ screen_password() {
     if [ -z "$DIALOG_BIN" ]; then
         while true; do
             printf "  Root password (required): "
-            stty -echo 2>/dev/null; read pw1; stty echo 2>/dev/null; echo ""
+            stty -echo 2>/dev/null; read -r pw1; stty echo 2>/dev/null; echo ""
             if [ -z "$pw1" ]; then
                 echo "  ERROR: A root password is required. Please try again."
                 continue
             fi
             printf "  Confirm password: "
-            stty -echo 2>/dev/null; read pw2; stty echo 2>/dev/null; echo ""
+            stty -echo 2>/dev/null; read -r pw2; stty echo 2>/dev/null; echo ""
             if [ "$pw1" = "$pw2" ]; then
                 IORA_ROOT_PW="$pw1"
                 return 0
