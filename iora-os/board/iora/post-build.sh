@@ -1207,7 +1207,7 @@ fi
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup.service" <<'EOF'
 [Unit]
 Description=IORA Home First-Boot Setup Wizard
-After=network-online.target iora-init-data.service docker.service
+After=network-online.target iora-init-data.service
 Wants=network-online.target
 Before=iora-stack.service
 ConditionPathExists=!/mnt/data/iora/.setup-complete
@@ -1487,6 +1487,9 @@ Description=Trigger iora-motd-update on network or setup changes
 
 [Path]
 PathChanged=/run/systemd/netif/state
+# Also watch the networkd lease directory — covers DHCP lease events on
+# systems where /run/systemd/netif/state is not written by networkd.
+PathChanged=/run/systemd/netif/leases
 PathChanged=/etc/hostname
 PathExistsGlob=/mnt/data/iora/.setup-complete
 

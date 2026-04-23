@@ -1484,33 +1484,33 @@ insmod all_video
 menuentry "IORA OS" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
 menuentry "IORA OS (second slot)" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
 menuentry "IORA OS Recovery" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+        linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+        linux /vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+        linux /boot/bzImage root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
     fi
 }
 GRUBCFG
@@ -2005,27 +2005,27 @@ insmod all_video
 menuentry "IORA OS" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
 menuentry "IORA OS (Partition B)" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
 menuentry "IORA OS Recovery" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 nomodeset init=/bin/bash
+        linux /boot/vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 init=/bin/bash
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 nomodeset init=/bin/bash
+        linux /vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 init=/bin/bash
     fi
 }
 GRUBCFG
@@ -2875,6 +2875,38 @@ screen_network() {
 
     IORA_NETWORK="$mode"
 
+    if [ "$mode" = "dhcp" ]; then
+        # Bring up the network and try to acquire a DHCP lease in the
+        # installer environment so the user can see which IP was assigned
+        # (and use it to reach the setup wizard after first boot).
+        local dhcp_ip=""
+        for _iface in /sys/class/net/*; do
+            local _ifname
+            _ifname=$(basename "$_iface")
+            [ "$_ifname" = "lo" ] && continue
+            ip link set "$_ifname" up 2>/dev/null || true
+            if udhcpc -i "$_ifname" -n -q -t 4 2>/dev/null; then
+                dhcp_ip=$(ip -4 addr show "$_ifname" 2>/dev/null \
+                    | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+                [ -n "$dhcp_ip" ] && break
+            fi
+        done
+        if [ -n "$dhcp_ip" ]; then
+            dlg_msg " Network - DHCP " "\
+ A DHCP lease was obtained in the installer environment.\n\n\
+ Current IP:  ${dhcp_ip}\n\n\
+ After installation and reboot the setup wizard will be at:\n\
+   http://${dhcp_ip}:8080\n\n\
+ The IP is also shown at the login prompt (MOTD).\n\
+ Note: DHCP may assign a different IP after reboot."
+        else
+            dlg_msg " Network - DHCP " "\
+ DHCP will be configured automatically on first boot.\n\n\
+ The assigned IP address will be shown in the MOTD\n\
+ when you log in, and at http://<IP>:8080."
+        fi
+    fi
+
     if [ "$mode" = "static" ]; then
         while true; do
             IORA_IP=$(dlg --title " Static IPv4 " --inputbox \
@@ -3705,19 +3737,19 @@ set timeout=5
 
 menuentry "IORA OS (encrypted)" {
     cryptomount -u ${uuid_a}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
 ${initrd_line}
 }
 
 menuentry "IORA OS - second slot (encrypted)" {
     cryptomount -u ${uuid_b}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
 ${initrd_line}
 }
 
 menuentry "IORA OS Recovery (encrypted)" {
     cryptomount -u ${uuid_a}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait rw rootfstype=ext4 nomodeset init=/bin/sh iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait rw rootfstype=ext4 init=/bin/sh iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
 ${initrd_line}
 }
 LUKSGRUB
@@ -3854,12 +3886,12 @@ set timeout=5
 
 menuentry "IORA OS" {
     search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
-    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 nomodeset loglevel=4 systemd.show_status=true printk.devkmsg=on
+    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
 }
 
 menuentry "IORA OS Recovery" {
     search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
-    linux /boot/vmlinuz root=${root_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+    linux /boot/vmlinuz root=${root_ref} rootwait rw rootfstype=ext4 init=/bin/sh
 }
 GRUBCFG
 
@@ -4132,11 +4164,12 @@ screen_install() {
 
 screen_complete() {
     # Determine expected IP address
-    local iora_ip="<IP>"
+    local iora_ip=""
+    local ip_note=""
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
         iora_ip="$IORA_IP"
     else
-        # Try to guess from first active interface
+        # Try to read current DHCP lease from any active interface
         for iface in /sys/class/net/*; do
             local name=$(basename "$iface")
             [ "$name" = "lo" ] && continue
@@ -4146,23 +4179,29 @@ screen_complete() {
                 break
             fi
         done
-        [ "$iora_ip" = "<IP>" ] && iora_ip="${IORA_HOSTNAME}.local"
+        if [ -z "$iora_ip" ]; then
+            iora_ip="${IORA_HOSTNAME}.local"
+            ip_note="  (IP not yet known — check MOTD after login)"
+        else
+            ip_note="  (DHCP — may differ after reboot)"
+        fi
     fi
 
     if [ -n "$DIALOG_BIN" ]; then
         local action
-                action=$(dlg --title " Setup Complete " --menu "\
+        action=$(dlg --title " Setup Complete " --menu "\
  IORA OS has been written to /dev/${SEL_DISK}.
 
- Next step after reboot:
+ Setup wizard URL after reboot:
      http://${iora_ip}:8080
+${ip_note}
 
  First-boot settings:
      Hostname: ${IORA_HOSTNAME}
      Timezone: ${IORA_TIMEZONE}
 
  Remove the installation media before continuing.\n" \
-                        18 64 3 \
+                    20 66 3 \
             "reboot"   "Reboot now (recommended)" \
             "shell"    "Drop to shell" \
             "poweroff" "Shut down" \
@@ -4180,6 +4219,7 @@ screen_complete() {
         echo ""
         echo "  After rebooting, open a browser:"
         echo "    http://${iora_ip}:8080"
+        [ -n "$ip_note" ] && echo "  ${ip_note}"
         echo ""
         echo "  Remove the media and press ENTER to reboot..."
         read _
