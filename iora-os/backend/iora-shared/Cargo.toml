@@ -1,0 +1,20 @@
+[package]
+name = "iora-shared"
+version = "0.1.0"
+edition = "2021"
+description = "IORA Shared – common types, plugin system, and utilities for the IORA ecosystem"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["sync"] }
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+tracing = "0.1"
+async-trait = "0.1"
+
+[lib]
+name = "iora_shared"
+path = "src/lib.rs"

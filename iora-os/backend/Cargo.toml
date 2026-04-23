@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "iora-shared",
+    "iora-home",
+    "iora-core",
+    "iora-control",
+    "iora-assist",
+    "iora-secrets",
+    "iora-watchdog",
+    "iora-installer",
+    "iora-security",
+    "iora-gateway",
+    "iora-files",
+    "iora-connector",
+    "iora-api",
+    "iora-supervisor",
+    "iora-cli",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

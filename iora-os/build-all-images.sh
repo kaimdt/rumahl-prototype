@@ -670,71 +670,83 @@ build_service_binaries() {
         # Use -p <package> instead of --bin: each IORA service lives in its
         # own workspace crate of the same name, so -p is unambiguous and
         # also builds the crate's *lib* dependencies in the right order.
-        local PKG_ARGS=""
-        for svc in ${SERVICES}; do
-            PKG_ARGS="${PKG_ARGS} -p ${svc}"
-        done
-
         local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
         export CARGO_TARGET_DIR
-        local cargo_ok=0
-        log_info "cargo build --release --target ${RUST_TRIPLE} ${PKG_ARGS}"
-        if ( cd "${BACKEND_DIR}" && cargo build --release --target "${RUST_TRIPLE}" ${PKG_ARGS} ) \
-             >/tmp/iora-cargo-build.log 2>&1; then
-            cargo_ok=1
-        else
-            log_warn "Cross-compile to ${RUST_TRIPLE} failed; falling back to host-native build."
-            log_warn "  (see /tmp/iora-cargo-build.log for details — last 20 lines below)"
-            tail -n 20 /tmp/iora-cargo-build.log 2>/dev/null | sed 's/^/    /' || true
-            if ( cd "${BACKEND_DIR}" && cargo build --release ${PKG_ARGS} ) \
+        : >/tmp/iora-cargo-build.log
+
+        # Build each service INDIVIDUALLY so a single broken crate (e.g.
+        # iora-supervisor failing to typecheck after an unrelated refactor)
+        # doesn't stop the other 8 from being embedded. Missing binaries
+        # are caught below and only those services fail
+        # ConditionPathExists at boot — the rest come up.
+        local built_ok=""
+        local built_fail=""
+        for svc in ${SERVICES}; do
+            log_info "  cargo build -p ${svc} --release --target ${RUST_TRIPLE}"
+            local svc_triple="${RUST_TRIPLE}"
+            if ( cd "${BACKEND_DIR}" && \
+                 cargo build --release --target "${svc_triple}" -p "${svc}" ) \
                  >>/tmp/iora-cargo-build.log 2>&1; then
-                cargo_ok=1
-                RUST_TRIPLE=""   # binaries live at target/release/<svc>
-            else
-                log_warn "Host-native cargo build also failed. Log tail:"
-                tail -n 30 /tmp/iora-cargo-build.log 2>/dev/null | sed 's/^/    /' || true
+                built_ok="${built_ok} ${svc}"
+                continue
             fi
+            log_warn "    ${svc}: cross-compile failed, trying host-native…"
+            if ( cd "${BACKEND_DIR}" && cargo build --release -p "${svc}" ) \
+                 >>/tmp/iora-cargo-build.log 2>&1; then
+                # Remember that this one built for the host triple only.
+                built_ok="${built_ok} ${svc}:hostnative"
+            else
+                log_warn "    ${svc}: BUILD FAILED (see /tmp/iora-cargo-build.log)"
+                built_fail="${built_fail} ${svc}"
+            fi
+        done
+
+        if [ -n "${built_fail}" ]; then
+            log_warn "The following services did NOT compile:${built_fail}"
+            log_warn "Last 40 lines of /tmp/iora-cargo-build.log:"
+            tail -n 40 /tmp/iora-cargo-build.log 2>/dev/null | sed 's/^/    /' || true
+            log_warn "The image will still be produced — failed services will stay INACTIVE on boot."
+            log_warn "Fix the compile errors in backend/<svc>/ and re-run the build."
         fi
 
-        if [ "${cargo_ok}" = "1" ]; then
-            local failed=0
-            for svc in ${SERVICES}; do
-                local src
-                if [ -n "${RUST_TRIPLE}" ]; then
-                    src="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${svc}"
-                else
-                    src="${CARGO_TARGET_DIR}/release/${svc}"
-                fi
-                local dest="${OVERLAY}/${svc}/bin"
-                mkdir -p "${dest}"
-                if [ -f "${src}" ]; then
-                    install -m 0755 "${src}" "${dest}/${svc}"
-                    # Drop the placeholder .keep now that we have the real
-                    # binary — otherwise it clutters the rootfs.
-                    rm -f "${dest}/.keep"
-                    log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
-                else
-                    log_warn "  ${svc}: binary not produced by cargo (missing [[bin]] target in ${svc}/src/main.rs?)"
-                    rm -f "${dest}/${svc}"
-                    failed=$((failed + 1))
-                fi
-            done
-            if [ "${failed}" -gt 0 ]; then
-                log_warn "${failed} service binary/binaries missing after cargo build."
-                log_warn "The resulting image will still boot but those services will stay INACTIVE"
-                log_warn "(ConditionPathExists on /opt/iora/build/<svc>/bin/<svc> will fail)."
-            else
-                log_success "All IORA service binaries embedded in rootfs overlay (native build)."
-            fi
-            return 0
-        fi
+        local failed=0
+        for svc in ${SERVICES}; do
+            local dest="${OVERLAY}/${svc}/bin"
+            mkdir -p "${dest}"
 
-        log_warn "Native cargo build failed; trying Docker fallback..."
-    else
-        log_warn "cargo STILL not found after auto-install attempt."
-        log_warn "Install the Rust toolchain manually (https://rustup.rs) and re-run the build,"
-        log_warn "or set IORA_AUTO_INSTALL_RUST=1 and ensure curl is available."
+            local src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${svc}"
+            local src_host="${CARGO_TARGET_DIR}/release/${svc}"
+            local src=""
+            if [ -f "${src_cross}" ]; then
+                src="${src_cross}"
+            elif [ -f "${src_host}" ]; then
+                src="${src_host}"
+            fi
+
+            if [ -n "${src}" ]; then
+                install -m 0755 "${src}" "${dest}/${svc}"
+                rm -f "${dest}/.keep"
+                log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
+            else
+                log_warn "  ${svc}: no binary produced (see above)."
+                rm -f "${dest}/${svc}"
+                failed=$((failed + 1))
+            fi
+        done
+
+        if [ "${failed}" -gt 0 ]; then
+            log_warn "${failed} service binary/binaries missing after cargo build."
+            log_warn "The resulting image will still boot; those services will stay INACTIVE"
+            log_warn "(ConditionPathExists on /opt/iora/build/<svc>/bin/<svc> will fail)."
+        else
+            log_success "All IORA service binaries embedded in rootfs overlay (native build)."
+        fi
+        return 0
     fi
+
+    log_warn "cargo STILL not found after auto-install attempt."
+    log_warn "Install the Rust toolchain manually (https://rustup.rs) and re-run the build,"
+    log_warn "or set IORA_AUTO_INSTALL_RUST=1 and ensure curl is available."
 
     # ── Strategy 2: legacy Docker builder image ─────────────────────────────
     if [ ! -f "${BACKEND_DIR}/Dockerfile" ]; then
