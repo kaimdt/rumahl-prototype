@@ -277,15 +277,19 @@ set timeout=3
 #     is useful for iora scripts that want to log boot progress.
 
 menuentry "IORA OS" {
-    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
+    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
 }
 
 menuentry "IORA OS (Partition B)" {
-    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
+    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
+}
+
+menuentry "IORA OS (verbose)" {
+    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 loglevel=7 systemd.show_status=true printk.devkmsg=on
 }
 
 menuentry "IORA OS Recovery" {
-    linux /vmlinuz root=${ROOT_A} rootwait rw rootfstype=ext4 init=/bin/bash
+    linux /vmlinuz root=${ROOT_A} rootwait rw rootfstype=ext4 console=tty0 console=ttyS0,115200n8 init=/bin/bash
 }
 GRUBEOF
 run_privileged mkdir -p "${MOUNT_DIR}/boot/grub"
