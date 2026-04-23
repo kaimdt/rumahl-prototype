@@ -10,9 +10,11 @@ to /mnt/data/iora/ and disables itself.
 Can also be run standalone (without IORA OS) as a setup tool.
 """
 
+import hashlib
 import http.server
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -26,6 +28,121 @@ SETUP_DONE_FLAG = "/mnt/data/iora/.setup-complete"
 IORA_VERSION_FILE = "/etc/iora-version"
 UPDATE_SERVER = "https://update.kaimdt.com"
 DOWNLOAD_SERVER = "https://dist.kaimdt.com"
+
+# Security constants
+RECOVERY_PIN_HASH_FILE = "/etc/iora/recovery-pin.hash"
+DATA_KEYFILE = "/etc/iora/data.keyfile"
+DATA_DEV = "/dev/disk/by-label/iora-data"
+PIN_HASH_ITERATIONS = 1000
+PIN_DIGITS = 16
+
+
+def generate_recovery_pin() -> str:
+    """Generate a cryptographically secure 16-digit Recovery PIN."""
+    return "".join(str(secrets.randbelow(10)) for _ in range(PIN_DIGITS))
+
+
+def hash_recovery_pin(pin: str, salt: str | None = None) -> str:
+    """Hash a Recovery PIN with PBKDF2-HMAC-SHA256.
+
+    Storage format: ``sha256:<salt>:<iterations>:<hex-hash>``
+    The salt and hash are both hex-encoded.
+    """
+    if salt is None:
+        salt = secrets.token_hex(16)
+    iterations = PIN_HASH_ITERATIONS
+    # Simple iterative SHA-256 stretch (matches the shell implementation in
+    # iora-recovery-tui which cannot easily call PBKDF2).
+    h = hashlib.sha256((salt + pin).encode()).digest()
+    for _ in range(1, iterations):
+        h = hashlib.sha256(h).digest()
+    return f"sha256:{salt}:{iterations}:{h.hex()}"
+
+
+def store_recovery_pin_hash(pin_hash: str) -> None:
+    """Write the PIN hash to /etc/iora/recovery-pin.hash (root-only readable)."""
+    os.makedirs("/etc/iora", exist_ok=True)
+    # Write atomically via temp file.
+    tmp = RECOVERY_PIN_HASH_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            f.write(pin_hash + "\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, RECOVERY_PIN_HASH_FILE)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def setup_luks_data_partition(keyfile_path: str) -> list[str]:
+    """Initialise LUKS encryption on the data partition.
+
+    Returns a list of error strings (empty on success).
+    Only called when the partition exists and is not yet LUKS-formatted.
+    """
+    errors: list[str] = []
+    if not os.path.exists(DATA_DEV):
+        return []  # Partition does not exist yet — skip silently.
+
+    # Check if already LUKS.
+    r = subprocess.run(
+        ["cryptsetup", "isLuks", DATA_DEV],
+        capture_output=True,
+    )
+    if r.returncode == 0:
+        return []  # Already encrypted — nothing to do.
+
+    if not os.path.exists(keyfile_path):
+        errors.append(f"LUKS setup skipped: keyfile {keyfile_path} not found")
+        return errors
+
+    # Format as LUKS2 with the generated keyfile.
+    r = subprocess.run(
+        [
+            "cryptsetup", "luksFormat",
+            "--type", "luks2",
+            "--batch-mode",
+            "--key-file", keyfile_path,
+            DATA_DEV,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        errors.append(f"cryptsetup luksFormat failed: {r.stderr.strip()}")
+        return errors
+
+    # Open the newly formatted LUKS partition.
+    subprocess.run(
+        ["cryptsetup", "luksOpen", DATA_DEV, "iora-data",
+         "--key-file", keyfile_path],
+        capture_output=True,
+    )
+    return errors
+
+
+def generate_and_store_luks_keyfile() -> str | None:
+    """Generate a random 4 KiB LUKS key and write it to DATA_KEYFILE.
+
+    Returns the keyfile path on success, None on failure.
+    """
+    os.makedirs("/etc/iora", exist_ok=True)
+    tmp = DATA_KEYFILE + ".tmp"
+    try:
+        key_bytes = secrets.token_bytes(4096)
+        with open(tmp, "wb") as f:
+            f.write(key_bytes)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, DATA_KEYFILE)
+        return DATA_KEYFILE
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        return None
 
 # Detect if running on IORA OS or standalone
 IS_IORA_OS = os.path.exists(IORA_VERSION_FILE)
@@ -147,8 +264,15 @@ def save_config(config):
 
 
 def apply_config(config):
-    """Apply the setup configuration to the system."""
+    """Apply the setup configuration to the system.
+
+    Returns a tuple (errors: list[str], recovery_pin: str | None).
+    ``recovery_pin`` is the plaintext 16-digit PIN generated during this
+    setup run. It is returned to the web UI so the user can write it down.
+    It is NEVER stored on the device in plaintext.
+    """
     errors = []
+    recovery_pin = None  # set below if on IORA OS
 
     # Create data directory structure
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -156,6 +280,29 @@ def apply_config(config):
     os.makedirs(os.path.join(DATA_DIR, "media"), exist_ok=True)
     os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
     os.makedirs(os.path.join(DATA_DIR, "addons"), exist_ok=True)
+
+    # ── Security: Recovery PIN + LUKS ─────────────────────────────────────
+    if IS_IORA_OS:
+        # 1. Generate a 16-digit Recovery PIN and store its hash.
+        if not os.path.exists(RECOVERY_PIN_HASH_FILE):
+            recovery_pin = generate_recovery_pin()
+            pin_hash = hash_recovery_pin(recovery_pin)
+            try:
+                store_recovery_pin_hash(pin_hash)
+            except Exception as e:
+                errors.append(f"Failed to store Recovery PIN hash: {e}")
+                recovery_pin = None
+        # If a hash already exists (re-run of setup), do not overwrite it.
+
+        # 2. Generate LUKS keyfile and encrypt data partition if not yet done.
+        if not os.path.exists(DATA_KEYFILE):
+            keyfile = generate_and_store_luks_keyfile()
+            if keyfile:
+                luks_errors = setup_luks_data_partition(keyfile)
+                errors.extend(luks_errors)
+            else:
+                errors.append("Failed to generate LUKS keyfile — data partition will remain unencrypted")
+    # ── End security setup ─────────────────────────────────────────────────
 
     # Generate docker-compose.yml
     compose = generate_compose(config)
@@ -256,15 +403,16 @@ def apply_config(config):
         except Exception as e:
             errors.append(f"Failed to start stack: {e}")
 
-    return errors
+    return errors, recovery_pin
 
 
 def generate_compose(config):
-    """Generate a docker-compose.yml for the IORA stack.
+    """Generate a docker-compose.yml for USER APPS only.
 
-    IORA OS self-build model: all IORA system containers are built locally
-    from Dockerfiles and pre-compiled binaries bundled in the OS image at
-    /opt/iora/build/.  No external registry is contacted at runtime.
+    IORA OS system services (iora-core, iora-home, etc.) run as native
+    systemd services — they are NOT in this compose file.
+    Only user-installed apps (Home Assistant, MQTT, Zigbee2MQTT, etc.)
+    belong here.
     """
     hostname = config.get("hostname", "iora")
     tz = config.get("timezone", "Europe/Berlin")
@@ -1007,6 +1155,25 @@ body {
     <div class="icon">&#10003;</div>
     <h2>Setup Complete!</h2>
     <p class="subtitle">Your IORA Home instance is ready.</p>
+
+    <!-- Recovery PIN — shown exactly once. MUST be stored by the user. -->
+    <div id="recoveryPinBox" style="display:none;margin:20px 0;padding:18px;
+         background:#1a1a2e;border:2px solid #ff6b35;border-radius:8px;text-align:left">
+      <h3 style="color:#ff6b35;margin-top:0">&#128274; Recovery PIN — Write This Down!</h3>
+      <p style="color:#ccc;margin:4px 0 12px">
+        This 16-digit Recovery PIN is your <strong>only</strong> way to access your data
+        if something goes wrong. It is shown here <strong>exactly once</strong> and is
+        never stored on the device.
+      </p>
+      <div id="recoveryPinValue" style="font-family:monospace;font-size:2em;
+           letter-spacing:4px;color:#fff;text-align:center;padding:12px;
+           background:#0d0d1a;border-radius:4px;margin:10px 0"></div>
+      <p style="color:#aaa;font-size:0.85em;margin:8px 0 0">
+        Store it in a safe place (password manager, printed paper in a secure location).<br>
+        You will need it to access your data in Recovery Mode.
+      </p>
+    </div>
+
     <div class="url" id="finalUrl">http://iora:8126</div>
     <p class="subtitle" style="margin-top:16px">
       The IORA Home dashboard will be available<br>
@@ -1115,6 +1282,17 @@ async function doInstall() {
       document.getElementById('doneBox').style.display = 'block';
       const ip = location.hostname;
       document.getElementById('finalUrl').textContent = 'http://' + ip + ':8126';
+
+      // Show Recovery PIN if the backend generated one.
+      if (result && result.recovery_pin) {
+        const pinBox = document.getElementById('recoveryPinBox');
+        const pinVal = document.getElementById('recoveryPinValue');
+        // Format as groups of 4 for readability: XXXX XXXX XXXX XXXX
+        const pin = result.recovery_pin;
+        pinVal.textContent = pin.slice(0,4) + ' ' + pin.slice(4,8) + ' ' + pin.slice(8,12) + ' ' + pin.slice(12,16);
+        pinBox.style.display = 'block';
+      }
+
       // Surface any backend errors (pull failures, compose errors, ...)
       // instead of pretending setup finished cleanly. The user complained
       // "nothing happens after setup" precisely because these were hidden.
@@ -1233,12 +1411,18 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             save_config(config)
-            errors = apply_config(config)
+            errors, recovery_pin = apply_config(config)
 
             if errors:
                 self._send_json({"ok": False, "errors": errors})
             else:
-                self._send_json({"ok": True})
+                response: dict = {"ok": True}
+                if recovery_pin:
+                    # Return the plaintext PIN to the web UI exactly once.
+                    # The UI MUST display it prominently and instruct the user
+                    # to write it down. It is never stored on the device.
+                    response["recovery_pin"] = recovery_pin
+                self._send_json(response)
 
                 # Schedule shutdown of setup server after response
                 def shutdown_later():

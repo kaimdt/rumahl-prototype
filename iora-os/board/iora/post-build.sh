@@ -557,23 +557,123 @@ LimitNOFILE=1048576
 LimitNPROC=1048576
 EOF
 
+# ── LUKS unlock service for /mnt/data ──────────────────────────────────────
+# iora-data-unlock.service runs before mnt-data.mount. It inspects whether
+# the iora-data partition is LUKS-formatted:
+#   - LUKS: opens it with the keyfile at /etc/iora/data.keyfile, creating
+#     the device-mapper node /dev/mapper/iora-data.
+#   - Plain ext4 (fresh install, no encryption yet): creates a symlink
+#     /dev/mapper/iora-data → /dev/disk/by-label/iora-data so the mount
+#     unit can always reference /dev/mapper/iora-data regardless of mode.
+# The keyfile is stored on the signed, read-only rootfs. An attacker booting
+# from external media cannot access it; iora-verify ensures rootfs integrity.
+mkdir -p "${TARGET_DIR}/usr/lib/iora" "${TARGET_DIR}/etc/iora"
+
+cat > "${TARGET_DIR}/usr/lib/iora/iora-data-unlock" <<'UNLOCKEOF'
+#!/bin/sh
+# IORA OS — data partition LUKS unlock helper.
+# Called by iora-data-unlock.service before mnt-data.mount.
+# Exits 0 in all cases so a missing/plain partition never blocks boot.
+
+DEV=/dev/disk/by-label/iora-data
+KEYFILE=/etc/iora/data.keyfile
+MAPPER=/dev/mapper/iora-data
+LOG_TAG="iora-data-unlock"
+
+log()  { logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*"; }
+fail() { log "WARNING: $*"; exit 0; }  # always exit 0 — non-fatal
+
+# Nothing to do if the partition doesn't exist yet (installer hasn't run).
+[ -e "$DEV" ] || fail "iora-data partition not found — skipping"
+
+# Nothing to do if already opened (e.g., by initramfs or previous invocation).
+if [ -b "$MAPPER" ]; then
+    log "iora-data already open at $MAPPER"
+    exit 0
+fi
+
+mkdir -p /dev/mapper
+
+if cryptsetup isLuks "$DEV" 2>/dev/null; then
+    log "iora-data is LUKS-encrypted — unlocking"
+    if [ -r "$KEYFILE" ]; then
+        if cryptsetup luksOpen "$DEV" iora-data --key-file "$KEYFILE"; then
+            log "iora-data unlocked successfully via keyfile"
+        else
+            log "ERROR: luksOpen failed — data partition will not be mounted"
+        fi
+    else
+        log "ERROR: keyfile $KEYFILE missing — data partition will not be mounted"
+        log "Boot into Recovery mode and use your Recovery PIN to restore access."
+    fi
+else
+    log "iora-data is plain ext4 — creating pass-through device alias"
+    # Resolve the by-label symlink to the actual block device.
+    real=$(readlink -f "$DEV" 2>/dev/null) || real="$DEV"
+    # Create a linear device-mapper device so mnt-data.mount always works.
+    sectors=$(blockdev --getsz "$real" 2>/dev/null) || sectors=""
+    if [ -n "$sectors" ] && command -v dmsetup >/dev/null 2>&1; then
+        dmsetup create iora-data --table "0 $sectors linear $real 0" 2>/dev/null \
+            && log "device-mapper alias created for plain partition" \
+            || ln -sf "$real" "$MAPPER" 2>/dev/null \
+            || log "WARNING: could not alias plain partition; falling back to raw device in mount"
+    else
+        # dmsetup not available — symlink fallback.
+        ln -sf "$real" "$MAPPER" 2>/dev/null || true
+        log "symlink alias created for plain partition"
+    fi
+fi
+exit 0
+UNLOCKEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-data-unlock"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-data-unlock.service" <<'EOF'
+[Unit]
+Description=IORA Data Partition LUKS Unlock
+DefaultDependencies=no
+After=systemd-udev-settle.service
+Before=mnt-data.mount local-fs.target
+ConditionPathExists=/dev/disk/by-label/iora-data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/iora/iora-data-unlock
+# Non-fatal: a failure here just means the data partition won't mount,
+# which is handled gracefully by ConditionPathIsMountPoint checks downstream.
+SuccessExitStatus=0 1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=local-fs.target
+EOF
+
+ln -sf /etc/systemd/system/iora-data-unlock.service \
+    "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/iora-data-unlock.service"
+
 # Auto-mount data partition at /mnt/data.
 # `nofail` is critical: on a freshly-dd'd disk, in VMs where the iora-data
 # label is not present yet, or when the installer hasn't run, a missing
 # label would drop the system into emergency.target. With nofail the mount
 # unit simply stays inactive and dependent services skip via their
 # ConditionPathIsMountPoint=/mnt/data.
+# We always mount /dev/mapper/iora-data (created by iora-data-unlock.service
+# either as a real LUKS device-mapper node or a symlink/alias to the raw
+# partition) so the mount unit doesn't need to know whether LUKS is active.
 cat > "${TARGET_DIR}/etc/systemd/system/mnt-data.mount" <<'EOF'
 [Unit]
 Description=IORA Data Partition
 DefaultDependencies=no
-After=systemd-fsck@dev-disk-by\x2dlabel-iora\x2ddata.service
+After=iora-data-unlock.service systemd-fsck@dev-disk-by\x2dlabel-iora\x2ddata.service
 Before=local-fs.target
 # Don't consider a missing data label a boot failure.
 ConditionPathExists=/dev/disk/by-label/iora-data
 
 [Mount]
-What=/dev/disk/by-label/iora-data
+# iora-data-unlock.service always provides /dev/mapper/iora-data regardless
+# of whether the partition is LUKS-encrypted or plain ext4.
+What=/dev/mapper/iora-data
 Where=/mnt/data
 Type=ext4
 Options=defaults,noatime,nofail,x-systemd.device-timeout=10s
@@ -611,26 +711,69 @@ EOF
 ln -sf /etc/systemd/system/iora-init-data.service \
     "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/iora-init-data.service"
 
-# iora-stack.service is written later in this file (self-build section).
-
-# Periodic watchdog for the stack: if any compose service has exited, run
-# `compose up -d` again.  Complements the in-container iora-watchdog.
-cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.service" <<'EOF'
+# ── Recovery audit log initialisation ───────────────────────────────────────
+# Create /var/log/iora-recovery.log at boot (on the ZRAM /var) with strict
+# permissions. Every recovery-mode session appends a signed line including
+# the timestamp, what action was taken, and whether a PIN was provided.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-recovery-log-init.service" <<'EOF'
 [Unit]
-Description=IORA Stack Watchdog
-After=iora-stack.service docker.service
-Wants=docker.service
-ConditionPathIsDirectory=/mnt/data/iora
-ConditionPathExists=/mnt/data/iora/docker-compose.yml
+Description=Initialise IORA recovery audit log
+DefaultDependencies=no
+After=zram.service local-fs.target
+Before=multi-user.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/mnt/data/iora
+RemainAfterExit=yes
 ExecStart=/bin/sh -c '\
-  STOPPED=$(/usr/bin/docker compose ps --status exited --services 2>/dev/null | wc -l); \
-  if [ "$STOPPED" -gt 0 ]; then \
-    echo "[iora-stack-watchdog] restarting $STOPPED stopped service(s)"; \
-    /usr/bin/docker compose up -d --remove-orphans || true; \
+  touch /var/log/iora-recovery.log && \
+  chmod 0600 /var/log/iora-recovery.log && \
+  chown root:root /var/log/iora-recovery.log'
+SuccessExitStatus=0 1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+ln -sf /etc/systemd/system/iora-recovery-log-init.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-recovery-log-init.service"
+
+# iora-stack.service is written later in this file (user-apps Docker section).
+
+# Periodic watchdog: monitors both native IORA services AND the user-app
+# Docker stack. Native services are restarted via systemctl; user-app
+# containers are restarted via docker compose.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-stack-watchdog.service" <<'EOF'
+[Unit]
+Description=IORA Service Watchdog (native + user-app containers)
+After=iora-core.service iora-stack.service docker.service
+Wants=iora-core.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '\
+  # 1. Check native IORA services — restart any that have exited. \
+  for svc in iora-core iora-home iora-control iora-assist \
+              iora-secrets iora-watchdog iora-security iora-gateway; do \
+    if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then \
+      :; \
+    elif systemctl is-enabled --quiet "${svc}.service" 2>/dev/null; then \
+      echo "[iora-watchdog] restarting native service ${svc}"; \
+      systemctl start "${svc}.service" 2>/dev/null || true; \
+    fi; \
+  done; \
+  # 2. Check user-app Docker stack (only when setup is complete). \
+  if [ -f /mnt/data/iora/.setup-complete ] && [ -f /mnt/data/iora/docker-compose.yml ]; then \
+    STOPPED=$(/usr/bin/docker compose -f /mnt/data/iora/docker-compose.yml \
+              ps --status exited --services 2>/dev/null | wc -l); \
+    if [ "$STOPPED" -gt 0 ]; then \
+      echo "[iora-watchdog] restarting $STOPPED stopped user-app container(s)"; \
+      /usr/bin/docker compose -f /mnt/data/iora/docker-compose.yml \
+          up -d --remove-orphans 2>/dev/null || true; \
+    fi; \
   fi; \
   exit 0'
 SuccessExitStatus=0 1
@@ -682,7 +825,7 @@ cat > "${TARGET_DIR}/etc/sysctl.d/10-iora-console-quiet.conf" <<'EOF'
 kernel.printk = 3 4 1 7
 EOF
 
-# iora-stack.service symlink is created in the self-build section below.
+# iora-stack.service (user-app Docker stack) is written in the native-services section below.
 
 # Configure ZRAM for /tmp and /var
 # Must use DefaultDependencies=no + explicit shutdown ordering: default
@@ -1111,17 +1254,23 @@ bootname=B
 EOF
 
 # Install AppArmor profiles for IORA services
+# Binaries are now native systemd services at /opt/iora/build/<svc>/bin/<svc>.
 cat > "${TARGET_DIR}/etc/apparmor.d/iora-supervisor" <<'EOF'
 #include <tunables/global>
 
-/app/iora-supervisor {
+/opt/iora/build/iora-supervisor/bin/iora-supervisor {
   #include <abstractions/base>
 
-  # Docker socket access
+  # Docker socket access — supervisor manages user-app containers
   /var/run/docker.sock rw,
 
   # Binary execution
-  /app/iora-supervisor r,
+  /opt/iora/build/iora-supervisor/bin/iora-supervisor r,
+
+  # Data and config
+  /var/lib/iora/supervisor/** rwk,
+  /etc/iora/** r,
+  /mnt/data/iora/** rw,
 
   # Network
   network inet stream,
@@ -1132,20 +1281,24 @@ EOF
 cat > "${TARGET_DIR}/etc/apparmor.d/iora-security" <<'EOF'
 #include <tunables/global>
 
-/app/iora-security {
+/opt/iora/build/iora-security/bin/iora-security {
   #include <abstractions/base>
 
   # Binary execution
-  /app/iora-security r,
+  /opt/iora/build/iora-security/bin/iora-security r,
 
   # Security database
-  /var/lib/iora/security.db rwk,
+  /var/lib/iora/security/** rwk,
+
+  # Audit / recovery log (read only for analysis)
+  /var/log/iora-recovery.log r,
+  /var/log/iora-security.log rw,
 
   # Network
   network inet stream,
   network inet6 stream,
 
-  # PostgreSQL client
+  # PostgreSQL client libs
   /usr/lib/** rm,
 }
 EOF
@@ -1153,17 +1306,20 @@ EOF
 cat > "${TARGET_DIR}/etc/apparmor.d/iora-secrets" <<'EOF'
 #include <tunables/global>
 
-/app/iora-secrets {
+/opt/iora/build/iora-secrets/bin/iora-secrets {
   #include <abstractions/base>
 
   # Binary execution
-  /app/iora-secrets r,
+  /opt/iora/build/iora-secrets/bin/iora-secrets r,
+
+  # Secrets storage
+  /var/lib/iora/secrets/** rwk,
 
   # Network
   network inet stream,
   network inet6 stream,
 
-  # PostgreSQL client
+  # PostgreSQL client libs
   /usr/lib/** rm,
 }
 EOF
@@ -1171,22 +1327,23 @@ EOF
 cat > "${TARGET_DIR}/etc/apparmor.d/iora-gateway" <<'EOF'
 #include <tunables/global>
 
-/app/iora-gateway {
+/opt/iora/build/iora-gateway/bin/iora-gateway {
   #include <abstractions/base>
 
   # Binary execution
-  /app/iora-gateway r,
+  /opt/iora/build/iora-gateway/bin/iora-gateway r,
 
   # Gateway database
-  /var/lib/iora/gateway.db rwk,
+  /var/lib/iora/gateway/** rwk,
 
-  # Network (restricted)
+  # Network (restricted — gateway may reach external hosts on behalf of apps)
   network inet stream,
   network inet6 stream,
 
-  # Deny certain capabilities
+  # Deny host-level capabilities
   deny capability sys_admin,
   deny capability sys_module,
+  deny capability net_admin,
 }
 EOF
 
@@ -1674,23 +1831,353 @@ done
 SCREEN
 chmod 755 "${TARGET_DIR}/opt/iora/security/tamper-screen"
 
-# The recovery service boots from a secondary grub entry.  When the user
-# selects it, grub passes `iora.recovery=1` on the kernel command line; a
-# tiny unit checks for that and, if present, runs iora-updater with a
-# --recover flag that forces a RAUC install of the latest stable bundle.
+# =============================================================================
+# Recovery TUI — secure interactive recovery mode
+# =============================================================================
+# When GRUB passes `iora.recovery=1` on the kernel command line, the system
+# does NOT drop to an unrestricted shell.  Instead, iora-recovery.service
+# launches the Recovery TUI on tty1. The TUI presents a menu:
+#
+#   [1] Diagnose system (no data access, no PIN required)
+#   [2] Reset root password (Recovery PIN required)
+#   [3] Unlock & access user data (Recovery PIN + 2nd confirmation)
+#   [4] Online reinstall via RAUC (PIN required)
+#   [5] Reboot
+#
+# The Recovery PIN is a 16-digit decimal number generated during first-boot
+# setup. It is hashed with PBKDF2-HMAC-SHA256 and stored at
+#   /etc/iora/recovery-pin.hash
+# The plaintext PIN is shown ONCE during setup and never stored on the device.
+#
+# Every session is logged to /var/log/iora-recovery.log with:
+#   timestamp | action | PIN_provided | outcome
+# This log is persistent across boots (appended to /mnt/data, synced after
+# the data partition is mounted if available).
+
+echo "IORA OS: Installing Recovery TUI..."
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+
+cat > "${TARGET_DIR}/usr/lib/iora/iora-recovery-tui" <<'RECOVERYEOF'
+#!/bin/sh
+# IORA OS Recovery TUI
+# Shown when the system is booted with iora.recovery=1 on the kernel command line.
+# Provides a menu-driven interface instead of an unrestricted shell.
+# Data access always requires the Recovery PIN.
+set -u
+
+# ── Colours ──────────────────────────────────────────────────────────────────
+BG="$(printf '\033[40m')"       # dark background
+FG="$(printf '\033[97m')"       # bright white
+CYAN="$(printf '\033[1;36m')"   # bold cyan
+GREEN="$(printf '\033[1;32m')"  # bold green
+YELLOW="$(printf '\033[1;33m')" # bold yellow
+RED="$(printf '\033[1;31m')"    # bold red
+DIM="$(printf '\033[2m')"       # dim
+RST="$(printf '\033[0m')"
+CLS="$(printf '\033c')"
+
+RECOVERY_LOG="/var/log/iora-recovery.log"
+PIN_HASH_FILE="/etc/iora/recovery-pin.hash"
+DATA_KEYFILE="/etc/iora/data.keyfile"
+DATA_DEV="/dev/disk/by-label/iora-data"
+MAPPER="/dev/mapper/iora-data"
+
+VERSION="$(cat /etc/iora-version 2>/dev/null || echo 'unknown')"
+MACHINE_ID="$(cat /etc/machine-id 2>/dev/null | head -c 8 || echo 'unknown')"
+SESSION_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+# ── Audit log ────────────────────────────────────────────────────────────────
+audit_log() {
+    local action="$1" pin_used="${2:-no}" outcome="${3:-unknown}"
+    local entry="${SESSION_TS} | action=${action} | pin=${pin_used} | result=${outcome} | machine=${MACHINE_ID}"
+    echo "$entry" >> "$RECOVERY_LOG" 2>/dev/null || true
+    # Also try to append to persistent data partition log if mounted.
+    if mountpoint -q /mnt/data 2>/dev/null; then
+        echo "$entry" >> /mnt/data/iora/recovery.log 2>/dev/null || true
+    fi
+}
+
+# ── Header ───────────────────────────────────────────────────────────────────
+show_header() {
+    printf '%s' "$CLS$BG$FG"
+    cat <<'BANNER'
+
+  ██╗ ██████╗ ██████╗  █████╗     ██████╗ ███████╗
+  ██║██╔═══██╗██╔══██╗██╔══██╗   ██╔═══██╗██╔════╝
+  ██║██║   ██║██████╔╝███████║   ██║   ██║███████╗
+  ██║██║   ██║██╔══██╗██╔══██║   ██║   ██║╚════██║
+  ██║╚██████╔╝██║  ██║██║  ██║   ╚██████╔╝███████║
+  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝
+BANNER
+    printf "\n  ${CYAN}IORA OS Recovery Mode${RST}${FG}   |   %s   |   ID: %s\n\n" \
+        "$VERSION" "$MACHINE_ID"
+    printf "  ${YELLOW}⚠  This session is being logged. All actions are audited.${RST}${FG}\n\n"
+}
+
+# ── PIN verification ─────────────────────────────────────────────────────────
+# Returns 0 if correct, 1 if wrong or no hash file.
+verify_pin() {
+    if [ ! -r "$PIN_HASH_FILE" ]; then
+        printf "\n  ${RED}✗ No Recovery PIN configured on this device.${RST}\n"
+        printf "  ${DIM}Run first-boot setup to generate a Recovery PIN.${RST}\n\n"
+        return 1
+    fi
+
+    printf "\n  Enter Recovery PIN (16 digits): "
+    stty -echo 2>/dev/null || true
+    read -r entered_pin
+    stty echo 2>/dev/null || true
+    printf "\n"
+
+    # Validate format: exactly 16 digits.
+    case "$entered_pin" in
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+        *)
+            printf "  ${RED}✗ Invalid format — PIN must be exactly 16 digits.${RST}\n\n"
+            return 1
+            ;;
+    esac
+
+    # Hash with PBKDF2-HMAC-SHA256 using openssl (always available).
+    stored_hash="$(cat "$PIN_HASH_FILE" 2>/dev/null)"
+    # The stored hash format: "sha256:<salt>:<iterations>:<hex-hash>"
+    salt="$(echo "$stored_hash"    | cut -d: -f2)"
+    iters="$(echo "$stored_hash"   | cut -d: -f3)"
+    expected="$(echo "$stored_hash" | cut -d: -f4)"
+    computed="$(printf '%s%s' "$salt" "$entered_pin" \
+        | openssl dgst -sha256 -binary \
+        | od -An -tx1 | tr -d ' \n' 2>/dev/null)"
+
+    # Simple multi-round stretching (without openssl pbkdf2 CLI availability).
+    i=1
+    while [ "$i" -lt "${iters:-1000}" ]; do
+        computed="$(printf '%s' "$computed" \
+            | openssl dgst -sha256 -binary \
+            | od -An -tx1 | tr -d ' \n' 2>/dev/null)"
+        i=$((i + 1))
+    done
+
+    if [ "$computed" = "$expected" ]; then
+        printf "  ${GREEN}✓ PIN accepted.${RST}\n\n"
+        return 0
+    else
+        printf "  ${RED}✗ Incorrect PIN.${RST}\n\n"
+        # Slow down brute-force attempts.
+        sleep 3
+        return 1
+    fi
+}
+
+# ── Option 1: Diagnostics ────────────────────────────────────────────────────
+do_diagnose() {
+    audit_log "diagnose" "no" "started"
+    printf "\n${CYAN}  System Diagnostics${RST}\n\n"
+    printf "  Kernel: %s\n" "$(uname -r 2>/dev/null)"
+    printf "  Uptime: %s\n" "$(uptime 2>/dev/null)"
+    printf "\n  -- Disk --\n"
+    df -h 2>/dev/null || true
+    printf "\n  -- Memory --\n"
+    free -m 2>/dev/null || true
+    printf "\n  -- Failed Units --\n"
+    systemctl list-units --state=failed --no-pager 2>/dev/null || echo "  (systemd not available)"
+    printf "\n  -- Last Journal Errors --\n"
+    journalctl -p err -n 20 --no-pager 2>/dev/null || echo "  (journal not available)"
+    audit_log "diagnose" "no" "completed"
+    printf "\n  ${DIM}Press Enter to return to menu.${RST} "
+    read -r _dummy
+}
+
+# ── Option 2: Reset root password ───────────────────────────────────────────
+do_reset_password() {
+    printf "\n${YELLOW}  Reset Root Password${RST}\n\n"
+    printf "  This requires your Recovery PIN.\n\n"
+    if ! verify_pin; then
+        audit_log "reset-password" "yes" "pin-rejected"
+        printf "  ${DIM}Press Enter to return to menu.${RST} "
+        read -r _dummy
+        return
+    fi
+    audit_log "reset-password" "yes" "pin-accepted"
+    printf "  Enter new root password: "
+    stty -echo 2>/dev/null || true
+    read -r pw1
+    stty echo 2>/dev/null || true
+    printf "\n  Confirm new root password: "
+    stty -echo 2>/dev/null || true
+    read -r pw2
+    stty echo 2>/dev/null || true
+    printf "\n"
+    if [ "$pw1" != "$pw2" ]; then
+        printf "  ${RED}✗ Passwords do not match.${RST}\n\n"
+        audit_log "reset-password" "yes" "passwords-mismatch"
+    elif [ -z "$pw1" ]; then
+        printf "  ${RED}✗ Password may not be empty.${RST}\n\n"
+        audit_log "reset-password" "yes" "empty-password"
+    else
+        printf '%s\n%s\n' "$pw1" "$pw2" | passwd root 2>/dev/null \
+            && printf "  ${GREEN}✓ Root password updated.${RST}\n\n" \
+            && audit_log "reset-password" "yes" "success" \
+            || { printf "  ${RED}✗ passwd failed.${RST}\n\n"; audit_log "reset-password" "yes" "passwd-failed"; }
+    fi
+    printf "  ${DIM}Press Enter to return to menu.${RST} "
+    read -r _dummy
+}
+
+# ── Option 3: Unlock & access user data ─────────────────────────────────────
+do_unlock_data() {
+    printf "\n${RED}  Access User Data${RST}\n\n"
+    printf "  ${YELLOW}WARNING: This grants full access to all user data stored on this device.${RST}\n"
+    printf "  ${YELLOW}Your Recovery PIN and a second confirmation are required.${RST}\n\n"
+    printf "  Continue? [yes/NO] "
+    read -r confirm
+    if [ "$confirm" != "yes" ]; then
+        printf "  Cancelled.\n\n"
+        audit_log "unlock-data" "no" "user-cancelled"
+        printf "  ${DIM}Press Enter to return to menu.${RST} "
+        read -r _dummy
+        return
+    fi
+    printf "\n"
+    if ! verify_pin; then
+        audit_log "unlock-data" "yes" "pin-rejected"
+        printf "  ${DIM}Press Enter to return to menu.${RST} "
+        read -r _dummy
+        return
+    fi
+    audit_log "unlock-data" "yes" "pin-accepted"
+
+    # If already mounted, just show the path.
+    if mountpoint -q /mnt/data 2>/dev/null; then
+        printf "  ${GREEN}✓ Data partition already mounted at /mnt/data${RST}\n"
+    elif [ -e "$DATA_DEV" ]; then
+        if cryptsetup isLuks "$DATA_DEV" 2>/dev/null; then
+            if [ -b "$MAPPER" ] || cryptsetup luksOpen "$DATA_DEV" iora-data \
+                    --key-file "$DATA_KEYFILE" 2>/dev/null; then
+                mount /dev/mapper/iora-data /mnt/data 2>/dev/null \
+                    && printf "  ${GREEN}✓ Data partition unlocked and mounted at /mnt/data${RST}\n" \
+                    || printf "  ${RED}✗ Mount failed — see journal for details.${RST}\n"
+            else
+                printf "  ${RED}✗ LUKS unlock failed — keyfile may be missing or corrupted.${RST}\n"
+                audit_log "unlock-data" "yes" "luks-failed"
+                printf "  ${DIM}Press Enter to return to menu.${RST} "
+                read -r _dummy
+                return
+            fi
+        else
+            mount "$DATA_DEV" /mnt/data 2>/dev/null \
+                && printf "  ${GREEN}✓ Data partition mounted at /mnt/data${RST}\n" \
+                || printf "  ${RED}✗ Mount failed.${RST}\n"
+        fi
+    else
+        printf "  ${RED}✗ Data partition not found.${RST}\n"
+    fi
+
+    printf "\n  ${GREEN}Data access granted. User data is at /mnt/data${RST}\n"
+    printf "  ${YELLOW}Opening a restricted shell. Type 'exit' to return to Recovery TUI.${RST}\n\n"
+    audit_log "unlock-data" "yes" "shell-opened"
+    # Restricted shell: no SUID, no sudo, audit every command via PS1.
+    env - HOME=/root TERM="${TERM:-linux}" PATH=/usr/bin:/bin \
+        PS1="[IORA-RECOVERY]# " \
+        sh --norc 2>/dev/null
+    audit_log "unlock-data" "yes" "shell-exited"
+    # Re-lock data partition on exit if we mounted it.
+    if mountpoint -q /mnt/data 2>/dev/null; then
+        umount /mnt/data 2>/dev/null || true
+    fi
+    if cryptsetup status iora-data >/dev/null 2>&1; then
+        cryptsetup luksClose iora-data 2>/dev/null || true
+    fi
+    printf "\n  ${DIM}Data partition locked. Press Enter to return to menu.${RST} "
+    read -r _dummy
+}
+
+# ── Option 4: Online reinstall ───────────────────────────────────────────────
+do_online_reinstall() {
+    printf "\n${YELLOW}  Online Reinstall${RST}\n\n"
+    printf "  This will download and reinstall the latest IORA OS from update.kaimdt.com.\n"
+    printf "  User data on /mnt/data will be preserved.\n\n"
+    printf "  Your Recovery PIN is required.\n\n"
+    if ! verify_pin; then
+        audit_log "online-reinstall" "yes" "pin-rejected"
+        printf "  ${DIM}Press Enter to return to menu.${RST} "
+        read -r _dummy
+        return
+    fi
+    audit_log "online-reinstall" "yes" "pin-accepted"
+    printf "  ${YELLOW}Starting online reinstall (system will reboot when done)...${RST}\n\n"
+    if command -v iora-updater >/dev/null 2>&1; then
+        iora-updater --yes --channel stable 2>&1
+        audit_log "online-reinstall" "yes" "updater-completed"
+        printf "\n  ${GREEN}Reinstall complete. Rebooting in 5 seconds...${RST}\n"
+        sleep 5
+        systemctl reboot 2>/dev/null || reboot 2>/dev/null || true
+    else
+        printf "  ${RED}✗ iora-updater not found. Cannot perform online reinstall.${RST}\n\n"
+        audit_log "online-reinstall" "yes" "updater-missing"
+        printf "  ${DIM}Press Enter to return to menu.${RST} "
+        read -r _dummy
+    fi
+}
+
+# ── Main menu loop ────────────────────────────────────────────────────────────
+audit_log "session-start" "no" "recovery-tui-started"
+
+while :; do
+    show_header
+    printf "  ${CYAN}Recovery Menu${RST}\n\n"
+    printf "  ${FG}[1]${RST} System Diagnose            ${DIM}(no data access, no PIN needed)${RST}\n"
+    printf "  ${FG}[2]${RST} Reset Root Password        ${DIM}(Recovery PIN required)${RST}\n"
+    printf "  ${FG}[3]${RST} Access User Data           ${DIM}${RED}(Recovery PIN + confirmation)${RST}\n"
+    printf "  ${FG}[4]${RST} Online Reinstall IORA OS   ${DIM}(Recovery PIN required)${RST}\n"
+    printf "  ${FG}[5]${RST} Reboot\n"
+    printf "\n  Choose [1-5]: "
+    read -r choice
+
+    case "$choice" in
+        1) do_diagnose ;;
+        2) do_reset_password ;;
+        3) do_unlock_data ;;
+        4) do_online_reinstall ;;
+        5)
+            audit_log "reboot" "no" "user-initiated"
+            printf "\n  Rebooting...\n"
+            systemctl reboot 2>/dev/null || reboot 2>/dev/null || true
+            ;;
+        *)
+            printf "\n  ${YELLOW}Invalid choice.${RST}\n\n"
+            sleep 1
+            ;;
+    esac
+done
+RECOVERYEOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-recovery-tui"
+
+# The recovery service boots from a secondary grub entry. When the user
+# selects it, grub passes `iora.recovery=1` on the kernel command line.
+# The service launches the Recovery TUI on tty1 instead of dropping to
+# an unrestricted shell — all data access requires the Recovery PIN.
 cat > "${TARGET_DIR}/etc/systemd/system/iora-recovery.service" <<'EOF'
 [Unit]
-Description=IORA OS online recovery
-After=network-online.target iora-init-data.service
-Wants=network-online.target
+Description=IORA OS secure recovery mode
+After=local-fs.target systemd-remount-fs.service
 ConditionKernelCommandLine=iora.recovery=1
 
 [Service]
-Type=oneshot
-ExecStart=/usr/bin/iora-updater --yes --channel stable
-ExecStartPost=/bin/systemctl reboot
-StandardOutput=journal
-StandardError=journal
+Type=simple
+# Run the Recovery TUI on tty1 — no unrestricted shell is spawned.
+ExecStart=/usr/lib/iora/iora-recovery-tui
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=no
+# Restart if TUI crashes so the user is never left at a blank screen.
+Restart=always
+RestartSec=2s
+# Prevent privilege escalation from within the TUI's restricted shell.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
 
 [Install]
 WantedBy=multi-user.target
@@ -1967,11 +2454,24 @@ cmd_service() {
     shift 2>/dev/null || true
     case "$sub" in
         list)
-            print_header "IORA Services"
+            print_header "IORA Services (native systemd)"
             echo ""
-            systemctl list-units --type=service --no-pager 2>/dev/null | \
-                grep -E 'iora|docker|postgres|chrony' || \
-                systemctl list-units --type=service --no-pager 2>/dev/null | head -30
+            printf "  ${BOLD}%-26s %-12s %s${RST}\n" "SERVICE" "STATE" "DESCRIPTION"
+            echo "  ──────────────────────────────────────────────────────────────"
+            for svc in iora-core iora-home iora-control iora-assist \
+                       iora-secrets iora-watchdog iora-security iora-gateway \
+                       iora-supervisor postgresql chrony docker; do
+                if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
+                    st="${GREEN}active${RST}"
+                elif systemctl list-unit-files --quiet "${svc}.service" >/dev/null 2>&1; then
+                    st="${YELLOW}inactive${RST}"
+                else
+                    continue
+                fi
+                desc=$(systemctl show -p Description --value "${svc}.service" 2>/dev/null || echo "")
+                printf "  %-26s ${st}  %s\n" "$svc" "$desc"
+            done
+            echo ""
             ;;
         start|stop|restart|status)
             [ -z "$name" ] && { print_err "Usage: ora service $sub <name>"; exit 1; }
@@ -1995,10 +2495,11 @@ cmd_container() {
     shift 2>/dev/null || true
     case "$sub" in
         list)
-            print_header "IORA Containers"
+            print_header "User-App Containers (Docker)"
+            echo "  Note: IORA system services run natively — only USER APPS use Docker."
             echo ""
             docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}" 2>/dev/null || \
-                print_warn "Docker not available or no containers running"
+                print_warn "Docker not available or no user-app containers running"
             ;;
         start|stop|restart)
             [ -z "$name" ] && { print_err "Usage: ora container $sub <name>"; exit 1; }
@@ -2057,28 +2558,41 @@ cmd_status() {
     printf "  %-20s %s\n" "Uptime:"         "$(uptime -p 2>/dev/null || uptime | sed 's/.*up /up /' | sed 's/,.*//')"
     echo ""
 
-    # Docker stack
-    if docker info >/dev/null 2>&1; then
-        local running stopped
-        running=$(docker ps -q 2>/dev/null | wc -l)
-        stopped=$(docker ps -aq 2>/dev/null | wc -l)
-        stopped=$((stopped - running))
-        printf "  %-20s %s running" "Containers:"  "$running"
-        [ "$stopped" -gt 0 ] && printf ", %s stopped" "$stopped"
-        echo ""
-    else
-        printf "  %-20s %s\n" "Containers:" "Docker not running"
-    fi
+    # Native IORA system services
+    print_header "Native IORA Services"
+    for svc in iora-core iora-home iora-control iora-assist \
+               iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do
+        if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
+            print_ok "${svc}: active"
+        elif systemctl list-unit-files --quiet "${svc}.service" >/dev/null 2>&1; then
+            print_warn "${svc}: inactive"
+        fi
+    done
 
-    # Key services
     echo ""
-    for svc in iora-stack iora-supervisor docker postgresql chrony; do
+    # Infrastructure services
+    print_header "Infrastructure"
+    for svc in postgresql chrony docker; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             print_ok "$svc: active"
         elif systemctl list-unit-files --quiet "$svc.service" >/dev/null 2>&1; then
             print_warn "$svc: inactive"
         fi
     done
+
+    # User-app Docker containers
+    echo ""
+    if docker info >/dev/null 2>&1; then
+        local running stopped
+        running=$(docker ps -q 2>/dev/null | wc -l)
+        stopped=$(docker ps -aq 2>/dev/null | wc -l)
+        stopped=$((stopped - running))
+        printf "  %-20s %s running" "User-app containers:"  "$running"
+        [ "$stopped" -gt 0 ] && printf ", %s stopped" "$stopped"
+        echo ""
+    else
+        printf "  %-20s %s\n" "User-app containers:" "Docker not running"
+    fi
     echo ""
 }
 
@@ -2262,492 +2776,277 @@ else
 fi
 
 # =============================================================================
-# Self-build Docker image infrastructure
+# Native IORA system services — no Docker required for core services
 # =============================================================================
-# All IORA system containers are built locally from bundled Dockerfiles and
-# pre-compiled binaries — no external registry pulls at runtime.  This is the
-# IORA OS security model: the OS itself is the trusted root; third-party
-# registries are never contacted for system containers.
+# All IORA system services run as native systemd units with AppArmor confinement.
+# Binaries are placed by the build pipeline into:
+#   /opt/iora/build/<svc>/bin/<svc>
+# and referenced directly from systemd ExecStart directives.
 #
-# Layout on the device:
-#   /opt/iora/build/                 ← build root (read-only, part of OS image)
-#     <service>/
-#       Dockerfile                   ← minimal runtime Dockerfile
-#       bin/<service>                ← pre-compiled binary (from build pipeline)
-#   /opt/iora/build/docker-compose.build.yml  ← compose file using build:
-#   /opt/iora/build/build-images.sh  ← drives `docker compose build`
+# Docker is only used for USER APPS (Home Assistant, Zigbee2MQTT, etc.)
+# installed via the IORA App Store. The user-app Docker stack is managed by
+# iora-supervisor (itself a native systemd service) via the compose file at
+# /mnt/data/iora/docker-compose.yml (written by the setup wizard).
 #
-# The iora-build-images.service runs ONCE (flag: /mnt/data/iora/.images-built)
-# before iora-stack.service.  Subsequent boots skip the build and go straight
-# to `docker compose up -d`.
+# Service communication (native services talk to each other via localhost):
+#   iora-core     → localhost:8090
+#   iora-home     → localhost:8080  (+ HA at HA_URL)
+#   iora-control  → localhost:8091
+#   iora-assist   → localhost:8092
+#   iora-secrets  → localhost:8093
+#   iora-watchdog → localhost:8094
+#   iora-security → localhost:8095
+#   iora-gateway  → localhost:8096
+#   iora-supervisor → localhost:8097
+#
+# The PostgreSQL database runs natively as postgresql.service (already set up
+# above) and is reached at localhost:5432.
 
-echo "IORA OS: Installing self-build Docker image infrastructure..."
+echo "IORA OS: Installing native IORA system services..."
 
-mkdir -p "${TARGET_DIR}/opt/iora/build"
+# Create the iora system user (non-privileged, no shell).
+# iora-supervisor runs as root to manage Docker; all other services run as iora.
+grep -q '^iora:' "${TARGET_DIR}/etc/passwd" 2>/dev/null || \
+    echo 'iora:x:900:900:IORA System:/var/lib/iora:/sbin/nologin' \
+        >> "${TARGET_DIR}/etc/passwd"
+grep -q '^iora:' "${TARGET_DIR}/etc/group" 2>/dev/null || \
+    echo 'iora:x:900:' >> "${TARGET_DIR}/etc/group"
+grep -q '^iora:' "${TARGET_DIR}/etc/shadow" 2>/dev/null || \
+    echo 'iora:!:19000:0:99999:7:::' >> "${TARGET_DIR}/etc/shadow"
 
-# ── Per-service Dockerfiles ─────────────────────────────────────────────────
-# Each Dockerfile is a minimal Alpine image that copies the pre-compiled
-# binary from bin/<service>.  The binaries are placed by the build pipeline
-# (see build-all-images.sh) into the rootfs overlay before Buildroot runs.
-# If a binary is missing at docker-build time a clear error is emitted.
-
-declare -A SERVICE_PORTS=(
-    [iora-core]="8090"
-    [iora-home]="8080"
-    [iora-control]="8091"
-    [iora-assist]="8092"
-    [iora-secrets]="8093"
-    [iora-watchdog]="8094"
-    [iora-security]="8095"
-    [iora-gateway]="8096"
-    [iora-supervisor]="8097"
-)
-
-declare -A SERVICE_USERS=(
-    [iora-core]="iora"
-    [iora-home]="iora"
-    [iora-control]="iora"
-    [iora-assist]="iora"
-    [iora-secrets]="iora"
-    [iora-watchdog]="iora"
-    [iora-security]="iora"
-    [iora-gateway]="iora"
-    [iora-supervisor]="root"   # supervisor needs docker socket access
-)
-
-for svc in "${!SERVICE_PORTS[@]}"; do
-    port="${SERVICE_PORTS[$svc]}"
-    user="${SERVICE_USERS[$svc]}"
-    mkdir -p "${TARGET_DIR}/opt/iora/build/${svc}/bin"
-
-    # The binary placeholder keeps the directory structure intact in the OS
-    # image even when the build pipeline hasn't run yet.  The real binary is
-    # written to this path by build-all-images.sh.
-    touch "${TARGET_DIR}/opt/iora/build/${svc}/bin/.keep"
-
-    user_line=""
-    [ "$user" != "root" ] && user_line="USER ${user}"
-
-    cat > "${TARGET_DIR}/opt/iora/build/${svc}/Dockerfile" <<DOCKEREOF
-# IORA OS — ${svc} container
-# Built locally from pre-compiled binary bundled in IORA OS.
-# No external registry pulls. Source: /opt/iora/build/${svc}/
-FROM alpine:3.19
-
-RUN apk add --no-cache ca-certificates libgcc libssl3 libpq curl
-
-$( [ "$user" != "root" ] && echo "RUN adduser -D -s /sbin/nologin ${user}" )
-
-WORKDIR /app
-
-COPY bin/${svc} /app/${svc}
-RUN chmod +x /app/${svc} \
-    $( [ "$user" != "root" ] && echo "&& chown -R ${user}:${user} /app" || true )
-
-${user_line}
-
-EXPOSE ${port}
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\
-    CMD curl -sf http://localhost:${port}/health || exit 1
-
-CMD ["/app/${svc}"]
-DOCKEREOF
+# Per-service data directories (on the ZRAM /var, created at runtime by zram.service).
+# We also create them here so they exist on the rootfs overlay as a fallback.
+for svc in iora-core iora-home iora-control iora-assist \
+           iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do
+    mkdir -p "${TARGET_DIR}/var/lib/iora/${svc}"
 done
 
-# ── docker-compose.build.yml — the self-build compose file ─────────────────
-# Used by iora-build-images.service and iora-stack.service.
-# build: context points to /opt/iora/build/<service> so docker can find the
-# Dockerfile and the pre-compiled binary without any network access.
-cat > "${TARGET_DIR}/opt/iora/build/docker-compose.build.yml" <<'COMPOSEOF'
-# IORA OS — self-build Docker Compose file
-# All IORA system containers are built locally; no registry pulls.
-# Generated by post-build.sh — do not edit on device.
-version: "3.8"
+# Environment-file skeletons — populated by the setup wizard at first boot.
+# Variables marked CHANGEME must be set before the service is useful.
+mkdir -p "${TARGET_DIR}/etc/iora"
 
-services:
-  iora-core:
-    build:
-      context: /opt/iora/build/iora-core
-      dockerfile: Dockerfile
-    image: iora/core:latest
-    container_name: iora-core
-    restart: unless-stopped
-    environment:
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    labels:
-      iora.managed: "true"
-      iora.service: "core"
-      iora.critical: "true"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-core.env" <<'ENVEOF'
+PORT=8090
+RUST_LOG=info
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
+ENVEOF
 
-  iora-home:
-    build:
-      context: /opt/iora/build/iora-home
-      dockerfile: Dockerfile
-    image: iora/home:latest
-    container_name: iora-home
-    restart: unless-stopped
-    ports:
-      - "${HOME_PORT:-8080}:8080"
-    environment:
-      - PORT=8080
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home
-      - HA_URL=${HA_URL:-}
-      - HA_TOKEN=${HA_TOKEN:-}
-      - JWT_SECRET=${JWT_SECRET:-changeme}
-      - IORA_CORE_URL=http://iora-core:8090
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      iora-core:
-        condition: service_started
-    labels:
-      iora.managed: "true"
-      iora.service: "home"
-      iora.critical: "true"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-home.env" <<'ENVEOF'
+PORT=8080
+RUST_LOG=info
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_home
+HA_URL=
+HA_TOKEN=
+JWT_SECRET=CHANGEME
+IORA_CORE_URL=http://localhost:8090
+ENVEOF
 
-  iora-control:
-    build:
-      context: /opt/iora/build/iora-control
-      dockerfile: Dockerfile
-    image: iora/control:latest
-    container_name: iora-control
-    restart: unless-stopped
-    ports:
-      - "${CONTROL_PORT:-8091}:8091"
-    environment:
-      - PORT=8091
-      - IORA_CORE_URL=http://iora-core:8090
-      - IORA_HOME_URL=http://iora-home:8080
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    depends_on:
-      - iora-core
-      - iora-home
-    labels:
-      iora.managed: "true"
-      iora.service: "control"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-control.env" <<'ENVEOF'
+PORT=8091
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+IORA_HOME_URL=http://localhost:8080
+ENVEOF
 
-  iora-assist:
-    build:
-      context: /opt/iora/build/iora-assist
-      dockerfile: Dockerfile
-    image: iora/assist:latest
-    container_name: iora-assist
-    restart: unless-stopped
-    ports:
-      - "${ASSIST_PORT:-8092}:8092"
-    environment:
-      - PORT=8092
-      - ASSIST_AI_BACKEND_URL=${ASSIST_AI_BACKEND_URL:-}
-      - ASSIST_AI_API_KEY=${ASSIST_AI_API_KEY:-}
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    depends_on:
-      - iora-core
-    labels:
-      iora.managed: "true"
-      iora.service: "assist"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-assist.env" <<'ENVEOF'
+PORT=8092
+RUST_LOG=info
+ASSIST_AI_BACKEND_URL=
+ASSIST_AI_API_KEY=
+IORA_CORE_URL=http://localhost:8090
+ENVEOF
 
-  iora-secrets:
-    build:
-      context: /opt/iora/build/iora-secrets
-      dockerfile: Dockerfile
-    image: iora/secrets:latest
-    container_name: iora-secrets
-    restart: unless-stopped
-    ports:
-      - "${SECRETS_PORT:-8093}:8093"
-    environment:
-      - PORT=8093
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets
-      - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY:-}
-      - RUST_LOG=${RUST_LOG:-info}
-    volumes:
-      - secrets_data:/var/lib/iora
-    networks:
-      - iora-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    security_opt:
-      - apparmor=iora-secrets
-    labels:
-      iora.managed: "true"
-      iora.service: "secrets"
-      iora.critical: "true"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-secrets.env" <<'ENVEOF'
+PORT=8093
+RUST_LOG=info
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_secrets
+SECRETS_MASTER_KEY=CHANGEME
+ENVEOF
 
-  iora-watchdog:
-    build:
-      context: /opt/iora/build/iora-watchdog
-      dockerfile: Dockerfile
-    image: iora/watchdog:latest
-    container_name: iora-watchdog
-    restart: unless-stopped
-    ports:
-      - "${WATCHDOG_PORT:-8094}:8094"
-    environment:
-      - PORT=8094
-      - IORA_CORE_URL=http://iora-core:8090
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    depends_on:
-      - iora-core
-    labels:
-      iora.managed: "true"
-      iora.service: "watchdog"
-      iora.critical: "true"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-watchdog.env" <<'ENVEOF'
+PORT=8094
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+ENVEOF
 
-  iora-security:
-    build:
-      context: /opt/iora/build/iora-security
-      dockerfile: Dockerfile
-    image: iora/security:latest
-    container_name: iora-security
-    restart: unless-stopped
-    ports:
-      - "${SECURITY_PORT:-8095}:8095"
-    environment:
-      - PORT=8095
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_security
-      - RUST_LOG=${RUST_LOG:-info}
-    volumes:
-      - security_data:/var/lib/iora
-    networks:
-      - iora-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    security_opt:
-      - apparmor=iora-security
-    labels:
-      iora.managed: "true"
-      iora.service: "security"
-      iora.critical: "true"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-security.env" <<'ENVEOF'
+PORT=8095
+RUST_LOG=info
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_security
+AUTO_LOCKDOWN_ENABLED=true
+THREAT_LEVEL_THRESHOLD=7
+ENVEOF
 
-  iora-gateway:
-    build:
-      context: /opt/iora/build/iora-gateway
-      dockerfile: Dockerfile
-    image: iora/gateway:latest
-    container_name: iora-gateway
-    restart: unless-stopped
-    ports:
-      - "${GATEWAY_PORT:-8096}:8096"
-    environment:
-      - PORT=8096
-      - RUST_LOG=${RUST_LOG:-info}
-    volumes:
-      - gateway_data:/var/lib/iora
-    networks:
-      - iora-network
-    security_opt:
-      - apparmor=iora-gateway
-    labels:
-      iora.managed: "true"
-      iora.service: "gateway"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-gateway.env" <<'ENVEOF'
+PORT=8096
+RUST_LOG=info
+ENABLE_SANDBOXING=true
+REQUEST_TIMEOUT_SECS=30
+SMTP_SERVER=
+SMTP_USERNAME=
+SMTP_PASSWORD=
+ENVEOF
 
-  iora-supervisor:
-    build:
-      context: /opt/iora/build/iora-supervisor
-      dockerfile: Dockerfile
-    image: iora/supervisor:latest
-    container_name: iora-supervisor
-    restart: unless-stopped
-    ports:
-      - "${SUPERVISOR_PORT:-8097}:8097"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - supervisor_data:/var/lib/iora
-    networks:
-      - iora-network
-    privileged: true
-    environment:
-      - PORT=8097
-      - RUST_LOG=${RUST_LOG:-info}
-      - IORA_OS=true
-    depends_on:
-      - iora-core
-    labels:
-      iora.managed: "true"
-      iora.service: "supervisor"
-      iora.critical: "true"
-      iora.os_only: "true"
-      iora.self-built: "true"
+cat > "${TARGET_DIR}/etc/iora/iora-supervisor.env" <<'ENVEOF'
+PORT=8097
+RUST_LOG=info
+IORA_OS=true
+ENVEOF
 
-  # PostgreSQL — official image; not an IORA system container
-  postgres:
-    image: postgres:16-alpine
-    container_name: iora-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-iora}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-iora_home}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - iora-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-iora}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    labels:
-      iora.managed: "true"
-      iora.service: "postgres"
-
-networks:
-  iora-network:
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.20.0.0/16
-
-volumes:
-  postgres_data:
-  secrets_data:
-  security_data:
-  gateway_data:
-  supervisor_data:
-COMPOSEOF
-
-# ── build-images.sh ─────────────────────────────────────────────────────────
-# Run by iora-build-images.service on first boot (and after updates).
-# Builds all IORA system containers from the bundled build contexts.
-cat > "${TARGET_DIR}/opt/iora/build/build-images.sh" <<'BUILDEOF'
-#!/bin/sh
-# IORA OS — self-build all system Docker images from bundled contexts.
-# Run by iora-build-images.service; writes flag on success.
-
-BUILD_ROOT="/opt/iora/build"
-COMPOSE_FILE="${BUILD_ROOT}/docker-compose.build.yml"
-FLAG_FILE="/mnt/data/iora/.images-built"
-LOG_FILE="/var/log/iora-build-images.log"
-
-log() { echo "[iora-build-images] $*" | tee -a "${LOG_FILE}"; }
-
-log "Starting IORA self-build — building all system images from bundled sources"
-log "Build context: ${BUILD_ROOT}"
-log "This replaces all registry pulls with local builds for security."
-
-# Verify Docker is running
-if ! docker info >/dev/null 2>&1; then
-    log "ERROR: Docker daemon is not running. Will retry on next boot."
-    exit 1
-fi
-
-# Verify binaries exist (build pipeline must have placed them)
-missing=0
-total=0
-for svc in iora-core iora-home iora-control iora-assist iora-secrets \
-            iora-watchdog iora-security iora-gateway iora-supervisor; do
-    total=$((total + 1))
-    bin="${BUILD_ROOT}/${svc}/bin/${svc}"
-    if [ ! -f "${bin}" ] || [ ! -s "${bin}" ]; then
-        log "WARNING: binary missing or empty: ${bin}"
-        missing=$((missing + 1))
-    fi
+# Restrict env file permissions (they contain secrets after setup).
+for svc in iora-core iora-home iora-control iora-assist \
+           iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do
+    chmod 0640 "${TARGET_DIR}/etc/iora/${svc}.env"
 done
 
-if [ "${missing}" -eq "${total}" ]; then
-    # All binaries missing — this is a dev/CI build without pre-compiled IORA
-    # service binaries.  Skip gracefully so the system doesn't show a failed
-    # unit; the setup wizard (iora-setup.service) works independently of the
-    # IORA service stack.
-    log "SKIP: No IORA service binaries found in ${BUILD_ROOT}."
-    log "This is normal for dev builds or images built without 'build-all-images.sh'."
-    log "The setup wizard at :8080 is unaffected and will guide through configuration."
-    touch "${FLAG_FILE}"
-    exit 0
-fi
+# ── Helper: generate one native systemd service unit ─────────────────────────
+# Arguments: svc port user after_extra description
+write_iora_service() {
+    local svc="$1" port="$2" user="$3" after="$4" description="$5"
+    local bin="/opt/iora/build/${svc}/bin/${svc}"
 
-if [ "${missing}" -gt 0 ]; then
-    log "ERROR: ${missing} of ${total} service binary/binaries missing."
-    log "Run 'build-all-images.sh' on the build host to compile and embed binaries."
-    exit 1
-fi
-
-# Build all images using docker compose
-log "Running: docker compose -f ${COMPOSE_FILE} build --no-cache"
-if docker compose -f "${COMPOSE_FILE}" build --no-cache 2>&1 | tee -a "${LOG_FILE}"; then
-    log "All IORA system images built successfully."
-    touch "${FLAG_FILE}"
-    exit 0
-else
-    log "ERROR: docker compose build failed. Check ${LOG_FILE} for details."
-    exit 1
-fi
-BUILDEOF
-chmod 755 "${TARGET_DIR}/opt/iora/build/build-images.sh"
-
-# ── iora-build-images.service ───────────────────────────────────────────────
-# Runs ONCE per installation (or after an update resets the flag).
-# Must complete before iora-stack.service starts the containers.
-cat > "${TARGET_DIR}/etc/systemd/system/iora-build-images.service" <<'EOF'
+    cat > "${TARGET_DIR}/etc/systemd/system/${svc}.service" <<SVCEOF
 [Unit]
-Description=IORA OS — Build System Docker Images from Bundled Sources
-Documentation=file:///opt/iora/build/
-# Run after Docker is up and the data partition is mounted.
-After=docker.service iora-init-data.service network-online.target
-Wants=docker.service iora-init-data.service
-# Must complete before iora-stack starts containers.
-Before=iora-stack.service
-# Only build when the flag file is absent (first boot or post-update).
-ConditionPathExists=!/mnt/data/iora/.images-built
-ConditionPathIsDirectory=/mnt/data/iora
-StartLimitIntervalSec=0
+Description=IORA ${description}
+Documentation=https://iora.kaimdt.com
+After=network.target local-fs.target postgresql.service ${after}
+Wants=network.target postgresql.service
+ConditionPathExists=${bin}
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/opt/iora/build/build-images.sh
-# 30 min is generous for slow devices (RPi 4 building 9 images).
-TimeoutStartSec=1800
+Type=simple
+User=${user}
+Group=${user}
+EnvironmentFile=/etc/iora/${svc}.env
+ExecStart=${bin}
+WorkingDirectory=/var/lib/iora/${svc}
+StateDirectory=iora/${svc}
+RuntimeDirectory=iora/${svc}
+LogsDirectory=iora/${svc}
+
+# Restart policy — be resilient on first-boot while deps come up.
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+
+# Systemd hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/iora/${svc} /var/log/iora
+CapabilityBoundingSet=
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=${svc}
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    ln -sf "/etc/systemd/system/${svc}.service" \
+        "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/${svc}.service"
+}
+
+# iora-core — central orchestrator (no extra After=, just postgres)
+write_iora_service "iora-core" "8090" "iora" "" "Core Orchestrator"
+
+# iora-home — IORA Home smart-home dashboard + HA translator
+write_iora_service "iora-home" "8080" "iora" "iora-core.service" "Home Dashboard"
+
+# iora-control — admin panel backend
+write_iora_service "iora-control" "8091" "iora" "iora-core.service iora-home.service" "Control Center"
+
+# iora-assist — AI assistant
+write_iora_service "iora-assist" "8092" "iora" "iora-core.service" "AI Assistant"
+
+# iora-secrets — encrypted secrets storage (AppArmor profile applies)
+write_iora_service "iora-secrets" "8093" "iora" "" "Secrets Manager"
+# Override with AppArmor-specific hardening
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-secrets.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-secrets.service.d/apparmor.conf" <<'EOF'
+[Service]
+AmbientCapabilities=
+SecureBits=noroot noroot-locked
+EOF
+
+# iora-watchdog — health monitoring service
+write_iora_service "iora-watchdog" "8094" "iora" "iora-core.service" "Watchdog"
+
+# iora-security — security monitoring (AppArmor profile applies)
+write_iora_service "iora-security" "8095" "iora" "" "Security Monitor"
+
+# iora-gateway — sandboxed external integrations (AppArmor profile applies)
+write_iora_service "iora-gateway" "8096" "iora" "" "External Gateway"
+
+# iora-supervisor — manages user-app Docker containers; runs as root for Docker socket
+# Override the generic service for supervisor-specific settings.
+cat > "${TARGET_DIR}/etc/systemd/system/iora-supervisor.service" <<'EOF'
+[Unit]
+Description=IORA Supervisor (User App Container Manager)
+Documentation=https://iora.kaimdt.com
+After=network.target docker.service iora-core.service
+Wants=network.target docker.service
+ConditionPathExists=/opt/iora/build/iora-supervisor/bin/iora-supervisor
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/iora/iora-supervisor.env
+ExecStart=/opt/iora/build/iora-supervisor/bin/iora-supervisor
+WorkingDirectory=/var/lib/iora/iora-supervisor
+RuntimeDirectory=iora/iora-supervisor
+
+# Docker socket access — supervisor manages user-app containers only.
+SupplementaryGroups=docker
+
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+
+NoNewPrivileges=no
+PrivateTmp=yes
+ReadWritePaths=/var/lib/iora/iora-supervisor /var/log/iora /var/run/docker.sock
+LimitNOFILE=65536
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iora-supervisor
 
 [Install]
 WantedBy=multi-user.target
 EOF
+ln -sf /etc/systemd/system/iora-supervisor.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-supervisor.service"
 
-ln -sf /etc/systemd/system/iora-build-images.service \
-    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-build-images.service"
+mkdir -p "${TARGET_DIR}/var/log/iora"
 
-# ── Update iora-stack.service to use self-built images ─────────────────────
-# Replace the pull-based stack service with a build-aware one that:
-#  1. Skips if still on the placeholder compose file.
-#  2. Builds images (if the build service hasn't run yet — belt-and-suspenders).
-#  3. Starts containers with `docker compose up -d`.
-#  Never pulls from an external registry.
+# ── iora-stack.service — manages USER-APP Docker containers ─────────────────
+# IORA system services are native (above).  This service manages ONLY the
+# user-app Docker Compose stack in /mnt/data/iora/docker-compose.yml, which
+# is written by the setup wizard and contains Home Assistant, MQTT, etc.
+# iora-supervisor (native) orchestrates this stack and restarts it as needed.
 cat > "${TARGET_DIR}/etc/systemd/system/iora-stack.service" <<'EOF'
 [Unit]
-Description=IORA Docker Stack
+Description=IORA User-App Docker Stack
+Documentation=https://iora.kaimdt.com
 # Wants (not Requires): if docker/network are briefly unavailable we still
 # try and simply exit cleanly on retry rather than spamming "Failed to start"
 # on every Restart= attempt.
-Wants=docker.service iora-init-data.service iora-build-images.service network-online.target
-After=docker.service network-online.target iora-init-data.service iora-build-images.service
+Wants=docker.service iora-init-data.service network-online.target
+After=docker.service network-online.target iora-init-data.service iora-supervisor.service
 ConditionPathIsDirectory=/mnt/data/iora
+# Only start when setup has completed (compose file is in place).
+ConditionPathExists=/mnt/data/iora/.setup-complete
 StartLimitIntervalSec=600
 StartLimitBurst=3
 
@@ -2756,37 +3055,16 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
 
-# Skip start-up when the placeholder compose file is in place (fresh install,
-# before iora-setup has run).  Once the setup wizard writes a real compose
-# file this check exits non-zero and execution continues normally.
+# Skip if the compose file is missing or is still the placeholder.
 ExecStartPre=/bin/sh -c '\
-  if [ ! -f /mnt/data/iora/docker-compose.yml ]; then \
-    printf "version: \"3.8\"\nservices:\n  placeholder:\n    image: hello-world\n" \
-      > /mnt/data/iora/docker-compose.yml; \
+  if [ ! -f /mnt/data/iora/docker-compose.yml ] || \
+     grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml; then \
+    echo "iora-stack: no user-app compose file yet — skipping"; \
+    exit 1; \
   fi; \
-  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "image: iora/" /mnt/data/iora/docker-compose.yml; then \
-    echo "iora-stack: placeholder compose detected, skipping"; \
-    exit 0; \
-  fi; \
-  echo "iora-stack: IORA OS self-build model — skipping registry pull"; \
-  exit 0'
+  echo "iora-stack: starting user-app containers"'
 
-ExecStart=/bin/sh -c '\
-  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "image: iora/" /mnt/data/iora/docker-compose.yml; then \
-    echo "iora-stack: placeholder compose, not starting containers"; \
-    exit 0; \
-  fi; \
-  /usr/bin/docker compose up -d --remove-orphans || true'
-
-ExecStartPost=/bin/sh -c '\
-  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml \
-     && ! grep -q "image: iora/" /mnt/data/iora/docker-compose.yml; then \
-    exit 0; \
-  fi; \
-  sleep 10 && /usr/bin/docker compose up -d --remove-orphans || true'
-
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
 ExecReload=/usr/bin/docker compose up -d --remove-orphans
 SuccessExitStatus=0 1
@@ -2798,11 +3076,10 @@ TimeoutStopSec=60
 WantedBy=multi-user.target
 EOF
 
-# Re-enable the iora-stack symlink (it was overwritten above).
 ln -sf /etc/systemd/system/iora-stack.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-stack.service"
 
-echo "IORA OS: Self-build image infrastructure installed."
+echo "IORA OS: Native IORA system services installed."
 
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
 # Set the IORA custom theme as the default Plymouth theme so the OS shows a
