@@ -25,6 +25,11 @@ SETUP_PORT = 8080
 DATA_DIR = "/mnt/data/iora"
 CONFIG_FILE = "/mnt/data/iora/setup.json"
 SETUP_DONE_FLAG = "/mnt/data/iora/.setup-complete"
+# Persistent apply-progress state — survives a browser reload and is shared
+# across all open tabs so the user can close/reopen the page without losing
+# visibility into the running setup. Lives on the data partition when
+# available, falls back to rootfs.
+SETUP_STATE_FILE = "/mnt/data/iora/setup-state.json"
 IORA_VERSION_FILE = "/etc/iora-version"
 UPDATE_SERVER = "https://update.kaimdt.com"
 DOWNLOAD_SERVER = "https://dist.kaimdt.com"
@@ -35,6 +40,201 @@ DATA_KEYFILE = "/etc/iora/data.keyfile"
 DATA_DEV = "/dev/disk/by-label/iora-data"
 PIN_HASH_ITERATIONS = 1000
 PIN_DIGITS = 16
+
+
+# ── Progress tracker ─────────────────────────────────────────────────────────
+# Persists apply-phase progress across page reloads and is read by the
+# console first-boot TUI (/usr/lib/iora/iora-setup-tui). The state file is
+# atomically rewritten on every update so concurrent readers never see a
+# partial JSON document.
+class ProgressTracker:
+    # Canonical phases and their relative weights (must sum to 100).
+    PHASES = [
+        ("init",          "Initialising data directory",          5),
+        ("recovery_pin",  "Generating Recovery PIN",              5),
+        ("luks",          "Encrypting data partition",           20),
+        ("compose",       "Writing Docker Compose configuration", 5),
+        ("hostname",      "Applying hostname and timezone",       5),
+        ("env",           "Writing environment file",             5),
+        ("flag",          "Marking setup as complete",            5),
+        ("disable_setup", "Disabling first-boot wizard",          5),
+        ("stack",         "Starting IORA container stack",       40),
+        ("done",          "Setup complete",                       5),
+    ]
+
+    def __init__(self, path: str = SETUP_STATE_FILE):
+        self.path = path
+        self._lock = threading.Lock()
+        self._subscribers: "list[queue.Queue[dict]]" = []
+        self.state = {
+            "status": "pending",          # pending | running | done | failed
+            "started_at": None,
+            "updated_at": None,
+            "finished_at": None,
+            "phase": None,                # current phase key
+            "phase_label": None,
+            "percent": 0,
+            "log": [],                    # list of {"ts", "level", "msg"}
+            "errors": [],
+            "recovery_pin": None,         # cleared once the UI acknowledges it
+            "pin_acknowledged": False,
+            "finish_url": None,
+        }
+        # Reload any previous run so a browser that opens /setup after a
+        # reboot still sees "setup complete".
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, "r") as f:
+                    loaded = json.load(f)
+                    # Never leak a previous Recovery PIN through reload.
+                    loaded.pop("recovery_pin", None)
+                    self.state.update(loaded)
+        except Exception:
+            pass
+
+    def _persist_locked(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            tmp = self.path + ".tmp"
+            # Shallow copy without the plaintext PIN — we keep the PIN only
+            # in memory so an attacker with filesystem access can't grab it.
+            to_disk = {k: v for k, v in self.state.items() if k != "recovery_pin"}
+            with open(tmp, "w") as f:
+                json.dump(to_disk, f, indent=2)
+            os.replace(tmp, self.path)
+        except Exception as exc:
+            # Non-fatal: tracker must never take down setup.
+            print(f"WARN: cannot persist setup state: {exc}", file=sys.stderr)
+
+    def _broadcast_locked(self) -> None:
+        snapshot = dict(self.state)
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(snapshot)
+            except queue.Full:
+                pass
+
+    def subscribe(self) -> "queue.Queue[dict]":
+        q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
+        with self._lock:
+            self._subscribers.append(q)
+            # Prime the subscriber with the current state immediately.
+            q.put_nowait(dict(self.state))
+        return q
+
+    def unsubscribe(self, q: "queue.Queue[dict]") -> None:
+        with self._lock:
+            try:
+                self._subscribers.remove(q)
+            except ValueError:
+                pass
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return dict(self.state)
+
+    def log(self, msg: str, level: str = "info") -> None:
+        from time import time as _t
+        entry = {"ts": _t(), "level": level, "msg": msg}
+        with self._lock:
+            self.state["log"].append(entry)
+            # Cap the log so memory doesn't grow unbounded on re-runs.
+            if len(self.state["log"]) > 500:
+                self.state["log"] = self.state["log"][-500:]
+            self.state["updated_at"] = entry["ts"]
+            self._persist_locked()
+            self._broadcast_locked()
+        # Mirror to stdout so journalctl / console TUI can tail it.
+        print(f"[setup:{level}] {msg}", flush=True)
+
+    def start(self) -> None:
+        from time import time as _t
+        with self._lock:
+            self.state["status"] = "running"
+            self.state["started_at"] = _t()
+            self.state["updated_at"] = _t()
+            self.state["finished_at"] = None
+            self.state["phase"] = None
+            self.state["phase_label"] = None
+            self.state["percent"] = 0
+            self.state["log"] = []
+            self.state["errors"] = []
+            self.state["recovery_pin"] = None
+            self.state["pin_acknowledged"] = False
+            self.state["finish_url"] = None
+            self._persist_locked()
+            self._broadcast_locked()
+
+    def set_phase(self, phase: str) -> None:
+        # Compute cumulative percentage based on phase weights.
+        cumulative = 0
+        total = sum(w for _, _, w in self.PHASES)
+        label = phase
+        for key, lbl, weight in self.PHASES:
+            if key == phase:
+                label = lbl
+                # Percent at the START of this phase.
+                percent = int(cumulative * 100 / max(total, 1))
+                break
+            cumulative += weight
+        else:
+            percent = self.state["percent"]
+        with self._lock:
+            self.state["phase"] = phase
+            self.state["phase_label"] = label
+            if percent > self.state["percent"]:
+                self.state["percent"] = percent
+            self._persist_locked()
+            self._broadcast_locked()
+        self.log(f"→ {label}")
+
+    def set_percent(self, percent: int) -> None:
+        with self._lock:
+            clamped = max(0, min(100, int(percent)))
+            if clamped > self.state["percent"]:
+                self.state["percent"] = clamped
+                self._persist_locked()
+                self._broadcast_locked()
+
+    def set_recovery_pin(self, pin: str | None) -> None:
+        with self._lock:
+            self.state["recovery_pin"] = pin
+            # Do not persist the PIN to disk — see _persist_locked.
+            self._broadcast_locked()
+
+    def acknowledge_pin(self) -> None:
+        with self._lock:
+            self.state["pin_acknowledged"] = True
+            self.state["recovery_pin"] = None
+            self._persist_locked()
+            self._broadcast_locked()
+
+    def add_error(self, msg: str) -> None:
+        with self._lock:
+            self.state["errors"].append(msg)
+            self._persist_locked()
+            self._broadcast_locked()
+        self.log(msg, level="error")
+
+    def finish(self, status: str, finish_url: str | None = None) -> None:
+        from time import time as _t
+        with self._lock:
+            self.state["status"] = status
+            self.state["finished_at"] = _t()
+            self.state["percent"] = 100 if status == "done" else self.state["percent"]
+            if finish_url:
+                self.state["finish_url"] = finish_url
+            self._persist_locked()
+            self._broadcast_locked()
+        self.log(f"Setup finished with status={status}",
+                 level="info" if status == "done" else "error")
+
+
+# Queue stdlib is used by ProgressTracker.subscribe; import here so the
+# tracker class can reference it (imports at top of file pull it in).
+import queue  # noqa: E402
+
+PROGRESS = ProgressTracker()
 
 
 def generate_recovery_pin() -> str:
@@ -83,6 +283,14 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
 
     Returns a list of error strings (empty on success).
     Only called when the partition exists and is not yet LUKS-formatted.
+
+    The partition is normally mounted at /mnt/data at this point (the setup
+    wizard runs AFTER mnt-data.mount) and may also be exposed through a
+    device-mapper alias (``/dev/mapper/iora-data``) that
+    iora-data-unlock.service creates. ``cryptsetup luksFormat`` refuses to
+    wipe the header while the device is in use, so we tear those down
+    first. The caller is expected to re-mount /mnt/data through the real
+    LUKS mapper name afterwards (or, more commonly, at the next reboot).
     """
     errors: list[str] = []
     if not os.path.exists(DATA_DEV):
@@ -99,6 +307,35 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     if not os.path.exists(keyfile_path):
         errors.append(f"LUKS setup skipped: keyfile {keyfile_path} not found")
         return errors
+
+    # ── Release the device before luksFormat ────────────────────────────
+    # 1. Unmount /mnt/data if it's mounted (ignore failures if busy/absent).
+    subprocess.run(["umount", "/mnt/data"], capture_output=True)
+    subprocess.run(["umount", "-l", "/mnt/data"], capture_output=True)
+
+    # 2. Remove the dm-mapper alias that iora-data-unlock created for
+    #    plain-ext4 mode (linear pass-through). If that node is still
+    #    present cryptsetup says "Device or resource busy".
+    if os.path.exists("/dev/mapper/iora-data"):
+        subprocess.run(["dmsetup", "remove", "--force", "iora-data"],
+                       capture_output=True)
+        # Also try cryptsetup close in case it's a real LUKS node from a
+        # previous encryption attempt.
+        subprocess.run(["cryptsetup", "close", "iora-data"],
+                       capture_output=True)
+
+    # 3. As a last resort: if anything else still holds the block device,
+    #    forcibly kill the holders so the format can proceed. This is only
+    #    reached on fresh first-boot setup where only our own unlock
+    #    service has touched the partition.
+    try:
+        holders_dir = f"/sys/class/block/{os.path.basename(os.path.realpath(DATA_DEV))}/holders"
+        if os.path.isdir(holders_dir):
+            for name in os.listdir(holders_dir):
+                subprocess.run(["dmsetup", "remove", "--force", name],
+                               capture_output=True)
+    except Exception:
+        pass
 
     # Format as LUKS2 with the generated keyfile.
     r = subprocess.run(
@@ -276,7 +513,10 @@ def apply_config(config):
     errors = []
     recovery_pin = None  # set below if on IORA OS
 
+    PROGRESS.start()
+
     # Create data directory structure
+    PROGRESS.set_phase("init")
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(os.path.join(DATA_DIR, "config"), exist_ok=True)
     os.makedirs(os.path.join(DATA_DIR, "media"), exist_ok=True)
@@ -286,36 +526,49 @@ def apply_config(config):
     # ── Security: Recovery PIN + LUKS ─────────────────────────────────────
     if IS_IORA_OS:
         # 1. Generate a 16-digit Recovery PIN and store its hash.
+        PROGRESS.set_phase("recovery_pin")
         if not os.path.exists(RECOVERY_PIN_HASH_FILE):
             recovery_pin = generate_recovery_pin()
             pin_hash = hash_recovery_pin(recovery_pin)
             try:
                 store_recovery_pin_hash(pin_hash)
+                PROGRESS.set_recovery_pin(recovery_pin)
             except Exception as e:
-                errors.append(f"Failed to store Recovery PIN hash: {e}")
+                msg = f"Failed to store Recovery PIN hash: {e}"
+                errors.append(msg)
+                PROGRESS.add_error(msg)
                 recovery_pin = None
         # If a hash already exists (re-run of setup), do not overwrite it.
 
         # 2. Generate LUKS keyfile and encrypt data partition if not yet done.
+        PROGRESS.set_phase("luks")
         if not os.path.exists(DATA_KEYFILE):
             keyfile = generate_and_store_luks_keyfile()
             if keyfile:
                 luks_errors = setup_luks_data_partition(keyfile)
+                for e in luks_errors:
+                    PROGRESS.add_error(e)
                 errors.extend(luks_errors)
             else:
-                errors.append("Failed to generate LUKS keyfile — data partition will remain unencrypted")
+                msg = "Failed to generate LUKS keyfile — data partition will remain unencrypted"
+                errors.append(msg)
+                PROGRESS.add_error(msg)
     # ── End security setup ─────────────────────────────────────────────────
 
     # Generate docker-compose.yml
+    PROGRESS.set_phase("compose")
     compose = generate_compose(config)
     compose_path = os.path.join(DATA_DIR, "docker-compose.yml")
     try:
         with open(compose_path, "w") as f:
             f.write(compose)
     except Exception as e:
-        errors.append(f"Failed to write docker-compose.yml: {e}")
+        msg = f"Failed to write docker-compose.yml: {e}"
+        errors.append(msg)
+        PROGRESS.add_error(msg)
 
     # Set hostname if on IORA OS
+    PROGRESS.set_phase("hostname")
     if IS_IORA_OS and config.get("hostname"):
         try:
             subprocess.run(
@@ -336,6 +589,7 @@ def apply_config(config):
             pass
 
     # Write .env file for docker-compose
+    PROGRESS.set_phase("env")
     env_path = os.path.join(DATA_DIR, ".env")
     try:
         env_lines = [
@@ -350,16 +604,22 @@ def apply_config(config):
         with open(env_path, "w") as f:
             f.write("\n".join(env_lines) + "\n")
     except Exception as e:
-        errors.append(f"Failed to write .env: {e}")
+        msg = f"Failed to write .env: {e}"
+        errors.append(msg)
+        PROGRESS.add_error(msg)
 
     # Mark setup as complete
+    PROGRESS.set_phase("flag")
     try:
         with open(SETUP_DONE_FLAG, "w") as f:
             f.write("1\n")
     except Exception as e:
-        errors.append(f"Failed to write setup flag: {e}")
+        msg = f"Failed to write setup flag: {e}"
+        errors.append(msg)
+        PROGRESS.add_error(msg)
 
     # Disable setup service if on IORA OS
+    PROGRESS.set_phase("disable_setup")
     if IS_IORA_OS:
         try:
             subprocess.run(
@@ -375,6 +635,7 @@ def apply_config(config):
     # the user with no ports open. We call iora-stack.service so the
     # unit's ExecStartPre (retry pull) + ExecStart + reconcile loop
     # apply to the user-chosen compose.yml, not just at first boot.
+    PROGRESS.set_phase("stack")
     if config.get("auto_start", True):
         try:
             if IS_IORA_OS:
@@ -382,29 +643,38 @@ def apply_config(config):
                 # instead of returning immediately and leaving the user
                 # staring at a "Setup Complete!" page while nothing is
                 # actually listening.
+                PROGRESS.log("systemctl restart iora-stack.service (up to 240s)")
                 cp = subprocess.run(
                     ["systemctl", "restart", "iora-stack.service"],
                     capture_output=True, text=True, timeout=240,
                 )
                 if cp.returncode != 0:
-                    errors.append(
+                    msg = (
                         f"iora-stack.service failed to start: "
                         f"{(cp.stderr or cp.stdout or '').strip()[:400]}"
                     )
+                    errors.append(msg)
+                    PROGRESS.add_error(msg)
             else:
+                PROGRESS.log("docker compose up -d --remove-orphans (up to 300s)")
                 cp = subprocess.run(
                     ["docker", "compose", "up", "-d", "--remove-orphans"],
                     cwd=DATA_DIR,
                     capture_output=True, text=True, timeout=300,
                 )
                 if cp.returncode != 0:
-                    errors.append(
+                    msg = (
                         f"docker compose up failed: "
                         f"{(cp.stderr or cp.stdout or '').strip()[:400]}"
                     )
+                    errors.append(msg)
+                    PROGRESS.add_error(msg)
         except Exception as e:
-            errors.append(f"Failed to start stack: {e}")
+            msg = f"Failed to start stack: {e}"
+            errors.append(msg)
+            PROGRESS.add_error(msg)
 
+    PROGRESS.set_phase("done")
     return errors, recovery_pin
 
 
@@ -657,7 +927,7 @@ SETUP_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IORA Home Setup</title>
+<title>IORA OS Setup</title>
 <style>
 :root {
   --bg: #0f172a;
@@ -702,6 +972,72 @@ body {
   margin-top: 6px;
   font-size: 0.95rem;
 }
+
+/* Warning banner — shown above everything on the landing page so the user
+   understands IORA OS is NOT functional until setup completes. */
+.warning-banner {
+  background: linear-gradient(90deg, #7c2d12 0%, #9a3412 100%);
+  border: 1px solid #c2410c;
+  color: #fed7aa;
+  padding: 14px 16px;
+  border-radius: 10px;
+  margin: 16px 0 8px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.warning-banner strong { color: #fff; }
+.warning-banner.in-progress {
+  background: linear-gradient(90deg, #1e3a8a 0%, #1e40af 100%);
+  border-color: #3b82f6;
+  color: #dbeafe;
+}
+
+/* Apply-phase progress (percentage + bar + phase label + live log) */
+.apply-progress {
+  text-align: left;
+  margin-top: 24px;
+}
+.apply-progress .pct-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.apply-progress .pct {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.apply-progress .phase-label {
+  color: var(--text2);
+  font-size: 0.95rem;
+}
+.apply-progress .pct-bar {
+  height: 10px;
+  background: var(--surface2);
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 6px 0 16px;
+}
+.apply-progress .pct-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary) 0%, #22d3ee 100%);
+  width: 0%;
+  transition: width 0.4s ease;
+}
+.apply-progress .log-pane {
+  background: #0b1220;
+  border: 1px solid var(--surface2);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.apply-progress .log-pane .err { color: #fca5a5; }
 
 /* Progress bar */
 .progress-bar {
@@ -938,8 +1274,16 @@ body {
 <div class="container">
 
 <div class="logo">
-  <h1><span>IORA</span> Home</h1>
-  <p>Initial Setup Wizard</p>
+  <h1><span>IORA</span> OS</h1>
+  <p>First-Boot Setup Wizard</p>
+</div>
+
+<div class="warning-banner" id="preSetupBanner">
+  <strong>⚠ IORA OS is not yet operational.</strong>
+  Native services (iora-core, iora-home, Control Center, dashboard, Docker
+  stack, …) only start <strong>after</strong> this setup finishes successfully.
+  Until then no other port is listening — <strong>please keep this tab open
+  until you see the "Setup Complete" screen.</strong>
 </div>
 
 <div class="progress-bar" id="progressBar">
@@ -1150,13 +1494,28 @@ body {
 <div class="card">
   <div class="finish-box" id="applyingBox">
     <div class="spinner"></div>
-    <h2>Applying Configuration...</h2>
-    <p class="subtitle">Setting up your IORA Home instance</p>
+    <h2>Applying Configuration…</h2>
+    <p class="subtitle">Setting up your IORA OS instance. This can take a few minutes — Docker images are being pulled.</p>
+
+    <div class="warning-banner in-progress" style="margin:18px 0 8px">
+      <strong>Do NOT close this tab</strong> and do not power off the device.
+      Progress is persisted, so opening another tab or reloading will resume
+      where you left off.
+    </div>
+
+    <div class="apply-progress">
+      <div class="pct-row">
+        <div class="pct" id="applyPct">0%</div>
+        <div class="phase-label" id="applyPhase">Preparing…</div>
+      </div>
+      <div class="pct-bar"><div class="pct-bar-fill" id="applyBar"></div></div>
+      <div class="log-pane" id="applyLog"></div>
+    </div>
   </div>
   <div class="finish-box" id="doneBox" style="display:none">
     <div class="icon">&#10003;</div>
     <h2>Setup Complete!</h2>
-    <p class="subtitle">Your IORA Home instance is ready.</p>
+    <p class="subtitle">Your IORA OS instance is ready.</p>
 
     <!-- Recovery PIN — shown exactly once. MUST be stored by the user. -->
     <div id="recoveryPinBox" style="display:none;margin:20px 0;padding:18px;
@@ -1174,11 +1533,14 @@ body {
         Store it in a safe place (password manager, printed paper in a secure location).<br>
         You will need it to access your data in Recovery Mode.
       </p>
+      <button class="btn btn-primary" onclick="acknowledgePin()" style="margin-top:12px">
+        I have written the PIN down
+      </button>
     </div>
 
     <div class="url" id="finalUrl">http://iora:8126</div>
     <p class="subtitle" style="margin-top:16px">
-      The IORA Home dashboard will be available<br>
+      The IORA OS dashboard will be available<br>
       at the address above in a few moments.
     </p>
     <div class="btn-row" style="justify-content:center">
@@ -1273,43 +1635,147 @@ async function doInstall() {
   goStep(4);
   const config = gatherConfig();
   try {
-    const r = await fetch('/api/apply', {
+    await fetch('/api/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
     });
-    const result = await r.json();
-    setTimeout(() => {
-      document.getElementById('applyingBox').style.display = 'none';
-      document.getElementById('doneBox').style.display = 'block';
-      const ip = location.hostname;
-      document.getElementById('finalUrl').textContent = 'http://' + ip + ':8126';
-
-      // Show Recovery PIN if the backend generated one.
-      if (result && result.recovery_pin) {
-        const pinBox = document.getElementById('recoveryPinBox');
-        const pinVal = document.getElementById('recoveryPinValue');
-        // Format as groups of 4 for readability: XXXX XXXX XXXX XXXX
-        const pin = result.recovery_pin;
-        pinVal.textContent = pin.slice(0,4) + ' ' + pin.slice(4,8) + ' ' + pin.slice(8,12) + ' ' + pin.slice(12,16);
-        pinBox.style.display = 'block';
-      }
-
-      // Surface any backend errors (pull failures, compose errors, ...)
-      // instead of pretending setup finished cleanly. The user complained
-      // "nothing happens after setup" precisely because these were hidden.
-      if (result && result.errors && result.errors.length) {
-        const box = document.getElementById('doneBox');
-        const warn = document.createElement('div');
-        warn.className = 'subtitle';
-        warn.style.cssText = 'margin-top:16px;color:#c94f4f;white-space:pre-wrap;text-align:left;font-family:monospace;font-size:12px;background:#2a1a1a;padding:12px;border-radius:6px;max-height:180px;overflow:auto';
-        warn.textContent = 'Warnings:\n' + result.errors.join('\n');
-        box.appendChild(warn);
-      }
-    }, 3000);
+    // Response is immediate now; progress is streamed via /api/events
+    // (and polled via /api/state as a fallback).
+    beginProgressStream();
   } catch(e) {
-    alert('Setup failed: ' + e);
+    alert('Setup failed to start: ' + e);
   }
+}
+
+// ── Live progress rendering ──────────────────────────────────────────────
+// Subscribe to /api/events (SSE) and fall back to polling /api/state. The
+// server persists state so opening a second tab or reloading the page
+// picks up where we left off.
+let __iora_stream = null;
+let __iora_pollTimer = null;
+let __iora_lastLogTs = 0;
+
+function beginProgressStream() {
+  if (!window.__iora_beforeunload_bound) {
+    window.addEventListener('beforeunload', (e) => {
+      const applying = document.getElementById('applyingBox');
+      if (currentStep === 4 && applying && applying.style.display !== 'none') {
+        e.preventDefault();
+        e.returnValue = 'Setup is still running. Leaving will not cancel it, but you will lose the Recovery PIN.';
+        return e.returnValue;
+      }
+    });
+    window.__iora_beforeunload_bound = true;
+  }
+
+  if (__iora_stream) { try { __iora_stream.close(); } catch(_){} __iora_stream = null; }
+
+  try {
+    __iora_stream = new EventSource('/api/events');
+    __iora_stream.onmessage = (ev) => {
+      try { renderState(JSON.parse(ev.data)); } catch(_) {}
+    };
+  } catch(_) {}
+  // Belt-and-braces polling every 2 s — also the primary source when
+  // EventSource is unavailable or a proxy buffers SSE.
+  startPolling();
+}
+
+function startPolling() {
+  if (__iora_pollTimer) return;
+  const tick = async () => {
+    try {
+      const r = await fetch('/api/state', { cache: 'no-store' });
+      renderState(await r.json());
+    } catch(_) {}
+  };
+  tick();
+  __iora_pollTimer = setInterval(tick, 2000);
+}
+
+function renderState(state) {
+  if (!state) return;
+
+  // Resume view on reload / cross-tab sync.
+  if (state.status && state.status !== 'pending' && currentStep !== 4) {
+    goStep(4);
+  }
+
+  const pct = Math.max(0, Math.min(100, state.percent || 0));
+  const pctEl = document.getElementById('applyPct');
+  const barEl = document.getElementById('applyBar');
+  const phaseEl = document.getElementById('applyPhase');
+  if (pctEl) pctEl.textContent = pct + '%';
+  if (barEl) barEl.style.width = pct + '%';
+  if (phaseEl) phaseEl.textContent = state.phase_label || 'Preparing…';
+
+  if (Array.isArray(state.log)) {
+    const pane = document.getElementById('applyLog');
+    if (pane) {
+      const fresh = state.log.filter(e => (e.ts || 0) > __iora_lastLogTs);
+      for (const e of fresh) {
+        const line = document.createElement('div');
+        if (e.level === 'error') line.className = 'err';
+        const dt = new Date((e.ts || 0) * 1000);
+        const hh = String(dt.getHours()).padStart(2,'0');
+        const mm = String(dt.getMinutes()).padStart(2,'0');
+        const ss = String(dt.getSeconds()).padStart(2,'0');
+        line.textContent = `${hh}:${mm}:${ss}  ${e.msg}`;
+        pane.appendChild(line);
+        __iora_lastLogTs = Math.max(__iora_lastLogTs, e.ts || 0);
+      }
+      pane.scrollTop = pane.scrollHeight;
+    }
+  }
+
+  if (state.status === 'done' || state.status === 'failed') {
+    showDoneBox(state);
+  }
+}
+
+function showDoneBox(state) {
+  const applying = document.getElementById('applyingBox');
+  const doneBox = document.getElementById('doneBox');
+  if (applying) applying.style.display = 'none';
+  if (doneBox) doneBox.style.display = 'block';
+
+  const pin = state.recovery_pin;
+  if (pin && !state.pin_acknowledged) {
+    const pinBox = document.getElementById('recoveryPinBox');
+    const pinVal = document.getElementById('recoveryPinValue');
+    if (pinBox && pinVal) {
+      pinVal.textContent =
+        pin.slice(0,4) + ' ' + pin.slice(4,8) + ' ' +
+        pin.slice(8,12) + ' ' + pin.slice(12,16);
+      pinBox.style.display = 'block';
+    }
+  }
+
+  const finalEl = document.getElementById('finalUrl');
+  if (finalEl) {
+    const host = (state.finish_url || '').replace(/^https?:\/\//, '').split(':')[0]
+                 || location.hostname;
+    finalEl.textContent = 'http://' + host + ':8126';
+  }
+
+  if (state.errors && state.errors.length) {
+    const box = document.getElementById('doneBox');
+    if (box && !box.dataset.errorsShown) {
+      const warn = document.createElement('div');
+      warn.className = 'subtitle';
+      warn.style.cssText = 'margin-top:16px;color:#c94f4f;white-space:pre-wrap;text-align:left;font-family:monospace;font-size:12px;background:#2a1a1a;padding:12px;border-radius:6px;max-height:200px;overflow:auto';
+      warn.textContent = 'Warnings:\n' + state.errors.join('\n');
+      box.appendChild(warn);
+      box.dataset.errorsShown = '1';
+    }
+  }
+}
+
+async function acknowledgePin() {
+  try { await fetch('/api/ack-pin', { method: 'POST' }); } catch(_) {}
+  const pinBox = document.getElementById('recoveryPinBox');
+  if (pinBox) pinBox.style.display = 'none';
 }
 
 function openDashboard() {
@@ -1319,6 +1785,16 @@ function openDashboard() {
 
 // Init
 loadSysInfo();
+// Resume live view if an apply is already in progress or finished.
+(async function resumeIfRunning() {
+  try {
+    const r = await fetch('/api/state', { cache: 'no-store' });
+    const s = await r.json();
+    if (s && s.status && s.status !== 'pending') {
+      beginProgressStream();
+    }
+  } catch(_) {}
+})();
 </script>
 </body>
 </html>"""
@@ -1355,6 +1831,14 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/status":
             done = os.path.exists(SETUP_DONE_FLAG)
             self._send_json({"setup_complete": done})
+        elif path == "/api/state":
+            # Persistent apply-progress snapshot. The UI polls this every
+            # second as a fallback for browsers that can't use SSE, and on
+            # initial page load so a refresh picks up the live state.
+            self._send_json(PROGRESS.snapshot())
+        elif path == "/api/events":
+            # Server-Sent Events stream of progress updates.
+            self._serve_events()
         elif path == "/api/packages":
             self._send_json(fetch_available_packages())
         elif path == "/api/os-update":
@@ -1364,6 +1848,49 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(self._call_netctl(["status"]))
         else:
             self.send_error(404)
+
+    def _serve_events(self):
+        """Stream progress updates as Server-Sent Events (SSE).
+
+        The handler subscribes to PROGRESS, flushes the current state, and
+        then forwards every subsequent update to the client. Heartbeat
+        comments are sent every 15 s to keep intermediaries from dropping
+        the connection. The stream is closed once status becomes done or
+        failed AND the client has acknowledged the recovery PIN (or there
+        is none) — otherwise it remains open to re-deliver state to late
+        subscribers.
+        """
+        import time as _time
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        # Disable any proxy buffering so updates arrive immediately.
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        q = PROGRESS.subscribe()
+        last_heartbeat = _time.time()
+        try:
+            while True:
+                try:
+                    state = q.get(timeout=5.0)
+                    payload = json.dumps(state, default=str)
+                    self.wfile.write(f"data: {payload}\n\n".encode())
+                    self.wfile.flush()
+                except queue.Empty:
+                    pass
+                now = _time.time()
+                if now - last_heartbeat > 15:
+                    try:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                    except BrokenPipeError:
+                        return
+                    last_heartbeat = now
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        finally:
+            PROGRESS.unsubscribe(q)
 
     def _call_netctl(self, args, body=None):
         """Shell out to /usr/bin/iora-netctl — the canonical network
@@ -1412,30 +1939,73 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Invalid JSON"}, 400)
                 return
 
+            # Idempotent: if a run is already in progress, just return the
+            # current state instead of kicking off a second concurrent apply.
+            snap = PROGRESS.snapshot()
+            if snap["status"] == "running":
+                self._send_json({"ok": True, "status": "running",
+                                 "state": snap})
+                return
+            if snap["status"] == "done":
+                self._send_json({"ok": True, "status": "done",
+                                 "state": snap})
+                return
+
             save_config(config)
-            errors, recovery_pin = apply_config(config)
 
-            if errors:
-                self._send_json({"ok": False, "errors": errors})
-            else:
-                response: dict = {"ok": True}
-                if recovery_pin:
-                    # Return the plaintext PIN to the web UI exactly once.
-                    # The UI MUST display it prominently and instruct the user
-                    # to write it down. It is never stored on the device.
-                    response["recovery_pin"] = recovery_pin
-                self._send_json(response)
+            def runner():
+                try:
+                    errors, recovery_pin = apply_config(config)
+                    finish_url = None
+                    try:
+                        ip = socket.gethostname()
+                        finish_url = f"http://{ip}:8126"
+                    except Exception:
+                        pass
+                    status = "failed" if errors else "done"
+                    PROGRESS.finish(status, finish_url=finish_url)
+                    # Schedule shutdown after the user had time to read the
+                    # PIN + any error messages. Only on success — on failure
+                    # keep the server alive so the user can retry.
+                    if status == "done" and not recovery_pin:
+                        _schedule_shutdown(30)
+                except Exception as exc:  # noqa: BLE001
+                    PROGRESS.add_error(f"Apply crashed: {exc}")
+                    PROGRESS.finish("failed")
 
-                # Schedule shutdown of setup server after response
-                def shutdown_later():
-                    import time
-                    time.sleep(10)
-                    print("Setup complete. Shutting down setup server.")
-                    os._exit(0)
+            threading.Thread(target=runner, daemon=True).start()
 
-                threading.Thread(target=shutdown_later, daemon=True).start()
-        else:
-            self.send_error(404)
+            # Return immediately so the UI can switch to the progress view
+            # and subscribe to /api/events.
+            self._send_json({"ok": True, "status": "running"})
+            return
+
+        if path == "/api/ack-pin":
+            PROGRESS.acknowledge_pin()
+            self._send_json({"ok": True})
+            # Once the user has copied the PIN we can schedule the setup
+            # server shutdown.
+            snap = PROGRESS.snapshot()
+            if snap["status"] in ("done", "failed"):
+                _schedule_shutdown(15)
+            return
+
+        self.send_error(404)
+
+
+def _schedule_shutdown(delay_sec: int) -> None:
+    """Schedule an os._exit() after the given delay.
+
+    Stops the setup server so systemd can run the next unit in the boot
+    chain. Also disables iora-setup.service so a reboot doesn't relaunch
+    the wizard.
+    """
+    def shutdown_later():
+        import time
+        time.sleep(delay_sec)
+        print(f"Setup complete. Shutting down setup server in {delay_sec}s window.")
+        os._exit(0)
+    threading.Thread(target=shutdown_later, daemon=True).start()
 
 
 def main():
@@ -1453,7 +2023,7 @@ def main():
     except OSError as exc:
         print(f"WARNING: could not create {DATA_DIR}: {exc}", file=sys.stderr)
 
-    server = http.server.HTTPServer(("0.0.0.0", SETUP_PORT), SetupHandler)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", SETUP_PORT), SetupHandler)
     hostname = socket.gethostname()
 
     # Get first IP
@@ -1466,7 +2036,7 @@ def main():
     except Exception:
         pass
 
-    print(f"IORA Home Setup Wizard")
+    print(f"IORA OS Setup Wizard")
     print(f"  http://{ip}:{SETUP_PORT}")
     print(f"  http://{hostname}:{SETUP_PORT}")
     print()

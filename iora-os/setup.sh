@@ -339,21 +339,117 @@ install_docker() {
     ok "Docker installed: $(docker --version 2>/dev/null || true)"
 }
 
+# ── Rust toolchain installation ──────────────────────────────────────────────
+# Required to build the native IORA service binaries (iora-core, iora-home, …)
+# that are embedded into the rootfs overlay by build-all-images.sh.
+# Without Rust on the host, the binaries are missing and every native IORA
+# service on the device stays inactive (ConditionPathExists fails silently).
+install_rust() {
+    # Already installed via the system package manager?
+    if command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1; then
+        ok "Rust already installed: $(rustc --version 2>/dev/null)"
+        return 0
+    fi
+
+    # rustup binary exists (e.g. from a prior run) but cargo isn't on PATH?
+    # Source the env script and re-check.
+    local real_user="${SUDO_USER:-${USER:-}}"
+    local user_home
+    if [ -n "$real_user" ] && [ "$real_user" != root ]; then
+        user_home="$(getent passwd "$real_user" | cut -d: -f6)"
+    else
+        user_home="${HOME:-/root}"
+    fi
+    if [ -f "${user_home}/.cargo/env" ]; then
+        # shellcheck disable=SC1091
+        . "${user_home}/.cargo/env"
+        if command -v cargo >/dev/null 2>&1; then
+            ok "Rust already installed (via rustup): $(rustc --version 2>/dev/null)"
+            # Make sure the current shell PATH contains cargo for the remainder
+            # of this script (so build-all-images.sh picks it up).
+            export PATH="${user_home}/.cargo/bin:$PATH"
+            return 0
+        fi
+    fi
+
+    info "Rust toolchain not found — installing via rustup (non-interactive)..."
+
+    # Prefer distro package when it's recent enough (Debian 12 / Ubuntu 24.04+).
+    # Older distros ship rust 1.63 or older — too old for modern IORA deps —
+    # so we always fall back to rustup which pins a known-good stable channel.
+    case "$PM" in
+        apt)
+            # We still install curl + ca-certificates so the rustup bootstrap works.
+            $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                curl ca-certificates gcc build-essential >/dev/null 2>&1 || true
+            ;;
+        dnf)    $SUDO dnf install -y curl ca-certificates gcc make >/dev/null 2>&1 || true ;;
+        pacman) $SUDO pacman -Sy --noconfirm --needed curl ca-certificates gcc make >/dev/null 2>&1 || true ;;
+        zypper) $SUDO zypper --non-interactive install curl ca-certificates gcc make >/dev/null 2>&1 || true ;;
+        apk)    $SUDO apk add --no-cache curl ca-certificates gcc musl-dev make >/dev/null 2>&1 || true ;;
+    esac
+
+    if ! command -v curl >/dev/null 2>&1; then
+        warn "curl not available — cannot bootstrap rustup."
+        warn "Install rustc + cargo manually: https://rustup.rs"
+        return 1
+    fi
+
+    local RUSTUP_URL="https://sh.rustup.rs"
+    local RUSTUP_ARGS="-y --default-toolchain stable --profile minimal --no-modify-path"
+
+    # Run rustup as the invoking (non-root) user so binaries land in ~/.cargo
+    # and are owned by that user. Passing `-y` to the installer makes it fully
+    # unattended — no prompts, no "Press Enter" step.
+    if [ -n "$real_user" ] && [ "$real_user" != root ] && command -v sudo >/dev/null 2>&1; then
+        # shellcheck disable=SC2016
+        sudo -u "$real_user" bash -c \
+            "curl --proto '=https' --tlsv1.2 -sSf '$RUSTUP_URL' | sh -s -- $RUSTUP_ARGS"
+    else
+        curl --proto '=https' --tlsv1.2 -sSf "$RUSTUP_URL" | sh -s -- $RUSTUP_ARGS
+    fi
+
+    # Source the freshly-installed toolchain for the rest of this script.
+    if [ -f "${user_home}/.cargo/env" ]; then
+        # shellcheck disable=SC1091
+        . "${user_home}/.cargo/env"
+        export PATH="${user_home}/.cargo/bin:$PATH"
+    fi
+
+    if command -v cargo >/dev/null 2>&1; then
+        ok "Rust installed: $(rustc --version 2>/dev/null)"
+
+        # Best-effort: install the x86_64 target explicitly (no-op on x86_64
+        # hosts, required for cross-builds from ARM). Errors are non-fatal.
+        rustup target add x86_64-unknown-linux-gnu >/dev/null 2>&1 || true
+    else
+        warn "Rust installation completed but cargo is not on PATH."
+        warn "Open a new shell (or run: source \"${user_home}/.cargo/env\") and retry."
+        return 1
+    fi
+}
+
 # ── Main flow ───────────────────────────────────────────────────────────────
 
 select_packages
 wsl_tweaks
 
 info "Will install ${#PKGS[@]} packages via ${PM} for target '${TARGET}'."
-if ! ask_yn "Proceed with installation?" y; then
-    die "Aborted by user."
+# Non-interactive by design: the user ran setup.sh to set up the build host,
+# so we don't ask for permission to install the very packages they requested.
+# Pass --yes explicitly (or set IORA_SETUP_CONFIRM=1) to restore the prompt.
+if [ "${IORA_SETUP_CONFIRM:-0}" = "1" ]; then
+    if ! ask_yn "Proceed with installation?" y; then
+        die "Aborted by user."
+    fi
 fi
 
 install_pkgs "${PKGS[@]}" || die "Package installation failed."
 
 # Best-effort: also install optional packages (don't fail on errors).
+# Skip the interactive prompt by default in --yes mode.
 if [ "$PM" = apt ] && [ "$IS_WSL" = false ] && [ "$TARGET" = pc ]; then
-    if ask_yn "Install optional VirtualBox/RAUC support?" n; then
+    if [ "${ASSUME_YES}" = true ] || ask_yn "Install optional VirtualBox/RAUC support?" n; then
         $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y "${OPT_APT[@]}" \
             || warn "Optional packages failed – OVA export / RAUC bundle may be skipped."
     fi
@@ -363,6 +459,12 @@ ok "Toolchain installation completed."
 
 # ── Docker ───────────────────────────────────────────────────────────────────
 install_docker || warn "Docker installation failed – run 'install_docker' manually or install Docker from https://docs.docker.com/engine/install/"
+
+# ── Rust ─────────────────────────────────────────────────────────────────────
+# Rust is required by build-all-images.sh :: build_service_binaries() to
+# compile the native IORA service binaries. Without this, the IORA OS image
+# boots but all iora-* services stay inactive.
+install_rust || warn "Rust installation failed – native IORA services will NOT be built into the image."
 
 # Persist detected target so build.sh picks it up by default.
 CONFIG_FILE="${SCRIPT_DIR}/.setup-target"

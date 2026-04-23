@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""iora-setup-tui — first-boot progress display on tty1.
+
+Runs before any getty login prompt when ``/mnt/data/iora/.setup-complete``
+is absent. It polls the setup-server state file and renders a clear,
+branded message telling the user:
+
+  * IORA OS is not yet operational.
+  * The setup wizard is reachable at http://<IP>:8080/setup
+  * Live progress of the apply phase (phase label, percent, bar, log tail).
+
+Once ``.setup-complete`` appears the TUI exits with code 0 so systemd can
+start getty@tty1.service afterwards.
+
+The TUI uses plain ANSI escape codes (no curses) because curses pulls in
+large dependencies and is fragile on framebuffer ttys.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+STATE_FILE = "/mnt/data/iora/setup-state.json"
+SETUP_DONE_FLAG = "/mnt/data/iora/.setup-complete"
+SETUP_PORT = 8080
+
+# ANSI
+CLEAR = "\x1b[2J\x1b[H"
+HIDE_CURSOR = "\x1b[?25l"
+SHOW_CURSOR = "\x1b[?25h"
+BOLD = "\x1b[1m"
+DIM = "\x1b[2m"
+RESET = "\x1b[0m"
+FG_CYAN = "\x1b[36m"
+FG_YELLOW = "\x1b[33m"
+FG_GREEN = "\x1b[32m"
+FG_RED = "\x1b[31m"
+FG_WHITE = "\x1b[97m"
+BG_BLUE = "\x1b[44m"
+
+
+def get_primary_ip() -> str:
+    """Return the first non-loopback IPv4 address, or empty string."""
+    try:
+        out = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            for i, p in enumerate(parts):
+                if p == "inet" and i + 1 < len(parts):
+                    return parts[i + 1].split("/")[0]
+    except Exception:
+        pass
+    try:
+        # Fallback: connect-to-google trick.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(("1.1.1.1", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return ""
+
+
+def load_state() -> dict | None:
+    try:
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def bar(percent: int, width: int = 50) -> str:
+    percent = max(0, min(100, percent))
+    filled = int(width * percent / 100)
+    return f"[{'█' * filled}{'░' * (width - filled)}]"
+
+
+def render(ip: str, state: dict | None) -> None:
+    lines: list[str] = []
+    lines.append(CLEAR)
+    lines.append(BOLD + FG_CYAN + "=" * 78 + RESET)
+    lines.append(BOLD + FG_CYAN + "                          IORA OS — First-Boot Setup" + RESET)
+    lines.append(BOLD + FG_CYAN + "=" * 78 + RESET)
+    lines.append("")
+
+    if state is None or state.get("status") in (None, "pending"):
+        lines.append(FG_YELLOW + BOLD + "  Setup not started yet." + RESET)
+        lines.append("")
+        lines.append(FG_WHITE + "  IORA OS is " + BOLD + "not yet operational" + RESET + FG_WHITE + ".")
+        lines.append("  Open a browser on another device and go to:" + RESET)
+        lines.append("")
+        url = f"http://{ip}:{SETUP_PORT}/setup" if ip else f"http://<device-ip>:{SETUP_PORT}/setup"
+        lines.append(BOLD + FG_GREEN + f"      {url}" + RESET)
+        lines.append("")
+        lines.append(DIM + "  Complete the setup wizard there. This screen will update live." + RESET)
+    else:
+        status = state.get("status", "")
+        percent = int(state.get("percent", 0))
+        phase = state.get("phase_label", "")
+        col = FG_CYAN
+        if status == "done":
+            col = FG_GREEN
+        elif status == "failed":
+            col = FG_RED
+
+        lines.append(BOLD + col + f"  Status: {status.upper()}" + RESET +
+                     DIM + f"   (phase: {phase})" + RESET)
+        lines.append("")
+        lines.append(f"  {col}{bar(percent)}{RESET}  " +
+                     BOLD + f"{percent:3d}%" + RESET)
+        lines.append("")
+
+        log = state.get("log") or []
+        if log:
+            lines.append(DIM + "  Recent log:" + RESET)
+            for entry in log[-8:]:
+                msg = entry.get("msg", "")
+                level = entry.get("level", "info")
+                c = FG_RED if level == "error" else FG_WHITE
+                lines.append(f"    {c}{msg[:70]}{RESET}")
+
+        errors = state.get("errors") or []
+        if errors and status != "running":
+            lines.append("")
+            lines.append(FG_RED + BOLD + "  Warnings:" + RESET)
+            for e in errors[-5:]:
+                lines.append(FG_RED + f"    • {e[:72]}" + RESET)
+
+        if status == "done":
+            lines.append("")
+            pin_ack = state.get("pin_acknowledged", False)
+            if not pin_ack:
+                lines.append(FG_YELLOW + BOLD +
+                             "  Open the browser tab to copy your Recovery PIN." + RESET)
+            lines.append(FG_GREEN + BOLD +
+                         f"  IORA OS dashboard: http://{ip or '<device-ip>'}:8126" + RESET)
+
+    lines.append("")
+    lines.append(BOLD + FG_CYAN + "-" * 78 + RESET)
+    lines.append(DIM + "  Press Ctrl+Alt+F2 for a login console (after setup completes)." + RESET)
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
+
+
+def main() -> int:
+    # Ignore broken pipe on tty disconnect.
+    try:
+        sys.stdout.write(HIDE_CURSOR)
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+    last_ip_check = 0.0
+    ip = ""
+    try:
+        while True:
+            if os.path.exists(SETUP_DONE_FLAG):
+                # Setup finished — exit so getty can take over.
+                sys.stdout.write(CLEAR + FG_GREEN + BOLD +
+                                 "IORA OS setup complete. Starting system…\n" + RESET)
+                sys.stdout.flush()
+                time.sleep(2)
+                return 0
+            now = time.time()
+            if now - last_ip_check > 5 or not ip:
+                ip = get_primary_ip()
+                last_ip_check = now
+            state = load_state()
+            try:
+                render(ip, state)
+            except Exception:
+                pass
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        try:
+            sys.stdout.write(SHOW_CURSOR)
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -582,6 +582,56 @@ build_service_binaries() {
         return 0
     fi
 
+    # ── Make cargo visible to this script ────────────────────────────────
+    # setup.sh installs rustup with --no-modify-path, so a fresh shell after
+    # the installer does NOT have ~/.cargo/bin on PATH. That was the root
+    # cause of "overlay is empty after build": cargo existed on disk but
+    # `command -v cargo` returned false and the function silently fell
+    # through to the Docker fallback, which then also failed.
+    if ! command -v cargo >/dev/null 2>&1; then
+        for env_file in \
+            "${HOME}/.cargo/env" \
+            "${CARGO_HOME:-}/env" \
+            "/root/.cargo/env" \
+            "/home/${SUDO_USER:-$USER}/.cargo/env"
+        do
+            if [ -n "${env_file}" ] && [ -f "${env_file}" ]; then
+                # shellcheck disable=SC1090
+                . "${env_file}" 2>/dev/null || true
+            fi
+        done
+        # Also add the conventional install dirs directly, in case the env
+        # file is missing but the binaries exist.
+        for bin_dir in \
+            "${HOME}/.cargo/bin" \
+            "/root/.cargo/bin" \
+            "/home/${SUDO_USER:-$USER}/.cargo/bin" \
+            "/usr/local/cargo/bin"
+        do
+            if [ -d "${bin_dir}" ] && [[ ":${PATH}:" != *":${bin_dir}:"* ]]; then
+                PATH="${bin_dir}:${PATH}"
+                export PATH
+            fi
+        done
+    fi
+
+    # Auto-install rustup as a last-ditch effort so that a fresh CI host or
+    # a user who forgot to run setup.sh still produces working images
+    # instead of an empty overlay.
+    if ! command -v cargo >/dev/null 2>&1 && [ "${IORA_AUTO_INSTALL_RUST:-1}" = "1" ]; then
+        log_warn "cargo not found on PATH. Installing rustup non-interactively…"
+        if command -v curl >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path \
+                >/tmp/iora-rustup-install.log 2>&1 || \
+                log_warn "rustup install failed (see /tmp/iora-rustup-install.log)"
+            # shellcheck disable=SC1091
+            [ -f "${HOME}/.cargo/env" ] && . "${HOME}/.cargo/env"
+        else
+            log_warn "curl not available; cannot auto-install rustup."
+        fi
+    fi
+
     local SERVICES="iora-core iora-home iora-control iora-assist iora-secrets \
                     iora-watchdog iora-security iora-gateway iora-supervisor"
 
@@ -589,6 +639,7 @@ build_service_binaries() {
     if command -v cargo >/dev/null 2>&1; then
         log_info "Pre-compiling IORA service binaries natively with cargo..."
         log_info "Backend source: ${BACKEND_DIR}"
+        log_info "cargo: $(command -v cargo) ($(cargo --version 2>/dev/null || echo unknown))"
 
         local RUST_TRIPLE="${IORA_RUST_TRIPLE:-x86_64-unknown-linux-gnu}"
         case "${IORA_ARCH:-x86_64}" in
@@ -602,23 +653,32 @@ build_service_binaries() {
             rustup target add "${RUST_TRIPLE}" >/dev/null 2>&1 || true
         fi
 
-        local BIN_ARGS=""
+        # Use -p <package> instead of --bin: each IORA service lives in its
+        # own workspace crate of the same name, so -p is unambiguous and
+        # also builds the crate's *lib* dependencies in the right order.
+        local PKG_ARGS=""
         for svc in ${SERVICES}; do
-            BIN_ARGS="${BIN_ARGS} --bin ${svc}"
+            PKG_ARGS="${PKG_ARGS} -p ${svc}"
         done
 
         local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
+        export CARGO_TARGET_DIR
         local cargo_ok=0
-        if ( cd "${BACKEND_DIR}" && cargo build --release --target "${RUST_TRIPLE}" ${BIN_ARGS} ) \
+        log_info "cargo build --release --target ${RUST_TRIPLE} ${PKG_ARGS}"
+        if ( cd "${BACKEND_DIR}" && cargo build --release --target "${RUST_TRIPLE}" ${PKG_ARGS} ) \
              >/tmp/iora-cargo-build.log 2>&1; then
             cargo_ok=1
         else
             log_warn "Cross-compile to ${RUST_TRIPLE} failed; falling back to host-native build."
-            log_warn "  (see /tmp/iora-cargo-build.log for details)"
-            if ( cd "${BACKEND_DIR}" && cargo build --release ${BIN_ARGS} ) \
+            log_warn "  (see /tmp/iora-cargo-build.log for details — last 20 lines below)"
+            tail -n 20 /tmp/iora-cargo-build.log 2>/dev/null | sed 's/^/    /' || true
+            if ( cd "${BACKEND_DIR}" && cargo build --release ${PKG_ARGS} ) \
                  >>/tmp/iora-cargo-build.log 2>&1; then
                 cargo_ok=1
                 RUST_TRIPLE=""   # binaries live at target/release/<svc>
+            else
+                log_warn "Host-native cargo build also failed. Log tail:"
+                tail -n 30 /tmp/iora-cargo-build.log 2>/dev/null | sed 's/^/    /' || true
             fi
         fi
 
@@ -635,15 +695,20 @@ build_service_binaries() {
                 mkdir -p "${dest}"
                 if [ -f "${src}" ]; then
                     install -m 0755 "${src}" "${dest}/${svc}"
+                    # Drop the placeholder .keep now that we have the real
+                    # binary — otherwise it clutters the rootfs.
+                    rm -f "${dest}/.keep"
                     log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
                 else
-                    log_warn "  ${svc}: binary not produced by cargo (missing [[bin]] target?)"
+                    log_warn "  ${svc}: binary not produced by cargo (missing [[bin]] target in ${svc}/src/main.rs?)"
                     rm -f "${dest}/${svc}"
                     failed=$((failed + 1))
                 fi
             done
             if [ "${failed}" -gt 0 ]; then
                 log_warn "${failed} service binary/binaries missing after cargo build."
+                log_warn "The resulting image will still boot but those services will stay INACTIVE"
+                log_warn "(ConditionPathExists on /opt/iora/build/<svc>/bin/<svc> will fail)."
             else
                 log_success "All IORA service binaries embedded in rootfs overlay (native build)."
             fi
@@ -652,7 +717,9 @@ build_service_binaries() {
 
         log_warn "Native cargo build failed; trying Docker fallback..."
     else
-        log_info "cargo not found; trying Docker fallback for service binaries..."
+        log_warn "cargo STILL not found after auto-install attempt."
+        log_warn "Install the Rust toolchain manually (https://rustup.rs) and re-run the build,"
+        log_warn "or set IORA_AUTO_INSTALL_RUST=1 and ensure curl is available."
     fi
 
     # ── Strategy 2: legacy Docker builder image ─────────────────────────────

@@ -574,6 +574,20 @@ LimitNOFILE=1048576
 LimitNPROC=1048576
 EOF
 
+# Buildroot installs docker.service + docker.socket but does not enable them
+# at boot — no `systemctl preset` run during image assembly. Without these
+# symlinks dockerd only starts on-demand via Wants=docker.service from other
+# units, which fails for iora-stack.service with:
+#     "A dependency job for iora-stack.service failed"
+# because on-demand socket activation hasn't been configured either.
+# Enable both explicitly so dockerd is up by the time setup completes.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+mkdir -p "${TARGET_DIR}/etc/systemd/system/sockets.target.wants"
+ln -sf /usr/lib/systemd/system/docker.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/docker.service"
+ln -sf /usr/lib/systemd/system/docker.socket \
+    "${TARGET_DIR}/etc/systemd/system/sockets.target.wants/docker.socket"
+
 # ── LUKS unlock service for /mnt/data ──────────────────────────────────────
 # iora-data-unlock.service runs before mnt-data.mount. It inspects whether
 # the iora-data partition is LUKS-formatted:
@@ -1497,7 +1511,7 @@ fi
 # Create iora-setup.service (first-boot setup wizard)
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup.service" <<'EOF'
 [Unit]
-Description=IORA Home First-Boot Setup Wizard
+Description=IORA OS First-Boot Setup Wizard
 # Start even if iora-init-data fails (no iora-data partition): the setup
 # server creates /mnt/data/iora itself on whatever FS backs /mnt/data.
 # network-online is Wants= (not Requires=) so a slow link doesn't block it.
@@ -1525,6 +1539,53 @@ EOF
 # Enable iora-setup service
 ln -sf /etc/systemd/system/iora-setup.service \
     "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-setup.service"
+
+# ── First-boot progress TUI on tty1 ───────────────────────────────────────
+# Render the setup progress (phase, percent, log tail, URL) on the local
+# console while the user is running the wizard from another device. This
+# replaces the blank prompt behind the login screen that made users think
+# the system was frozen.
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+if [ -f "${SETUP_SRC}/iora-setup-tui" ]; then
+    install -Dm0755 "${SETUP_SRC}/iora-setup-tui" \
+        "${TARGET_DIR}/usr/lib/iora/iora-setup-tui"
+fi
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-setup-tui.service" <<'EOF'
+[Unit]
+Description=IORA OS first-boot progress display on tty1
+# Only run while setup has not yet completed. Once the flag file exists we
+# stay out of the way and let getty@tty1 own the console.
+ConditionPathExists=!/mnt/data/iora/.setup-complete
+# Start after the setup server so /mnt/data/iora/setup-state.json is there.
+After=iora-setup.service
+Wants=iora-setup.service
+# We take over tty1 exclusively.
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/iora/iora-setup-tui
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+# Restart freely — a crash should not leave a blank tty.
+Restart=always
+RestartSec=2
+# Use a login-like environment (TERM so ANSI renders).
+Environment=TERM=linux
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+ln -sf /etc/systemd/system/iora-setup-tui.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-setup-tui.service"
+# ──────────────────────────────────────────────────────────────────────────
 
 # Install IORA OS Update Client (Rust binary replaces the old shell script)
 #
@@ -3316,6 +3377,9 @@ Documentation=https://iora.kaimdt.com
 # Wants (not Requires): if docker/network are briefly unavailable we still
 # try and simply exit cleanly on retry rather than spamming "Failed to start"
 # on every Restart= attempt.
+# iora-supervisor is explicitly NOT in Wants/Requires: it is a ConditionPathExists-
+# gated native service; if its binary is missing the unit silently skips,
+# which must not cascade into "A dependency job for iora-stack failed".
 Wants=docker.service iora-init-data.service network-online.target
 After=docker.service network-online.target iora-init-data.service iora-supervisor.service
 ConditionPathIsDirectory=/mnt/data/iora
@@ -3330,6 +3394,9 @@ RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
 
 # Guard: skip if missing/placeholder; run integrity check before starting.
+# The guard script MUST NOT fail the unit — if its check blocks the start,
+# the setup wizard sees "A dependency job for iora-stack failed" with no
+# actionable cause. Use `|| true` so its output is logged but non-fatal.
 ExecStartPre=/bin/sh -c '\
   if [ ! -f /mnt/data/iora/docker-compose.yml ] || \
      grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml; then \
@@ -3337,14 +3404,24 @@ ExecStartPre=/bin/sh -c '\
     exit 1; \
   fi; \
   echo "iora-stack: starting user-app containers"'
-ExecStartPre=/usr/lib/iora/iora-docker-guard --check
+ExecStartPre=-/usr/lib/iora/iora-docker-guard --check
+
+# Make sure dockerd is actually responsive before we call `docker compose`:
+# Wants/After alone don't guarantee the daemon has finished initialising,
+# only that the systemd unit transitioned to active. Poll the socket so
+# compose gets a working daemon and the error surfaced to the setup UI is
+# the real compose error, not "Cannot connect to the Docker daemon".
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do \
+    /usr/bin/docker info >/dev/null 2>&1 && exit 0; \
+    sleep 1; \
+  done; echo "iora-stack: docker daemon did not become ready"; exit 1'
 
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
 ExecReload=/usr/bin/docker compose up -d --remove-orphans
 SuccessExitStatus=0 1
 Restart=no
-TimeoutStartSec=180
+TimeoutStartSec=240
 TimeoutStopSec=60
 
 [Install]
