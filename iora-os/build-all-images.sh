@@ -743,10 +743,32 @@ fi
 
 mkdir -p /mnt/iso /mnt/target /tmp /run
 
-# Load modules
-for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci vfat fat nls_cp437 nls_iso8859_1 nls_utf8; do
+# Load modules — include both VirtIO (Proxmox/KVM) and VMware SCSI drivers.
+# VMware Workstation/ESXi uses LSI Logic Parallel SCSI (mptspi) by default
+# for virtual disks and CD-ROMs.  Without mptspi the SCSI CD-ROM never appears
+# as /dev/sr0 and the installer silently fails to find the payload.
+# mpt3sas covers LSI SAS adapters; vmw_pvscsi covers the VMware Paravirtual
+# SCSI option; ata_piix handles VMware's emulated Intel IDE controller.
+for mod in \
+    scsi_mod cdrom sr_mod sd_mod \
+    iso9660 isofs loop \
+    ahci libahci libata \
+    ata_piix \
+    mptspi mpt3sas mpt2sas \
+    vmw_pvscsi \
+    virtio_blk virtio_pci virtio_scsi \
+    vfat fat nls_cp437 nls_iso8859_1 nls_utf8; do
     modprobe "$mod" 2>/dev/null || true
 done
+
+# Give the kernel a moment to enumerate SCSI/SATA devices after loading
+# the host-bus adapters above.  Without this brief pause the CD-ROM block
+# device (/dev/sr0) may not yet be present when mount_iso() runs.
+sleep 2
+# Trigger a BusyBox mdev rescan if available (populates /dev from sysfs).
+if command -v mdev >/dev/null 2>&1; then
+    mdev -s 2>/dev/null || true
+fi
 
 # ── Configuration ──────────────────────────────────────────────────
 ISO_MOUNT="/mnt/iso"
@@ -4335,10 +4357,19 @@ run_wizard() {
     done
 
     if [ "$mounted" = false ]; then
+        # Collect visible block devices to aid diagnostics.
+        local _blkdevs=""
+        for _d in /dev/sr0 /dev/sr1 /dev/cdrom /dev/sd[a-z] /dev/vd[a-z] /dev/nvme0n1; do
+            [ -b "$_d" ] && _blkdevs="${_blkdevs} $_d"
+        done
+        [ -z "$_blkdevs" ] && _blkdevs=" (none detected — VMware SCSI driver may be missing)"
         dlg_msg " Error " "\
  Could not find the IORA OS image.\n\n\
  Make sure the installer ISO or USB\n\
  is connected and contains the installer payload.\n\n\
+ Detected block devices:${_blkdevs}\n\n\
+ If running under VMware, ensure the VM SCSI adapter\n\
+ is set to LSI Logic or SATA (not BusLogic).\n\n\
  Type 'install' to retry."
         return 1
     fi
