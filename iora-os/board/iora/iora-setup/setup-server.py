@@ -1444,6 +1444,15 @@ def main():
         print(f"Setup already completed. Remove {SETUP_DONE_FLAG} to re-run.")
         sys.exit(0)
 
+    # Ensure DATA_DIR exists. On a freshly-dd'd image or when the iora-data
+    # partition could not be mounted, /mnt/data/iora may be missing; create
+    # it on whatever filesystem currently backs /mnt/data (rootfs if the
+    # data partition is absent) so the wizard can still write setup.json.
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+    except OSError as exc:
+        print(f"WARNING: could not create {DATA_DIR}: {exc}", file=sys.stderr)
+
     server = http.server.HTTPServer(("0.0.0.0", SETUP_PORT), SetupHandler)
     hostname = socket.gethostname()
 

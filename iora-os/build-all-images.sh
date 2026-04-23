@@ -559,7 +559,15 @@ build_base_image() {
 # here (on the build host) and place them into the rootfs overlay so that
 # post-build.sh can bundle them into /opt/iora/build/<service>/bin/.
 #
-# Requirements: Docker must be available on the build host.
+# Build strategy (in order of preference):
+#   1) Native `cargo build --release` on the build host (fastest, no Docker).
+#      This is the default path since we migrated off the Docker-based build.
+#   2) Docker builder image (legacy fallback for hosts where cargo is missing
+#      but Docker is available).
+#   3) Skip with a loud warning — the resulting image will boot but every
+#      native IORA service will stay inactive because ConditionPathExists on
+#      /opt/iora/build/<svc>/bin/<svc> will fail. Setup wizard on :8080 may
+#      also be unreachable if it depends on the native stack.
 build_service_binaries() {
     local OVERLAY="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/build"
     local BACKEND_DIR="${SCRIPT_DIR}/../backend"
@@ -568,20 +576,102 @@ build_service_binaries() {
     if [ ! -d "${BACKEND_DIR}" ]; then
         BACKEND_DIR="${SCRIPT_DIR}/../../backend"
     fi
+    if [ ! -d "${BACKEND_DIR}" ]; then
+        log_warn "backend/ source directory not found at ${BACKEND_DIR}; skipping binary embedding."
+        log_warn "Without native service binaries, iora-core/iora-home/... will NOT start on boot."
+        return 0
+    fi
+
+    local SERVICES="iora-core iora-home iora-control iora-assist iora-secrets \
+                    iora-watchdog iora-security iora-gateway iora-supervisor"
+
+    # ── Strategy 1: native cargo build on the build host ────────────────────
+    if command -v cargo >/dev/null 2>&1; then
+        log_info "Pre-compiling IORA service binaries natively with cargo..."
+        log_info "Backend source: ${BACKEND_DIR}"
+
+        local RUST_TRIPLE="${IORA_RUST_TRIPLE:-x86_64-unknown-linux-gnu}"
+        case "${IORA_ARCH:-x86_64}" in
+            aarch64|rpi3|rpi4|rpi5|generic-arm64)
+                RUST_TRIPLE="aarch64-unknown-linux-gnu" ;;
+            armhf)
+                RUST_TRIPLE="armv7-unknown-linux-gnueabihf" ;;
+        esac
+
+        if command -v rustup >/dev/null 2>&1; then
+            rustup target add "${RUST_TRIPLE}" >/dev/null 2>&1 || true
+        fi
+
+        local BIN_ARGS=""
+        for svc in ${SERVICES}; do
+            BIN_ARGS="${BIN_ARGS} --bin ${svc}"
+        done
+
+        local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
+        local cargo_ok=0
+        if ( cd "${BACKEND_DIR}" && cargo build --release --target "${RUST_TRIPLE}" ${BIN_ARGS} ) \
+             >/tmp/iora-cargo-build.log 2>&1; then
+            cargo_ok=1
+        else
+            log_warn "Cross-compile to ${RUST_TRIPLE} failed; falling back to host-native build."
+            log_warn "  (see /tmp/iora-cargo-build.log for details)"
+            if ( cd "${BACKEND_DIR}" && cargo build --release ${BIN_ARGS} ) \
+                 >>/tmp/iora-cargo-build.log 2>&1; then
+                cargo_ok=1
+                RUST_TRIPLE=""   # binaries live at target/release/<svc>
+            fi
+        fi
+
+        if [ "${cargo_ok}" = "1" ]; then
+            local failed=0
+            for svc in ${SERVICES}; do
+                local src
+                if [ -n "${RUST_TRIPLE}" ]; then
+                    src="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${svc}"
+                else
+                    src="${CARGO_TARGET_DIR}/release/${svc}"
+                fi
+                local dest="${OVERLAY}/${svc}/bin"
+                mkdir -p "${dest}"
+                if [ -f "${src}" ]; then
+                    install -m 0755 "${src}" "${dest}/${svc}"
+                    log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
+                else
+                    log_warn "  ${svc}: binary not produced by cargo (missing [[bin]] target?)"
+                    rm -f "${dest}/${svc}"
+                    failed=$((failed + 1))
+                fi
+            done
+            if [ "${failed}" -gt 0 ]; then
+                log_warn "${failed} service binary/binaries missing after cargo build."
+            else
+                log_success "All IORA service binaries embedded in rootfs overlay (native build)."
+            fi
+            return 0
+        fi
+
+        log_warn "Native cargo build failed; trying Docker fallback..."
+    else
+        log_info "cargo not found; trying Docker fallback for service binaries..."
+    fi
+
+    # ── Strategy 2: legacy Docker builder image ─────────────────────────────
     if [ ! -f "${BACKEND_DIR}/Dockerfile" ]; then
-        log_warn "backend/Dockerfile not found at ${BACKEND_DIR}; skipping binary embedding."
-        log_warn "On-device self-build will still work but requires the build pipeline to place"
-        log_warn "the binaries in ${OVERLAY}/<service>/bin/ before flashing."
+        log_warn "backend/Dockerfile not found at ${BACKEND_DIR}; cannot use Docker fallback."
+        log_warn "Install rustc + cargo on the build host (e.g. 'sudo apt install cargo' or rustup),"
+        log_warn "OR install docker, then re-run ./build.sh."
+        log_warn "Without binaries, native IORA services will NOT start on boot."
         return 0
     fi
 
     if ! command -v docker >/dev/null 2>&1; then
-        log_warn "docker not found; skipping pre-compilation of IORA service binaries."
-        log_warn "On-device self-build still works but the first boot will fail without binaries."
+        log_warn "Neither cargo nor docker available on build host."
+        log_warn "Install the Rust toolchain (https://rustup.rs) and re-run the build."
+        log_warn "Without binaries, native IORA services will NOT start on boot."
         return 0
     fi
 
-    log_info "Pre-compiling IORA service binaries for self-build embedding..."
+    log_info "Pre-compiling IORA service binaries via Docker builder image..."
     log_info "Backend source: ${BACKEND_DIR}"
 
     local BUILDER_TAG="iora-builder-tmp:$(date +%s)"
@@ -598,8 +688,6 @@ build_service_binaries() {
         return 0
     fi
 
-    local SERVICES="iora-core iora-home iora-control iora-assist iora-secrets \
-                    iora-watchdog iora-security iora-gateway iora-supervisor"
     local failed=0
 
     for svc in ${SERVICES}; do

@@ -1498,14 +1498,20 @@ fi
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup.service" <<'EOF'
 [Unit]
 Description=IORA Home First-Boot Setup Wizard
+# Start even if iora-init-data fails (no iora-data partition): the setup
+# server creates /mnt/data/iora itself on whatever FS backs /mnt/data.
+# network-online is Wants= (not Requires=) so a slow link doesn't block it.
 After=network-online.target iora-init-data.service
 Wants=network-online.target
 Before=iora-stack.service
+# The wizard must be reachable BEFORE first-boot setup has been completed.
+# Re-running the wizard is blocked by the flag-file check inside the Python
+# server itself, so we don't need a ConditionPathExists here.
 ConditionPathExists=!/mnt/data/iora/.setup-complete
-ConditionPathIsDirectory=/mnt/data/iora
 
 [Service]
 Type=simple
+ExecStartPre=/bin/mkdir -p /mnt/data/iora
 ExecStart=/usr/bin/python3 /opt/iora/setup/setup-server.py
 Restart=on-failure
 RestartSec=5
