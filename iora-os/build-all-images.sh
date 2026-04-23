@@ -1080,6 +1080,17 @@ mount_iso() {
         [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ] && return 0
         umount "${ISO_MOUNT}" 2>/dev/null || true
     done
+    # Whole-disk block devices: when the installer ISO is written to a USB
+    # stick with `dd`, the ISO9660 filesystem sits directly on the whole
+    # disk (e.g. /dev/sda), not on a partition.  The pattern /dev/sd*[0-9]
+    # below requires a trailing digit and would miss /dev/sda.  Try all
+    # whole-disk SCSI/USB and VirtIO devices with iso9660 first.
+    for dev in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/vd[a-z] /dev/vd[a-z][a-z]; do
+        [ -b "$dev" ] || continue
+        mount -t iso9660 -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
+        [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ] && return 0
+        umount "${ISO_MOUNT}" 2>/dev/null || true
+    done
     for dev in /dev/sd*[0-9] /dev/vd*[0-9] /dev/nvme*p[0-9]*; do
         [ -b "$dev" ] || continue
         mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
