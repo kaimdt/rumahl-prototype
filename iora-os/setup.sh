@@ -364,10 +364,23 @@ install_rust() {
         # shellcheck disable=SC1091
         . "${user_home}/.cargo/env"
         if command -v cargo >/dev/null 2>&1; then
-            ok "Rust already installed (via rustup): $(rustc --version 2>/dev/null)"
+            ok "Rust already installed (via rustup): $(rustc --version 2>/dev/null || echo 'version unknown')"
             # Make sure the current shell PATH contains cargo for the remainder
             # of this script (so build-all-images.sh picks it up).
             export PATH="${user_home}/.cargo/bin:$PATH"
+            # A rustup install without a default toolchain errors out on
+            # every cargo invocation ("could not choose a version of cargo
+            # to run"). Always set stable — idempotent on existing installs.
+            if command -v rustup >/dev/null 2>&1; then
+                info "Ensuring rustup default toolchain is 'stable'…"
+                if [ -n "$real_user" ] && [ "$real_user" != root ] && command -v sudo >/dev/null 2>&1; then
+                    sudo -u "$real_user" rustup default stable || \
+                        warn "rustup default stable failed — run it manually as $real_user"
+                else
+                    rustup default stable || \
+                        warn "rustup default stable failed — run it manually"
+                fi
+            fi
             return 0
         fi
     fi

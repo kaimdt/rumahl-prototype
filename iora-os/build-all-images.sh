@@ -650,6 +650,20 @@ build_service_binaries() {
         esac
 
         if command -v rustup >/dev/null 2>&1; then
+            # Always ensure a default toolchain is set. A fresh rustup
+            # install with --no-modify-path (the path setup.sh takes) does
+            # NOT configure one unless --default-toolchain was passed —
+            # and even if it was, an older rustup that was already on the
+            # system may be in a half-configured state. The command is
+            # cheap and idempotent: if `stable` is already the default
+            # rustup just re-links it. The previous "only run if default
+            # is empty" gate didn't work because rustup prints its error
+            # to stdout, which made the `grep -q '\S'` guard match.
+            log_info "Ensuring rustup default toolchain is set to stable…"
+            rustup default stable >/tmp/iora-rustup-default.log 2>&1 || \
+                log_warn "rustup default stable failed (see /tmp/iora-rustup-default.log — last 10 lines below)"
+            [ -f /tmp/iora-rustup-default.log ] && \
+                tail -n 10 /tmp/iora-rustup-default.log 2>/dev/null | sed 's/^/    /' || true
             rustup target add "${RUST_TRIPLE}" >/dev/null 2>&1 || true
         fi
 
