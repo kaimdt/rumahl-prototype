@@ -264,22 +264,24 @@ set default=0
 set timeout=3
 
 # IORA OS cmdline notes:
-#   systemd.show_status=true : show every "Starting/Started/Failed" line on
-#     the boot console, so users can see *what* the box is doing during boot.
+#   quiet splash plymouth.enable=1 : suppress kernel log scrolling and hand
+#     over the display to Plymouth for a branded boot splash screen.
+#   systemd.show_status=auto : systemd reports starting/failed units in the
+#     journal but not on the console (Plymouth owns that during boot; after
+#     Plymouth quits the normal getty prompt appears cleanly).
 #   (We intentionally do NOT use systemd.log_target=console — that keeps
 #   piping post-boot systemd state changes like mount activations onto the
 #   tty, overwriting the getty login prompt so the screen looks "frozen".)
-#   loglevel=4 keeps the kernel log at KERN_WARNING — same volume as before
-#     (we dropped "quiet" but don't want a flood of info/debug messages).
+#   loglevel=4 keeps the kernel log at KERN_WARNING — same volume as before.
 #   printk.devkmsg=on lets userspace write to /dev/kmsg during boot which
 #     is useful for iora scripts that want to log boot progress.
 
 menuentry "IORA OS" {
-    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
+    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
 }
 
 menuentry "IORA OS (Partition B)" {
-    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
+    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
 }
 
 menuentry "IORA OS Recovery" {

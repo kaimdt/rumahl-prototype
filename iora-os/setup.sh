@@ -270,6 +270,75 @@ wsl_tweaks() {
     fi
 }
 
+# ── Docker Engine installation ───────────────────────────────────────────────
+# Docker is required on the build host for build-all-images.sh which runs
+# `docker build` to pre-compile IORA service binaries (Go/Rust) that are
+# embedded into the OS image.  Without Docker on the host the service
+# binaries are skipped and iora-build-images.service on the device has
+# nothing to build from.
+install_docker() {
+    if command -v docker >/dev/null 2>&1; then
+        ok "Docker already installed: $(docker --version)"
+        return 0
+    fi
+
+    info "Docker Engine not found – installing..."
+
+    case "$PM" in
+        apt)
+            # Official Docker convenience script works on Debian/Ubuntu/Raspbian.
+            if [ "$IS_WSL" = true ]; then
+                info "WSL detected – installing native Docker Engine."
+                info "(Alternatively install Docker Desktop for Windows with WSL2 integration.)"
+            fi
+            if command -v curl >/dev/null 2>&1; then
+                curl -fsSL https://get.docker.com | $SUDO sh
+            else
+                $SUDO apt-get update -qq
+                $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                    ca-certificates curl gnupg lsb-release
+                install_docker_apt_repo
+            fi
+            ;;
+        dnf)
+            $SUDO dnf -y install dnf-plugins-core
+            $SUDO dnf config-manager --add-repo \
+                https://download.docker.com/linux/fedora/docker-ce.repo \
+                2>/dev/null || true
+            $SUDO dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            $SUDO systemctl enable --now docker
+            ;;
+        pacman)
+            $SUDO pacman -Sy --noconfirm --needed docker docker-buildx docker-compose
+            $SUDO systemctl enable --now docker
+            ;;
+        zypper)
+            $SUDO zypper --non-interactive install docker docker-compose
+            $SUDO systemctl enable --now docker
+            ;;
+        apk)
+            $SUDO apk add --no-cache docker docker-compose
+            $SUDO rc-update add docker boot 2>/dev/null || true
+            $SUDO service docker start 2>/dev/null || true
+            ;;
+        *)
+            warn "Cannot install Docker automatically for package manager: $PM"
+            warn "Please install Docker Engine manually: https://docs.docker.com/engine/install/"
+            return 0
+            ;;
+    esac
+
+    # Add the invoking user to the docker group so they can run docker without sudo.
+    local real_user="${SUDO_USER:-${USER:-}}"
+    if [ -n "$real_user" ] && [ "$real_user" != root ]; then
+        $SUDO usermod -aG docker "$real_user" 2>/dev/null || true
+        warn "Added '${real_user}' to the docker group."
+        warn "Log out and back in (or run 'newgrp docker') for the change to take effect."
+    fi
+
+    ok "Docker installed: $(docker --version 2>/dev/null || true)"
+}
+
 # ── Main flow ───────────────────────────────────────────────────────────────
 
 select_packages
@@ -291,6 +360,9 @@ if [ "$PM" = apt ] && [ "$IS_WSL" = false ] && [ "$TARGET" = pc ]; then
 fi
 
 ok "Toolchain installation completed."
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+install_docker || warn "Docker installation failed – run 'install_docker' manually or install Docker from https://docs.docker.com/engine/install/"
 
 # Persist detected target so build.sh picks it up by default.
 CONFIG_FILE="${SCRIPT_DIR}/.setup-target"

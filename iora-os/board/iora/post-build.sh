@@ -2804,4 +2804,44 @@ ln -sf /etc/systemd/system/iora-stack.service \
 
 echo "IORA OS: Self-build image infrastructure installed."
 
+# ── Plymouth boot splash ─────────────────────────────────────────────────────
+# Set the IORA custom theme as the default Plymouth theme so the OS shows a
+# branded splash screen instead of the kernel log scrolling during boot.
+# Plymouth is compiled in via BR2_PACKAGE_PLYMOUTH=y in the defconfig.
+echo "IORA OS: Configuring Plymouth boot splash..."
+
+PLYMOUTH_DATA="${TARGET_DIR}/usr/share/plymouth"
+
+# 1. Make sure the theme directory made it into the image via rootfs-overlay.
+if [ ! -f "${PLYMOUTH_DATA}/themes/iora/iora.plymouth" ]; then
+    echo "IORA OS: WARNING: Plymouth IORA theme not found at ${PLYMOUTH_DATA}/themes/iora — splash may not work"
+fi
+
+# 2. Write the Plymouth default theme configuration.
+mkdir -p "${TARGET_DIR}/etc/plymouth"
+cat > "${TARGET_DIR}/etc/plymouth/plymouthd.conf" <<'EOF'
+[Daemon]
+Theme=iora
+ShowDelay=0
+EOF
+
+# 3. Symlink iora as the default theme for `plymouth-set-default-theme`.
+THEMES_DIR="${PLYMOUTH_DATA}/themes"
+mkdir -p "${THEMES_DIR}"
+# Remove any existing default symlink, then point to iora.
+rm -f "${THEMES_DIR}/default.plymouth"
+ln -sf /usr/share/plymouth/themes/iora/iora.plymouth \
+    "${THEMES_DIR}/default.plymouth"
+
+# 4. Enable the plymouth-start service so Plymouth launches during boot.
+#    On Buildroot this unit comes from the plymouth package itself.
+WANTS_DIR="${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
+mkdir -p "${WANTS_DIR}"
+PLYMOUTH_UNIT="/usr/lib/systemd/system/plymouth-start.service"
+if [ -f "${TARGET_DIR}${PLYMOUTH_UNIT}" ]; then
+    ln -sf "${PLYMOUTH_UNIT}" "${WANTS_DIR}/plymouth-start.service"
+fi
+
+echo "IORA OS: Plymouth boot splash configured (theme: iora)."
+
 echo "IORA OS: Post-build script completed successfully"

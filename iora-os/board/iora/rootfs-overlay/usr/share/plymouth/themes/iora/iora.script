@@ -1,0 +1,106 @@
+// IORA OS Plymouth Boot Splash — script theme
+// Displays the IORA logo on a dark background with a progress bar and
+// a spinner animation.  Designed for framebuffer / KMS displays.
+
+// ── Background ───────────────────────────────────────────────────────────────
+Window.SetBackgroundTopColor(0.05, 0.05, 0.10);
+Window.SetBackgroundBottomColor(0.02, 0.02, 0.06);
+
+screen_width  = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+// ── Logo (ASCII / text fallback rendered via a sprite) ───────────────────────
+// A proper PNG logo can be placed alongside this script as "logo.png".
+// If it exists we display it centred; otherwise we fall back to the text
+// banner painted with Plymouth's built-in font support.
+
+logo_image = Image("logo.png");
+if (logo_image) {
+    logo_sprite = Sprite(logo_image);
+    logo_sprite.SetX(screen_width  / 2 - logo_image.GetWidth()  / 2);
+    logo_sprite.SetY(screen_height / 2 - logo_image.GetHeight() / 2 - 80);
+    logo_sprite.SetOpacity(1);
+} else {
+    // Text banner fallback — paint "IORA OS" using a large label.
+    logo_label = Sprite();
+    logo_label.SetImage(Text.SetFont("Sans Bold 36").SetText("IORA OS").GetImage());
+    logo_label.SetX(screen_width  / 2 - logo_label.GetImage().GetWidth()  / 2);
+    logo_label.SetY(screen_height / 2 - 100);
+}
+
+// ── Tagline label ─────────────────────────────────────────────────────────────
+tagline_image = Text.SetFont("Sans 14").SetColor(0.6, 0.7, 0.9).SetText("Your Home. Your Control.").GetImage();
+tagline_sprite = Sprite(tagline_image);
+tagline_sprite.SetX(screen_width / 2 - tagline_image.GetWidth() / 2);
+tagline_sprite.SetY(screen_height / 2 - 40);
+
+// ── Progress bar ──────────────────────────────────────────────────────────────
+progress_bar_width  = Math.Min(400, screen_width - 100);
+progress_bar_height = 4;
+progress_bar_x      = screen_width  / 2 - progress_bar_width / 2;
+progress_bar_y      = screen_height / 2 + 60;
+
+// Background track
+bar_bg_image = Image.CreateFromJPEG(null);
+bar_bg_image = Image(progress_bar_width, progress_bar_height);
+bar_bg_sprite = Sprite(bar_bg_image);
+bar_bg_sprite.SetX(progress_bar_x);
+bar_bg_sprite.SetY(progress_bar_y);
+bar_bg_sprite.SetOpacity(0.25);
+
+// Filled portion (starts at zero)
+progress_fill_sprite = Sprite();
+progress_fill_sprite.SetX(progress_bar_x);
+progress_fill_sprite.SetY(progress_bar_y);
+
+progress = 0;
+
+fun progress_callback(duration, progress_val) {
+    progress = progress_val;
+    fill_width = Math.Max(1, Math.Int(progress_bar_width * progress));
+    fill_image = Image(fill_width, progress_bar_height);
+    for (y = 0; y < progress_bar_height; y++) {
+        for (x = 0; x < fill_width; x++) {
+            fill_image.SetPixel(x, y, 0.3, 0.6, 1.0, 1.0);
+        }
+    }
+    progress_fill_sprite.SetImage(fill_image);
+}
+
+Plymouth.SetBootProgressFunction(progress_callback);
+
+// ── Spinner animation ─────────────────────────────────────────────────────────
+spinner_chars  = "|/-\\";
+spinner_idx    = 0;
+spinner_label  = Sprite();
+spinner_label.SetX(screen_width  / 2 - 6);
+spinner_label.SetY(progress_bar_y + 20);
+
+fun refresh_callback() {
+    spinner_idx = (spinner_idx + 1) % 4;
+    ch = String.CharAt(spinner_chars, spinner_idx);
+    spinner_label.SetImage(
+        Text.SetFont("Mono 14").SetColor(0.4, 0.5, 0.8).SetText(ch).GetImage()
+    );
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+// ── Message display ───────────────────────────────────────────────────────────
+message_sprite = Sprite();
+message_sprite.SetX(10);
+message_sprite.SetY(screen_height - 30);
+
+fun display_message_callback(text) {
+    msg_image = Text.SetFont("Sans 11").SetColor(0.5, 0.5, 0.7).SetText(text).GetImage();
+    message_sprite.SetImage(msg_image);
+}
+
+Plymouth.SetDisplayMessageFunction(display_message_callback);
+
+// ── Password / normal mode handling ──────────────────────────────────────────
+fun display_normal_callback() {
+    // Nothing extra needed in normal boot mode.
+}
+
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
