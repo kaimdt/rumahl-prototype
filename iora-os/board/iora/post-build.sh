@@ -548,7 +548,7 @@ cat > "${TARGET_DIR}/etc/docker/daemon.json" <<EOF
 EOF
 
 # ── Docker socket hardening ──────────────────────────────────────────────────
-# The Docker socket is owned by root:root with 0660. The docker group is NOT
+# The Docker socket is owned by root:root with 0600. The docker group is NOT
 # used — only iora-supervisor (running as root) is allowed to access the socket
 # via AppArmor. This prevents user apps or any other process from directly
 # driving Docker.
@@ -817,7 +817,7 @@ cat > "${TARGET_DIR}/usr/lib/iora/iora-watchdog-check" <<'WATCHDOGEOF'
 LOG_TAG="iora-watchdog"
 SECURITY_LOG="/var/log/iora-security.log"
 MANIFEST="/etc/iora/binary-manifest.sha256"
-COMPOSE_HASH_FILE="/var/lib/iora/supervisor/compose.sha256"
+COMPOSE_HASH_FILE="/var/lib/iora/iora-supervisor/compose.sha256"
 COMPOSE_FILE="/mnt/data/iora/docker-compose.yml"
 ALLOWED_IMAGES_FILE="/etc/iora/allowed-images.txt"
 DOCKER_SOCK="/var/run/docker.sock"
@@ -852,28 +852,31 @@ fi
 
 # ── 3. Docker socket consumer audit ─────────────────────────────────────────
 # Only iora-supervisor (root) is permitted to open the Docker socket.
-# Any other PID holding an fd to it is suspicious.
+# We use shell globbing over /proc/[pid]/fd/ — no ls parsing, no external tools.
 if [ -S "$DOCKER_SOCK" ]; then
-    # lsof is small and available on IORA OS via busybox.
-    for pid_fd in $(ls -la /proc/*/fd 2>/dev/null | \
-                    grep "docker.sock" | \
-                    awk '{print $NF}' | \
-                    grep -oE '/proc/[0-9]+/' | \
-                    grep -oE '[0-9]+' | sort -u); do
-        # Read the process name.
-        comm=$(cat "/proc/${pid_fd}/comm" 2>/dev/null || echo "unknown")
-        uid=$(awk '/^Uid:/{print $2}' "/proc/${pid_fd}/status" 2>/dev/null || echo "?")
-        # iora-supervisor runs as root (uid 0).
-        if [ "$uid" != "0" ]; then
-            alert "non-root process '${comm}' (pid ${pid_fd}, uid ${uid}) is accessing the Docker socket"
-        fi
-        # Even root processes that are NOT iora-supervisor are suspicious.
-        case "$comm" in
-            iora-supervisor|dockerd|containerd|docker) : ;;  # authorised
-            *)
-                alert "unexpected process '${comm}' (pid ${pid_fd}) is holding the Docker socket"
-                ;;
-        esac
+    for pid_dir in /proc/[0-9]*/fd; do
+        pid="${pid_dir%/fd}"
+        pid="${pid#/proc/}"
+        # Check if any fd in this process resolves to the Docker socket.
+        for fdlink in "${pid_dir}"/*; do
+            target=$(readlink "$fdlink" 2>/dev/null) || continue
+            case "$target" in
+                *docker.sock*) ;;
+                *) continue ;;
+            esac
+            comm=$(cat "/proc/${pid}/comm" 2>/dev/null || echo "unknown")
+            uid=$(awk '/^Uid:/{print $2}' "/proc/${pid}/status" 2>/dev/null || echo "?")
+            if [ "$uid" != "0" ]; then
+                alert "non-root process '${comm}' (pid ${pid}, uid ${uid}) is accessing the Docker socket"
+            fi
+            case "$comm" in
+                iora-supervisor|dockerd|containerd|docker) : ;;  # authorised
+                *)
+                    alert "unexpected process '${comm}' (pid ${pid}) is holding the Docker socket"
+                    ;;
+            esac
+            break  # only need one match per pid
+        done
     done
 fi
 
@@ -896,7 +899,9 @@ if [ -f "$MANIFEST" ]; then
     # Pick a random line from the manifest.
     total=$(wc -l < "$MANIFEST")
     if [ "$total" -gt 0 ]; then
-        pick=$(( ($(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d ' ') % total) + 1 ))
+        rand_raw=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d ' \n')
+        rand_val=$(( ${rand_raw:-1} ))
+        pick=$(( (rand_val % total) + 1 ))
         line=$(sed -n "${pick}p" "$MANIFEST" 2>/dev/null)
         expected_hash=$(echo "$line" | awk '{print $1}')
         bin_path=$(echo "$line"    | awk '{print $2}')
@@ -3278,9 +3283,11 @@ fi
 
 # 2. Image allowlist check: warn on any image not in the allowlist.
 if [ -f "$COMPOSE_FILE" ] && [ -f "$ALLOWED_IMAGES_FILE" ]; then
-    grep -E '^\s*image:' "$COMPOSE_FILE" 2>/dev/null | sed 's/.*image:\s*//' | \
+    grep -E '^\s*image:' "$COMPOSE_FILE" 2>/dev/null | sed 's/.*image:[[:space:]]*//' | \
     while read -r img; do
-        img=$(echo "$img" | tr -d '"'"'" | sed 's/:.*//')  # strip tag + quotes
+        # Strip surrounding quotes and the tag (everything after the first colon
+        # that follows a slash or starts the tag portion).
+        img=$(printf '%s' "$img" | sed 's/[[:space:]]//g; s/["'"'"']//g; s/:[^/]*$//')
         if [ -n "$img" ] && ! grep -qF "$img" "$ALLOWED_IMAGES_FILE" 2>/dev/null; then
             alert "compose file references non-allowlisted image: '${img}'"
         fi
@@ -3536,11 +3543,11 @@ log "watching $WATCH_DIR for binary changes (updates are logged, not blocked)"
 inotifywait -m -r -e close_write,moved_to "$WATCH_DIR" 2>/dev/null | \
 while read -r dir event file; do
     changed="${dir}${file}"
-    # Identify who wrote the file.
-    # We look for iora-updater in /proc/*/comm that have the file open.
+    # Identify who wrote the file: look for iora-updater among running processes
+    # using shell globbing over /proc — no ls parsing.
     writer="unknown"
-    for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
-        comm=$(cat "/proc/${pid}/comm" 2>/dev/null || continue)
+    for pid_dir in /proc/[0-9]*; do
+        comm=$(cat "${pid_dir}/comm" 2>/dev/null) || continue
         if [ "$comm" = "$UPDATER_COMM" ]; then
             writer="$UPDATER_COMM"
             break
@@ -3575,9 +3582,11 @@ SyslogIdentifier=iora-update-monitor
 User=root
 NoNewPrivileges=yes
 PrivateTmp=yes
-# Read access to /proc and /opt/iora/build; write access to manifest + log.
-ReadOnlyPaths=/opt/iora/build /proc
-ReadWritePaths=/etc/iora /var/log/iora /run/iora
+# inotifywait needs to be able to set up kernel watches on /opt/iora/build
+# (it uses inotify file descriptors, not write access to the files themselves).
+# /proc is read-only; manifest and log dirs are read-write.
+ReadOnlyPaths=/proc
+ReadWritePaths=/opt/iora/build /etc/iora /var/log/iora /run/iora
 
 [Install]
 WantedBy=multi-user.target
