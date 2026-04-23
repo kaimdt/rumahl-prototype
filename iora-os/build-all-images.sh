@@ -4840,6 +4840,38 @@ EOF
         return
     fi
 
+    # ── Verify that iora-os.img.xz is actually embedded in the ISO ────────────
+    # Some versions of grub-mkrescue silently omit very large files or fail to
+    # include them when underlying tools (genisoimage, mkisofs) have size or
+    # filename restrictions.  A missing payload causes "Could not find the IORA
+    # OS image" at install time.  Catch this at build time instead.
+    local payload_ok=0
+    if command -v xorriso >/dev/null 2>&1; then
+        if xorriso -indev "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                   -find / -name "iora-os.img.xz" 2>/dev/null | grep -q "iora-os.img.xz"; then
+            payload_ok=1
+        fi
+    elif command -v isoinfo >/dev/null 2>&1; then
+        if isoinfo -i "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                   -l 2>/dev/null | grep -qi "iora-os.img"; then
+            payload_ok=1
+        fi
+    else
+        # No ISO inspection tool available; trust the build succeeded.
+        log_warn "Neither xorriso nor isoinfo available; cannot verify ISO payload contents."
+        payload_ok=1
+    fi
+
+    if [ "${payload_ok}" -eq 0 ]; then
+        log_error "iora-os.img.xz is NOT embedded inside iora-os-installer-boot.iso!"
+        log_error "The installer would fail with 'Could not find the IORA OS image'."
+        log_error "This can happen with older versions of grub-mkrescue or genisoimage."
+        log_error "Install xorriso and mtools, then rebuild: sudo apt install xorriso mtools"
+        rm -f "${RELEASE_DIR}/iora-os-installer-boot.iso" 2>/dev/null || true
+        mark_skipped "iora-os-installer-boot.iso (payload iora-os.img.xz missing from ISO)"
+        return
+    fi
+
     local size
     size=$(du -h "${RELEASE_DIR}/iora-os-installer-boot.iso" | cut -f1)
     log_success "Bootable installer ISO created: iora-os-installer-boot.iso (${size})"
