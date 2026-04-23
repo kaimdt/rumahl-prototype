@@ -52,12 +52,48 @@ enum Commands {
         verbose: bool,
     },
 
-    /// Update IORA OS
+    /// Install an app or plugin (convenience alias)
+    ///
+    /// Examples:
+    ///   ora install weather-app
+    ///   ora install plugin:notification-plugin
+    ///   ora install app:energy-optimizer-plugin
+    Install {
+        /// Name of the app or plugin. Prefix with `app:` or `plugin:` to force a kind.
+        target: String,
+        /// Assume yes to prompts
+        #[arg(short, long)]
+        yes: bool,
+    },
+
+    /// Remove an app or plugin (convenience alias)
+    Remove {
+        /// Name of the app or plugin
+        target: String,
+        /// Also delete app data volumes
+        #[arg(long)]
+        purge: bool,
+    },
+
+    /// Update IORA OS (shortcut for `ora system update`)
     Update {
-        /// Check for updates without installing
+        /// Only check for updates without installing
         #[arg(short, long)]
         check: bool,
+        /// Skip the confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
     },
+
+    /// Developer mode (only works on images built with `build.sh --dev`)
+    #[command(subcommand)]
+    Dev(DevCommands),
+}
+
+#[derive(Subcommand)]
+enum DevCommands {
+    /// Report whether this image is a dev build and what the bridge exposes
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -80,6 +116,20 @@ enum SystemCommands {
     },
     /// Show OS version
     Version,
+    /// Detect and print hardware platform (x86_64 / rpi3 / rpi4 / rpi5 / ...)
+    Hardware,
+    /// Check for and optionally install system updates
+    Update {
+        /// Only check, do not prompt for install
+        #[arg(short, long)]
+        check: bool,
+        /// Skip confirmation prompt and install immediately
+        #[arg(short, long)]
+        yes: bool,
+        /// Release channel (stable | beta | alpha)
+        #[arg(long, default_value = "stable")]
+        channel: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -233,7 +283,18 @@ async fn main() -> Result<()> {
         Commands::Logs(cmd) => handle_logs(&cli.url, cmd).await,
         Commands::Security(cmd) => handle_security(&cli.url, cmd).await,
         Commands::Status { verbose } => show_status(&cli.url, verbose).await,
-        Commands::Update { check } => handle_update(check).await,
+        Commands::Install { target, yes } => handle_install(&cli.url, &target, yes).await,
+        Commands::Remove { target, purge } => handle_remove(&cli.url, &target, purge).await,
+        Commands::Update { check, yes } => {
+            // Top-level shortcut for `ora system update`.
+            handle_system(SystemCommands::Update {
+                check,
+                yes,
+                channel: "stable".to_string(),
+            })
+            .await
+        }
+        Commands::Dev(cmd) => handle_dev(cmd).await,
     }
 }
 
@@ -305,11 +366,20 @@ async fn handle_system(cmd: SystemCommands) -> Result<()> {
             StdCommand::new("systemctl").arg("poweroff").spawn()?;
         }
         SystemCommands::Version => {
-            if let Ok(version) = std::fs::read_to_string("/etc/iora-version") {
-                println!("IORA OS {}", version.trim());
-            } else {
-                println!("IORA OS version unknown");
-            }
+            print_version_overview().await;
+        }
+        SystemCommands::Hardware => {
+            let hw = detect_hardware();
+            println!("{}", "Hardware".bright_blue().bold());
+            println!();
+            println!("  Arch:     {}", hw.arch);
+            println!("  Platform: {}", hw.platform);
+            println!("  Model:    {}", hw.model);
+            println!("  Is RPi:   {}", hw.is_raspberry_pi);
+            println!("  Is WSL:   {}", hw.is_wsl);
+        }
+        SystemCommands::Update { check, yes, channel } => {
+            handle_system_update(check, yes, &channel).await?;
         }
     }
     Ok(())
@@ -643,16 +713,272 @@ async fn show_status(base_url: &str, verbose: bool) -> Result<()> {
 }
 
 async fn handle_update(check: bool) -> Result<()> {
-    if check {
-        println!("{}", "Checking for updates from update server...".bright_cyan());
-        println!("{}", "Update server: https://github.com/kaimdt/update-server".bright_black());
-        println!("{}", "Update check not yet implemented".yellow());
+    // Backwards-compat wrapper kept in case external scripts still call it.
+    handle_system_update(check, false, "stable").await
+}
+
+// ─── Hardware detection ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct HardwareInfo {
+    arch: String,
+    model: String,
+    platform: String,      // "pc" | "rpi3" | "rpi4" | "rpi5" | "generic-arm64" | "unknown"
+    is_raspberry_pi: bool,
+    is_wsl: bool,
+}
+
+fn detect_hardware() -> HardwareInfo {
+    let arch = std::env::consts::ARCH.to_string();
+    let model = std::fs::read_to_string("/proc/device-tree/model")
+        .ok()
+        .map(|s| s.trim_end_matches('\0').trim().to_string())
+        .unwrap_or_default();
+    let is_wsl = std::fs::read_to_string("/proc/version")
+        .map(|s| {
+            let s = s.to_ascii_lowercase();
+            s.contains("microsoft") || s.contains("wsl")
+        })
+        .unwrap_or(false);
+    let is_raspberry_pi = model.contains("Raspberry Pi");
+    let platform = if is_raspberry_pi {
+        // Match model strings like "Raspberry Pi 4 Model B Rev 1.4".
+        let m = model.to_ascii_lowercase();
+        if m.contains("pi 5") { "rpi5".into() }
+        else if m.contains("pi 4") || m.contains("pi 400") || m.contains("compute module 4") { "rpi4".into() }
+        else if m.contains("pi 3") || m.contains("zero 2") { "rpi3".into() }
+        else { "generic-arm64".into() }
+    } else if arch == "aarch64" {
+        "generic-arm64".into()
+    } else if arch == "x86_64" {
+        "pc".into()
     } else {
-        println!("{}", "Installing updates from update server...".bright_cyan());
-        println!("{}", "Update server: https://github.com/kaimdt/update-server".bright_black());
-        println!("{}", "Update installation not yet implemented".yellow());
+        "unknown".into()
+    };
+    HardwareInfo {
+        arch,
+        model: if model.is_empty() { "unknown".into() } else { model },
+        platform,
+        is_raspberry_pi,
+        is_wsl,
+    }
+}
+
+// ─── System update (ora system update / ora update) ────────────────────────
+
+async fn handle_system_update(check_only: bool, assume_yes: bool, channel: &str) -> Result<()> {
+    let update_server = std::env::var("IORA_UPDATE_SERVER")
+        .unwrap_or_else(|_| "https://update.kaimdt.com".to_string());
+
+    let hw = detect_hardware();
+    let current_version = std::fs::read_to_string("/etc/iora-version")
+        .ok()
+        .map(|s| s.trim().split_whitespace().last().unwrap_or("unknown").to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let device_id = std::fs::read_to_string("/etc/machine-id")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let arch_for_server = match hw.arch.as_str() {
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        "armv7l"  => "armhf",
+        other => other,
+    };
+
+    let url = format!(
+        "{}/v1/iora/os/check?version={}&channel={}&arch={}&device_id={}&platform={}",
+        update_server, current_version, channel, arch_for_server, device_id, hw.platform
+    );
+
+    println!("{}", "Checking for IORA OS updates...".bright_cyan());
+    println!("  Current: {}", current_version);
+    println!("  Channel: {}", channel);
+    println!("  Platform: {}  ({})", hw.platform, hw.arch);
+    println!();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{} {}", "Update server unreachable:".red(), e);
+            return Ok(());
+        }
+    };
+    if !resp.status().is_success() {
+        eprintln!("{} HTTP {}", "Update server error:".red(), resp.status());
+        return Ok(());
+    }
+    let data: Value = resp.json().await.context("invalid JSON from update server")?;
+
+    let available = data.get("update_available").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !available {
+        println!("{}", "System is up to date.".green());
+        return Ok(());
+    }
+
+    let latest = data.get("latest_version").and_then(|v| v.as_str()).unwrap_or("?");
+    let notes = data.get("release_notes").and_then(|v| v.as_str()).unwrap_or("");
+    let size = data
+        .get("release")
+        .and_then(|r| r.get("size"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    println!("{} {}", "Update available:".yellow().bold(), latest.bright_white());
+    if size > 0 {
+        println!("  Size: {:.1} MiB", size as f64 / 1024.0 / 1024.0);
+    }
+    if !notes.is_empty() {
+        println!();
+        println!("{}", "Release notes:".bright_cyan());
+        for line in notes.lines().take(15) {
+            println!("  {line}");
+        }
+    }
+
+    if check_only {
+        println!();
+        println!("Run `ora system update` without --check to install.");
+        return Ok(());
+    }
+
+    println!();
+    let proceed = if assume_yes {
+        true
+    } else {
+        dialoguer::Confirm::new()
+            .with_prompt(format!("Install update {latest} now?"))
+            .default(false)
+            .interact()
+            .unwrap_or(false)
+    };
+    if !proceed {
+        println!("Update cancelled.");
+        return Ok(());
+    }
+
+    // Delegate the actual RAUC install to the OS helper script that ships
+    // with iora-os/post-build.sh so we reuse the signature/checksum logic.
+    let helper = "/opt/iora/update/check-update.sh";
+    if std::path::Path::new(helper).exists() {
+        println!("{}", "Handing over to /opt/iora/update/check-update.sh...".bright_cyan());
+        let status = StdCommand::new("sudo")
+            .arg(helper)
+            .status()
+            .context("failed to invoke update helper")?;
+        if status.success() {
+            println!();
+            println!("{}", "✓ Update installed. Reboot with `ora system reboot` to activate.".green());
+        } else {
+            eprintln!("{}", "Update helper exited with an error.".red());
+        }
+    } else {
+        eprintln!(
+            "{}",
+            "Update helper /opt/iora/update/check-update.sh not found \
+             (this system may not be IORA OS)."
+                .yellow()
+        );
+        eprintln!("  Download URL: {}", data.get("release").and_then(|r| r.get("download_url")).and_then(|v| v.as_str()).unwrap_or(""));
     }
     Ok(())
+}
+
+// ─── Install / Remove (top-level aliases) ───────────────────────────────────
+
+async fn handle_install(base_url: &str, target: &str, yes: bool) -> Result<()> {
+    let (kind, name) = split_target(target);
+    match kind {
+        "plugin" => {
+            println!("{} {}", "Installing plugin".bright_cyan(), name.bright_white());
+            handle_plugin(base_url, PluginCommands::Install { plugin: name.to_string() }).await
+        }
+        "app" | "" => {
+            // Default to app installation through the supervisor.
+            println!("{} {}", "Installing app".bright_cyan(), name.bright_white());
+            if !yes {
+                let confirmed = dialoguer::Confirm::new()
+                    .with_prompt(format!("Install app `{name}` from the IORA app store?"))
+                    .default(true)
+                    .interact()
+                    .unwrap_or(false);
+                if !confirmed {
+                    println!("Aborted.");
+                    return Ok(());
+                }
+            }
+            let client = reqwest::Client::new();
+            let url = format!("{}:8097/api/supervisor/apps/install", base_url);
+            let body = serde_json::json!({
+                "metadata": {
+                    "id": name,
+                    "name": name,
+                    "version": "latest",
+                    "description": format!("Installed via ora install {name}"),
+                    "author": "app-store",
+                    "icon": null,
+                    "image": format!("iora-apps/{name}:latest"),
+                    "ports": [],
+                    "environment": {},
+                    "volumes": [],
+                    "permissions": [],
+                    "enabled": true,
+                    "installed_at": chrono::Utc::now().to_rfc3339(),
+                }
+            });
+            match client.post(&url).json(&body).send().await {
+                Ok(r) if r.status().is_success() => println!("{}", "✓ App installed".green()),
+                Ok(r) => eprintln!("{} HTTP {}", "Install failed:".red(), r.status()),
+                Err(e) => eprintln!("{} {}", "Install failed:".red(), e),
+            }
+            Ok(())
+        }
+        other => {
+            eprintln!("{} unknown target kind `{other}` (use app: or plugin:)", "Error:".red());
+            Ok(())
+        }
+    }
+}
+
+async fn handle_remove(base_url: &str, target: &str, purge: bool) -> Result<()> {
+    let (kind, name) = split_target(target);
+    match kind {
+        "plugin" => handle_plugin(base_url, PluginCommands::Remove { name: name.to_string() }).await,
+        "app" | "" => {
+            let client = reqwest::Client::new();
+            let url = format!(
+                "{}:8097/api/supervisor/apps/{}?purge={}",
+                base_url, name, purge
+            );
+            match client.delete(&url).send().await {
+                Ok(r) if r.status().is_success() => println!("{}", "✓ App removed".green()),
+                Ok(r) => eprintln!("{} HTTP {}", "Remove failed:".red(), r.status()),
+                Err(e) => eprintln!("{} {}", "Remove failed:".red(), e),
+            }
+            Ok(())
+        }
+        other => {
+            eprintln!("{} unknown target kind `{other}` (use app: or plugin:)", "Error:".red());
+            Ok(())
+        }
+    }
+}
+
+/// Split `target` into a `(kind, name)` pair.  Supports both `plugin:foo`
+/// and plain `foo` (defaulting to an app).  An explicit `app:foo` is also
+/// accepted for symmetry with `plugin:foo`.
+fn split_target(target: &str) -> (&str, &str) {
+    if let Some(rest) = target.strip_prefix("plugin:") {
+        ("plugin", rest)
+    } else if let Some(rest) = target.strip_prefix("app:") {
+        ("app", rest)
+    } else {
+        ("", target)
+    }
 }
 
 fn format_uptime(seconds: u64) -> String {
@@ -666,5 +992,177 @@ fn format_uptime(seconds: u64) -> String {
         format!("{}h {}m", hours, mins)
     } else {
         format!("{}m", mins)
+    }
+}
+
+// ─── Developer mode ─────────────────────────────────────────────────────────
+
+async fn handle_dev(cmd: DevCommands) -> Result<()> {
+    match cmd {
+        DevCommands::Status => {
+            let is_dev = std::path::Path::new("/etc/iora/os-dev-mode").exists();
+            let bridge = std::path::Path::new("/usr/bin/iora-dev-bridge").exists();
+            println!("{}", "Developer mode".bright_blue().bold());
+            println!();
+            println!("  Two independent dev modes exist:");
+            println!("    • Public app/plugin developer mode  — runtime toggle in");
+            println!("      the IORA Developer App.  Does NOT touch the OS.");
+            println!("    • IORA OS Dev mode                  — baked into the");
+            println!("      image at build time via  build.sh --dev  only.");
+            println!();
+            println!("  OS-dev marker (/etc/iora/os-dev-mode): {}", yesno(is_dev));
+            println!("  OS-dev bridge binary present:          {}", yesno(bridge));
+            if !is_dev {
+                println!();
+                println!(
+                    "  {}",
+                    "This is a production image. Dev mode can only be enabled at build time"
+                        .yellow()
+                );
+                println!(
+                    "  {}",
+                    "via `iora-os/build.sh --dev`.".yellow()
+                );
+                return Ok(());
+            }
+            // Try the bridge's own status endpoint.
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()?;
+            match client.get("http://127.0.0.1:8099/dev/status").send().await {
+                Ok(r) if r.status().is_success() => {
+                    let body: serde_json::Value = r.json().await.unwrap_or_default();
+                    println!();
+                    println!("  Bridge: {}", "reachable on 127.0.0.1:8099".green());
+                    if let Some(caps) = body.get("capabilities").and_then(|v| v.as_array()) {
+                        println!("  Capabilities:");
+                        for c in caps {
+                            if let Some(s) = c.as_str() {
+                                println!("    • {s}");
+                            }
+                        }
+                    }
+                }
+                Ok(r) => {
+                    println!();
+                    println!("  Bridge responded with HTTP {}", r.status());
+                }
+                Err(_) => {
+                    println!();
+                    println!(
+                        "  {}",
+                        "Bridge not reachable — is iora-dev-bridge.service running?".yellow()
+                    );
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn yesno(b: bool) -> colored::ColoredString {
+    if b { "yes".green() } else { "no".red() }
+}
+
+// ─── Version overview ───────────────────────────────────────────────────────
+
+async fn print_version_overview() {
+    println!("{}", "IORA OS".bright_blue().bold());
+    println!();
+
+    // --- OS / build metadata -------------------------------------------------
+    match std::fs::read_to_string("/etc/iora/build-info.json") {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(info) => {
+                let get = |k: &str| -> String {
+                    info.get(k)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?")
+                        .to_string()
+                };
+                println!("  Version:  {}", get("version").bright_white());
+                println!("  Variant:  {}", get("variant"));
+                println!("  Channel:  {}", get("channel"));
+                println!("  Target:   {}  ({})", get("target"), get("arch"));
+                println!("  Git:      {}", get("git_sha"));
+                println!("  Built:    {}", get("built_at"));
+                let updates = info
+                    .get("updates_enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                println!(
+                    "  Updates:  {}",
+                    if updates {
+                        "enabled".green()
+                    } else {
+                        "disabled (IORA OS Dev build)".yellow()
+                    }
+                );
+            }
+            Err(e) => println!("  build-info.json unreadable: {e}"),
+        },
+        Err(_) => {
+            match std::fs::read_to_string("/etc/iora-version") {
+                Ok(v) => println!("  Version:  {}", v.trim()),
+                Err(_) => println!("  Version:  unknown"),
+            }
+            println!(
+                "  {}",
+                "(no build-info.json — running outside IORA OS?)".bright_black()
+            );
+        }
+    }
+
+    println!();
+    println!("{}", "Components".bright_blue().bold());
+    println!();
+
+    let base = std::env::var("IORA_URL").unwrap_or_else(|_| "http://localhost".into());
+    let base = base.trim_end_matches('/').to_string();
+    let services: &[(&str, u16)] = &[
+        ("iora-home",         8080),
+        ("iora-core",         8090),
+        ("iora-api",          8091),
+        ("iora-control",      8092),
+        ("iora-assist",       8093),
+        ("iora-secrets",      8094),
+        ("iora-security",     8095),
+        ("iora-gateway",      8096),
+        ("iora-supervisor",   8097),
+        ("iora-files",        8098),
+        ("iora-appstore",     8100),
+        ("iora-developer-app",8101),
+    ];
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+        .unwrap();
+    let tasks: Vec<_> = services
+        .iter()
+        .map(|(name, port)| {
+            let url = format!("{base}:{port}/health");
+            let c = client.clone();
+            let name = *name;
+            tokio::spawn(async move {
+                let v = c
+                    .get(&url)
+                    .send()
+                    .await
+                    .ok()?
+                    .json::<Value>()
+                    .await
+                    .ok()?;
+                v.get("version")
+                    .and_then(|x| x.as_str())
+                    .map(|s| (name, s.to_string()))
+            })
+        })
+        .collect();
+    for (i, t) in tasks.into_iter().enumerate() {
+        let name = services[i].0;
+        match t.await.ok().flatten() {
+            Some((_, v)) => println!("  {:<22} {}", name, v.green()),
+            None => println!("  {:<22} {}", name, "offline".bright_black()),
+        }
     }
 }

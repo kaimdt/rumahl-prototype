@@ -14,6 +14,8 @@ use chrono::Utc;
 use iora_shared::{
     plugin::{PluginMetadata, PluginRegistry},
     types::{HealthStatus, IoraEvent, ServiceHealth},
+    api_gateway::ApiGateway,
+    widget_registry::WidgetRegistry,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -31,6 +33,8 @@ type DbPool = PgPool;
 struct AppState {
     services: Arc<RwLock<HashMap<String, ServiceEntry>>>,
     plugins: Arc<PluginRegistry>,
+    api_gateway: Arc<ApiGateway>,
+    widget_registry: Arc<WidgetRegistry>,
     events_tx: broadcast::Sender<IoraEvent>,
     started_at: Arc<Instant>,
     db: Option<Arc<DbPool>>,
@@ -383,6 +387,167 @@ async fn list_analytics_snapshots(State(state): State<AppState>) -> Json<serde_j
     Json(serde_json::json!({ "snapshots": snapshots, "total": snapshots.len() }))
 }
 
+// ─── Enhanced Plugin Management ─────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ExecutePluginRequest {
+    input: serde_json::Value,
+}
+
+async fn execute_plugin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<ExecutePluginRequest>,
+) -> Json<serde_json::Value> {
+    match state.plugins.execute(&id, req.input).await {
+        Ok(result) => Json(serde_json::json!({
+            "success": result.success,
+            "duration_ms": result.duration_ms,
+            "output": result.output,
+            "error": result.error
+        })),
+        Err(e) => Json(serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn get_plugin_stats(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<serde_json::Value> {
+    match state.plugins.get_stats(&id).await {
+        Some(stats) => Json(serde_json::to_value(&stats).unwrap_or_default()),
+        None => Json(serde_json::json!({ "error": "Plugin not found or no stats available" })),
+    }
+}
+
+async fn list_plugins_with_stats(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let plugins_with_stats = state.plugins.list_with_stats().await;
+
+    let data: Vec<serde_json::Value> = plugins_with_stats
+        .into_iter()
+        .map(|(metadata, stats)| {
+            serde_json::json!({
+                "metadata": metadata,
+                "stats": stats
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "plugins": data,
+        "total": data.len()
+    }))
+}
+
+async fn enable_plugin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let Some(db) = &state.db else {
+        return Ok(Json(serde_json::json!({ "error": "database not connected" })));
+    };
+
+    match sqlx::query("UPDATE plugins SET enabled = TRUE, updated_at = NOW() WHERE id = $1")
+        .bind(&id)
+        .execute(db.as_ref())
+        .await
+    {
+        Ok(_) => Ok(Json(serde_json::json!({
+            "success": true,
+            "message": format!("Plugin {} enabled", id)
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
+            "error": e.to_string()
+        }))),
+    }
+}
+
+async fn disable_plugin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let Some(db) = &state.db else {
+        return Ok(Json(serde_json::json!({ "error": "database not connected" })));
+    };
+
+    match sqlx::query("UPDATE plugins SET enabled = FALSE, updated_at = NOW() WHERE id = $1")
+        .bind(&id)
+        .execute(db.as_ref())
+        .await
+    {
+        Ok(_) => Ok(Json(serde_json::json!({
+            "success": true,
+            "message": format!("Plugin {} disabled", id)
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
+            "error": e.to_string()
+        }))),
+    }
+}
+
+// ─── API Gateway Management ─────────────────────────────────────────────────
+
+async fn list_api_endpoints(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let endpoints = state.api_gateway.list_endpoints().await;
+    Json(serde_json::json!({
+        "endpoints": endpoints,
+        "total": endpoints.len()
+    }))
+}
+
+async fn list_endpoints_by_provider(
+    State(state): State<AppState>,
+    Path(provider_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let endpoints = state.api_gateway.list_endpoints_by_provider(&provider_id).await;
+    Json(serde_json::json!({
+        "endpoints": endpoints,
+        "total": endpoints.len()
+    }))
+}
+
+// ─── Widget Registry Management ─────────────────────────────────────────────────
+
+async fn list_widgets(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let widgets = state.widget_registry.list_widgets().await;
+    Json(serde_json::json!({
+        "widgets": widgets,
+        "total": widgets.len()
+    }))
+}
+
+async fn list_available_widgets(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let widgets = state.widget_registry.list_available_widgets().await;
+    Json(serde_json::json!({
+        "widgets": widgets,
+        "total": widgets.len()
+    }))
+}
+
+async fn list_widgets_by_provider(
+    State(state): State<AppState>,
+    Path(provider_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let widgets = state.widget_registry.list_widgets_by_provider(&provider_id).await;
+    Json(serde_json::json!({
+        "widgets": widgets,
+        "total": widgets.len()
+    }))
+}
+
+async fn get_widget(
+    State(state): State<AppState>,
+    Path(widget_id): Path<String>,
+) -> Json<serde_json::Value> {
+    match state.widget_registry.get_widget(&widget_id).await {
+        Some(widget) => Json(serde_json::to_value(&widget).unwrap_or_default()),
+        None => Json(serde_json::json!({ "error": "Widget not found" })),
+    }
+}
+
 // ─── Background health poller ─────────────────────────────────────────────────
 
 async fn poll_service_health(state: AppState) {
@@ -428,10 +593,16 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    let migrations = vec![(
-        "001_core_schema",
-        include_str!("../migrations/001_core_schema.sql"),
-    )];
+    let migrations = vec![
+        (
+            "001_core_schema",
+            include_str!("../migrations/001_core_schema.sql"),
+        ),
+        (
+            "002_plugins_apps",
+            include_str!("../migrations/002_plugins_apps.sql"),
+        ),
+    ];
 
     for (name, sql) in migrations {
         let result: Option<(i32,)> =
@@ -507,6 +678,8 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         services: Arc::new(RwLock::new(HashMap::new())),
         plugins: Arc::new(PluginRegistry::new()),
+        api_gateway: Arc::new(ApiGateway::new()),
+        widget_registry: Arc::new(WidgetRegistry::new()),
         events_tx,
         started_at: Arc::new(Instant::now()),
         db,
@@ -525,7 +698,18 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/services/register", post(register_service))
         .route("/api/core/services/:name/health", get(service_health))
         .route("/api/core/plugins", get(list_plugins).post(install_plugin))
+        .route("/api/core/plugins/with-stats", get(list_plugins_with_stats))
         .route("/api/core/plugins/:id", delete(uninstall_plugin))
+        .route("/api/core/plugins/:id/execute", post(execute_plugin))
+        .route("/api/core/plugins/:id/stats", get(get_plugin_stats))
+        .route("/api/core/plugins/:id/enable", post(enable_plugin))
+        .route("/api/core/plugins/:id/disable", post(disable_plugin))
+        .route("/api/core/api-endpoints", get(list_api_endpoints))
+        .route("/api/core/api-endpoints/provider/:provider_id", get(list_endpoints_by_provider))
+        .route("/api/core/widgets", get(list_widgets))
+        .route("/api/core/widgets/available", get(list_available_widgets))
+        .route("/api/core/widgets/:widget_id", get(get_widget))
+        .route("/api/core/widgets/provider/:provider_id", get(list_widgets_by_provider))
         .route("/api/core/events", get(events_sse).post(broadcast_event))
         .route("/api/core/tasks", get(list_tasks))
         .route("/api/core/tasks/:id/trigger", post(trigger_task))

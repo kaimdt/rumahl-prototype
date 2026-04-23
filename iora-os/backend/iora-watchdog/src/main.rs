@@ -19,6 +19,38 @@ use tokio_stream::StreamExt as _;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 
+// ─── Recovery configuration ──────────────────────────────────────────────────
+
+/// How many consecutive failed health checks before the watchdog tries to
+/// recover the service automatically.  Override with
+/// `IORA_RECOVERY_THRESHOLD`.
+const DEFAULT_RECOVERY_THRESHOLD: u32 = 3;
+
+/// Minimum seconds between two recovery attempts for the same service.
+/// Prevents flapping.  Override with `IORA_RECOVERY_COOLDOWN_SECS`.
+const DEFAULT_RECOVERY_COOLDOWN_SECS: u64 = 120;
+
+/// Recovery backend used to restart failing services.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryMode {
+    /// Call `systemctl restart <name>` (default on bare-metal / Debian installs).
+    Systemd,
+    /// Call the Docker daemon via `docker restart iora-<name>` (for iora-os).
+    Docker,
+    /// Do nothing, only record and broadcast events.
+    Disabled,
+}
+
+impl RecoveryMode {
+    fn from_env() -> Self {
+        match std::env::var("IORA_RECOVERY_MODE").as_deref() {
+            Ok("docker") => RecoveryMode::Docker,
+            Ok("disabled") | Ok("off") | Ok("none") => RecoveryMode::Disabled,
+            _ => RecoveryMode::Systemd,
+        }
+    }
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -28,6 +60,21 @@ struct AppState {
     started_at: Arc<Instant>,
     core_is_down: Arc<RwLock<bool>>,
     system: Arc<RwLock<System>>,
+    recovery_mode: RecoveryMode,
+    recovery_threshold: u32,
+    recovery_cooldown: Duration,
+    /// Last recovery attempt per service (wall-clock monotonic instant).
+    last_recovery: Arc<RwLock<HashMap<String, Instant>>>,
+    recovery_history: Arc<RwLock<Vec<RecoveryRecord>>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RecoveryRecord {
+    service: String,
+    action: String,
+    success: bool,
+    detail: String,
+    timestamp: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +189,23 @@ async fn health_check_loop(state: AppState) {
                         timestamp: now.clone(),
                     });
                 }
+
+                // ── Auto-recovery ────────────────────────────────────────
+                if service.consecutive_failures >= state.recovery_threshold
+                    && state.recovery_mode != RecoveryMode::Disabled
+                {
+                    let should_attempt = {
+                        let map = state.last_recovery.read().await;
+                        match map.get(&name) {
+                            Some(ts) => ts.elapsed() >= state.recovery_cooldown,
+                            None => true,
+                        }
+                    };
+                    if should_attempt {
+                        state.last_recovery.write().await.insert(name.clone(), Instant::now());
+                        attempt_recovery(&state, &name).await;
+                    }
+                }
             }
 
             // Check for iora-core specifically
@@ -186,6 +250,126 @@ async fn system_metrics_loop(state: AppState) {
         sys.refresh_cpu();
         sys.refresh_memory();
     }
+}
+
+/// Try to recover an unhealthy service using the configured backend.
+/// Runs the restart command in a blocking task so we never stall the async
+/// health-check loop.
+async fn attempt_recovery(state: &AppState, service_name: &str) {
+    let mode = state.recovery_mode;
+    let svc = service_name.to_string();
+    warn!("Attempting auto-recovery for {} (mode={:?})", svc, mode);
+
+    let _ = state.events_tx.send(WatchdogEvent {
+        event_type: "recovery_started".to_string(),
+        service_name: Some(svc.clone()),
+        severity: "warning".to_string(),
+        message: format!("Auto-recovery starting for {svc}"),
+        timestamp: Utc::now().to_rfc3339(),
+    });
+
+    let svc_spawn = svc.clone();
+    let result = tokio::task::spawn_blocking(move || run_recovery_command(mode, &svc_spawn))
+        .await
+        .unwrap_or_else(|e| Err(format!("join error: {e}")));
+
+    let now = Utc::now().to_rfc3339();
+    match result {
+        Ok(detail) => {
+            info!("Recovery succeeded for {}: {}", svc, detail);
+            let _ = state.events_tx.send(WatchdogEvent {
+                event_type: "recovery_succeeded".to_string(),
+                service_name: Some(svc.clone()),
+                severity: "info".to_string(),
+                message: format!("Recovery ok: {detail}"),
+                timestamp: now.clone(),
+            });
+            push_recovery_record(state, svc, "restart", true, detail, now).await;
+        }
+        Err(detail) => {
+            error!("Recovery failed for {}: {}", svc, detail);
+            let _ = state.events_tx.send(WatchdogEvent {
+                event_type: "recovery_failed".to_string(),
+                service_name: Some(svc.clone()),
+                severity: "critical".to_string(),
+                message: format!("Recovery failed: {detail}"),
+                timestamp: now.clone(),
+            });
+            push_recovery_record(state, svc, "restart", false, detail, now).await;
+        }
+    }
+}
+
+fn run_recovery_command(mode: RecoveryMode, service: &str) -> Result<String, String> {
+    use std::process::Command;
+    match mode {
+        RecoveryMode::Disabled => Err("recovery disabled".to_string()),
+        RecoveryMode::Systemd => {
+            let out = Command::new("systemctl")
+                .args(["restart", service])
+                .output()
+                .map_err(|e| format!("systemctl spawn failed: {e}"))?;
+            if out.status.success() {
+                Ok(format!("systemctl restart {service}"))
+            } else {
+                Err(format!(
+                    "systemctl exit {}: {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ))
+            }
+        }
+        RecoveryMode::Docker => {
+            // Container naming convention used by iora-supervisor / iora-os.
+            let candidates = [format!("iora-{service}"), service.to_string()];
+            let mut last_err = String::new();
+            for container in &candidates {
+                let out = Command::new("docker")
+                    .args(["restart", container])
+                    .output()
+                    .map_err(|e| format!("docker spawn failed: {e}"))?;
+                if out.status.success() {
+                    return Ok(format!("docker restart {container}"));
+                }
+                last_err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            }
+            Err(format!("docker restart failed: {last_err}"))
+        }
+    }
+}
+
+async fn push_recovery_record(
+    state: &AppState,
+    service: String,
+    action: &str,
+    success: bool,
+    detail: String,
+    ts: String,
+) {
+    let mut history = state.recovery_history.write().await;
+    history.push(RecoveryRecord {
+        service,
+        action: action.to_string(),
+        success,
+        detail,
+        timestamp: ts,
+    });
+    // Cap history to 500 entries so memory is bounded.
+    let excess = history.len().saturating_sub(500);
+    if excess > 0 {
+        history.drain(0..excess);
+    }
+}
+
+async fn get_recovery_history(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let history = state.recovery_history.read().await;
+    Json(serde_json::json!({
+        "mode": format!("{:?}", state.recovery_mode).to_lowercase(),
+        "threshold": state.recovery_threshold,
+        "cooldown_secs": state.recovery_cooldown.as_secs(),
+        "total": history.len(),
+        "entries": &*history,
+    }))
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -366,12 +550,35 @@ async fn main() -> anyhow::Result<()> {
 
     let (events_tx, _) = broadcast::channel(1000);
 
+    let recovery_threshold = std::env::var("IORA_RECOVERY_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_RECOVERY_THRESHOLD);
+    let recovery_cooldown = Duration::from_secs(
+        std::env::var("IORA_RECOVERY_COOLDOWN_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_RECOVERY_COOLDOWN_SECS),
+    );
+    let recovery_mode = RecoveryMode::from_env();
+    info!(
+        "Auto-recovery: mode={:?} threshold={} cooldown={}s",
+        recovery_mode,
+        recovery_threshold,
+        recovery_cooldown.as_secs()
+    );
+
     let state = AppState {
         services: Arc::new(RwLock::new(HashMap::new())),
         events_tx,
         started_at: Arc::new(Instant::now()),
         core_is_down: Arc::new(RwLock::new(false)),
         system: Arc::new(RwLock::new(System::new())),
+        recovery_mode,
+        recovery_threshold,
+        recovery_cooldown,
+        last_recovery: Arc::new(RwLock::new(HashMap::new())),
+        recovery_history: Arc::new(RwLock::new(Vec::new())),
     };
 
     // Start background health checking
@@ -388,6 +595,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/watchdog/heartbeat", post(receive_heartbeat))
         .route("/api/watchdog/metrics", get(get_metrics))
         .route("/api/watchdog/events", get(events_stream).post(broadcast_event))
+        .route("/api/watchdog/recovery", get(get_recovery_history))
         .layer(CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
