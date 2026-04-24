@@ -1,4 +1,4 @@
-use actix_web::{get, post, put, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, put, web, App, Either, HttpResponse, HttpServer, Responder};
 use actix_web_lab::sse::{self, Sse};
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, RestartContainerOptions,
@@ -265,7 +265,7 @@ async fn list_containers(data: web::Data<AppState>) -> impl Responder {
                                 "{}:{}/{}",
                                 p.public_port.unwrap_or(0),
                                 p.private_port,
-                                p.typ.as_ref().map(|s| s.as_str()).unwrap_or("tcp")
+                                p.typ.as_ref().map(|s| s.as_ref()).unwrap_or("tcp")
                             )
                         })
                         .collect()
@@ -528,7 +528,7 @@ async fn get_system_info() -> impl Responder {
                 available_space: available,
                 used_space: used,
                 usage_percent,
-                file_system: String::from_utf8_lossy(disk.file_system()).to_string(),
+                file_system: disk.file_system().to_string_lossy().to_string(),
             }
         })
         .collect();
@@ -1014,7 +1014,6 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
         let build_options = BuildImageOptions {
             dockerfile: "backend/Dockerfile",
             t: DEVELOPER_APP_IMAGE,
-            target: "iora-developer-app",
             rm: true,
             pull: true,
             buildargs: {
@@ -1201,11 +1200,11 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
             .unwrap_or_default();
 
         // Get resource usage stats
-        let resource_usage = match data.docker.stats(&container_id, Some(StatsOptions {
+        let mut stats_stream = data.docker.stats(&container_id, Some(StatsOptions {
             stream: false,
             one_shot: true,
-        }))
-        .try_next()
+        }));
+        let resource_usage = match futures_util::TryStreamExt::try_next(&mut stats_stream)
         .await
         {
             Ok(Some(stats)) => {
@@ -1259,7 +1258,7 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
                     format!("{}:{}/{}",
                         p.public_port.unwrap_or(0),
                         p.private_port,
-                        p.typ.as_ref().map(|s| s.as_str()).unwrap_or("tcp"))
+                        p.typ.as_ref().map(|s| s.as_ref()).unwrap_or("tcp"))
                 }).collect()
             }).unwrap_or_default(),
             environment: env_vars,
@@ -1477,7 +1476,7 @@ async fn stream_logs(
     path: web::Path<String>,
 ) -> impl Responder {
     if let Err(response) = check_developer_mode(&data).await {
-        return response;
+        return Either::Left(response);
     }
 
     let container_name = path.into_inner();
@@ -1501,7 +1500,7 @@ async fn stream_logs(
             match log_result {
                 Ok(log) => {
                     let log_text = log.to_string();
-                    yield sse::Event::Data(sse::Data::new(log_text));
+                    yield Ok::<_, std::convert::Infallible>(sse::Event::Data(sse::Data::new(log_text)));
                 }
                 Err(e) => {
                     error!("Log stream error: {}", e);
@@ -1511,14 +1510,14 @@ async fn stream_logs(
         }
     };
 
-    Sse::from_stream(log_stream)
+    Either::Right(Sse::from_stream(log_stream))
 }
 
 /// Stream live metrics (Developer Mode only, SSE)
 #[get("/api/developer/metrics/stream")]
 async fn stream_metrics(data: web::Data<AppState>) -> impl Responder {
     if let Err(response) = check_developer_mode(&data).await {
-        return response;
+        return Either::Left(response);
     }
 
     info!("Starting metrics stream");
@@ -1539,11 +1538,11 @@ async fn stream_metrics(data: web::Data<AppState>) -> impl Responder {
                 "memory_total": sys.total_memory(),
             });
 
-            yield sse::Event::Data(sse::Data::new(metrics.to_string()));
+            yield Ok::<_, std::convert::Infallible>(sse::Event::Data(sse::Data::new(metrics.to_string())));
         }
     };
 
-    Sse::from_stream(metrics_stream)
+    Either::Right(Sse::from_stream(metrics_stream))
 }
 
 #[actix_web::main]
