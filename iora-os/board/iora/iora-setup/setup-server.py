@@ -71,13 +71,14 @@ class ProgressTracker:
     PHASES = [
         ("init",          "Initialising data directory",          5),
         ("recovery_pin",  "Generating Recovery PIN",              5),
-        ("luks",          "Encrypting data partition",           20),
+        ("luks",          "Encrypting data partition",           15),
         ("compose",       "Writing Docker Compose configuration", 5),
+        ("database",      "Configuring native database",         10),
         ("hostname",      "Applying hostname and timezone",       5),
         ("env",           "Writing environment file",             5),
         ("flag",          "Marking setup as complete",            5),
         ("disable_setup", "Disabling first-boot wizard",          5),
-        ("stack",         "Starting IORA container stack",       40),
+        ("stack",         "Starting IORA container stack",       35),
         ("done",          "Setup complete",                       5),
     ]
 
@@ -779,7 +780,83 @@ def apply_config(config):
         errors.append(msg)
         PROGRESS.add_error(msg)
 
-    # Set hostname if on IORA OS
+    # ── Native PostgreSQL — generate credentials and update service envs ───
+    # On IORA OS the database is a native postgresql.service.  The
+    # iora-db-init.service reads /etc/iora/db.password, creates the iora
+    # role, and sets up the four application databases.  We generate a strong
+    # random password here (once) and patch all EnvironmentFile skeletons so
+    # services can connect immediately after iora-db-init runs.
+    PROGRESS.set_phase("database")
+    DB_PASSWORD_FILE = "/etc/iora/db.password"
+    DB_SENTINEL     = "/etc/iora/.db-initialised"
+    if IS_IORA_OS:
+        try:
+            # Generate once; preserve if setup is re-run.
+            if not os.path.exists(DB_PASSWORD_FILE):
+                db_pass = secrets.token_urlsafe(32)
+                os.makedirs("/etc/iora", exist_ok=True)
+                with open(DB_PASSWORD_FILE, "w") as f:
+                    f.write(db_pass)
+                os.chmod(DB_PASSWORD_FILE, 0o600)
+                PROGRESS.log(f"Generated database password → {DB_PASSWORD_FILE}")
+            else:
+                with open(DB_PASSWORD_FILE) as f:
+                    db_pass = f.read().strip()
+                PROGRESS.log("Re-using existing database password")
+
+            # Update env files that contain a DATABASE_URL placeholder.
+            db_envs = {
+                "/etc/iora/iora-core.env":     "iora_core",
+                "/etc/iora/iora-home.env":     "iora_home",
+                "/etc/iora/iora-secrets.env":  "iora_secrets",
+                "/etc/iora/iora-security.env": "iora_security",
+            }
+            for env_file, db_name in db_envs.items():
+                if not os.path.exists(env_file):
+                    continue
+                # URL-encode the password so special chars don't break URL parsing.
+                db_pass_enc = urllib.parse.quote(db_pass, safe="")
+                db_url = f"postgres://iora:{db_pass_enc}@localhost:5432/{db_name}"
+                lines = []
+                with open(env_file) as f:
+                    for line in f:
+                        if line.startswith("DATABASE_URL="):
+                            lines.append(f"DATABASE_URL={db_url}\n")
+                        else:
+                            lines.append(line)
+                with open(env_file, "w") as f:
+                    f.writelines(lines)
+                # Owner-read-only: these files contain the DB password.
+                os.chmod(env_file, 0o600)
+            PROGRESS.log("Updated DATABASE_URL in all IORA service env files")
+
+            # Delete the iora-db-init sentinel so the service re-runs and
+            # applies/verifies the role password on the next service start.
+            if os.path.exists(DB_SENTINEL):
+                os.remove(DB_SENTINEL)
+
+            # Trigger iora-db-init.service now (non-fatal if PG not up yet;
+            # the service will run at next boot if it fails here).
+            PROGRESS.log("Starting iora-db-init.service…")
+            cp = subprocess.run(
+                ["systemctl", "start", "iora-db-init.service"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if cp.returncode != 0:
+                msg = (
+                    f"iora-db-init.service did not complete cleanly "
+                    f"(will retry at next boot): "
+                    f"{(cp.stderr or cp.stdout or '').strip()[:300]}"
+                )
+                PROGRESS.add_error(msg)
+            else:
+                PROGRESS.log("iora-db-init.service finished OK")
+        except Exception as e:
+            msg = f"Failed to configure native PostgreSQL: {e}"
+            errors.append(msg)
+            PROGRESS.add_error(msg)
+
+
     PROGRESS.set_phase("hostname")
     if IS_IORA_OS and config.get("hostname"):
         try:

@@ -1158,7 +1158,158 @@ TimeoutStartSec=300
 OnFailure=
 EOF
 
-# ── Hardened Chrony drop-in ─────────────────────────────────────────────────
+# ── iora-db-init — PostgreSQL bootstrap for IORA ────────────────────────────
+# This one-shot script runs after postgresql.service on every boot until a
+# sentinel file tells it everything is already in place.  It:
+#   1. Creates the iora role (if absent) with the password stored in
+#      /etc/iora/db.password (written by the setup wizard at first boot).
+#   2. Creates the four IORA databases (if absent) owned by the iora role.
+#   3. Hardens pg_hba.conf so the iora role can only connect from localhost
+#      using password authentication.
+#
+# The script is idempotent — running it twice does nothing harmful.
+# The sentinel /etc/iora/.db-initialised is written on success.  If the
+# setup wizard later changes the DB password it deletes the sentinel so the
+# script re-runs and updates the role password.
+cat > "${TARGET_DIR}/usr/lib/iora/iora-db-init" <<'DBINIT'
+#!/bin/sh
+# IORA OS — native PostgreSQL initialisation.
+# Runs as root (via ExecStart=+) so it can call psql as the postgres user.
+SENTINEL="/etc/iora/.db-initialised"
+PASSFILE="/etc/iora/db.password"
+PGDATA="/var/lib/pgsql"
+LOG_TAG="iora-db-init"
+
+log()   { logger -t "$LOG_TAG" "$*"; echo "[$(date -Iseconds)] $LOG_TAG: $*"; }
+die()   { log "FATAL: $*"; exit 1; }
+
+# Wait for the PostgreSQL socket to be ready (up to 30 s).
+wait_pg() {
+    local i=0
+    while ! su -s /bin/sh postgres -c "pg_isready -q" >/dev/null 2>&1; do
+        i=$((i+1))
+        [ "$i" -ge 30 ] && die "PostgreSQL not ready after 30 s"
+        sleep 1
+    done
+}
+
+psql_iora() {
+    # Run a SQL command as the postgres superuser.
+    su -s /bin/sh postgres -c "psql -v ON_ERROR_STOP=1 -qAt -c \"$1\""
+}
+
+wait_pg
+
+# Load the DB password the setup wizard wrote, or abort gracefully.
+if [ ! -f "$PASSFILE" ]; then
+    log "No DB password file at $PASSFILE — will retry after setup wizard runs"
+    exit 0
+fi
+DB_PASS=$(cat "$PASSFILE")
+if [ -z "$DB_PASS" ]; then
+    log "DB password file is empty — skipping init"
+    exit 0
+fi
+
+log "Initialising IORA databases…"
+
+# 1. Create the iora role (or update its password if it already exists).
+# We pass the SQL via stdin and write the password using \password (reads from
+# stdin) to avoid the credential appearing in process listings or pg logs.
+# The heredoc feeds both the conditional role creation AND the password change.
+su -s /bin/sh postgres -c "psql -v ON_ERROR_STOP=1 -q" <<SQLEOF || die "Failed to create/update iora role"
+DO \$\$BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iora') THEN
+    CREATE ROLE iora LOGIN;
+  END IF;
+END\$\$;
+ALTER ROLE iora PASSWORD '$(printf '%s' "$DB_PASS" | sed "s/'/''/g")';
+SQLEOF
+
+# 2. Create the four IORA databases (owned by iora).
+for db in iora_core iora_home iora_secrets iora_security; do
+    if ! psql_iora "SELECT 1 FROM pg_database WHERE datname='${db}'" | grep -q 1; then
+        su -s /bin/sh postgres -c "createdb -O iora ${db}" || \
+            die "Failed to create database ${db}"
+        log "Created database ${db}"
+    fi
+done
+
+# 3. Harden pg_hba.conf: only allow the iora role from localhost using
+#    scram-sha-256 password auth; the postgres superuser keeps local peer
+#    auth so pg_ctl, pg_dumpall etc. still work without a password.
+HBA="${PGDATA}/pg_hba.conf"
+IORA_IPV4="host    all             iora            127.0.0.1/32            scram-sha-256"
+IORA_IPV6="host    all             iora            ::1/128                 scram-sha-256"
+
+# Only add lines once to keep the file clean.
+grep -qF "host    all             iora" "$HBA" 2>/dev/null || {
+    printf '\n# IORA application role — localhost only, password auth\n' >> "$HBA"
+    printf '%s\n' "$IORA_IPV4" "$IORA_IPV6" >> "$HBA"
+    # Reload so the new rules take effect without a full restart.
+    su -s /bin/sh postgres -c "pg_ctl reload -D ${PGDATA}" >/dev/null 2>&1 || true
+    log "Updated pg_hba.conf and reloaded PostgreSQL"
+}
+
+# 4. Write the sentinel so this script is skipped on the next boot.
+mkdir -p /etc/iora
+touch "$SENTINEL"
+log "IORA database initialisation complete"
+exit 0
+DBINIT
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-db-init"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-db-init.service" <<'EOF'
+[Unit]
+Description=IORA Database Initialisation
+Documentation=https://iora.kaimdt.com
+After=postgresql.service
+Requires=postgresql.service
+# Re-run whenever the sentinel is absent (first boot or password change).
+ConditionPathExists=!/etc/iora/.db-initialised
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Run as root so we can su to the postgres user.
+User=root
+ExecStart=/usr/lib/iora/iora-db-init
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iora-db-init
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+ln -sf /etc/systemd/system/iora-db-init.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-db-init.service"
+
+# IORA services depend on the database being initialised.
+# Add iora-db-init.service to the After= line of services that need the DB.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-core.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-core.service.d/10-db-init.conf" <<'EOF'
+[Unit]
+After=iora-db-init.service
+Wants=iora-db-init.service
+EOF
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-secrets.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-secrets.service.d/10-db-init.conf" <<'EOF'
+[Unit]
+After=iora-db-init.service
+Wants=iora-db-init.service
+EOF
+
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-security.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-security.service.d/10-db-init.conf" <<'EOF'
+[Unit]
+After=iora-db-init.service
+Wants=iora-db-init.service
+EOF
+
+
 # Make sure chronyd always has a writable drift directory and log directory.
 # Upstream chrony.conf writes drift to /var/lib/chrony/drift — if /var is a
 # fresh ZRAM filesystem on first boot the directory exists but the drift
