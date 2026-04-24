@@ -298,8 +298,7 @@ def main() -> int:
                             # Force an immediate IP re-check after config
                             last_ip_check = 0.0
                             no_ip_since = None
-                    else:
-                        time.sleep(0)  # already waited 1 s in select
+                    # select() already blocked for up to 1 s, so no extra sleep needed
                 except Exception:
                     time.sleep(1.0)
             else:

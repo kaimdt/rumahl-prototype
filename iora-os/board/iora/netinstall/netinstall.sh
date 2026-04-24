@@ -904,7 +904,7 @@ check_live_network() {
         done
     }
 
-    # Find first non-loopback physical-ish interface (prefer eth/ens/enp/eno)
+    # Find the interface used for the default route, if any.
     _get_default_iface() {
         ip route show default 2>/dev/null | awk '/default/{print $5; exit}'
     }
