@@ -623,6 +623,18 @@ fail() { log "WARNING: $*"; exit 0; }  # always exit 0 — non-fatal
 modprobe dm_mod   2>/dev/null || true
 modprobe dm-crypt 2>/dev/null || true
 
+# Wait for udev to process the dm_mod init event and create
+# /dev/mapper/control before cryptsetup runs.
+udevadm settle --timeout=5 2>/dev/null || true
+
+# Belt-and-suspenders: if /dev/mapper/control is still absent (e.g. when
+# dm_mod is built-in and devtmpfs hasn't created the node yet), create it
+# manually.  Major 10, minor 236 is the device-mapper control device.
+mkdir -p /dev/mapper
+if [ ! -e /dev/mapper/control ]; then
+    mknod /dev/mapper/control c 10 236 2>/dev/null || true
+fi
+
 # Nothing to do if the partition doesn't exist yet (installer hasn't run).
 [ -e "$DEV" ] || fail "iora-data partition not found — skipping"
 

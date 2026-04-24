@@ -425,6 +425,21 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     subprocess.run(["modprobe", "dm_mod"], capture_output=True)
     subprocess.run(["modprobe", "dm-crypt"], capture_output=True)
 
+    # Wait for udev to process the dm_mod init event so that
+    # /dev/mapper/control is created before cryptsetup tries to open it.
+    subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
+
+    # Belt-and-suspenders: if udev didn't create /dev/mapper/control (e.g.
+    # because dm_mod is built-in and the node was never signalled to udev),
+    # create it manually.  Major 10, minor 236 is the device-mapper control
+    # device as allocated by misc_register() in dm-ioctl.c.
+    os.makedirs("/dev/mapper", exist_ok=True)
+    if not os.path.exists("/dev/mapper/control"):
+        subprocess.run(
+            ["mknod", "/dev/mapper/control", "c", "10", "236"],
+            capture_output=True,
+        )
+
     # Open the newly formatted LUKS partition.  Use real_dev: the ext4 label
     # on the raw device is gone (LUKS header replaced it) so the by-label
     # symlink no longer exists at this point.
