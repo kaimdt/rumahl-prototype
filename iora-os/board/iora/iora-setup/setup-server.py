@@ -19,6 +19,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 
 SETUP_PORT = 8080
@@ -309,13 +310,24 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
         return errors
 
     # ── Release the device before luksFormat ────────────────────────────
-    # 1. Unmount /mnt/data if it's mounted (ignore failures if busy/absent).
-    subprocess.run(["umount", "/mnt/data"], capture_output=True)
-    subprocess.run(["umount", "-l", "/mnt/data"], capture_output=True)
+    # Move the process cwd off /mnt/data so that the setup-server process
+    # itself does not hold a kernel reference to the block device.
+    try:
+        os.chdir("/")
+    except Exception:
+        pass
 
-    # 2. Remove the dm-mapper alias that iora-data-unlock created for
-    #    plain-ext4 mode (linear pass-through). If that node is still
-    #    present cryptsetup says "Device or resource busy".
+    # Flush all pending writes before unmounting.
+    os.sync()
+
+    # 1. Attempt a normal unmount first (synchronous — releases the device
+    #    immediately once all in-kernel references are dropped).
+    subprocess.run(["umount", "/mnt/data"], capture_output=True)
+
+    # 2. Remove the dm-mapper alias BEFORE the lazy unmount.  A lazy unmount
+    #    leaves the backing dm node referenced by the still-live superblock;
+    #    tearing it down first gives the kernel a chance to drop references
+    #    to the raw block device synchronously.
     if os.path.exists("/dev/mapper/iora-data"):
         subprocess.run(["dmsetup", "remove", "--force", "iora-data"],
                        capture_output=True)
@@ -324,10 +336,7 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
         subprocess.run(["cryptsetup", "close", "iora-data"],
                        capture_output=True)
 
-    # 3. As a last resort: if anything else still holds the block device,
-    #    forcibly kill the holders so the format can proceed. This is only
-    #    reached on fresh first-boot setup where only our own unlock
-    #    service has touched the partition.
+    # 3. Sweep any remaining kernel dm holders on the underlying block device.
     try:
         holders_dir = f"/sys/class/block/{os.path.basename(os.path.realpath(DATA_DEV))}/holders"
         if os.path.isdir(holders_dir):
@@ -337,28 +346,59 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     except Exception:
         pass
 
-    # Format as LUKS2 with the generated keyfile.
-    r = subprocess.run(
-        [
-            "cryptsetup", "luksFormat",
-            "--type", "luks2",
-            "--batch-mode",
-            "--key-file", keyfile_path,
-            DATA_DEV,
-        ],
-        capture_output=True,
-        text=True,
-    )
+    # 4. Lazy unmount as final fallback (detaches the mount-point name even
+    #    if the device is still busy; harmless if already unmounted above).
+    subprocess.run(["umount", "-l", "/mnt/data"], capture_output=True)
+
+    # 5. Flush again and wait for udev to finish processing any related
+    #    events so the kernel reference counts drain before luksFormat.
+    os.sync()
+    subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
+    time.sleep(0.5)
+
+    # Format as LUKS2 with the generated keyfile.  Retry once to handle the
+    # kernel reference-count race that can persist briefly after lazy unmount.
+    def _try_format() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "cryptsetup", "luksFormat",
+                "--type", "luks2",
+                "--batch-mode",
+                "--key-file", keyfile_path,
+                DATA_DEV,
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    r = _try_format()
+    if r.returncode != 0:
+        # Wait a little longer and retry once — the lazy-unmount may still
+        # be releasing inodes in the background.
+        time.sleep(2)
+        os.sync()
+        r = _try_format()
+
     if r.returncode != 0:
         errors.append(f"cryptsetup luksFormat failed: {r.stderr.strip()}")
         return errors
 
     # Open the newly formatted LUKS partition.
-    subprocess.run(
+    ro = subprocess.run(
         ["cryptsetup", "luksOpen", DATA_DEV, "iora-data",
          "--key-file", keyfile_path],
         capture_output=True,
     )
+    if ro.returncode == 0:
+        # Remount /mnt/data from the newly opened LUKS mapper so that all
+        # subsequent setup steps (docker-compose.yml, .env, .setup-complete)
+        # are written to the data partition and persist across reboots.
+        os.makedirs("/mnt/data", exist_ok=True)
+        subprocess.run(
+            ["mount", "-t", "ext4", "-o", "defaults,noatime",
+             "/dev/mapper/iora-data", "/mnt/data"],
+            capture_output=True,
+        )
     return errors
 
 
