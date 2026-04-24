@@ -201,7 +201,7 @@ install_pkgs_apt() {
     info "Running apt-get update..."
     $SUDO apt-get update -qq
     info "Installing: $*"
-    $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
 }
 install_pkgs_dnf()    { $SUDO dnf install -y "$@"; }
 install_pkgs_pacman() { $SUDO pacman -Sy --noconfirm --needed "$@"; }
@@ -295,7 +295,7 @@ install_docker() {
                 curl -fsSL https://get.docker.com | $SUDO sh
             else
                 $SUDO apt-get update -qq
-                $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
                     ca-certificates curl gnupg lsb-release
                 install_docker_apt_repo
             fi
