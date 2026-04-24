@@ -317,6 +317,25 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     # actual block-device path regardless of symlink state.
     real_dev = os.path.realpath(DATA_DEV)
 
+    def _recreate_data_dirs() -> None:
+        """Recreate the expected subdirectory tree under /mnt/data/iora.
+
+        Must be called any time /mnt/data is remounted with a fresh filesystem
+        so that subsequent setup writes (docker-compose.yml, .env,
+        .setup-complete) don't fail with ENOENT.
+        """
+        for subdir in ("", "config", "media", "backups", "addons",
+                       "rauc", "secrets", "db", "mqtt/config", "mqtt/data",
+                       "zigbee", "zwave"):
+            try:
+                os.makedirs(os.path.join(DATA_DIR, subdir), exist_ok=True)
+            except OSError as exc:
+                # Log but continue — a missing optional subdir is non-fatal.
+                print(
+                    f"WARNING: could not create {os.path.join(DATA_DIR, subdir)}: {exc}",
+                    file=sys.stderr,
+                )
+
     def _fallback_plain_mount() -> None:
         """Re-format real_dev as plain ext4 and mount it at /mnt/data.
 
@@ -347,6 +366,10 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
             errors.append(
                 f"mount /mnt/data (plain ext4 fallback) failed: {r.stderr.strip()}"
             )
+            return
+        # Recreate directory tree on the fresh filesystem so all subsequent
+        # setup writes succeed (docker-compose.yml, .env, .setup-complete).
+        _recreate_data_dirs()
 
     # ── Early device-mapper availability probe ───────────────────────────
     # luksOpen (and the pass-through dmsetup alias) both require dm_mod.
@@ -483,6 +506,7 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
              "/dev/mapper/iora-data", "/mnt/data"],
             capture_output=True,
         )
+        _recreate_data_dirs()
         return errors
 
     # Open the newly formatted LUKS partition.  Use real_dev: the ext4 label
@@ -524,6 +548,11 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     )
     if mr.returncode != 0:
         errors.append(f"mount /mnt/data failed after LUKS setup: {mr.stderr.strip()}")
+    else:
+        # Recreate directory tree on the new LUKS-backed filesystem so all
+        # subsequent setup writes (docker-compose.yml, .env, .setup-complete)
+        # succeed without ENOENT.
+        _recreate_data_dirs()
     return errors
 
 

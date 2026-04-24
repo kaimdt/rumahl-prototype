@@ -3413,8 +3413,11 @@ Documentation=https://iora.kaimdt.com
 Wants=docker.service iora-init-data.service network-online.target
 After=docker.service network-online.target iora-init-data.service iora-supervisor.service
 ConditionPathIsDirectory=/mnt/data/iora
-# Only start when setup has completed (compose file is in place).
+# Only start when setup has completed AND the compose file is present.
+# Both conditions must be true; a missing compose file gracefully skips the
+# unit (exit 0 / "skipped") instead of hard-failing through ExecStartPre.
 ConditionPathExists=/mnt/data/iora/.setup-complete
+ConditionPathExists=/mnt/data/iora/docker-compose.yml
 StartLimitIntervalSec=600
 StartLimitBurst=3
 
@@ -3423,15 +3426,12 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/mnt/data/iora
 
-# Guard: skip if missing/placeholder; run integrity check before starting.
-# The guard script MUST NOT fail the unit — if its check blocks the start,
-# the setup wizard sees "A dependency job for iora-stack failed" with no
-# actionable cause. Use `|| true` so its output is logged but non-fatal.
+# Belt-and-suspenders: log a warning if compose file is a hello-world
+# placeholder, then proceed (ConditionPathExists above already gates on
+# file existence, so this path should not be reached in practice).
 ExecStartPre=/bin/sh -c '\
-  if [ ! -f /mnt/data/iora/docker-compose.yml ] || \
-     grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml; then \
-    echo "iora-stack: no user-app compose file yet — skipping"; \
-    exit 1; \
+  if grep -q "image: hello-world" /mnt/data/iora/docker-compose.yml 2>/dev/null; then \
+    echo "iora-stack: compose file is a placeholder — starting anyway"; \
   fi; \
   echo "iora-stack: starting user-app containers"'
 ExecStartPre=-/usr/lib/iora/iora-docker-guard --check
