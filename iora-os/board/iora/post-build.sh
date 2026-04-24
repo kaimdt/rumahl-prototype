@@ -1748,6 +1748,9 @@ Before=getty@tty1.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 /usr/lib/iora/iora-setup-tui
+# Hand TTY back to getty when the setup TUI stops (setup complete or crashed).
+# Without this, Alt+Ctrl+F2 / tty1 stays blank after setup finishes.
+ExecStopPost=/bin/systemctl start getty@tty1.service
 StandardInput=tty
 StandardOutput=tty
 StandardError=journal

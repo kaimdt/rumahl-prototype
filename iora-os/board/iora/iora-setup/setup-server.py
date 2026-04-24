@@ -957,8 +957,70 @@ def apply_config(config):
         except Exception as e:
             PROGRESS.add_error(f"Failed to start user-app stack: {e}")
 
+    # ── Start native IORA services and verify iora-home is reachable ──────
+    # Native services (iora-core, iora-home, …) are systemd units controlled
+    # by multi-user.target.  They depend on iora-db-init completing and their
+    # binary existing at /opt/iora/build/<svc>/bin/<svc>.  We explicitly
+    # start them here so the user doesn't have to wait for a reboot, and we
+    # check that iora-home is actually listening on :8126 before the wizard
+    # redirects there.
+    if IS_IORA_OS:
+        NATIVE_SERVICES = [
+            "iora-core.service",
+            "iora-home.service",
+            "iora-secrets.service",
+            "iora-security.service",
+            "iora-watchdog.service",
+        ]
+        for svc in NATIVE_SERVICES:
+            try:
+                PROGRESS.log(f"systemctl start {svc}")
+                cp = subprocess.run(
+                    ["systemctl", "start", svc],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if cp.returncode != 0:
+                    stderr = (cp.stderr or cp.stdout or "").strip()
+                    # ConditionPathExists failure → binary missing
+                    if "condition" in stderr.lower() or cp.returncode == 1:
+                        msg = (
+                            f"{svc} did not start — binary may be missing at "
+                            f"/opt/iora/build/{svc.removesuffix('.service')}/bin/: "
+                            f"{stderr[:200]}"
+                        )
+                    else:
+                        msg = f"{svc} failed to start: {stderr[:200]}"
+                    PROGRESS.add_error(msg)
+            except subprocess.TimeoutExpired:
+                PROGRESS.add_error(f"{svc} start timed out after 60s")
+            except Exception as e:
+                PROGRESS.add_error(f"Failed to start {svc}: {e}")
+
+        # Wait up to 20 s for iora-home to accept connections on port 8126.
+        import time as _time
+        PROGRESS.log("Waiting for iora-home to come up on :8126…")
+        home_up = False
+        for _attempt in range(20):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
+                    _s.settimeout(1)
+                    _s.connect(("127.0.0.1", 8126))
+                    home_up = True
+                    break
+            except (OSError, ConnectionRefusedError):
+                _time.sleep(1)
+        if home_up:
+            PROGRESS.log("iora-home is up and accepting connections on :8126")
+        else:
+            PROGRESS.add_error(
+                "iora-home did not respond on port 8126 within 20 s after setup. "
+                "Check: systemctl status iora-home.service  and  "
+                "journalctl -u iora-home.service"
+            )
+
     PROGRESS.set_phase("done")
     return errors, recovery_pin
+
 
 
 def generate_compose(config):
@@ -1674,14 +1736,16 @@ body {
       </button>
     </div>
 
-    <div class="url" id="finalUrl">http://iora:8126</div>
-    <p class="subtitle" style="margin-top:16px">
-      Redirecting automatically in <span id="redirectCountdown">3</span> seconds…
-    </p>
-    <div class="btn-row" style="justify-content:center">
-      <button class="btn btn-primary" onclick="openDashboard()" style="flex:none;padding:12px 40px">
-        Open Dashboard Now
-      </button>
+    <div id="redirectBox">
+      <div class="url" id="finalUrl"></div>
+      <p class="subtitle" style="margin-top:16px">
+        Redirecting automatically in <span id="redirectCountdown">3</span> seconds…
+      </p>
+      <div class="btn-row" style="justify-content:center">
+        <button class="btn btn-primary" onclick="openDashboard()" style="flex:none;padding:12px 40px">
+          Open Dashboard Now
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -1889,9 +1953,27 @@ function showDoneBox(state) {
   }
 
   const finalEl = document.getElementById('finalUrl');
-  if (finalEl) {
-    const url = state.finish_url || ('http://' + location.hostname + ':8126');
-    finalEl.textContent = url;
+  const redirectBox = document.getElementById('redirectBox');
+  if (state.finish_url) {
+    if (finalEl) finalEl.textContent = state.finish_url;
+    if (redirectBox) redirectBox.style.display = 'block';
+  } else {
+    // iora-home did not come up — suppress redirect, show diagnostic.
+    if (redirectBox) redirectBox.style.display = 'none';
+    const box = document.getElementById('doneBox');
+    if (box && !box.dataset.homeDownShown) {
+      const warn = document.createElement('div');
+      warn.className = 'subtitle';
+      warn.style.cssText = 'margin-top:16px;color:#c94f4f;white-space:pre-wrap;text-align:left;font-family:monospace;font-size:12px;background:#2a1a1a;padding:12px;border-radius:6px;';
+      warn.textContent =
+        '⚠ Dashboard (port 8126) konnte nicht gestartet werden.\n\n' +
+        'Diagnose auf dem IORA-Gerät (SSH oder Konsole):\n' +
+        '  systemctl status iora-home.service\n' +
+        '  journalctl -u iora-home.service -n 50\n' +
+        '  ls /opt/iora/build/iora-home/bin/';
+      box.appendChild(warn);
+      box.dataset.homeDownShown = '1';
+    }
   }
 
   if (state.errors && state.errors.length) {
@@ -1906,8 +1988,10 @@ function showDoneBox(state) {
     }
   }
 
-  // Auto-redirect on success: immediately if no PIN, after PIN ack otherwise.
-  if (state.status === 'done') {
+  // Auto-redirect on success: only when iora-home is confirmed reachable
+  // (finish_url will be set). If finish_url is null the service didn't start
+  // and we stay on this page to show the diagnostic.
+  if (state.status === 'done' && state.finish_url) {
     if (!pinNeedsAck) {
       _scheduleRedirect(3000);
     }
@@ -1918,7 +2002,9 @@ function showDoneBox(state) {
 let __iora_redirectTimer = null;
 function _scheduleRedirect(delayMs) {
   if (__iora_redirectTimer !== null) return;  // only schedule once
-  const url = document.getElementById('finalUrl').textContent;
+  const el = document.getElementById('finalUrl');
+  const url = el ? el.textContent.trim() : '';
+  if (!url) return;  // iora-home not up — no redirect
   const cntEl = document.getElementById('redirectCountdown');
   let remaining = Math.round(delayMs / 1000);
   if (cntEl) cntEl.textContent = remaining;
@@ -1936,14 +2022,16 @@ async function acknowledgePin() {
   try { await fetch('/api/ack-pin', { method: 'POST' }); } catch(_) {}
   const pinBox = document.getElementById('recoveryPinBox');
   if (pinBox) pinBox.style.display = 'none';
-  // Now that the PIN is saved, auto-redirect to the dashboard.
-  _scheduleRedirect(3000);
+  // Only redirect if finish_url was set (iora-home is up).
+  const el = document.getElementById('finalUrl');
+  if (el && el.textContent.trim()) _scheduleRedirect(3000);
 }
 
 function openDashboard() {
   if (__iora_redirectTimer !== null) clearInterval(__iora_redirectTimer);
-  const url = document.getElementById('finalUrl').textContent;
-  window.location.href = url;
+  const el = document.getElementById('finalUrl');
+  const url = el ? el.textContent.trim() : '';
+  if (url) window.location.href = url;
 }
 
 // Init
@@ -2119,8 +2207,19 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
             def runner():
                 try:
                     errors, recovery_pin = apply_config(config)
-                    finish_url = f"http://{get_local_ip()}:8126"
                     status = "failed" if errors else "done"
+                    # Only redirect to :8126 if iora-home is actually listening.
+                    # If the binary is missing or the service failed, stay on
+                    # the setup page and show the diagnostics instead of a blank
+                    # browser tab.
+                    finish_url = None
+                    try:
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
+                            _s.settimeout(2)
+                            _s.connect(("127.0.0.1", 8126))
+                            finish_url = f"http://{get_local_ip()}:8126"
+                    except (OSError, ConnectionRefusedError):
+                        pass  # redirect suppressed; UI will show errors
                     PROGRESS.finish(status, finish_url=finish_url)
                     # Schedule shutdown after the user had time to read the
                     # PIN + any error messages. Only on success — on failure
