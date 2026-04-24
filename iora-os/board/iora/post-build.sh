@@ -542,10 +542,13 @@ cat > "${TARGET_DIR}/etc/docker/daemon.json" <<EOF
   },
   "default-runtime": "runc",
   "exec-opts": ["native.cgroupdriver=systemd"],
-  "hosts": ["unix:///var/run/docker.sock"],
   "icc": false
 }
 EOF
+# Note: "hosts" is intentionally omitted. docker.socket (systemd socket
+# activation) already binds /var/run/docker.sock. Adding "hosts" here
+# conflicts with the fd:// activation used by the upstream docker.service
+# unit and causes Docker to fail to start at boot.
 
 # ── Docker socket hardening ──────────────────────────────────────────────────
 # The Docker socket is owned by root:root with 0600. The docker group is NOT
@@ -712,6 +715,9 @@ What=/dev/mapper/iora-data
 Where=/mnt/data
 Type=ext4
 Options=defaults,noatime,nofail,x-systemd.device-timeout=10s
+# x-systemd.device-timeout in Options is only honoured by fstab-generated
+# units; for a hand-written .mount unit the equivalent is TimeoutSec here.
+TimeoutSec=10
 
 [Install]
 WantedBy=local-fs.target
@@ -727,7 +733,9 @@ Description=Initialize IORA data directory
 DefaultDependencies=no
 After=mnt-data.mount
 Before=iora-stack.service iora-setup.service docker.service
-RequiresMountsFor=/mnt/data
+# Soft dependency: if the mount failed/timed-out the Condition below handles
+# it gracefully (unit skipped, not failed), preventing the cascade of
+# [DEPEND] failures seen when RequiresMountsFor created a hard Requires=.
 ConditionPathIsMountPoint=/mnt/data
 
 [Service]
