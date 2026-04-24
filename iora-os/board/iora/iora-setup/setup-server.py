@@ -43,6 +43,24 @@ PIN_HASH_ITERATIONS = 1000
 PIN_DIGITS = 16
 
 
+def get_local_ip() -> str:
+    """Return the first non-loopback LAN IPv4 address, falling back to hostname.
+
+    Uses a UDP connect trick (no traffic is sent) to discover which interface
+    the OS would route through to reach an external host — i.e. the IP that
+    remote browsers can use to reach this machine.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            # 192.0.2.1 is TEST-NET-1 (RFC 5737) — routable but reserved,
+            # so no packets are ever actually sent; we just need the OS to
+            # pick the right outbound interface.
+            s.connect(("192.0.2.1", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return socket.gethostname()
+
+
 # ── Progress tracker ─────────────────────────────────────────────────────────
 # Persists apply-phase progress across page reloads and is read by the
 # console first-boot TUI (/usr/lib/iora/iora-setup-tui). The state file is
@@ -823,31 +841,28 @@ def apply_config(config):
         except Exception:
             pass
 
-    # Start the IORA stack. Do this *synchronously* via systemctl so we
-    # surface pull/start errors in the web UI instead of firing-and-
-    # forgetting `docker compose up`, which hid every failure and left
-    # the user with no ports open. We call iora-stack.service so the
-    # unit's ExecStartPre (retry pull) + ExecStart + reconcile loop
-    # apply to the user-chosen compose.yml, not just at first boot.
+    # Start the user-app Docker stack (MQTT broker and optional adapters).
+    # iora-stack.service manages user-app containers only — IORA system
+    # services (including iora-home on port 8126) run natively and are
+    # already up at this point. A failure here is a warning, not fatal:
+    # the dashboard is still reachable even if the stack hasn't started yet.
     PROGRESS.set_phase("stack")
     if config.get("auto_start", True):
         try:
             if IS_IORA_OS:
-                # Block (up to 4 min) so the UI can show pull errors
-                # instead of returning immediately and leaving the user
-                # staring at a "Setup Complete!" page while nothing is
-                # actually listening.
                 PROGRESS.log("systemctl restart iora-stack.service (up to 240s)")
                 cp = subprocess.run(
                     ["systemctl", "restart", "iora-stack.service"],
                     capture_output=True, text=True, timeout=240,
                 )
                 if cp.returncode != 0:
+                    # Non-fatal: dashboard (iora-home, port 8126) runs natively
+                    # and is unaffected by the Docker stack status.
                     msg = (
-                        f"iora-stack.service failed to start: "
-                        f"{(cp.stderr or cp.stdout or '').strip()[:400]}"
+                        f"iora-stack.service failed to start — "
+                        f"user-app containers (MQTT etc.) may not be running yet: "
+                        f"{(cp.stderr or cp.stdout or '').strip()[:300]}"
                     )
-                    errors.append(msg)
                     PROGRESS.add_error(msg)
             else:
                 PROGRESS.log("docker compose up -d --remove-orphans (up to 300s)")
@@ -861,12 +876,9 @@ def apply_config(config):
                         f"docker compose up failed: "
                         f"{(cp.stderr or cp.stdout or '').strip()[:400]}"
                     )
-                    errors.append(msg)
                     PROGRESS.add_error(msg)
         except Exception as e:
-            msg = f"Failed to start stack: {e}"
-            errors.append(msg)
-            PROGRESS.add_error(msg)
+            PROGRESS.add_error(f"Failed to start user-app stack: {e}")
 
     PROGRESS.set_phase("done")
     return errors, recovery_pin
@@ -1587,12 +1599,11 @@ body {
 
     <div class="url" id="finalUrl">http://iora:8126</div>
     <p class="subtitle" style="margin-top:16px">
-      The IORA OS dashboard will be available<br>
-      at the address above in a few moments.
+      Redirecting automatically in <span id="redirectCountdown">3</span> seconds…
     </p>
     <div class="btn-row" style="justify-content:center">
       <button class="btn btn-primary" onclick="openDashboard()" style="flex:none;padding:12px 40px">
-        Open Dashboard
+        Open Dashboard Now
       </button>
     </div>
   </div>
@@ -1788,7 +1799,8 @@ function showDoneBox(state) {
   if (doneBox) doneBox.style.display = 'block';
 
   const pin = state.recovery_pin;
-  if (pin && !state.pin_acknowledged) {
+  const pinNeedsAck = pin && !state.pin_acknowledged;
+  if (pinNeedsAck) {
     const pinBox = document.getElementById('recoveryPinBox');
     const pinVal = document.getElementById('recoveryPinValue');
     if (pinBox && pinVal) {
@@ -1801,9 +1813,8 @@ function showDoneBox(state) {
 
   const finalEl = document.getElementById('finalUrl');
   if (finalEl) {
-    const host = (state.finish_url || '').replace(/^https?:\/\//, '').split(':')[0]
-                 || location.hostname;
-    finalEl.textContent = 'http://' + host + ':8126';
+    const url = state.finish_url || ('http://' + location.hostname + ':8126');
+    finalEl.textContent = url;
   }
 
   if (state.errors && state.errors.length) {
@@ -1817,15 +1828,43 @@ function showDoneBox(state) {
       box.dataset.errorsShown = '1';
     }
   }
+
+  // Auto-redirect on success: immediately if no PIN, after PIN ack otherwise.
+  if (state.status === 'done') {
+    if (!pinNeedsAck) {
+      _scheduleRedirect(3000);
+    }
+    // If PIN needs ack, _scheduleRedirect() is called by acknowledgePin().
+  }
+}
+
+let __iora_redirectTimer = null;
+function _scheduleRedirect(delayMs) {
+  if (__iora_redirectTimer !== null) return;  // only schedule once
+  const url = document.getElementById('finalUrl').textContent;
+  const cntEl = document.getElementById('redirectCountdown');
+  let remaining = Math.round(delayMs / 1000);
+  if (cntEl) cntEl.textContent = remaining;
+  __iora_redirectTimer = setInterval(() => {
+    remaining -= 1;
+    if (cntEl) cntEl.textContent = remaining;
+    if (remaining <= 0) {
+      clearInterval(__iora_redirectTimer);
+      window.location.href = url;
+    }
+  }, 1000);
 }
 
 async function acknowledgePin() {
   try { await fetch('/api/ack-pin', { method: 'POST' }); } catch(_) {}
   const pinBox = document.getElementById('recoveryPinBox');
   if (pinBox) pinBox.style.display = 'none';
+  // Now that the PIN is saved, auto-redirect to the dashboard.
+  _scheduleRedirect(3000);
 }
 
 function openDashboard() {
+  if (__iora_redirectTimer !== null) clearInterval(__iora_redirectTimer);
   const url = document.getElementById('finalUrl').textContent;
   window.location.href = url;
 }
@@ -2003,12 +2042,7 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
             def runner():
                 try:
                     errors, recovery_pin = apply_config(config)
-                    finish_url = None
-                    try:
-                        ip = socket.gethostname()
-                        finish_url = f"http://{ip}:8126"
-                    except Exception:
-                        pass
+                    finish_url = f"http://{get_local_ip()}:8126"
                     status = "failed" if errors else "done"
                     PROGRESS.finish(status, finish_url=finish_url)
                     # Schedule shutdown after the user had time to read the
