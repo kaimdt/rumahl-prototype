@@ -290,8 +290,9 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     device-mapper alias (``/dev/mapper/iora-data``) that
     iora-data-unlock.service creates. ``cryptsetup luksFormat`` refuses to
     wipe the header while the device is in use, so we tear those down
-    first. The caller is expected to re-mount /mnt/data through the real
-    LUKS mapper name afterwards (or, more commonly, at the next reboot).
+    first. After a successful format and open we create a fresh ext4
+    filesystem inside the LUKS container and remount /mnt/data so that all
+    subsequent setup steps write to the encrypted partition.
     """
     errors: list[str] = []
     if not os.path.exists(DATA_DEV):
@@ -308,6 +309,13 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     if not os.path.exists(keyfile_path):
         errors.append(f"LUKS setup skipped: keyfile {keyfile_path} not found")
         return errors
+
+    # ── Resolve the real block device path NOW ───────────────────────────
+    # udev processes the removal of the plain dm alias below and may remove
+    # the /dev/disk/by-label/iora-data symlink while it settles.  Resolving
+    # the path before any dm teardown ensures cryptsetup always gets the
+    # actual block-device path regardless of symlink state.
+    real_dev = os.path.realpath(DATA_DEV)
 
     # ── Release the device before luksFormat ────────────────────────────
     # Move the process cwd off /mnt/data so that the setup-server process
@@ -338,7 +346,7 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
 
     # 3. Sweep any remaining kernel dm holders on the underlying block device.
     try:
-        holders_dir = f"/sys/class/block/{os.path.basename(os.path.realpath(DATA_DEV))}/holders"
+        holders_dir = f"/sys/class/block/{os.path.basename(real_dev)}/holders"
         if os.path.isdir(holders_dir):
             for name in os.listdir(holders_dir):
                 subprocess.run(["dmsetup", "remove", "--force", name],
@@ -356,16 +364,21 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
     time.sleep(0.5)
 
-    # Format as LUKS2 with the generated keyfile.  Retry once to handle the
-    # kernel reference-count race that can persist briefly after lazy unmount.
+    # Format as LUKS2 with the generated keyfile.  We set --label iora-data
+    # so that udev recreates /dev/disk/by-label/iora-data pointing at the
+    # raw device; iora-data-unlock.service uses that path on every subsequent
+    # boot to detect and open the LUKS container.
+    # Retry once to handle the kernel reference-count race that can persist
+    # briefly after lazy unmount.
     def _try_format() -> subprocess.CompletedProcess:
         return subprocess.run(
             [
                 "cryptsetup", "luksFormat",
                 "--type", "luks2",
+                "--label", "iora-data",
                 "--batch-mode",
                 "--key-file", keyfile_path,
-                DATA_DEV,
+                real_dev,
             ],
             capture_output=True,
             text=True,
@@ -381,24 +394,66 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
 
     if r.returncode != 0:
         errors.append(f"cryptsetup luksFormat failed: {r.stderr.strip()}")
-        return errors
-
-    # Open the newly formatted LUKS partition.
-    ro = subprocess.run(
-        ["cryptsetup", "luksOpen", DATA_DEV, "iora-data",
-         "--key-file", keyfile_path],
-        capture_output=True,
-    )
-    if ro.returncode == 0:
-        # Remount /mnt/data from the newly opened LUKS mapper so that all
-        # subsequent setup steps (docker-compose.yml, .env, .setup-complete)
-        # are written to the data partition and persist across reboots.
+        # Recreate the plain dm passthrough alias so /mnt/data can still be
+        # mounted for the remainder of the setup (docker-compose.yml, .env,
+        # .setup-complete).  The error is non-fatal: the data partition stays
+        # unencrypted and a reboot will restore the normal unlock path.
+        try:
+            sectors = subprocess.check_output(
+                ["blockdev", "--getsz", real_dev],
+                stderr=subprocess.DEVNULL, text=True,
+            ).strip()
+            if sectors:
+                subprocess.run(
+                    ["dmsetup", "create", "iora-data",
+                     "--table", f"0 {sectors} linear {real_dev} 0"],
+                    capture_output=True,
+                )
+        except Exception:
+            pass
         os.makedirs("/mnt/data", exist_ok=True)
         subprocess.run(
             ["mount", "-t", "ext4", "-o", "defaults,noatime",
              "/dev/mapper/iora-data", "/mnt/data"],
             capture_output=True,
         )
+        return errors
+
+    # Open the newly formatted LUKS partition.  Use real_dev: the ext4 label
+    # on the raw device is gone (LUKS header replaced it) so the by-label
+    # symlink no longer exists at this point.
+    ro = subprocess.run(
+        ["cryptsetup", "luksOpen", real_dev, "iora-data",
+         "--key-file", keyfile_path],
+        capture_output=True,
+        text=True,
+    )
+    if ro.returncode != 0:
+        errors.append(f"cryptsetup luksOpen failed: {ro.stderr.strip()}")
+        return errors
+
+    # Create a fresh ext4 filesystem inside the LUKS container and remount
+    # /mnt/data so that all subsequent setup steps (docker-compose.yml, .env,
+    # .setup-complete) are written to the encrypted partition and persist
+    # across reboots.
+    mf = subprocess.run(
+        ["mkfs.ext4", "-F", "/dev/mapper/iora-data"],
+        capture_output=True,
+        text=True,
+    )
+    if mf.returncode != 0:
+        errors.append(f"mkfs.ext4 on LUKS container failed: {mf.stderr.strip()}")
+        return errors
+
+    os.makedirs("/mnt/data", exist_ok=True)
+    mr = subprocess.run(
+        ["mount", "-t", "ext4", "-o", "defaults,noatime",
+         "/dev/mapper/iora-data", "/mnt/data"],
+        capture_output=True,
+        text=True,
+    )
+    if mr.returncode != 0:
+        errors.append(f"mount /mnt/data failed after LUKS setup: {mr.stderr.strip()}")
     return errors
 
 
