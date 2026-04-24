@@ -1757,8 +1757,12 @@ StandardError=journal
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
-# Restart freely — a crash should not leave a blank tty.
-Restart=always
+# Only restart on crash (non-zero exit). When setup completes the TUI exits
+# with code 0 and must NOT be restarted: with Restart=always the service
+# would conflict with and stop getty@tty1 on every restart attempt while its
+# condition check (ConditionPathExists=!.setup-complete) fails, leaving the
+# console permanently blank/frozen after setup finishes.
+Restart=on-failure
 RestartSec=2
 # Use a login-like environment (TERM so ANSI renders).
 Environment=TERM=linux

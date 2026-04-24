@@ -902,6 +902,14 @@ def apply_config(config):
     try:
         with open(SETUP_DONE_FLAG, "w") as f:
             f.write("1\n")
+            f.flush()
+            os.fsync(f.fileno())  # guarantee on-disk before any reboot/reset
+        # Also fsync the parent directory so the directory entry is durable.
+        parent_fd = os.open(os.path.dirname(SETUP_DONE_FLAG), os.O_RDONLY)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
     except Exception as e:
         msg = f"Failed to write setup flag: {e}"
         errors.append(msg)
@@ -2260,7 +2268,13 @@ def _schedule_shutdown(delay_sec: int) -> None:
     def shutdown_later():
         import time
         time.sleep(delay_sec)
-        print(f"Setup complete. Shutting down setup server in {delay_sec}s window.")
+        print(f"Setup complete. Shutting down setup server after {delay_sec}s.")
+        # Flush all kernel dirty buffers to disk so the .setup-complete flag
+        # and config files survive a hard reset immediately after shutdown.
+        try:
+            subprocess.run(["sync"], timeout=10, check=False)
+        except Exception:
+            pass
         os._exit(0)
     threading.Thread(target=shutdown_later, daemon=True).start()
 

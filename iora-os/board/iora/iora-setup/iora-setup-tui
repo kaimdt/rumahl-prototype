@@ -263,11 +263,20 @@ def main() -> int:
     try:
         while True:
             if os.path.exists(SETUP_DONE_FLAG):
-                # Setup finished — exit so getty can take over.
-                sys.stdout.write(CLEAR + FG_GREEN + BOLD +
-                                 "IORA OS setup complete. Starting system…\n" + RESET)
+                # Setup finished — show a clear completion screen, then exit
+                # so ExecStopPost can hand tty1 back to getty.
+                # Do NOT sleep too long here: the ExecStopPost starts getty,
+                # but with Restart=on-failure systemd will not restart us, so
+                # getty takes over immediately after we exit.
+                sys.stdout.write(
+                    CLEAR
+                    + FG_GREEN + BOLD + "  IORA OS setup complete.\n\n" + RESET
+                    + FG_WHITE + "  The system is starting. You will see a login prompt shortly.\n\n"
+                    + "  Dashboard: " + BOLD + f"http://{ip or '<device-ip>'}:8126" + RESET + "\n\n"
+                    + DIM + "  (This screen will be replaced by the login console.)\n" + RESET
+                )
                 sys.stdout.flush()
-                time.sleep(2)
+                time.sleep(5)
                 return 0
             now = time.time()
             if now - last_ip_check > 5 or not ip:
