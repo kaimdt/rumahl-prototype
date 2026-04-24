@@ -75,6 +75,7 @@ pub struct ChecksumInfo {
 
 /// Runtime monitoring data for an app/plugin
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct MonitoringData {
     app_id: String,
     checksums: HashMap<String, String>,
@@ -148,7 +149,7 @@ impl IntegrityMonitor {
     pub async fn check_integrity(&self, app_id: &str) -> Result<IntegrityStatus> {
         let monitored = self.monitored.read().await;
 
-        let data = monitored.get(app_id)
+        monitored.get(app_id)
             .ok_or_else(|| anyhow::anyhow!("App '{}' not registered for monitoring", app_id))?;
 
         // Check for violations
