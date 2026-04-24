@@ -668,15 +668,19 @@ else
     fi
     # Create a linear device-mapper device so mnt-data.mount always works.
     sectors=$(blockdev --getsz "$real" 2>/dev/null) || sectors=""
-    if [ -n "$sectors" ] && command -v dmsetup >/dev/null 2>&1; then
+    if [ -n "$sectors" ] && command -v dmsetup >/dev/null 2>&1 \
+            && dmsetup ls >/dev/null 2>&1; then
+        # device-mapper is available — create a proper linear alias.
         dmsetup create iora-data --table "0 $sectors linear $real 0" 2>/dev/null \
             && log "device-mapper alias created for plain partition" \
-            || ln -sf "$real" "$MAPPER" 2>/dev/null \
-            || log "WARNING: could not alias plain partition; falling back to raw device in mount"
+            || { log "WARNING: dmsetup create failed — falling back to symlink"
+                 ln -sf "$real" "$MAPPER" 2>/dev/null || true; }
     else
-        # dmsetup not available — symlink fallback.
+        # dmsetup not available (dm_mod kernel module missing) — fall back to
+        # a symlink.  mnt-data.mount references /dev/mapper/iora-data; a
+        # symlink to the underlying block device is sufficient for mounting.
         ln -sf "$real" "$MAPPER" 2>/dev/null || true
-        log "symlink alias created for plain partition"
+        log "symlink alias created for plain partition (dm_mod unavailable)"
     fi
 fi
 exit 0

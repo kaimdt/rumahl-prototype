@@ -317,6 +317,72 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     # actual block-device path regardless of symlink state.
     real_dev = os.path.realpath(DATA_DEV)
 
+    def _fallback_plain_mount() -> None:
+        """Re-format real_dev as plain ext4 and mount it at /mnt/data.
+
+        Used when device-mapper is unavailable or luksOpen fails after
+        luksFormat.  Ensures /mnt/data is always mountable so the rest of
+        setup can write docker-compose.yml, .env, and .setup-complete.
+        Appends to ``errors`` on any sub-step failure.
+        """
+        # Lazy unmount — failure is expected and non-fatal if already unmounted.
+        subprocess.run(["umount", "-l", "/mnt/data"], capture_output=True)
+        os.sync()
+        r = subprocess.run(
+            ["mkfs.ext4", "-F", "-L", "iora-data", real_dev],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            errors.append(
+                f"mkfs.ext4 fallback failed on {real_dev}: {r.stderr.strip()}"
+            )
+            return
+        os.makedirs("/mnt/data", exist_ok=True)
+        r = subprocess.run(
+            ["mount", "-t", "ext4", "-o", "defaults,noatime",
+             real_dev, "/mnt/data"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            errors.append(
+                f"mount /mnt/data (plain ext4 fallback) failed: {r.stderr.strip()}"
+            )
+
+    # ── Early device-mapper availability probe ───────────────────────────
+    # luksOpen (and the pass-through dmsetup alias) both require dm_mod.
+    # Probe availability HERE — before luksFormat — so we avoid a 7-second
+    # destructive format when the kernel simply doesn't have DM support.
+    # This happens when CONFIG_BLK_DEV_DM was not compiled in and the module
+    # cannot be loaded (the kernel config fix requires a full rebuild).
+    subprocess.run(["modprobe", "dm_mod"], capture_output=True)
+    subprocess.run(["modprobe", "dm-crypt"], capture_output=True)
+    subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
+    os.makedirs("/dev/mapper", exist_ok=True)
+    if not os.path.exists("/dev/mapper/control"):
+        r = subprocess.run(
+            ["mknod", "/dev/mapper/control", "c", "10", "236"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            # Non-fatal: if dm_mod is truly absent the subsequent dmsetup
+            # probe will catch it; log for diagnostics only.
+            errors.append(
+                f"mknod /dev/mapper/control failed (dm_mod may be absent): "
+                f"{r.stderr.strip()}"
+            )
+    dm_probe = subprocess.run(["dmsetup", "ls"], capture_output=True)
+    if dm_probe.returncode != 0:
+        # Device-mapper is not usable — skip LUKS entirely.
+        # Format the raw partition as plain ext4 and mount it directly so
+        # the rest of setup can write its files.
+        errors.append(
+            "cryptsetup skipped: device-mapper (dm_mod) is not available on "
+            "this kernel — data partition will be unencrypted until the OS is "
+            "rebuilt with CONFIG_BLK_DEV_DM=y"
+        )
+        _fallback_plain_mount()
+        return errors
+
     # ── Release the device before luksFormat ────────────────────────────
     # Move the process cwd off /mnt/data so that the setup-server process
     # itself does not hold a kernel reference to the block device.
@@ -419,27 +485,6 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
         )
         return errors
 
-    # Ensure dm_mod and dm-crypt are loaded — luksOpen creates a device-mapper
-    # node and will fail with "Cannot initialize device-mapper" if the modules
-    # are absent.  Ignore errors: the modules may already be built-in.
-    subprocess.run(["modprobe", "dm_mod"], capture_output=True)
-    subprocess.run(["modprobe", "dm-crypt"], capture_output=True)
-
-    # Wait for udev to process the dm_mod init event so that
-    # /dev/mapper/control is created before cryptsetup tries to open it.
-    subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
-
-    # Belt-and-suspenders: if udev didn't create /dev/mapper/control (e.g.
-    # because dm_mod is built-in and the node was never signalled to udev),
-    # create it manually.  Major 10, minor 236 is the device-mapper control
-    # device as allocated by misc_register() in dm-ioctl.c.
-    os.makedirs("/dev/mapper", exist_ok=True)
-    if not os.path.exists("/dev/mapper/control"):
-        subprocess.run(
-            ["mknod", "/dev/mapper/control", "c", "10", "236"],
-            capture_output=True,
-        )
-
     # Open the newly formatted LUKS partition.  Use real_dev: the ext4 label
     # on the raw device is gone (LUKS header replaced it) so the by-label
     # symlink no longer exists at this point.
@@ -451,6 +496,10 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     )
     if ro.returncode != 0:
         errors.append(f"cryptsetup luksOpen failed: {ro.stderr.strip()}")
+        # luksFormat already destroyed the ext4 header; the device is now a
+        # bare LUKS container we cannot open.  Re-format it as plain ext4 so
+        # /mnt/data is at least mountable and the rest of setup can proceed.
+        _fallback_plain_mount()
         return errors
 
     # Create a fresh ext4 filesystem inside the LUKS container and remount
