@@ -1835,7 +1835,7 @@ BANNER
     printf "\n"
     printf "  %-14s %s\n" "$primary_lbl:" "$primary_url"
     if [ -e "$setup_done_flag" ]; then
-        printf "  %-14s http://%s:8080\n" "Control Center:" "$hostpart"
+        printf "  %-14s http://%s:8091\n" "Control Center:" "$hostpart"
     fi
     printf "  %-14s /opt/iora/docs\n" "Documentation:"
     printf "\n"
@@ -3049,7 +3049,7 @@ fi
 #
 # Service communication (native services talk to each other via localhost):
 #   iora-core     → localhost:8090
-#   iora-home     → localhost:8080  (+ HA at HA_URL)
+#   iora-home     → localhost:8126  (IORA Home Dashboard)
 #   iora-control  → localhost:8091
 #   iora-assist   → localhost:8092
 #   iora-secrets  → localhost:8093
@@ -3091,7 +3091,7 @@ DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-home.env" <<'ENVEOF'
-PORT=8080
+PORT=8126
 RUST_LOG=info
 DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_home
 HA_URL=
@@ -3104,7 +3104,7 @@ cat > "${TARGET_DIR}/etc/iora/iora-control.env" <<'ENVEOF'
 PORT=8091
 RUST_LOG=info
 IORA_CORE_URL=http://localhost:8090
-IORA_HOME_URL=http://localhost:8080
+IORA_HOME_URL=http://localhost:8126
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-assist.env" <<'ENVEOF'
@@ -3223,7 +3223,7 @@ SVCEOF
 write_iora_service "iora-core" "8090" "iora" "" "Core Orchestrator"
 
 # iora-home — IORA Home smart-home dashboard + HA translator
-write_iora_service "iora-home" "8080" "iora" "iora-core.service" "Home Dashboard"
+write_iora_service "iora-home" "8126" "iora" "iora-core.service" "Home Dashboard"
 
 # iora-control — admin panel backend
 write_iora_service "iora-control" "8091" "iora" "iora-core.service iora-home.service" "Control Center"
