@@ -1,6 +1,5 @@
 use super::models::*;
 use super::DbPool;
-use sqlx::Row;
 use uuid::Uuid;
 
 pub struct ConfigRepository {

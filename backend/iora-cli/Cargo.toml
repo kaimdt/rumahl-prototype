@@ -8,11 +8,6 @@ description = "IORA CLI – command-line interface for controlling IORA OS and s
 name = "ora"
 path = "src/main.rs"
 
-# Alias for backwards compatibility
-[[bin]]
-name = "iora"
-path = "src/main.rs"
-
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }

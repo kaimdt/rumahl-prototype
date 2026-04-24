@@ -285,7 +285,7 @@ impl LocationSyncService {
     }
 
     /// Store points in the database (ignoring duplicates)
-    async fn store_points(&self, entity_id: &str, points: &[LocationPoint]) -> anyhow::Result<i64> {
+    async fn store_points(&self, _entity_id: &str, points: &[LocationPoint]) -> anyhow::Result<i64> {
         if points.is_empty() {
             return Ok(0);
         }

@@ -85,6 +85,7 @@ struct MonitoringData {
     last_check: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct NetworkConnection {
     destination: String,
@@ -92,6 +93,7 @@ struct NetworkConnection {
     timestamp: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct FileAccess {
     path: String,

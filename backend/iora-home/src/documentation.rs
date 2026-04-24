@@ -1,7 +1,6 @@
 use axum::{
-    extract::{Path, State},
+    extract::Path,
     http::StatusCode,
-    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -126,26 +125,31 @@ pub async fn list_docs() -> Result<Json<Vec<String>>, (StatusCode, String)> {
 }
 
 /// Recursively collect all markdown files in a directory
-async fn collect_markdown_files(dir: &FsPath, base: &FsPath) -> std::io::Result<Vec<String>> {
-    let mut files = Vec::new();
+fn collect_markdown_files<'a>(
+    dir: &'a FsPath,
+    base: &'a FsPath,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<String>>> + Send + 'a>> {
+    Box::pin(async move {
+        let mut files = Vec::new();
 
-    let mut entries = fs::read_dir(dir).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
+        let mut entries = fs::read_dir(dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
 
-        if path.is_dir() {
-            // Recursively collect from subdirectories
-            let subdir_files = collect_markdown_files(&path, base).await?;
-            files.extend(subdir_files);
-        } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
-            // Get relative path from base
-            if let Ok(rel_path) = path.strip_prefix(base) {
-                if let Some(path_str) = rel_path.to_str() {
-                    files.push(path_str.to_string());
+            if path.is_dir() {
+                // Recursively collect from subdirectories
+                let subdir_files = collect_markdown_files(&path, base).await?;
+                files.extend(subdir_files);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                // Get relative path from base
+                if let Ok(rel_path) = path.strip_prefix(base) {
+                    if let Some(path_str) = rel_path.to_str() {
+                        files.push(path_str.to_string());
+                    }
                 }
             }
         }
-    }
 
-    Ok(files)
+        Ok(files)
+    })
 }
