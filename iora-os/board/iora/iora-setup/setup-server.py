@@ -419,6 +419,12 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
         )
         return errors
 
+    # Ensure dm_mod and dm-crypt are loaded — luksOpen creates a device-mapper
+    # node and will fail with "Cannot initialize device-mapper" if the modules
+    # are absent.  Ignore errors: the modules may already be built-in.
+    subprocess.run(["modprobe", "dm_mod"], capture_output=True)
+    subprocess.run(["modprobe", "dm-crypt"], capture_output=True)
+
     # Open the newly formatted LUKS partition.  Use real_dev: the ext4 label
     # on the raw device is gone (LUKS header replaced it) so the by-label
     # symlink no longer exists at this point.

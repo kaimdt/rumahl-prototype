@@ -617,6 +617,12 @@ LOG_TAG="iora-data-unlock"
 log()  { logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*"; }
 fail() { log "WARNING: $*"; exit 0; }  # always exit 0 — non-fatal
 
+# Ensure device-mapper modules are loaded before any cryptsetup/dmsetup call.
+# luksOpen and dmsetup both require dm_mod; dm-crypt adds the crypto layer.
+# Failures are non-fatal: modules may already be built into the kernel.
+modprobe dm_mod   2>/dev/null || true
+modprobe dm-crypt 2>/dev/null || true
+
 # Nothing to do if the partition doesn't exist yet (installer hasn't run).
 [ -e "$DEV" ] || fail "iora-data partition not found — skipping"
 
