@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import socket
 import subprocess
 import sys
@@ -28,6 +29,9 @@ import time
 STATE_FILE = "/mnt/data/iora/setup-state.json"
 SETUP_DONE_FLAG = "/mnt/data/iora/.setup-complete"
 SETUP_PORT = 8080
+
+# How many seconds without an IP before prompting the user about static config.
+NO_IP_PROMPT_AFTER = 30
 
 # ANSI
 CLEAR = "\x1b[2J\x1b[H"
@@ -84,7 +88,7 @@ def bar(percent: int, width: int = 50) -> str:
     return f"[{'█' * filled}{'░' * (width - filled)}]"
 
 
-def render(ip: str, state: dict | None) -> None:
+def render(ip: str, state: dict | None, no_ip_seconds: float = 0) -> None:
     lines: list[str] = []
     lines.append(CLEAR)
     lines.append(BOLD + FG_CYAN + "=" * 78 + RESET)
@@ -101,6 +105,13 @@ def render(ip: str, state: dict | None) -> None:
         url = f"http://{ip}:{SETUP_PORT}/setup" if ip else f"http://<device-ip>:{SETUP_PORT}/setup"
         lines.append(BOLD + FG_GREEN + f"      {url}" + RESET)
         lines.append("")
+        if not ip:
+            lines.append(FG_YELLOW + "  ⚠  No IP address detected." + RESET)
+            if no_ip_seconds >= NO_IP_PROMPT_AFTER:
+                lines.append(FG_YELLOW + "     Press [N] to configure a static IP address." + RESET)
+            else:
+                lines.append(DIM + f"     Waiting for DHCP… ({int(no_ip_seconds)}s)" + RESET)
+            lines.append("")
         lines.append(DIM + "  Complete the setup wizard there. This screen will update live." + RESET)
     else:
         status = state.get("status", "")
@@ -151,6 +162,93 @@ def render(ip: str, state: dict | None) -> None:
     sys.stdout.flush()
 
 
+def configure_static_ip() -> None:
+    """Interactive static-IP configuration for the live system (runs on tty1)."""
+    sys.stdout.write(SHOW_CURSOR)
+    sys.stdout.flush()
+    try:
+        sys.stdout.write(CLEAR)
+        sys.stdout.write(BOLD + FG_CYAN + "=" * 78 + RESET + "\n")
+        sys.stdout.write(BOLD + FG_CYAN + "                     IORA OS — Network Configuration" + RESET + "\n")
+        sys.stdout.write(BOLD + FG_CYAN + "=" * 78 + RESET + "\n\n")
+        sys.stdout.write(FG_WHITE + "  Configure a static IP address for this device.\n" + RESET)
+        sys.stdout.write(DIM + "  Press Enter to keep current value. Leave gateway blank to skip.\n\n" + RESET)
+        sys.stdout.flush()
+
+        # Find first non-loopback interface
+        default_iface = ""
+        try:
+            out = subprocess.run(
+                ["ip", "route", "show", "default"],
+                capture_output=True, text=True, timeout=2,
+            ).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if "dev" in parts:
+                    default_iface = parts[parts.index("dev") + 1]
+                    break
+        except Exception:
+            pass
+        if not default_iface:
+            try:
+                out = subprocess.run(
+                    ["ip", "-o", "link", "show"],
+                    capture_output=True, text=True, timeout=2,
+                ).stdout
+                for line in out.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        name = parts[1].rstrip(":")
+                        if name != "lo":
+                            default_iface = name
+                            break
+            except Exception:
+                default_iface = "eth0"
+
+        iface = input(f"  Interface [{default_iface}]: ").strip() or default_iface
+        ip_cidr = input("  Static IPv4 (CIDR, e.g. 192.168.56.10/24): ").strip()
+        if not ip_cidr:
+            sys.stdout.write(FG_YELLOW + "  No IP entered. Returning to display.\n" + RESET)
+            sys.stdout.flush()
+            time.sleep(2)
+            return
+        gateway = input("  Default gateway (e.g. 192.168.56.1): ").strip()
+        dns = input("  DNS server [1.1.1.1]: ").strip() or "1.1.1.1"
+
+        sys.stdout.write(f"\n  Applying: {ip_cidr} on {iface}…\n")
+        sys.stdout.flush()
+
+        subprocess.run(["ip", "link", "set", iface, "up"], check=False)
+        subprocess.run(["ip", "addr", "flush", "dev", iface], check=False)
+        r = subprocess.run(["ip", "addr", "add", ip_cidr, "dev", iface],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.stdout.write(FG_RED + f"  Error: {r.stderr.strip()}\n" + RESET)
+            sys.stdout.flush()
+            time.sleep(3)
+            return
+        if gateway:
+            subprocess.run(["ip", "route", "add", "default", "via", gateway, "dev", iface],
+                           check=False)
+        try:
+            with open("/etc/resolv.conf", "w") as f:
+                f.write(f"nameserver {dns}\n")
+        except Exception:
+            pass
+
+        sys.stdout.write(FG_GREEN + f"\n  Static IP {ip_cidr} applied on {iface}.\n" + RESET)
+        sys.stdout.write(FG_WHITE + f"  Open http://{ip_cidr.split('/')[0]}:{SETUP_PORT}/setup "
+                         f"in your browser.\n\n" + RESET)
+        sys.stdout.flush()
+        time.sleep(4)
+    except (EOFError, KeyboardInterrupt):
+        pass
+    finally:
+        sys.stdout.write(HIDE_CURSOR)
+        sys.stdout.flush()
+
+
+
 def main() -> int:
     # Ignore broken pipe on tty disconnect.
     try:
@@ -161,6 +259,7 @@ def main() -> int:
 
     last_ip_check = 0.0
     ip = ""
+    no_ip_since: float | None = None  # timestamp when IP was first missing
     try:
         while True:
             if os.path.exists(SETUP_DONE_FLAG):
@@ -174,12 +273,37 @@ def main() -> int:
             if now - last_ip_check > 5 or not ip:
                 ip = get_primary_ip()
                 last_ip_check = now
+                if ip:
+                    no_ip_since = None  # reset once we have an IP
+                elif no_ip_since is None:
+                    no_ip_since = now
+
+            no_ip_secs = (now - no_ip_since) if (not ip and no_ip_since is not None) else 0.0
+
             state = load_state()
             try:
-                render(ip, state)
+                render(ip, state, no_ip_secs)
             except Exception:
                 pass
-            time.sleep(1.0)
+
+            # Non-blocking keypress check: if the user presses 'n'/'N' and
+            # we have been without an IP long enough, offer network config.
+            if not ip and no_ip_secs >= NO_IP_PROMPT_AFTER:
+                try:
+                    ready, _, _ = select.select([sys.stdin], [], [], 1.0)
+                    if ready:
+                        key = sys.stdin.read(1)
+                        if key.lower() == "n":
+                            configure_static_ip()
+                            # Force an immediate IP re-check after config
+                            last_ip_check = 0.0
+                            no_ip_since = None
+                    else:
+                        time.sleep(0)  # already waited 1 s in select
+                except Exception:
+                    time.sleep(1.0)
+            else:
+                time.sleep(1.0)
     except KeyboardInterrupt:
         return 0
     finally:

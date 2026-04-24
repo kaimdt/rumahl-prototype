@@ -74,6 +74,7 @@ pub struct ChecksumInfo {
 }
 
 /// Runtime monitoring data for an app/plugin
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct MonitoringData {
     app_id: String,
@@ -84,6 +85,7 @@ struct MonitoringData {
     last_check: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct NetworkConnection {
     destination: String,
@@ -91,6 +93,7 @@ struct NetworkConnection {
     timestamp: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct FileAccess {
     path: String,
@@ -148,7 +151,7 @@ impl IntegrityMonitor {
     pub async fn check_integrity(&self, app_id: &str) -> Result<IntegrityStatus> {
         let monitored = self.monitored.read().await;
 
-        let data = monitored.get(app_id)
+        let _data = monitored.get(app_id)
             .ok_or_else(|| anyhow::anyhow!("App '{}' not registered for monitoring", app_id))?;
 
         // Check for violations

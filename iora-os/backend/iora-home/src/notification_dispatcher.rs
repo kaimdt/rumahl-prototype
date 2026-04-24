@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::{websocket::WebSocketManager, ha_client::HomeAssistantClient};

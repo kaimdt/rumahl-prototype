@@ -195,7 +195,7 @@ pub struct HaEntity {
     )
 )]
 pub async fn register_desktop(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(identity): Extension<AuthIdentity>,
     Json(req): Json<DesktopRegistration>,
 ) -> Result<Json<DesktopRegistrationResponse>, StatusCode> {

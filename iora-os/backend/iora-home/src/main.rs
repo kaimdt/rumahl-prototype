@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::SocketAddr, path::Path as FsPath, sync::Arc};
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use futures_util::Stream;
 use tower_http::{
     compression::CompressionLayer,
@@ -8535,7 +8535,7 @@ async fn handle_realtime_socket(
     use axum::extract::ws::Message;
     use futures_util::{SinkExt, StreamExt};
 
-    let (mut sender, mut receiver) = socket.split();
+    let (sender, mut receiver) = socket.split();
     let sender = Arc::new(tokio::sync::Mutex::new(sender));
 
     // Per-connection subscription state
