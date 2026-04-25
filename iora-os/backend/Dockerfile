@@ -6,13 +6,25 @@ FROM rust:1.77-alpine AS builder
 
 WORKDIR /app/backend
 
-# Install build dependencies for Alpine
+# Install build dependencies for Alpine.
+# - musl-dev / gcc / g++ / make: C/C++ toolchain (some crates ship cc/cmake build scripts)
+# - openssl-dev / openssl-libs-static / pkgconfig: openssl-sys / native-tls
+# - postgresql-dev: sqlx-postgres native build
+# - perl: required by openssl-sys to (re)build openssl from source if needed
+# - cmake: a few crates use it transitively
+# - git: some build.rs scripts shell out to git for version info
 RUN apk add --no-cache \
     musl-dev \
+    gcc \
+    g++ \
+    make \
     openssl-dev \
     openssl-libs-static \
     pkgconfig \
-    postgresql-dev
+    postgresql-dev \
+    perl \
+    cmake \
+    git
 
 # Build arguments for security tokens
 ARG IORA_DEVELOPER_APP_TOKEN=dev-token-placeholder
@@ -32,10 +44,12 @@ COPY . .
 # Each package is built individually so a single broken crate doesn't stop
 # the rest from being produced — `build-all-images.sh` then extracts only the
 # binaries that actually exist and the systemd units use ConditionPathExists
-# to skip missing services on first boot.
+# to skip missing services on first boot. Per-crate stderr is captured to
+# /tmp/cargo-build-<svc>.log AND echoed at the end so failures aren't silent.
 ENV IORA_DEVELOPER_APP_TOKEN=${IORA_DEVELOPER_APP_TOKEN}
 ENV IORA_DEVELOPER_APP_OFFICIAL=${IORA_DEVELOPER_APP_OFFICIAL}
-RUN set -eux; \
+RUN set -eu; \
+    failures=""; \
     for svc in iora-core iora-home iora-control iora-assist iora-secrets \
                iora-watchdog iora-security iora-gateway iora-supervisor \
                iora-api iora-appstore iora-backup iora-connector \
@@ -43,9 +57,25 @@ RUN set -eux; \
                iora-network-monitor iora-nginx iora-resource-manager \
                iora-updater iora-cli iora-sign iora-verify; do \
         echo "==> cargo build -p ${svc}"; \
-        cargo build --release -p "${svc}" || \
+        if ! cargo build --release -p "${svc}" 2>&1 | tee "/tmp/cargo-build-${svc}.log"; then \
+            failures="${failures} ${svc}"; \
             echo "WARNING: ${svc} did not compile — image will still build."; \
-    done
+        fi; \
+    done; \
+    if [ -n "${failures}" ]; then \
+        echo "================================================================"; \
+        echo "BUILD FAILURES:${failures}"; \
+        echo "Last 30 lines of each failure log:"; \
+        for f in ${failures}; do \
+            echo "----- ${f} -----"; \
+            tail -n 30 "/tmp/cargo-build-${f}.log" 2>/dev/null || true; \
+        done; \
+        echo "================================================================"; \
+    fi; \
+    echo "Built binaries:"; \
+    find /app/backend/target -maxdepth 4 -type f -executable \
+         \( -path '*/release/iora-*' -o -path '*/release/ora' \) \
+         -printf '  %p (%s bytes)\n' 2>/dev/null | sort -u || true
 
 # Runtime base image - Alpine Linux for minimal footprint
 FROM alpine:3.19 AS runtime-base

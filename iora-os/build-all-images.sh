@@ -919,6 +919,19 @@ build_service_binaries() {
         return 0
     fi
 
+    # Diagnostic: list what actually got produced in the builder image so a
+    # path mismatch (target/release/ vs target/<triple>/release/) or a
+    # silently-failed cargo build is immediately visible instead of showing
+    # up as 20 generic "binary not found" warnings further down.
+    log_info "Builder image artefacts:"
+    docker run --rm "${BUILDER_TAG}" sh -c '
+        for d in /app/backend/target/release /app/backend/target/*/release; do
+            [ -d "$d" ] || continue
+            echo "  $d:"
+            find "$d" -maxdepth 1 -type f -executable -printf "    %f (%s bytes)\n" 2>/dev/null \
+                | head -n 40
+        done' 2>&1 | sed 's/^/    /' || true
+
     local failed=0
 
     for svc in ${SERVICES}; do
@@ -926,8 +939,15 @@ build_service_binaries() {
         mkdir -p "${dest}"
 
         log_info "  Extracting ${svc}..."
-        if docker run --rm "${BUILDER_TAG}" \
-                cat "/app/backend/target/release/${svc}" > "${dest}/${svc}" 2>/dev/null; then
+        # The Alpine `rust:1.77-alpine` image defaults to the musl target, so
+        # binaries land in `target/x86_64-unknown-linux-musl/release/` rather
+        # than `target/release/`. Try both locations to stay compatible with
+        # any Dockerfile variant.
+        if docker run --rm "${BUILDER_TAG}" sh -c "\
+                cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
+             || cat /app/backend/target/release/${svc} 2>/dev/null" \
+                > "${dest}/${svc}" 2>/dev/null \
+           && [ -s "${dest}/${svc}" ]; then
             chmod +x "${dest}/${svc}"
             log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
         else
@@ -943,8 +963,11 @@ build_service_binaries() {
     for entry in ${CLI_TOOLS}; do
         local cli="${entry%%:*}"
         local bin="${entry##*:}"
-        if docker run --rm "${BUILDER_TAG}" \
-                cat "/app/backend/target/release/${bin}" > "${cli_dest}/${bin}" 2>/dev/null; then
+        if docker run --rm "${BUILDER_TAG}" sh -c "\
+                cat /app/backend/target/x86_64-unknown-linux-musl/release/${bin} 2>/dev/null \
+             || cat /app/backend/target/release/${bin} 2>/dev/null" \
+                > "${cli_dest}/${bin}" 2>/dev/null \
+           && [ -s "${cli_dest}/${bin}" ]; then
             chmod +x "${cli_dest}/${bin}"
             log_success "  ${cli} → /usr/bin/${bin}"
         else
