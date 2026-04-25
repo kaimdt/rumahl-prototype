@@ -935,20 +935,32 @@ def apply_config(config):
     if config.get("auto_start", True):
         try:
             if IS_IORA_OS:
-                PROGRESS.log("systemctl restart iora-stack.service (up to 240s)")
-                cp = subprocess.run(
-                    ["systemctl", "restart", "iora-stack.service"],
-                    capture_output=True, text=True, timeout=240,
-                )
-                if cp.returncode != 0:
-                    # Non-fatal: dashboard (iora-home, port 8126) runs natively
-                    # and is unaffected by the Docker stack status.
-                    msg = (
-                        f"iora-stack.service failed to start — "
-                        f"user-app containers (MQTT etc.) may not be running yet: "
-                        f"{(cp.stderr or cp.stdout or '').strip()[:300]}"
+                # Pre-check: if docker is not installed or the daemon is not
+                # running, we can give a clear message immediately instead of
+                # waiting the full 240-second timeout for iora-stack.service.
+                docker_available = os.path.isfile("/usr/bin/docker") or \
+                                   os.path.isfile("/usr/local/bin/docker")
+                if not docker_available:
+                    PROGRESS.add_error(
+                        "iora-stack.service skipped — Docker is not installed "
+                        "on this image. User-app containers (MQTT, etc.) will "
+                        "not start until Docker is available."
                     )
-                    PROGRESS.add_error(msg)
+                else:
+                    PROGRESS.log("systemctl restart iora-stack.service (up to 240s)")
+                    cp = subprocess.run(
+                        ["systemctl", "restart", "iora-stack.service"],
+                        capture_output=True, text=True, timeout=240,
+                    )
+                    if cp.returncode != 0:
+                        # Non-fatal: dashboard (iora-home, port 8126) runs natively
+                        # and is unaffected by the Docker stack status.
+                        msg = (
+                            f"iora-stack.service failed to start — "
+                            f"user-app containers (MQTT etc.) may not be running yet: "
+                            f"{(cp.stderr or cp.stdout or '').strip()[:300]}"
+                        )
+                        PROGRESS.add_error(msg)
             else:
                 PROGRESS.log("docker compose up -d --remove-orphans (up to 300s)")
                 cp = subprocess.run(
@@ -980,51 +992,80 @@ def apply_config(config):
             "iora-security.service",
             "iora-watchdog.service",
         ]
-        for svc in NATIVE_SERVICES:
-            try:
-                PROGRESS.log(f"systemctl start {svc}")
-                cp = subprocess.run(
-                    ["systemctl", "start", svc],
-                    capture_output=True, text=True, timeout=60,
-                )
-                if cp.returncode != 0:
-                    stderr = (cp.stderr or cp.stdout or "").strip()
-                    # ConditionPathExists failure → binary missing
-                    if "condition" in stderr.lower() or cp.returncode == 1:
-                        msg = (
-                            f"{svc} did not start — binary may be missing at "
-                            f"/opt/iora/build/{svc.removesuffix('.service')}/bin/: "
-                            f"{stderr[:200]}"
-                        )
-                    else:
-                        msg = f"{svc} failed to start: {stderr[:200]}"
-                    PROGRESS.add_error(msg)
-            except subprocess.TimeoutExpired:
-                PROGRESS.add_error(f"{svc} start timed out after 60s")
-            except Exception as e:
-                PROGRESS.add_error(f"Failed to start {svc}: {e}")
 
-        # Wait up to 20 s for iora-home to accept connections on port 8126.
-        import time as _time
-        PROGRESS.log("Waiting for iora-home to come up on :8126…")
-        home_up = False
-        for _attempt in range(20):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
-                    _s.settimeout(1)
-                    _s.connect(("127.0.0.1", 8126))
-                    home_up = True
-                    break
-            except (OSError, ConnectionRefusedError):
-                _time.sleep(1)
-        if home_up:
-            PROGRESS.log("iora-home is up and accepting connections on :8126")
-        else:
+        # Pre-flight: check whether the native service binaries actually exist
+        # and are executable.  On a freshly-dd'd image the placeholder .keep
+        # files are NOT executables, so the ConditionPathExists guards inside
+        # the units will cause them to silently skip (exit 0 / condition failed)
+        # rather than actually starting anything.  Detect this upfront so we
+        # can show one clear message instead of a confusing 20-second timeout.
+        def _binary_is_executable(svc_name: str) -> bool:
+            bin_path = f"/opt/iora/build/{svc_name}/bin/{svc_name}"
+            return os.path.isfile(bin_path) and os.access(bin_path, os.X_OK)
+
+        native_binaries_present = _binary_is_executable("iora-home")
+        if not native_binaries_present:
             PROGRESS.add_error(
-                "iora-home did not respond on port 8126 within 20 s after setup. "
-                "Check: systemctl status iora-home.service  and  "
-                "journalctl -u iora-home.service"
+                "Native IORA service binaries are not present in this image "
+                "(placeholder .keep files found at /opt/iora/build/*/bin/). "
+                "The OS image must be rebuilt with the compiled service binaries "
+                "before the dashboard on port 8126 will be available. "
+                "Setup configuration has been saved — re-flash a complete image "
+                "and the dashboard will start automatically after boot."
             )
+        else:
+            for svc in NATIVE_SERVICES:
+                svc_name = svc.removesuffix(".service")
+                if not _binary_is_executable(svc_name):
+                    PROGRESS.add_error(
+                        f"{svc} skipped — binary not found or not executable at "
+                        f"/opt/iora/build/{svc_name}/bin/{svc_name}"
+                    )
+                    continue
+                try:
+                    PROGRESS.log(f"systemctl start {svc}")
+                    cp = subprocess.run(
+                        ["systemctl", "start", svc],
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    if cp.returncode != 0:
+                        stderr = (cp.stderr or cp.stdout or "").strip()
+                        # ConditionPathExists failure → binary missing or
+                        # some other condition not met — not fatal.
+                        if "condition" in stderr.lower() or cp.returncode == 1:
+                            msg = (
+                                f"{svc} did not start — condition not met "
+                                f"(binary or dependency missing): {stderr[:200]}"
+                            )
+                        else:
+                            msg = f"{svc} failed to start: {stderr[:200]}"
+                        PROGRESS.add_error(msg)
+                except subprocess.TimeoutExpired:
+                    PROGRESS.add_error(f"{svc} start timed out after 60s")
+                except Exception as e:
+                    PROGRESS.add_error(f"Failed to start {svc}: {e}")
+
+            # Wait up to 20 s for iora-home to accept connections on port 8126.
+            import time as _time
+            PROGRESS.log("Waiting for iora-home to come up on :8126…")
+            home_up = False
+            for _attempt in range(20):
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
+                        _s.settimeout(1)
+                        _s.connect(("127.0.0.1", 8126))
+                        home_up = True
+                        break
+                except (OSError, ConnectionRefusedError):
+                    _time.sleep(1)
+            if home_up:
+                PROGRESS.log("iora-home is up and accepting connections on :8126")
+            else:
+                PROGRESS.add_error(
+                    "iora-home did not respond on port 8126 within 20 s after setup. "
+                    "Check: systemctl status iora-home.service  and  "
+                    "journalctl -u iora-home.service"
+                )
 
     PROGRESS.set_phase("done")
     return errors, recovery_pin
@@ -1973,12 +2014,28 @@ function showDoneBox(state) {
       const warn = document.createElement('div');
       warn.className = 'subtitle';
       warn.style.cssText = 'margin-top:16px;color:#c94f4f;white-space:pre-wrap;text-align:left;font-family:monospace;font-size:12px;background:#2a1a1a;padding:12px;border-radius:6px;';
-      warn.textContent =
-        '⚠ Dashboard (port 8126) konnte nicht gestartet werden.\n\n' +
-        'Diagnose auf dem IORA-Gerät (SSH oder Konsole):\n' +
-        '  systemctl status iora-home.service\n' +
-        '  journalctl -u iora-home.service -n 50\n' +
-        '  ls /opt/iora/build/iora-home/bin/';
+      // Check if the error message already explains missing binaries
+      const hasBinaryError = state.errors && state.errors.some(
+        e => e.includes('not present in this image') || e.includes('not executable')
+      );
+      if (hasBinaryError) {
+        warn.textContent =
+          '⚠ Dashboard nicht verfügbar: native Dienst-Binaries fehlen.\n\n' +
+          'Das IORA OS Image enthält keine kompilierten Binaries für\n' +
+          'iora-home und andere native Dienste.\n\n' +
+          'Lösung:\n' +
+          '  1. Komplettes IORA OS Image mit kompilierten Binaries erstellen.\n' +
+          '  2. Image auf das Gerät flashen.\n' +
+          '  3. Setup-Konfiguration ist gespeichert — nur neu flashen nötig.\n\n' +
+          'Pfad der Binaries: /opt/iora/build/iora-home/bin/iora-home';
+      } else {
+        warn.textContent =
+          '⚠ Dashboard (port 8126) konnte nicht gestartet werden.\n\n' +
+          'Diagnose auf dem IORA-Gerät (SSH oder Konsole):\n' +
+          '  systemctl status iora-home.service\n' +
+          '  journalctl -u iora-home.service -n 50\n' +
+          '  ls /opt/iora/build/iora-home/bin/';
+      }
       box.appendChild(warn);
       box.dataset.homeDownShown = '1';
     }
