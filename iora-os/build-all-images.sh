@@ -570,17 +570,29 @@ build_base_image() {
 #      also be unreachable if it depends on the native stack.
 build_service_binaries() {
     local OVERLAY="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/build"
-    local BACKEND_DIR="${SCRIPT_DIR}/../backend"
-
-    # Resolve backend path (the repo root is one level up from iora-os/).
-    if [ ! -d "${BACKEND_DIR}" ]; then
-        BACKEND_DIR="${SCRIPT_DIR}/../../backend"
-    fi
-    if [ ! -d "${BACKEND_DIR}" ]; then
-        log_warn "backend/ source directory not found at ${BACKEND_DIR}; skipping binary embedding."
+    # Resolve the backend/ source tree. We try the in-tree location first
+    # (iora-os/backend/) — that's where the workspace lives in this repo and
+    # is what `git pull` updates. The legacy sibling layout
+    # (home-assistant-dashb/backend/, one level up) is only used as a
+    # fallback for older checkouts. If both exist, the in-tree copy wins —
+    # otherwise an old sibling tree silently shadows freshly pulled changes
+    # and the build uses stale sources.
+    local BACKEND_DIR=""
+    for candidate in \
+        "${SCRIPT_DIR}/backend" \
+        "${SCRIPT_DIR}/../backend" \
+        "${SCRIPT_DIR}/../../backend"; do
+        if [ -f "${candidate}/Cargo.toml" ] && [ -f "${candidate}/Dockerfile" ]; then
+            BACKEND_DIR="${candidate}"
+            break
+        fi
+    done
+    if [ -z "${BACKEND_DIR}" ]; then
+        log_warn "backend/ source directory not found near ${SCRIPT_DIR}; skipping binary embedding."
         log_warn "Without native service binaries, iora-core/iora-home/... will NOT start on boot."
         return 0
     fi
+    log_info "  Resolved backend source: ${BACKEND_DIR}"
 
     # ── Make cargo visible to this script ────────────────────────────────
     # setup.sh installs rustup with --no-modify-path, so a fresh shell after
@@ -879,10 +891,26 @@ build_service_binaries() {
 
     local BUILDER_TAG="iora-builder-tmp:$(date +%s)"
 
+    # Optional cache-busting flags. Set IORA_DOCKER_NOCACHE=1 if a previous
+    # build cached an older Dockerfile/source layout and you want to force
+    # rebuild everything from scratch. IORA_DOCKER_PULL=1 also re-pulls the
+    # base image (rust:1.77-alpine) in case the registry has updates.
+    local _docker_extra=""
+    if [ "${IORA_DOCKER_NOCACHE:-0}" = "1" ]; then
+        _docker_extra="${_docker_extra} --no-cache"
+        log_info "  IORA_DOCKER_NOCACHE=1 → using --no-cache"
+    fi
+    if [ "${IORA_DOCKER_PULL:-0}" = "1" ]; then
+        _docker_extra="${_docker_extra} --pull"
+        log_info "  IORA_DOCKER_PULL=1 → using --pull"
+    fi
+
     # Build the compilation stage only (--target builder) — avoids running
     # the runtime stages and is much faster on repeat builds if layer cache hits.
-    log_info "docker build --target builder ..."
+    log_info "docker build --target builder ${_docker_extra}..."
+    # shellcheck disable=SC2086
     if ! docker build \
+            ${_docker_extra} \
             --target builder \
             --tag "${BUILDER_TAG}" \
             --file "${BACKEND_DIR}/Dockerfile" \
