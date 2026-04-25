@@ -683,29 +683,37 @@ build_service_binaries() {
         # Buildroot 2024.02 → glibc 2.38. We give 0.01 of headroom and treat
         # anything >= 2.39 on the host as a mismatch.
         if awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
-            # Prefer musl-static over Docker: it's faster (no daemon), needs
-            # no privileged operations, and the resulting binaries are
-            # statically linked so they're independent of any libc on the
-            # target. Docker remains as a fallback for cases where rustup
-            # isn't installed or the arch isn't x86_64.
-            if [ -z "${IORA_RUST_TRIPLE:-}" ] \
+            # Prefer Docker when available: the Alpine builder image has
+            # musl-libssl pre-installed, so the openssl-sys crate (used by
+            # 9+ services via reqwest/sqlx/etc.) compiles out of the box.
+            # Cross-compiling openssl-sys from a glibc host to a musl target
+            # requires either a manually-built musl-libssl or per-crate
+            # `vendored` features in every Cargo.toml — both are fragile.
+            #
+            # musl-static is the secondary fallback for hosts without Docker:
+            # it works for crates that don't use openssl, and the failure
+            # mode for openssl users is a clear `openssl-sys build script
+            # failed` instead of a runtime GLIBC_2.39 crash.
+            if command -v docker >/dev/null 2>&1; then
+                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+                log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
+                log_warn "Switching to Docker / Alpine-musl build path automatically."
+                log_warn "Override with IORA_BUILD_BACKEND=native (musl) or IORA_RUST_TRIPLE=...."
+                _IORA_BUILD_BACKEND="docker"
+            elif [ -z "${IORA_RUST_TRIPLE:-}" ] \
                 && command -v rustup >/dev/null 2>&1 \
                 && [ "${IORA_ARCH:-x86_64}" = "x86_64" ]; then
                 log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
-                log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
-                log_warn "Switching to musl-static cargo build automatically."
-                log_warn "Override with IORA_BUILD_BACKEND=docker or IORA_RUST_TRIPLE=...."
+                log_warn "Docker not available — falling back to musl-static cargo build."
+                log_warn "WARNING: services using openssl-sys will fail unless musl-libssl is"
+                log_warn "         installed. Install Docker for the most reliable build."
                 _IORA_AUTO_MUSL=1
-            elif command -v docker >/dev/null 2>&1; then
-                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
-                log_warn "Falling back to Docker / Alpine-musl build path."
-                _IORA_BUILD_BACKEND="docker"
             else
-                log_warn "Host glibc ${_host_glibc} > target 2.38 but neither rustup+x86_64"
-                log_warn "nor Docker is available — produced binaries WILL crash at boot."
+                log_warn "Host glibc ${_host_glibc} > target 2.38 but neither Docker nor"
+                log_warn "rustup+x86_64 is available — produced binaries WILL crash at boot."
                 log_warn "Install one of:"
-                log_warn "  - rustup + musl-tools (preferred)"
-                log_warn "  - docker"
+                log_warn "  - docker (preferred — handles openssl-sys out of the box)"
+                log_warn "  - rustup + musl-tools (fallback — limited crate support)"
             fi
         fi
     fi
