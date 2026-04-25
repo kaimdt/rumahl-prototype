@@ -734,10 +734,20 @@ build_service_binaries() {
         esac
         if [ "${_IORA_AUTO_MUSL}" = "1" ]; then
             RUST_TRIPLE="x86_64-unknown-linux-musl"
-            # Make sure cargo actually links statically. The musl target
-            # already implies +crt-static, but be explicit for crates that
-            # honor RUSTFLAGS only.
-            export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static"
+            # Set RUSTFLAGS *per-target* via the CARGO_TARGET_<TRIPLE>_RUSTFLAGS
+            # env var, NOT the global RUSTFLAGS. A global RUSTFLAGS leaks into
+            # the host build of proc-macros (which are dylibs and break with
+            # +crt-static), causing errors like
+            #   "cannot produce proc-macro for `async-trait` as the target
+            #    `x86_64-unknown-linux-gnu` does not support these crate types"
+            # on the host-native fallback path.
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static"
+            # OpenSSL on musl: the openssl-sys crate's build script needs to
+            # find a musl-built libssl. We don't ship one, so prefer the
+            # vendored copy (compiled from source by the openssl-sys build
+            # script). Honored by openssl-sys >= 0.9.78.
+            export OPENSSL_STATIC="${OPENSSL_STATIC:-1}"
+            export PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}"
             log_info "  Using musl-static target: ${RUST_TRIPLE}"
             if ! command -v musl-gcc >/dev/null 2>&1; then
                 log_warn "  musl-gcc not found on PATH — crates with C deps may fail to link."
@@ -797,7 +807,23 @@ build_service_binaries() {
                 built_ok="${built_ok} ${svc}"
                 continue
             fi
-            log_warn "    ${svc}: cross-compile failed, trying host-native…"
+            log_warn "    ${svc}: cross-compile failed."
+            # IMPORTANT: do NOT fall back to host-native here when AUTO_MUSL is
+            # active. A host-native build on a glibc>=2.39 host would link
+            # against GLIBC_2.39 symbols and the binary would crash at boot on
+            # the Buildroot 2024.02 target (glibc 2.38). Better to surface the
+            # failure so the user can either install OpenSSL/musl deps, or
+            # re-run with IORA_BUILD_BACKEND=docker.
+            if [ "${_IORA_AUTO_MUSL:-0}" = "1" ]; then
+                log_warn "    ${svc}: BUILD FAILED (musl) — first 5 errors:"
+                grep -m 5 -E "^error" "${svc_log}" 2>/dev/null \
+                    | sed 's/^/        /' || true
+                log_warn "    Hint: re-run with IORA_BUILD_BACKEND=docker to use the"
+                log_warn "          Alpine-based builder (musl + openssl pre-installed)."
+                built_fail="${built_fail} ${svc}"
+                continue
+            fi
+            log_warn "    ${svc}: trying host-native fallback…"
             if ( cd "${BACKEND_DIR}" && \
                  cargo build --release -p "${svc}" --message-format=short ) \
                  >>"${svc_log}" 2>&1; then

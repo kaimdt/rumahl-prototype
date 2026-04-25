@@ -30,6 +30,8 @@ REQUIRED_PACKAGES=(
     libncurses-dev
     libssl-dev
     libelf-dev
+    pkg-config
+    musl-tools
     python3
     python3-pip
     qemu-utils

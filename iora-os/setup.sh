@@ -155,9 +155,12 @@ fi
 # ── Package lists per target + distro ───────────────────────────────────────
 
 # Common packages needed on every host (any target).
+# musl-tools is required for the musl-static cargo fallback that build-all-images.sh
+# uses when host glibc >= 2.39 (target glibc is 2.38) — without it crates with C
+# dependencies fail to link with `cc: error: unrecognized command-line option`.
 COMMON_APT=(build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc
             libncurses-dev libssl-dev libelf-dev python3 python3-pip pkg-config
-            ca-certificates file jq)
+            ca-certificates file jq musl-tools)
 
 # Extra packages when building PC-class x86 images.
 PC_APT=(qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin mtools dosfstools parted)
@@ -176,12 +179,12 @@ OPT_APT=(virtualbox rauc)
 # Generic mapping for non-apt systems – best-effort naming.
 COMMON_DNF=(make gcc gcc-c++ git wget curl tar gzip xz cpio unzip rsync bc
             ncurses-devel openssl-devel elfutils-libelf-devel python3 python3-pip
-            pkgconf-pkg-config ca-certificates file jq)
+            pkgconf-pkg-config ca-certificates file jq musl-gcc)
 PC_DNF=(qemu-img-utils zip xorriso grub2-tools grub2-efi-x64 mtools dosfstools parted)
 ARM_DNF=(gcc-aarch64-linux-gnu gcc-arm-linux-gnu dtc uboot-tools)
 
 COMMON_PACMAN=(base-devel git wget curl tar gzip xz cpio unzip rsync bc ncurses
-               openssl libelf python python-pip pkgconf ca-certificates file jq)
+               openssl libelf python python-pip pkgconf ca-certificates file jq musl)
 PC_PACMAN=(qemu-base zip xorriso grub mtools dosfstools parted)
 ARM_PACMAN=(aarch64-linux-gnu-gcc arm-none-eabi-gcc dtc uboot-tools)
 
@@ -376,9 +379,15 @@ install_rust() {
                 if [ -n "$real_user" ] && [ "$real_user" != root ] && command -v sudo >/dev/null 2>&1; then
                     sudo -u "$real_user" rustup default stable || \
                         warn "rustup default stable failed — run it manually as $real_user"
+                    if [ "${HOST_ARCH}" = "x86_64" ]; then
+                        sudo -u "$real_user" rustup target add x86_64-unknown-linux-musl >/dev/null 2>&1 || true
+                    fi
                 else
                     rustup default stable || \
                         warn "rustup default stable failed — run it manually"
+                    if [ "${HOST_ARCH}" = "x86_64" ]; then
+                        rustup target add x86_64-unknown-linux-musl >/dev/null 2>&1 || true
+                    fi
                 fi
             fi
             return 0
@@ -435,6 +444,16 @@ install_rust() {
         # Best-effort: install the x86_64 target explicitly (no-op on x86_64
         # hosts, required for cross-builds from ARM). Errors are non-fatal.
         rustup target add x86_64-unknown-linux-gnu >/dev/null 2>&1 || true
+        # Also install the musl target so build-all-images.sh can fall back
+        # to a statically-linked build when the host glibc is newer than the
+        # target glibc (Buildroot 2024.02 = glibc 2.38).
+        if [ "${HOST_ARCH}" = "x86_64" ]; then
+            if [ -n "$real_user" ] && [ "$real_user" != root ] && command -v sudo >/dev/null 2>&1; then
+                sudo -u "$real_user" rustup target add x86_64-unknown-linux-musl >/dev/null 2>&1 || true
+            else
+                rustup target add x86_64-unknown-linux-musl >/dev/null 2>&1 || true
+            fi
+        fi
     else
         warn "Rust installation completed but cargo is not on PATH."
         warn "Open a new shell (or run: source \"${user_home}/.cargo/env\") and retry."
