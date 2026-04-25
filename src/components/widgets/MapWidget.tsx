@@ -986,6 +986,10 @@ export default function MapWidget({ config }: MapWidgetProps) {
 
   const homeZone = useMemo(() => zones.find(z => z.entity_id === 'zone.home'), [zones])
 
+  const trackedEntitiesMap = useMemo(() => {
+    return new Map(trackedEntities.map(e => [e.entity_id, e]))
+  }, [trackedEntities])
+
   // Filtered entities based on state filter and visibility
   const filteredEntities = useMemo(() => {
     return trackedEntities.filter(e => {
@@ -1017,7 +1021,7 @@ export default function MapWidget({ config }: MapWidgetProps) {
       if (e.source !== iframeRef.current?.contentWindow) return
       if (e.data?.type === 'mapReady') setMapReady(true)
       if (e.data?.type === 'entityClicked') {
-        const entity = trackedEntities.find(te => te.entity_id === e.data.entityId)
+        const entity = trackedEntitiesMap.get(e.data.entityId)
         if (entity) setSelectedEntity(prev => prev?.entity_id === entity.entity_id ? null : entity)
       }
       if (e.data?.type === 'playerProgress') {
@@ -1273,8 +1277,8 @@ export default function MapWidget({ config }: MapWidgetProps) {
   // Send history trail to map when points change
   const historyEntityColor = useMemo(() => {
     if (!historyEntityId) return '#3b82f6'
-    return trackedEntities.find(e => e.entity_id === historyEntityId)?.color || '#3b82f6'
-  }, [historyEntityId, trackedEntities])
+    return trackedEntitiesMap.get(historyEntityId)?.color || '#3b82f6'
+  }, [historyEntityId, trackedEntitiesMap])
 
   useEffect(() => {
     if (!mapReady || !historyEntityId) return
@@ -1459,7 +1463,7 @@ export default function MapWidget({ config }: MapWidgetProps) {
       if (e.source !== modalIframeRef.current?.contentWindow) return
       if (e.data?.type === 'mapReady') setModalMapReady(true)
       if (e.data?.type === 'entityClicked') {
-        const entity = trackedEntities.find(te => te.entity_id === e.data.entityId)
+        const entity = trackedEntitiesMap.get(e.data.entityId)
         if (entity) setModalSelectedEntity(prev => prev?.entity_id === entity.entity_id ? null : entity)
       }
       if (e.data?.type === 'playerProgress') {
@@ -1586,11 +1590,11 @@ export default function MapWidget({ config }: MapWidgetProps) {
     for (const entityId of modalHistoryEntityIds) {
       const points = modalHistoryData[entityId]
       if (points && points.length >= 2) {
-        const entity = trackedEntities.find(e => e.entity_id === entityId)
+        const entity = trackedEntitiesMap.get(entityId)
         sendToModalMap({ type: 'drawHistoryTrail', entityId, points, color: entity?.color || '#3b82f6', fitBounds: false, routeMode: modalRouteMode })
       }
     }
-  }, [modalMapReady, modalHistoryData, modalHistoryEntityIds, trackedEntities, sendToModalMap, modalRouteMode])
+  }, [modalMapReady, modalHistoryData, modalHistoryEntityIds, trackedEntitiesMap, sendToModalMap, modalRouteMode])
 
   // Re-fetch all active modal histories when hours or date change
   useEffect(() => {
@@ -1776,7 +1780,7 @@ export default function MapWidget({ config }: MapWidgetProps) {
   // History panel (reusable)
   const renderHistoryPanel = () => {
     if (!historyEntityId) return null
-    const entity = trackedEntities.find(e => e.entity_id === historyEntityId)
+    const entity = trackedEntitiesMap.get(historyEntityId)
     if (!entity) return null
     return (
       <motion.div
@@ -2062,7 +2066,7 @@ export default function MapWidget({ config }: MapWidgetProps) {
                   <div className="flex items-center gap-1.5">
                     <Path size={12} className="text-blue-400" />
                     <span className="text-[10px] font-medium text-foreground/70">
-                      Verlauf: {Array.from(modalHistoryEntityIds).map(id => trackedEntities.find(e => e.entity_id === id)?.name?.split(' ')[0]).filter(Boolean).join(', ')}
+                      Verlauf: {Array.from(modalHistoryEntityIds).map(id => trackedEntitiesMap.get(id)?.name?.split(' ')[0]).filter(Boolean).join(', ')}
                     </span>
                     {modalHistoryLoading.size > 0 && <div className="w-2.5 h-2.5 border border-blue-400/40 border-t-blue-400 rounded-full animate-spin" />}
                   </div>
@@ -2105,7 +2109,7 @@ export default function MapWidget({ config }: MapWidgetProps) {
                 {/* Active trail entity chips */}
                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                   {Array.from(modalHistoryEntityIds).map(id => {
-                    const entity = trackedEntities.find(e => e.entity_id === id)
+                    const entity = trackedEntitiesMap.get(id)
                     if (!entity) return null
                     const pts = modalHistoryData[id]?.length || 0
                     const loading = modalHistoryLoading.has(id)
@@ -2501,7 +2505,7 @@ export default function MapWidget({ config }: MapWidgetProps) {
                   const timelineEntries: { entityId: string; name: string; color: string; point: HistoryPoint; picture?: string }[] = []
                   for (const entityId of modalHistoryEntityIds) {
                     const points = modalHistoryData[entityId]
-                    const entity = trackedEntities.find(e => e.entity_id === entityId)
+                    const entity = trackedEntitiesMap.get(entityId)
                     if (!points || !entity) continue
                     for (const p of points) {
                       timelineEntries.push({ entityId, name: entity.name, color: entity.color, point: p, picture: entity.picture })
