@@ -1,11 +1,11 @@
-use actix_web::{get, post, delete, web, App, HttpResponse, HttpServer, Responder};
+// Local `App` struct collides with `actix_web::App`, so alias the import.
+use actix_web::{get, post, delete, web, App as ActixApp, HttpResponse, HttpServer, Responder};
 use chrono::{DateTime, Utc};
 use iora_shared::app_manifest::{AppManifest, TrustLevel};
 use iora_shared::port_manager::PortManager;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -640,6 +640,7 @@ async fn main() -> std::io::Result<()> {
                 } else {
                     iora_shared::port_manager::PortProtocol::Tcp
                 },
+                assignment_mode: iora_shared::port_manager::PortAssignmentMode::default(),
                 assigned_at: a.assigned_at.to_rfc3339(),
             })
             .collect();
@@ -665,7 +666,7 @@ async fn main() -> std::io::Result<()> {
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
     HttpServer::new(move || {
-        App::new()
+        ActixApp::new()
             .app_data(app_state.clone())
             .service(health)
             .service(search_apps)

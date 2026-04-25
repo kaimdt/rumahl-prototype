@@ -638,7 +638,9 @@ build_service_binaries() {
                     iora-dev-bridge iora-domain-validator iora-files \
                     iora-network-monitor iora-nginx iora-resource-manager \
                     iora-updater"
-    local CLI_TOOLS="iora-cli iora-sign iora-verify"
+    # CLI tools as `package:binary` pairs (binary may differ from crate name —
+    # iora-cli ships its binary as `ora`, the user-facing command).
+    local CLI_TOOLS="iora-cli:ora iora-sign:iora-sign iora-verify:iora-verify"
 
     # ── GLIBC compatibility check ───────────────────────────────────────────
     # Native cargo builds on a host with a newer glibc than the target produce
@@ -721,7 +723,11 @@ build_service_binaries() {
         # ConditionPathExists at boot — the rest come up.
         local built_ok=""
         local built_fail=""
-        for svc in ${SERVICES} ${CLI_TOOLS}; do
+        for entry in ${SERVICES} ${CLI_TOOLS}; do
+            # CLI_TOOLS entries are `package:binary` pairs, SERVICES are bare
+            # package names. Strip the optional `:binary` suffix to get the
+            # crate name for `cargo build -p`.
+            local svc="${entry%%:*}"
             log_info "  cargo build -p ${svc} --release --target ${RUST_TRIPLE}"
             local svc_triple="${RUST_TRIPLE}"
             if ( cd "${BACKEND_DIR}" && \
@@ -785,9 +791,11 @@ build_service_binaries() {
         # ── CLI tools → /usr/bin ───────────────────────────────────────────
         local cli_dest="${SCRIPT_DIR}/board/iora/rootfs-overlay/usr/bin"
         mkdir -p "${cli_dest}"
-        for cli in ${CLI_TOOLS}; do
-            local cli_src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${cli}"
-            local cli_src_host="${CARGO_TARGET_DIR}/release/${cli}"
+        for entry in ${CLI_TOOLS}; do
+            local cli="${entry%%:*}"
+            local bin="${entry##*:}"
+            local cli_src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${bin}"
+            local cli_src_host="${CARGO_TARGET_DIR}/release/${bin}"
             local cli_src=""
             if [ -f "${cli_src_cross}" ]; then
                 cli_src="${cli_src_cross}"
@@ -795,8 +803,8 @@ build_service_binaries() {
                 cli_src="${cli_src_host}"
             fi
             if [ -n "${cli_src}" ]; then
-                install -m 0755 "${cli_src}" "${cli_dest}/${cli}"
-                log_success "  ${cli} → /usr/bin/${cli}"
+                install -m 0755 "${cli_src}" "${cli_dest}/${bin}"
+                log_success "  ${cli} → /usr/bin/${bin}"
             else
                 log_warn "  ${cli}: not built (CLI tool unavailable on target)"
             fi
@@ -904,13 +912,15 @@ build_service_binaries() {
     # Extract CLI tools to /usr/bin in the rootfs overlay.
     local cli_dest="${SCRIPT_DIR}/board/iora/rootfs-overlay/usr/bin"
     mkdir -p "${cli_dest}"
-    for cli in ${CLI_TOOLS}; do
+    for entry in ${CLI_TOOLS}; do
+        local cli="${entry%%:*}"
+        local bin="${entry##*:}"
         if docker run --rm "${BUILDER_TAG}" \
-                cat "/app/backend/target/release/${cli}" > "${cli_dest}/${cli}" 2>/dev/null; then
-            chmod +x "${cli_dest}/${cli}"
-            log_success "  ${cli} → /usr/bin/${cli}"
+                cat "/app/backend/target/release/${bin}" > "${cli_dest}/${bin}" 2>/dev/null; then
+            chmod +x "${cli_dest}/${bin}"
+            log_success "  ${cli} → /usr/bin/${bin}"
         else
-            rm -f "${cli_dest}/${cli}"
+            rm -f "${cli_dest}/${bin}"
             log_warn "  ${cli}: not extracted (CLI tool unavailable)"
         fi
     done

@@ -3,6 +3,10 @@ name = "iora-cli"
 version = "0.1.0"
 edition = "2021"
 description = "IORA CLI – command-line interface for controlling IORA OS and services"
+# Disable auto-discovery so cargo doesn't claim src/main.rs as a default
+# `iora-cli` binary in addition to the explicit `ora` target below
+# (would produce: "src/main.rs assigned to multiple bin targets").
+autobins = false
 
 [[bin]]
 name = "ora"
