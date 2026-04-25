@@ -27,13 +27,13 @@ function getStateColor(state: string) {
 }
 
 export default function RoomSummaryWidget({ config }: RoomSummaryWidgetProps) {
-  const { entities } = useEntityStore()
+  const { entities, entityMap } = useEntityStore()
 
   const roomName = config?.roomName || 'Raum'
   
   // Filter entities by room/area or by explicit entity IDs
   const roomEntities = config?.entityIds
-    ? config.entityIds.map(id => entities.find(e => e.entity_id === id)).filter(Boolean) as typeof entities
+    ? config.entityIds.map(id => entityMap.get(id)).filter(Boolean) as typeof entities
     : entities.filter(e => {
         const area = ((e.attributes?.area_id || e.attributes?.area || '') as string)
         return area.toLowerCase().includes(roomName.toLowerCase())
