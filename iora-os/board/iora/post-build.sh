@@ -3318,6 +3318,9 @@ RUST_LOG=info
 DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_home
 JWT_SECRET=CHANGEME
 IORA_CORE_URL=http://localhost:8090
+# Path to the built React/Vite dashboard bundle (npm run build → dist/).
+# build-all-images.sh installs it here from the repo root before image creation.
+IORA_HOME_DIST=/opt/iora/iora-home/dist
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-control.env" <<'ENVEOF'

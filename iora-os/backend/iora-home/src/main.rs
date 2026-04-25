@@ -1033,9 +1033,14 @@ async fn main() -> anyhow::Result<()> {
         .merge(admin_routes)
         // Merge authenticated routes (API keys)
         .merge(auth_routes)
-        // Serve frontend static assets (JS, CSS, etc.) — immutable because filenames are hashed
+        // Serve frontend static assets (JS, CSS, etc.) — immutable because filenames are hashed.
+        // Path resolved at startup from IORA_HOME_DIST / ../dist / ./dist / /opt/iora/iora-home/dist.
         .nest_service("/assets",
-            ServeDir::new("../dist/assets").precompressed_gzip()
+            ServeDir::new(
+                resolve_dist_dir()
+                    .map(|p| p.join("assets"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("../dist/assets"))
+            ).precompressed_gzip()
         )
         // SPA fallback – any unmatched route gets index.html for client-side routing
         .fallback(spa_fallback)
@@ -1167,23 +1172,52 @@ async fn health_check(
     }))
 }
 
+/// Fallback HTML embedded into the binary. Served when no built dashboard
+/// bundle is found on disk so :8126 always renders something usable instead
+/// of a bare "Frontend not built" 404.
+const FALLBACK_INDEX_HTML: &str = include_str!("fallback_index.html");
+
+/// Resolve the directory containing the built dashboard bundle. Order:
+///   1. `IORA_HOME_DIST` env var (absolute path, set by /etc/iora/iora-home.env on IORA OS)
+///   2. `../dist`              (legacy: cargo run from backend/iora-home/)
+///   3. `./dist`               (running from the workspace root)
+fn resolve_dist_dir() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("IORA_HOME_DIST") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.join("index.html").is_file() { return Some(pb); }
+    }
+    for rel in ["../dist", "./dist", "/opt/iora/iora-home/dist"] {
+        let pb = std::path::PathBuf::from(rel);
+        if pb.join("index.html").is_file() { return Some(pb); }
+    }
+    None
+}
+
 /// SPA fallback – serves index.html for any route not matched by API or static files.
 /// This enables client-side routing in the React frontend.
 async fn spa_fallback(_uri: Uri) -> impl IntoResponse {
-    match tokio::fs::read_to_string("../dist/index.html").await {
-        Ok(html) => (
-            StatusCode::OK,
-            [
-                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-                (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate"),
-            ],
-            html,
-        ).into_response(),
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            "Frontend not built. Run 'npm run build' first.",
-        ).into_response(),
+    if let Some(dist) = resolve_dist_dir() {
+        if let Ok(html) = tokio::fs::read_to_string(dist.join("index.html")).await {
+            return (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate"),
+                ],
+                html,
+            ).into_response();
+        }
     }
+    // Embedded placeholder — confirms the backend is alive and points users
+    // to other entry points. Always available regardless of deployment shape.
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate"),
+        ],
+        FALLBACK_INDEX_HTML,
+    ).into_response()
 }
 
 // ---------- Integration API (used by HA custom integration) ----------

@@ -56,7 +56,16 @@ COPY . .
 # /tmp/cargo-build-<svc>.log AND echoed at the end so failures aren't silent.
 ENV IORA_DEVELOPER_APP_TOKEN=${IORA_DEVELOPER_APP_TOKEN}
 ENV IORA_DEVELOPER_APP_OFFICIAL=${IORA_DEVELOPER_APP_OFFICIAL}
-RUN set -eu; \
+# BuildKit cache mounts: persist cargo's registry/git index AND target/
+# between docker builds. On a no-source-change rebuild every cargo invocation
+# becomes a near-no-op (~seconds instead of minutes per crate). The mounts
+# require BuildKit (DOCKER_BUILDKIT=1) which is the default on modern Docker
+# and is what build-all-images.sh already uses via --progress=plain.
+# Cache id is shared across all 23 crates so they reuse one another's deps.
+RUN --mount=type=cache,id=iora-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=iora-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=iora-cargo-target,target=/app/backend/target,sharing=locked \
+    set -eu; \
     failures=""; \
     for svc in iora-core iora-home iora-control iora-assist iora-secrets \
                iora-watchdog iora-security iora-gateway iora-supervisor \
@@ -81,10 +90,24 @@ RUN set -eu; \
         echo "BUILD FAILURES:${failures}"; \
         echo "================================================================"; \
     fi; \
-    echo "Built binaries:"; \
-    find /app/backend/target -maxdepth 4 -type f -executable \
-         \( -path '*/release/iora-*' -o -path '*/release/ora' \) \
-         -printf '  %p (%s bytes)\n' 2>/dev/null | sort -u || true
+    # Copy produced binaries OUT of the target/ cache mount into a persistent \
+    # /out/ directory in the image layer. Cache mounts are scratch — without \
+    # this step every binary would vanish the moment RUN exits and the \
+    # extraction in build-all-images.sh would find nothing. \
+    mkdir -p /out; \
+    for svc in iora-core iora-home iora-control iora-assist iora-secrets \
+               iora-watchdog iora-security iora-gateway iora-supervisor \
+               iora-api iora-appstore iora-backup iora-connector \
+               iora-dev-bridge iora-domain-validator iora-files \
+               iora-network-monitor iora-nginx iora-resource-manager \
+               iora-updater iora-cli iora-sign iora-verify ora; do \
+        for src in "/app/backend/target/release/${svc}" \
+                   "/app/backend/target/x86_64-unknown-linux-musl/release/${svc}"; do \
+            if [ -x "${src}" ]; then cp "${src}" "/out/${svc}"; break; fi; \
+        done; \
+    done; \
+    echo "Built binaries (persisted to /out):"; \
+    ls -la /out 2>/dev/null | sed 's/^/  /' || true
 
 # Runtime base image - Alpine Linux for minimal footprint
 FROM alpine:3.19 AS runtime-base
@@ -104,7 +127,7 @@ RUN adduser -D -s /sbin/nologin iora
 
 # iora-home service
 FROM runtime-base AS iora-home
-COPY --from=builder /app/backend/target/release/iora-home /app/
+COPY --from=builder /out/iora-home /app/iora-home
 RUN chown -R iora:iora /app
 USER iora
 EXPOSE 8080
@@ -114,7 +137,7 @@ CMD ["/app/iora-home"]
 
 # iora-core service
 FROM runtime-base AS iora-core
-COPY --from=builder /app/backend/target/release/iora-core /app/
+COPY --from=builder /out/iora-core /app/iora-core
 RUN chown -R iora:iora /app
 USER iora
 EXPOSE 8090
@@ -124,7 +147,7 @@ CMD ["/app/iora-core"]
 
 # iora-control service
 FROM runtime-base AS iora-control
-COPY --from=builder /app/backend/target/release/iora-control /app/
+COPY --from=builder /out/iora-control /app/iora-control
 RUN chown -R iora:iora /app
 USER iora
 EXPOSE 8091
@@ -134,7 +157,7 @@ CMD ["/app/iora-control"]
 
 # iora-assist service
 FROM runtime-base AS iora-assist
-COPY --from=builder /app/backend/target/release/iora-assist /app/
+COPY --from=builder /out/iora-assist /app/iora-assist
 RUN chown -R iora:iora /app
 USER iora
 EXPOSE 8092
@@ -144,7 +167,7 @@ CMD ["/app/iora-assist"]
 
 # iora-secrets service
 FROM runtime-base AS iora-secrets
-COPY --from=builder /app/backend/target/release/iora-secrets /app/
+COPY --from=builder /out/iora-secrets /app/iora-secrets
 RUN chown -R iora:iora /app
 USER iora
 EXPOSE 8093
@@ -154,7 +177,7 @@ CMD ["/app/iora-secrets"]
 
 # iora-watchdog service
 FROM runtime-base AS iora-watchdog
-COPY --from=builder /app/backend/target/release/iora-watchdog /app/
+COPY --from=builder /out/iora-watchdog /app/iora-watchdog
 RUN chown -R iora:iora /app
 USER iora
 EXPOSE 8094
@@ -164,7 +187,7 @@ CMD ["/app/iora-watchdog"]
 
 # iora-security service
 FROM runtime-base AS iora-security
-COPY --from=builder /app/backend/target/release/iora-security /app/
+COPY --from=builder /out/iora-security /app/iora-security
 RUN mkdir -p /var/lib/iora && chown -R iora:iora /var/lib/iora /app
 USER iora
 EXPOSE 8095
@@ -175,7 +198,7 @@ CMD ["/app/iora-security"]
 
 # iora-gateway service
 FROM runtime-base AS iora-gateway
-COPY --from=builder /app/backend/target/release/iora-gateway /app/
+COPY --from=builder /out/iora-gateway /app/iora-gateway
 RUN mkdir -p /var/lib/iora && chown -R iora:iora /var/lib/iora /app
 USER iora
 EXPOSE 8096
@@ -186,7 +209,7 @@ CMD ["/app/iora-gateway"]
 
 # iora-supervisor service (requires Docker socket access)
 FROM runtime-base AS iora-supervisor
-COPY --from=builder /app/backend/target/release/iora-supervisor /app/
+COPY --from=builder /out/iora-supervisor /app/iora-supervisor
 # Supervisor runs as root to access Docker socket
 EXPOSE 8097
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
@@ -195,7 +218,7 @@ CMD ["/app/iora-supervisor"]
 
 # iora-developer-app service (Developer Mode tool with exclusive HotReload permission)
 FROM runtime-base AS iora-developer-app
-COPY --from=builder /app/backend/target/release/iora-developer-app /app/
+COPY --from=builder /out/iora-developer-app /app/iora-developer-app
 COPY iora-developer-app/manifest.json /app/manifest.json
 RUN mkdir -p /app/data && chown -R iora:iora /app
 USER iora

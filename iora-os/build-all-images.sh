@@ -85,7 +85,12 @@ xz_compress_file() {
     rm -f "${tmp_file}" "${dst_file}"
 
     # Use streaming compression to avoid metadata/chgrp issues on some filesystems.
-    if ! xz -9 -T0 -c "${src_file}" > "${tmp_file}"; then
+    # --memlimit-compress=0 disables xz's auto-throttling that otherwise drops
+    # the thread count from -T0 (=ncpu) to 2-3 on high-RAM hosts because the
+    # dictionary at -9 wants ~675 MiB per thread and xz caps total RAM at
+    # ~25% of system memory by default. Override via XZ_MEMLIMIT env if needed.
+    local _memlimit="${XZ_MEMLIMIT:-0}"
+    if ! xz -9 -T0 --memlimit-compress="${_memlimit}" -c "${src_file}" > "${tmp_file}"; then
         rm -f "${tmp_file}"
         return 1
     fi
@@ -576,6 +581,111 @@ build_base_image() {
 #      native IORA service will stay inactive because ConditionPathExists on
 #      /opt/iora/build/<svc>/bin/<svc> will fail. Setup wizard on :8080 may
 #      also be unreachable if it depends on the native stack.
+
+# ─── Frontend (React/Vite dashboard) ─────────────────────────────────────────
+# The IORA dashboard frontend lives in the repo root (one level up from
+# this iora-os/ folder): package.json + vite.config.ts + src/. iora-home
+# (Rust backend on port 8126) serves the produced dist/ directory; without
+# a built bundle it falls back to an embedded "backend is running" page.
+#
+# Strategy: build dist/ once via `npm ci && npm run build`, copy it into the
+# rootfs overlay at /opt/iora/iora-home/dist/, and let iora-home read the
+# path from the IORA_HOME_DIST env var (set in /etc/iora/iora-home.env).
+#
+# Reuses an existing dist/ on the host if (a) it exists, (b) all source
+# files in src/ + index.html are older than dist/index.html, and
+# IORA_REBUILD_FRONTEND is not set to 1. Otherwise rebuilds.
+#
+# Skip with IORA_SKIP_FRONTEND=1 if you only want the backend image.
+build_frontend_bundle() {
+    if [ "${IORA_SKIP_FRONTEND:-0}" = "1" ]; then
+        log_info "IORA_SKIP_FRONTEND=1 → skipping frontend bundle"
+        return 0
+    fi
+
+    # Locate the frontend source. The repo layout puts package.json at the
+    # repo root (one level up from iora-os/). Older sibling layouts placed
+    # it next to backend/. Try a few candidates.
+    local FRONTEND_DIR=""
+    for candidate in \
+        "${SCRIPT_DIR}/.." \
+        "${SCRIPT_DIR}/../.." \
+        "${SCRIPT_DIR}/frontend"; do
+        if [ -f "${candidate}/package.json" ] && [ -f "${candidate}/vite.config.ts" ]; then
+            FRONTEND_DIR="$(cd "${candidate}" && pwd)"
+            break
+        fi
+    done
+    if [ -z "${FRONTEND_DIR}" ]; then
+        log_warn "Frontend source (package.json + vite.config.ts) not found near ${SCRIPT_DIR}"
+        log_warn "iora-home will serve the embedded fallback page on :8126."
+        return 0
+    fi
+    log_info "Building dashboard frontend from: ${FRONTEND_DIR}"
+
+    # Skip the build if dist/ is already up-to-date relative to src/.
+    local rebuild=1
+    if [ "${IORA_REBUILD_FRONTEND:-0}" != "1" ] && [ -f "${FRONTEND_DIR}/dist/index.html" ]; then
+        local newest_src
+        newest_src=$(find "${FRONTEND_DIR}/src" "${FRONTEND_DIR}/index.html" \
+            "${FRONTEND_DIR}/package.json" "${FRONTEND_DIR}/vite.config.ts" \
+            -type f -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1)
+        local dist_mtime
+        dist_mtime=$(stat -c '%Y' "${FRONTEND_DIR}/dist/index.html" 2>/dev/null || echo 0)
+        if [ -n "${newest_src}" ] && [ "${dist_mtime}" -gt "${newest_src%.*}" ]; then
+            log_success "Frontend dist/ is newer than sources — reusing existing build"
+            rebuild=0
+        fi
+    fi
+
+    if [ "${rebuild}" = "1" ]; then
+        if ! command -v npm >/dev/null 2>&1; then
+            log_warn "npm not found on PATH — cannot build frontend."
+            log_warn "Install Node.js (e.g. apt install nodejs npm) or set IORA_SKIP_FRONTEND=1."
+            log_warn "iora-home will serve the embedded fallback page on :8126."
+            return 0
+        fi
+
+        # Use `npm ci` if package-lock.json exists (reproducible), else `npm install`.
+        local install_cmd="install"
+        [ -f "${FRONTEND_DIR}/package-lock.json" ] && install_cmd="ci"
+
+        log_info "  npm ${install_cmd} (in ${FRONTEND_DIR})..."
+        if ! ( cd "${FRONTEND_DIR}" && npm "${install_cmd}" --no-audit --no-fund --prefer-offline ) >/tmp/iora-npm-install.log 2>&1; then
+            log_warn "  npm ${install_cmd} failed — last 20 lines:"
+            tail -n 20 /tmp/iora-npm-install.log 2>/dev/null | sed 's/^/      /' || true
+            log_warn "  iora-home will serve the embedded fallback page."
+            return 0
+        fi
+
+        log_info "  npm run build..."
+        if ! ( cd "${FRONTEND_DIR}" && npm run build ) >/tmp/iora-npm-build.log 2>&1; then
+            log_warn "  npm run build failed — last 30 lines:"
+            tail -n 30 /tmp/iora-npm-build.log 2>/dev/null | sed 's/^/      /' || true
+            log_warn "  iora-home will serve the embedded fallback page."
+            return 0
+        fi
+    fi
+
+    if [ ! -f "${FRONTEND_DIR}/dist/index.html" ]; then
+        log_warn "Frontend build produced no dist/index.html"
+        return 0
+    fi
+
+    # Stage dist/ into the rootfs overlay at /opt/iora/iora-home/dist/.
+    local FRONTEND_DEST="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/iora-home/dist"
+    rm -rf "${FRONTEND_DEST}"
+    mkdir -p "${FRONTEND_DEST}"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "${FRONTEND_DIR}/dist/" "${FRONTEND_DEST}/"
+    else
+        cp -a "${FRONTEND_DIR}/dist/." "${FRONTEND_DEST}/"
+    fi
+    local size
+    size=$(du -sh "${FRONTEND_DEST}" 2>/dev/null | cut -f1 || echo "?")
+    log_success "Frontend bundle staged: ${FRONTEND_DEST} (${size})"
+}
+
 build_service_binaries() {
     local OVERLAY="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/build"
     # Resolve the backend/ source tree. We try the in-tree location first
@@ -1063,6 +1173,10 @@ build_service_binaries() {
     # up as 20 generic "binary not found" warnings further down.
     log_info "Builder image artefacts:"
     docker run --rm "${BUILDER_TAG}" sh -c '
+        if [ -d /out ]; then
+            echo "  /out:"
+            ls -la /out 2>/dev/null | sed "s/^/    /" | head -n 40
+        fi
         for d in /app/backend/target/release /app/backend/target/*/release; do
             [ -d "$d" ] || continue
             echo "  $d:"
@@ -1077,12 +1191,12 @@ build_service_binaries() {
         mkdir -p "${dest}"
 
         log_info "  Extracting ${svc}..."
-        # The Alpine `rust:1.77-alpine` image defaults to the musl target, so
-        # binaries land in `target/x86_64-unknown-linux-musl/release/` rather
-        # than `target/release/`. Try both locations to stay compatible with
-        # any Dockerfile variant.
+        # The builder Dockerfile copies all produced binaries to /out/ inside
+        # the builder image (so they survive the cargo cache mount). Try /out
+        # first, then fall back to the legacy target/ paths for older images.
         if docker run --rm "${BUILDER_TAG}" sh -c "\
-                cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
+                cat /out/${svc} 2>/dev/null \
+             || cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
              || cat /app/backend/target/release/${svc} 2>/dev/null" \
                 > "${dest}/${svc}" 2>/dev/null \
            && [ -s "${dest}/${svc}" ]; then
@@ -1102,7 +1216,8 @@ build_service_binaries() {
         local cli="${entry%%:*}"
         local bin="${entry##*:}"
         if docker run --rm "${BUILDER_TAG}" sh -c "\
-                cat /app/backend/target/x86_64-unknown-linux-musl/release/${bin} 2>/dev/null \
+                cat /out/${bin} 2>/dev/null \
+             || cat /app/backend/target/x86_64-unknown-linux-musl/release/${bin} 2>/dev/null \
              || cat /app/backend/target/release/${bin} 2>/dev/null" \
                 > "${cli_dest}/${bin}" 2>/dev/null \
            && [ -s "${cli_dest}/${bin}" ]; then
@@ -1148,9 +1263,11 @@ iora_docker_rebuild_services() {
     for svc in ${svcs}; do
         local dest="${OVERLAY}/${svc}/bin"
         mkdir -p "${dest}"
-        # Try musl path first (Alpine default), then host triple, then plain release.
+        # Prefer /out/ (persisted past the cargo cache mount), fall back to
+        # legacy target/ paths for older Dockerfile variants.
         if docker run --rm "${BUILDER_TAG}" sh -c "\
-                cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
+                cat /out/${svc} 2>/dev/null \
+             || cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
              || cat /app/backend/target/release/${svc} 2>/dev/null" \
                 > "${dest}/${svc}" 2>/dev/null \
            && [ -s "${dest}/${svc}" ]; then
@@ -5967,6 +6084,9 @@ main() {
     # Run build steps
     check_dependencies
     if [ "${IMAGES_ONLY}" = false ]; then
+        # Build the React/Vite dashboard bundle and stage it in the rootfs overlay
+        # so iora-home (port 8126) can serve it instead of the embedded fallback.
+        build_frontend_bundle
         # Pre-compile IORA service binaries and embed them in the rootfs overlay
         # so the on-device self-build (iora-build-images.service) has binaries
         # available without needing a compiler on the device.
