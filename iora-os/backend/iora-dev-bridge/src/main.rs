@@ -265,7 +265,8 @@ async fn replace_binary(
     let mut payload: Vec<u8> = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
-        match field.name().unwrap_or("") {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
             "target" => target = field.text().await.ok(),
             "unit"   => unit   = field.text().await.ok(),
             "sha256" => expected_sha = field.text().await.ok(),
@@ -276,14 +277,14 @@ async fn replace_binary(
 
     let target = match target {
         Some(t) => t,
-        None => return (StatusCode::BAD_REQUEST, "missing `target`".into()).into_response(),
+        None => return (StatusCode::BAD_REQUEST, "missing `target`".to_string()).into_response(),
     };
     if !is_allowed_binary_target(&target) {
-        return (StatusCode::FORBIDDEN, "target path not allowlisted".into())
+        return (StatusCode::FORBIDDEN, "target path not allowlisted".to_string())
             .into_response();
     }
     if payload.is_empty() {
-        return (StatusCode::BAD_REQUEST, "empty upload".into()).into_response();
+        return (StatusCode::BAD_REQUEST, "empty upload".to_string()).into_response();
     }
 
     let got_sha = hex::encode(Sha256::digest(&payload));
