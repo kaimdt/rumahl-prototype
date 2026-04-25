@@ -2959,6 +2959,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "iora-backup"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "iora-cli"
 version = "0.1.0"
 dependencies = [
@@ -3311,20 +3324,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
- "bollard",
  "chrono",
- "dotenv",
- "iora-shared",
  "serde",
  "serde_json",
- "sqlx",
- "sysinfo 0.30.13",
- "thiserror 1.0.69",
  "tokio",
- "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

@@ -1084,6 +1084,14 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Backend server listening on {}", addr);
 
+    // Log which dashboard bundle path was resolved so a missing dist/ is
+    // immediately visible in `journalctl -u iora-home` instead of users
+    // seeing only the embedded fallback page on :8126.
+    match resolve_dist_dir() {
+        Some(p) => info!("Dashboard frontend dist: {} (using bundled UI)", p.display()),
+        None => info!("Dashboard frontend dist NOT FOUND — serving embedded fallback page. Set IORA_HOME_DIST=/path/to/dist to enable the React UI."),
+    }
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

@@ -639,12 +639,30 @@ build_frontend_bundle() {
     fi
 
     if [ "${rebuild}" = "1" ]; then
+        # Auto-install nodejs+npm on Debian/Ubuntu if missing — the build is
+        # often run on a fresh VM where setup.sh hasn't been re-run after
+        # this commit added nodejs to COMMON_APT.
         if ! command -v npm >/dev/null 2>&1; then
-            log_warn "npm not found on PATH — cannot build frontend."
-            log_warn "Install Node.js (e.g. apt install nodejs npm) or set IORA_SKIP_FRONTEND=1."
-            log_warn "iora-home will serve the embedded fallback page on :8126."
-            return 0
+            log_warn "npm not found — attempting auto-install via apt-get"
+            if command -v apt-get >/dev/null 2>&1; then
+                if [ "$(id -u)" = "0" ]; then
+                    apt-get update -qq >/tmp/iora-apt.log 2>&1 || true
+                    apt-get install -y --no-install-recommends nodejs npm >>/tmp/iora-apt.log 2>&1 || true
+                else
+                    sudo -n apt-get update -qq >/tmp/iora-apt.log 2>&1 || true
+                    sudo -n apt-get install -y --no-install-recommends nodejs npm >>/tmp/iora-apt.log 2>&1 || true
+                fi
+            fi
         fi
+        if ! command -v npm >/dev/null 2>&1; then
+            log_error "npm STILL not found after auto-install attempt."
+            log_error "Install Node.js manually: sudo apt-get install -y nodejs npm"
+            log_error "Or skip the frontend with: IORA_SKIP_FRONTEND=1 sudo ./build.sh all"
+            log_error "Without the frontend, :8126 will only show the IORA placeholder page."
+            return 1
+        fi
+
+        log_info "  Node: $(node --version 2>/dev/null || echo unknown), npm: $(npm --version 2>/dev/null || echo unknown)"
 
         # Use `npm ci` if package-lock.json exists (reproducible), else `npm install`.
         local install_cmd="install"
@@ -652,19 +670,21 @@ build_frontend_bundle() {
 
         log_info "  npm ${install_cmd} (in ${FRONTEND_DIR})..."
         if ! ( cd "${FRONTEND_DIR}" && npm "${install_cmd}" --no-audit --no-fund --prefer-offline ) >/tmp/iora-npm-install.log 2>&1; then
-            log_warn "  npm ${install_cmd} failed — last 20 lines:"
-            tail -n 20 /tmp/iora-npm-install.log 2>/dev/null | sed 's/^/      /' || true
-            log_warn "  iora-home will serve the embedded fallback page."
-            return 0
+            log_error "  npm ${install_cmd} FAILED — last 30 lines of /tmp/iora-npm-install.log:"
+            tail -n 30 /tmp/iora-npm-install.log 2>/dev/null | sed 's/^/      /' || true
+            log_error "  Image will be built without the dashboard UI (:8126 → IORA placeholder page)."
+            log_error "  Set IORA_SKIP_FRONTEND=1 to silence this error, or fix npm and re-run."
+            return 1
         fi
 
         log_info "  npm run build..."
         if ! ( cd "${FRONTEND_DIR}" && npm run build ) >/tmp/iora-npm-build.log 2>&1; then
-            log_warn "  npm run build failed — last 30 lines:"
-            tail -n 30 /tmp/iora-npm-build.log 2>/dev/null | sed 's/^/      /' || true
-            log_warn "  iora-home will serve the embedded fallback page."
-            return 0
+            log_error "  npm run build FAILED — last 40 lines of /tmp/iora-npm-build.log:"
+            tail -n 40 /tmp/iora-npm-build.log 2>/dev/null | sed 's/^/      /' || true
+            log_error "  Image will be built without the dashboard UI (:8126 → IORA placeholder page)."
+            return 1
         fi
+        log_success "  npm run build OK"
     fi
 
     if [ ! -f "${FRONTEND_DIR}/dist/index.html" ]; then

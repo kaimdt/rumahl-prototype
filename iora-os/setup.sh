@@ -160,7 +160,7 @@ fi
 # dependencies fail to link with `cc: error: unrecognized command-line option`.
 COMMON_APT=(build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc
             libncurses-dev libssl-dev libelf-dev python3 python3-pip pkg-config
-            ca-certificates file jq musl-tools)
+            ca-certificates file jq musl-tools nodejs npm)
 
 # Extra packages when building PC-class x86 images.
 PC_APT=(qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin mtools dosfstools parted)
