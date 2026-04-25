@@ -913,10 +913,12 @@ build_service_binaries() {
         # ── glibc symbol audit ─────────────────────────────────────────────
         # Last-line-of-defence: scan every produced binary for GLIBC version
         # tags newer than what Buildroot 2024.02 ships (2.38). If found, the
-        # binary will crash at boot — fail the build with a clear message
-        # instead of silently shipping a broken image.
+        # binary will crash at boot — try to auto-recover by rebuilding the
+        # offending services in Docker (Alpine/musl), where they get linked
+        # against musl-libc and produce no GLIBC version tags at all.
         if command -v objdump >/dev/null 2>&1; then
             local _too_new=""
+            local _too_new_svcs=""
             for svc in ${SERVICES}; do
                 local _bin="${OVERLAY}/${svc}/bin/${svc}"
                 [ -f "${_bin}" ] || continue
@@ -928,6 +930,7 @@ build_service_binaries() {
                     local _ver="${_max#GLIBC_}"
                     if awk -v v="${_ver}" 'BEGIN { exit !(v+0 > 2.38) }'; then
                         _too_new="${_too_new} ${svc}(${_max})"
+                        _too_new_svcs="${_too_new_svcs} ${svc}"
                     fi
                 fi
             done
@@ -935,10 +938,54 @@ build_service_binaries() {
                 log_warn "GLIBC compatibility AUDIT FAILED:${_too_new}"
                 log_warn "These binaries reference glibc symbols newer than the target's 2.38."
                 log_warn "They WILL crash at boot with 'GLIBC_2.XX not found'."
-                log_warn "Re-run with IORA_BUILD_BACKEND=docker to use the Alpine/musl path."
-                if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
-                    log_error "IORA_GLIBC_AUDIT_FATAL=1 is set — aborting build."
-                    return 1
+                # Attempt automatic recovery via the Docker/Alpine builder.
+                # This rebuilds ONLY the affected services in a musl-linked
+                # environment so the rest of the build (which already passed
+                # the audit) is not redone.
+                if [ "${IORA_GLIBC_AUDIT_NO_RECOVER:-0}" != "1" ] \
+                    && command -v docker >/dev/null 2>&1 \
+                    && [ -f "${BACKEND_DIR}/Dockerfile" ]; then
+                    log_warn "Auto-recovery: rebuilding affected services in Docker (Alpine/musl)…"
+                    if iora_docker_rebuild_services "${_too_new_svcs}"; then
+                        # Re-audit after recovery so the build status reflects reality.
+                        local _still_bad=""
+                        for svc in ${_too_new_svcs}; do
+                            local _bin="${OVERLAY}/${svc}/bin/${svc}"
+                            [ -f "${_bin}" ] || { _still_bad="${_still_bad} ${svc}(missing)"; continue; }
+                            local _max
+                            _max="$(objdump -T "${_bin}" 2>/dev/null \
+                                | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
+                                | sort -uV | tail -n 1 || true)"
+                            if [ -n "${_max}" ]; then
+                                local _ver="${_max#GLIBC_}"
+                                if awk -v v="${_ver}" 'BEGIN { exit !(v+0 > 2.38) }'; then
+                                    _still_bad="${_still_bad} ${svc}(${_max})"
+                                fi
+                            fi
+                        done
+                        if [ -z "${_still_bad}" ]; then
+                            log_success "GLIBC audit OK after Docker recovery — all binaries safe."
+                        else
+                            log_warn "GLIBC audit STILL FAILED after Docker recovery:${_still_bad}"
+                            if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                                log_error "IORA_GLIBC_AUDIT_FATAL=1 — aborting."
+                                return 1
+                            fi
+                        fi
+                    else
+                        log_warn "Docker recovery failed; binaries WILL crash at boot."
+                        if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                            log_error "IORA_GLIBC_AUDIT_FATAL=1 — aborting."
+                            return 1
+                        fi
+                    fi
+                else
+                    log_warn "Docker not available for auto-recovery."
+                    log_warn "Re-run with IORA_BUILD_BACKEND=docker, or install Docker."
+                    if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                        log_error "IORA_GLIBC_AUDIT_FATAL=1 is set — aborting build."
+                        return 1
+                    fi
                 fi
             else
                 log_success "GLIBC audit OK — every binary stays within glibc 2.38 symbol set."
@@ -1076,6 +1123,47 @@ build_service_binaries() {
     else
         log_success "All IORA service binaries embedded in rootfs overlay."
     fi
+}
+
+# Build a specific subset of services in Docker (Alpine/musl) and extract the
+# resulting binaries into the rootfs overlay. Used as auto-recovery when the
+# native cargo build produces glibc-2.39 binaries that would crash at boot.
+# Args: $1 = space-separated list of service names
+iora_docker_rebuild_services() {
+    local svcs="$1"
+    [ -z "${svcs}" ] && return 0
+
+    local BUILDER_TAG="iora-builder-recover:$(date +%s)"
+    log_info "  docker build --target builder (recovery)…"
+    if ! docker build --progress=plain --target builder \
+            --tag "${BUILDER_TAG}" \
+            --file "${BACKEND_DIR}/Dockerfile" \
+            "${BACKEND_DIR}"; then
+        log_warn "  Docker recovery build failed (image build error)."
+        docker rmi "${BUILDER_TAG}" >/dev/null 2>&1 || true
+        return 1
+    fi
+
+    local extracted=0
+    for svc in ${svcs}; do
+        local dest="${OVERLAY}/${svc}/bin"
+        mkdir -p "${dest}"
+        # Try musl path first (Alpine default), then host triple, then plain release.
+        if docker run --rm "${BUILDER_TAG}" sh -c "\
+                cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
+             || cat /app/backend/target/release/${svc} 2>/dev/null" \
+                > "${dest}/${svc}" 2>/dev/null \
+           && [ -s "${dest}/${svc}" ]; then
+            chmod +x "${dest}/${svc}"
+            log_success "  ${svc}: rebuilt via Docker ($(du -h "${dest}/${svc}" | cut -f1))"
+            extracted=$((extracted + 1))
+        else
+            log_warn "  ${svc}: Docker recovery produced no binary"
+            rm -f "${dest}/${svc}"
+        fi
+    done
+    docker rmi "${BUILDER_TAG}" >/dev/null 2>&1 || true
+    [ "${extracted}" -gt 0 ]
 }
 
 create_iso_image() {
