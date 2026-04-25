@@ -727,6 +727,9 @@ build_service_binaries() {
         local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
         export CARGO_TARGET_DIR
         : >/tmp/iora-cargo-build.log
+        local CARGO_LOG_DIR="/tmp/iora-cargo-logs"
+        rm -rf "${CARGO_LOG_DIR}"
+        mkdir -p "${CARGO_LOG_DIR}"
 
         # Build each service INDIVIDUALLY so a single broken crate (e.g.
         # iora-supervisor failing to typecheck after an unrelated refactor)
@@ -740,29 +743,37 @@ build_service_binaries() {
             # package names. Strip the optional `:binary` suffix to get the
             # crate name for `cargo build -p`.
             local svc="${entry%%:*}"
+            local svc_log="${CARGO_LOG_DIR}/${svc}.log"
             log_info "  cargo build -p ${svc} --release --target ${RUST_TRIPLE}"
             local svc_triple="${RUST_TRIPLE}"
             if ( cd "${BACKEND_DIR}" && \
-                 cargo build --release --target "${svc_triple}" -p "${svc}" ) \
-                 >>/tmp/iora-cargo-build.log 2>&1; then
+                 cargo build --release --target "${svc_triple}" -p "${svc}" \
+                     --message-format=short ) \
+                 >"${svc_log}" 2>&1; then
+                cat "${svc_log}" >>/tmp/iora-cargo-build.log
                 built_ok="${built_ok} ${svc}"
                 continue
             fi
             log_warn "    ${svc}: cross-compile failed, trying host-native…"
-            if ( cd "${BACKEND_DIR}" && cargo build --release -p "${svc}" ) \
-                 >>/tmp/iora-cargo-build.log 2>&1; then
+            if ( cd "${BACKEND_DIR}" && \
+                 cargo build --release -p "${svc}" --message-format=short ) \
+                 >>"${svc_log}" 2>&1; then
+                cat "${svc_log}" >>/tmp/iora-cargo-build.log
                 # Remember that this one built for the host triple only.
                 built_ok="${built_ok} ${svc}:hostnative"
             else
-                log_warn "    ${svc}: BUILD FAILED (see /tmp/iora-cargo-build.log)"
+                cat "${svc_log}" >>/tmp/iora-cargo-build.log
+                log_warn "    ${svc}: BUILD FAILED — first 5 errors:"
+                grep -m 5 -E "^error" "${svc_log}" 2>/dev/null \
+                    | sed 's/^/        /' || true
                 built_fail="${built_fail} ${svc}"
             fi
         done
 
         if [ -n "${built_fail}" ]; then
             log_warn "The following services did NOT compile:${built_fail}"
-            log_warn "Last 40 lines of /tmp/iora-cargo-build.log:"
-            tail -n 40 /tmp/iora-cargo-build.log 2>/dev/null | sed 's/^/    /' || true
+            log_warn "Per-crate logs in ${CARGO_LOG_DIR}/<svc>.log"
+            log_warn "Combined log: /tmp/iora-cargo-build.log"
             log_warn "The image will still be produced — failed services will stay INACTIVE on boot."
             log_warn "Fix the compile errors in backend/<svc>/ and re-run the build."
         fi
