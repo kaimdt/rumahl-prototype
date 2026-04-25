@@ -33,19 +33,25 @@ SETUP_PORT = 8080
 # How many seconds without an IP before prompting the user about static config.
 NO_IP_PROMPT_AFTER = 30
 
-# ANSI
+# ANSI — IORA Home palette (dark bg, blue accent)
 CLEAR = "\x1b[2J\x1b[H"
 HIDE_CURSOR = "\x1b[?25l"
 SHOW_CURSOR = "\x1b[?25h"
 BOLD = "\x1b[1m"
 DIM = "\x1b[2m"
 RESET = "\x1b[0m"
-FG_CYAN = "\x1b[36m"
-FG_YELLOW = "\x1b[33m"
-FG_GREEN = "\x1b[32m"
-FG_RED = "\x1b[31m"
+# Use 256-color escapes so the palette matches the web UI as closely as the
+# linux console allows (falls back to the closest 16-color match on basic
+# VTs without 256-color support).
+FG_ACCENT = "\x1b[38;5;39m"   # ~#2563eb
+FG_BLUE = "\x1b[34m"
+FG_CYAN = "\x1b[38;5;45m"
+FG_YELLOW = "\x1b[38;5;221m"
+FG_GREEN = "\x1b[38;5;42m"
+FG_RED = "\x1b[38;5;203m"
 FG_WHITE = "\x1b[97m"
-BG_BLUE = "\x1b[44m"
+FG_GRAY = "\x1b[38;5;245m"
+BG_ACCENT = "\x1b[48;5;17m"
 
 
 def get_primary_ip() -> str:
@@ -91,9 +97,11 @@ def bar(percent: int, width: int = 50) -> str:
 def render(ip: str, state: dict | None, no_ip_seconds: float = 0) -> None:
     lines: list[str] = []
     lines.append(CLEAR)
-    lines.append(BOLD + FG_CYAN + "=" * 78 + RESET)
-    lines.append(BOLD + FG_CYAN + "                          IORA OS — First-Boot Setup" + RESET)
-    lines.append(BOLD + FG_CYAN + "=" * 78 + RESET)
+    # IORA-style header bar
+    lines.append(BOLD + FG_ACCENT + "━" * 78 + RESET)
+    lines.append(BOLD + FG_WHITE + "   " + FG_ACCENT + "IORA" + FG_WHITE +
+                 " OS" + FG_GRAY + "  —  First-Boot Setup" + RESET)
+    lines.append(BOLD + FG_ACCENT + "━" * 78 + RESET)
     lines.append("")
 
     if state is None or state.get("status") in (None, "pending"):
@@ -117,7 +125,7 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0) -> None:
         status = state.get("status", "")
         percent = int(state.get("percent", 0))
         phase = state.get("phase_label", "")
-        col = FG_CYAN
+        col = FG_ACCENT
         if status == "done":
             col = FG_GREEN
         elif status == "failed":
@@ -156,7 +164,7 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0) -> None:
                          f"  IORA OS dashboard: http://{ip or '<device-ip>'}:8126" + RESET)
 
     lines.append("")
-    lines.append(BOLD + FG_CYAN + "-" * 78 + RESET)
+    lines.append(BOLD + FG_ACCENT + "─" * 78 + RESET)
     lines.append(DIM + "  Press Ctrl+Alt+F2 for a login console (after setup completes)." + RESET)
     sys.stdout.write("\n".join(lines) + "\n")
     sys.stdout.flush()
@@ -168,9 +176,10 @@ def configure_static_ip() -> None:
     sys.stdout.flush()
     try:
         sys.stdout.write(CLEAR)
-        sys.stdout.write(BOLD + FG_CYAN + "=" * 78 + RESET + "\n")
-        sys.stdout.write(BOLD + FG_CYAN + "                     IORA OS — Network Configuration" + RESET + "\n")
-        sys.stdout.write(BOLD + FG_CYAN + "=" * 78 + RESET + "\n\n")
+        sys.stdout.write(BOLD + FG_ACCENT + "━" * 78 + RESET + "\n")
+        sys.stdout.write(BOLD + FG_WHITE + "   " + FG_ACCENT + "IORA" + FG_WHITE +
+                         " OS" + FG_GRAY + "  —  Network Configuration" + RESET + "\n")
+        sys.stdout.write(BOLD + FG_ACCENT + "━" * 78 + RESET + "\n\n")
         sys.stdout.write(FG_WHITE + "  Configure a static IP address for this device.\n" + RESET)
         sys.stdout.write(DIM + "  Press Enter to keep current value. Leave gateway blank to skip.\n\n" + RESET)
         sys.stdout.flush()
@@ -265,18 +274,27 @@ def main() -> int:
             if os.path.exists(SETUP_DONE_FLAG):
                 # Setup finished — show a clear completion screen, then exit
                 # so ExecStopPost can hand tty1 back to getty.
-                # Do NOT sleep too long here: the ExecStopPost starts getty,
-                # but with Restart=on-failure systemd will not restart us, so
-                # getty takes over immediately after we exit.
                 sys.stdout.write(
                     CLEAR
-                    + FG_GREEN + BOLD + "  IORA OS setup complete.\n\n" + RESET
-                    + FG_WHITE + "  The system is starting. You will see a login prompt shortly.\n\n"
-                    + "  Dashboard: " + BOLD + f"http://{ip or '<device-ip>'}:8126" + RESET + "\n\n"
-                    + DIM + "  (This screen will be replaced by the login console.)\n" + RESET
+                    + BOLD + FG_ACCENT + "━" * 78 + RESET + "\n"
+                    + BOLD + FG_WHITE + "   " + FG_ACCENT + "IORA" + FG_WHITE
+                    + " OS" + FG_GRAY + "  —  Setup complete" + RESET + "\n"
+                    + BOLD + FG_ACCENT + "━" * 78 + RESET + "\n\n"
+                    + FG_GREEN + BOLD + "  ✔ Setup completed successfully.\n\n" + RESET
+                    + FG_WHITE + "  Open the IORA Home dashboard:\n\n" + RESET
+                    + BOLD + FG_ACCENT
+                    + f"      http://{ip or '<device-ip>'}:8126\n\n" + RESET
+                    + FG_GRAY
+                    + "  Note: the dashboard backend may take 1–3 min after first\n"
+                    + "  boot to finish initialising its database. If the page\n"
+                    + "  doesn't load yet, just reload after a minute.\n\n" + RESET
+                    + DIM + "  This screen will be replaced by the login console.\n" + RESET
                 )
                 sys.stdout.flush()
-                time.sleep(5)
+                # Brief pause so the message is readable, then return so
+                # ExecStopPost can start getty@tty1 and the user gets a login
+                # prompt instead of a frozen splash.
+                time.sleep(4)
                 return 0
             now = time.time()
             if now - last_ip_check > 5 or not ip:

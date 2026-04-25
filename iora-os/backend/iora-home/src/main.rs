@@ -388,8 +388,40 @@ async fn main() -> anyhow::Result<()> {
     info!("Home Assistant URL: {}", ha_url);
     info!("Database URL: {}", database_url);
 
-    // Initialize database
-    let db_pool = init_db(&database_url).await?;
+    // Initialize database — retry with backoff so the service stays up
+    // through PostgreSQL's startup window on a freshly-booted IORA OS.
+    // Without this, `iora-home` exits 1 immediately if pg isn't ready,
+    // and systemd's Restart=on-failure thrashes for minutes while the
+    // setup wizard's :8126 health-check times out.
+    let db_pool = {
+        let mut attempt: u32 = 0;
+        let max_attempts: u32 = std::env::var("IORA_HOME_DB_MAX_ATTEMPTS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60); // ~5 min @ 5s
+        loop {
+            attempt += 1;
+            match init_db(&database_url).await {
+                Ok(p) => {
+                    info!("Database connected after {} attempt(s)", attempt);
+                    break p;
+                }
+                Err(e) if attempt < max_attempts => {
+                    warn!(
+                        "Database init failed (attempt {}/{}): {} — retrying in 5s",
+                        attempt, max_attempts, e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Database init failed after {} attempts: {}",
+                        attempt, e
+                    ));
+                }
+            }
+        }
+    };
 
     // Initialize Home Assistant client (REST – used for history/forecasts)
     let ha_client = Arc::new(HomeAssistantClient::new(ha_url.clone(), ha_token.clone()));
@@ -957,8 +989,15 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
+    // Start server.  Port is configurable via the PORT or IORA_HOME_PORT env
+    // var (set in /etc/iora/iora-home.env on IORA OS to 8126).  Defaults to
+    // 3001 to preserve the legacy dev behaviour when run from `cargo run`.
+    let port: u16 = std::env::var("IORA_HOME_PORT")
+        .or_else(|_| std::env::var("PORT"))
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3001);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Backend server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

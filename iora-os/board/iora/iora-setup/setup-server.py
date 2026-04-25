@@ -1045,11 +1045,18 @@ def apply_config(config):
                 except Exception as e:
                     PROGRESS.add_error(f"Failed to start {svc}: {e}")
 
-            # Wait up to 20 s for iora-home to accept connections on port 8126.
+            # Wait for iora-home to accept connections on port 8126.
+            # First-boot can take a while: postgres warm-up + db migrations
+            # inside iora-home itself can run 30–90 s on slow hardware.
+            # Override via $IORA_HOME_WAIT_SECONDS for QA.
             import time as _time
-            PROGRESS.log("Waiting for iora-home to come up on :8126…")
+            wait_seconds = int(os.environ.get("IORA_HOME_WAIT_SECONDS", "180"))
+            PROGRESS.log(
+                f"Waiting for iora-home to come up on :8126 (up to {wait_seconds}s)…"
+            )
             home_up = False
-            for _attempt in range(20):
+            last_log = 0
+            for _attempt in range(wait_seconds):
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
                         _s.settimeout(1)
@@ -1057,14 +1064,30 @@ def apply_config(config):
                         home_up = True
                         break
                 except (OSError, ConnectionRefusedError):
+                    # Log a heartbeat every 15 s so the wizard's UI shows
+                    # progress instead of a frozen "waiting…" line.
+                    if _attempt - last_log >= 15:
+                        PROGRESS.log(
+                            f"  …still waiting for iora-home ({_attempt}s/{wait_seconds}s)"
+                        )
+                        last_log = _attempt
                     _time.sleep(1)
             if home_up:
                 PROGRESS.log("iora-home is up and accepting connections on :8126")
             else:
+                # Soft-fail: do NOT block setup completion. The dashboard
+                # may simply still be initialising its database. The user
+                # gets a clear hint instead of a hard error.
+                PROGRESS.log(
+                    "iora-home is not yet listening on :8126 — it will keep "
+                    "retrying in the background. The dashboard usually "
+                    "appears within 1–3 min after setup completes."
+                )
                 PROGRESS.add_error(
-                    "iora-home did not respond on port 8126 within 20 s after setup. "
-                    "Check: systemctl status iora-home.service  and  "
-                    "journalctl -u iora-home.service"
+                    "Dashboard (port 8126) is not up yet — give it a minute "
+                    "and reload http://<device-ip>:8126. If it never appears: "
+                    "ssh in and run  systemctl status iora-home  /  "
+                    "journalctl -u iora-home -n 80"
                 )
 
     PROGRESS.set_phase("done")
@@ -1177,19 +1200,21 @@ SETUP_HTML = r"""<!DOCTYPE html>
 <title>IORA OS Setup</title>
 <style>
 :root {
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --surface2: #334155;
-  --border: #475569;
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --primary-light: #1d4ed8;
+  /* IORA Home design tokens — keep in sync with backend/iora-home UI */
+  --bg: #0a0a0a;
+  --bg-elev: #0e0e0e;
+  --surface: #161616;
+  --surface2: #1f1f1f;
+  --border: #2a2a2a;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-light: #3b82f6;
   --success: #22c55e;
   --warn: #f59e0b;
   --danger: #ef4444;
-  --text: #f1f5f9;
-  --text2: #94a3b8;
-  --text3: #64748b;
+  --text: #e5e7eb;
+  --text2: #9ca3af;
+  --text3: #6b7280;
   --radius: 12px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -1273,8 +1298,8 @@ body {
   transition: width 0.4s ease;
 }
 .apply-progress .log-pane {
-  background: #0b1220;
-  border: 1px solid var(--surface2);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

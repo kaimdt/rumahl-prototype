@@ -3367,11 +3367,55 @@ for svc in iora-core iora-home iora-control iora-assist \
     chmod 0640 "${TARGET_DIR}/etc/iora/${svc}.env"
 done
 
+# ── wait-for-postgres helper ────────────────────────────────────────────────
+# Used as ExecStartPre by every IORA service that talks to PostgreSQL.  Polls
+# pg_isready (falls back to nc / python3 TCP probe) until Postgres accepts
+# connections, with a configurable timeout (default 60s).  Always exits 0 —
+# never blocks boot — and the calling service has its own internal retry.
+mkdir -p "${TARGET_DIR}/usr/lib/iora"
+cat > "${TARGET_DIR}/usr/lib/iora/wait-for-postgres" <<'PGREADY'
+#!/bin/sh
+# wait-for-postgres [timeout-seconds]
+TIMEOUT="${1:-60}"
+HOST="${PGHOST:-127.0.0.1}"
+PORT="${PGPORT:-5432}"
+deadline=$(( $(date +%s) + TIMEOUT ))
+log() { logger -t wait-for-postgres -- "$@" 2>/dev/null; echo "wait-for-postgres: $*" >&2; }
+log "waiting up to ${TIMEOUT}s for PostgreSQL at ${HOST}:${PORT}"
+while [ "$(date +%s)" -lt "${deadline}" ]; do
+    if command -v pg_isready >/dev/null 2>&1; then
+        pg_isready -q -h "${HOST}" -p "${PORT}" 2>/dev/null && { log "PostgreSQL is ready"; exit 0; }
+    elif command -v nc >/dev/null 2>&1; then
+        nc -z -w 1 "${HOST}" "${PORT}" 2>/dev/null && { log "PostgreSQL TCP port open"; exit 0; }
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import socket,sys
+s=socket.socket(); s.settimeout(1)
+try: s.connect((\"${HOST}\", ${PORT})); sys.exit(0)
+except Exception: sys.exit(1)" 2>/dev/null && { log "PostgreSQL TCP port open"; exit 0; }
+    else
+        sleep 2; log "no probe tool; continuing"; exit 0
+    fi
+    sleep 1
+done
+log "timeout reached; starting service anyway (it will retry internally)"
+exit 0
+PGREADY
+chmod 0755 "${TARGET_DIR}/usr/lib/iora/wait-for-postgres"
+
 # ── Helper: generate one native systemd service unit ─────────────────────────
 # Arguments: svc port user after_extra description
 write_iora_service() {
     local svc="$1" port="$2" user="$3" after="$4" description="$5"
     local bin="/opt/iora/build/${svc}/bin/${svc}"
+
+    # Services that talk to PostgreSQL get an ExecStartPre wait-for-pg loop
+    # so they don't crash-loop while pg is still warming up on first boot.
+    local pg_ready_pre=""
+    case "${svc}" in
+        iora-core|iora-home|iora-control|iora-assist|iora-secrets|iora-watchdog|iora-security|iora-gateway|iora-supervisor)
+            pg_ready_pre="ExecStartPre=/usr/lib/iora/wait-for-postgres 60"
+            ;;
+    esac
 
     cat > "${TARGET_DIR}/etc/systemd/system/${svc}.service" <<SVCEOF
 [Unit]
@@ -3385,7 +3429,10 @@ ConditionPathExists=${bin}
 Type=simple
 User=${user}
 Group=${user}
-EnvironmentFile=/etc/iora/${svc}.env
+# Use leading '-' so a missing env file doesn't fail-stop the unit on a
+# freshly-installed image where /etc/iora/<svc>.env hasn't been written yet.
+EnvironmentFile=-/etc/iora/${svc}.env
+${pg_ready_pre}
 ExecStart=${bin}
 WorkingDirectory=/var/lib/iora/${svc}
 StateDirectory=iora/${svc}
