@@ -541,6 +541,14 @@ build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
+    # Lift xz's auto memory throttling. xz defaults to ~25% of RAM as the
+    # compression memory limit and silently downgrades thread count when it
+    # would exceed that — on a 20 GB build VM that produced a misleading
+    # "reduced threads from 16 to 3" message. -T0 picks all cores, the
+    # explicit memlimit=0 disables the auto-throttling.
+    export XZ_OPT="${XZ_OPT:--T0 --memlimit-compress=0}"
+    export XZ_DEFAULTS="${XZ_DEFAULTS:--T0 --memlimit-compress=0}"
+
     cd "${BUILD_DIR}"
     if [ "${PROGRESS}" = true ]; then
         PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)" 2>&1 | show_progress_stream
@@ -667,16 +675,38 @@ build_service_binaries() {
     local _IORA_BUILD_BACKEND="${IORA_BUILD_BACKEND:-auto}"
     local _host_glibc
     _host_glibc="$(ldd --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | tail -n 1 || echo 0.0)"
+    # Tracks whether we automatically switched the rust triple to musl below.
+    # When set, the native build path will use a statically-linked target
+    # instead of glibc, so the produced binaries have no host-glibc dep.
+    local _IORA_AUTO_MUSL=0
     if [ "${_IORA_BUILD_BACKEND}" = "auto" ]; then
         # Buildroot 2024.02 → glibc 2.38. We give 0.01 of headroom and treat
         # anything >= 2.39 on the host as a mismatch.
-        if command -v docker >/dev/null 2>&1 \
-            && awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
-            log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
-            log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
-            log_warn "Switching to Docker / Alpine-musl build path automatically."
-            log_warn "Override with IORA_BUILD_BACKEND=native if you know what you're doing."
-            _IORA_BUILD_BACKEND="docker"
+        if awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
+            if command -v docker >/dev/null 2>&1; then
+                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+                log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
+                log_warn "Switching to Docker / Alpine-musl build path automatically."
+                log_warn "Override with IORA_BUILD_BACKEND=native if you know what you're doing."
+                _IORA_BUILD_BACKEND="docker"
+            elif [ -z "${IORA_RUST_TRIPLE:-}" ] \
+                && command -v rustup >/dev/null 2>&1 \
+                && [ "${IORA_ARCH:-x86_64}" = "x86_64" ]; then
+                # No Docker on this host, but we can still produce binaries that
+                # work on the target by building against musl statically — the
+                # resulting executables embed their own libc and don't depend
+                # on glibc at all. This is the right fallback for VMs / build
+                # boxes that don't run Docker.
+                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+                log_warn "Docker is unavailable, falling back to musl-static cargo build."
+                log_warn "Set IORA_RUST_TRIPLE to override this triple."
+                _IORA_AUTO_MUSL=1
+            else
+                log_warn "Host glibc ${_host_glibc} > target 2.38 but neither Docker nor rustup"
+                log_warn "is available — produced binaries WILL crash at boot. Install one of:"
+                log_warn "  - docker (preferred), then re-run"
+                log_warn "  - rustup + musl-tools, then re-run"
+            fi
         fi
     fi
 
@@ -702,6 +732,19 @@ build_service_binaries() {
             armhf)
                 RUST_TRIPLE="armv7-unknown-linux-gnueabihf" ;;
         esac
+        if [ "${_IORA_AUTO_MUSL}" = "1" ]; then
+            RUST_TRIPLE="x86_64-unknown-linux-musl"
+            # Make sure cargo actually links statically. The musl target
+            # already implies +crt-static, but be explicit for crates that
+            # honor RUSTFLAGS only.
+            export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static"
+            log_info "  Using musl-static target: ${RUST_TRIPLE}"
+            if ! command -v musl-gcc >/dev/null 2>&1; then
+                log_warn "  musl-gcc not found on PATH — crates with C deps may fail to link."
+                log_warn "  Install with: sudo apt-get install -y musl-tools  (Debian/Ubuntu)"
+                log_warn "             or: sudo dnf install -y musl-gcc        (Fedora)"
+            fi
+        fi
 
         if command -v rustup >/dev/null 2>&1; then
             # Always ensure a default toolchain is set. A fresh rustup
