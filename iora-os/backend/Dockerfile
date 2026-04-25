@@ -2,12 +2,12 @@
 # Builds all services in one image, then creates individual service images
 # Now using Alpine Linux for minimal footprint (~7MB base vs ~120MB Debian)
 
-# Several workspace deps now require edition2024 (stabilized in Rust 1.85):
-#   - home v0.5.12, time-core v0.1.8, clap_lex v1.1.0, base64ct v1.8.3, …
-# Pin to a recent stable that supports it. The host VM ships rustc 1.95
-# (Apr 2026) so we use a relatively recent base; bump if a future dep
-# raises the MSRV further.
-FROM rust:1.88-alpine AS builder
+# Several workspace deps require recent rustc:
+#   - edition2024 (stabilized in Rust 1.85): home, time-core, clap_lex, base64ct, …
+#   - rustc 1.89: async-graphql 7.2.1, asynk-strim 0.1.5 (pulled by iora-api)
+# The host VM ships rustc 1.95 (Apr 2026); pick a base that comfortably covers
+# all current MSRVs. Bump if a future dep raises the floor further.
+FROM rust:1.90-alpine AS builder
 
 WORKDIR /app/backend
 
@@ -18,6 +18,8 @@ WORKDIR /app/backend
 # - perl: required by openssl-sys to (re)build openssl from source if needed
 # - cmake: a few crates use it transitively
 # - git: some build.rs scripts shell out to git for version info
+# - curl: utoipa-swagger-ui build.rs downloads swagger-ui zip via system curl
+#         when the optional `reqwest` cargo feature isn't enabled
 RUN apk add --no-cache \
     musl-dev \
     gcc \
@@ -29,7 +31,8 @@ RUN apk add --no-cache \
     postgresql-dev \
     perl \
     cmake \
-    git
+    git \
+    curl
 
 # Build arguments for security tokens
 ARG IORA_DEVELOPER_APP_TOKEN=dev-token-placeholder
