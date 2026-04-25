@@ -835,22 +835,45 @@ def apply_config(config):
             if os.path.exists(DB_SENTINEL):
                 os.remove(DB_SENTINEL)
 
-            # Trigger iora-db-init.service now (non-fatal if PG not up yet;
-            # the service will run at next boot if it fails here).
-            PROGRESS.log("Starting iora-db-init.service…")
+            # Trigger iora-db-init.service NOW.
+            #
+            # IMPORTANT: must be `restart`, not `start`. The unit is
+            # `Type=oneshot RemainAfterExit=yes`, so after its initial boot
+            # invocation (which exits 0 because the password file didn't
+            # exist yet) it stays in `active (exited)` state — and
+            # `systemctl start` on an already-active unit is a no-op. Using
+            # `restart` forces the script to actually run again with the
+            # freshly-written password, creating the iora role + databases.
+            PROGRESS.log("Restarting iora-db-init.service…")
+            # Clear any stale failed state from prior boots.
+            subprocess.run(
+                ["systemctl", "reset-failed", "iora-db-init.service"],
+                capture_output=True, text=True, timeout=10,
+            )
             cp = subprocess.run(
-                ["systemctl", "start", "iora-db-init.service"],
+                ["systemctl", "restart", "iora-db-init.service"],
                 capture_output=True, text=True, timeout=120,
             )
             if cp.returncode != 0:
                 msg = (
-                    f"iora-db-init.service did not complete cleanly "
-                    f"(will retry at next boot): "
+                    f"iora-db-init.service did not complete cleanly: "
                     f"{(cp.stderr or cp.stdout or '').strip()[:300]}"
                 )
                 PROGRESS.add_error(msg)
+                errors.append(msg)
             else:
-                PROGRESS.log("iora-db-init.service finished OK")
+                # Verify the sentinel exists — it's the only proof the
+                # script actually finished its work.
+                if os.path.exists(DB_SENTINEL):
+                    PROGRESS.log("iora-db-init.service finished OK (role + databases ready)")
+                else:
+                    msg = (
+                        "iora-db-init.service exited 0 but did NOT create "
+                        "/etc/iora/.db-initialised — role/databases may be "
+                        "missing. Check: journalctl -u iora-db-init -n 80"
+                    )
+                    PROGRESS.add_error(msg)
+                    errors.append(msg)
         except Exception as e:
             msg = f"Failed to configure native PostgreSQL: {e}"
             errors.append(msg)
