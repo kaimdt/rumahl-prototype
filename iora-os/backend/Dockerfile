@@ -2,7 +2,10 @@
 # Builds all services in one image, then creates individual service images
 # Now using Alpine Linux for minimal footprint (~7MB base vs ~120MB Debian)
 
-FROM rust:1.77-alpine AS builder
+# rust:1.77-alpine (Mar 2024) is too old for several workspace deps
+# (clap 4.5+, ed25519-dalek 2.2, axum 0.7, bollard 0.16). Pin to a
+# concrete recent stable so cargo doesn't fail with MSRV errors.
+FROM rust:1.83-alpine AS builder
 
 WORKDIR /app/backend
 
@@ -57,19 +60,20 @@ RUN set -eu; \
                iora-network-monitor iora-nginx iora-resource-manager \
                iora-updater iora-cli iora-sign iora-verify; do \
         echo "==> cargo build -p ${svc}"; \
-        if ! cargo build --release -p "${svc}" 2>&1 | tee "/tmp/cargo-build-${svc}.log"; then \
+        # Use plain redirection (not |tee) so the if-check sees cargo's
+        # actual exit code, not tee's (which is always 0). Echo the log
+        # tail on failure so the BuildKit log shows the error.
+        if cargo build --release -p "${svc}" >"/tmp/cargo-build-${svc}.log" 2>&1; then \
+            tail -n 2 "/tmp/cargo-build-${svc}.log" || true; \
+        else \
             failures="${failures} ${svc}"; \
-            echo "WARNING: ${svc} did not compile — image will still build."; \
+            echo "WARNING: ${svc} did not compile — last 30 lines:"; \
+            tail -n 30 "/tmp/cargo-build-${svc}.log" 2>/dev/null || true; \
         fi; \
     done; \
     if [ -n "${failures}" ]; then \
         echo "================================================================"; \
         echo "BUILD FAILURES:${failures}"; \
-        echo "Last 30 lines of each failure log:"; \
-        for f in ${failures}; do \
-            echo "----- ${f} -----"; \
-            tail -n 30 "/tmp/cargo-build-${f}.log" 2>/dev/null || true; \
-        done; \
         echo "================================================================"; \
     fi; \
     echo "Built binaries:"; \

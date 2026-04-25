@@ -683,29 +683,29 @@ build_service_binaries() {
         # Buildroot 2024.02 → glibc 2.38. We give 0.01 of headroom and treat
         # anything >= 2.39 on the host as a mismatch.
         if awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
-            if command -v docker >/dev/null 2>&1; then
-                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
-                log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
-                log_warn "Switching to Docker / Alpine-musl build path automatically."
-                log_warn "Override with IORA_BUILD_BACKEND=native if you know what you're doing."
-                _IORA_BUILD_BACKEND="docker"
-            elif [ -z "${IORA_RUST_TRIPLE:-}" ] \
+            # Prefer musl-static over Docker: it's faster (no daemon), needs
+            # no privileged operations, and the resulting binaries are
+            # statically linked so they're independent of any libc on the
+            # target. Docker remains as a fallback for cases where rustup
+            # isn't installed or the arch isn't x86_64.
+            if [ -z "${IORA_RUST_TRIPLE:-}" ] \
                 && command -v rustup >/dev/null 2>&1 \
                 && [ "${IORA_ARCH:-x86_64}" = "x86_64" ]; then
-                # No Docker on this host, but we can still produce binaries that
-                # work on the target by building against musl statically — the
-                # resulting executables embed their own libc and don't depend
-                # on glibc at all. This is the right fallback for VMs / build
-                # boxes that don't run Docker.
                 log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
-                log_warn "Docker is unavailable, falling back to musl-static cargo build."
-                log_warn "Set IORA_RUST_TRIPLE to override this triple."
+                log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
+                log_warn "Switching to musl-static cargo build automatically."
+                log_warn "Override with IORA_BUILD_BACKEND=docker or IORA_RUST_TRIPLE=...."
                 _IORA_AUTO_MUSL=1
+            elif command -v docker >/dev/null 2>&1; then
+                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+                log_warn "Falling back to Docker / Alpine-musl build path."
+                _IORA_BUILD_BACKEND="docker"
             else
-                log_warn "Host glibc ${_host_glibc} > target 2.38 but neither Docker nor rustup"
-                log_warn "is available — produced binaries WILL crash at boot. Install one of:"
-                log_warn "  - docker (preferred), then re-run"
-                log_warn "  - rustup + musl-tools, then re-run"
+                log_warn "Host glibc ${_host_glibc} > target 2.38 but neither rustup+x86_64"
+                log_warn "nor Docker is available — produced binaries WILL crash at boot."
+                log_warn "Install one of:"
+                log_warn "  - rustup + musl-tools (preferred)"
+                log_warn "  - docker"
             fi
         fi
     fi
@@ -961,9 +961,12 @@ build_service_binaries() {
 
     # Build the compilation stage only (--target builder) — avoids running
     # the runtime stages and is much faster on repeat builds if layer cache hits.
+    # --progress=plain forces BuildKit to stream RUN stdout/stderr inline,
+    # so cargo errors are visible (otherwise BuildKit hides them on success).
     log_info "docker build --target builder ${_docker_extra}..."
     # shellcheck disable=SC2086
     if ! docker build \
+            --progress=plain \
             ${_docker_extra} \
             --target builder \
             --tag "${BUILDER_TAG}" \
