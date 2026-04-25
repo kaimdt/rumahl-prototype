@@ -159,6 +159,7 @@ function CanvasWidget({
   userName,
   weatherEntity,
   lightEntities,
+  entityMap,
 }: {
   widget: DashboardWidget
   isSelected: boolean
@@ -176,6 +177,7 @@ function CanvasWidget({
   userName?: string
   weatherEntity?: WeatherEntity
   lightEntities?: LightEntity[]
+  entityMap?: Map<string, EntityState>
 }) {
   const def = getWidgetDef(widget.type)
   const isUnconfigured = def?.requiresEntity && !widget.entity_id
@@ -507,6 +509,7 @@ export function PageDesigner({
   const { pages, setPages, forceSavePages, pageLayouts, savePageLayout } = usePageNavigation()
   const { theme } = useTheme()
   const isLightTheme = theme === 'day' || theme === 'light'
+  const entityMap = useMemo(() => new Map(availableEntities.map(e => [e.entity_id, e])), [availableEntities])
   const { snapshot, undo, redo, canUndo, canRedo } = useUndoHistory(pages, setPages)
 
   // Page management
@@ -1000,6 +1003,7 @@ export function PageDesigner({
           userName={userName}
           weatherEntity={weatherEntity}
           lightEntities={lightEntities}
+          entityMap={entityMap}
         />
       )
     }
