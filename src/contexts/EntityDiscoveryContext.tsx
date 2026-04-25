@@ -25,6 +25,7 @@ export function EntityDiscoveryProvider({ children }: { children: React.ReactNod
   const checkForNewEntities = useCallback((entities: EntityState[]) => {
     const knownSet = new Set(knownEntityIds)
     const currentEntityIds = entities.map(e => e.entity_id)
+    const knownSet = new Set(knownEntityIds)
 
     // Find entities that are not in the known list
     const discovered: DiscoveredEntity[] = entities
