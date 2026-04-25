@@ -840,9 +840,15 @@ build_service_binaries() {
         return 0
     fi
 
-    log_warn "cargo STILL not found after auto-install attempt."
-    log_warn "Install the Rust toolchain manually (https://rustup.rs) and re-run the build,"
-    log_warn "or set IORA_AUTO_INSTALL_RUST=1 and ensure curl is available."
+    # We reach here when either cargo is unavailable OR auto-detect chose the
+    # Docker path because of a host/target glibc mismatch. Only warn about
+    # missing cargo if we genuinely tried to use it (not when Docker was the
+    # explicit choice all along).
+    if [ "${_IORA_BUILD_BACKEND}" != "docker" ]; then
+        log_warn "cargo STILL not found after auto-install attempt."
+        log_warn "Install the Rust toolchain manually (https://rustup.rs) and re-run the build,"
+        log_warn "or set IORA_AUTO_INSTALL_RUST=1 and ensure curl is available."
+    fi
 
     # ── Strategy 2: legacy Docker builder image ─────────────────────────────
     if [ ! -f "${BACKEND_DIR}/Dockerfile" ]; then

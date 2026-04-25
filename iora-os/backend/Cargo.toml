@@ -25,6 +25,7 @@ members = [
     "iora-updater",
     "iora-sign",
     "iora-dev-bridge",
+    "iora-backup",
 ]
 resolver = "2"
 

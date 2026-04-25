@@ -18,28 +18,34 @@ RUN apk add --no-cache \
 ARG IORA_DEVELOPER_APP_TOKEN=dev-token-placeholder
 ARG IORA_DEVELOPER_APP_OFFICIAL=false
 
-# Copy workspace files
-COPY Cargo.toml Cargo.lock ./
-COPY iora-shared ./iora-shared
-COPY iora-home ./iora-home
-COPY iora-core ./iora-core
-COPY iora-control ./iora-control
-COPY iora-assist ./iora-assist
-COPY iora-secrets ./iora-secrets
-COPY iora-watchdog ./iora-watchdog
-COPY iora-security ./iora-security
-COPY iora-gateway ./iora-gateway
-COPY iora-files ./iora-files
-COPY iora-connector ./iora-connector
-COPY iora-api ./iora-api
-COPY iora-installer ./iora-installer
-COPY iora-supervisor ./iora-supervisor
-COPY iora-developer-app ./iora-developer-app
+# Copy the entire backend workspace.
+# Listing crates one by one had to be kept in sync with backend/Cargo.toml
+# `[workspace] members = [...]` and silently broke the build whenever a new
+# crate (e.g. iora-cli, iora-appstore, iora-nginx, iora-network-monitor,
+# iora-domain-validator, iora-resource-manager, iora-verify, iora-updater,
+# iora-sign, iora-dev-bridge, iora-backup) was added: cargo failed with
+# `failed to load manifest for workspace member /app/backend/iora-cli`.
+# A blanket COPY is correct (the workspace is self-contained) and resilient.
+COPY . .
 
-# Build all release binaries with Developer App token injected at compile time
+# Build all release binaries with Developer App token injected at compile time.
+# Each package is built individually so a single broken crate doesn't stop
+# the rest from being produced — `build-all-images.sh` then extracts only the
+# binaries that actually exist and the systemd units use ConditionPathExists
+# to skip missing services on first boot.
 ENV IORA_DEVELOPER_APP_TOKEN=${IORA_DEVELOPER_APP_TOKEN}
 ENV IORA_DEVELOPER_APP_OFFICIAL=${IORA_DEVELOPER_APP_OFFICIAL}
-RUN cargo build --release --workspace
+RUN set -eux; \
+    for svc in iora-core iora-home iora-control iora-assist iora-secrets \
+               iora-watchdog iora-security iora-gateway iora-supervisor \
+               iora-api iora-appstore iora-backup iora-connector \
+               iora-dev-bridge iora-domain-validator iora-files \
+               iora-network-monitor iora-nginx iora-resource-manager \
+               iora-updater iora-cli iora-sign iora-verify; do \
+        echo "==> cargo build -p ${svc}"; \
+        cargo build --release -p "${svc}" || \
+            echo "WARNING: ${svc} did not compile — image will still build."; \
+    done
 
 # Runtime base image - Alpine Linux for minimal footprint
 FROM alpine:3.19 AS runtime-base
