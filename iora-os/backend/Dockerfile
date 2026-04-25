@@ -2,10 +2,12 @@
 # Builds all services in one image, then creates individual service images
 # Now using Alpine Linux for minimal footprint (~7MB base vs ~120MB Debian)
 
-# rust:1.77-alpine (Mar 2024) is too old for several workspace deps
-# (clap 4.5+, ed25519-dalek 2.2, axum 0.7, bollard 0.16). Pin to a
-# concrete recent stable so cargo doesn't fail with MSRV errors.
-FROM rust:1.83-alpine AS builder
+# Several workspace deps now require edition2024 (stabilized in Rust 1.85):
+#   - home v0.5.12, time-core v0.1.8, clap_lex v1.1.0, base64ct v1.8.3, …
+# Pin to a recent stable that supports it. The host VM ships rustc 1.95
+# (Apr 2026) so we use a relatively recent base; bump if a future dep
+# raises the MSRV further.
+FROM rust:1.88-alpine AS builder
 
 WORKDIR /app/backend
 
