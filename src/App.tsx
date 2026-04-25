@@ -12,6 +12,7 @@ import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
 import { SwitchWidget } from '@/components/widgets/SwitchWidget'
 import { SensorWidget } from '@/components/widgets/SensorWidget'
+import { MediaPlayerWidget } from '@/components/widgets/MediaPlayerWidget'
 import { NavigationMenu } from '@/components/NavigationMenu'
 import { SplashScreen } from '@/components/SplashScreen'
 import { LoginModal } from '@/components/LoginModal'
@@ -32,7 +33,7 @@ import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useLocalStorage } from '@/lib/storage'
-import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity } from '@/lib/types'
+import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
 import { Sparkle, ShieldCheck, Wrench } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster } from '@/components/ui/sonner'
@@ -317,6 +318,9 @@ function DashboardContent() {
     [entities])
   const sensorEntities = useMemo(() =>
     entities.filter(e => e.entity_id.startsWith('sensor.')) as SensorEntity[],
+    [entities])
+  const mediaPlayerEntities = useMemo(() =>
+    entities.filter(e => e.entity_id.startsWith('media_player.')) as MediaPlayerEntity[],
     [entities])
 
   // Filter home page widgets based on DynamicOverview variant
@@ -635,11 +639,27 @@ function DashboardContent() {
               )}
               {/* TODO: Music Player Page */}
               {currentPageId === 'music' && (
-                <div className="space-y-3 w-full h-full flex flex-col z-1000 bg-card p-4 theme-transition absolute top-0 left-0">
+                <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
+                  {mediaPlayerEntities.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
+                      {mediaPlayerEntities.map((player, i) => (
+                        <div key={player.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
+                          <MediaPlayerWidget
+                            entity={player}
+                            onUpdate={refresh}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4 sm:p-6 rounded-2xl glass-card text-center text-foreground/50 border border-foreground/10">
+                      Keine Medienplayer gefunden
+                    </div>
+                  )}
                 </div>
               )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'settings', 'admin', 'docs', 'streaming'].includes(currentPageId) && currentPage && (
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming'].includes(currentPageId) && currentPage && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}
