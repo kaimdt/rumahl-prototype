@@ -344,13 +344,16 @@ fn generate_configuration(non_interactive: bool) -> Result<()> {
     let master_key_hex = hex::encode(master_key);
 
     // Write configuration files
+    //
+    // Note: Home Assistant URL/Token are NOT written to env files anymore.
+    // The first-boot setup wizard / Admin Control Center store them in the
+    // `system_preferences` table (key = "ha_config") so the user can edit
+    // them at runtime without rewriting files or restarting services.
+    let _ = ha_url; // kept for future schema migration; intentionally unused here
     let configs = vec![
-        ("/etc/iora/iora-home.env", format!(
+        ("/etc/iora/iora-home.env",
             "DATABASE_URL=postgres://iora:iora_password@localhost:5432/iora_home\n\
-             HA_URL={}\n\
-             PORT=8080\n",
-            ha_url
-        )),
+             PORT=8126\n".to_string()),
         ("/etc/iora/iora-core.env",
             "DATABASE_URL=postgres://iora:iora_password@localhost:5432/iora_core\n\
              PORT=8090\n".to_string()),

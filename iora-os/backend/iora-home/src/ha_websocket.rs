@@ -101,6 +101,14 @@ async fn connection_loop(
     db_pool: DbPool,
     connected: Arc<AtomicBool>,
 ) {
+    // Bail out cleanly when HA is not configured. Otherwise the loop tries
+    // to parse an empty URL forever and floods the journal with errors.
+    if ha_url.trim().is_empty() || token.trim().is_empty() {
+        info!("[HA-WS] HA not configured (empty URL or token) \u{2014} WebSocket disabled");
+        // Drain any commands that arrive so senders don't see backpressure.
+        while cmd_rx.recv().await.is_some() {}
+        return;
+    }
     let ws_url = make_ws_url(&ha_url);
     let is_wss = ws_url.starts_with("wss://");
     let mut backoff = Duration::from_secs(1);

@@ -57,6 +57,7 @@ use ble_client::BleClient;
 use homekit_client::HomekitClient;
 use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
+use iora_shared::settings::{SettingsRegistry, SettingDefinition};
 
 /// Per-entity service call buffer that coalesces rapid-fire requests.
 ///
@@ -150,6 +151,9 @@ pub struct AppState {
     pub homekit_client: Arc<HomekitClient>,
     pub stream_manager: Arc<StreamManager>,
     pub notification_dispatcher: Arc<NotificationDispatcher>,
+    /// Generic settings registry – schema for all user-configurable IORA values.
+    /// See [`iora_shared::settings`].
+    pub settings_registry: Arc<SettingsRegistry>,
 }
 
 /// Entity state from Home Assistant
@@ -371,14 +375,28 @@ async fn main() -> anyhow::Result<()> {
     let iora_env = iora_shared::env::IoraEnv::detect();
     info!("IORA environment: {}", iora_env);
 
-    // Get Home Assistant configuration
-    let ha_url = std::env::var("HA_URL")
-        .unwrap_or_else(|_| "http://homeassistant.local:8123".to_string());
-    let ha_token = std::env::var("HA_TOKEN")
-        .unwrap_or_else(|_| {
-            warn!("HA_TOKEN not set – backend will run in standalone mode without Home Assistant");
-            String::new()
-        });
+    // Get Home Assistant configuration.
+    //
+    // On a fresh IORA OS install no Home Assistant is configured yet — the
+    // user picks one (or skips it) from the Admin Control Center.  We treat
+    // both "unset" and "empty" as not-configured so that the env file the
+    // setup wizard writes (with HA_URL= / HA_TOKEN= placeholders) doesn't
+    // make us spam the journal with "relative URL without a base" warnings
+    // from the safety-net poll, the WS reconnect loop, the connection
+    // health checker, the location sync, and the person tracker.
+    let ha_url_raw = std::env::var("HA_URL").unwrap_or_default();
+    let mut ha_url = if ha_url_raw.trim().is_empty() {
+        String::new()
+    } else {
+        ha_url_raw.trim().to_string()
+    };
+    let mut ha_token = std::env::var("HA_TOKEN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    // ha_configured will be re-evaluated AFTER we attempt to load HA settings
+    // from the database below — env values are only the fallback.
 
     // Get database configuration
     let database_url = std::env::var("DATABASE_URL")
@@ -423,16 +441,62 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // Override HA settings from the DB-backed system_preferences table when
+    // present.  This is the path the Admin Control Center writes to via
+    // PUT /api/config/system/preferences (key="ha_config"), which is also
+    // how the first-boot setup wizard configures Home Assistant when the
+    // user opts in.  Falling back to env vars keeps `cargo run`-style local
+    // development working with HA_URL / HA_TOKEN exported in the shell.
+    {
+        let bootstrap_repo = ConfigRepository::new(db_pool.clone());
+        if let Ok(Some(pref)) = bootstrap_repo.get_system_preference("ha_config").await {
+            match serde_json::from_str::<serde_json::Value>(&pref.preference_value) {
+                Ok(cfg) => {
+                    if let Some(u) = cfg.get("url").and_then(|v| v.as_str())
+                        .filter(|s| !s.trim().is_empty())
+                    {
+                        ha_url = u.trim().to_string();
+                    }
+                    if let Some(t) = cfg.get("token").and_then(|v| v.as_str())
+                        .filter(|s| !s.trim().is_empty())
+                    {
+                        ha_token = t.trim().to_string();
+                    }
+                    if !ha_url.is_empty() && !ha_token.is_empty() {
+                        info!("Loaded HA configuration from system_preferences (DB)");
+                    }
+                }
+                Err(e) => warn!("Failed to parse system_preferences/ha_config: {}", e),
+            }
+        }
+    }
+    // Re-evaluate the ha_configured flag now that the DB may have populated
+    // the URL / token. Only spawn HA-touching background tasks when both
+    // values are non-empty.
+    let ha_configured = !ha_url.is_empty() && !ha_token.is_empty();
+    if !ha_configured {
+        info!(
+            "Home Assistant integration is OFF \u{2014} configure HA from the IORA \
+             Admin Control Center (Settings \u{2192} Integrations \u{2192} Home Assistant) \
+             to enable it."
+        );
+    }
+
     // Initialize Home Assistant client (REST – used for history/forecasts)
     let ha_client = Arc::new(HomeAssistantClient::new(ha_url.clone(), ha_token.clone()));
 
-    // Start person tracker background service
-    let person_tracker = person_tracker::PersonTracker::new(db_pool.clone(), ha_client.clone());
-    person_tracker.start();
 
-    // Start location history sync service
-    let location_sync = location_sync::LocationSyncService::new(db_pool.clone(), ha_client.clone());
-    location_sync.start();
+    // Start person tracker background service (HA-only)
+    if ha_configured {
+        let person_tracker = person_tracker::PersonTracker::new(db_pool.clone(), ha_client.clone());
+        person_tracker.start();
+    }
+
+    // Start location history sync service (HA-only)
+    if ha_configured {
+        let location_sync = location_sync::LocationSyncService::new(db_pool.clone(), ha_client.clone());
+        location_sync.start();
+    }
 
     // Initialize WebSocket manager (frontend-facing)
     let ws_manager = Arc::new(websocket::WebSocketManager::new());
@@ -505,6 +569,7 @@ async fn main() -> anyhow::Result<()> {
         homekit_client: homekit_client.clone(),
         stream_manager: stream_manager.clone(),
         notification_dispatcher: notification_dispatcher.clone(),
+        settings_registry: Arc::new(iora_shared::settings::default_registry()),
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -592,11 +657,15 @@ async fn main() -> anyhow::Result<()> {
     // Safety-net REST poll: runs infrequently (60s) to catch any drift if the
     // HA WebSocket connection drops. Also does the initial state fetch so the
     // dashboard is usable immediately even while the WS is still connecting.
-    tokio::spawn(safety_net_poll(
-        ha_client.clone(),
-        ws_manager.clone(),
-        entity_cache.clone(),
-    ));
+    // Skipped entirely when HA is not configured — polling an empty URL
+    // would spam the journal with "relative URL without a base" warnings.
+    if ha_configured {
+        tokio::spawn(safety_net_poll(
+            ha_client.clone(),
+            ws_manager.clone(),
+            entity_cache.clone(),
+        ));
+    }
 
     // Background HA data cache refresh (proactively fetches HA API data + DB stats)
     {
@@ -610,16 +679,19 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Background HA connection health check (pings HA, detects integrations)
-    let ha_url_for_health = ha_url.clone();
-    let ha_token_for_health = ha_token.clone();
-    tokio::spawn(ha_connection::ha_health_check_loop(
-        ha_connection.clone(),
-        http_client,
-        ha_url_for_health,
-        ha_token_for_health,
-        entity_cache.clone(),
-    ));
+    // Background HA connection health check (pings HA, detects integrations).
+    // Skipped when HA is not configured.
+    if ha_configured {
+        let ha_url_for_health = ha_url.clone();
+        let ha_token_for_health = ha_token.clone();
+        tokio::spawn(ha_connection::ha_health_check_loop(
+            ha_connection.clone(),
+            http_client,
+            ha_url_for_health,
+            ha_token_for_health,
+            entity_cache.clone(),
+        ));
+    }
 
     // Background watchdog evaluation loop (checks all watchdog rules every 30s)
     let watchdog_ha_client = ha_client.clone();
@@ -836,6 +908,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/config/preferences/:user_id", get(get_user_preferences))
         .route("/api/config/system/preferences", post(save_system_preference))
         .route("/api/config/system/preferences", get(get_system_preferences))
+        // Generic settings API (schema-driven – see iora_shared::settings).
+        // The wizard uses /api/admin/settings/schema/wizard, the Control Center
+        // uses /api/admin/settings (full schema + values).
+        .route("/api/admin/settings/schema", get(admin_settings_schema))
+        .route("/api/admin/settings/schema/wizard", get(admin_settings_schema_wizard))
+        .route("/api/admin/settings", get(admin_settings_list))
+        .route("/api/admin/settings/:key", get(admin_settings_get).put(admin_settings_put))
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
         .route("/api/notifications", get(get_notifications))
@@ -2793,6 +2872,163 @@ async fn get_system_preferences(
             Err(ErrorResponse::internal(format!("Failed to get system preferences: {}", e)))
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic schema-driven settings API
+//
+// Powers both the first-boot setup wizard (subset flagged with `wizard: true`)
+// and the Admin Control Center (everything not `Hidden`). New IORA settings
+// are added once in `iora_shared::settings::default_settings()` and surface
+// here automatically – no per-setting handler needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Pretty per-key value, with secrets redacted, ready for the UI.
+#[derive(Serialize)]
+struct SettingValueDto {
+    #[serde(flatten)]
+    definition: SettingDefinition,
+    value: serde_json::Value,
+    /// True when an explicit value has been stored (false → using `default`).
+    is_set: bool,
+}
+
+async fn admin_settings_schema(
+    State(state): State<AppState>,
+) -> Json<Vec<SettingDefinition>> {
+    Json(state.settings_registry.control_center())
+}
+
+async fn admin_settings_schema_wizard(
+    State(state): State<AppState>,
+) -> Json<Vec<SettingDefinition>> {
+    Json(state.settings_registry.wizard())
+}
+
+async fn admin_settings_list(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SettingValueDto>>, ErrorResponse> {
+    let stored = state
+        .config_repo
+        .get_all_system_preferences()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("settings load failed: {}", e)))?;
+
+    let mut by_key: HashMap<String, serde_json::Value> = HashMap::new();
+    for pref in stored {
+        let v: serde_json::Value =
+            serde_json::from_str(&pref.preference_value).unwrap_or(serde_json::Value::Null);
+        by_key.insert(pref.preference_key, v);
+    }
+
+    let out = state
+        .settings_registry
+        .control_center()
+        .into_iter()
+        .map(|def| {
+            let (value, is_set) = match by_key.get(&def.key) {
+                Some(v) => (def.redact(v), true),
+                None => (def.default.clone(), false),
+            };
+            SettingValueDto {
+                definition: def,
+                value,
+                is_set,
+            }
+        })
+        .collect();
+
+    Ok(Json(out))
+}
+
+async fn admin_settings_get(
+    State(state): State<AppState>,
+    axum::extract::Path(key): axum::extract::Path<String>,
+) -> Result<Json<SettingValueDto>, ErrorResponse> {
+    let def = state
+        .settings_registry
+        .get(&key)
+        .ok_or_else(|| ErrorResponse::not_found(format!("unknown setting: {}", key)))?;
+
+    let stored = state
+        .config_repo
+        .get_system_preference(&key)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("settings load failed: {}", e)))?;
+
+    let (value, is_set) = match stored {
+        Some(p) => {
+            let v: serde_json::Value =
+                serde_json::from_str(&p.preference_value).unwrap_or(serde_json::Value::Null);
+            (def.redact(&v), true)
+        }
+        None => (def.default.clone(), false),
+    };
+
+    Ok(Json(SettingValueDto {
+        definition: def,
+        value,
+        is_set,
+    }))
+}
+
+#[derive(Deserialize)]
+struct AdminSettingPutBody {
+    value: serde_json::Value,
+}
+
+async fn admin_settings_put(
+    State(state): State<AppState>,
+    axum::extract::Path(key): axum::extract::Path<String>,
+    Json(body): Json<AdminSettingPutBody>,
+) -> Result<Json<SettingValueDto>, ErrorResponse> {
+    let def = state
+        .settings_registry
+        .get(&key)
+        .ok_or_else(|| ErrorResponse::not_found(format!("unknown setting: {}", key)))?;
+
+    if matches!(
+        def.visibility,
+        iora_shared::settings::SettingVisibility::ReadOnly
+    ) {
+        return Err(ErrorResponse::bad_request(format!(
+            "setting '{}' is read-only",
+            key
+        )));
+    }
+
+    // Empty string == "clear" for sensitive/url; allow via validate.
+    def.validate(&body.value)
+        .map_err(|m| ErrorResponse::bad_request(format!("invalid value: {}", m)))?;
+
+    let req = db::models::SaveSystemPreferenceRequest {
+        preference_key: key.clone(),
+        preference_value: body.value.clone(),
+    };
+    state
+        .config_repo
+        .save_system_preference(req)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("settings save failed: {}", e)))?;
+
+    let _ = state
+        .config_repo
+        .record_change("system_preferences", &key, "UPDATE", None)
+        .await;
+
+    if !def.requires_restart.is_empty() {
+        info!(
+            "Setting '{}' updated – the following services need a restart to pick up the change: {}",
+            key,
+            def.requires_restart.join(", ")
+        );
+    }
+
+    Ok(Json(SettingValueDto {
+        value: def.redact(&body.value),
+        definition: def,
+        is_set: true,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

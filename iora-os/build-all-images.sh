@@ -633,10 +633,50 @@ build_service_binaries() {
     fi
 
     local SERVICES="iora-core iora-home iora-control iora-assist iora-secrets \
-                    iora-watchdog iora-security iora-gateway iora-supervisor"
+                    iora-watchdog iora-security iora-gateway iora-supervisor \
+                    iora-api iora-appstore iora-backup iora-connector \
+                    iora-dev-bridge iora-domain-validator iora-files \
+                    iora-network-monitor iora-nginx iora-resource-manager \
+                    iora-updater"
+    local CLI_TOOLS="iora-cli iora-sign iora-verify"
+
+    # ── GLIBC compatibility check ───────────────────────────────────────────
+    # Native cargo builds on a host with a newer glibc than the target produce
+    # binaries that fail at runtime with `version 'GLIBC_2.39' not found`
+    # (or similar). Buildroot 2024.02 ships glibc 2.38, so a host with
+    # glibc >= 2.39 (Ubuntu 24.04, recent Arch/Fedora) WILL produce broken
+    # binaries unless we use the Dockerfile path (Alpine/musl static).
+    # IORA_BUILD_BACKEND lets the user force a specific path:
+    #   auto    – pick the safest (default)
+    #   native  – always cargo on host
+    #   docker  – always Dockerfile / Alpine
+    local _IORA_BUILD_BACKEND="${IORA_BUILD_BACKEND:-auto}"
+    local _host_glibc
+    _host_glibc="$(ldd --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | tail -n 1 || echo 0.0)"
+    if [ "${_IORA_BUILD_BACKEND}" = "auto" ]; then
+        # Buildroot 2024.02 → glibc 2.38. We give 0.01 of headroom and treat
+        # anything >= 2.39 on the host as a mismatch.
+        if command -v docker >/dev/null 2>&1 \
+            && awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
+            log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+            log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
+            log_warn "Switching to Docker / Alpine-musl build path automatically."
+            log_warn "Override with IORA_BUILD_BACKEND=native if you know what you're doing."
+            _IORA_BUILD_BACKEND="docker"
+        fi
+    fi
+
+    # ── Wipe stale binaries from a previous run ────────────────────────────
+    # Otherwise a newer host glibc + a previous-generation binary that
+    # happened to NOT use any 2.39 symbols can survive a "failed" rebuild
+    # and silently boot — only to crash the first time it hits a 2.39 syscall.
+    log_info "Cleaning stale service binaries from rootfs overlay…"
+    for svc in ${SERVICES}; do
+        rm -f "${OVERLAY}/${svc}/bin/${svc}"
+    done
 
     # ── Strategy 1: native cargo build on the build host ────────────────────
-    if command -v cargo >/dev/null 2>&1; then
+    if [ "${_IORA_BUILD_BACKEND}" != "docker" ] && command -v cargo >/dev/null 2>&1; then
         log_info "Pre-compiling IORA service binaries natively with cargo..."
         log_info "Backend source: ${BACKEND_DIR}"
         log_info "cargo: $(command -v cargo) ($(cargo --version 2>/dev/null || echo unknown))"
@@ -681,7 +721,7 @@ build_service_binaries() {
         # ConditionPathExists at boot — the rest come up.
         local built_ok=""
         local built_fail=""
-        for svc in ${SERVICES}; do
+        for svc in ${SERVICES} ${CLI_TOOLS}; do
             log_info "  cargo build -p ${svc} --release --target ${RUST_TRIPLE}"
             local svc_triple="${RUST_TRIPLE}"
             if ( cd "${BACKEND_DIR}" && \
@@ -741,6 +781,62 @@ build_service_binaries() {
         else
             log_success "All IORA service binaries embedded in rootfs overlay (native build)."
         fi
+
+        # ── CLI tools → /usr/bin ───────────────────────────────────────────
+        local cli_dest="${SCRIPT_DIR}/board/iora/rootfs-overlay/usr/bin"
+        mkdir -p "${cli_dest}"
+        for cli in ${CLI_TOOLS}; do
+            local cli_src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${cli}"
+            local cli_src_host="${CARGO_TARGET_DIR}/release/${cli}"
+            local cli_src=""
+            if [ -f "${cli_src_cross}" ]; then
+                cli_src="${cli_src_cross}"
+            elif [ -f "${cli_src_host}" ]; then
+                cli_src="${cli_src_host}"
+            fi
+            if [ -n "${cli_src}" ]; then
+                install -m 0755 "${cli_src}" "${cli_dest}/${cli}"
+                log_success "  ${cli} → /usr/bin/${cli}"
+            else
+                log_warn "  ${cli}: not built (CLI tool unavailable on target)"
+            fi
+        done
+
+        # ── glibc symbol audit ─────────────────────────────────────────────
+        # Last-line-of-defence: scan every produced binary for GLIBC version
+        # tags newer than what Buildroot 2024.02 ships (2.38). If found, the
+        # binary will crash at boot — fail the build with a clear message
+        # instead of silently shipping a broken image.
+        if command -v objdump >/dev/null 2>&1; then
+            local _too_new=""
+            for svc in ${SERVICES}; do
+                local _bin="${OVERLAY}/${svc}/bin/${svc}"
+                [ -f "${_bin}" ] || continue
+                local _max
+                _max="$(objdump -T "${_bin}" 2>/dev/null \
+                    | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
+                    | sort -uV | tail -n 1 || true)"
+                if [ -n "${_max}" ]; then
+                    local _ver="${_max#GLIBC_}"
+                    if awk -v v="${_ver}" 'BEGIN { exit !(v+0 > 2.38) }'; then
+                        _too_new="${_too_new} ${svc}(${_max})"
+                    fi
+                fi
+            done
+            if [ -n "${_too_new}" ]; then
+                log_warn "GLIBC compatibility AUDIT FAILED:${_too_new}"
+                log_warn "These binaries reference glibc symbols newer than the target's 2.38."
+                log_warn "They WILL crash at boot with 'GLIBC_2.XX not found'."
+                log_warn "Re-run with IORA_BUILD_BACKEND=docker to use the Alpine/musl path."
+                if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                    log_error "IORA_GLIBC_AUDIT_FATAL=1 is set — aborting build."
+                    return 1
+                fi
+            else
+                log_success "GLIBC audit OK — every binary stays within glibc 2.38 symbol set."
+            fi
+        fi
+
         return 0
     fi
 
@@ -796,6 +892,20 @@ build_service_binaries() {
             log_warn "  ${svc}: binary not found in builder image (service may not be compiled yet)"
             rm -f "${dest}/${svc}"
             failed=$((failed + 1))
+        fi
+    done
+
+    # Extract CLI tools to /usr/bin in the rootfs overlay.
+    local cli_dest="${SCRIPT_DIR}/board/iora/rootfs-overlay/usr/bin"
+    mkdir -p "${cli_dest}"
+    for cli in ${CLI_TOOLS}; do
+        if docker run --rm "${BUILDER_TAG}" \
+                cat "/app/backend/target/release/${cli}" > "${cli_dest}/${cli}" 2>/dev/null; then
+            chmod +x "${cli_dest}/${cli}"
+            log_success "  ${cli} → /usr/bin/${cli}"
+        else
+            rm -f "${cli_dest}/${cli}"
+            log_warn "  ${cli}: not extracted (CLI tool unavailable)"
         fi
     done
 

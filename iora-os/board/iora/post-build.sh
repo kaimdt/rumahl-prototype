@@ -874,7 +874,10 @@ alert()   {
 
 # ── 1. Native IORA services ──────────────────────────────────────────────────
 for svc in iora-core iora-home iora-control iora-assist \
-            iora-secrets iora-watchdog iora-security iora-gateway; do
+            iora-secrets iora-watchdog iora-security iora-gateway \
+            iora-supervisor iora-api iora-appstore iora-backup iora-connector \
+            iora-dev-bridge iora-domain-validator iora-files \
+            iora-network-monitor iora-nginx iora-resource-manager iora-updater; do
     if ! systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
         if systemctl is-enabled --quiet "${svc}.service" 2>/dev/null; then
             alert "native service ${svc} is down — restarting"
@@ -2922,7 +2925,11 @@ cmd_service() {
             echo "  ──────────────────────────────────────────────────────────────"
             for svc in iora-core iora-home iora-control iora-assist \
                        iora-secrets iora-watchdog iora-security iora-gateway \
-                       iora-supervisor iora-update-monitor postgresql chrony docker; do
+                       iora-supervisor iora-update-monitor \
+                       iora-api iora-appstore iora-backup iora-connector \
+                       iora-dev-bridge iora-domain-validator iora-files \
+                       iora-network-monitor iora-nginx iora-resource-manager \
+                       iora-updater postgresql chrony docker; do
                 if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
                     st="${GREEN}active${RST}"
                 elif systemctl list-unit-files --quiet "${svc}.service" >/dev/null 2>&1; then
@@ -3024,7 +3031,11 @@ cmd_status() {
     print_header "Native IORA Services"
     for svc in iora-core iora-home iora-control iora-assist \
                iora-secrets iora-watchdog iora-security iora-gateway \
-               iora-supervisor iora-update-monitor; do
+               iora-supervisor iora-update-monitor \
+               iora-api iora-appstore iora-backup iora-connector \
+               iora-dev-bridge iora-domain-validator iora-files \
+               iora-network-monitor iora-nginx iora-resource-manager \
+               iora-updater; do
         if systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
             print_ok "${svc}: active"
         elif systemctl list-unit-files --quiet "${svc}.service" >/dev/null 2>&1; then
@@ -3295,11 +3306,16 @@ DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-home.env" <<'ENVEOF'
+# IORA Home — bootstrap environment.
+#
+# This file holds ONLY the minimum settings iora-home needs to talk to its
+# own PostgreSQL database. All user-facing configuration (Home Assistant
+# URL/Token, MQTT, Matter, Zigbee, Z-Wave, BLE, HomeKit, …) lives in the
+# `system_preferences` table and is editable from the IORA Admin Control
+# Center at runtime — DO NOT add HA_URL / HA_TOKEN here.
 PORT=8126
 RUST_LOG=info
 DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_home
-HA_URL=
-HA_TOKEN=
 JWT_SECRET=CHANGEME
 IORA_CORE_URL=http://localhost:8090
 ENVEOF
@@ -3361,10 +3377,85 @@ COMPOSE_HASH_FILE=/var/lib/iora/iora-supervisor/compose.sha256
 BINARY_MANIFEST=/etc/iora/binary-manifest.sha256
 ENVEOF
 
+# ── Newer IORA daemons (added incrementally) ────────────────────────────────
+# Each gets a minimal bootstrap env. User-facing config lives in the
+# system_preferences DB table and is editable from the Admin Control Center
+# (see backend/iora-shared/src/settings.rs for the registry).
+
+cat > "${TARGET_DIR}/etc/iora/iora-api.env" <<'ENVEOF'
+PORT=8099
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+IORA_HOME_URL=http://localhost:8126
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-appstore.env" <<'ENVEOF'
+PORT=8098
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+APPSTORE_REGISTRY_URL=
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-backup.env" <<'ENVEOF'
+PORT=8100
+RUST_LOG=info
+BACKUP_DIR=/mnt/data/iora/backups
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-connector.env" <<'ENVEOF'
+PORT=8088
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-dev-bridge.env" <<'ENVEOF'
+PORT=8101
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-domain-validator.env" <<'ENVEOF'
+PORT=8102
+RUST_LOG=info
+IORA_CORE_URL=http://localhost:8090
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-files.env" <<'ENVEOF'
+PORT=8103
+RUST_LOG=info
+FILES_ROOT=/mnt/data/iora/files
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-network-monitor.env" <<'ENVEOF'
+PORT=8104
+RUST_LOG=info
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-nginx.env" <<'ENVEOF'
+PORT=8089
+RUST_LOG=info
+NGINX_CONF_DIR=/etc/nginx
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-resource-manager.env" <<'ENVEOF'
+PORT=8105
+RUST_LOG=info
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-updater.env" <<'ENVEOF'
+PORT=8106
+RUST_LOG=info
+UPDATE_FEED_URL=
+ENVEOF
+
 # Restrict env file permissions (they contain secrets after setup).
 for svc in iora-core iora-home iora-control iora-assist \
-           iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor; do
-    chmod 0640 "${TARGET_DIR}/etc/iora/${svc}.env"
+           iora-secrets iora-watchdog iora-security iora-gateway iora-supervisor \
+           iora-api iora-appstore iora-backup iora-connector iora-dev-bridge \
+           iora-domain-validator iora-files iora-network-monitor iora-nginx \
+           iora-resource-manager iora-updater; do
+    chmod 0640 "${TARGET_DIR}/etc/iora/${svc}.env" 2>/dev/null || true
 done
 
 # ── wait-for-postgres helper ────────────────────────────────────────────────
@@ -3412,7 +3503,7 @@ write_iora_service() {
     # so they don't crash-loop while pg is still warming up on first boot.
     local pg_ready_pre=""
     case "${svc}" in
-        iora-core|iora-home|iora-control|iora-assist|iora-secrets|iora-watchdog|iora-security|iora-gateway|iora-supervisor)
+        iora-core|iora-home|iora-control|iora-assist|iora-secrets|iora-watchdog|iora-security|iora-gateway|iora-supervisor|iora-api|iora-appstore|iora-backup|iora-connector|iora-dev-bridge|iora-domain-validator|iora-files|iora-resource-manager|iora-updater)
             pg_ready_pre="ExecStartPre=/usr/lib/iora/wait-for-postgres 60"
             ;;
     esac
@@ -3492,8 +3583,30 @@ AmbientCapabilities=
 SecureBits=noroot noroot-locked
 EOF
 
-# iora-watchdog — health monitoring service
+# iora-watchdog — health monitoring service. SECURITY-CRITICAL: must always
+# come back up no matter what. We override the default Restart=on-failure to
+# Restart=always and tighten the limits so a transient failure does NOT cause
+# systemd to give up after 5 attempts.
 write_iora_service "iora-watchdog" "8094" "iora" "iora-core.service" "Watchdog"
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-watchdog.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-watchdog.service.d/critical.conf" <<'EOF'
+[Service]
+# Watchdog is security-critical — keep restarting forever, never give up.
+Restart=always
+RestartSec=3s
+StartLimitBurst=0
+StartLimitIntervalSec=0
+# Higher OOM priority — the kernel should kill almost anything else first.
+OOMScoreAdjust=-500
+# Best effort to keep watchdog scheduled even under load.
+Nice=-5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
+[Unit]
+# If the watchdog process dies for any reason, log it loudly via journald
+# and the security service so it can be acted on.
+OnFailure=iora-security.service
+EOF
 
 # iora-security — security monitoring (AppArmor profile applies)
 write_iora_service "iora-security" "8095" "iora" "" "Security Monitor"
@@ -3551,6 +3664,24 @@ ln -sf /etc/systemd/system/iora-supervisor.service \
 
 mkdir -p "${TARGET_DIR}/var/log/iora"
 mkdir -p "${TARGET_DIR}/var/lib/iora/iora-supervisor"
+
+# ── Newer IORA daemons ──────────────────────────────────────────────────────
+# Each is a Rust workspace crate under backend/<svc>/ and gets the same
+# generic systemd unit as the original 9 services. Adding a new daemon now
+# requires (1) appending to SERVICES in build-all-images.sh, (2) writing
+# its env file above, and (3) adding one write_iora_service line below.
+
+write_iora_service "iora-api"               "8099" "iora" "iora-core.service iora-home.service" "Extended API (GraphQL/WebDAV/CalDAV)"
+write_iora_service "iora-appstore"          "8098" "iora" "iora-core.service iora-supervisor.service" "App Store"
+write_iora_service "iora-backup"            "8100" "iora" "iora-core.service" "Backup & Restore"
+write_iora_service "iora-connector"         "8088" "iora" "iora-core.service" "Datacenter Connector (WireGuard)"
+write_iora_service "iora-dev-bridge"        "8101" "iora" "iora-core.service iora-supervisor.service" "Developer Bridge"
+write_iora_service "iora-domain-validator"  "8102" "iora" "iora-core.service" "Domain Validator (ACME/DNS)"
+write_iora_service "iora-files"             "8103" "iora" "iora-core.service" "File Service"
+write_iora_service "iora-network-monitor"   "8104" "iora" "iora-core.service" "Network Monitor"
+write_iora_service "iora-nginx"             "8089" "root" "" "Nginx Configuration Manager"
+write_iora_service "iora-resource-manager"  "8105" "iora" "iora-core.service" "Resource Manager (CPU/RAM/Disk)"
+write_iora_service "iora-updater"           "8106" "iora" "iora-core.service" "System Updater"
 
 # ── iora-docker-guard ────────────────────────────────────────────────────────
 # Script invoked by iora-supervisor as ExecStartPre (--init) and also by
