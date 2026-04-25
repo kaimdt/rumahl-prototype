@@ -165,6 +165,14 @@ const defaultPages: DashboardPage[] = [
     showInNav: true,
     order: 997,
   },
+  {
+    id: 'music',
+    name: 'Musik',
+    icon: 'MusicNote',
+    widgets: [],
+    showInNav: true,
+    order: 996,
+  },
 ]
 
 export const iconMap = {
