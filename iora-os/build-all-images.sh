@@ -608,6 +608,7 @@ build_frontend_bundle() {
     # it next to backend/. Try a few candidates.
     local FRONTEND_DIR=""
     for candidate in \
+        "${SCRIPT_DIR}/../frontend" \
         "${SCRIPT_DIR}/.." \
         "${SCRIPT_DIR}/../.." \
         "${SCRIPT_DIR}/frontend"; do
