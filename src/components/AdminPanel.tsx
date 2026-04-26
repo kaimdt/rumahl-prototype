@@ -12,7 +12,7 @@ import {
   CloudWarning, ShieldWarning, Siren,
   WebhooksLogo, Broadcast, Lightning, Eye, PaperPlaneTilt, CheckCircle, XCircle, Clock,
   MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
-  Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack
+  Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -58,7 +58,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
@@ -107,6 +107,13 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'database', label: 'Datenbank', icon: Database, description: 'SQLite-Datenbank verwalten, bereinigen und Statistiken anzeigen' },
   { id: 'warnings', label: 'Warnungen', icon: ShieldWarning, description: 'Protokoll aller Wetter- und Zivilschutzwarnungen mit Zeitstempeln' },
   { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
+  { id: 'ai-overview', label: 'AI Übersicht', icon: Brain, description: 'IORA Assist Status, aktiver Provider, Verbrauch und Health — zentrale AI-Übersicht' },
+  { id: 'ai-providers', label: 'AI Provider', icon: MagicWand, description: 'AI Provider verwalten — OpenAI, Anthropic, lokale Modelle und Desktop-Bridges konfigurieren' },
+  { id: 'ai-conversations', label: 'AI Konversationen', icon: ChatCircle, description: 'Konversations-Threads, Verlauf und proaktive Benachrichtigungen verwalten' },
+  { id: 'ai-tasks', label: 'AI Aufgaben', icon: Robot, description: 'Autonome AI-Aufgaben — Zeitpläne, Trigger und Status der Hintergrund-Agenten' },
+  { id: 'ai-tools', label: 'AI Tools', icon: Hand, description: 'Internet-Suche, Web-Scraping und Screenshot-Tools des Assistenten testen und ausführen' },
+  { id: 'ai-voice', label: 'AI Stimme', icon: Microphone, description: 'Spracheingabe (STT) und Sprachausgabe (TTS) testen — Voice-Modelle und Latenz prüfen' },
+  { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten IORA Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
 ]
 
 type TabGroup = {
@@ -117,7 +124,8 @@ type TabGroup = {
 }
 
 const tabGroups: TabGroup[] = [
-  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure'] },
+  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
+  { id: 'ai', title: 'KI & Assistent', icon: Brain, items: ['ai-overview', 'ai-providers', 'ai-conversations', 'ai-tasks', 'ai-tools', 'ai-voice'] },
   { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
@@ -638,6 +646,13 @@ export function AdminPanel() {
               {activeTab === 'ha-tools' && <HaDeveloperToolsTab token={token} />}
               {activeTab === 'global-alert' && <GlobalAlertTab token={token} />}
               {activeTab === 'notifications' && <NotificationsTab token={token} />}
+              {activeTab === 'ai-overview' && <AiOverviewTab token={token} />}
+              {activeTab === 'ai-providers' && <AiProvidersTab token={token} />}
+              {activeTab === 'ai-conversations' && <AiConversationsTab token={token} />}
+              {activeTab === 'ai-tasks' && <AiTasksTab token={token} />}
+              {activeTab === 'ai-tools' && <AiToolsTab token={token} />}
+              {activeTab === 'ai-voice' && <AiVoiceTab token={token} />}
+              {activeTab === 'devices' && <DevicesTab token={token} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -6754,6 +6769,945 @@ function NotificationsTab({ token }: { token: string }) {
             </div>
           ))}
         </div>
+      </AdminCard>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// IORA AI MANAGEMENT TABS
+// ════════════════════════════════════════════════════════════════════════
+//
+// The AI subsystem (iora-assist) exposes a rich `/api/assist/*` API that
+// previously had no admin UI. These six tabs cover the full surface:
+//
+//   - AiOverviewTab       /api/assist/health, /api/assist/config/stats
+//   - AiProvidersTab      /api/assist/providers, /api/assist/config/providers
+//   - AiConversationsTab  /api/assist/history, /api/assist/config/threads,
+//                         /api/assist/config/notifications
+//   - AiTasksTab          /api/assist/config/tasks
+//   - AiToolsTab          /api/assist/tools/{search,scrape,screenshot}
+//   - AiVoiceTab          /api/assist/voice/{transcribe,synthesize}
+//
+// All requests go through the same `adminFetch` helper because the nginx
+// front-door proxies `/api/assist/*` to iora-assist transparently.
+
+// ─── AI Overview ────────────────────────────────────────────────────────
+function AiOverviewTab({ token }: { token: string }) {
+  const [health, setHealth] = useState<Record<string, unknown> | null>(null)
+  const [stats, setStats] = useState<Record<string, unknown> | null>(null)
+  const [providers, setProviders] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    const safe = async <T,>(p: Promise<T>): Promise<T | null> => {
+      try { return await p } catch { return null }
+    }
+    const [h, s, p] = await Promise.all([
+      safe(adminFetch('/api/assist/health', token)),
+      safe(adminFetch('/api/assist/config/stats', token)),
+      safe(adminFetch('/api/assist/providers', token)),
+    ])
+    setHealth(h as Record<string, unknown> | null)
+    setStats(s as Record<string, unknown> | null)
+    setProviders(p as Record<string, unknown> | null)
+    if (!h && !s && !p) setError('iora-assist ist nicht erreichbar.')
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const stat = (label: string, value: React.ReactNode, sub?: string) => (
+    <div className="rounded-xl bg-foreground/[0.04] border border-foreground/10 p-3">
+      <div className="text-[10px] uppercase tracking-wide text-foreground/40">{label}</div>
+      <div className="text-base font-semibold text-foreground mt-1">{value}</div>
+      {sub && <div className="text-[11px] text-foreground/50 mt-0.5">{sub}</div>}
+    </div>
+  )
+
+  const aiAvailable = health?.ai_available === true
+  const providerName = String(health?.ai_provider ?? '–')
+  const uptime = Number(health?.uptime_seconds ?? 0)
+  const caps = (health?.capabilities ?? {}) as Record<string, boolean>
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="IORA Assist Status" icon={Brain}>
+        {loading ? (
+          <p className="text-xs text-foreground/50">Lade Status…</p>
+        ) : error ? (
+          <p className="text-xs text-red-300">{error}</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {stat('Provider', providerName, aiAvailable ? 'verbunden' : 'getrennt')}
+              {stat('Uptime', formatUptime(uptime))}
+              {stat('Status', aiAvailable ? 'OK' : 'OFFLINE')}
+              {stat('Service', String(health?.service ?? 'iora-assist'))}
+            </div>
+
+            <div className="rounded-xl bg-foreground/[0.04] border border-foreground/10 p-3">
+              <div className="text-xs font-semibold text-foreground mb-2">Fähigkeiten</div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(caps).map(([k, v]) => (
+                  <span key={k} className={`text-[11px] px-2 py-0.5 rounded-full ${v ? 'bg-green-500/15 text-green-300' : 'bg-foreground/10 text-foreground/40'}`}>
+                    {k} {v ? '✓' : '×'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </AdminCard>
+
+      {stats && (
+        <AdminCard title="Orchestrator Statistiken" icon={ChartLine}>
+          <pre className="text-[11px] font-mono whitespace-pre-wrap break-words bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground/80 max-h-72 overflow-auto">{JSON.stringify(stats?.stats ?? stats, null, 2)}</pre>
+        </AdminCard>
+      )}
+
+      {providers && (
+        <AdminCard title="Aktive Provider" icon={MagicWand}>
+          <pre className="text-[11px] font-mono whitespace-pre-wrap break-words bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground/80 max-h-72 overflow-auto">{JSON.stringify(providers, null, 2)}</pre>
+        </AdminCard>
+      )}
+
+      <div className="flex justify-center">
+        <button onClick={load} disabled={loading}
+          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/10 transition-colors border border-foreground/10 disabled:opacity-40">
+          <ArrowClockwise size={14} /> Aktualisieren
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── AI Providers ───────────────────────────────────────────────────────
+interface AiProviderConfig {
+  id?: string
+  provider_type: string
+  purpose: string
+  config?: Record<string, unknown>
+  priority?: number
+  enabled?: boolean
+}
+
+function AiProvidersTab({ token }: { token: string }) {
+  const [active, setActive] = useState<Record<string, unknown> | null>(null)
+  const [list, setList] = useState<AiProviderConfig[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const [showForm, setShowForm] = useState(false)
+  const [providerType, setProviderType] = useState('openai')
+  const [purpose, setPurpose] = useState('chat')
+  const [priority, setPriority] = useState(0)
+  const [configJson, setConfigJson] = useState('{\n  "api_key": "",\n  "model": "gpt-4o-mini"\n}')
+  const [saving, setSaving] = useState(false)
+
+  const [switchTarget, setSwitchTarget] = useState('')
+  const [switching, setSwitching] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const [a, l] = await Promise.all([
+        adminFetch('/api/assist/providers', token).catch(() => null),
+        adminFetch('/api/assist/config/providers', token).catch(() => null),
+      ])
+      setActive(a as Record<string, unknown> | null)
+      const arr = (l as Record<string, unknown> | null)?.providers
+      setList(Array.isArray(arr) ? (arr as AiProviderConfig[]) : [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const create = async () => {
+    setSaving(true); setError(null)
+    let cfg: Record<string, unknown>
+    try { cfg = JSON.parse(configJson) } catch (e) {
+      setError(`Ungültiges JSON: ${e instanceof Error ? e.message : String(e)}`)
+      setSaving(false); return
+    }
+    try {
+      await adminFetch('/api/assist/config/providers', token, {
+        method: 'POST',
+        body: JSON.stringify({ provider_type: providerType, purpose, priority, config: cfg }),
+      })
+      toast.success('Provider gespeichert')
+      setShowForm(false)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const switchProvider = async () => {
+    if (!switchTarget.trim()) return
+    setSwitching(true); setError(null)
+    try {
+      await adminFetch('/api/assist/providers/switch', token, {
+        method: 'POST',
+        body: JSON.stringify({ provider: switchTarget }),
+      })
+      toast.success(`Aktiver Provider: ${switchTarget}`)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Aktiver Provider" icon={MagicWand}>
+        {loading ? (
+          <p className="text-xs text-foreground/50">Lade…</p>
+        ) : (
+          <div className="space-y-3">
+            <pre className="text-[11px] font-mono whitespace-pre-wrap bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground/80 max-h-48 overflow-auto">{JSON.stringify(active, null, 2)}</pre>
+            <div className="flex items-center gap-2">
+              <input value={switchTarget} onChange={(e) => setSwitchTarget(e.target.value)}
+                placeholder="openai | anthropic | local | desktop"
+                className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+              <button onClick={switchProvider} disabled={switching || !switchTarget.trim()}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                {switching ? 'Wechsle…' : 'Provider wechseln'}
+              </button>
+            </div>
+          </div>
+        )}
+      </AdminCard>
+
+      <AdminCard title="Konfigurierte Provider" icon={Database}>
+        <div className="flex items-center gap-2 mb-3">
+          <button onClick={() => setShowForm((s) => !s)}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">
+            {showForm ? 'Abbrechen' : <span className="flex items-center gap-1"><Plus size={12} /> Neu</span>}
+          </button>
+          <button onClick={load} disabled={loading}
+            className="ml-auto p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10 disabled:opacity-40">
+            <ArrowClockwise size={13} />
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="rounded-xl bg-foreground/[0.04] border border-foreground/10 p-3 mb-3 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-foreground/40">Typ</label>
+                <select value={providerType} onChange={(e) => setProviderType(e.target.value)}
+                  className="w-full mt-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground">
+                  <option value="openai">openai</option>
+                  <option value="anthropic">anthropic</option>
+                  <option value="local">local (Ollama / llama.cpp)</option>
+                  <option value="desktop">desktop (IORA Desktop bridge)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-foreground/40">Verwendung</label>
+                <select value={purpose} onChange={(e) => setPurpose(e.target.value)}
+                  className="w-full mt-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground">
+                  <option value="chat">chat</option>
+                  <option value="voice_stt">voice_stt</option>
+                  <option value="voice_tts">voice_tts</option>
+                  <option value="embeddings">embeddings</option>
+                  <option value="vision">vision</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-foreground/40">Priorität</label>
+                <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))}
+                  className="w-full mt-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-foreground/40">Konfiguration (JSON)</label>
+              <textarea value={configJson} onChange={(e) => setConfigJson(e.target.value)} rows={6} spellCheck={false}
+                className="w-full mt-1 font-mono text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
+            </div>
+            <button onClick={create} disabled={saving}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              {saving ? 'Speichere…' : 'Provider anlegen'}
+            </button>
+          </div>
+        )}
+
+        {error && <p className="text-xs text-red-300 mb-2">{error}</p>}
+
+        {list.length === 0 ? (
+          <p className="text-xs text-foreground/50">Keine konfigurierten Provider in der Datenbank.</p>
+        ) : (
+          <div className="space-y-2">
+            {list.map((p, i) => (
+              <div key={p.id ?? i} className="rounded-xl bg-foreground/5 border border-foreground/10 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-foreground">{p.provider_type}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono">{p.purpose}</span>
+                  <span className="ml-auto text-[10px] text-foreground/40">prio: {p.priority ?? 0}</span>
+                </div>
+                {p.config && (
+                  <pre className="text-[10px] font-mono whitespace-pre-wrap break-words bg-foreground/5 rounded p-2 text-foreground/70 max-h-32 overflow-auto">{JSON.stringify(p.config, null, 2)}</pre>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── AI Conversations ───────────────────────────────────────────────────
+interface AiHistoryMsg { id: string; role: string; content: string; timestamp?: string }
+interface AiThread { id?: string; user_id?: string; created_at?: string; context?: unknown; message_count?: number }
+interface AiPendingNotification { id?: string; message: string; notification_type?: string; priority?: number; created_at?: string }
+
+function AiConversationsTab({ token }: { token: string }) {
+  const [history, setHistory] = useState<AiHistoryMsg[]>([])
+  const [threads, setThreads] = useState<AiThread[]>([])
+  const [notifications, setNotifications] = useState<AiPendingNotification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<'history' | 'threads' | 'notifications'>('history')
+
+  const [chatInput, setChatInput] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
+
+  const [notifMsg, setNotifMsg] = useState('')
+  const [notifType, setNotifType] = useState('info')
+  const [notifPrio, setNotifPrio] = useState(1)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const [h, t, n] = await Promise.all([
+        adminFetch('/api/assist/history', token).catch(() => null),
+        adminFetch('/api/assist/config/threads', token).catch(() => null),
+        adminFetch('/api/assist/config/notifications', token).catch(() => null),
+      ])
+      const hr = h as Record<string, unknown> | null
+      const tr = t as Record<string, unknown> | null
+      const nr = n as Record<string, unknown> | null
+      setHistory(Array.isArray(hr?.messages) ? (hr.messages as AiHistoryMsg[]) : [])
+      setThreads(Array.isArray(tr?.threads) ? (tr.threads as AiThread[]) : [])
+      setNotifications(Array.isArray(nr?.notifications) ? (nr.notifications as AiPendingNotification[]) : [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const sendChat = async () => {
+    if (!chatInput.trim()) return
+    setChatBusy(true)
+    try {
+      await adminFetch('/api/assist/chat', token, {
+        method: 'POST',
+        body: JSON.stringify({ message: chatInput }),
+      })
+      setChatInput('')
+      toast.success('Nachricht gesendet')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setChatBusy(false)
+    }
+  }
+
+  const clearHistory = async () => {
+    if (!confirm('Verlauf wirklich löschen?')) return
+    try {
+      await adminFetch('/api/assist/history/clear', token, { method: 'POST' })
+      setHistory([])
+      toast.success('Verlauf gelöscht')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const sendNotif = async () => {
+    if (!notifMsg.trim()) return
+    try {
+      await adminFetch('/api/assist/config/notifications/send', token, {
+        method: 'POST',
+        body: JSON.stringify({ message: notifMsg, notification_type: notifType, priority: notifPrio }),
+      })
+      toast.success('Proaktive Benachrichtigung in Warteschlange')
+      setNotifMsg('')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Konversationen" icon={ChatCircle}>
+        <div className="flex items-center gap-1 mb-3">
+          {(['history', 'threads', 'notifications'] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                view === v ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+              }`}>
+              {v === 'history' ? `Verlauf (${history.length})` : v === 'threads' ? `Threads (${threads.length})` : `Benachrichtigungen (${notifications.length})`}
+            </button>
+          ))}
+          <button onClick={load} disabled={loading}
+            className="ml-auto p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10 disabled:opacity-40">
+            <ArrowClockwise size={13} />
+          </button>
+        </div>
+
+        {error && <p className="text-xs text-red-300 mb-2">{error}</p>}
+        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+
+        {!loading && view === 'history' && (
+          <div className="space-y-2">
+            <div className="flex items-end gap-2">
+              <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} rows={2} placeholder="Test-Nachricht an den Assistenten…"
+                className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
+              <button onClick={sendChat} disabled={chatBusy || !chatInput.trim()}
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                {chatBusy ? '…' : 'Senden'}
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={clearHistory} disabled={history.length === 0}
+                className="text-[11px] text-red-300 hover:text-red-200 disabled:opacity-40 flex items-center gap-1"><Trash size={11} /> Verlauf löschen</button>
+            </div>
+            <div className="space-y-1.5 max-h-96 overflow-auto">
+              {history.length === 0 ? (
+                <p className="text-xs text-foreground/50">Kein Verlauf.</p>
+              ) : history.map((m) => (
+                <div key={m.id} className={`rounded-lg p-2.5 border ${m.role === 'user' ? 'bg-accent/10 border-accent/20' : 'bg-foreground/5 border-foreground/10'}`}>
+                  <div className="text-[10px] font-mono text-foreground/40 uppercase">{m.role}</div>
+                  <div className="text-xs text-foreground/85 whitespace-pre-wrap break-words mt-0.5">{m.content}</div>
+                  {m.timestamp && <div className="text-[10px] text-foreground/30 mt-1">{m.timestamp}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && view === 'threads' && (
+          <div className="space-y-2 max-h-96 overflow-auto">
+            {threads.length === 0 ? (
+              <p className="text-xs text-foreground/50">Keine aktiven Threads.</p>
+            ) : threads.map((t, i) => (
+              <div key={t.id ?? i} className="rounded-lg bg-foreground/5 border border-foreground/10 p-3">
+                <div className="text-xs font-mono text-foreground/70 break-all">{t.id ?? '–'}</div>
+                <div className="text-[10px] text-foreground/40 mt-1">
+                  {t.user_id && <span className="mr-2">user: {t.user_id}</span>}
+                  {t.message_count !== undefined && <span className="mr-2">msgs: {t.message_count}</span>}
+                  {t.created_at && <span>seit: {new Date(t.created_at).toLocaleString('de-DE')}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && view === 'notifications' && (
+          <div className="space-y-3">
+            <div className="rounded-xl bg-foreground/[0.04] border border-foreground/10 p-3 space-y-2">
+              <div className="text-xs font-semibold text-foreground">Proaktive Benachrichtigung senden</div>
+              <textarea value={notifMsg} onChange={(e) => setNotifMsg(e.target.value)} rows={2} placeholder="Nachricht…"
+                className="w-full text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-2 text-foreground" />
+              <div className="flex items-center gap-2">
+                <select value={notifType} onChange={(e) => setNotifType(e.target.value)}
+                  className="text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-2 py-1.5 text-foreground">
+                  <option value="info">info</option>
+                  <option value="reminder">reminder</option>
+                  <option value="alert">alert</option>
+                  <option value="suggestion">suggestion</option>
+                </select>
+                <input type="number" min={1} max={10} value={notifPrio} onChange={(e) => setNotifPrio(Number(e.target.value))}
+                  className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-2 py-1.5 text-foreground" />
+                <button onClick={sendNotif} disabled={!notifMsg.trim()}
+                  className="ml-auto px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+                  Senden
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2 max-h-72 overflow-auto">
+              {notifications.length === 0 ? (
+                <p className="text-xs text-foreground/50">Keine ausstehenden Benachrichtigungen.</p>
+              ) : notifications.map((n, i) => (
+                <div key={n.id ?? i} className="rounded-lg bg-foreground/5 border border-foreground/10 p-3">
+                  <div className="text-xs text-foreground/85 break-words">{n.message}</div>
+                  <div className="text-[10px] text-foreground/40 mt-1 flex gap-2">
+                    {n.notification_type && <span className="font-mono">{n.notification_type}</span>}
+                    {n.priority !== undefined && <span>P{n.priority}</span>}
+                    {n.created_at && <span>{new Date(n.created_at).toLocaleString('de-DE')}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── AI Tasks ───────────────────────────────────────────────────────────
+interface AiAutoTask {
+  id?: string
+  name?: string
+  task_type?: string
+  schedule?: string
+  enabled?: boolean
+  last_run?: string
+  next_run?: string
+  config?: Record<string, unknown>
+}
+
+function AiTasksTab({ token }: { token: string }) {
+  const [tasks, setTasks] = useState<AiAutoTask[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await adminFetch('/api/assist/config/tasks', token)
+      const arr = (r as Record<string, unknown>)?.tasks
+      setTasks(Array.isArray(arr) ? (arr as AiAutoTask[]) : [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Autonome AI-Aufgaben" icon={Robot}>
+        <p className="text-xs text-foreground/60 mb-3">
+          Hintergrund-Agenten, die der Conversation Manager periodisch
+          ausführt — z. B. Routinen-Auswertung, Anomalie-Reports oder
+          proaktive Vorschläge. Aktivierung erfolgt im AI-Provider-Tab
+          oder direkt in der Datenbank.
+        </p>
+        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {!loading && !error && tasks.length === 0 && (
+          <p className="text-xs text-foreground/50">Keine autonomen Aufgaben aktiv.</p>
+        )}
+        <div className="space-y-2">
+          {tasks.map((t, i) => (
+            <div key={t.id ?? i} className="rounded-xl bg-foreground/5 border border-foreground/10 p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-semibold text-foreground">{t.name ?? t.id ?? 'Unbenannt'}</span>
+                {t.task_type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono">{t.task_type}</span>}
+                <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${t.enabled ? 'bg-green-500/15 text-green-300' : 'bg-foreground/10 text-foreground/40'}`}>
+                  {t.enabled ? 'aktiv' : 'inaktiv'}
+                </span>
+              </div>
+              <div className="text-[10px] text-foreground/40 flex gap-3 flex-wrap">
+                {t.schedule && <span>Plan: <span className="font-mono">{t.schedule}</span></span>}
+                {t.last_run && <span>letzter Lauf: {new Date(t.last_run).toLocaleString('de-DE')}</span>}
+                {t.next_run && <span>nächster Lauf: {new Date(t.next_run).toLocaleString('de-DE')}</span>}
+              </div>
+              {t.config && Object.keys(t.config).length > 0 && (
+                <pre className="text-[10px] font-mono whitespace-pre-wrap break-words bg-foreground/5 rounded p-2 text-foreground/70 max-h-32 overflow-auto mt-2">{JSON.stringify(t.config, null, 2)}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end mt-3">
+          <button onClick={load} disabled={loading}
+            className="p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10 disabled:opacity-40">
+            <ArrowClockwise size={13} />
+          </button>
+        </div>
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── AI Tools ───────────────────────────────────────────────────────────
+function AiToolsTab({ token }: { token: string }) {
+  const [tab, setTab] = useState<'search' | 'scrape' | 'screenshot'>('search')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<unknown>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const [query, setQuery] = useState('')
+  const [maxResults, setMaxResults] = useState(5)
+  const [url, setUrl] = useState('')
+
+  const run = async () => {
+    setBusy(true); setError(null); setResult(null)
+    try {
+      let endpoint = '', body: Record<string, unknown> = {}
+      if (tab === 'search') { endpoint = '/api/assist/tools/search'; body = { query, max_results: maxResults } }
+      else if (tab === 'scrape') { endpoint = '/api/assist/tools/scrape'; body = { url } }
+      else { endpoint = '/api/assist/tools/screenshot'; body = { url } }
+      const r = await adminFetch(endpoint, token, { method: 'POST', body: JSON.stringify(body) })
+      setResult(r)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="AI Tools" icon={Hand}>
+        <p className="text-xs text-foreground/60 mb-3">
+          Werkzeuge, die der Assistent intern für Tool-Calls nutzt. Hier
+          direkt ausführbar zum Testen.
+        </p>
+        <div className="flex items-center gap-1 mb-3">
+          {(['search', 'scrape', 'screenshot'] as const).map((t) => (
+            <button key={t} onClick={() => { setTab(t); setResult(null); setError(null) }}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                tab === t ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+              }`}>
+              {t === 'search' ? 'Internet-Suche' : t === 'scrape' ? 'Web Scrapen' : 'Screenshot'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'search' ? (
+          <div className="flex items-center gap-2 mb-3">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Suchbegriff…"
+              className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+            <input type="number" min={1} max={20} value={maxResults} onChange={(e) => setMaxResults(Number(e.target.value))}
+              className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+            <button onClick={run} disabled={busy || !query.trim()}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              {busy ? '…' : 'Suchen'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 mb-3">
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…"
+              className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+            <button onClick={run} disabled={busy || !url.trim()}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              {busy ? '…' : (tab === 'scrape' ? 'Scrapen' : 'Aufnehmen')}
+            </button>
+          </div>
+        )}
+
+        {error && <p className="text-xs text-red-300 mb-2">{error}</p>}
+
+        {result !== null && (
+          <pre className="text-[11px] font-mono whitespace-pre-wrap break-words bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground/85 max-h-96 overflow-auto">{JSON.stringify(result, null, 2)}</pre>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── AI Voice ───────────────────────────────────────────────────────────
+function AiVoiceTab({ token }: { token: string }) {
+  const [text, setText] = useState('Hallo, dies ist ein IORA Assist Sprachtest.')
+  const [voice, setVoice] = useState('default')
+  const [busy, setBusy] = useState(false)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const [recording, setRecording] = useState(false)
+  const [transcript, setTranscript] = useState<string | null>(null)
+  const [recError, setRecError] = useState<string | null>(null)
+  const mediaRef = useState<{ rec?: MediaRecorder; chunks: Blob[] }>({ chunks: [] })[0]
+
+  const synthesize = async () => {
+    setBusy(true); setError(null); setAudioUrl(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/assist/voice/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text, voice }),
+      })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const blob = await r.blob()
+      setAudioUrl(URL.createObjectURL(blob))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startRec = async () => {
+    setRecError(null); setTranscript(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const rec = new MediaRecorder(stream)
+      mediaRef.chunks = []
+      rec.ondataavailable = (e) => { if (e.data.size > 0) mediaRef.chunks.push(e.data) }
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(mediaRef.chunks, { type: 'audio/webm' })
+        const fd = new FormData()
+        fd.append('audio', blob, 'recording.webm')
+        try {
+          const r = await fetch(`${API_BASE}/api/assist/voice/transcribe`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: fd,
+          })
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          const j = await r.json()
+          setTranscript(j.text ?? JSON.stringify(j))
+        } catch (e) {
+          setRecError(e instanceof Error ? e.message : String(e))
+        }
+      }
+      mediaRef.rec = rec
+      rec.start()
+      setRecording(true)
+    } catch (e) {
+      setRecError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const stopRec = () => {
+    mediaRef.rec?.stop()
+    setRecording(false)
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Text-to-Speech" icon={PaperPlaneTilt}>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3}
+          className="w-full text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
+        <div className="flex items-center gap-2 mt-2">
+          <input value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="Stimme (default)"
+            className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+          <button onClick={synthesize} disabled={busy || !text.trim()}
+            className="px-3 py-2 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            {busy ? 'Synthetisiere…' : 'Sprechen'}
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-300 mt-2">{error}</p>}
+        {audioUrl && <audio controls src={audioUrl} className="w-full mt-3" />}
+      </AdminCard>
+
+      <AdminCard title="Speech-to-Text (STT)" icon={Microphone}>
+        <p className="text-xs text-foreground/60 mb-3">
+          Aufnahme über das Browser-Mikrofon, Transkription via
+          /api/assist/voice/transcribe.
+        </p>
+        <div className="flex items-center gap-2">
+          {!recording ? (
+            <button onClick={startRec}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-red-500/20 text-red-200 hover:bg-red-500/30 flex items-center gap-1.5">
+              <Microphone size={13} /> Aufnahme starten
+            </button>
+          ) : (
+            <button onClick={stopRec}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-red-500/30 text-red-100 animate-pulse flex items-center gap-1.5">
+              <Hand size={13} /> Stoppen
+            </button>
+          )}
+        </div>
+        {recError && <p className="text-xs text-red-300 mt-2">{recError}</p>}
+        {transcript && (
+          <div className="mt-3 rounded-xl bg-foreground/5 border border-foreground/10 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-foreground/40 mb-1">Transkript</div>
+            <div className="text-xs text-foreground/85 whitespace-pre-wrap">{transcript}</div>
+          </div>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// CONNECTED DEVICES TAB
+// ════════════════════════════════════════════════════════════════════════
+//
+// Shows every dashboard client (IORA Desktop, browser tabs, kiosks)
+// that has registered with iora-home, plus a live count of currently
+// connected WebSocket clients. Backed by /api/admin/devices, which
+// pairs the `devices` DB table with `ws_manager.client_count()`.
+
+interface AdminDevice {
+  id: string
+  device_name: string
+  device_type?: string | null
+  user_agent?: string | null
+  is_terminal?: boolean
+  terminal_name?: string | null
+  assigned_profile_id?: string | null
+  last_seen: string
+  created_at: string
+  online: boolean
+  seconds_since_seen: number
+}
+
+interface AdminDevicesPayload {
+  devices: AdminDevice[]
+  total: number
+  online: number
+  connected_ws_clients: number
+  online_threshold_seconds: number
+}
+
+function DevicesTab({ token }: { token: string }) {
+  const [data, setData] = useState<AdminDevicesPayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'online' | 'offline'>('all')
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await adminFetch('/api/admin/devices', token)
+      setData(r as AdminDevicesPayload)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 15000)
+    return () => clearInterval(id)
+  }, [load])
+
+  const remove = async (id: string) => {
+    if (!confirm('Gerät wirklich aus der Registrierung entfernen?')) return
+    try {
+      await adminFetch(`/api/admin/devices/${encodeURIComponent(id)}`, token, { method: 'DELETE' })
+      toast.success('Gerät entfernt')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const filtered = (data?.devices ?? []).filter((d) => {
+    if (filter === 'online') return d.online
+    if (filter === 'offline') return !d.online
+    return true
+  })
+
+  const formatAgo = (s: number): string => {
+    if (s < 60) return `${s}s`
+    if (s < 3600) return `${Math.floor(s / 60)}m`
+    if (s < 86400) return `${Math.floor(s / 3600)}h`
+    return `${Math.floor(s / 86400)}d`
+  }
+
+  const deviceIcon = (t?: string | null) => {
+    const tt = (t ?? '').toLowerCase()
+    if (tt.includes('desktop')) return Desktop
+    if (tt.includes('mobile') || tt.includes('phone')) return Broadcast
+    if (tt.includes('kiosk') || tt.includes('terminal')) return Monitor
+    return Cpu
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Verbundene Geräte" icon={Desktop}>
+        {loading && !data ? (
+          <p className="text-xs text-foreground/50">Lade Geräte…</p>
+        ) : error ? (
+          <p className="text-xs text-red-300">{error}</p>
+        ) : data ? (
+          <>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="rounded-xl bg-foreground/[0.04] border border-foreground/10 p-3">
+                <div className="text-[10px] uppercase tracking-wide text-foreground/40">Registriert</div>
+                <div className="text-base font-semibold text-foreground mt-1">{data.total}</div>
+              </div>
+              <div className="rounded-xl bg-green-500/10 border border-green-500/20 p-3">
+                <div className="text-[10px] uppercase tracking-wide text-green-300/70">Online</div>
+                <div className="text-base font-semibold text-green-300 mt-1">{data.online}</div>
+                <div className="text-[10px] text-green-300/50 mt-0.5">≤ {data.online_threshold_seconds}s</div>
+              </div>
+              <div className="rounded-xl bg-accent/10 border border-accent/20 p-3">
+                <div className="text-[10px] uppercase tracking-wide text-accent/70">WebSocket-Sitzungen</div>
+                <div className="text-base font-semibold text-accent mt-1">{data.connected_ws_clients}</div>
+                <div className="text-[10px] text-accent/50 mt-0.5">live</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 mb-3">
+              {(['all', 'online', 'offline'] as const).map((f) => (
+                <button key={f} onClick={() => setFilter(f)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                    filter === f ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+                  }`}>
+                  {f === 'all' ? `Alle (${data.devices.length})` : f === 'online' ? `Online (${data.online})` : `Offline (${data.total - data.online})`}
+                </button>
+              ))}
+              <button onClick={load} disabled={loading}
+                className="ml-auto p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10 disabled:opacity-40">
+                <ArrowClockwise size={13} />
+              </button>
+            </div>
+
+            {filtered.length === 0 ? (
+              <p className="text-xs text-foreground/50">Keine Geräte in dieser Auswahl.</p>
+            ) : (
+              <div className="space-y-2">
+                {filtered.map((d) => {
+                  const Icon = deviceIcon(d.device_type)
+                  return (
+                    <div key={d.id} className={`rounded-xl border p-3 ${d.online ? 'border-green-500/30 bg-green-500/5' : 'border-foreground/10 bg-foreground/[0.03]'}`}>
+                      <div className="flex items-start gap-3">
+                        <div className={`rounded-lg p-2 ${d.online ? 'bg-green-500/15 text-green-300' : 'bg-foreground/10 text-foreground/40'}`}>
+                          <Icon size={18} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-foreground truncate">{d.device_name}</span>
+                            {d.device_type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono">{d.device_type}</span>}
+                            {d.is_terminal && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 font-mono">terminal</span>}
+                            {d.online ? (
+                              <span className="ml-auto flex items-center gap-1 text-[10px] text-green-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" /> online
+                              </span>
+                            ) : (
+                              <span className="ml-auto text-[10px] text-foreground/40">offline · vor {formatAgo(d.seconds_since_seen)}</span>
+                            )}
+                          </div>
+                          {d.terminal_name && <div className="text-[11px] text-foreground/50 mt-0.5">Terminal: {d.terminal_name}</div>}
+                          {d.user_agent && <div className="text-[10px] text-foreground/40 mt-1 font-mono truncate">{d.user_agent}</div>}
+                          <div className="text-[10px] text-foreground/30 mt-1 flex gap-2 flex-wrap">
+                            <span className="font-mono">{d.id.slice(0, 8)}</span>
+                            <span>· zuletzt: {new Date(d.last_seen).toLocaleString('de-DE')}</span>
+                            <span>· seit: {new Date(d.created_at).toLocaleDateString('de-DE')}</span>
+                          </div>
+                        </div>
+                        <button onClick={() => remove(d.id)} title="Gerät entfernen"
+                          className="p-1.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25">
+                          <Trash size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        ) : null}
       </AdminCard>
     </div>
   )

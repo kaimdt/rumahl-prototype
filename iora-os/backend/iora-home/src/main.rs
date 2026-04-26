@@ -822,6 +822,9 @@ async fn main() -> anyhow::Result<()> {
         // Temp DB users
         .route("/api/admin/system/database/temp-users", get(admin_list_temp_users).post(admin_create_temp_user))
         .route("/api/admin/system/database/temp-users/:user_id", delete(admin_revoke_temp_user))
+        // Connected devices (IORA Desktop, browser tabs, kiosks)
+        .route("/api/admin/devices", get(admin_list_devices))
+        .route("/api/admin/devices/:device_id", delete(admin_delete_device))
         // Maintenance mode
         .route("/api/admin/maintenance", get(admin_get_maintenance).put(admin_set_maintenance))
         // Notifications & alerts
@@ -3122,6 +3125,76 @@ async fn device_heartbeat(
             warn!("Failed to update device heartbeat: {}", e);
             Err(ErrorResponse::internal(format!("Failed to update device heartbeat: {}", e)))
         }
+    }
+}
+
+/// Admin: list all registered devices plus a live count of currently
+/// connected WebSocket clients. Powers the "Verbundene Geräte" admin
+/// tab. A device is considered "online" if its last_seen is within
+/// `online_threshold_seconds` (default 120s).
+async fn admin_list_devices(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let devices = state
+        .config_repo
+        .list_devices()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list devices: {}", e)))?;
+
+    let connected_ws_clients = state.ws_manager.client_count().await;
+    let now = chrono::Utc::now();
+    let threshold_secs: i64 = 120;
+
+    let device_payload: Vec<Value> = devices
+        .iter()
+        .map(|d| {
+            let age = (now - d.last_seen).num_seconds();
+            let online = age >= 0 && age <= threshold_secs;
+            serde_json::json!({
+                "id": d.id,
+                "device_name": d.device_name,
+                "device_type": d.device_type,
+                "user_agent": d.user_agent,
+                "is_terminal": d.is_terminal,
+                "terminal_name": d.terminal_name,
+                "assigned_profile_id": d.assigned_profile_id,
+                "last_seen": d.last_seen,
+                "created_at": d.created_at,
+                "online": online,
+                "seconds_since_seen": age.max(0),
+            })
+        })
+        .collect();
+
+    let online_count = device_payload
+        .iter()
+        .filter(|d| d.get("online").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
+
+    Ok(Json(serde_json::json!({
+        "devices": device_payload,
+        "total": devices.len(),
+        "online": online_count,
+        "connected_ws_clients": connected_ws_clients,
+        "online_threshold_seconds": threshold_secs,
+    })))
+}
+
+/// Admin: delete a registered device.
+async fn admin_delete_device(
+    State(state): State<AppState>,
+    Path(device_id): Path<String>,
+) -> Result<StatusCode, ErrorResponse> {
+    match state.config_repo.delete_device(&device_id).await {
+        Ok(true) => Ok(StatusCode::OK),
+        Ok(false) => Err(ErrorResponse::not_found(format!(
+            "Device {} not found",
+            device_id
+        ))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Failed to delete device: {}",
+            e
+        ))),
     }
 }
 

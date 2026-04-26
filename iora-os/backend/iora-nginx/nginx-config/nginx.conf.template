@@ -170,9 +170,13 @@ http {
         }
 
         # IORA Assistant
+        # NOTE: proxy_pass without trailing slash preserves the full
+        # /api/assist/* URI because iora-assist mounts its routes at
+        # `/api/assist/...` directly (not stripped). Stripping the prefix
+        # here would 404 every assist endpoint.
         location /api/assist/ {
             limit_req zone=api_limit burst=5 nodelay;
-            proxy_pass http://iora_assist/;
+            proxy_pass http://iora_assist;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection 'upgrade';

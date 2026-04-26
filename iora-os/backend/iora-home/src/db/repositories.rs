@@ -140,6 +140,30 @@ impl ConfigRepository {
         Ok(())
     }
 
+    /// List all registered devices ordered by most recently seen first.
+    /// Used by the admin "Verbundene Geräte" tab to show every dashboard
+    /// client (IORA Desktop, browser tabs, kiosk terminals) that has ever
+    /// registered with this backend.
+    pub async fn list_devices(&self) -> anyhow::Result<Vec<Device>> {
+        let devices = sqlx::query_as::<_, Device>(
+            "SELECT * FROM devices ORDER BY last_seen DESC NULLS LAST LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(devices)
+    }
+
+    /// Delete a registered device. Useful when a kiosk/desktop entry is
+    /// retired and the admin wants to drop its profile assignment.
+    pub async fn delete_device(&self, device_id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM devices WHERE id = $1")
+            .bind(device_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     // Configuration Profile operations
     pub async fn create_profile(&self, req: CreateProfileRequest) -> anyhow::Result<ConfigurationProfile> {
         // Reuse the existing default profile for this owner/type instead of creating duplicates.
