@@ -1210,18 +1210,19 @@ const FALLBACK_INDEX_HTML: &str = include_str!("fallback_index.html");
 ///   2. `IORA_BOOTSTRAP_ADMIN_USER` + `IORA_BOOTSTRAP_ADMIN_PASSWORD` env
 ///      vars (useful in dev / Docker).
 ///
-/// Only seeds when the users table is empty, so re-running has no effect
-/// after the first user exists.
+/// Behaviour with respect to existing rows:
+///   * If the username already exists **without a password_hash** (e.g. a
+///     row left over from /api/config/users or an earlier failed bootstrap
+///     run), the password and is_admin flag are UPDATEd on it. This avoids
+///     the dead-end state where the user can neither log in (no password)
+///     nor register (username already exists).
+///   * If the user exists **with** a password_hash we leave it untouched
+///     so an existing admin's password is never overwritten.
+///   * Otherwise the row is inserted fresh.
 async fn bootstrap_admin_user(
     db_pool: &DbPool,
-    config_repo: &ConfigRepository,
+    _config_repo: &ConfigRepository,
 ) -> anyhow::Result<()> {
-    // Already have users? Nothing to do.
-    let count = config_repo.count_users().await.unwrap_or(0);
-    if count > 0 {
-        return Ok(());
-    }
-
     // Try the wizard-written JSON file first.
     let json_path = std::path::PathBuf::from("/mnt/data/iora/iora-home-bootstrap.json");
     let mut creds: Option<(String, String, Option<String>)> = None;
@@ -1263,28 +1264,54 @@ async fn bootstrap_admin_user(
     let (username, password, display_name) = match creds {
         Some(c) => c,
         None => {
-            info!(
-                "No web users yet and no bootstrap credentials provided. \
-                 Open the IORA Home UI and use the registration page to create the first user (auto-promoted to admin)."
-            );
+            // No bootstrap creds AND no users yet — nudge the operator.
+            // Existing users (with or without password) keep working as-is.
             return Ok(());
         }
     };
 
     let password_hash = auth::hash_password(&password)
         .map_err(|e| anyhow::anyhow!("hash_password: {}", e))?;
-    let user_id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO users (id, username, display_name, password_hash, is_admin) VALUES ($1, $2, $3, $4, TRUE)"
+
+    // Look for the row by username and decide insert/update/skip.
+    let existing: Option<(String, Option<String>)> = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT id, password_hash FROM users WHERE username = $1"
     )
-    .bind(&user_id)
     .bind(&username)
-    .bind(display_name.as_deref().unwrap_or(&username))
-    .bind(&password_hash)
-    .execute(db_pool)
+    .fetch_optional(db_pool)
     .await?;
 
-    info!("Seeded first admin web-user '{}' from setup wizard", username);
+    match existing {
+        Some((id, Some(_existing_hash))) => {
+            info!("Bootstrap: user '{}' already exists with a password — not overwriting", username);
+            // Still ensure they are marked admin so first-boot intent is honoured.
+            let _ = sqlx::query("UPDATE users SET is_admin = TRUE WHERE id = $1").bind(&id).execute(db_pool).await;
+        }
+        Some((id, None)) => {
+            sqlx::query(
+                "UPDATE users SET password_hash = $1, is_admin = TRUE, display_name = COALESCE($2, display_name), updated_at = NOW() WHERE id = $3"
+            )
+            .bind(&password_hash)
+            .bind(display_name.as_deref())
+            .bind(&id)
+            .execute(db_pool)
+            .await?;
+            info!("Bootstrap: filled in password + admin flag for existing user '{}'", username);
+        }
+        None => {
+            let user_id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO users (id, username, display_name, password_hash, is_admin) VALUES ($1, $2, $3, $4, TRUE)"
+            )
+            .bind(&user_id)
+            .bind(&username)
+            .bind(display_name.as_deref().unwrap_or(&username))
+            .bind(&password_hash)
+            .execute(db_pool)
+            .await?;
+            info!("Bootstrap: seeded first admin web-user '{}' from setup wizard", username);
+        }
+    }
 
     if delete_json_after {
         // Best-effort delete; if it fails (read-only fs etc.) we just leave it.
@@ -3560,7 +3587,14 @@ async fn auth_login(
     let password_hash = match &user.password_hash {
         Some(hash) => hash,
         None => {
-            return Err(ErrorResponse::unauthorized("User has no password set. Please register."));
+            // Return the same generic error as a wrong password so the UI
+            // doesn't end up in a dead-end state ("please register" while
+            // /api/auth/register would refuse with 'username already exists').
+            // The orphan-without-password row is repaired automatically on
+            // the next iora-home start by `bootstrap_admin_user()` when
+            // setup-wizard credentials are available.
+            warn!("Login attempt for '{}' which has no password_hash set; treating as invalid credentials", user.username);
+            return Err(ErrorResponse::unauthorized("Invalid username or password"));
         }
     };
 

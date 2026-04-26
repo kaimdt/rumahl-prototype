@@ -573,29 +573,51 @@
   color: var(--foreground) !important;
 }
 
+/* Sonner injects its own colour vars per [data-type]; re-assert ours so
+ * the title/description stay readable in every app theme — including the
+ * login screen where the page is rendered against a dark backdrop while
+ * Sonner is initialised with theme="light". Without this the title can
+ * end up rendered as black-on-translucent-red and become unreadable. */
+.glass-toast [data-title],
+.glass-toast [data-description],
+.glass-toast-success [data-title],
+.glass-toast-success [data-description],
+.glass-toast-error [data-title],
+.glass-toast-error [data-description],
+.glass-toast-warning [data-title],
+.glass-toast-warning [data-description],
+.glass-toast-info [data-title],
+.glass-toast-info [data-description] {
+  color: var(--foreground) !important;
+}
+.glass-toast-success [data-icon] svg { color: var(--success) !important; }
+.glass-toast-error   [data-icon] svg { color: var(--destructive) !important; }
+.glass-toast-warning [data-icon] svg { color: oklch(0.75 0.15 80) !important; }
+.glass-toast-info    [data-icon] svg { color: var(--accent) !important; }
+
 .glass-toast-success {
-  background: oklch(from var(--success) l c h / 0.2) !important;
+  background: oklch(from var(--card) l c h / 0.95) !important;
   backdrop-filter: var(--glass-toast-blur) !important;
   border: 1px solid var(--success) !important;
   box-shadow: 0 8px 32px oklch(from var(--success) l c h / 0.3) !important;
 }
 
 .glass-toast-error {
-  background: oklch(from var(--destructive) l c h / 0.2) !important;
+  background: oklch(from var(--card) l c h / 0.95) !important;
   backdrop-filter: var(--glass-toast-blur) !important;
   border: 1px solid var(--destructive) !important;
   box-shadow: 0 8px 32px oklch(from var(--destructive) l c h / 0.3) !important;
 }
 
 .glass-toast-warning {
-  background: oklch(0.75 0.15 80 / 0.2) !important;
+  background: oklch(from var(--card) l c h / 0.95) !important;
   backdrop-filter: var(--glass-toast-blur) !important;
   border: 1px solid oklch(0.75 0.15 80) !important;
   box-shadow: 0 8px 32px oklch(0.75 0.15 80 / 0.3) !important;
 }
 
 .glass-toast-info {
-  background: oklch(from var(--accent) l c h / 0.2) !important;
+  background: oklch(from var(--card) l c h / 0.95) !important;
   backdrop-filter: var(--glass-toast-blur) !important;
   border: 1px solid var(--accent) !important;
   box-shadow: 0 8px 32px oklch(from var(--accent) l c h / 0.3) !important;
