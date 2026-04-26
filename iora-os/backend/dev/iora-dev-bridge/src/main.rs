@@ -6,10 +6,12 @@
 // installed, and `/etc/iora/dev-mode` is absent — so the Developer App
 // cannot obtain any elevated hot-reload capability at runtime.
 //
-// The bridge binds by default to 127.0.0.1:8099.  With `--listen 0.0.0.0`
-// (or env `IORA_DEV_BIND`) you can expose it on the LAN during remote
-// development.  It requires a token from `/etc/iora/dev-token` that is
-// generated freshly for each image build.
+// The bridge binds by default to 0.0.0.0:8099 — the whole point of an
+// OS-dev image is that the IDE on the developer workstation can reach
+// the bridge over the LAN. Override via `--listen` or env `IORA_DEV_BIND`
+// (e.g. `127.0.0.1:8099`) to lock it down again. The bridge requires a
+// token from `/var/lib/iora/dev-token` (writable; preferred) or the
+// legacy `/etc/iora/dev-token` path.
 //
 // Endpoints (all JSON):
 //   GET  /dev/status                 → build/version + capabilities
@@ -40,13 +42,31 @@ use tokio::process::Command;
 
 const DEV_MODE_FILE: &str = "/etc/iora/os-dev-mode";
 const DEV_TOKEN_FILE: &str = "/etc/iora/dev-token";
+/// Writable fallback (always on the persistent overlay, even on a
+/// read-only RAUC slot). Preferred when present and readable; the
+/// systemd unit pre-populates it via /usr/lib/iora/iora-dev-bridge-prepare.sh.
+const DEV_TOKEN_FILE_WRITABLE: &str = "/var/lib/iora/dev-token";
 const VERSION_FILE:  &str = "/etc/iora-version";
 const COMPOSE_DIR:   &str = "/mnt/data/iora";
+
+/// Resolve the path of the dev-token file, honoring `$IORA_DEV_TOKEN_FILE`
+/// when set. Without override, prefers the writable copy under /var/lib.
+fn resolve_dev_token_path() -> String {
+    if let Ok(p) = std::env::var("IORA_DEV_TOKEN_FILE") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
+    if std::path::Path::new(DEV_TOKEN_FILE_WRITABLE).exists() {
+        return DEV_TOKEN_FILE_WRITABLE.to_string();
+    }
+    DEV_TOKEN_FILE.to_string()
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "iora-dev-bridge")]
 struct Cli {
-    /// Address to bind (default 127.0.0.1:8099 or $IORA_DEV_BIND).
+    /// Address to bind (default 0.0.0.0:8099 or $IORA_DEV_BIND).
     #[arg(long, env = "IORA_DEV_BIND")]
     listen: Option<String>,
 }
@@ -74,7 +94,7 @@ fn nix_like_euid() -> String {
 /// Best-effort: when the existing token file is unreadable (EACCES) we
 /// regenerate it. Only safe when we run as root, which the systemd unit
 /// guarantees on dev images.
-async fn try_regenerate_token() -> Option<String> {
+async fn try_regenerate_token(token_path: &str) -> Option<String> {
     use std::io::{Read as _, Write as _};
     // 32 random bytes from /dev/urandom — same source as post-build.sh.
     let mut buf = [0u8; 32];
@@ -83,32 +103,47 @@ async fn try_regenerate_token() -> Option<String> {
         f.read_exact(&mut buf).ok()?;
     }
     let new_token: String = buf.iter().map(|b| format!("{b:02x}")).collect();
-    let path = std::path::Path::new(DEV_TOKEN_FILE);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let mut f = match std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(path)
-    {
-        Ok(f) => f,
-        Err(e) => {
-            tracing::warn!("could not regenerate dev token at {DEV_TOKEN_FILE}: {e}");
-            return None;
-        }
+
+    // Try writing to the requested path first; on a read-only filesystem
+    // (e.g. /etc on a RAUC slot) silently fall back to the writable path.
+    let candidates: Vec<&str> = if token_path == DEV_TOKEN_FILE_WRITABLE {
+        vec![DEV_TOKEN_FILE_WRITABLE]
+    } else {
+        vec![token_path, DEV_TOKEN_FILE_WRITABLE]
     };
-    if f.write_all(new_token.as_bytes()).is_err() {
-        return None;
+
+    for cand in candidates {
+        let path = std::path::Path::new(cand);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut f = match std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("could not regenerate dev token at {cand}: {e}");
+                continue;
+            }
+        };
+        if f.write_all(new_token.as_bytes()).is_err() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // 0644 on dev images: anyone on the device can already reach the
+            // bridge through the loopback anyway, and 0600 caused EACCES
+            // breakage when the unit ran as a non-root user.
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644));
+        }
+        tracing::info!("regenerated {cand} (mode 0644)");
+        return Some(new_token);
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    tracing::info!("regenerated {DEV_TOKEN_FILE} (mode 0600)");
-    Some(new_token)
+    None
 }
 
 #[tokio::main]
@@ -133,10 +168,11 @@ async fn main() -> Result<()> {
     // "Permission denied (os error 13)" — historically this has cost us
     // hours when the token file vanished after a rauc upgrade or got the
     // wrong owner.
-    let token = match tokio::fs::read_to_string(DEV_TOKEN_FILE).await {
+    let token_path = resolve_dev_token_path();
+    let token = match tokio::fs::read_to_string(&token_path).await {
         Ok(t) => t.trim().to_string(),
         Err(e) => {
-            let path = std::path::Path::new(DEV_TOKEN_FILE);
+            let path = std::path::Path::new(&token_path);
             let exists = path.exists();
             let mode = std::fs::metadata(path)
                 .ok()
@@ -163,29 +199,34 @@ async fn main() -> Result<()> {
                     "n/a".to_string()
                 }
             };
-            // EACCES: regenerate the token in-place so a broken-permissions
-            // image self-heals on next restart instead of looping forever.
-            if e.kind() == std::io::ErrorKind::PermissionDenied {
+            // EACCES *or* ENOENT: regenerate so a broken-permissions or
+            // missing-token image self-heals on next restart instead of
+            // looping forever.
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound
+            ) {
                 tracing::warn!(
-                    "{DEV_TOKEN_FILE} unreadable (mode={mode}, euid={euid}); regenerating."
+                    "{token_path} unreadable ({:?}, mode={mode}, euid={euid}); regenerating.",
+                    e.kind()
                 );
-                if let Some(t) = try_regenerate_token().await {
+                if let Some(t) = try_regenerate_token(&token_path).await {
                     t
                 } else {
                     return Err(anyhow::anyhow!(
-                        "reading dev token at {DEV_TOKEN_FILE}: {e} (exists={exists}, mode={mode}, euid={euid}). \
-                         Fix with: chmod 0600 {DEV_TOKEN_FILE} && chown root:root {DEV_TOKEN_FILE}"
+                        "reading dev token at {token_path}: {e} (exists={exists}, mode={mode}, euid={euid}). \
+                         Fix with: chmod 0644 {token_path}"
                     ));
                 }
             } else {
                 return Err(anyhow::anyhow!(
-                    "reading dev token at {DEV_TOKEN_FILE}: {e} (exists={exists}, mode={mode}, euid={euid})"
+                    "reading dev token at {token_path}: {e} (exists={exists}, mode={mode}, euid={euid})"
                 ));
             }
         }
     };
     if token.is_empty() {
-        anyhow::bail!("dev token at {DEV_TOKEN_FILE} is empty");
+        anyhow::bail!("dev token at {token_path} is empty");
     }
 
     let build_id = tokio::fs::read_to_string(VERSION_FILE)
@@ -203,7 +244,7 @@ async fn main() -> Result<()> {
     let addr: SocketAddr = cli
         .listen
         .as_deref()
-        .unwrap_or("127.0.0.1:8099")
+        .unwrap_or("0.0.0.0:8099")
         .parse()
         .context("invalid --listen address")?;
 
@@ -536,14 +577,15 @@ async fn replace_binary(
 // be turned into a general-purpose remote root shell.
 
 fn is_allowed_unit(name: &str) -> bool {
+    // Dev images: any well-formed systemd unit is fair game (the bridge
+    // runs as root and is only present on os-dev images by design).
     let n = name.trim();
-    if n.contains(['/', '\\', '\0', ';', '|', '&', ' ', '\n']) {
+    if n.is_empty() || n.len() > 256 {
         return false;
     }
-    n == "iora-stack.service"
-        || n == "docker.service"
-        || n == "iora-dev-bridge.service"
-        || n.starts_with("iora-")
+    // Block obvious shell-injection / path traversal characters; legit
+    // unit names never contain these.
+    !n.contains(['/', '\\', '\0', ';', '|', '&', ' ', '\n', '\r', '\t', '`', '$'])
 }
 
 fn is_allowed_compose_svc(svc: &str) -> bool {
@@ -553,18 +595,22 @@ fn is_allowed_compose_svc(svc: &str) -> bool {
 }
 
 fn is_allowed_binary_target(path: &str) -> bool {
-    // Only binaries under /usr/bin or files under /mnt/data/iora/** may be
-    // replaced via this endpoint.  Block path traversal.
+    // Dev images grant the bridge full root access on purpose: the IDE on
+    // the developer workstation must be able to swap *any* file (kernel
+    // modules, /etc configs, app payloads, container volumes, …). The
+    // only restriction is no path traversal and no relative paths so a
+    // crafted multipart can't be ambiguous.
     if path.contains("..") || !path.starts_with('/') {
         return false;
     }
-    const PREFIXES: &[&str] = &[
-        "/usr/bin/iora-",
-        "/usr/local/bin/iora-",
-        "/opt/iora/",
-        "/mnt/data/iora/",
-    ];
-    PREFIXES.iter().any(|p| path.starts_with(p))
+    // Refuse to write into kernel/proc/sys pseudo-filesystems — the swap
+    // semantics (write to .new + rename) don't apply there and would
+    // either silently fail or panic the kernel.
+    const FORBIDDEN: &[&str] = &["/proc/", "/sys/", "/dev/"];
+    if FORBIDDEN.iter().any(|p| path.starts_with(p) || path == p.trim_end_matches('/')) {
+        return false;
+    }
+    true
 }
 
 // ─── Command helpers ────────────────────────────────────────────────────────

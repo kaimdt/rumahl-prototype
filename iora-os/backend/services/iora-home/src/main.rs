@@ -31,6 +31,8 @@ mod entity_cache;
 mod ha_cache;
 mod mqtt_client;
 mod matter_client;
+mod local_appstore;
+mod dev_image;
 mod ha_connection;
 mod zigbee_client;
 mod zwave_client;
@@ -154,6 +156,13 @@ pub struct AppState {
     /// Generic settings registry – schema for all user-configurable IORA values.
     /// See [`iora_shared::settings`].
     pub settings_registry: Arc<SettingsRegistry>,
+    /// Filesystem-backed app store used when iora-appstore isn't deployed
+    /// (dashboard-only / dev images). Always present so ZIP installs and
+    /// Developer-Mode app injection work everywhere.
+    pub local_appstore: Arc<local_appstore::LocalAppStore>,
+    /// Snapshot of `/etc/iora/os-dev-mode` markers — drives the
+    /// "Developer Mode is locked on" UX on dev builds.
+    pub dev_image: Arc<dev_image::DevImageInfo>,
 }
 
 /// Entity state from Home Assistant
@@ -195,6 +204,9 @@ impl ErrorResponse {
     }
     pub fn conflict(error: impl Into<String>) -> Self {
         Self { error: error.into(), status: StatusCode::CONFLICT }
+    }
+    pub fn service_unavailable(error: impl Into<String>) -> Self {
+        Self { error: error.into(), status: StatusCode::SERVICE_UNAVAILABLE }
     }
 }
 
@@ -580,6 +592,23 @@ async fn main() -> anyhow::Result<()> {
         stream_manager: stream_manager.clone(),
         notification_dispatcher: notification_dispatcher.clone(),
         settings_registry: Arc::new(iora_shared::settings::default_registry()),
+        local_appstore: match local_appstore::LocalAppStore::open().await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("local-appstore init failed ({e:#}); falling back to in-memory only");
+                // open() only fails if the directory cannot be created;
+                // retry into a temp dir so the rest of the server still
+                // starts.
+                std::env::set_var(
+                    "IORA_LOCAL_APPS_DIR",
+                    std::env::temp_dir().join("iora-local-apps"),
+                );
+                local_appstore::LocalAppStore::open()
+                    .await
+                    .expect("fallback local-appstore init in temp dir")
+            }
+        },
+        dev_image: Arc::new(dev_image::DevImageInfo::detect()),
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -587,6 +616,50 @@ async fn main() -> anyhow::Result<()> {
         Ok(Some(username)) => info!("No admin found – auto-promoted '{}' to admin", username),
         Ok(None) => {}
         Err(e) => warn!("Failed to check admin status: {}", e),
+    }
+
+    // ── Developer-Mode bootstrap ─────────────────────────────────
+    // 1) On OS-dev-images, force developer.mode = true so it survives a
+    //    factory reset of the settings table.
+    // 2) Populate the local app-store's virtual Developer App entry to
+    //    match the current setting so the Apps tab shows it on boot
+    //    without waiting for a toggle.
+    {
+        let repo = state.config_repo.clone();
+        let store = state.local_appstore.clone();
+        let dev_image = state.dev_image.clone();
+        tokio::spawn(async move {
+            let mut enabled = match repo.get_system_preference("developer.mode").await {
+                Ok(Some(p)) => serde_json::from_str::<serde_json::Value>(&p.preference_value)
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                _ => false,
+            };
+            if dev_image.is_os_dev && !enabled {
+                let req = db::models::SaveSystemPreferenceRequest {
+                    preference_key: "developer.mode".to_string(),
+                    preference_value: serde_json::Value::Bool(true),
+                };
+                if let Err(e) = repo.save_system_preference(req).await {
+                    warn!("dev-image: could not force developer.mode=true: {e}");
+                } else {
+                    info!("OS-dev-image detected — developer.mode forced to true");
+                    enabled = true;
+                }
+                // Best-effort autostart of the dev-bridge + developer-app units.
+                for unit in ["iora-developer-app.service", "iora-dev-bridge.service"] {
+                    let _ = tokio::process::Command::new("systemctl")
+                        .arg("start")
+                        .arg(unit)
+                        .output()
+                        .await;
+                }
+            }
+            if let Err(e) = store.set_developer_app(enabled).await {
+                warn!("dev-mode bootstrap: developer-app sync failed: {e:#}");
+            }
+        });
     }
 
     // ── Auto-connect protocols from saved configs ──────────────────
@@ -956,15 +1029,24 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/plugins/:id", post(stub_core_unavailable).delete(stub_core_unavailable).put(stub_core_unavailable))
         .route("/api/core/plugins/:id/enable", post(stub_core_unavailable))
         .route("/api/core/plugins/:id/disable", post(stub_core_unavailable))
-        // App-Store stubs: when iora-appstore isn't deployed we still want
-        // the Apps tab to render an empty state instead of "(200)".
-        .route("/api/appstore/installed", get(stub_appstore_installed))
+        // App-Store: served locally by iora-home so ZIP installs and the
+        // installed-apps list work even when the dedicated `iora-appstore`
+        // microservice isn't deployed.
+        .route("/api/appstore/installed", get(local_appstore_installed))
         .route("/api/appstore/search", get(stub_appstore_search))
-        .route("/api/appstore/install", post(stub_appstore_unavailable))
-        .route("/api/appstore/apps/:app_id", get(stub_appstore_unavailable).delete(stub_appstore_unavailable))
+        .route("/api/appstore/install", post(local_appstore_install))
+        .route("/api/appstore/jobs", get(local_appstore_jobs))
+        .route("/api/appstore/jobs/stream", get(local_appstore_jobs_stream))
+        .route("/api/appstore/apps/:app_id", get(local_appstore_app_get).delete(local_appstore_app_delete))
+        .route("/api/appstore/apps/:app_id/enable", post(local_appstore_app_enable))
+        .route("/api/appstore/apps/:app_id/disable", post(local_appstore_app_disable))
         .route("/api/appstore/apps/:app_id/settings", get(stub_appstore_unavailable).post(stub_appstore_unavailable))
         .route("/api/appstore/permissions/grant", post(stub_appstore_unavailable))
         .route("/api/appstore/settings", post(stub_appstore_unavailable))
+        // Restart a known iora-* service from the Control Center.
+        .route("/api/admin/control/services/:name/restart", post(admin_control_restart_service))
+        // OS-dev-image marker / developer-mode lock info.
+        .route("/api/admin/dev-image", get(admin_dev_image_info))
         .route("/api/core/registrations", get(stub_core_registrations))
         .route("/api/core/security/events", get(stub_core_security_events))
         .route("/api/core/security/alerts", get(stub_core_security_alerts))
@@ -3471,6 +3553,238 @@ async fn stub_appstore_search() -> Json<Value> {
     Json(json!({ "results": [], "available": false }))
 }
 
+// ── Local app-store handlers ────────────────────────────────────────────────
+
+async fn local_appstore_installed(State(state): State<AppState>) -> Json<Value> {
+    let apps = state.local_appstore.list().await;
+    Json(json!({
+        "apps": apps,
+        "available": true,
+        "source": "local",
+    }))
+}
+
+async fn local_appstore_app_get(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let apps = state.local_appstore.list().await;
+    apps.into_iter()
+        .find(|a| a.id == app_id)
+        .map(|a| Json(serde_json::to_value(a).unwrap_or(json!({}))))
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' not installed", app_id)))
+}
+
+async fn local_appstore_app_delete(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ErrorResponse> {
+    // `?force=true` lets the Developer App on an OS-dev image delete
+    // *any* app, including system apps and the Developer App itself.
+    // On non-OS-dev images we ignore the flag — the user can still
+    // toggle it via Settings, but the protection stays.
+    let force_requested = params
+        .get("force")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let force = force_requested && state.dev_image.is_os_dev;
+    let result = if force {
+        state.local_appstore.uninstall_force(&app_id).await
+    } else {
+        state.local_appstore.uninstall(&app_id).await
+    };
+    result.map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({ "success": true, "app_id": app_id, "force": force })))
+}
+
+async fn local_appstore_app_enable(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app = state
+        .local_appstore
+        .enable(&app_id, true)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(serde_json::to_value(app).unwrap_or(json!({}))))
+}
+
+async fn local_appstore_app_disable(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app = state
+        .local_appstore
+        .enable(&app_id, false)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(serde_json::to_value(app).unwrap_or(json!({}))))
+}
+
+#[derive(Deserialize)]
+struct AppstoreInstallBody {
+    /// Base64-encoded ZIP. The frontend's `ZipUploadView` already posts
+    /// this shape.
+    #[serde(default)]
+    zip_data: Option<String>,
+    /// Optional original filename for nicer logs.
+    #[serde(default)]
+    file_name: Option<String>,
+}
+
+async fn local_appstore_install(
+    State(state): State<AppState>,
+    Json(body): Json<AppstoreInstallBody>,
+) -> Result<Json<Value>, ErrorResponse> {
+    use base64::Engine as _;
+
+    let zip_b64 = body
+        .zip_data
+        .ok_or_else(|| ErrorResponse::bad_request("zip_data fehlt".to_string()))?;
+    // Tolerate `data:application/zip;base64,…` prefixes from some browsers.
+    let payload = zip_b64
+        .split(',')
+        .last()
+        .unwrap_or(&zip_b64)
+        .trim()
+        .to_string();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(payload.as_bytes())
+        .map_err(|e| ErrorResponse::bad_request(format!("zip_data ist kein gültiges Base64: {e}")))?;
+
+    if bytes.is_empty() {
+        return Err(ErrorResponse::bad_request("ZIP-Datei ist leer".to_string()));
+    }
+    if bytes.len() > 256 * 1024 * 1024 {
+        return Err(ErrorResponse::bad_request(
+            "ZIP-Datei ist größer als 256 MiB".to_string(),
+        ));
+    }
+
+    let file_name = body
+        .file_name
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "upload.zip".to_string());
+
+    let install_id = state.local_appstore.start_install(file_name, bytes);
+    Ok(Json(json!({
+        "success": true,
+        "install_id": install_id,
+        "message": "Installation gestartet. Fortschritt unter /api/appstore/jobs.",
+    })))
+}
+
+async fn local_appstore_jobs(State(state): State<AppState>) -> Json<Value> {
+    let jobs = state.local_appstore.jobs().await;
+    let active = jobs
+        .iter()
+        .filter(|j| {
+            !matches!(
+                j.status,
+                local_appstore::InstallStatus::Succeeded
+                    | local_appstore::InstallStatus::Failed
+                    | local_appstore::InstallStatus::Canceled
+            )
+        })
+        .count();
+    Json(json!({
+        "jobs": jobs,
+        "active": active,
+    }))
+}
+
+/// SSE stream of install-job + app-list updates. Sends a snapshot first
+/// so the UI can render immediately on connect.
+async fn local_appstore_jobs_stream(
+    State(state): State<AppState>,
+) -> axum::response::Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use tokio_stream::wrappers::BroadcastStream;
+    use tokio_stream::StreamExt as _;
+
+    let snapshot = state.local_appstore.snapshot_event().await;
+    let recv = state.local_appstore.subscribe();
+
+    let snapshot_stream = futures_util::stream::once(async move {
+        Ok::<local_appstore::InstallEvent, Infallible>(snapshot)
+    });
+    let live = BroadcastStream::new(recv).filter_map(
+        |r: Result<local_appstore::InstallEvent, tokio_stream::wrappers::errors::BroadcastStreamRecvError>| {
+            r.ok().map(Ok::<_, Infallible>)
+        },
+    );
+    let combined = snapshot_stream.chain(live).map(
+        |r: Result<local_appstore::InstallEvent, Infallible>| {
+            let ev = r.unwrap();
+            let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+            Ok(Event::default().data(data))
+        },
+    );
+    Sse::new(combined).keep_alive(KeepAlive::default())
+}
+
+// ── Control Center: restart a known iora-* service ──────────────────────────
+
+const RESTARTABLE_SERVICES: &[&str] = &[
+    "iora-home",
+    "iora-core",
+    "iora-control",
+    "iora-assist",
+    "iora-secrets",
+    "iora-watchdog",
+    "iora-security",
+    "iora-gateway",
+    "iora-supervisor",
+    "iora-appstore",
+    "iora-backup",
+    "iora-files",
+    "iora-connector",
+    "iora-network-monitor",
+    "iora-nginx",
+    "iora-resource-manager",
+    "iora-updater",
+    "iora-developer-app",
+    "iora-dev-bridge",
+];
+
+async fn admin_control_restart_service(
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    if !RESTARTABLE_SERVICES.contains(&name.as_str()) {
+        return Err(ErrorResponse::bad_request(format!(
+            "Dienst '{}' ist nicht als neustartbar registriert.",
+            name
+        )));
+    }
+    // Best-effort: on Windows / dev workstations there's no systemctl —
+    // surface the failure as 503 so the UI can display a hint.
+    let unit = format!("{}.service", name);
+    match tokio::process::Command::new("systemctl")
+        .arg("restart")
+        .arg(&unit)
+        .output()
+        .await
+    {
+        Ok(out) if out.status.success() => Ok(Json(json!({
+            "success": true,
+            "service": name,
+            "message": format!("{unit} neu gestartet."),
+        }))),
+        Ok(out) => Err(ErrorResponse::internal(format!(
+            "systemctl restart {unit} fehlgeschlagen: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))),
+        Err(e) => Err(ErrorResponse::service_unavailable(format!(
+            "systemctl nicht verfügbar ({e}). Auf einer Dev-Workstation ist Service-Neustart per UI nicht möglich."
+        ))),
+    }
+}
+
+async fn admin_dev_image_info(State(state): State<AppState>) -> Json<Value> {
+    Json(state.dev_image.to_json())
+}
+
 async fn stub_supervisor_apps() -> Json<Value> {
     Json(json!({ "apps": [], "available": false }))
 }
@@ -3638,6 +3952,23 @@ async fn admin_settings_put(
     // build) we just log and move on.
     if key == "developer.mode" {
         let enable = body.value.as_bool().unwrap_or(false);
+
+        // OS-dev-images lock developer.mode = true. Reject the disable
+        // attempt up front so the UI can show a clear error.
+        if !enable && state.dev_image.is_os_dev {
+            return Err(ErrorResponse::bad_request(
+                "Auf einem OS-Entwickler-Image kann der Developer-Modus nicht deaktiviert werden."
+                    .to_string(),
+            ));
+        }
+
+        // Mirror to the local app-store: when dev-mode is on, surface the
+        // Developer App as an installed system app so it shows up in the
+        // Apps tab. When dev-mode is off, hide it again.
+        if let Err(e) = state.local_appstore.set_developer_app(enable).await {
+            warn!("local-appstore: developer-app sync failed: {e:#}");
+        }
+
         let action = if enable { "start" } else { "stop" };
         match tokio::process::Command::new("systemctl")
             .arg(action)

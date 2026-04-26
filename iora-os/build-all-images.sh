@@ -1453,7 +1453,11 @@ PAYLOAD_BOOTABLE="unknown"
 PAYLOAD_LAYOUT="unknown"
 PAYLOAD_BOOT_MODE="unknown"
 MIN_DISK_GB=8
-BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
+if [ -f /etc/iora/os-dev-mode ]; then
+    BACKTITLE="IORA OS Installer  *** DEV BUILD — INTERNAL USE ONLY ***"
+else
+    BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
+fi
 IORA_HOSTNAME="iora"
 IORA_TIMEZONE="Europe/Berlin"
 IORA_NETWORK="dhcp"
@@ -2136,6 +2140,14 @@ repair_disk_and_bootloader() {
     fi
     log_r "Kernel: ${kernel_path}"
 
+    # If the rootfs we just installed is a DEV build, surface that in
+    # the GRUB menu titles so a quick reboot shows it loud and clear.
+    local _menu_suffix=""
+    if [ -f "${target}/etc/iora/os-dev-mode" ]; then
+        _menu_suffix=" — DEV BUILD (INTERNAL)"
+        log_r "DEV build detected — GRUB titles will be marked"
+    fi
+
     # NOTE: grub.cfg is NOT shell. GRUB's `search` command does NOT
     # support --partuuid, and tokens like `2>/dev/null` or `|| true`
     # cause "syntax error / Incorrect command". Use --fs-uuid and the
@@ -2156,7 +2168,7 @@ insmod linux
 insmod echo
 insmod all_video
 
-menuentry "IORA OS" {
+menuentry "IORA OS${_menu_suffix}" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
@@ -2167,7 +2179,7 @@ menuentry "IORA OS" {
     fi
 }
 
-menuentry "IORA OS (second slot)" {
+menuentry "IORA OS (second slot)${_menu_suffix}" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
@@ -2178,7 +2190,7 @@ menuentry "IORA OS (second slot)" {
     fi
 }
 
-menuentry "IORA OS Recovery" {
+menuentry "IORA OS Recovery${_menu_suffix}" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
@@ -2654,6 +2666,12 @@ install_bootloader_fallback() {
         _root_b="$_part_b"
     fi
 
+    # Mirror the DEV-build suffix from the primary grub.cfg writer above.
+    local _menu_suffix2=""
+    if [ -f "${target}/etc/iora/os-dev-mode" ]; then
+        _menu_suffix2=" — DEV BUILD (INTERNAL)"
+    fi
+
     # Respect any LUKS-specific grub.cfg the encryption path already wrote.
     # NOTE: GRUB's `search` accepts --fs-uuid, NOT --partuuid. Shell tokens
     # like `2>/dev/null` or `|| true` are syntax errors in grub.cfg, and
@@ -2677,7 +2695,7 @@ insmod linux
 insmod echo
 insmod all_video
 
-menuentry "IORA OS" {
+menuentry "IORA OS${_menu_suffix2}" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
@@ -2686,7 +2704,7 @@ menuentry "IORA OS" {
     fi
 }
 
-menuentry "IORA OS (Partition B)" {
+menuentry "IORA OS (Partition B)${_menu_suffix2}" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
@@ -2695,7 +2713,7 @@ menuentry "IORA OS (Partition B)" {
     fi
 }
 
-menuentry "IORA OS Recovery" {
+menuentry "IORA OS Recovery${_menu_suffix2}" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
         linux /boot/vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 init=/bin/bash
@@ -3050,14 +3068,33 @@ KBDCONF
 
 INSTALLER_MODE="install"   # install | rescue | shell
 
+# True iff the running installer ISO is itself an IORA OS Dev build.
+# We use this to plaster a DEV warning on the welcome screen so a tester
+# can never confuse the dev installer with the production one.
+is_iora_dev_iso() {
+    [ -f /etc/iora/os-dev-mode ]
+}
+
 screen_welcome() {
+    local _dev_warn=""
+    if is_iora_dev_iso; then
+        _dev_warn=$(cat <<'DEVWARN'
+ ╔══════════════════════════════════════════════════════════════════╗
+ ║   *** IORA OS DEV BUILD — INTERNAL USE ONLY ***                  ║
+ ║   This installer image is NOT for production use.                ║
+ ║   Installed systems will run the OS-dev hot-reload bridge.       ║
+ ╚══════════════════════════════════════════════════════════════════╝
+
+DEVWARN
+)
+    fi
     if [ -n "$DIALOG_BIN" ]; then
         local choice
         choice=$(dlg --title " IORA OS Installer " --menu "\
- Welcome to IORA OS.\n\n\
+${_dev_warn} Welcome to IORA OS.\n\n\
  Use the arrow keys to navigate, Tab to switch\n\
  between the menu and the buttons, and Enter\n\
- to confirm your selection.\n" 20 72 4 \
+ to confirm your selection.\n" 24 72 4 \
             "install" "Install IORA OS on this computer" \
             "rescue"  "Rescue or repair an existing installation" \
             "shell"   "Drop to a rescue shell" \
@@ -3117,6 +3154,12 @@ screen_welcome() {
     else
         clear 2>/dev/null || true
         echo ""
+        if is_iora_dev_iso; then
+            echo "  *** IORA OS DEV BUILD — INTERNAL USE ONLY ***"
+            echo "  ============================================"
+            echo "  Not for production use."
+            echo ""
+        fi
         echo "  IORA OS Setup"
         echo "  ============="
         echo ""

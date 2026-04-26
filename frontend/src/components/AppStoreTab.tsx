@@ -19,7 +19,10 @@ interface AppInfo {
   trust_level: 'trusted' | 'untrusted' | 'verified'
   enabled: boolean
   installed_at: string
-  ports: PortInfo[]
+  ports?: PortInfo[]
+  kind?: 'app' | 'plugin' | 'system'
+  system?: boolean
+  source?: string
 }
 
 interface PortInfo {
@@ -58,6 +61,22 @@ export function AppStoreTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  // On OS-dev images the Developer App may replace/delete *any* app,
+  // including system apps. We probe the dev-image marker once on mount.
+  const [isOsDev, setIsOsDev] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const info = await adminFetch('/api/admin/dev-image', token) as { is_os_dev?: boolean }
+        if (!cancelled) setIsOsDev(Boolean(info?.is_os_dev))
+      } catch {
+        /* not on a dev image — leave isOsDev=false */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [token])
 
   const loadInstalled = useCallback(async () => {
     setLoading(true)
@@ -133,12 +152,13 @@ export function AppStoreTab({ token }: { token: string }) {
       {/* Installed Apps View */}
       {view === 'installed' && (
         <>
+          <InstallProgressList token={token} onJobComplete={loadInstalled} />
           {loading ? (
             <LoadingSpinner />
           ) : error ? (
             <ErrorMessage>{error}</ErrorMessage>
           ) : (
-            <InstalledAppsView apps={apps} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} />
+            <InstalledAppsView apps={apps} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} />
           )}
         </>
       )}
@@ -162,12 +182,14 @@ function InstalledAppsView({
   apps,
   token,
   onReload,
-  getTrustBadge
+  getTrustBadge,
+  isOsDev,
 }: {
   apps: AppInfo[]
   token: string
   onReload: () => void
   getTrustBadge: (level: string) => JSX.Element
+  isOsDev: boolean
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
@@ -195,11 +217,18 @@ function InstalledAppsView({
     setActionLoading(null)
   }
 
-  const uninstallApp = async (appId: string) => {
-    if (!confirm('App wirklich deinstallieren? Alle Daten gehen verloren.')) return
+  const uninstallApp = async (appId: string, force = false) => {
+    const isSystemApp = apps.find(a => a.id === appId)?.system
+    const prompt = force && isSystemApp
+      ? `System-App "${appId}" auf einem OS-DEV-Image deinstallieren? Das kann das System-Verhalten ändern.`
+      : 'App wirklich deinstallieren? Alle Daten gehen verloren.'
+    if (!confirm(prompt)) return
     setActionLoading(appId)
     try {
-      await adminFetch(`/api/appstore/apps/${appId}`, token, { method: 'DELETE' })
+      const url = force
+        ? `/api/appstore/apps/${appId}?force=true`
+        : `/api/appstore/apps/${appId}`
+      await adminFetch(url, token, { method: 'DELETE' })
       toast.success('App deinstalliert')
       onReload()
     } catch (e) {
@@ -248,11 +277,11 @@ function InstalledAppsView({
               </div>
 
               {/* Ports */}
-              {app.ports.length > 0 && (
+              {(app.ports?.length ?? 0) > 0 && (
                 <div className="mb-3 pt-2 border-t border-foreground/5">
                   <div className="text-[10px] text-foreground/40 mb-1.5">Zugewiesene Ports:</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {app.ports.map((port, j) => (
+                    {app.ports!.map((port, j) => (
                       <span key={j} className="text-[10px] px-2 py-1 rounded bg-accent/10 text-accent font-mono">
                         {port.external}:{port.internal}/{port.protocol}
                       </span>
@@ -261,9 +290,23 @@ function InstalledAppsView({
                 </div>
               )}
 
+              {/* System app banner */}
+              {app.system && (
+                <div className="mb-3 pt-2 border-t border-foreground/5 text-[10px] text-blue-300/80 bg-blue-500/10 border border-blue-500/20 rounded-lg p-2">
+                  System-App — wird automatisch mit dem Developer-Modus aktiviert.
+                  {isOsDev
+                    ? ' OS-DEV-Image: Force-Deinstallation per "Erzwingen" möglich.'
+                    : ' Kann nicht manuell deinstalliert werden.'}
+                </div>
+              )}
+
               {/* Actions */}
               <div className="flex items-center gap-2">
-                {app.enabled ? (
+                {app.system ? (
+                  <span className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/15 text-blue-300 rounded text-[10px] font-semibold">
+                    <ShieldCheck size={12} weight="fill" /> System-App
+                  </span>
+                ) : app.enabled ? (
                   <button
                     onClick={() => disableApp(app.id)}
                     disabled={actionLoading === app.id}
@@ -282,20 +325,35 @@ function InstalledAppsView({
                     Aktivieren
                   </button>
                 )}
-                <button
-                  onClick={() => window.open(`/app-settings/${app.id}`, '_blank')}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
-                >
-                  <Gear size={12} /> Einstellungen
-                </button>
-                <button
-                  onClick={() => uninstallApp(app.id)}
-                  disabled={actionLoading === app.id}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/15 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
-                >
-                  {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
-                  Deinstallieren
-                </button>
+                {!app.system && (
+                  <button
+                    onClick={() => window.open(`/app-settings/${app.id}`, '_blank')}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
+                  >
+                    <Gear size={12} /> Einstellungen
+                  </button>
+                )}
+                {!app.system && (
+                  <button
+                    onClick={() => uninstallApp(app.id)}
+                    disabled={actionLoading === app.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/15 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                  >
+                    {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
+                    Deinstallieren
+                  </button>
+                )}
+                {app.system && isOsDev && (
+                  <button
+                    onClick={() => uninstallApp(app.id, true)}
+                    disabled={actionLoading === app.id}
+                    title="Nur auf OS-DEV-Images verfügbar"
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-yellow-500/15 text-yellow-400 rounded text-[10px] font-semibold hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
+                  >
+                    {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
+                    Erzwingen (DEV)
+                  </button>
+                )}
               </div>
 
               <div className="mt-2 text-[10px] text-foreground/30">
@@ -375,27 +433,42 @@ function ZipUploadView({
 
     setUploading(true)
     try {
+      const fileRef = file
       // Convert file to base64
       const reader = new FileReader()
       reader.onload = async () => {
-        const base64 = reader.result?.toString().split(',')[1]
+        try {
+          const base64 = reader.result?.toString().split(',')[1]
 
-        await adminFetch('/api/appstore/install', token, {
-          method: 'POST',
-          body: JSON.stringify({
-            zip_data: base64,
-            // manifest will be extracted from ZIP on server side
-          }),
-        })
+          const result = await adminFetch('/api/appstore/install', token, {
+            method: 'POST',
+            body: JSON.stringify({
+              zip_data: base64,
+              file_name: fileRef.name,
+            }),
+          }) as { install_id?: string }
 
-        toast.success('App erfolgreich installiert!')
-        onSuccess()
+          if (result.install_id) {
+            toast.success('Installation gestartet — Fortschritt unter "Installierte Apps".')
+          } else {
+            toast.success('App erfolgreich installiert!')
+          }
+          onSuccess()
+        } catch (e) {
+          toast.error((e as Error).message)
+        } finally {
+          setUploading(false)
+        }
+      }
+      reader.onerror = () => {
+        toast.error('ZIP konnte nicht gelesen werden.')
+        setUploading(false)
       }
       reader.readAsDataURL(file)
     } catch (e) {
       toast.error((e as Error).message)
+      setUploading(false)
     }
-    setUploading(false)
   }
 
   return (
@@ -461,6 +534,133 @@ function ZipUploadView({
             </>
           )}
         </button>
+      </div>
+    </AdminCard>
+  )
+}
+
+// ── Install Progress List ────────────────────────────────────────────────
+
+interface InstallJob {
+  id: string
+  file_name: string
+  size_bytes: number
+  status: 'pending' | 'extracting' | 'validating' | 'installing' | 'succeeded' | 'failed' | 'canceled'
+  progress: number
+  message: string
+  app_id?: string | null
+  app_name?: string | null
+  app_version?: string | null
+  started_at: string
+  finished_at?: string | null
+  error?: string | null
+  log?: string[]
+}
+
+function InstallProgressList({ token, onJobComplete }: { token: string; onJobComplete: () => void }) {
+  const [jobs, setJobs] = useState<InstallJob[]>([])
+  const [activeCount, setActiveCount] = useState(0)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let lastSucceeded = 0
+
+    const tick = async () => {
+      try {
+        const data = await adminFetch('/api/appstore/jobs', token) as { jobs: InstallJob[]; active: number }
+        if (cancelled) return
+        const list = data.jobs ?? []
+        const succeededNow = list.filter(j => j.status === 'succeeded').length
+        if (succeededNow > lastSucceeded) onJobComplete()
+        lastSucceeded = succeededNow
+        setJobs(list)
+        setActiveCount(data.active ?? 0)
+      } catch {
+        /* swallow — endpoint may temporarily be down */
+      }
+    }
+
+    tick()
+    const interval = setInterval(tick, 1500)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [token, onJobComplete])
+
+  // Hide entirely when there's no history.
+  const visibleJobs = jobs.slice(0, 8)
+  if (visibleJobs.length === 0) return null
+
+  const statusLabel = (s: InstallJob['status']) => ({
+    pending: 'Warten',
+    extracting: 'Entpacken',
+    validating: 'Prüfen',
+    installing: 'Installieren',
+    succeeded: 'Fertig',
+    failed: 'Fehler',
+    canceled: 'Abgebrochen',
+  }[s])
+
+  const statusColor = (s: InstallJob['status']) => {
+    switch (s) {
+      case 'succeeded': return 'bg-green-500/15 text-green-300'
+      case 'failed': return 'bg-red-500/15 text-red-300'
+      case 'canceled': return 'bg-foreground/10 text-foreground/40'
+      default: return 'bg-blue-500/15 text-blue-300'
+    }
+  }
+
+  const barColor = (s: InstallJob['status']) =>
+    s === 'failed' ? 'bg-red-400' : s === 'succeeded' ? 'bg-green-400' : 'bg-accent'
+
+  return (
+    <AdminCard
+      title={activeCount > 0 ? `App-Installationen (${activeCount} aktiv)` : 'Letzte Installationen'}
+      icon={DownloadSimple}
+    >
+      <div className="space-y-2">
+        {visibleJobs.map(job => (
+          <div key={job.id} className="p-2.5 rounded-lg bg-foreground/3 border border-foreground/5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold text-foreground truncate">
+                  {job.app_name ?? job.file_name}
+                  {job.app_version && (
+                    <span className="ml-1.5 text-[10px] text-foreground/40 font-normal">v{job.app_version}</span>
+                  )}
+                </div>
+                <div className="text-[10px] text-foreground/50 truncate">{job.message}</div>
+              </div>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${statusColor(job.status)}`}>
+                {statusLabel(job.status)} {job.progress > 0 && job.status !== 'succeeded' ? `· ${job.progress}%` : ''}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${barColor(job.status)}`}
+                style={{ width: `${Math.max(2, Math.min(100, job.status === 'succeeded' ? 100 : job.progress))}%` }}
+              />
+            </div>
+            {job.error && (
+              <div className="mt-1.5 text-[10px] text-red-300/90 truncate" title={job.error}>
+                {job.error}
+              </div>
+            )}
+          </div>
+        ))}
+        {jobs.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            className="text-[10px] text-foreground/50 hover:text-foreground/80"
+          >
+            {open ? 'Details ausblenden' : `${jobs.length} Einträge insgesamt`}
+          </button>
+        )}
+        {open && (
+          <pre className="text-[10px] text-foreground/60 bg-foreground/[0.02] rounded p-2 max-h-60 overflow-auto">
+            {jobs.flatMap(j => (j.log ?? []).map(l => `[${j.id.slice(0, 8)}] ${l}`)).join('\n')}
+          </pre>
+        )}
       </div>
     </AdminCard>
   )

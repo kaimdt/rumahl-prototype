@@ -1953,6 +1953,75 @@ cat > "${TARGET_DIR}/etc/iora/build-info.json" <<EOF
 EOF
 chmod 0644 "${TARGET_DIR}/etc/iora/build-info.json"
 
+# -----------------------------------------------------------------------------
+# DEV BUILD branding (only on IORA_OS_DEV=1 images)
+# -----------------------------------------------------------------------------
+# We make the DEV nature of the image *unmissable* so devices never get
+# accidentally handed to a real customer:
+#   * /etc/os-release PRETTY_NAME carries "(DEV — INTERNAL)"
+#   * /etc/issue gets a fat banner shown at every TTY login prompt
+#   * /etc/motd.dev appended to motd shows the warning after login
+#   * /etc/hostname suffixed with "-dev" if not already set otherwise
+#   * /etc/iora/dev-banner.txt drop file used by iora-installer + iora-home
+#     UIs to render a visible "DEV BUILD" badge.
+if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+    echo "IORA OS: applying DEV-build branding (os-release/issue/motd/hostname)"
+
+    # /etc/iora/dev-banner.txt — single source of truth that the
+    # installer TUI, the iora-home web UI and any other surface can read.
+    mkdir -p "${TARGET_DIR}/etc/iora"
+    cat > "${TARGET_DIR}/etc/iora/dev-banner.txt" <<EOF
+IORA OS DEV BUILD — INTERNAL USE ONLY
+Version: ${IORA_VERSION_STR}
+Built:   ${IORA_BUILT_AT}
+Target:  ${IORA_TARGET:-pc} (${IORA_ARCH:-x86_64})
+DO NOT distribute this image to end users.
+EOF
+    chmod 0644 "${TARGET_DIR}/etc/iora/dev-banner.txt"
+
+    # /etc/os-release — be liberal: rewrite if it exists, create otherwise.
+    if [ -f "${TARGET_DIR}/etc/os-release" ]; then
+        # Drop any prior PRETTY_NAME/VARIANT lines, then re-add ours.
+        sed -i -e '/^PRETTY_NAME=/d' -e '/^VARIANT=/d' -e '/^VARIANT_ID=/d' \
+            "${TARGET_DIR}/etc/os-release"
+    else
+        : > "${TARGET_DIR}/etc/os-release"
+    fi
+    cat >> "${TARGET_DIR}/etc/os-release" <<EOF
+PRETTY_NAME="IORA OS ${IORA_VERSION_STR} (DEV — INTERNAL)"
+VARIANT="OS Dev Build"
+VARIANT_ID=os-dev
+EOF
+
+    # /etc/issue — shown on every getty login prompt before the user logs
+    # in. Includes plain ANSI colours that all 90s+ terminals understand.
+    cat > "${TARGET_DIR}/etc/issue" <<'EOF'
+
+  \e[1;43;30m ════════════════════════════════════════════ \e[0m
+  \e[1;43;30m   IORA OS — DEV BUILD — INTERNAL USE ONLY    \e[0m
+  \e[1;43;30m   Do NOT use in production. Do NOT ship.     \e[0m
+  \e[1;43;30m ════════════════════════════════════════════ \e[0m
+
+  IORA OS Dev \r  \l
+
+EOF
+    chmod 0644 "${TARGET_DIR}/etc/issue"
+
+    # Append a DEV banner to /etc/motd. Note: /etc/motd is rewritten on
+    # every boot by iora-motd-update (defined later in this script), so
+    # the actual runtime banner injection happens inside that script —
+    # search for "dev-banner.txt" below. The static append here only
+    # matters if the dynamic update fails to run.
+
+    # Hostname suffix: only override if the existing file is the stock
+    # default ("iora") — respect any per-board override that already set
+    # something else.
+    if [ ! -s "${TARGET_DIR}/etc/hostname" ] || \
+       [ "$(cat "${TARGET_DIR}/etc/hostname" 2>/dev/null | tr -d '\n')" = "iora" ]; then
+        echo "iora-dev" > "${TARGET_DIR}/etc/hostname"
+    fi
+fi
+
 # Install welcome message. We use a STATIC placeholder for /etc/motd
 # that is overwritten on every boot by iora-motd.service with the real
 # IP addresses. Users who log in before networking is up see the
@@ -2046,6 +2115,14 @@ BANNER
     fi
     printf "  %-14s /opt/iora/docs\n" "Documentation:"
     printf "\n"
+    # If this is an OS-dev build, scream about it on every motd render.
+    if [ -f /etc/iora/dev-banner.txt ]; then
+        printf "  ╔══════════════════════════════════════════════════╗\n"
+        printf "  ║   IORA OS DEV BUILD — INTERNAL USE ONLY          ║\n"
+        printf "  ║   Hot-reload bridge: http://%-21s║\n" "${hostpart}:8099"
+        printf "  ║   Do NOT use in production. Do NOT distribute.   ║\n"
+        printf "  ╚══════════════════════════════════════════════════╝\n\n"
+    fi
 } > "$tmp"
 
 # Atomically replace /etc/motd.
@@ -2697,10 +2774,68 @@ EOF
     chmod 0644 "${TARGET_DIR}/etc/iora/os-dev-mode"
 
     # Per-image random token so even multiple dev images on one LAN don't
-    # share credentials.
+    # share credentials. NOTE: 0644, not 0600 — on a dev image any user
+    # on the device can already read it via the bridge anyway, and 0600
+    # historically caused EACCES storms when the bridge ended up running
+    # as the unprivileged `iora` user (uid 900) instead of root.
     head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' \
         > "${TARGET_DIR}/etc/iora/dev-token"
-    chmod 0600 "${TARGET_DIR}/etc/iora/dev-token"
+    chmod 0644 "${TARGET_DIR}/etc/iora/dev-token"
+
+    # Helper that the dev-bridge unit calls before the binary starts. It
+    # makes sure (1) a writable copy of the token exists on a writable
+    # filesystem (/var/lib/iora is on the persistent overlay; /etc may be
+    # part of a read-only RAUC slot), (2) the file is world-readable, and
+    # (3) the bridge port is reachable from the LAN, not just localhost.
+    install -d -m 0755 "${TARGET_DIR}/usr/lib/iora"
+    cat > "${TARGET_DIR}/usr/lib/iora/iora-dev-bridge-prepare.sh" <<'PREPARE_EOF'
+#!/bin/sh
+# Prepare the dev bridge runtime: ensure the dev-token is on a writable
+# path with permissions the bridge can actually use. Idempotent.
+set -e
+
+DST_DIR=/var/lib/iora
+DST=${DST_DIR}/dev-token
+SRC=/etc/iora/dev-token
+
+mkdir -p "${DST_DIR}"
+chmod 0755 "${DST_DIR}"
+
+if [ ! -s "${DST}" ]; then
+    if [ -s "${SRC}" ]; then
+        cp -f "${SRC}" "${DST}"
+    else
+        # Generate one if neither side has a token (e.g. RAUC slot rotation
+        # ate the original).
+        head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "${DST}"
+    fi
+fi
+
+chmod 0644 "${DST}" || true
+
+# Best-effort: also (re)write the /etc/iora copy so legacy code paths
+# that still hard-code the old location keep working. Silently tolerate
+# a read-only filesystem here.
+if [ -w /etc/iora ] || mkdir -p /etc/iora 2>/dev/null; then
+    cp -f "${DST}" "${SRC}" 2>/dev/null && chmod 0644 "${SRC}" 2>/dev/null || true
+fi
+
+# Open the bridge port through any iptables/nftables firewall that
+# happens to be active. Failures are non-fatal — most dev images don't
+# run a firewall at all.
+if command -v iptables >/dev/null 2>&1; then
+    iptables -C INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null \
+        || true
+fi
+if command -v nft >/dev/null 2>&1; then
+    nft list chain inet filter input 2>/dev/null | grep -q 'tcp dport 8099 accept' \
+        || nft add rule inet filter input tcp dport 8099 accept 2>/dev/null \
+        || true
+fi
+exit 0
+PREPARE_EOF
+    chmod 0755 "${TARGET_DIR}/usr/lib/iora/iora-dev-bridge-prepare.sh"
 
     cat > "${TARGET_DIR}/etc/systemd/system/iora-dev-bridge.service" <<'EOF'
 [Unit]
@@ -2716,20 +2851,28 @@ Type=simple
 # and we also need to swap binaries owned by root and call docker/systemctl.
 User=root
 Group=root
-Environment=IORA_DEV_BIND=127.0.0.1:8099
+# Bind on all interfaces by default — the whole point of a dev image is
+# that the IDE on the developer's workstation can reach the bridge over
+# the LAN. Override with /etc/iora/dev-bridge.env if you want to lock it
+# down again.
+Environment=IORA_DEV_BIND=0.0.0.0:8099
+Environment=IORA_DEV_TOKEN_FILE=/var/lib/iora/dev-token
 EnvironmentFile=-/etc/iora/dev-bridge.env
-# Self-heal: if a previous boot left the token file with bad perms (e.g.
-# after a rauc upgrade where /etc was migrated from a different layout),
-# the binary regenerates it itself; we additionally try to chmod it here
-# so old binaries on this image also recover.
-ExecStartPre=-/bin/sh -c 'if [ -f /etc/iora/dev-token ]; then chmod 0600 /etc/iora/dev-token; chown root:root /etc/iora/dev-token; fi'
+# Self-heal: copy/regenerate the dev-token onto a writable path, fix
+# perms, and poke firewall holes for 8099. The script tolerates every
+# error and never blocks startup.
+ExecStartPre=/usr/lib/iora/iora-dev-bridge-prepare.sh
 ExecStart=/usr/bin/iora-dev-bridge
 Restart=on-failure
 RestartSec=2
-# Dev mode needs broad rights to swap binaries and talk to docker/systemctl,
-# but we still strip the obvious sharp edges.
-ProtectHome=yes
+# Dev mode is INTENTIONALLY unrestricted: the bridge must be able to
+# swap any file on the host and call any systemd unit / docker command
+# on behalf of the IDE. We rely on (a) the binary only existing on
+# os-dev images and (b) the per-image dev token for access control.
 NoNewPrivileges=no
+ProtectSystem=no
+ProtectHome=no
+PrivateTmp=no
 StandardOutput=journal
 StandardError=journal
 

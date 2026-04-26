@@ -23,7 +23,7 @@ reqwest = { version = "0.11", features = ["json"] }
 tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
 native-tls = "0.2"
 futures-util = "0.3"
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 async-stream = "0.3"
 
 # Logging
@@ -62,3 +62,6 @@ rumqttc = "0.24"
 utoipa = { version = "4", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
+# Local app-store: extract uploaded ZIPs without depending on iora-appstore
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+base64 = "0.22"

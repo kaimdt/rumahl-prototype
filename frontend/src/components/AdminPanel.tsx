@@ -1069,28 +1069,42 @@ function SettingInput({ def, value, onChange, disabled }: {
 
 // ─── Developer Mode quick-toggle tab ────────────────────────────────────
 //
-// This is a thin shortcut to the `developer.mode` boolean exposed by the
-// shared SettingsRegistry. Power users who want the full set of debug
-// switches should use the Globale Konfiguration tab → category
-// "Entwickler". This tab exists so the on/off switch doesn't disappear
-// behind a search box for occasional use.
+// Reframed in 29.28: this is the "Plugin- und App-Entwicklermodus". When
+// active, the IORA Developer App is unlocked, ZIP installs use a relaxed
+// trust model, and the dev-bridge surfaces extra `/api/dev/*` endpoints.
+// Non-developers should leave this off — it broadens the system's
+// attack surface in exchange for tooling convenience.
+//
+// On OS-Entwickler-Images (where /etc/iora/os-dev-mode is present and
+// `iora-dev-bridge.service` is shipping) the toggle is locked on and a
+// banner explains the implications.
 function DeveloperModeTab({ token }: { token: string }) {
   const [enabled, setEnabled] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [devImage, setDevImage] = useState<{
+    is_os_dev: boolean
+    dev_token_present: boolean
+    bridge_unit_installed: boolean
+    developer_app_unit_installed: boolean
+    build_id: string | null
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await adminFetch('/api/admin/settings', token)
+        const [res, devInfo] = await Promise.all([
+          adminFetch('/api/admin/settings', token),
+          adminFetch('/api/admin/dev-image', token).catch(() => null),
+        ])
         const list = (res?.settings ?? res ?? []) as Array<{ key: string; value: unknown }>
         const entry = list.find(e => e.key === 'developer.mode')
         if (!cancelled) {
           setEnabled(entry?.value === true)
-          // Mirror to localStorage so the rest of the UI can react without
-          // a round-trip on every render.
+          if (devInfo) setDevImage(devInfo as typeof devImage extends infer T ? T : never)
           if (entry?.value === true) {
             localStorage.setItem('iora-developer-mode', 'true')
           } else {
@@ -1106,7 +1120,7 @@ function DeveloperModeTab({ token }: { token: string }) {
     return () => { cancelled = true }
   }, [token])
 
-  const toggle = async (next: boolean) => {
+  const apply = async (next: boolean) => {
     setSaving(true)
     setError(null)
     try {
@@ -1127,23 +1141,48 @@ function DeveloperModeTab({ token }: { token: string }) {
     }
   }
 
+  const isLocked = devImage?.is_os_dev === true
+  const handleToggle = (next: boolean) => {
+    if (isLocked) return
+    if (next) {
+      setConfirmOpen(true)
+    } else {
+      apply(false)
+    }
+  }
+
   return (
     <div className="space-y-3">
-      <AdminCard title="Developer Mode" icon={Wrench}>
+      {isLocked && (
+        <AdminCard title="OS-Entwickler-Image aktiv" icon={ShieldCheck}>
+          <div className="space-y-2 text-xs text-foreground/80">
+            <p>
+              Dieses System wurde als <strong>IORA OS Dev (internal)</strong>{' '}
+              gebaut. Der Plugin- und App-Entwicklermodus ist dauerhaft
+              aktiviert und kann nicht deaktiviert werden.
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-[11px] text-foreground/60">
+              {devImage?.bridge_unit_installed && <li><span className="font-mono">iora-dev-bridge.service</span> wird automatisch gestartet.</li>}
+              {devImage?.developer_app_unit_installed && <li>Die <strong>IORA Developer App</strong> ist permanent unter „Installierte Apps" verfügbar.</li>}
+              {devImage?.dev_token_present && <li>Ein Dev-Token liegt unter <span className="font-mono">/etc/iora/dev-token</span> (Mode 0600).</li>}
+              {devImage?.build_id && <li>Build-ID: <span className="font-mono">{devImage.build_id}</span></li>}
+            </ul>
+          </div>
+        </AdminCard>
+      )}
+
+      <AdminCard title="Plugin- und App-Entwicklermodus" icon={Wrench}>
         {loading ? (
           <p className="text-xs text-foreground/50">Lade aktuellen Status…</p>
         ) : (
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-foreground/5 border border-foreground/10">
               <div className="flex-1">
-                <div className="text-sm font-semibold text-foreground mb-1">Developer Mode aktivieren</div>
+                <div className="text-sm font-semibold text-foreground mb-1">Entwicklermodus aktivieren</div>
                 <p className="text-xs text-foreground/60 leading-relaxed">
-                  Aktiviert erweiterte Debug-Funktionen im Dashboard:
-                  ausführliche Konsolen-Logs, Render-Counter, rohe JSON-
-                  Antworten in einem seitlichen Drawer und einen
-                  SSE/WebSocket-Frame-Inspektor im Realtime-Tab. Greift nicht
-                  auf zusätzliche Backend-Berechtigungen zu — verändert
-                  ausschließlich die Anzeige.
+                  Schaltet die <strong>IORA Developer App</strong> frei und erlaubt das Installieren
+                  unsignierter ZIP-Pakete. Gedacht für Personen, die eigene Plugins
+                  oder Apps für IORA OS bauen — nicht für den normalen Betrieb.
                 </p>
                 <p className="text-[11px] text-foreground/40 mt-2">
                   Setting-Schlüssel: <span className="font-mono">developer.mode</span>
@@ -1153,11 +1192,12 @@ function DeveloperModeTab({ token }: { token: string }) {
                 type="button"
                 role="switch"
                 aria-checked={enabled === true}
-                disabled={saving || enabled === null}
-                onClick={() => toggle(!enabled)}
+                disabled={saving || enabled === null || isLocked}
+                onClick={() => handleToggle(!enabled)}
+                title={isLocked ? 'Auf einem OS-Entwickler-Image gesperrt' : undefined}
                 className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
                   enabled ? 'bg-green-500/70' : 'bg-foreground/20'
-                } ${saving ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+                } ${saving ? 'opacity-60 cursor-wait' : isLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <span
                   className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
@@ -1169,9 +1209,9 @@ function DeveloperModeTab({ token }: { token: string }) {
 
             {enabled && (
               <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-                Developer Mode ist aktiv. Bitte den Browser-Tab neu laden,
-                damit alle abhängigen Komponenten ihren Debug-Modus
-                übernehmen.
+                Entwicklermodus ist aktiv. Die Developer App erscheint unter
+                „Installierte Apps". Ggf. Browser-Tab neu laden, damit alle
+                Komponenten den Status übernehmen.
               </div>
             )}
             {error && (
@@ -1183,15 +1223,81 @@ function DeveloperModeTab({ token }: { token: string }) {
         )}
       </AdminCard>
 
-      <AdminCard title="Was wird aktiviert?" icon={Lightning}>
+      <AdminCard title="Was ändert sich beim Einschalten?" icon={Lightning}>
         <ul className="text-xs text-foreground/70 space-y-1.5 list-disc list-inside">
-          <li>Erweiterte Konsolen-Logs (DEBUG statt INFO).</li>
-          <li>Render-Counter und Performance-Marker im UI.</li>
-          <li>Roh-JSON-Drawer für jede Admin-API-Antwort.</li>
-          <li>SSE/WebSocket-Frame-Inspektor im Realtime-Tab.</li>
-          <li>Erweiterte Tooltips mit Komponenten-Pfaden.</li>
+          <li><strong>IORA Developer App</strong> wird automatisch installiert und gestartet.</li>
+          <li>ZIP-Uploads im App-Tab werden akzeptiert (auch ohne Signatur, mit Trust-Level „untrusted").</li>
+          <li>Der Dev-Bridge stellt zusätzliche <span className="font-mono">/api/dev/*</span> Endpunkte bereit.</li>
+          <li>Hot-Reload und Plugin-Reloading sind möglich, ohne Dienste neu zu starten.</li>
+          <li>Die Sandbox-Isolation einzelner Plugins ist gelockert.</li>
         </ul>
       </AdminCard>
+
+      {confirmOpen && (
+        <DeveloperModeConfirmModal
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={async () => { setConfirmOpen(false); await apply(true) }}
+        />
+      )}
+    </div>
+  )
+}
+
+function DeveloperModeConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void | Promise<void> }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-background border border-foreground/10 shadow-2xl">
+        <div className="p-5 border-b border-foreground/10">
+          <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+            <ShieldWarning size={20} weight="fill" className="text-amber-400" />
+            Entwicklermodus aktivieren?
+          </h3>
+        </div>
+        <div className="p-5 space-y-4 text-xs text-foreground/80">
+          <p>Bevor du den Plugin- und App-Entwicklermodus aktivierst, beachte die Unterschiede zum Normalbetrieb:</p>
+          <div className="grid grid-cols-2 gap-3 text-[11px]">
+            <div className="rounded-lg bg-foreground/5 border border-foreground/10 p-3">
+              <div className="font-semibold text-foreground/90 mb-1.5">Normalmodus</div>
+              <ul className="list-disc list-inside space-y-1 text-foreground/60">
+                <li>Nur signierte Apps</li>
+                <li>Strenge Sandbox-Isolation</li>
+                <li>Developer App ausgeblendet</li>
+                <li>Kleinere Angriffsfläche</li>
+                <li>Empfohlen für Endgeräte</li>
+              </ul>
+            </div>
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3">
+              <div className="font-semibold text-amber-200 mb-1.5">Entwicklermodus</div>
+              <ul className="list-disc list-inside space-y-1 text-amber-200/80">
+                <li>Unsignierte ZIPs erlaubt</li>
+                <li>Gelockerte Plugin-Isolation</li>
+                <li>Developer App + Bridge aktiv</li>
+                <li>Zusätzliche <span className="font-mono">/api/dev/*</span> Endpunkte</li>
+                <li>Nur für Entwicklungs-Setups</li>
+              </ul>
+            </div>
+          </div>
+          <p className="text-[11px] text-foreground/50">
+            Du kannst den Modus jederzeit wieder deaktivieren — außer auf einem OS-Entwickler-Image.
+          </p>
+        </div>
+        <div className="p-4 border-t border-foreground/10 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg bg-foreground/10 text-foreground text-xs font-semibold hover:bg-foreground/15 transition-colors"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={() => { void onConfirm() }}
+            className="px-4 py-2 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition-colors"
+          >
+            Entwicklermodus aktivieren
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1229,6 +1335,8 @@ function ServicesTab({ token }: { token: string }) {
   const [overview, setOverview] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [restarting, setRestarting] = useState<string | null>(null)
+  const [restartFeedback, setRestartFeedback] = useState<{ name: string; ok: boolean; msg: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1245,6 +1353,22 @@ function ServicesTab({ token }: { token: string }) {
   }, [token])
 
   useEffect(() => { load() }, [load])
+
+  const restartService = async (name: string) => {
+    if (!confirm(`Dienst "${name}" wirklich neu starten? Während des Neustarts ist er kurz nicht erreichbar.`)) return
+    setRestarting(name)
+    setRestartFeedback(null)
+    try {
+      await adminFetch(`/api/admin/control/services/${encodeURIComponent(name)}/restart`, token, { method: 'POST' })
+      setRestartFeedback({ name, ok: true, msg: `${name} wird neu gestartet…` })
+      // Re-poll a bit later so the user sees the new status.
+      setTimeout(() => { dataCache.delete('/api/admin/control/services'); load() }, 2500)
+    } catch (e) {
+      setRestartFeedback({ name, ok: false, msg: (e as Error).message })
+    } finally {
+      setRestarting(null)
+    }
+  }
 
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorMessage>{error}</ErrorMessage>
@@ -1315,6 +1439,25 @@ function ServicesTab({ token }: { token: string }) {
               {svc.details && Object.entries(svc.details).map(([k, v]) => (
                 <StatItem key={k} label={k} value={String(v)} />
               ))}
+            </div>
+            <div className="mt-3 pt-2 border-t border-foreground/5 flex items-center justify-between gap-2">
+              {restartFeedback?.name === svc.name ? (
+                <span className={`text-[10px] truncate ${restartFeedback.ok ? 'text-green-300' : 'text-red-300'}`}>
+                  {restartFeedback.msg}
+                </span>
+              ) : (
+                <span className="text-[10px] text-foreground/30 truncate">{svc.url}</span>
+              )}
+              <button
+                type="button"
+                onClick={() => restartService(svc.name)}
+                disabled={restarting === svc.name || svc.status === 'not_deployed'}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                title={svc.status === 'not_deployed' ? 'Dienst nicht installiert' : `${svc.name}.service neu starten`}
+              >
+                <ArrowClockwise size={11} className={restarting === svc.name ? 'animate-spin' : ''} />
+                {restarting === svc.name ? 'Starte…' : 'Neu starten'}
+              </button>
             </div>
           </AdminCard>
         ))}
