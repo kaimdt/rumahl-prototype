@@ -58,10 +58,11 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+  { id: 'global-config', label: 'Globale Konfiguration', icon: Gear, description: 'Zentrale IORA-OS Konfiguration mit Kategorien — spiegelt das .env-System wider, mit Beschreibungen und Validierung pro Eintrag' },
   { id: 'tasks', label: 'Aufgaben', icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
   { id: 'control-mode', label: 'Betriebsmodus', icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
   { id: 'system', label: 'System', icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
@@ -110,7 +111,7 @@ type TabGroup = {
 }
 
 const tabGroups: TabGroup[] = [
-  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure'] },
+  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure'] },
   { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
@@ -370,21 +371,37 @@ export async function adminFetch(path: string, token: string, options?: RequestI
       ...(options?.headers || {}),
     },
   })
+  // Detect HTML responses (e.g. dev-server fallback / nginx 404 page) before
+  // we try to parse them as JSON, so the user sees a friendly message instead
+  // of "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON".
+  const contentType = res.headers.get('content-type') || ''
+  const looksLikeHtml = contentType.includes('text/html')
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     let message = `HTTP ${res.status}`
-    try {
-      const json = JSON.parse(text)
-      if (json?.error) message = json.error
-      else if (json?.message) message = json.message
-    } catch {
-      if (text) message = text
+    const trimmed = text.trimStart()
+    if (looksLikeHtml || trimmed.startsWith('<')) {
+      message = 'Dieser Bereich ist auf diesem System (noch) nicht verfügbar.'
+    } else {
+      try {
+        const json = JSON.parse(text)
+        if (json?.error) message = json.error
+        else if (json?.message) message = json.message
+      } catch {
+        if (text) message = text
+      }
     }
-    console.error('Admin fetch failed:', { url, status: res.status, statusText: res.statusText, body: text })
+    console.error('Admin fetch failed:', { url, status: res.status, statusText: res.statusText, body: text.slice(0, 200) })
     if (res.status === 403) {
       throw new Error('Kein Admin-Zugriff. Bitte neu einloggen.')
     }
     throw new Error(`${message} (${res.status})`)
+  }
+  if (looksLikeHtml) {
+    // 200 OK but HTML body — almost certainly the SPA fallback. Treat as
+    // missing endpoint so the calling tab can show an empty/disabled state
+    // instead of crashing on JSON.parse.
+    throw new Error('Dieser Bereich ist auf diesem System (noch) nicht verfügbar. (200)')
   }
   return res.json()
 }
@@ -570,6 +587,7 @@ export function AdminPanel() {
               transition={{ duration: 0.15 }}
             >
               {activeTab === 'services' && <ServicesTab token={token} />}
+              {activeTab === 'global-config' && <GlobalConfigTab token={token} />}
               {activeTab === 'tasks' && <TasksTab token={token} />}
               {activeTab === 'control-mode' && <ControlModeTab token={token} />}
               {activeTab === 'system' && <SystemTab token={token} />}
@@ -621,11 +639,367 @@ export function AdminPanel() {
 interface ServiceStatus {
   name: string
   url: string
-  status: 'online' | 'offline' | 'degraded'
+  status: 'online' | 'offline' | 'degraded' | 'not_deployed'
   response_time_ms?: number
   version?: string
   uptime?: string
   details?: Record<string, unknown>
+}
+
+// ── Global Configuration Tab ───────────────────────────────────────────
+//
+// Surfaces every IORA OS setting registered with the backend
+// `SettingsRegistry` (see backend/iora-shared/src/settings.rs). The
+// schema-driven design means we get one consistent UI for what would
+// otherwise be a sprawling .env file: every entry has a description,
+// category, type-aware input, validation and a list of services that
+// need to restart after a write.
+
+interface SettingDefDto {
+  key: string
+  label: string
+  description: string
+  category: 'system' | 'home_assistant' | 'integrations' | 'appearance' | 'privacy' | 'developer' | 'other'
+  setting_type: 'string' | 'secret' | 'bool' | 'integer' | 'float' | 'url' | 'enum' | 'json'
+  default: unknown
+  wizard: boolean
+  required: boolean
+  requires_restart: string[]
+  visibility?: 'visible' | 'hidden' | 'read_only'
+  options?: string[]
+  min?: number
+  max?: number
+  tags?: string[]
+}
+
+interface SettingValueDto {
+  definition: SettingDefDto
+  value: unknown
+  is_set: boolean
+}
+
+const CATEGORY_LABELS: Record<SettingDefDto['category'], string> = {
+  system: 'System',
+  home_assistant: 'Home Assistant',
+  integrations: 'Integrationen',
+  appearance: 'Darstellung',
+  privacy: 'Privatsphäre',
+  developer: 'Entwickler',
+  other: 'Sonstiges',
+}
+
+const CATEGORY_DESCRIPTIONS: Record<SettingDefDto['category'], string> = {
+  system: 'System-kritische Werte: Hostname, Zeitzone, Netzwerk, Sicherheit. Änderungen können einen Neustart erfordern.',
+  home_assistant: 'Verbindung zur Home-Assistant-Instanz: URL, Long-Lived Token und Synchronisations-Optionen.',
+  integrations: 'Smart-Home-Protokolle: MQTT, Matter, Zigbee, Z-Wave, Bluetooth, HomeKit.',
+  appearance: 'Sprache, Theme, Einheiten und sonstige UI-Präferenzen.',
+  privacy: 'Telemetrie, Aufzeichnungen und Datenschutzeinstellungen.',
+  developer: 'Debug-Schalter, experimentelle Features und tiefe Konfiguration. Mit Vorsicht ändern.',
+  other: 'Alles, was in keine andere Kategorie passt.',
+}
+
+function GlobalConfigTab({ token }: { token: string }) {
+  const [items, setItems] = useState<SettingValueDto[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [activeCategory, setActiveCategory] = useState<SettingDefDto['category']>('system')
+  const [search, setSearch] = useState('')
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [pendingValues, setPendingValues] = useState<Record<string, unknown>>({})
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await adminFetch('/api/admin/settings', token) as SettingValueDto[]
+      setItems(Array.isArray(data) ? data : [])
+      setPendingValues({})
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const visible = items.filter(it => it.definition.visibility !== 'hidden')
+
+  const categories = Array.from(new Set(visible.map(it => it.definition.category))) as SettingDefDto['category'][]
+  const orderedCategories: SettingDefDto['category'][] =
+    (['system', 'home_assistant', 'integrations', 'appearance', 'privacy', 'developer', 'other'] as const)
+      .filter(c => categories.includes(c))
+
+  const filtered = visible.filter(it => {
+    if (it.definition.category !== activeCategory) return false
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return it.definition.key.toLowerCase().includes(q)
+      || it.definition.label.toLowerCase().includes(q)
+      || it.definition.description.toLowerCase().includes(q)
+  })
+
+  const save = async (key: string, value: unknown) => {
+    setSavingKey(key)
+    try {
+      await adminFetch(`/api/admin/settings/${encodeURIComponent(key)}`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ value }),
+      })
+      // Reload to get the canonical value (e.g. secrets get masked).
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setSavingKey(null)
+  }
+
+  const setLocal = (key: string, value: unknown) => {
+    setPendingValues(prev => ({ ...prev, [key]: value }))
+  }
+
+  if (loading) return <LoadingSpinner />
+  if (error && items.length === 0) return <ErrorMessage>{error}</ErrorMessage>
+
+  if (orderedCategories.length === 0) {
+    return (
+      <div className="space-y-3">
+        <AdminCard title="Globale Konfiguration" icon={Gear}>
+          <p className="text-xs text-foreground/60">
+            Keine Konfigurationswerte registriert. Das Settings-Registry des Backends ist leer
+            oder konnte nicht geladen werden.
+          </p>
+        </AdminCard>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard icon={Gear} title="Globale Konfiguration">
+        <p className="text-xs text-foreground/60 leading-relaxed">
+          Zentrale Konfiguration für IORA OS. Diese Seite spiegelt das klassische .env-System
+          wider, ist aber schema-getrieben: jeder Eintrag hat einen Typ, eine Validierung,
+          eine Beschreibung und eine Liste von Diensten, die nach einer Änderung neu starten müssen.
+          Änderungen werden sofort in der Datenbank gespeichert.
+        </p>
+      </AdminCard>
+
+      {/* Category tabs */}
+      <div className="flex flex-wrap gap-2">
+        {orderedCategories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setActiveCategory(cat)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              activeCategory === cat
+                ? 'bg-accent text-white'
+                : 'bg-foreground/5 text-foreground/70 hover:bg-foreground/10'
+            }`}
+          >
+            {CATEGORY_LABELS[cat]}
+          </button>
+        ))}
+      </div>
+
+      <AdminCard>
+        <div className="space-y-1.5">
+          <p className="text-xs text-foreground/70 leading-relaxed">
+            {CATEGORY_DESCRIPTIONS[activeCategory]}
+          </p>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="In dieser Kategorie suchen…"
+            className="w-full mt-2 px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:border-accent"
+          />
+        </div>
+      </AdminCard>
+
+      <div className="space-y-2">
+        {filtered.length === 0 && (
+          <AdminCard>
+            <p className="text-xs text-foreground/60 text-center py-4">
+              Keine Einträge in dieser Kategorie {search ? 'für diese Suche' : ''}.
+            </p>
+          </AdminCard>
+        )}
+        {filtered.map(item => {
+          const def = item.definition
+          const stored = item.value
+          const pending = pendingValues[def.key]
+          const current = pending !== undefined ? pending : stored
+          const dirty = pending !== undefined && JSON.stringify(pending) !== JSON.stringify(stored)
+          const readOnly = def.visibility === 'read_only'
+
+          return (
+            <AdminCard key={def.key}>
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-semibold text-foreground">{def.label}</h4>
+                      {def.required && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/15 text-red-300">Pflicht</span>
+                      )}
+                      {def.wizard && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/15 text-accent">Wizard</span>
+                      )}
+                      {!item.is_set && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60">Standard</span>
+                      )}
+                      {readOnly && (
+                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60">Nur lesen</span>
+                      )}
+                    </div>
+                    <code className="text-[10px] font-mono text-foreground/40">{def.key}</code>
+                    {def.description && (
+                      <p className="text-xs text-foreground/60 mt-1 leading-relaxed">{def.description}</p>
+                    )}
+                  </div>
+                </div>
+
+                <SettingInput
+                  def={def}
+                  value={current}
+                  onChange={v => setLocal(def.key, v)}
+                  disabled={readOnly}
+                />
+
+                {def.requires_restart.length > 0 && dirty && (
+                  <p className="text-[10px] text-amber-400">
+                    Erfordert Neustart: {def.requires_restart.join(', ')}
+                  </p>
+                )}
+
+                {!readOnly && (
+                  <div className="flex justify-end gap-2 pt-1">
+                    {dirty && (
+                      <button
+                        onClick={() => setPendingValues(prev => { const n = { ...prev }; delete n[def.key]; return n })}
+                        className="px-3 py-1 rounded-lg text-[11px] text-foreground/60 hover:bg-foreground/5 transition"
+                      >
+                        Verwerfen
+                      </button>
+                    )}
+                    <button
+                      disabled={!dirty || savingKey === def.key}
+                      onClick={() => save(def.key, current)}
+                      className="px-3 py-1 rounded-lg text-[11px] bg-accent text-white disabled:bg-foreground/10 disabled:text-foreground/40 transition"
+                    >
+                      {savingKey === def.key ? 'Speichert…' : 'Speichern'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </AdminCard>
+          )
+        })}
+      </div>
+
+      {error && items.length > 0 && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SettingInput({ def, value, onChange, disabled }: {
+  def: SettingDefDto
+  value: unknown
+  onChange: (v: unknown) => void
+  disabled?: boolean
+}) {
+  const baseInput = 'w-full px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:border-accent disabled:opacity-50'
+  switch (def.setting_type) {
+    case 'bool':
+      return (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            disabled={disabled}
+            onChange={e => onChange(e.target.checked)}
+            className="w-4 h-4"
+          />
+          <span className="text-xs text-foreground/70">{Boolean(value) ? 'Aktiviert' : 'Deaktiviert'}</span>
+        </label>
+      )
+    case 'integer':
+    case 'float':
+      return (
+        <input
+          type="number"
+          step={def.setting_type === 'float' ? 'any' : 1}
+          min={def.min}
+          max={def.max}
+          disabled={disabled}
+          value={value === null || value === undefined ? '' : String(value)}
+          onChange={e => {
+            const raw = e.target.value
+            if (raw === '') return onChange(null)
+            const num = def.setting_type === 'float' ? parseFloat(raw) : parseInt(raw, 10)
+            onChange(Number.isFinite(num) ? num : null)
+          }}
+          className={baseInput}
+        />
+      )
+    case 'enum':
+      return (
+        <select
+          disabled={disabled}
+          value={value === null || value === undefined ? '' : String(value)}
+          onChange={e => onChange(e.target.value)}
+          className={baseInput}
+        >
+          <option value="">— Bitte wählen —</option>
+          {(def.options || []).map(o => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      )
+    case 'secret':
+      return (
+        <input
+          type="password"
+          disabled={disabled}
+          placeholder={value ? '••••••••' : 'Nicht gesetzt'}
+          value={typeof value === 'string' ? value : ''}
+          onChange={e => onChange(e.target.value)}
+          className={baseInput}
+        />
+      )
+    case 'json':
+      return (
+        <textarea
+          disabled={disabled}
+          rows={4}
+          value={typeof value === 'string' ? value : JSON.stringify(value ?? null, null, 2)}
+          onChange={e => {
+            try {
+              onChange(JSON.parse(e.target.value))
+            } catch {
+              onChange(e.target.value) // store raw, validation happens on save
+            }
+          }}
+          className={`${baseInput} font-mono`}
+        />
+      )
+    case 'url':
+    case 'string':
+    default:
+      return (
+        <input
+          type={def.setting_type === 'url' ? 'url' : 'text'}
+          disabled={disabled}
+          value={typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value)}
+          onChange={e => onChange(e.target.value)}
+          className={baseInput}
+        />
+      )
+  }
 }
 
 function ServicesTab({ token }: { token: string }) {
@@ -655,6 +1029,7 @@ function ServicesTab({ token }: { token: string }) {
 
   const onlineCount = services.filter(s => s.status === 'online').length
   const totalCount = services.length
+  const deployedCount = services.filter(s => s.status !== 'not_deployed').length
 
   return (
     <div className="space-y-3">
@@ -662,8 +1037,8 @@ function ServicesTab({ token }: { token: string }) {
       <AdminCard title="Übersicht" icon={Gauge}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="text-center p-3 rounded-xl bg-foreground/3">
-            <div className="text-2xl font-bold text-foreground">{onlineCount}/{totalCount}</div>
-            <div className="text-[10px] text-foreground/50 mt-0.5">Dienste online</div>
+            <div className="text-2xl font-bold text-foreground">{onlineCount}/{deployedCount}</div>
+            <div className="text-[10px] text-foreground/50 mt-0.5">Dienste online ({totalCount} bekannt)</div>
           </div>
           <div className="text-center p-3 rounded-xl bg-foreground/3">
             <div className="text-2xl font-bold text-foreground">{overview?.mode as string ?? '–'}</div>
@@ -689,6 +1064,7 @@ function ServicesTab({ token }: { token: string }) {
                 <div className={`w-2.5 h-2.5 rounded-full ${
                   svc.status === 'online' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]' :
                   svc.status === 'degraded' ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]' :
+                  svc.status === 'not_deployed' ? 'bg-foreground/30' :
                   'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.5)]'
                 }`} />
                 <div>
@@ -699,9 +1075,13 @@ function ServicesTab({ token }: { token: string }) {
               <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${
                 svc.status === 'online' ? 'bg-green-500/15 text-green-300' :
                 svc.status === 'degraded' ? 'bg-amber-500/15 text-amber-300' :
+                svc.status === 'not_deployed' ? 'bg-foreground/10 text-foreground/50' :
                 'bg-red-500/15 text-red-300'
               }`}>
-                {svc.status === 'online' ? 'Online' : svc.status === 'degraded' ? 'Eingeschränkt' : 'Offline'}
+                {svc.status === 'online' ? 'Online' :
+                 svc.status === 'degraded' ? 'Eingeschränkt' :
+                 svc.status === 'not_deployed' ? 'Nicht aktiviert' :
+                 'Offline'}
               </span>
             </div>
             <div className="space-y-0">

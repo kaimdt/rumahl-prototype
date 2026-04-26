@@ -925,6 +925,22 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/settings/schema/wizard", get(admin_settings_schema_wizard))
         .route("/api/admin/settings", get(admin_settings_list))
         .route("/api/admin/settings/:key", get(admin_settings_get).put(admin_settings_put))
+        // Graceful stubs for endpoints that are normally served by other
+        // IORA microservices (iora-supervisor, iora-core). When those
+        // services aren't deployed (e.g. on a fresh install or in a
+        // dashboard-only build) we still want the admin tabs to render
+        // an empty state instead of 404'ing into the SPA fallback (which
+        // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
+        .route("/api/supervisor/system/info", get(stub_supervisor_system_info))
+        .route("/api/supervisor/apps", get(stub_supervisor_apps))
+        .route("/api/core/plugins/with-stats", get(stub_core_plugins))
+        .route("/api/core/registrations", get(stub_core_registrations))
+        .route("/api/core/security/events", get(stub_core_security_events))
+        .route("/api/core/security/alerts", get(stub_core_security_alerts))
+        .route("/api/core/security/resource-usage", get(stub_core_security_resource_usage))
+        .route("/api/core/updates/check", get(stub_core_updates_check).post(stub_core_updates_check))
+        .route("/api/core/updates/history", get(stub_core_updates_history))
+        .route("/api/core/widgets", get(stub_core_widgets))
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
         .route("/api/notifications", get(get_notifications))
@@ -3289,6 +3305,70 @@ async fn admin_settings_schema_wizard(
     Json(state.settings_registry.wizard())
 }
 
+// ── Graceful stubs for endpoints normally served by other microservices ──
+//
+// In a stripped-down build (or before iora-supervisor / iora-core have
+// finished starting up) these endpoints would otherwise 404 into the
+// frontend SPA fallback. The frontend then chokes on "<!DOCTYPE" while
+// trying to parse JSON and the entire admin tab becomes unusable. By
+// returning an empty-but-valid JSON shell here we let the existing tab
+// components render their normal empty-state.
+
+async fn stub_supervisor_system_info() -> Json<Value> {
+    Json(json!({
+        "available": false,
+        "hostname": null,
+        "platform": null,
+        "kernel": null,
+        "uptime_seconds": 0,
+        "cpu_usage": 0,
+        "memory_usage": 0,
+        "disk_usage": 0,
+        "note": "iora-supervisor ist auf diesem System nicht verfügbar.",
+    }))
+}
+
+async fn stub_supervisor_apps() -> Json<Value> {
+    Json(json!({ "apps": [], "available": false }))
+}
+
+async fn stub_core_plugins() -> Json<Value> {
+    Json(json!({ "plugins": [], "available": false }))
+}
+
+async fn stub_core_registrations() -> Json<Value> {
+    Json(json!({ "registrations": [], "available": false }))
+}
+
+async fn stub_core_security_events() -> Json<Value> {
+    Json(json!({ "events": [], "available": false }))
+}
+
+async fn stub_core_security_alerts() -> Json<Value> {
+    Json(json!({ "alerts": [], "available": false }))
+}
+
+async fn stub_core_security_resource_usage() -> Json<Value> {
+    Json(json!({
+        "available": false,
+        "cpu_percent": 0.0,
+        "memory_percent": 0.0,
+        "disk_percent": 0.0,
+    }))
+}
+
+async fn stub_core_updates_check() -> Json<Value> {
+    Json(json!({ "updates": [], "available": false }))
+}
+
+async fn stub_core_updates_history() -> Json<Value> {
+    Json(json!({ "history": [], "available": false }))
+}
+
+async fn stub_core_widgets() -> Json<Value> {
+    Json(json!({ "widgets": [], "available": false }))
+}
+
 async fn admin_settings_list(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SettingValueDto>>, ErrorResponse> {
@@ -5449,14 +5529,21 @@ async fn ha_api_get(state: &AppState, path: &str) -> Result<Value, ErrorResponse
 async fn admin_ha_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    // Try cache first, then fall back to direct API call
+    // Try cache first, then fall back to direct API call. If HA is not yet
+    // configured / not reachable we return a 200 with `available: false`
+    // instead of a 500 so the admin UI can render a graceful empty state.
     let config = state.ha_data_cache
         .get_or_fetch_api("/api/config", std::time::Duration::from_secs(120), || async {
             ha_api_get(&state, "/api/config").await.ok()
         })
-        .await
-        .ok_or_else(|| ErrorResponse::internal("HA config not available"))?;
-    Ok(Json(config))
+        .await;
+    match config {
+        Some(c) => Ok(Json(c)),
+        None => Ok(Json(serde_json::json!({
+            "available": false,
+            "reason": "Home Assistant ist nicht erreichbar oder noch nicht eingerichtet.",
+        }))),
+    }
 }
 
 /// Admin: Get HA integrations/components
@@ -8555,7 +8642,15 @@ async fn admin_control_services(
                 ("online", uptime, body)
             }
             Ok(resp) => ("degraded", 0u64, json!({ "http_status": resp.status().as_u16() })),
-            Err(_) => ("offline", 0u64, json!({})),
+            // Connection refused / DNS failure / timeout — almost always
+            // means the service binary just isn't running on this system
+            // (e.g. dashboard-only deployment). Surface this as
+            // "not_deployed" so the UI can render it neutrally instead of
+            // as a red "Offline" alarm. iora-home itself is special-cased:
+            // if we're running this handler, iora-home is obviously up,
+            // so treat its own failure as a real outage.
+            Err(_) if *name == "iora-home" => ("offline", 0u64, json!({ "note": "self check failed" })),
+            Err(_) => ("not_deployed", 0u64, json!({ "note": "Dienst nicht erreichbar — vermutlich nicht installiert oder nicht aktiviert." })),
         };
         results.push(json!({
             "name": name,

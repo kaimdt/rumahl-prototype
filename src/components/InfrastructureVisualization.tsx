@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Circle, Check, X, Lightning } from '@phosphor-icons/react'
+import { adminFetch } from './AdminPanel'
 
 interface ServiceNode {
   id: string
   name: string
-  status: 'active' | 'inactive' | 'warning'
+  status: 'active' | 'inactive' | 'warning' | 'unknown'
   type: 'core' | 'assist' | 'app' | 'external'
   port?: number
   description: string
@@ -19,14 +20,14 @@ interface ServiceConnection {
 }
 
 const SERVICES: ServiceNode[] = [
-  { id: 'iora-home', name: 'IORA Home', status: 'active', type: 'core', port: 3000, description: 'Main Dashboard' },
-  { id: 'iora-core', name: 'IORA Core', status: 'active', type: 'core', port: 8080, description: 'Core Services' },
-  { id: 'iora-assist', name: 'ORA AI', status: 'active', type: 'assist', port: 8092, description: 'AI Assistant' },
-  { id: 'iora-api', name: 'IORA API', status: 'active', type: 'core', port: 8084, description: 'API Gateway' },
-  { id: 'iora-connector', name: 'Connector', status: 'active', type: 'core', port: 8081, description: 'External Integrations' },
-  { id: 'iora-appstore', name: 'App Store', status: 'active', type: 'core', port: 8082, description: 'App Management' },
-  { id: 'homeassistant', name: 'Home Assistant', status: 'active', type: 'external', port: 8123, description: 'Smart Home Hub' },
-  { id: 'postgres', name: 'PostgreSQL', status: 'active', type: 'core', description: 'Database' },
+  { id: 'iora-home', name: 'IORA Home', status: 'unknown', type: 'core', port: 3000, description: 'Main Dashboard' },
+  { id: 'iora-core', name: 'IORA Core', status: 'unknown', type: 'core', port: 8080, description: 'Core Services' },
+  { id: 'iora-assist', name: 'ORA AI', status: 'unknown', type: 'assist', port: 8092, description: 'AI Assistant' },
+  { id: 'iora-api', name: 'IORA API', status: 'unknown', type: 'core', port: 8084, description: 'API Gateway' },
+  { id: 'iora-connector', name: 'Connector', status: 'unknown', type: 'core', port: 8081, description: 'External Integrations' },
+  { id: 'iora-appstore', name: 'App Store', status: 'unknown', type: 'core', port: 8082, description: 'App Management' },
+  { id: 'homeassistant', name: 'Home Assistant', status: 'unknown', type: 'external', port: 8123, description: 'Smart Home Hub' },
+  { id: 'postgres', name: 'PostgreSQL', status: 'unknown', type: 'core', description: 'Database' },
 ]
 
 const CONNECTIONS: ServiceConnection[] = [
@@ -45,52 +46,70 @@ export function InfrastructureVisualization({ token }: { token: string }) {
   const [connections, setConnections] = useState<ServiceConnection[]>(CONNECTIONS)
   const [isMonitoring, setIsMonitoring] = useState(false)
 
-  // Simulate checking service status
-  useEffect(() => {
+  // Fetch real service status from /api/admin/control/services. We map the
+  // backend status (online/degraded/offline) to the visualization status
+  // (active/warning/inactive). Services that the backend doesn't report on
+  // stay at 'unknown' so we don't fake green dots like the previous
+  // Math.random() simulation did.
+  const checkServices = useCallback(async () => {
     if (!token) return
-
-    const checkServices = async () => {
-      // TODO: Implement actual health checks via API
-      const updatedServices = [...services]
-
-      // Simulate random service status for demo
-      for (const service of updatedServices) {
-        if (Math.random() > 0.9) {
-          service.status = Math.random() > 0.5 ? 'warning' : 'inactive'
-        } else {
-          service.status = 'active'
-        }
+    try {
+      const data = await adminFetch('/api/admin/control/services', token) as {
+        services?: Array<{ name: string; status: string }>
       }
-
-      setServices(updatedServices)
+      const reported = new Map<string, string>()
+      for (const s of data.services ?? []) {
+        reported.set(s.name, s.status)
+      }
+      setServices(prev => prev.map(svc => {
+        const backendStatus = reported.get(svc.id)
+        if (!backendStatus) return { ...svc, status: 'unknown' as const }
+        const mapped: ServiceNode['status'] =
+          backendStatus === 'online' ? 'active' :
+          backendStatus === 'degraded' ? 'warning' :
+          backendStatus === 'offline' ? 'inactive' :
+          'unknown'
+        return { ...svc, status: mapped }
+      }))
+    } catch {
+      // Leave previous state in place on transient errors instead of
+      // flipping everything to red — this prevents the flicker / "alles
+      // stürzt ab" effect the user reported.
     }
-
-    const interval = setInterval(checkServices, 5000)
-    checkServices()
-
-    return () => clearInterval(interval)
   }, [token])
 
-  // Simulate data flow animations
   useEffect(() => {
-    if (!isMonitoring) return
-
-    const interval = setInterval(() => {
-      const updatedConnections = connections.map(conn => ({
-        ...conn,
-        active: Math.random() > 0.7, // Random activity
-      }))
-      setConnections(updatedConnections)
-    }, 1500)
-
+    if (!token) return
+    checkServices()
+    const interval = setInterval(checkServices, 10000)
     return () => clearInterval(interval)
-  }, [isMonitoring])
+  }, [token, checkServices])
+
+  // Connection activity is purely visual — only animate when the user has
+  // explicitly enabled live monitoring, and only between services that are
+  // both 'active'. No more random flicker.
+  useEffect(() => {
+    if (!isMonitoring) {
+      setConnections(prev => prev.map(c => ({ ...c, active: false })))
+      return
+    }
+    const interval = setInterval(() => {
+      setConnections(prev => prev.map(c => {
+        const from = services.find(s => s.id === c.from)
+        const to = services.find(s => s.id === c.to)
+        const both = from?.status === 'active' && to?.status === 'active'
+        return { ...c, active: both }
+      }))
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [isMonitoring, services])
 
   const getStatusColor = (status: ServiceNode['status']) => {
     switch (status) {
       case 'active': return 'bg-green-500'
       case 'warning': return 'bg-yellow-500'
       case 'inactive': return 'bg-red-500'
+      case 'unknown': return 'bg-foreground/30'
     }
   }
 
