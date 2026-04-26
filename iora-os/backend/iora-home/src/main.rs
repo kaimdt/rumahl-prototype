@@ -504,6 +504,16 @@ async fn main() -> anyhow::Result<()> {
     // Initialize configuration repository
     let config_repo = Arc::new(ConfigRepository::new(db_pool.clone()));
 
+    // First-boot admin bootstrap.
+    // The setup wizard (board/iora/iora-setup/setup-server.py) writes the
+    // chosen IORA Home web-admin credentials to either an env-file consumed
+    // by systemd OR a JSON file at /mnt/data/iora/iora-home-bootstrap.json.
+    // We honour both, only seed when no users exist yet, and delete the
+    // JSON file afterwards so the password is not left on disk.
+    if let Err(e) = bootstrap_admin_user(&db_pool, &config_repo).await {
+        warn!("Bootstrap admin user step failed: {} — continuing", e);
+    }
+
     // Initialize entity state cache
     let entity_cache = Arc::new(EntityStateCache::new());
 
@@ -973,6 +983,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/image/serve/*path", get(proxy_image_serve_media))
         // Integration API (used by HA custom integration, authenticated via HA token)
         .route("/api/integration/status", get(integration_status))
+        // Public: lets the frontend decide whether to show the Overview
+        // page or a "IORA Home not configured" placeholder. No auth needed
+        // because the result reveals only a boolean, not the URL/token.
+        .route("/api/integration/ha/configured", get(integration_ha_configured))
         .route("/api/integration/command", post(integration_command))
         .route("/api/integration/settings", get(integration_get_settings))
         .route("/api/integration/settings", post(integration_set_settings))
@@ -1185,6 +1199,105 @@ async fn health_check(
 /// of a bare "Frontend not built" 404.
 const FALLBACK_INDEX_HTML: &str = include_str!("fallback_index.html");
 
+/// Bootstrap the very first admin user on a fresh install.
+///
+/// Reads credentials from one of (in priority order):
+///   1. `/mnt/data/iora/iora-home-bootstrap.json` — written by the IORA OS
+///      first-boot setup wizard (board/iora/iora-setup/setup-server.py).
+///      Schema: `{"username":"...","password":"...","display_name":"..."}`.
+///      The file is **deleted after a successful seed** to avoid leaving a
+///      plaintext password on disk.
+///   2. `IORA_BOOTSTRAP_ADMIN_USER` + `IORA_BOOTSTRAP_ADMIN_PASSWORD` env
+///      vars (useful in dev / Docker).
+///
+/// Only seeds when the users table is empty, so re-running has no effect
+/// after the first user exists.
+async fn bootstrap_admin_user(
+    db_pool: &DbPool,
+    config_repo: &ConfigRepository,
+) -> anyhow::Result<()> {
+    // Already have users? Nothing to do.
+    let count = config_repo.count_users().await.unwrap_or(0);
+    if count > 0 {
+        return Ok(());
+    }
+
+    // Try the wizard-written JSON file first.
+    let json_path = std::path::PathBuf::from("/mnt/data/iora/iora-home-bootstrap.json");
+    let mut creds: Option<(String, String, Option<String>)> = None;
+    let mut delete_json_after = false;
+    if json_path.is_file() {
+        match tokio::fs::read_to_string(&json_path).await {
+            Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                Ok(v) => {
+                    let u = v.get("username").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+                    let p = v.get("password").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    let d = v.get("display_name").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    if !u.is_empty() && p.len() >= 8 {
+                        creds = Some((u, p, d));
+                        delete_json_after = true;
+                    } else {
+                        warn!("Bootstrap JSON at {} is incomplete (need username + password >= 8 chars) — ignoring", json_path.display());
+                    }
+                }
+                Err(e) => warn!("Could not parse {}: {} — ignoring", json_path.display(), e),
+            },
+            Err(e) => warn!("Could not read {}: {} — ignoring", json_path.display(), e),
+        }
+    }
+
+    // Env-var fallback.
+    if creds.is_none() {
+        if let (Ok(u), Ok(p)) = (
+            std::env::var("IORA_BOOTSTRAP_ADMIN_USER"),
+            std::env::var("IORA_BOOTSTRAP_ADMIN_PASSWORD"),
+        ) {
+            let u = u.trim().to_string();
+            if !u.is_empty() && p.len() >= 8 {
+                let d = std::env::var("IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME").ok();
+                creds = Some((u, p, d));
+            }
+        }
+    }
+
+    let (username, password, display_name) = match creds {
+        Some(c) => c,
+        None => {
+            info!(
+                "No web users yet and no bootstrap credentials provided. \
+                 Open the IORA Home UI and use the registration page to create the first user (auto-promoted to admin)."
+            );
+            return Ok(());
+        }
+    };
+
+    let password_hash = auth::hash_password(&password)
+        .map_err(|e| anyhow::anyhow!("hash_password: {}", e))?;
+    let user_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO users (id, username, display_name, password_hash, is_admin) VALUES ($1, $2, $3, $4, TRUE)"
+    )
+    .bind(&user_id)
+    .bind(&username)
+    .bind(display_name.as_deref().unwrap_or(&username))
+    .bind(&password_hash)
+    .execute(db_pool)
+    .await?;
+
+    info!("Seeded first admin web-user '{}' from setup wizard", username);
+
+    if delete_json_after {
+        // Best-effort delete; if it fails (read-only fs etc.) we just leave it.
+        if let Err(e) = tokio::fs::remove_file(&json_path).await {
+            warn!("Could not remove bootstrap file {}: {}", json_path.display(), e);
+        } else {
+            info!("Removed bootstrap credential file {}", json_path.display());
+        }
+    }
+
+    Ok(())
+}
+
 /// Resolve the directory containing the built dashboard bundle. Order:
 ///   1. `IORA_HOME_DIST` env var (absolute path, set by /etc/iora/iora-home.env on IORA OS)
 ///   2. `../dist`              (legacy: cargo run from backend/iora-home/)
@@ -1306,6 +1419,27 @@ static ARS_REGIONS_CACHE: std::sync::LazyLock<tokio::sync::RwLock<Option<Vec<Val
 /// Timestamp of last ARS regions cache refresh (epoch seconds)
 static ARS_REGIONS_LAST_REFRESH: std::sync::LazyLock<tokio::sync::RwLock<u64>> =
     std::sync::LazyLock::new(|| tokio::sync::RwLock::new(0));
+
+/// Public, lightweight check for whether Home Assistant has been configured
+/// (URL + token both present in `system_preferences/ha_config`). Used by the
+/// frontend so the Overview page can be replaced with a "IORA Home not
+/// configured" placeholder on a fresh install — Settings and the Admin
+/// Control Center remain reachable so the user can configure HA from there.
+async fn integration_ha_configured(State(state): State<AppState>) -> impl IntoResponse {
+    let mut has_url = false;
+    let mut has_token = false;
+    if let Ok(Some(pref)) = state.config_repo.get_system_preference("ha_config").await {
+        if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&pref.preference_value) {
+            has_url = cfg.get("url").and_then(|v| v.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false);
+            has_token = cfg.get("token").and_then(|v| v.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false);
+        }
+    }
+    Json(serde_json::json!({
+        "configured": has_url && has_token,
+        "has_url": has_url,
+        "has_token": has_token,
+    }))
+}
 
 /// Returns dashboard status for the HA integration coordinator to poll.
 async fn integration_status(

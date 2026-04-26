@@ -920,6 +920,36 @@ def apply_config(config):
         errors.append(msg)
         PROGRESS.add_error(msg)
 
+    # Seed the IORA Home web-admin user. iora-home reads this JSON file at
+    # startup, creates the user with is_admin=TRUE, and deletes the file.
+    admin_user = (config.get("admin_username") or "").strip()
+    admin_pass = config.get("admin_password") or ""
+    if admin_user and len(admin_pass) >= 8:
+        bootstrap_path = os.path.join(DATA_DIR, "iora-home-bootstrap.json")
+        try:
+            payload = json.dumps({
+                "username": admin_user,
+                "password": admin_pass,
+                "display_name": admin_user,
+            })
+            # Write 0600 so the plaintext password is at least owner-only.
+            old_umask = os.umask(0o077)
+            try:
+                with open(bootstrap_path, "w") as f:
+                    f.write(payload)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.chmod(bootstrap_path, 0o600)
+            finally:
+                os.umask(old_umask)
+            PROGRESS.log(f"Wrote {bootstrap_path} (will be consumed by iora-home on first start)")
+        except Exception as e:
+            msg = f"Failed to write web-admin bootstrap file: {e}"
+            errors.append(msg)
+            PROGRESS.add_error(msg)
+    else:
+        PROGRESS.log("Web-Admin credentials missing or password too short — skipping bootstrap (you can register from the UI)", level="warn")
+
     # Mark setup as complete
     PROGRESS.set_phase("flag")
     try:
@@ -1683,6 +1713,22 @@ body {
       <option value="imperial">Imperial (F, mi, lb)</option>
     </select>
   </div>
+
+  <h2 style="margin-top:24px">IORA Home Web-Admin</h2>
+  <p class="subtitle">Dieser Benutzer erhält automatisch Admin-Rechte und meldet sich an der IORA Home Web-Oberfläche (Port 8126) an.</p>
+  <div class="form-group">
+    <label>Benutzername</label>
+    <input type="text" id="cfg-admin-user" value="admin" placeholder="admin" autocomplete="username">
+  </div>
+  <div class="form-group">
+    <label>Passwort (mind. 8 Zeichen)</label>
+    <input type="password" id="cfg-admin-pass" placeholder="••••••••" autocomplete="new-password">
+  </div>
+  <div class="form-group">
+    <label>Passwort wiederholen</label>
+    <input type="password" id="cfg-admin-pass2" placeholder="••••••••" autocomplete="new-password">
+  </div>
+
   <div class="btn-row">
     <button class="btn btn-secondary" onclick="goStep(0)">Back</button>
     <button class="btn btn-primary" onclick="goStep(2)">Next</button>
@@ -1924,10 +1970,30 @@ function gatherConfig() {
     auto_start:     document.getElementById('cfg-autostart').checked,
     auto_update:    document.getElementById('cfg-autoupdate').checked,
     enable_ssh:     document.getElementById('cfg-ssh').checked,
+    admin_username: (document.getElementById('cfg-admin-user').value || '').trim(),
+    admin_password: document.getElementById('cfg-admin-pass').value || '',
   };
 }
 
 async function doInstall() {
+  // Validate the web-admin credentials BEFORE switching to the install
+  // step — prevents the user from being stranded on the progress page
+  // with a setup that finished without seeding the admin user.
+  const u  = (document.getElementById('cfg-admin-user').value || '').trim();
+  const p1 = document.getElementById('cfg-admin-pass').value || '';
+  const p2 = document.getElementById('cfg-admin-pass2').value || '';
+  if (u.length < 3 || u.length > 32 || !/^[a-zA-Z0-9._-]+$/.test(u)) {
+    alert('Bitte einen Benutzernamen mit 3–32 Zeichen (a-z, A-Z, 0-9, . _ -) angeben.');
+    return;
+  }
+  if (p1.length < 8) {
+    alert('Passwort muss mindestens 8 Zeichen lang sein.');
+    return;
+  }
+  if (p1 !== p2) {
+    alert('Die beiden Passwörter stimmen nicht überein.');
+    return;
+  }
   goStep(4);
   const config = gatherConfig();
   try {

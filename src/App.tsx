@@ -97,7 +97,7 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile } = useAuth()
-  const { currentPageId, currentPage, modalPageId, closeModalPage, pages } = usePageNavigation()
+  const { currentPageId, currentPage, modalPageId, closeModalPage, pages, setCurrentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
   const screensaverSettings = useScreensaverSettings()
@@ -138,6 +138,30 @@ function DashboardContent() {
   const [showUnlockDialog, setShowUnlockDialog] = useState(false)
   const lastEvalRef = useRef(0)
   const hasActiveCustomBackground = Boolean(background?.is_active)
+
+  // Whether IORA Home has Home Assistant configured. On a fresh install
+  // (HA URL/token not yet entered) the Overview page is replaced with a
+  // "IORA Home not configured" placeholder so widgets don't try to render
+  // empty entity lists. Settings + Admin Control Center remain reachable.
+  const [haConfigured, setHaConfigured] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const refreshHaStatus = () => {
+      fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
+        .then(r => (r.ok ? r.json() : null))
+        .then((data: { configured?: boolean } | null) => {
+          if (cancelled || !data) return
+          setHaConfigured(Boolean(data.configured))
+        })
+        .catch(() => { if (!cancelled) setHaConfigured(false) })
+    }
+    refreshHaStatus()
+    // Re-check whenever the user navigates back to the home page so
+    // entering HA credentials in Settings is reflected immediately.
+    const onFocus = () => refreshHaStatus()
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
+  }, [])
 
   // Check if current user can bypass maintenance mode
   const canBypassMaintenance = user?.isAdmin || user?.role === 'maintenance' || user?.role === 'admin'
@@ -520,7 +544,39 @@ function DashboardContent() {
             <DashboardSkeleton />
           ) : (
             <div className="space-y-6">
-              {currentPageId === 'home' && filteredHomePage && (
+              {currentPageId === 'home' && haConfigured === false && (
+                <div className="page-transition-enter">
+                  <div className="max-w-2xl mx-auto mt-8 sm:mt-16 px-4">
+                    <div className="glass-card rounded-2xl p-8 sm:p-12 text-center space-y-6">
+                      <div className="mx-auto w-16 h-16 rounded-full bg-accent/15 flex items-center justify-center">
+                        <Sparkle size={32} weight="duotone" className="text-accent" />
+                      </div>
+                      <div className="space-y-3">
+                        <h2 className="text-2xl font-semibold tracking-tight">IORA Home ist noch nicht eingerichtet</h2>
+                        <p className="text-sm text-foreground/60 leading-relaxed max-w-md mx-auto">
+                          Es ist noch keine Home-Assistant-Verbindung konfiguriert. Du kannst das Admin Control Center und die Einstellungen weiterhin nutzen, um IORA zu konfigurieren — die Übersicht erscheint, sobald Home Assistant verbunden ist.
+                        </p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+                        <button
+                          className="btn btn-primary px-5 py-2.5 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 transition"
+                          onClick={() => setCurrentPageId('settings')}
+                        >
+                          Einstellungen öffnen
+                        </button>
+                        <button
+                          className="btn btn-secondary px-5 py-2.5 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/15 transition"
+                          onClick={() => setCurrentPageId('admin')}
+                        >
+                          Admin Control Center
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {currentPageId === 'home' && haConfigured !== false && filteredHomePage && (
                 <CustomPageRenderer
                   page={filteredHomePage}
                   entities={entities}
