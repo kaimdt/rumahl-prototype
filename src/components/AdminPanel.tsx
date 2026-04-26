@@ -12,7 +12,7 @@ import {
   CloudWarning, ShieldWarning, Siren,
   WebhooksLogo, Broadcast, Lightning, Eye, PaperPlaneTilt, CheckCircle, XCircle, Clock,
   MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
-  Gauge, ListChecks, Robot, Hand, Queue, CircleNotch
+  Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -58,13 +58,17 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
   { id: 'global-config', label: 'Globale Konfiguration', icon: Gear, description: 'Zentrale IORA-OS Konfiguration mit Kategorien — spiegelt das .env-System wider, mit Beschreibungen und Validierung pro Eintrag' },
   { id: 'developer-mode', label: 'Developer Mode', icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
   { id: 'documentation', label: 'Dokumentation', icon: BookOpen, description: 'IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation' },
+  { id: 'protocols', label: 'Protokoll-Übersicht', icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
+  { id: 'ha-tools', label: 'HA Developer Tools', icon: Code, description: 'Home Assistant Templates rendern, Events feuern und Entity-/Device-/Area-Registries durchsuchen' },
+  { id: 'global-alert', label: 'Globaler Alarm', icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
+  { id: 'notifications', label: 'Benachrichtigungen', icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
   { id: 'tasks', label: 'Aufgaben', icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
   { id: 'control-mode', label: 'Betriebsmodus', icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
   { id: 'system', label: 'System', icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
@@ -115,9 +119,9 @@ type TabGroup = {
 const tabGroups: TabGroup[] = [
   { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure'] },
   { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
-  { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'scenes', 'automations', 'logbook', 'calendars'] },
-  { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
-  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications'] },
+  { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
+  { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
+  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
   { id: 'access', title: 'Benutzer', icon: Users, items: ['users'] },
 ]
 
@@ -630,6 +634,10 @@ export function AdminPanel() {
               {activeTab === 'database' && <DatabaseTab token={token} />}
               {activeTab === 'warnings' && <WarningsTab token={token} />}
               {activeTab === 'system-notifications' && <SystemNotificationsTab token={token} />}
+              {activeTab === 'protocols' && <ProtocolsOverviewTab token={token} />}
+              {activeTab === 'ha-tools' && <HaDeveloperToolsTab token={token} />}
+              {activeTab === 'global-alert' && <GlobalAlertTab token={token} />}
+              {activeTab === 'notifications' && <NotificationsTab token={token} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -6213,6 +6221,540 @@ function CalendarsTab({ token }: { token: string }) {
           {refreshing ? <InlineSpinner size={14} /> : <ArrowClockwise size={14} />} Aktualisieren
         </button>
       </div>
+    </div>
+  )
+}
+
+// ─── Protocol Overview tab ──────────────────────────────────────────────
+//
+// Combined live snapshot of every IoT protocol the home is talking to.
+// Single GET to /api/admin/protocols/overview returns counts and
+// availability for HA, MQTT, Zigbee, Z-Wave, Matter, BLE and HomeKit so
+// the user does not have to click through each protocol tab to see if
+// something is offline.
+interface ProtocolsSnapshot {
+  ha?: { available: boolean; version?: string; entity_count?: number }
+  mqtt?: { connected: boolean; message_count: number; subscriptions: number }
+  zigbee?: { enabled: boolean; device_count: number; mode?: string }
+  zwave?: { enabled: boolean; node_count: number }
+  matter?: { enabled: boolean; device_count: number }
+  ble?: { enabled: boolean; device_count: number }
+  homekit?: { enabled: boolean; accessory_count: number; bridge_available: boolean }
+  integrations?: Array<{ domain: string; available: boolean }>
+}
+
+function ProtocolsOverviewTab({ token }: { token: string }) {
+  const [data, setData] = useState<ProtocolsSnapshot | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const r = await adminFetch('/api/admin/protocols/overview', token)
+      setData(r as ProtocolsSnapshot)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const protocolCard = (
+    label: string,
+    icon: typeof Cpu,
+    enabled: boolean | undefined,
+    primary: string,
+    secondary?: string,
+  ) => {
+    const Icon = icon
+    return (
+      <div className="rounded-xl border border-foreground/10 bg-foreground/[0.03] p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon size={16} className={enabled ? 'text-green-400' : 'text-foreground/30'} />
+          <span className="text-sm font-semibold text-foreground">{label}</span>
+          <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${enabled ? 'bg-green-500/15 text-green-300' : 'bg-foreground/10 text-foreground/40'}`}>
+            {enabled ? 'aktiv' : 'inaktiv'}
+          </span>
+        </div>
+        <div className="text-xs font-medium text-foreground">{primary}</div>
+        {secondary && <div className="text-[11px] text-foreground/50 mt-0.5">{secondary}</div>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Protokoll-Übersicht" icon={Stack}>
+        {loading && <p className="text-xs text-foreground/50">Lade Protokoll-Status…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {data && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {protocolCard('Home Assistant', Pulse, data.ha?.available,
+              data.ha?.available ? `v${data.ha.version ?? '?'}` : 'nicht erreichbar',
+              `${data.ha?.entity_count ?? 0} Entitäten im Cache`)}
+            {protocolCard('MQTT', WifiHigh, data.mqtt?.connected,
+              data.mqtt?.connected ? `${data.mqtt.message_count} Nachrichten` : 'getrennt',
+              `${data.mqtt?.subscriptions ?? 0} Abonnements`)}
+            {protocolCard('Zigbee', Tree, data.zigbee?.enabled,
+              `${data.zigbee?.device_count ?? 0} Geräte`,
+              data.zigbee?.mode ? `Modus: ${data.zigbee.mode}` : undefined)}
+            {protocolCard('Z-Wave', LinkSimple, data.zwave?.enabled,
+              `${data.zwave?.node_count ?? 0} Nodes`)}
+            {protocolCard('Matter', HardDrive, data.matter?.enabled,
+              `${data.matter?.device_count ?? 0} Geräte`)}
+            {protocolCard('Bluetooth', Bluetooth, data.ble?.enabled,
+              `${data.ble?.device_count ?? 0} Geräte`)}
+            {protocolCard('HomeKit', AppleLogo, data.homekit?.enabled,
+              `${data.homekit?.accessory_count ?? 0} Accessoires`,
+              data.homekit?.bridge_available ? 'Bridge online' : 'Bridge offline')}
+          </div>
+        )}
+      </AdminCard>
+
+      {data?.integrations && data.integrations.length > 0 && (
+        <AdminCard title="HA-Integrationen" icon={Cube}>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+            {data.integrations.map((i) => (
+              <div key={i.domain} className="flex items-center gap-1.5 px-2 py-1 rounded bg-foreground/5 text-[11px]">
+                <span className={`h-1.5 w-1.5 rounded-full ${i.available ? 'bg-green-400' : 'bg-foreground/30'}`} />
+                <span className="font-mono text-foreground/70 truncate">{i.domain}</span>
+              </div>
+            ))}
+          </div>
+        </AdminCard>
+      )}
+
+      <div className="flex justify-center">
+        <button onClick={load} disabled={loading}
+          className="flex items-center gap-1.5 px-4 py-2 bg-foreground/5 text-foreground/60 rounded-lg text-xs font-semibold hover:bg-foreground/8 transition-colors border border-foreground/10 disabled:opacity-40">
+          <ArrowClockwise size={14} /> Aktualisieren
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── HA Developer Tools tab ─────────────────────────────────────────────
+//
+// Three power-user features that mirror Home Assistant's own Developer
+// Tools page: render a Jinja2 template, fire an event into HA's bus, and
+// browse the entity / device / area registries that HA reports.
+function HaDeveloperToolsTab({ token }: { token: string }) {
+  const [tpl, setTpl] = useState('{{ states.sensor | count }} sensor entities')
+  const [tplResult, setTplResult] = useState<string | null>(null)
+  const [tplBusy, setTplBusy] = useState(false)
+  const [tplError, setTplError] = useState<string | null>(null)
+
+  const [evtType, setEvtType] = useState('iora_test_event')
+  const [evtData, setEvtData] = useState('{"source":"admin","value":42}')
+  const [evtBusy, setEvtBusy] = useState(false)
+  const [evtMsg, setEvtMsg] = useState<string | null>(null)
+  const [evtError, setEvtError] = useState<string | null>(null)
+
+  const [registry, setRegistry] = useState<'entities' | 'devices' | 'areas'>('entities')
+  const [regData, setRegData] = useState<Record<string, unknown> | null>(null)
+  const [regBusy, setRegBusy] = useState(false)
+  const [regError, setRegError] = useState<string | null>(null)
+
+  const renderTpl = async () => {
+    setTplBusy(true); setTplError(null); setTplResult(null)
+    try {
+      const r = await adminFetch('/api/admin/ha/template', token, {
+        method: 'POST', body: JSON.stringify({ template: tpl }),
+      })
+      setTplResult(typeof r?.result === 'string' ? r.result : JSON.stringify(r?.result ?? r, null, 2))
+    } catch (e) {
+      setTplError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setTplBusy(false)
+    }
+  }
+
+  const fireEvt = async () => {
+    setEvtBusy(true); setEvtError(null); setEvtMsg(null)
+    let parsed: unknown = {}
+    try {
+      parsed = evtData.trim() ? JSON.parse(evtData) : {}
+    } catch (e) {
+      setEvtError(`Ungültiges JSON: ${e instanceof Error ? e.message : String(e)}`)
+      setEvtBusy(false); return
+    }
+    try {
+      await adminFetch(`/api/admin/ha/events/${encodeURIComponent(evtType)}`, token, {
+        method: 'POST', body: JSON.stringify(parsed),
+      })
+      setEvtMsg(`Event "${evtType}" gesendet.`)
+      toast.success(`Event ${evtType} gefeuert`)
+    } catch (e) {
+      setEvtError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEvtBusy(false)
+    }
+  }
+
+  const loadRegistry = useCallback(async (kind: 'entities' | 'devices' | 'areas') => {
+    setRegBusy(true); setRegError(null)
+    try {
+      const r = await adminFetch(`/api/admin/ha/registry/${kind}`, token)
+      setRegData(r as Record<string, unknown>)
+    } catch (e) {
+      setRegError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRegBusy(false)
+    }
+  }, [token])
+
+  useEffect(() => { loadRegistry(registry) }, [registry, loadRegistry])
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Template rendern" icon={Code}>
+        <p className="text-xs text-foreground/60 mb-2">
+          Sendet die Vorlage an Home Assistant zum Rendern. Identisch mit
+          dem Tab „Template" in HAs Developer Tools.
+        </p>
+        <textarea
+          value={tpl}
+          onChange={(e) => setTpl(e.target.value)}
+          rows={4}
+          spellCheck={false}
+          className="w-full font-mono text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground"
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <button onClick={renderTpl} disabled={tplBusy || !tpl.trim()}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            {tplBusy ? 'Rendere…' : 'Rendern'}
+          </button>
+          {tplError && <span className="text-[11px] text-red-300">{tplError}</span>}
+        </div>
+        {tplResult !== null && (
+          <pre className="mt-3 text-xs font-mono whitespace-pre-wrap break-words bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground/85 max-h-64 overflow-auto">{tplResult}</pre>
+        )}
+      </AdminCard>
+
+      <AdminCard title="Event feuern" icon={PaperPlaneTilt}>
+        <p className="text-xs text-foreground/60 mb-2">
+          Sendet ein Event auf den Event-Bus von Home Assistant. Nützlich
+          zum Testen von Automatisierungs-Triggern.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input
+            value={evtType}
+            onChange={(e) => setEvtType(e.target.value)}
+            placeholder="event_type"
+            className="font-mono text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground sm:col-span-1"
+          />
+          <textarea
+            value={evtData}
+            onChange={(e) => setEvtData(e.target.value)}
+            rows={2}
+            spellCheck={false}
+            placeholder='{"key":"value"}'
+            className="font-mono text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-2 text-foreground sm:col-span-2"
+          />
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <button onClick={fireEvt} disabled={evtBusy || !evtType.trim()}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+            {evtBusy ? 'Sende…' : 'Event feuern'}
+          </button>
+          {evtMsg && <span className="text-[11px] text-green-300">{evtMsg}</span>}
+          {evtError && <span className="text-[11px] text-red-300">{evtError}</span>}
+        </div>
+      </AdminCard>
+
+      <AdminCard title="HA Registry" icon={Database}>
+        <div className="flex items-center gap-1 mb-3">
+          {(['entities', 'devices', 'areas'] as const).map((k) => (
+            <button key={k} onClick={() => setRegistry(k)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                registry === k ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+              }`}>
+              {k === 'entities' ? 'Entities' : k === 'devices' ? 'Devices' : 'Areas'}
+            </button>
+          ))}
+          <button onClick={() => loadRegistry(registry)} disabled={regBusy}
+            className="ml-auto p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10 disabled:opacity-40">
+            <ArrowClockwise size={13} />
+          </button>
+        </div>
+        {regBusy && <p className="text-xs text-foreground/50">Lade…</p>}
+        {regError && <p className="text-xs text-red-300">{regError}</p>}
+        {regData && !regBusy && (
+          <pre className="text-[11px] font-mono whitespace-pre-wrap break-words bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground/85 max-h-96 overflow-auto">{JSON.stringify(regData, null, 2)}</pre>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── Global Alert tab ───────────────────────────────────────────────────
+//
+// Sets / clears the cluster-wide emergency banner that is broadcast to
+// every connected dashboard via WebSocket. Backed by ACTIVE_EMERGENCY in
+// iora-home and the /api/admin/alert GET/PUT/DELETE trio.
+function GlobalAlertTab({ token }: { token: string }) {
+  const [active, setActive] = useState<boolean>(false)
+  const [current, setCurrent] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [title, setTitle] = useState('Wartungsarbeiten')
+  const [message, setMessage] = useState('Das System wird in Kürze neu gestartet.')
+  const [level, setLevel] = useState<'info' | 'warning' | 'critical'>('warning')
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await adminFetch('/api/admin/alert', token)
+      setActive(r?.active === true)
+      setCurrent((r?.alert ?? null) as Record<string, unknown> | null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const send = async () => {
+    setBusy(true); setError(null)
+    try {
+      await adminFetch('/api/admin/alert', token, {
+        method: 'PUT',
+        body: JSON.stringify({ title, message, level }),
+      })
+      toast.success('Globaler Alarm gesetzt')
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const dismiss = async () => {
+    setBusy(true); setError(null)
+    try {
+      await adminFetch('/api/admin/alert', token, { method: 'DELETE' })
+      toast.success('Alarm zurückgenommen')
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const levelColor = level === 'critical' ? 'bg-red-500/20 border-red-500/40 text-red-200'
+    : level === 'warning' ? 'bg-amber-500/20 border-amber-500/40 text-amber-200'
+    : 'bg-blue-500/20 border-blue-500/40 text-blue-200'
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Aktiver Alarm" icon={Megaphone}>
+        {loading ? (
+          <p className="text-xs text-foreground/50">Lade Status…</p>
+        ) : active && current ? (
+          <div className="space-y-3">
+            <div className={`p-3 rounded-xl border ${levelColor}`}>
+              <div className="text-sm font-semibold">{String(current.title ?? '')}</div>
+              <div className="text-xs mt-1 opacity-90">{String(current.message ?? '')}</div>
+              <div className="text-[10px] opacity-60 mt-2">
+                Level: <span className="font-mono">{String(current.level ?? '')}</span>
+                {current.created_at && <> · {String(current.created_at)}</>}
+              </div>
+            </div>
+            <button onClick={dismiss} disabled={busy}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/20 text-red-200 hover:bg-red-500/30 disabled:opacity-40">
+              Alarm zurücknehmen
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-foreground/60">Kein aktiver Alarm.</p>
+        )}
+      </AdminCard>
+
+      <AdminCard title="Neuen Alarm setzen" icon={Siren}>
+        <div className="space-y-2">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titel"
+            className="w-full text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} placeholder="Nachricht"
+            className="w-full text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
+          <div className="flex items-center gap-1">
+            {(['info', 'warning', 'critical'] as const).map((l) => (
+              <button key={l} onClick={() => setLevel(l)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                  level === l ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+                }`}>{l}</button>
+            ))}
+            <button onClick={send} disabled={busy || !title.trim() || !message.trim()}
+              className="ml-auto px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
+              {busy ? 'Sende…' : 'Senden'}
+            </button>
+          </div>
+          {error && <p className="text-[11px] text-red-300">{error}</p>}
+          <p className="text-[11px] text-foreground/40">
+            Der Alarm wird sofort an alle verbundenen Clients per WebSocket
+            zugestellt und persistiert als Benachrichtigung in der DB.
+          </p>
+        </div>
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── Notifications tab ──────────────────────────────────────────────────
+//
+// Generic notification feed produced by the backend. Distinct from
+// system-notifications (those are sync/data-quality alerts); this view
+// shows everything that lands in the notifications table — alerts,
+// admin-set banners, plugin output, etc.
+interface NotificationRow {
+  id: string
+  title: string
+  message: string
+  level: string
+  source?: string
+  icon?: string
+  entity_id?: string
+  created_at: string
+  read: boolean
+  auto_dismiss_secs?: number
+}
+
+function NotificationsTab({ token }: { token: string }) {
+  const [items, setItems] = useState<NotificationRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'unread' | 'critical'>('all')
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await adminFetch('/api/admin/notifications', token)
+      setItems(Array.isArray(r) ? r : [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const markRead = async (id: string) => {
+    try {
+      await adminFetch(`/api/admin/notifications/${encodeURIComponent(id)}/read`, token, { method: 'PUT' })
+      setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const dismiss = async (id: string) => {
+    try {
+      await adminFetch(`/api/admin/notifications/${encodeURIComponent(id)}`, token, { method: 'DELETE' })
+      setItems((prev) => prev.filter((n) => n.id !== id))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const clearAll = async () => {
+    if (!confirm('Wirklich alle Benachrichtigungen löschen?')) return
+    try {
+      await adminFetch('/api/admin/notifications', token, { method: 'DELETE' })
+      setItems([])
+      toast.success('Alle Benachrichtigungen gelöscht')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const filtered = items.filter((n) => {
+    if (filter === 'unread') return !n.read
+    if (filter === 'critical') return n.level === 'critical' || n.level === 'error'
+    return true
+  })
+
+  const levelStyle = (lvl: string) => {
+    if (lvl === 'critical' || lvl === 'error') return 'border-red-500/40 bg-red-500/10'
+    if (lvl === 'warning') return 'border-amber-500/40 bg-amber-500/10'
+    if (lvl === 'success') return 'border-green-500/40 bg-green-500/10'
+    return 'border-foreground/10 bg-foreground/5'
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Benachrichtigungen" icon={Bell}>
+        <div className="flex items-center gap-1 mb-3">
+          {(['all', 'unread', 'critical'] as const).map((f) => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                filter === f ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'
+              }`}>
+              {f === 'all' ? 'Alle' : f === 'unread' ? 'Ungelesen' : 'Kritisch'}
+            </button>
+          ))}
+          <button onClick={load} disabled={loading}
+            className="ml-auto p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10 disabled:opacity-40">
+            <ArrowClockwise size={13} />
+          </button>
+          <button onClick={clearAll} disabled={loading || items.length === 0}
+            className="p-1.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25 disabled:opacity-40">
+            <Trash size={13} />
+          </button>
+        </div>
+
+        {loading && <p className="text-xs text-foreground/50">Lade Benachrichtigungen…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {!loading && !error && filtered.length === 0 && (
+          <p className="text-xs text-foreground/50">Keine Benachrichtigungen.</p>
+        )}
+
+        <div className="space-y-2">
+          {filtered.map((n) => (
+            <div key={n.id} className={`rounded-xl border p-3 ${levelStyle(n.level)} ${n.read ? 'opacity-60' : ''}`}>
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-foreground truncate">{n.title}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono uppercase">
+                      {n.level}
+                    </span>
+                    {!n.read && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
+                  </div>
+                  <p className="text-xs text-foreground/70 break-words">{n.message}</p>
+                  <div className="text-[10px] text-foreground/40 mt-1.5 flex items-center gap-2 flex-wrap">
+                    <span>{new Date(n.created_at).toLocaleString('de-DE')}</span>
+                    {n.source && <span>· {n.source}</span>}
+                    {n.entity_id && <span className="font-mono">· {n.entity_id}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!n.read && (
+                    <button onClick={() => markRead(n.id)} title="Als gelesen markieren"
+                      className="p-1.5 rounded-lg bg-foreground/5 text-foreground/60 hover:bg-foreground/10">
+                      <Eye size={13} />
+                    </button>
+                  )}
+                  <button onClick={() => dismiss(n.id)} title="Löschen"
+                    className="p-1.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25">
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </AdminCard>
     </div>
   )
 }
