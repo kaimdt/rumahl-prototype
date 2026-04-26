@@ -1,0 +1,39 @@
+[package]
+name = "iora-network-monitor"
+version = "0.1.0"
+edition = "2021"
+description = "IORA Network Monitor – Network discovery and IP tracking service with DHCP/ARP monitoring"
+
+[[bin]]
+name = "iora-network-monitor"
+path = "src/main.rs"
+
+[dependencies]
+iora-shared = { path = "../../shared/iora-shared" }
+tokio = { version = "1", features = ["full", "process", "signal", "net"] }
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout", "limit"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+thiserror = "1.0"
+dotenv = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+
+# Network monitoring
+pnet = "0.35"  # Packet capture and network monitoring
+pnet_datalink = "0.35"  # Data link layer
+pnet_packet = "0.35"  # Packet parsing
+
+# IP address handling
+ipnetwork = "0.20"
+mac_address = "1.1"
+
+# System information
+nix = { version = "0.29", features = ["net"] }

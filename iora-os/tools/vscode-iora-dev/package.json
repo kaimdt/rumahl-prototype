@@ -1,0 +1,75 @@
+{
+  "name": "iora-dev",
+  "displayName": "IORA OS Dev",
+  "description": "Discover IORA OS Dev devices on your LAN and hot-deploy IORA components from VS Code",
+  "version": "0.1.0",
+  "publisher": "iora",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "IORA OS Dev",
+      "properties": {
+        "ioraDev.cliPath": {
+          "type": "string",
+          "default": "iora-dev-deploy",
+          "description": "Path to the iora-dev-deploy binary."
+        },
+        "ioraDev.target": {
+          "type": "string",
+          "default": "aarch64-unknown-linux-gnu",
+          "description": "Cross-compile target triple used for builds."
+        },
+        "ioraDev.host": {
+          "type": "string",
+          "default": "",
+          "description": "Override host[:port]. Empty = use saved config."
+        },
+        "ioraDev.token": {
+          "type": "string",
+          "default": "",
+          "description": "Override dev token. Empty = use saved config."
+        }
+      }
+    },
+    "commands": [
+      { "command": "ioraDev.discover",  "title": "IORA Dev: Discover Devices on LAN" },
+      { "command": "ioraDev.connect",   "title": "IORA Dev: Connect to Device…" },
+      { "command": "ioraDev.status",    "title": "IORA Dev: Show Device Status" },
+      { "command": "ioraDev.deploy",    "title": "IORA Dev: Deploy Component…" },
+      { "command": "ioraDev.deployCurrent", "title": "IORA Dev: Deploy Current Crate" },
+      { "command": "ioraDev.watch",     "title": "IORA Dev: Watch Component(s)…" },
+      { "command": "ioraDev.restart",   "title": "IORA Dev: Restart Unit…" },
+      { "command": "ioraDev.logs",      "title": "IORA Dev: Tail Compose Logs…" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ioraDev",
+          "title": "IORA OS Dev",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ioraDev": [
+        { "id": "ioraDev.devices",    "name": "Devices" },
+        { "id": "ioraDev.components", "name": "Components" }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
