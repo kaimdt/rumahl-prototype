@@ -4,14 +4,15 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::Utc;
-use sysinfo::System;
+use serde::Deserialize;
+use sysinfo::{Disks, Networks, ProcessRefreshKind, RefreshKind, System};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 const IORA_CORE_URL: &str = "http://localhost:8090";
 const IORA_HOME_URL: &str = "http://localhost:8080";
@@ -625,6 +626,311 @@ async fn delete_ssh_user(Path(username): Path<String>) -> impl IntoResponse {
     }
 }
 
+// ─── OS-level management ────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct HostnameRequest {
+    hostname: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PowerRequest {
+    #[serde(default)]
+    delay_seconds: Option<u32>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+async fn list_disks() -> Json<serde_json::Value> {
+    let disks = Disks::new_with_refreshed_list();
+    let entries: Vec<serde_json::Value> = disks
+        .iter()
+        .map(|d| {
+            let total = d.total_space();
+            let available = d.available_space();
+            let used = total.saturating_sub(available);
+            let usage_percent = if total > 0 {
+                (used as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+            serde_json::json!({
+                "name": d.name().to_string_lossy(),
+                "mount_point": d.mount_point().to_string_lossy(),
+                "file_system": d.file_system().to_string_lossy(),
+                "total_bytes": total,
+                "available_bytes": available,
+                "used_bytes": used,
+                "usage_percent": usage_percent,
+                "is_removable": d.is_removable(),
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "timestamp": Utc::now().to_rfc3339(),
+        "disks": entries,
+    }))
+}
+
+async fn list_network_interfaces() -> Json<serde_json::Value> {
+    let networks = Networks::new_with_refreshed_list();
+    let interfaces: Vec<serde_json::Value> = networks
+        .iter()
+        .map(|(name, data)| {
+            serde_json::json!({
+                "name": name,
+                "mac_address": data.mac_address().to_string(),
+                "received_bytes": data.total_received(),
+                "transmitted_bytes": data.total_transmitted(),
+                "received_packets": data.packets_received(),
+                "transmitted_packets": data.packets_transmitted(),
+                "errors_received": data.errors_on_received(),
+                "errors_transmitted": data.errors_on_transmitted(),
+            })
+        })
+        .collect();
+
+    // Best-effort: read interface IPs via `ip -j addr` if available
+    let mut ip_map = serde_json::Map::new();
+    if let Ok(output) = Command::new("ip").args(["-j", "addr"]).output() {
+        if output.status.success() {
+            if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if let Some(arr) = parsed.as_array() {
+                    for entry in arr {
+                        if let (Some(name), Some(addrs)) = (
+                            entry.get("ifname").and_then(|v| v.as_str()),
+                            entry.get("addr_info").and_then(|v| v.as_array()),
+                        ) {
+                            let ips: Vec<serde_json::Value> = addrs
+                                .iter()
+                                .filter_map(|a| {
+                                    let local = a.get("local")?.as_str()?;
+                                    let family = a.get("family").and_then(|v| v.as_str()).unwrap_or("");
+                                    let prefix = a.get("prefixlen").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    Some(serde_json::json!({
+                                        "address": local,
+                                        "family": family,
+                                        "prefix": prefix,
+                                    }))
+                                })
+                                .collect();
+                            ip_map.insert(name.to_string(), serde_json::Value::Array(ips));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "timestamp": Utc::now().to_rfc3339(),
+        "interfaces": interfaces,
+        "ip_addresses": ip_map,
+    }))
+}
+
+async fn list_top_processes() -> Json<serde_json::Value> {
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+    );
+    sys.refresh_processes();
+
+    let mut procs: Vec<_> = sys
+        .processes()
+        .iter()
+        .map(|(pid, p)| {
+            (
+                pid.as_u32(),
+                p.name().to_string(),
+                p.cpu_usage(),
+                p.memory(),
+                p.virtual_memory(),
+                p.run_time(),
+            )
+        })
+        .collect();
+    procs.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    procs.truncate(50);
+
+    let entries: Vec<serde_json::Value> = procs
+        .into_iter()
+        .map(|(pid, name, cpu, mem, vmem, run)| {
+            serde_json::json!({
+                "pid": pid,
+                "name": name,
+                "cpu_percent": cpu,
+                "memory_bytes": mem,
+                "virtual_memory_bytes": vmem,
+                "run_time_seconds": run,
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "timestamp": Utc::now().to_rfc3339(),
+        "processes": entries,
+    }))
+}
+
+async fn get_hostname() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "hostname": System::host_name().unwrap_or_default(),
+    }))
+}
+
+async fn set_hostname(Json(req): Json<HostnameRequest>) -> impl IntoResponse {
+    let new_name = req.hostname.trim();
+    if new_name.is_empty()
+        || new_name.len() > 64
+        || !new_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Invalid hostname",
+            })),
+        )
+            .into_response();
+    }
+
+    // Try hostnamectl first (systemd), fall back to `hostname` command
+    let result = Command::new("hostnamectl")
+        .args(["set-hostname", new_name])
+        .output();
+
+    let success = match result {
+        Ok(out) if out.status.success() => true,
+        _ => Command::new("hostname")
+            .arg(new_name)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false),
+    };
+
+    if !success {
+        warn!("Failed to set hostname to {}", new_name);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Failed to apply hostname (requires root or IORA OS)",
+            })),
+        )
+            .into_response();
+    }
+
+    // Persist to /etc/hostname (best effort)
+    if let Ok(mut f) = std::fs::File::create("/etc/hostname") {
+        let _ = f.write_all(format!("{}\n", new_name).as_bytes());
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "hostname": new_name,
+        })),
+    )
+        .into_response()
+}
+
+fn schedule_power_command(action: &str, delay_seconds: u32) -> bool {
+    // shutdown -r +<min>  or  shutdown -h +<min>
+    let mins = std::cmp::max(1, (delay_seconds + 59) / 60);
+    let flag = match action {
+        "reboot" => "-r",
+        _ => "-h",
+    };
+    let arg = format!("+{}", mins);
+    Command::new("shutdown")
+        .args([flag, &arg])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| true)
+        .unwrap_or(false)
+}
+
+async fn os_reboot(Json(req): Json<PowerRequest>) -> impl IntoResponse {
+    let delay = req.delay_seconds.unwrap_or(5);
+    info!(
+        "Reboot requested (delay={}s, reason={:?})",
+        delay, req.reason
+    );
+    let scheduled = if delay == 0 {
+        Command::new("systemctl")
+            .arg("reboot")
+            .spawn()
+            .map(|_| true)
+            .unwrap_or_else(|_| schedule_power_command("reboot", 5))
+    } else {
+        schedule_power_command("reboot", delay)
+    };
+
+    if scheduled {
+        (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "success": true,
+                "action": "reboot",
+                "delay_seconds": delay,
+            })),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Failed to schedule reboot (requires root or IORA OS)",
+            })),
+        )
+            .into_response()
+    }
+}
+
+async fn os_shutdown(Json(req): Json<PowerRequest>) -> impl IntoResponse {
+    let delay = req.delay_seconds.unwrap_or(5);
+    info!(
+        "Shutdown requested (delay={}s, reason={:?})",
+        delay, req.reason
+    );
+    let scheduled = if delay == 0 {
+        Command::new("systemctl")
+            .arg("poweroff")
+            .spawn()
+            .map(|_| true)
+            .unwrap_or_else(|_| schedule_power_command("shutdown", 5))
+    } else {
+        schedule_power_command("shutdown", delay)
+    };
+
+    if scheduled {
+        (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "success": true,
+                "action": "shutdown",
+                "delay_seconds": delay,
+            })),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Failed to schedule shutdown (requires root or IORA OS)",
+            })),
+        )
+            .into_response()
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -654,6 +960,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/ssh/enable", axum::routing::post(set_ssh_enabled))
         .route("/api/control/ssh/users", get(list_ssh_users).post(create_ssh_user))
         .route("/api/control/ssh/users/:username", delete(delete_ssh_user))
+        // OS-level management (only useful when running on IORA OS)
+        .route("/api/control/os/disks", get(list_disks))
+        .route("/api/control/os/network", get(list_network_interfaces))
+        .route("/api/control/os/processes", get(list_top_processes))
+        .route("/api/control/os/hostname", get(get_hostname).put(set_hostname))
+        .route("/api/control/os/reboot", post(os_reboot))
+        .route("/api/control/os/shutdown", post(os_shutdown))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

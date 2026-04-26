@@ -13,7 +13,8 @@ import {
   WebhooksLogo, Broadcast, Lightning, Eye, PaperPlaneTilt, CheckCircle, XCircle, Clock,
   MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
-  Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown
+  Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
+  Terminal
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -59,7 +60,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
@@ -123,6 +124,11 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'domain-validator', label: 'Domain Validator', icon: ShieldCheck, description: 'App-Zugriffsrichtlinien für externe Domains und Audit-Log (iora-domain-validator)' },
   { id: 'resources', label: 'Ressourcen', icon: HardDrive, description: 'Container-Ressourcenverwaltung, CPU-/RAM-Allokation und Reallokation (iora-resource-manager)' },
   { id: 'api-bridge', label: 'API Bridge', icon: Code, description: 'GraphQL, WebDAV, CalDAV und MQTT-Bridge — externe Schnittstellen der iora-api' },
+  { id: 'os-ssh', label: 'SSH-Zugang', icon: Terminal, description: 'SSH-Server aktivieren/deaktivieren, autorisierte Schlüssel und SSH-Benutzer verwalten — nur auf IORA OS' },
+  { id: 'os-network-config', label: 'IP-Konfiguration', icon: Globe, description: 'Netzwerk-Interfaces auflisten und IP/Gateway/DNS pro Interface konfigurieren — nur auf IORA OS' },
+  { id: 'os-disks', label: 'Festplatten', icon: HardDrive, description: 'Alle gemounteten Datenträger, Belegung, Dateisysteme und entfernbare Medien — nur auf IORA OS' },
+  { id: 'os-processes', label: 'Prozesse', icon: Pulse, description: 'Top-Prozesse mit CPU- und RAM-Verbrauch, sortiert nach Auslastung — nur auf IORA OS' },
+  { id: 'os-power', label: 'Power & Hostname', icon: Power, description: 'Hostname ändern, IORA OS neu starten oder herunterfahren — nur auf IORA OS' },
 ]
 
 type TabGroup = {
@@ -139,6 +145,7 @@ const tabGroups: TabGroup[] = [
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
   { id: 'services', title: 'IORA Backend-Dienste', icon: Plug, items: ['secrets', 'files', 'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge'] },
+  { id: 'os', title: 'IORA OS', icon: Terminal, items: ['os-ssh', 'os-network-config', 'os-disks', 'os-processes', 'os-power'] },
   { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
   { id: 'access', title: 'Benutzer', icon: Users, items: ['users'] },
 ]
@@ -670,6 +677,11 @@ export function AdminPanel() {
               {activeTab === 'domain-validator' && <DomainValidatorTab token={token} />}
               {activeTab === 'resources' && <ResourcesTab token={token} />}
               {activeTab === 'api-bridge' && <ApiBridgeTab token={token} />}
+              {activeTab === 'os-ssh' && <OsSshTab token={token} />}
+              {activeTab === 'os-network-config' && <OsNetworkConfigTab token={token} />}
+              {activeTab === 'os-disks' && <OsDisksTab token={token} />}
+              {activeTab === 'os-processes' && <OsProcessesTab token={token} />}
+              {activeTab === 'os-power' && <OsPowerTab token={token} />}
               {activeTab === 'devices' && <DevicesTab token={token} />}
             </motion.div>
           </AnimatePresence>
@@ -8578,6 +8590,374 @@ function ApiBridgeTab({ token }: { token: string }) {
 
       <AdminCard title="MQTT Bridge — Topics" icon={WifiHigh}>
         {topics !== null && <ServiceJsonBlock data={topics} />}
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── IORA OS (only meaningful on actual IORA OS device) ─────────────────────────
+
+const OS_BASE = '/api/admin/iora-control'
+
+function OsSshTab({ token }: { token: string }) {
+  const [status, setStatus] = useState<{ enabled?: boolean; running?: boolean } | null>(null)
+  const [users, setUsers] = useState<unknown>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [newUser, setNewUser] = useState('')
+  const [pubKey, setPubKey] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [s, u] = await Promise.all([
+        adminFetch(${OS_BASE}/ssh/status, token),
+        adminFetch(${OS_BASE}/ssh/users, token),
+      ])
+      setStatus(s as { enabled?: boolean; running?: boolean })
+      setUsers(u)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true)
+    try {
+      await adminFetch(${OS_BASE}/ssh/enable, token, {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      })
+      toast.success(enabled ? 'SSH aktiviert' : 'SSH deaktiviert')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addUser = async () => {
+    if (!newUser.trim() || !pubKey.trim()) return
+    setBusy(true)
+    try {
+      await adminFetch(${OS_BASE}/ssh/users, token, {
+        method: 'POST',
+        body: JSON.stringify({ username: newUser.trim(), public_key: pubKey.trim() }),
+      })
+      toast.success('SSH-Benutzer hinzugefügt')
+      setNewUser('')
+      setPubKey('')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeUser = async (username: string) => {
+    if (!confirm(SSH-Benutzer '' entfernen?)) return
+    setBusy(true)
+    try {
+      await adminFetch(${OS_BASE}/ssh/users/, token, { method: 'DELETE' })
+      toast.success('Benutzer entfernt')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="SSH-Server-Status" icon={Terminal}>
+        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {status && (
+          <div className="flex items-center gap-3">
+            <span className={px-2 py-0.5 rounded-full text-xs font-semibold + (status.running ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300')}>
+              {status.running ? 'Aktiv' : 'Inaktiv'}
+            </span>
+            <span className="text-xs text-foreground/60">Aktiviert beim Boot: {status.enabled ? 'ja' : 'nein'}</span>
+            <div className="ml-auto flex gap-2">
+              <button onClick={() => toggle(true)} disabled={busy}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40">SSH aktivieren</button>
+              <button onClick={() => toggle(false)} disabled={busy}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/30 disabled:opacity-40">SSH deaktivieren</button>
+            </div>
+          </div>
+        )}
+        {status && <div className="mt-3"><ServiceJsonBlock data={status} /></div>}
+      </AdminCard>
+
+      <AdminCard title="SSH-Benutzer hinzufügen" icon={Plus}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input value={newUser} onChange={(e) => setNewUser(e.target.value)} placeholder="Benutzername"
+            className="text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
+          <input value={pubKey} onChange={(e) => setPubKey(e.target.value)} placeholder="ssh-ed25519 AAAA…"
+            className="sm:col-span-2 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
+        </div>
+        <button onClick={addUser} disabled={busy || !newUser.trim() || !pubKey.trim()}
+          className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Hinzufügen</button>
+      </AdminCard>
+
+      <AdminCard title="Bestehende SSH-Benutzer" icon={Users}>
+        {users !== null && <ServiceJsonBlock data={users} max="max-h-96" />}
+        {Array.isArray((users as { users?: unknown[] })?.users) && ((users as { users: { username: string }[] }).users).length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(users as { users: { username: string }[] }).users.map((u) => (
+              <button key={u.username} onClick={() => removeUser(u.username)}
+                className="px-2 py-1 text-xs rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25">
+                {u.username} entfernen
+              </button>
+            ))}
+          </div>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+function OsNetworkConfigTab({ token }: { token: string }) {
+  const [data, setData] = useState<unknown>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await adminFetch(${OS_BASE}/os/network, token)
+      setData(r)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setLoading(false) }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Netzwerk-Schnittstellen & IP-Adressen" icon={Globe}>
+        <p className="text-xs text-foreground/60 mb-3">
+          Live-Sicht aller Netzwerk-Schnittstellen mit MAC, Traffic-Statistik und (sofern verfügbar via <code className="text-accent">ip addr</code>) IPv4/IPv6-Adressen pro Interface. Statische IP-Konfiguration erfolgt über <code className="text-accent">/etc/systemd/network</code> bzw. NetworkManager auf dem IORA-OS-Host.
+        </p>
+        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {data !== null && <ServiceJsonBlock data={data} max="max-h-[32rem]" />}
+        <button onClick={load} className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Aktualisieren</button>
+      </AdminCard>
+    </div>
+  )
+}
+
+function OsDisksTab({ token }: { token: string }) {
+  const [data, setData] = useState<{ disks?: { name: string; mount_point: string; file_system: string; total_bytes: number; available_bytes: number; used_bytes: number; usage_percent: number; is_removable: boolean }[] } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await adminFetch(${OS_BASE}/os/disks, token)
+      setData(r as typeof data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setLoading(false) }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const fmt = (n: number) => {
+    if (n < 1024) return ${n} B
+    const u = ['KB', 'MB', 'GB', 'TB']
+    let v = n / 1024, i = 0
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+    return ${v.toFixed(1)} 
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Festplatten & Dateisysteme" icon={HardDrive}>
+        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {data?.disks && (
+          <div className="space-y-2">
+            {data.disks.map((d, i) => (
+              <div key={i} className="rounded-lg border border-foreground/10 p-3 bg-foreground/5">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-xs font-semibold text-foreground">{d.mount_point}</div>
+                    <div className="text-[10px] text-foreground/50">{d.name} · {d.file_system}{d.is_removable ? ' · removable' : ''}</div>
+                  </div>
+                  <div className="text-xs text-foreground/70">{fmt(d.used_bytes)} / {fmt(d.total_bytes)}</div>
+                </div>
+                <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
+                  <div className={h-full + (d.usage_percent > 90 ? 'bg-red-500' : d.usage_percent > 75 ? 'bg-amber-500' : 'bg-emerald-500')} style={{ width: ${Math.min(100, d.usage_percent)}% }} />
+                </div>
+                <div className="text-[10px] text-foreground/50 mt-1">{d.usage_percent.toFixed(1)} % belegt · {fmt(d.available_bytes)} frei</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <button onClick={load} className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Aktualisieren</button>
+      </AdminCard>
+    </div>
+  )
+}
+
+function OsProcessesTab({ token }: { token: string }) {
+  const [data, setData] = useState<{ processes?: { pid: number; name: string; cpu_percent: number; memory_bytes: number }[] } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [auto, setAuto] = useState(false)
+
+  const load = useCallback(async () => {
+    setError(null)
+    try {
+      const r = await adminFetch(${OS_BASE}/os/processes, token)
+      setData(r as typeof data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setLoading(false) }
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (!auto) return
+    const id = setInterval(load, 3000)
+    return () => clearInterval(id)
+  }, [auto, load])
+
+  const fmtMem = (n: number) => {
+    const u = ['B','KB','MB','GB']; let v = n, i = 0
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+    return ${v.toFixed(1)} 
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Top-Prozesse (CPU)" icon={Pulse}>
+        <div className="flex items-center gap-3 mb-3">
+          <button onClick={load} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Aktualisieren</button>
+          <label className="text-xs text-foreground/70 flex items-center gap-1.5">
+            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            Auto-Refresh (3s)
+          </label>
+        </div>
+        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        {data?.processes && (
+          <div className="overflow-auto max-h-[32rem]">
+            <table className="w-full text-xs">
+              <thead className="text-foreground/60 text-[10px] uppercase tracking-wider">
+                <tr><th className="text-left py-1">PID</th><th className="text-left">Name</th><th className="text-right">CPU %</th><th className="text-right">RAM</th></tr>
+              </thead>
+              <tbody className="font-mono">
+                {data.processes.map((p) => (
+                  <tr key={p.pid} className="border-t border-foreground/5">
+                    <td className="py-1 pr-2">{p.pid}</td>
+                    <td className="pr-2 truncate max-w-[260px]">{p.name}</td>
+                    <td className="text-right pr-2">{p.cpu_percent.toFixed(1)}</td>
+                    <td className="text-right">{fmtMem(p.memory_bytes)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </AdminCard>
+    </div>
+  )
+}
+
+function OsPowerTab({ token }: { token: string }) {
+  const [hostname, setHostname] = useState('')
+  const [current, setCurrent] = useState<string>('')
+  const [busy, setBusy] = useState(false)
+  const [delay, setDelay] = useState(5)
+
+  const load = useCallback(async () => {
+    try {
+      const r = await adminFetch(${OS_BASE}/os/hostname, token) as { hostname?: string }
+      setCurrent(r.hostname || '')
+      if (!hostname) setHostname(r.hostname || '')
+    } catch (e) {
+      console.error(e)
+    }
+  }, [token, hostname])
+  useEffect(() => { load() }, [load])
+
+  const saveHostname = async () => {
+    if (!hostname.trim()) return
+    setBusy(true)
+    try {
+      await adminFetch(${OS_BASE}/os/hostname, token, {
+        method: 'PUT',
+        body: JSON.stringify({ hostname: hostname.trim() }),
+      })
+      toast.success('Hostname gesetzt')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(false) }
+  }
+
+  const power = async (action: 'reboot' | 'shutdown') => {
+    const label = action === 'reboot' ? 'IORA OS jetzt neu starten' : 'IORA OS jetzt herunterfahren'
+    if (!confirm(${label}? (Verzögerung: s))) return
+    setBusy(true)
+    try {
+      await adminFetch(${OS_BASE}/os/, token, {
+        method: 'POST',
+        body: JSON.stringify({ delay_seconds: delay, reason: 'admin-panel' }),
+      })
+      toast.success(action === 'reboot' ? 'Neustart geplant' : 'Shutdown geplant')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Hostname" icon={Gear}>
+        <p className="text-xs text-foreground/60 mb-2">Aktueller Hostname: <code className="text-accent">{current || '—'}</code></p>
+        <div className="flex gap-2">
+          <input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="iora-os"
+            className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
+          <button onClick={saveHostname} disabled={busy || !hostname.trim() || hostname === current}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Speichern</button>
+        </div>
+        <p className="text-[10px] text-foreground/50 mt-2">Erfordert Root-Rechte auf dem Host (hostnamectl/hostname). Persistiert in <code>/etc/hostname</code>.</p>
+      </AdminCard>
+
+      <AdminCard title="System neu starten / herunterfahren" icon={Power}>
+        <p className="text-xs text-amber-300 mb-3 flex items-center gap-1.5">
+          <Warning size={14} /> Diese Aktionen beenden alle laufenden Container und Dienste auf dem IORA-OS-Host.
+        </p>
+        <label className="text-xs text-foreground/70 flex items-center gap-2 mb-3">
+          Verzögerung:
+          <input type="number" min={0} max={3600} value={delay} onChange={(e) => setDelay(Math.max(0, parseInt(e.target.value || '0', 10)))}
+            className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-2 py-1 text-foreground" />
+          Sekunden
+        </label>
+        <div className="flex gap-2">
+          <button onClick={() => power('reboot')} disabled={busy}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40 flex items-center gap-1.5">
+            <ArrowClockwise size={14} /> Neustart
+          </button>
+          <button onClick={() => power('shutdown')} disabled={busy}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/30 disabled:opacity-40 flex items-center gap-1.5">
+            <Power size={14} /> Herunterfahren
+          </button>
+        </div>
       </AdminCard>
     </div>
   )

@@ -854,6 +854,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/control/tasks/:task_id/toggle", post(admin_control_toggle_task))
         .route("/api/admin/control/mode", get(admin_control_get_mode).put(admin_control_set_mode))
         .route("/api/admin/control/overview", get(admin_control_overview))
+        // Generic passthrough proxy to iora-control:8091 for SSH and OS-level
+        // management endpoints (e.g. /api/admin/iora-control/ssh/status,
+        // /api/admin/iora-control/os/disks, /api/admin/iora-control/os/reboot).
+        // Uses a different prefix than /api/admin/control/ to avoid clashing
+        // with the dedicated handlers above.
+        .route("/api/admin/iora-control/*path", get(admin_iora_control_proxy)
+            .post(admin_iora_control_proxy)
+            .put(admin_iora_control_proxy)
+            .delete(admin_iora_control_proxy)
+            .patch(admin_iora_control_proxy))
         // IORA Log System & Metrics
         .route("/api/admin/logs", get(admin_get_logs))
         .route("/api/admin/logs/clear", post(admin_clear_logs))
@@ -8876,6 +8886,95 @@ async fn admin_control_overview(
         "active_schedules": schedule_count,
         "timestamp": chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+/// Generic proxy: forwards /api/admin/iora-control/<path> to
+/// http://localhost:8091/api/control/<path> on iora-control. The endpoint is
+/// already gated by the admin middleware on the `admin_routes` group, so we
+/// simply replay the verb, headers (minus hop-by-hop), and body, and stream
+/// the upstream response back unchanged.
+async fn admin_iora_control_proxy(
+    State(state): State<AppState>,
+    method: axum::http::Method,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+    raw_query: RawQuery,
+    body: axum::body::Bytes,
+) -> Response {
+    let port = std::env::var("CONTROL_PORT").unwrap_or_else(|_| "8091".to_string());
+    let qs = raw_query.0.as_deref().map(|q| format!("?{}", q)).unwrap_or_default();
+    let url = format!("http://localhost:{}/api/control/{}{}", port, path, qs);
+
+    let reqwest_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
+        Ok(m) => m,
+        Err(_) => {
+            return (
+                StatusCode::METHOD_NOT_ALLOWED,
+                Json(json!({"error": "unsupported method"})),
+            )
+                .into_response()
+        }
+    };
+
+    let mut req = state.http_client.request(reqwest_method, &url);
+    for (k, v) in headers.iter() {
+        let name = k.as_str().to_ascii_lowercase();
+        // Skip hop-by-hop headers and the dashboard's own auth bearer (the
+        // upstream iora-control trusts requests on localhost and does not
+        // re-validate the dashboard JWT).
+        if matches!(
+            name.as_str(),
+            "host" | "content-length" | "connection" | "authorization" | "cookie"
+        ) {
+            continue;
+        }
+        if let Ok(val) = v.to_str() {
+            req = req.header(k.as_str(), val);
+        }
+    }
+    if !body.is_empty() {
+        req = req.body(body.to_vec());
+    }
+
+    match req
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            let upstream_status = StatusCode::from_u16(status.as_u16())
+                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let content_type = resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/json")
+                .to_string();
+            let bytes = resp.bytes().await.unwrap_or_default();
+            let mut out = Response::builder()
+                .status(upstream_status)
+                .header(header::CONTENT_TYPE, content_type);
+            if let Some(headers_mut) = out.headers_mut() {
+                let _ = headers_mut;
+            }
+            out.body(axum::body::Body::from(bytes)).unwrap_or_else(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "failed to build response"})),
+                )
+                    .into_response()
+            })
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": format!("iora-control upstream error: {}", e),
+                "url": url,
+            })),
+        )
+            .into_response(),
+    }
 }
 
 // ─── IORA Log & Metrics Endpoints ──────────────────────────────────────
