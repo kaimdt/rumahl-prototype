@@ -8595,6 +8595,7 @@ function ApiBridgeTab({ token }: { token: string }) {
   )
 }
 
+
 // ─── IORA OS (only meaningful on actual IORA OS device) ─────────────────────────
 
 const OS_BASE = '/api/admin/iora-control'
@@ -8613,8 +8614,8 @@ function OsSshTab({ token }: { token: string }) {
     setError(null)
     try {
       const [s, u] = await Promise.all([
-        adminFetch(${OS_BASE}/ssh/status, token),
-        adminFetch(${OS_BASE}/ssh/users, token),
+        adminFetch(OS_BASE + '/ssh/status', token),
+        adminFetch(OS_BASE + '/ssh/users', token),
       ])
       setStatus(s as { enabled?: boolean; running?: boolean })
       setUsers(u)
@@ -8630,7 +8631,7 @@ function OsSshTab({ token }: { token: string }) {
   const toggle = async (enabled: boolean) => {
     setBusy(true)
     try {
-      await adminFetch(${OS_BASE}/ssh/enable, token, {
+      await adminFetch(OS_BASE + '/ssh/enable', token, {
         method: 'POST',
         body: JSON.stringify({ enabled }),
       })
@@ -8647,11 +8648,11 @@ function OsSshTab({ token }: { token: string }) {
     if (!newUser.trim() || !pubKey.trim()) return
     setBusy(true)
     try {
-      await adminFetch(${OS_BASE}/ssh/users, token, {
+      await adminFetch(OS_BASE + '/ssh/users', token, {
         method: 'POST',
         body: JSON.stringify({ username: newUser.trim(), public_key: pubKey.trim() }),
       })
-      toast.success('SSH-Benutzer hinzugefügt')
+      toast.success('SSH-Benutzer hinzugefuegt')
       setNewUser('')
       setPubKey('')
       await load()
@@ -8663,10 +8664,10 @@ function OsSshTab({ token }: { token: string }) {
   }
 
   const removeUser = async (username: string) => {
-    if (!confirm(SSH-Benutzer '' entfernen?)) return
+    if (!confirm("SSH-Benutzer '" + username + "' entfernen?")) return
     setBusy(true)
     try {
-      await adminFetch(${OS_BASE}/ssh/users/, token, { method: 'DELETE' })
+      await adminFetch(OS_BASE + '/ssh/users/' + encodeURIComponent(username), token, { method: 'DELETE' })
       toast.success('Benutzer entfernt')
       await load()
     } catch (e) {
@@ -8679,11 +8680,11 @@ function OsSshTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       <AdminCard title="SSH-Server-Status" icon={Terminal}>
-        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {loading && <p className="text-xs text-foreground/50">Lade...</p>}
         {error && <p className="text-xs text-red-300">{error}</p>}
         {status && (
           <div className="flex items-center gap-3">
-            <span className={px-2 py-0.5 rounded-full text-xs font-semibold + (status.running ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300')}>
+            <span className={'px-2 py-0.5 rounded-full text-xs font-semibold ' + (status.running ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300')}>
               {status.running ? 'Aktiv' : 'Inaktiv'}
             </span>
             <span className="text-xs text-foreground/60">Aktiviert beim Boot: {status.enabled ? 'ja' : 'nein'}</span>
@@ -8698,15 +8699,15 @@ function OsSshTab({ token }: { token: string }) {
         {status && <div className="mt-3"><ServiceJsonBlock data={status} /></div>}
       </AdminCard>
 
-      <AdminCard title="SSH-Benutzer hinzufügen" icon={Plus}>
+      <AdminCard title="SSH-Benutzer hinzufuegen" icon={Plus}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input value={newUser} onChange={(e) => setNewUser(e.target.value)} placeholder="Benutzername"
             className="text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground" />
-          <input value={pubKey} onChange={(e) => setPubKey(e.target.value)} placeholder="ssh-ed25519 AAAA…"
+          <input value={pubKey} onChange={(e) => setPubKey(e.target.value)} placeholder="ssh-ed25519 AAAA..."
             className="sm:col-span-2 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
         </div>
         <button onClick={addUser} disabled={busy || !newUser.trim() || !pubKey.trim()}
-          className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Hinzufügen</button>
+          className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">Hinzufuegen</button>
       </AdminCard>
 
       <AdminCard title="Bestehende SSH-Benutzer" icon={Users}>
@@ -8734,7 +8735,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await adminFetch(${OS_BASE}/os/network, token)
+      const r = await adminFetch(OS_BASE + '/os/network', token)
       setData(r)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -8747,9 +8748,9 @@ function OsNetworkConfigTab({ token }: { token: string }) {
     <div className="space-y-3">
       <AdminCard title="Netzwerk-Schnittstellen & IP-Adressen" icon={Globe}>
         <p className="text-xs text-foreground/60 mb-3">
-          Live-Sicht aller Netzwerk-Schnittstellen mit MAC, Traffic-Statistik und (sofern verfügbar via <code className="text-accent">ip addr</code>) IPv4/IPv6-Adressen pro Interface. Statische IP-Konfiguration erfolgt über <code className="text-accent">/etc/systemd/network</code> bzw. NetworkManager auf dem IORA-OS-Host.
+          Live-Sicht aller Netzwerk-Schnittstellen mit MAC, Traffic-Statistik und (sofern verfuegbar via <code className="text-accent">ip addr</code>) IPv4/IPv6-Adressen pro Interface. Statische IP-Konfiguration erfolgt ueber <code className="text-accent">/etc/systemd/network</code> bzw. NetworkManager auf dem IORA-OS-Host.
         </p>
-        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {loading && <p className="text-xs text-foreground/50">Lade...</p>}
         {error && <p className="text-xs text-red-300">{error}</p>}
         {data !== null && <ServiceJsonBlock data={data} max="max-h-[32rem]" />}
         <button onClick={load} className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Aktualisieren</button>
@@ -8758,16 +8759,17 @@ function OsNetworkConfigTab({ token }: { token: string }) {
   )
 }
 
+interface OsDisk { name: string; mount_point: string; file_system: string; total_bytes: number; available_bytes: number; used_bytes: number; usage_percent: number; is_removable: boolean }
 function OsDisksTab({ token }: { token: string }) {
-  const [data, setData] = useState<{ disks?: { name: string; mount_point: string; file_system: string; total_bytes: number; available_bytes: number; used_bytes: number; usage_percent: number; is_removable: boolean }[] } | null>(null)
+  const [data, setData] = useState<{ disks?: OsDisk[] } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await adminFetch(${OS_BASE}/os/disks, token)
-      setData(r as typeof data)
+      const r = await adminFetch(OS_BASE + '/os/disks', token)
+      setData(r as { disks?: OsDisk[] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setLoading(false) }
@@ -8776,17 +8778,17 @@ function OsDisksTab({ token }: { token: string }) {
   useEffect(() => { load() }, [load])
 
   const fmt = (n: number) => {
-    if (n < 1024) return ${n} B
+    if (n < 1024) return n + ' B'
     const u = ['KB', 'MB', 'GB', 'TB']
     let v = n / 1024, i = 0
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
-    return ${v.toFixed(1)} 
+    return v.toFixed(1) + ' ' + u[i]
   }
 
   return (
     <div className="space-y-3">
       <AdminCard title="Festplatten & Dateisysteme" icon={HardDrive}>
-        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {loading && <p className="text-xs text-foreground/50">Lade...</p>}
         {error && <p className="text-xs text-red-300">{error}</p>}
         {data?.disks && (
           <div className="space-y-2">
@@ -8795,14 +8797,14 @@ function OsDisksTab({ token }: { token: string }) {
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <div className="text-xs font-semibold text-foreground">{d.mount_point}</div>
-                    <div className="text-[10px] text-foreground/50">{d.name} · {d.file_system}{d.is_removable ? ' · removable' : ''}</div>
+                    <div className="text-[10px] text-foreground/50">{d.name} - {d.file_system}{d.is_removable ? ' - removable' : ''}</div>
                   </div>
                   <div className="text-xs text-foreground/70">{fmt(d.used_bytes)} / {fmt(d.total_bytes)}</div>
                 </div>
                 <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
-                  <div className={h-full + (d.usage_percent > 90 ? 'bg-red-500' : d.usage_percent > 75 ? 'bg-amber-500' : 'bg-emerald-500')} style={{ width: ${Math.min(100, d.usage_percent)}% }} />
+                  <div className={'h-full ' + (d.usage_percent > 90 ? 'bg-red-500' : d.usage_percent > 75 ? 'bg-amber-500' : 'bg-emerald-500')} style={{ width: Math.min(100, d.usage_percent) + '%' }} />
                 </div>
-                <div className="text-[10px] text-foreground/50 mt-1">{d.usage_percent.toFixed(1)} % belegt · {fmt(d.available_bytes)} frei</div>
+                <div className="text-[10px] text-foreground/50 mt-1">{d.usage_percent.toFixed(1)} % belegt - {fmt(d.available_bytes)} frei</div>
               </div>
             ))}
           </div>
@@ -8813,8 +8815,9 @@ function OsDisksTab({ token }: { token: string }) {
   )
 }
 
+interface OsProc { pid: number; name: string; cpu_percent: number; memory_bytes: number }
 function OsProcessesTab({ token }: { token: string }) {
-  const [data, setData] = useState<{ processes?: { pid: number; name: string; cpu_percent: number; memory_bytes: number }[] } | null>(null)
+  const [data, setData] = useState<{ processes?: OsProc[] } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [auto, setAuto] = useState(false)
@@ -8822,8 +8825,8 @@ function OsProcessesTab({ token }: { token: string }) {
   const load = useCallback(async () => {
     setError(null)
     try {
-      const r = await adminFetch(${OS_BASE}/os/processes, token)
-      setData(r as typeof data)
+      const r = await adminFetch(OS_BASE + '/os/processes', token)
+      setData(r as { processes?: OsProc[] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setLoading(false) }
@@ -8839,7 +8842,7 @@ function OsProcessesTab({ token }: { token: string }) {
   const fmtMem = (n: number) => {
     const u = ['B','KB','MB','GB']; let v = n, i = 0
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
-    return ${v.toFixed(1)} 
+    return v.toFixed(1) + ' ' + u[i]
   }
 
   return (
@@ -8852,7 +8855,7 @@ function OsProcessesTab({ token }: { token: string }) {
             Auto-Refresh (3s)
           </label>
         </div>
-        {loading && <p className="text-xs text-foreground/50">Lade…</p>}
+        {loading && <p className="text-xs text-foreground/50">Lade...</p>}
         {error && <p className="text-xs text-red-300">{error}</p>}
         {data?.processes && (
           <div className="overflow-auto max-h-[32rem]">
@@ -8886,7 +8889,7 @@ function OsPowerTab({ token }: { token: string }) {
 
   const load = useCallback(async () => {
     try {
-      const r = await adminFetch(${OS_BASE}/os/hostname, token) as { hostname?: string }
+      const r = await adminFetch(OS_BASE + '/os/hostname', token) as { hostname?: string }
       setCurrent(r.hostname || '')
       if (!hostname) setHostname(r.hostname || '')
     } catch (e) {
@@ -8899,7 +8902,7 @@ function OsPowerTab({ token }: { token: string }) {
     if (!hostname.trim()) return
     setBusy(true)
     try {
-      await adminFetch(${OS_BASE}/os/hostname, token, {
+      await adminFetch(OS_BASE + '/os/hostname', token, {
         method: 'PUT',
         body: JSON.stringify({ hostname: hostname.trim() }),
       })
@@ -8912,10 +8915,10 @@ function OsPowerTab({ token }: { token: string }) {
 
   const power = async (action: 'reboot' | 'shutdown') => {
     const label = action === 'reboot' ? 'IORA OS jetzt neu starten' : 'IORA OS jetzt herunterfahren'
-    if (!confirm(${label}? (Verzögerung: s))) return
+    if (!confirm(label + '? (Verzoegerung: ' + delay + 's)')) return
     setBusy(true)
     try {
-      await adminFetch(${OS_BASE}/os/, token, {
+      await adminFetch(OS_BASE + '/os/' + action, token, {
         method: 'POST',
         body: JSON.stringify({ delay_seconds: delay, reason: 'admin-panel' }),
       })
@@ -8928,7 +8931,7 @@ function OsPowerTab({ token }: { token: string }) {
   return (
     <div className="space-y-3">
       <AdminCard title="Hostname" icon={Gear}>
-        <p className="text-xs text-foreground/60 mb-2">Aktueller Hostname: <code className="text-accent">{current || '—'}</code></p>
+        <p className="text-xs text-foreground/60 mb-2">Aktueller Hostname: <code className="text-accent">{current || '-'}</code></p>
         <div className="flex gap-2">
           <input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="iora-os"
             className="flex-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground font-mono" />
@@ -8943,7 +8946,7 @@ function OsPowerTab({ token }: { token: string }) {
           <Warning size={14} /> Diese Aktionen beenden alle laufenden Container und Dienste auf dem IORA-OS-Host.
         </p>
         <label className="text-xs text-foreground/70 flex items-center gap-2 mb-3">
-          Verzögerung:
+          Verzoegerung:
           <input type="number" min={0} max={3600} value={delay} onChange={(e) => setDelay(Math.max(0, parseInt(e.target.value || '0', 10)))}
             className="w-20 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-2 py-1 text-foreground" />
           Sekunden
