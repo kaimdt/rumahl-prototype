@@ -540,7 +540,13 @@ function DashboardContent() {
           </header>
 
           <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32">
-          {loading ? (
+          {/*
+            Only block the home page on the entity-loading skeleton.
+            Admin / Settings / Apps & Features and other non-home pages must remain
+            usable even when Home Assistant is unreachable or still loading, since
+            they are needed to actually configure / repair the HA connection.
+          */}
+          {loading && currentPageId === 'home' && haConfigured !== false ? (
             <DashboardSkeleton />
           ) : (
             <div className="space-y-6">
