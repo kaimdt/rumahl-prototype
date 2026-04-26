@@ -4,7 +4,9 @@
 //   * binaries live at /usr/bin/<name>
 //   * the systemd unit is <name>.service
 
-#[derive(Clone, Debug)]
+use serde::Serialize;
+
+#[derive(Clone, Debug, Serialize)]
 pub struct Component {
     pub name: &'static str,
     pub unit: String,

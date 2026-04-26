@@ -10,7 +10,7 @@ name = "iora-dev-deploy"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "process", "time", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "process", "time", "signal", "sync"] }
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,6 +30,14 @@ dirs = "5"
 futures-util = "0.3"
 indicatif = "0.17"
 colored = "2"
+# Daemon (HTTP + WebSocket API for the VS Code extension)
+axum = { version = "0.7", features = ["ws", "multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+getrandom = "0.2"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 [workspace]
 # Standalone workspace — this CLI never joins the on-device backend workspace.

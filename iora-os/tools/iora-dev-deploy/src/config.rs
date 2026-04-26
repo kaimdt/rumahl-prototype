@@ -19,6 +19,9 @@ fn path() -> Result<PathBuf> {
     Ok(dir()?.join(FILE_NAME))
 }
 
+/// Public accessor for callers (e.g. daemon::h_disconnect).
+pub fn config_file_path() -> Result<PathBuf> { path() }
+
 pub fn save(cfg: &Config) -> Result<PathBuf> {
     let d = dir()?;
     std::fs::create_dir_all(&d).with_context(|| format!("create {}", d.display()))?;

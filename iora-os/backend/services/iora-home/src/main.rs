@@ -946,7 +946,25 @@ async fn main() -> anyhow::Result<()> {
         // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
         .route("/api/supervisor/system/info", get(stub_supervisor_system_info))
         .route("/api/supervisor/apps", get(stub_supervisor_apps))
+        .route("/api/supervisor/apps/install", post(stub_supervisor_unavailable))
+        .route("/api/supervisor/apps/:app_id", post(stub_supervisor_unavailable).delete(stub_supervisor_unavailable).put(stub_supervisor_unavailable))
+        .route("/api/supervisor/apps/:app_id/start", post(stub_supervisor_unavailable))
+        .route("/api/supervisor/apps/:app_id/stop", post(stub_supervisor_unavailable))
+        .route("/api/supervisor/apps/:app_id/restart", post(stub_supervisor_unavailable))
         .route("/api/core/plugins/with-stats", get(stub_core_plugins))
+        .route("/api/core/plugins", get(stub_core_plugins))
+        .route("/api/core/plugins/:id", post(stub_core_unavailable).delete(stub_core_unavailable).put(stub_core_unavailable))
+        .route("/api/core/plugins/:id/enable", post(stub_core_unavailable))
+        .route("/api/core/plugins/:id/disable", post(stub_core_unavailable))
+        // App-Store stubs: when iora-appstore isn't deployed we still want
+        // the Apps tab to render an empty state instead of "(200)".
+        .route("/api/appstore/installed", get(stub_appstore_installed))
+        .route("/api/appstore/search", get(stub_appstore_search))
+        .route("/api/appstore/install", post(stub_appstore_unavailable))
+        .route("/api/appstore/apps/:app_id", get(stub_appstore_unavailable).delete(stub_appstore_unavailable))
+        .route("/api/appstore/apps/:app_id/settings", get(stub_appstore_unavailable).post(stub_appstore_unavailable))
+        .route("/api/appstore/permissions/grant", post(stub_appstore_unavailable))
+        .route("/api/appstore/settings", post(stub_appstore_unavailable))
         .route("/api/core/registrations", get(stub_core_registrations))
         .route("/api/core/security/events", get(stub_core_security_events))
         .route("/api/core/security/alerts", get(stub_core_security_alerts))
@@ -3398,17 +3416,59 @@ async fn admin_settings_schema_wizard(
 // components render their normal empty-state.
 
 async fn stub_supervisor_system_info() -> Json<Value> {
+    // Match the shape the frontend's SystemInfoTab expects so it can render
+    // a clean "empty" placeholder instead of crashing on `.length` of
+    // undefined arrays.
     Json(json!({
         "available": false,
-        "hostname": null,
-        "platform": null,
-        "kernel": null,
-        "uptime_seconds": 0,
-        "cpu_usage": 0,
-        "memory_usage": 0,
-        "disk_usage": 0,
+        "hostname": "unbekannt",
+        "os_name": "unbekannt",
+        "os_version": "",
+        "kernel_version": "",
+        "cpu_count": 0,
+        "cpu_usage": 0.0,
+        "total_memory": 0,
+        "used_memory": 0,
+        "available_memory": 0,
+        "memory_usage_percent": 0.0,
+        "disks": [],
+        "network_interfaces": [],
+        "uptime": 0,
         "note": "iora-supervisor ist auf diesem System nicht verfügbar.",
     }))
+}
+
+/// 503-style stub used for write/mutation endpoints whose backing service
+/// (iora-supervisor, iora-core, iora-appstore) isn't running. We return a
+/// JSON body so `adminFetch` parses it cleanly and surfaces a localised
+/// error message — not a generic SPA-fallback "(200)".
+async fn stub_supervisor_unavailable() -> (axum::http::StatusCode, Json<Value>) {
+    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+        "error": "iora-supervisor ist auf diesem System nicht verfügbar.",
+        "available": false,
+    })))
+}
+
+async fn stub_core_unavailable() -> (axum::http::StatusCode, Json<Value>) {
+    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+        "error": "iora-core ist auf diesem System nicht verfügbar.",
+        "available": false,
+    })))
+}
+
+async fn stub_appstore_unavailable() -> (axum::http::StatusCode, Json<Value>) {
+    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+        "error": "iora-appstore ist auf diesem System nicht verfügbar.",
+        "available": false,
+    })))
+}
+
+async fn stub_appstore_installed() -> Json<Value> {
+    Json(json!({ "apps": [], "available": false }))
+}
+
+async fn stub_appstore_search() -> Json<Value> {
+    Json(json!({ "results": [], "available": false }))
 }
 
 async fn stub_supervisor_apps() -> Json<Value> {
@@ -3569,6 +3629,35 @@ async fn admin_settings_put(
             key,
             def.requires_restart.join(", ")
         );
+    }
+
+    // Side-effect hook: toggling `developer.mode` should also start (or stop)
+    // the iora-developer-app systemd unit so dev-only API endpoints become
+    // reachable without a manual SSH. Best-effort — if systemctl isn't on
+    // PATH or the unit isn't installed (e.g. production image, container
+    // build) we just log and move on.
+    if key == "developer.mode" {
+        let enable = body.value.as_bool().unwrap_or(false);
+        let action = if enable { "start" } else { "stop" };
+        match tokio::process::Command::new("systemctl")
+            .arg(action)
+            .arg("iora-developer-app.service")
+            .output()
+            .await
+        {
+            Ok(out) if out.status.success() => {
+                info!("developer.mode toggle: systemctl {action} iora-developer-app.service OK");
+            }
+            Ok(out) => {
+                warn!(
+                    "developer.mode toggle: systemctl {action} iora-developer-app.service failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            Err(e) => {
+                warn!("developer.mode toggle: could not exec systemctl ({e}) – iora-developer-app may need manual start.");
+            }
+        }
     }
 
     Ok(Json(SettingValueDto {

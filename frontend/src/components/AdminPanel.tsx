@@ -729,8 +729,12 @@ interface SettingDefDto {
   tags?: string[]
 }
 
-interface SettingValueDto {
-  definition: SettingDefDto
+// The backend serialises `SettingValueDto` with `#[serde(flatten)]` on
+// `definition`, so the JSON body we receive is a single flat object with all
+// `SettingDefDto` fields PLUS `value` + `is_set` at the top level. We model
+// that by extending `SettingDefDto` here — accessing `.definition` would
+// throw because no such nested key exists.
+interface SettingValueDto extends SettingDefDto {
   value: unknown
   is_set: boolean
 }
@@ -779,20 +783,24 @@ function GlobalConfigTab({ token }: { token: string }) {
 
   useEffect(() => { load() }, [load])
 
-  const visible = items.filter(it => it.definition.visibility !== 'hidden')
+  // Defensive: filter out anything that doesn't look like a definition
+  // (e.g. backend returning an error envelope) so a single bad row can't
+  // crash the whole page with a TypeError.
+  const safe = items.filter(it => it && typeof (it as { key?: unknown }).key === 'string')
+  const visible = safe.filter(it => it.visibility !== 'hidden')
 
-  const categories = Array.from(new Set(visible.map(it => it.definition.category))) as SettingDefDto['category'][]
+  const categories = Array.from(new Set(visible.map(it => it.category))) as SettingDefDto['category'][]
   const orderedCategories: SettingDefDto['category'][] =
     (['system', 'home_assistant', 'integrations', 'appearance', 'privacy', 'developer', 'other'] as const)
       .filter(c => categories.includes(c))
 
   const filtered = visible.filter(it => {
-    if (it.definition.category !== activeCategory) return false
+    if (it.category !== activeCategory) return false
     if (!search.trim()) return true
     const q = search.trim().toLowerCase()
-    return it.definition.key.toLowerCase().includes(q)
-      || it.definition.label.toLowerCase().includes(q)
-      || it.definition.description.toLowerCase().includes(q)
+    return it.key.toLowerCase().includes(q)
+      || it.label.toLowerCase().includes(q)
+      || (it.description ?? '').toLowerCase().includes(q)
   })
 
   const save = async (key: string, value: unknown) => {
@@ -882,7 +890,7 @@ function GlobalConfigTab({ token }: { token: string }) {
           </AdminCard>
         )}
         {filtered.map(item => {
-          const def = item.definition
+          const def = item
           const stored = item.value
           const pending = pendingValues[def.key]
           const current = pending !== undefined ? pending : stored

@@ -28,6 +28,7 @@ mod build;
 mod catalog;
 mod client;
 mod config;
+mod daemon;
 mod discover;
 mod watch;
 
@@ -111,6 +112,32 @@ enum Cmd {
         service: String,
         #[arg(long, default_value_t = 200)]
         tail: u32,
+    },
+
+    /// systemctl try-reload-or-restart on the device.
+    Reload {
+        /// systemd unit (e.g. iora-control).
+        unit: String,
+    },
+
+    /// `docker compose up -d --force-recreate <svc>` on the device.
+    ComposeReload {
+        /// docker-compose service name.
+        service: String,
+    },
+
+    /// Run as a long-lived HTTP/WS API daemon for the VS Code extension.
+    Daemon {
+        /// Listen address (default 127.0.0.1:8765).
+        #[arg(long, default_value = "127.0.0.1:8765")]
+        bind: std::net::SocketAddr,
+        /// Override the auth token (otherwise read/created in
+        /// ~/.config/iora-dev-deploy/daemon.token).
+        #[arg(long, env = "IORA_DEV_DAEMON_TOKEN")]
+        token: Option<String>,
+        /// Print the full token to stdout instead of just a fingerprint.
+        #[arg(long)]
+        show_token: bool,
     },
 }
 
@@ -202,6 +229,26 @@ async fn main() -> Result<()> {
                 eprintln!("{}", r.stderr);
             }
             Ok(())
+        }
+        Cmd::Reload { unit } => {
+            let (host, token) = resolve_target(&cli.host, &cli.token)?;
+            let c = client::Client::new(&host, &token)?;
+            ensure_dev(&c).await?;
+            let unit = if unit.contains('.') { unit } else { format!("{unit}.service") };
+            let r = c.reload_unit(&unit).await?;
+            println!("{}", serde_json::to_string_pretty(&r)?);
+            Ok(())
+        }
+        Cmd::ComposeReload { service } => {
+            let (host, token) = resolve_target(&cli.host, &cli.token)?;
+            let c = client::Client::new(&host, &token)?;
+            ensure_dev(&c).await?;
+            let r = c.reload_compose(&service).await?;
+            println!("{}", serde_json::to_string_pretty(&r)?);
+            Ok(())
+        }
+        Cmd::Daemon { bind, token, show_token } => {
+            daemon::run(bind, token, show_token).await
         }
     }
 }

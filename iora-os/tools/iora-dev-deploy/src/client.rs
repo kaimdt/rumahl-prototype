@@ -55,6 +55,22 @@ impl Client {
         Ok(r.json().await?)
     }
 
+    pub async fn reload_unit(&self, unit: &str) -> Result<CmdResult> {
+        let url = format!("{}/dev/service/{}/reload", self.base, unit);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .send().await?;
+        Ok(r.json().await?)
+    }
+
+    pub async fn reload_compose(&self, svc: &str) -> Result<CmdResult> {
+        let url = format!("{}/dev/compose/{}/reload", self.base, svc);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .send().await?;
+        Ok(r.json().await?)
+    }
+
     pub async fn compose_logs(&self, svc: &str, tail: u32) -> Result<CmdResult> {
         let url = format!("{}/dev/compose/{}/logs", self.base, svc);
         let r = self.http.post(&url)

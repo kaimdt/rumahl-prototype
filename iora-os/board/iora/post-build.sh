@@ -2712,8 +2712,17 @@ ConditionPathExists=/usr/bin/iora-dev-bridge
 
 [Service]
 Type=simple
+# Explicitly run as root: the dev token at /etc/iora/dev-token is mode 0600,
+# and we also need to swap binaries owned by root and call docker/systemctl.
+User=root
+Group=root
 Environment=IORA_DEV_BIND=127.0.0.1:8099
 EnvironmentFile=-/etc/iora/dev-bridge.env
+# Self-heal: if a previous boot left the token file with bad perms (e.g.
+# after a rauc upgrade where /etc was migrated from a different layout),
+# the binary regenerates it itself; we additionally try to chmod it here
+# so old binaries on this image also recover.
+ExecStartPre=-/bin/sh -c 'if [ -f /etc/iora/dev-token ]; then chmod 0600 /etc/iora/dev-token; chown root:root /etc/iora/dev-token; fi'
 ExecStart=/usr/bin/iora-dev-bridge
 Restart=on-failure
 RestartSec=2

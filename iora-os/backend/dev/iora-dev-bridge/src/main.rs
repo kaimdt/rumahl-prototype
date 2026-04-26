@@ -57,6 +57,60 @@ struct AppState {
     build_id: Arc<String>,
 }
 
+#[cfg(unix)]
+fn nix_like_euid() -> String {
+    // Avoid pulling nix as a dep — read /proc/self/status which always
+    // exists on Linux dev images and gives us the real EUID.
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("Uid:"))
+                .map(|l| l.trim_start_matches("Uid:").trim().to_string())
+        })
+        .unwrap_or_else(|| "<unknown>".into())
+}
+
+/// Best-effort: when the existing token file is unreadable (EACCES) we
+/// regenerate it. Only safe when we run as root, which the systemd unit
+/// guarantees on dev images.
+async fn try_regenerate_token() -> Option<String> {
+    use std::io::{Read as _, Write as _};
+    // 32 random bytes from /dev/urandom — same source as post-build.sh.
+    let mut buf = [0u8; 32];
+    {
+        let mut f = std::fs::File::open("/dev/urandom").ok()?;
+        f.read_exact(&mut buf).ok()?;
+    }
+    let new_token: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+    let path = std::path::Path::new(DEV_TOKEN_FILE);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut f = match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("could not regenerate dev token at {DEV_TOKEN_FILE}: {e}");
+            return None;
+        }
+    };
+    if f.write_all(new_token.as_bytes()).is_err() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    tracing::info!("regenerated {DEV_TOKEN_FILE} (mode 0600)");
+    Some(new_token)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -74,13 +128,64 @@ async fn main() -> Result<()> {
             "{DEV_MODE_FILE} not found — iora-dev-bridge refuses to run on a non-OS-dev image"
         );
     }
-    let token = tokio::fs::read_to_string(DEV_TOKEN_FILE)
-        .await
-        .context("reading dev token")?
-        .trim()
-        .to_string();
+    // Read the per-image dev token. Surface a useful diagnostic (path,
+    // existence, mode) into the journal so operators don't get a bare
+    // "Permission denied (os error 13)" — historically this has cost us
+    // hours when the token file vanished after a rauc upgrade or got the
+    // wrong owner.
+    let token = match tokio::fs::read_to_string(DEV_TOKEN_FILE).await {
+        Ok(t) => t.trim().to_string(),
+        Err(e) => {
+            let path = std::path::Path::new(DEV_TOKEN_FILE);
+            let exists = path.exists();
+            let mode = std::fs::metadata(path)
+                .ok()
+                .map(|m| {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        format!("0o{:o}", m.permissions().mode() & 0o7777)
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = m;
+                        "n/a".to_string()
+                    }
+                })
+                .unwrap_or_else(|| "<no metadata>".to_string());
+            let euid = {
+                #[cfg(unix)]
+                {
+                    nix_like_euid()
+                }
+                #[cfg(not(unix))]
+                {
+                    "n/a".to_string()
+                }
+            };
+            // EACCES: regenerate the token in-place so a broken-permissions
+            // image self-heals on next restart instead of looping forever.
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                tracing::warn!(
+                    "{DEV_TOKEN_FILE} unreadable (mode={mode}, euid={euid}); regenerating."
+                );
+                if let Some(t) = try_regenerate_token().await {
+                    t
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "reading dev token at {DEV_TOKEN_FILE}: {e} (exists={exists}, mode={mode}, euid={euid}). \
+                         Fix with: chmod 0600 {DEV_TOKEN_FILE} && chown root:root {DEV_TOKEN_FILE}"
+                    ));
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "reading dev token at {DEV_TOKEN_FILE}: {e} (exists={exists}, mode={mode}, euid={euid})"
+                ));
+            }
+        }
+    };
     if token.is_empty() {
-        anyhow::bail!("dev token is empty");
+        anyhow::bail!("dev token at {DEV_TOKEN_FILE} is empty");
     }
 
     let build_id = tokio::fs::read_to_string(VERSION_FILE)
