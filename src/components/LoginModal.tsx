@@ -252,7 +252,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="sm:max-w-[460px] border-foreground/10 p-0 gap-0 overflow-hidden"
+        className="sm:max-w-[460px] border-foreground/10 p-0 sm:p-0 gap-0 overflow-hidden"
         hideCloseButton
         hideExpandButton
         onInteractOutside={(e) => e.preventDefault()}

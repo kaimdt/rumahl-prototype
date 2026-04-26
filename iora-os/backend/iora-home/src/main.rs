@@ -1211,14 +1211,18 @@ const FALLBACK_INDEX_HTML: &str = include_str!("fallback_index.html");
 ///      vars (useful in dev / Docker).
 ///
 /// Behaviour with respect to existing rows:
-///   * If the username already exists **without a password_hash** (e.g. a
-///     row left over from /api/config/users or an earlier failed bootstrap
-///     run), the password and is_admin flag are UPDATEd on it. This avoids
-///     the dead-end state where the user can neither log in (no password)
-///     nor register (username already exists).
-///   * If the user exists **with** a password_hash we leave it untouched
-///     so an existing admin's password is never overwritten.
+///   * If the username already exists the row is **always** updated with
+///     the wizard-supplied password (and is_admin is forced to TRUE). The
+///     setup wizard is the source of truth — re-running it with a new
+///     password is the supported "forgot my password" recovery path and
+///     should always produce a working login.
 ///   * Otherwise the row is inserted fresh.
+///
+/// This trades "wizard can overwrite an existing admin's password" for
+/// "first user is always usable". The trade is intentional: the wizard
+/// JSON is owner-only at /mnt/data/iora and is consumed and deleted on
+/// the very next iora-home start, so the only window in which it can
+/// take effect is the boot immediately following the wizard.
 async fn bootstrap_admin_user(
     db_pool: &DbPool,
     _config_repo: &ConfigRepository,
@@ -1282,12 +1286,13 @@ async fn bootstrap_admin_user(
     .await?;
 
     match existing {
-        Some((id, Some(_existing_hash))) => {
-            info!("Bootstrap: user '{}' already exists with a password — not overwriting", username);
-            // Still ensure they are marked admin so first-boot intent is honoured.
-            let _ = sqlx::query("UPDATE users SET is_admin = TRUE WHERE id = $1").bind(&id).execute(db_pool).await;
-        }
-        Some((id, None)) => {
+        Some((id, _maybe_existing_hash)) => {
+            // Wizard credentials are the source of truth: if the operator
+            // ran the setup wizard (or set the env vars) we honour the
+            // password they just typed. This is what makes the first-user
+            // flow reliable across re-runs ("Passwort vergessen? Wizard
+            // erneut ausführen") and means we never end up in the
+            // "user exists but has wrong/no password" dead-end.
             sqlx::query(
                 "UPDATE users SET password_hash = $1, is_admin = TRUE, display_name = COALESCE($2, display_name), updated_at = NOW() WHERE id = $3"
             )
@@ -1296,7 +1301,7 @@ async fn bootstrap_admin_user(
             .bind(&id)
             .execute(db_pool)
             .await?;
-            info!("Bootstrap: filled in password + admin flag for existing user '{}'", username);
+            info!("Bootstrap: applied wizard credentials to user '{}' (admin=true, password updated)", username);
         }
         None => {
             let user_id = uuid::Uuid::new_v4().to_string();
