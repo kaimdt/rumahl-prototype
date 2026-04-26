@@ -920,33 +920,76 @@ def apply_config(config):
         errors.append(msg)
         PROGRESS.add_error(msg)
 
-    # Seed the IORA Home web-admin user. iora-home reads this JSON file at
-    # startup, creates the user with is_admin=TRUE, and deletes the file.
+    # Seed the IORA Home web-admin user.
+    #
+    # We deliver the credentials to iora-home via its existing
+    # /etc/iora/iora-home.env file (already root-owned 0600 and loaded
+    # by systemd via EnvironmentFile= before privilege drop, so the
+    # iora-home process inherits the variables without needing FS
+    # access). iora-home's bootstrap_admin_user() reads them from
+    # IORA_BOOTSTRAP_ADMIN_{USER,PASSWORD,DISPLAY_NAME} on startup.
+    #
+    # We deliberately do NOT use the legacy /mnt/data/iora/...json
+    # path anymore: that file would be 0600 root-owned and the
+    # iora-home service runs as a non-root user, so it could not
+    # read it ("Permission denied").
     admin_user = (config.get("admin_username") or "").strip()
     admin_pass = config.get("admin_password") or ""
     if admin_user and len(admin_pass) >= 8:
-        bootstrap_path = os.path.join(DATA_DIR, "iora-home-bootstrap.json")
+        env_path = "/etc/iora/iora-home.env"
         try:
-            payload = json.dumps({
-                "username": admin_user,
-                "password": admin_pass,
-                "display_name": admin_user,
-            })
-            # Write 0600 so the plaintext password is at least owner-only.
-            old_umask = os.umask(0o077)
+            # Read existing content (it was just written above with the
+            # DATABASE_URL); strip any prior IORA_BOOTSTRAP_* lines so
+            # we don't accumulate stale ones if setup is re-run.
             try:
-                with open(bootstrap_path, "w") as f:
-                    f.write(payload)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.chmod(bootstrap_path, 0o600)
-            finally:
-                os.umask(old_umask)
-            PROGRESS.log(f"Wrote {bootstrap_path} (will be consumed by iora-home on first start)")
+                with open(env_path) as f:
+                    existing_lines = f.readlines()
+            except FileNotFoundError:
+                existing_lines = []
+            kept = [
+                ln for ln in existing_lines
+                if not ln.startswith("IORA_BOOTSTRAP_ADMIN_")
+            ]
+            # Escape any embedded double-quotes in the password so the
+            # systemd EnvironmentFile parser doesn't terminate early.
+            esc_user = admin_user.replace("\\", "\\\\").replace('"', '\\"')
+            esc_pass = admin_pass.replace("\\", "\\\\").replace('"', '\\"')
+            kept.append(f'IORA_BOOTSTRAP_ADMIN_USER="{esc_user}"\n')
+            kept.append(f'IORA_BOOTSTRAP_ADMIN_PASSWORD="{esc_pass}"\n')
+            kept.append(f'IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME="{esc_user}"\n')
+            with open(env_path, "w") as f:
+                f.writelines(kept)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(env_path, 0o600)
+            PROGRESS.log(f"Appended bootstrap admin credentials to {env_path}")
         except Exception as e:
-            msg = f"Failed to write web-admin bootstrap file: {e}"
+            msg = f"Failed to write web-admin bootstrap env vars: {e}"
             errors.append(msg)
             PROGRESS.add_error(msg)
+
+        # Also remove any stale legacy JSON file that previous versions
+        # of the wizard may have left behind (it would just produce
+        # 'Permission denied' warnings in iora-home).
+        legacy_json = os.path.join(DATA_DIR, "iora-home-bootstrap.json")
+        try:
+            if os.path.exists(legacy_json):
+                os.remove(legacy_json)
+                PROGRESS.log(f"Removed legacy bootstrap file {legacy_json}")
+        except Exception:
+            pass
+
+        # Drop the bootstrap-applied sentinel so iora-home re-applies the
+        # newly-supplied credentials on its next start. Without this a
+        # re-run of the wizard with a different password would be
+        # silently ignored (sentinel hash check would short-circuit).
+        sentinel = os.path.join(DATA_DIR, ".iora-home-bootstrap-applied")
+        try:
+            if os.path.exists(sentinel):
+                os.remove(sentinel)
+                PROGRESS.log("Cleared bootstrap-applied sentinel — credentials will be re-applied on next iora-home start")
+        except Exception:
+            pass
     else:
         PROGRESS.log("Web-Admin credentials missing or password too short — skipping bootstrap (you can register from the UI)", level="warn")
 

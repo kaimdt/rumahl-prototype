@@ -1228,6 +1228,15 @@ async fn bootstrap_admin_user(
     _config_repo: &ConfigRepository,
 ) -> anyhow::Result<()> {
     // Try the wizard-written JSON file first.
+    //
+    // NOTE: we used to ship a JSON file at this path, but the iora-home
+    // service runs as a non-root user and the file was written 0600 root
+    // by the setup wizard, so reads always failed with EACCES. The wizard
+    // now delivers credentials via /etc/iora/iora-home.env (loaded by
+    // systemd before privilege-drop). We still read this file when it
+    // exists so old upgrade paths keep working — but we silently ignore
+    // a Permission-denied error since that's the *expected* state on
+    // current installs.
     let json_path = std::path::PathBuf::from("/mnt/data/iora/iora-home-bootstrap.json");
     let mut creds: Option<(String, String, Option<String>)> = None;
     let mut delete_json_after = false;
@@ -1247,6 +1256,9 @@ async fn bootstrap_admin_user(
                 }
                 Err(e) => warn!("Could not parse {}: {} — ignoring", json_path.display(), e),
             },
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Expected — service runs unprivileged. Falls through to env-var path.
+            }
             Err(e) => warn!("Could not read {}: {} — ignoring", json_path.display(), e),
         }
     }
@@ -1273,6 +1285,36 @@ async fn bootstrap_admin_user(
             return Ok(());
         }
     };
+
+    // Sentinel: the env vars stay in /etc/iora/iora-home.env across
+    // reboots, but we must NOT re-apply them every boot — otherwise a
+    // password the user later changed via the API would be reverted to
+    // the wizard value on the next restart. We therefore record a hash
+    // of (username, password) the first time we apply, and short-circuit
+    // on subsequent boots when the env var content has not changed.
+    //
+    // Re-running the setup wizard with new credentials writes new env
+    // var values → hash differs → bootstrap re-applies. The wizard also
+    // deletes the sentinel as a belt-and-suspenders.
+    let sentinel_path = std::path::PathBuf::from("/mnt/data/iora/.iora-home-bootstrap-applied");
+    let creds_fingerprint = {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(username.as_bytes());
+        h.update(b"\0");
+        h.update(password.as_bytes());
+        hex::encode(h.finalize())
+    };
+    if let Ok(prev) = tokio::fs::read_to_string(&sentinel_path).await {
+        if prev.trim() == creds_fingerprint {
+            info!("Bootstrap: credentials already applied (sentinel matches) — skipping");
+            // Best-effort cleanup of legacy file if it's somehow readable.
+            if delete_json_after {
+                let _ = tokio::fs::remove_file(&json_path).await;
+            }
+            return Ok(());
+        }
+    }
 
     let password_hash = auth::hash_password(&password)
         .map_err(|e| anyhow::anyhow!("hash_password: {}", e))?;
@@ -1365,10 +1407,16 @@ async fn bootstrap_admin_user(
     {
         Ok(Some((Some(stored_hash), is_admin))) => {
             match auth::verify_password(&password, &stored_hash) {
-                Ok(true) => info!(
-                    "Bootstrap: round-trip OK for '{}' (is_admin={}). Login should succeed.",
-                    username, is_admin
-                ),
+                Ok(true) => {
+                    info!(
+                        "Bootstrap: round-trip OK for '{}' (is_admin={}). Login should succeed.",
+                        username, is_admin
+                    );
+                    // Persist sentinel so we don't re-apply on every boot.
+                    if let Err(e) = tokio::fs::write(&sentinel_path, &creds_fingerprint).await {
+                        warn!("Could not write bootstrap sentinel {}: {}", sentinel_path.display(), e);
+                    }
+                }
                 Ok(false) => warn!(
                     "Bootstrap: round-trip FAILED for '{}' — password does not verify against the stored hash. Login WILL fail. (stored hash starts with '{}...')",
                     username,
