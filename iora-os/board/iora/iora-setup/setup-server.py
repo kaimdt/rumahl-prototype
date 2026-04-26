@@ -969,13 +969,12 @@ def apply_config(config):
             PROGRESS.add_error(msg)
 
         # Also remove any stale legacy JSON file that previous versions
-        # of the wizard may have left behind (it would just produce
-        # 'Permission denied' warnings in iora-home).
+        # of the wizard may have left behind. (We will re-write it
+        # below with a permissive mode that iora-home can read.)
         legacy_json = os.path.join(DATA_DIR, "iora-home-bootstrap.json")
         try:
             if os.path.exists(legacy_json):
                 os.remove(legacy_json)
-                PROGRESS.log(f"Removed legacy bootstrap file {legacy_json}")
         except Exception:
             pass
 
@@ -988,6 +987,55 @@ def apply_config(config):
             if os.path.exists(sentinel):
                 os.remove(sentinel)
                 PROGRESS.log("Cleared bootstrap-applied sentinel — credentials will be re-applied on next iora-home start")
+        except Exception:
+            pass
+
+        # Belt-and-suspenders: also drop the credentials in
+        # /var/lib/iora/iora-home/bootstrap.json with mode 0640 owned
+        # by iora:iora. We use the StateDirectory of iora-home (which
+        # is the only path the iora-home service is allowed to write
+        # to under ProtectSystem=strict) so iora-home can read AND
+        # delete it after consuming.
+        state_dir = "/var/lib/iora/iora-home"
+        bootstrap_json = os.path.join(state_dir, "bootstrap.json")
+        try:
+            os.makedirs(state_dir, exist_ok=True)
+            payload = json.dumps({
+                "username": admin_user,
+                "password": admin_pass,
+                "display_name": admin_user,
+            })
+            with open(bootstrap_json, "w") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(bootstrap_json, 0o640)
+            # Chown to the iora user so iora-home can both read AND
+            # delete the file after applying. If the iora user does not
+            # exist (shouldn't happen on IORA OS) we silently fall
+            # through to mode 0644 below.
+            try:
+                import pwd
+                iora_uid = pwd.getpwnam("iora").pw_uid
+                iora_gid = pwd.getpwnam("iora").pw_gid
+                os.chown(bootstrap_json, iora_uid, iora_gid)
+                os.chown(state_dir, iora_uid, iora_gid)
+            except KeyError:
+                # No iora user \u2014 make file world-readable as a
+                # last resort so iora-home can at least read it.
+                os.chmod(bootstrap_json, 0o644)
+            PROGRESS.log(f"Wrote {bootstrap_json} (will be consumed by iora-home on first start)")
+        except Exception as e:
+            PROGRESS.log(f"Could not write {bootstrap_json}: {e} (env-var path will be used instead)", level="warn")
+
+        # Drop iora-home's bootstrap-applied sentinel (in its own state
+        # dir) so the new credentials are re-applied even if a previous
+        # run already seeded the same file.
+        applied_sentinel = os.path.join(state_dir, ".bootstrap-applied")
+        try:
+            if os.path.exists(applied_sentinel):
+                os.remove(applied_sentinel)
+                PROGRESS.log("Cleared iora-home bootstrap-applied sentinel")
         except Exception:
             pass
     else:

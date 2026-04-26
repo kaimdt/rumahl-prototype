@@ -1227,29 +1227,37 @@ async fn bootstrap_admin_user(
     db_pool: &DbPool,
     _config_repo: &ConfigRepository,
 ) -> anyhow::Result<()> {
-    // Try the wizard-written JSON file first.
-    //
-    // NOTE: we used to ship a JSON file at this path, but the iora-home
-    // service runs as a non-root user and the file was written 0600 root
-    // by the setup wizard, so reads always failed with EACCES. The wizard
-    // now delivers credentials via /etc/iora/iora-home.env (loaded by
-    // systemd before privilege-drop). We still read this file when it
-    // exists so old upgrade paths keep working — but we silently ignore
-    // a Permission-denied error since that's the *expected* state on
-    // current installs.
-    let json_path = std::path::PathBuf::from("/mnt/data/iora/iora-home-bootstrap.json");
+    info!("Bootstrap: starting admin-user bootstrap check");
+
+    // The systemd unit for iora-home sets ProtectSystem=strict and only
+    // whitelists /var/lib/iora/iora-home + /var/log/iora as writable.
+    // /mnt/data/iora is therefore READ-ONLY for the iora-home process —
+    // we cannot put bootstrap state there. The wizard runs as root and
+    // hands us credentials via:
+    //   * /var/lib/iora/iora-home/bootstrap.json   (chowned iora:iora 0640)
+    //   * IORA_BOOTSTRAP_ADMIN_{USER,PASSWORD,DISPLAY_NAME} env vars,
+    //     loaded from /etc/iora/iora-home.env by systemd before the
+    //     privilege drop
+    // Plus a legacy fallback at /mnt/data/iora/iora-home-bootstrap.json
+    // for old installs (read-only attempt).
+    let primary_json = std::path::PathBuf::from("/var/lib/iora/iora-home/bootstrap.json");
+    let legacy_json = std::path::PathBuf::from("/mnt/data/iora/iora-home-bootstrap.json");
     let mut creds: Option<(String, String, Option<String>)> = None;
-    let mut delete_json_after = false;
-    if json_path.is_file() {
-        match tokio::fs::read_to_string(&json_path).await {
+    let mut delete_json_after: Option<std::path::PathBuf> = None;
+    for json_path in [&primary_json, &legacy_json] {
+    let json_present = json_path.is_file();
+    info!("Bootstrap: JSON path {} exists={}", json_path.display(), json_present);
+    if json_present && creds.is_none() {
+        match tokio::fs::read_to_string(json_path).await {
             Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
                 Ok(v) => {
                     let u = v.get("username").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
                     let p = v.get("password").and_then(|x| x.as_str()).unwrap_or("").to_string();
                     let d = v.get("display_name").and_then(|x| x.as_str()).map(|s| s.to_string());
                     if !u.is_empty() && p.len() >= 8 {
+                        info!("Bootstrap: JSON contains usable credentials for user='{}'", u);
                         creds = Some((u, p, d));
-                        delete_json_after = true;
+                        delete_json_after = Some(json_path.clone());
                     } else {
                         warn!("Bootstrap JSON at {} is incomplete (need username + password >= 8 chars) — ignoring", json_path.display());
                     }
@@ -1257,9 +1265,34 @@ async fn bootstrap_admin_user(
                 Err(e) => warn!("Could not parse {}: {} — ignoring", json_path.display(), e),
             },
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                // Expected — service runs unprivileged. Falls through to env-var path.
+                warn!("Bootstrap JSON at {} exists but is not readable by this process (EACCES). Wizard should chmod it iora:iora 0640 (or 0644).", json_path.display());
             }
             Err(e) => warn!("Could not read {}: {} — ignoring", json_path.display(), e),
+        }
+    }
+    }
+
+    // Env-var fallback — explicit logging so the operator can see at a
+    // glance whether systemd is actually delivering the wizard values.
+    let env_user = std::env::var("IORA_BOOTSTRAP_ADMIN_USER").ok();
+    let env_pass = std::env::var("IORA_BOOTSTRAP_ADMIN_PASSWORD").ok();
+    info!(
+        "Bootstrap: env IORA_BOOTSTRAP_ADMIN_USER {} ({}), IORA_BOOTSTRAP_ADMIN_PASSWORD {} ({} bytes)",
+        if env_user.is_some() { "set" } else { "UNSET" },
+        env_user.as_deref().unwrap_or("-"),
+        if env_pass.is_some() { "set" } else { "UNSET" },
+        env_pass.as_deref().map(|s| s.len()).unwrap_or(0),
+    );
+    if creds.is_none() {
+        if let (Some(u), Some(p)) = (env_user, env_pass) {
+            let u = u.trim().to_string();
+            if !u.is_empty() && p.len() >= 8 {
+                let d = std::env::var("IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME").ok();
+                info!("Bootstrap: using env-var credentials for user='{}'", u);
+                creds = Some((u, p, d));
+            } else {
+                warn!("Bootstrap env vars present but invalid (username empty or password < 8 bytes) — ignoring");
+            }
         }
     }
 
@@ -1280,8 +1313,34 @@ async fn bootstrap_admin_user(
     let (username, password, display_name) = match creds {
         Some(c) => c,
         None => {
-            // No bootstrap creds AND no users yet — nudge the operator.
-            // Existing users (with or without password) keep working as-is.
+            // No bootstrap creds. Detect the dead-end ("user exists with
+            // NULL password_hash") state and shout about it so the
+            // operator knows to re-run the setup wizard.
+            match sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT username, password_hash FROM users ORDER BY created_at LIMIT 5"
+            )
+            .fetch_all(db_pool)
+            .await
+            {
+                Ok(rows) if rows.is_empty() => {
+                    info!("Bootstrap: no users in DB and no bootstrap credentials — operator can register from the UI.");
+                }
+                Ok(rows) => {
+                    let orphans: Vec<&str> = rows.iter()
+                        .filter(|(_, h)| h.is_none())
+                        .map(|(u, _)| u.as_str())
+                        .collect();
+                    if orphans.is_empty() {
+                        info!("Bootstrap: no credentials supplied and all existing users already have passwords — nothing to do.");
+                    } else {
+                        warn!(
+                            "Bootstrap: NO credentials supplied (env vars unset, JSON missing/unreadable) BUT user(s) {:?} have NULL password_hash. They cannot log in. Re-run the IORA setup wizard to seed a password, or set IORA_BOOTSTRAP_ADMIN_USER + IORA_BOOTSTRAP_ADMIN_PASSWORD in /etc/iora/iora-home.env and restart iora-home.",
+                            orphans
+                        );
+                    }
+                }
+                Err(e) => warn!("Bootstrap: could not query users for diagnostic: {}", e),
+            }
             return Ok(());
         }
     };
@@ -1296,7 +1355,9 @@ async fn bootstrap_admin_user(
     // Re-running the setup wizard with new credentials writes new env
     // var values → hash differs → bootstrap re-applies. The wizard also
     // deletes the sentinel as a belt-and-suspenders.
-    let sentinel_path = std::path::PathBuf::from("/mnt/data/iora/.iora-home-bootstrap-applied");
+    //
+    // Stored under StateDirectory (writable for the iora-home service).
+    let sentinel_path = std::path::PathBuf::from("/var/lib/iora/iora-home/.bootstrap-applied");
     let creds_fingerprint = {
         use sha2::{Digest, Sha256};
         let mut h = Sha256::new();
@@ -1308,9 +1369,9 @@ async fn bootstrap_admin_user(
     if let Ok(prev) = tokio::fs::read_to_string(&sentinel_path).await {
         if prev.trim() == creds_fingerprint {
             info!("Bootstrap: credentials already applied (sentinel matches) — skipping");
-            // Best-effort cleanup of legacy file if it's somehow readable.
-            if delete_json_after {
-                let _ = tokio::fs::remove_file(&json_path).await;
+            // Best-effort cleanup of source files if writable.
+            if let Some(p) = &delete_json_after {
+                let _ = tokio::fs::remove_file(p).await;
             }
             return Ok(());
         }
@@ -1386,9 +1447,9 @@ async fn bootstrap_admin_user(
         }
     }
 
-    if delete_json_after {
+    if let Some(json_path) = &delete_json_after {
         // Best-effort delete; if it fails (read-only fs etc.) we just leave it.
-        if let Err(e) = tokio::fs::remove_file(&json_path).await {
+        if let Err(e) = tokio::fs::remove_file(json_path).await {
             warn!("Could not remove bootstrap file {}: {}", json_path.display(), e);
         } else {
             info!("Removed bootstrap credential file {}", json_path.display());
