@@ -1277,6 +1277,32 @@ async fn bootstrap_admin_user(
     let password_hash = auth::hash_password(&password)
         .map_err(|e| anyhow::anyhow!("hash_password: {}", e))?;
 
+    info!(
+        "Bootstrap: applying credentials for user='{}' (password length={} bytes, hash starts with '{}...')",
+        username,
+        password.len(),
+        &password_hash.chars().take(7).collect::<String>(),
+    );
+
+    // Self-check: hash MUST round-trip with the same password before we
+    // even touch the database. Catches every class of "the bytes I hashed
+    // are not the bytes I think they are" bug (encoding, BOMs, accidental
+    // trim, bcrypt 72-byte truncation collisions, etc.).
+    match auth::verify_password(&password, &password_hash) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(anyhow::anyhow!(
+                "Bootstrap self-check failed: freshly-hashed password does NOT verify against its own hash. Refusing to seed a broken account."
+            ));
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Bootstrap self-check errored verifying freshly-hashed password: {}",
+                e
+            ));
+        }
+    }
+
     // Look for the row by username and decide insert/update/skip.
     let existing: Option<(String, Option<String>)> = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT id, password_hash FROM users WHERE username = $1"
@@ -1325,6 +1351,47 @@ async fn bootstrap_admin_user(
         } else {
             info!("Removed bootstrap credential file {}", json_path.display());
         }
+    }
+
+    // Final round-trip: re-read the row we just wrote and verify the
+    // password against the stored hash. This proves end-to-end that the
+    // /api/auth/login flow will accept the wizard credentials.
+    match sqlx::query_as::<_, (Option<String>, bool)>(
+        "SELECT password_hash, is_admin FROM users WHERE username = $1"
+    )
+    .bind(&username)
+    .fetch_optional(db_pool)
+    .await
+    {
+        Ok(Some((Some(stored_hash), is_admin))) => {
+            match auth::verify_password(&password, &stored_hash) {
+                Ok(true) => info!(
+                    "Bootstrap: round-trip OK for '{}' (is_admin={}). Login should succeed.",
+                    username, is_admin
+                ),
+                Ok(false) => warn!(
+                    "Bootstrap: round-trip FAILED for '{}' — password does not verify against the stored hash. Login WILL fail. (stored hash starts with '{}...')",
+                    username,
+                    &stored_hash.chars().take(7).collect::<String>(),
+                ),
+                Err(e) => warn!(
+                    "Bootstrap: round-trip verify errored for '{}': {}",
+                    username, e
+                ),
+            }
+        }
+        Ok(Some((None, _))) => warn!(
+            "Bootstrap: row for '{}' is present but has NULL password_hash after our UPDATE/INSERT — this should be impossible.",
+            username
+        ),
+        Ok(None) => warn!(
+            "Bootstrap: row for '{}' disappeared between write and verify — this should be impossible.",
+            username
+        ),
+        Err(e) => warn!(
+            "Bootstrap: could not re-read row for '{}' for round-trip check: {}",
+            username, e
+        ),
     }
 
     Ok(())
@@ -3613,6 +3680,15 @@ async fn auth_login(
     };
 
     if !is_valid {
+        // Diagnostic: log the username + the hash format prefix so we can
+        // tell apart "wrong password" from "stored hash is corrupt / wrong
+        // bcrypt variant" without ever logging the password itself.
+        warn!(
+            "Login failed for '{}': bcrypt verify returned false. Stored hash prefix='{}', supplied password length={} bytes.",
+            user.username,
+            password_hash.chars().take(7).collect::<String>(),
+            request.password.len(),
+        );
         return Err(ErrorResponse::unauthorized("Invalid username or password"));
     }
 
