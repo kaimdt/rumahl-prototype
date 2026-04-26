@@ -58,11 +58,13 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
   { id: 'global-config', label: 'Globale Konfiguration', icon: Gear, description: 'Zentrale IORA-OS Konfiguration mit Kategorien — spiegelt das .env-System wider, mit Beschreibungen und Validierung pro Eintrag' },
+  { id: 'developer-mode', label: 'Developer Mode', icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
+  { id: 'documentation', label: 'Dokumentation', icon: BookOpen, description: 'IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation' },
   { id: 'tasks', label: 'Aufgaben', icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
   { id: 'control-mode', label: 'Betriebsmodus', icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
   { id: 'system', label: 'System', icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
@@ -111,7 +113,7 @@ type TabGroup = {
 }
 
 const tabGroups: TabGroup[] = [
-  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure'] },
+  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure'] },
   { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
@@ -588,6 +590,8 @@ export function AdminPanel() {
             >
               {activeTab === 'services' && <ServicesTab token={token} />}
               {activeTab === 'global-config' && <GlobalConfigTab token={token} />}
+              {activeTab === 'developer-mode' && <DeveloperModeTab token={token} />}
+              {activeTab === 'documentation' && <DocumentationTab />}
               {activeTab === 'tasks' && <TasksTab token={token} />}
               {activeTab === 'control-mode' && <ControlModeTab token={token} />}
               {activeTab === 'system' && <SystemTab token={token} />}
@@ -1000,6 +1004,163 @@ function SettingInput({ def, value, onChange, disabled }: {
         />
       )
   }
+}
+
+// ─── Developer Mode quick-toggle tab ────────────────────────────────────
+//
+// This is a thin shortcut to the `developer.mode` boolean exposed by the
+// shared SettingsRegistry. Power users who want the full set of debug
+// switches should use the Globale Konfiguration tab → category
+// "Entwickler". This tab exists so the on/off switch doesn't disappear
+// behind a search box for occasional use.
+function DeveloperModeTab({ token }: { token: string }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await adminFetch('/api/admin/settings', token)
+        const list = (res?.settings ?? res ?? []) as Array<{ key: string; value: unknown }>
+        const entry = list.find(e => e.key === 'developer.mode')
+        if (!cancelled) {
+          setEnabled(entry?.value === true)
+          // Mirror to localStorage so the rest of the UI can react without
+          // a round-trip on every render.
+          if (entry?.value === true) {
+            localStorage.setItem('iora-developer-mode', 'true')
+          } else {
+            localStorage.removeItem('iora-developer-mode')
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [token])
+
+  const toggle = async (next: boolean) => {
+    setSaving(true)
+    setError(null)
+    try {
+      await adminFetch('/api/admin/settings/developer.mode', token, {
+        method: 'PUT',
+        body: JSON.stringify({ value: next }),
+      })
+      setEnabled(next)
+      if (next) {
+        localStorage.setItem('iora-developer-mode', 'true')
+      } else {
+        localStorage.removeItem('iora-developer-mode')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title="Developer Mode" icon={Wrench}>
+        {loading ? (
+          <p className="text-xs text-foreground/50">Lade aktuellen Status…</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-foreground/5 border border-foreground/10">
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-foreground mb-1">Developer Mode aktivieren</div>
+                <p className="text-xs text-foreground/60 leading-relaxed">
+                  Aktiviert erweiterte Debug-Funktionen im Dashboard:
+                  ausführliche Konsolen-Logs, Render-Counter, rohe JSON-
+                  Antworten in einem seitlichen Drawer und einen
+                  SSE/WebSocket-Frame-Inspektor im Realtime-Tab. Greift nicht
+                  auf zusätzliche Backend-Berechtigungen zu — verändert
+                  ausschließlich die Anzeige.
+                </p>
+                <p className="text-[11px] text-foreground/40 mt-2">
+                  Setting-Schlüssel: <span className="font-mono">developer.mode</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enabled === true}
+                disabled={saving || enabled === null}
+                onClick={() => toggle(!enabled)}
+                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                  enabled ? 'bg-green-500/70' : 'bg-foreground/20'
+                } ${saving ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                    enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {enabled && (
+              <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                Developer Mode ist aktiv. Bitte den Browser-Tab neu laden,
+                damit alle abhängigen Komponenten ihren Debug-Modus
+                übernehmen.
+              </div>
+            )}
+            {error && (
+              <div className="text-[11px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                {error}
+              </div>
+            )}
+          </div>
+        )}
+      </AdminCard>
+
+      <AdminCard title="Was wird aktiviert?" icon={Lightning}>
+        <ul className="text-xs text-foreground/70 space-y-1.5 list-disc list-inside">
+          <li>Erweiterte Konsolen-Logs (DEBUG statt INFO).</li>
+          <li>Render-Counter und Performance-Marker im UI.</li>
+          <li>Roh-JSON-Drawer für jede Admin-API-Antwort.</li>
+          <li>SSE/WebSocket-Frame-Inspektor im Realtime-Tab.</li>
+          <li>Erweiterte Tooltips mit Komponenten-Pfaden.</li>
+        </ul>
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── Documentation tab ──────────────────────────────────────────────────
+//
+// Embeds the existing /docs SPA route inside the admin panel via an
+// iframe. This keeps the markdown-rendering logic in DocsPageNew as the
+// single source of truth and means the admin user does not have to
+// leave the panel to look something up. The iframe is constrained to the
+// same origin so cookies and CSRF tokens flow naturally.
+function DocumentationTab() {
+  return (
+    <div className="space-y-3">
+      <AdminCard title="IORA OS Dokumentation" icon={BookOpen}>
+        <p className="text-xs text-foreground/60 mb-3">
+          Die vollständige Dokumentation ist auch unter <code className="font-mono text-accent">/docs</code> als
+          eigenständige Seite erreichbar. Hier ist sie eingebettet.
+        </p>
+        <div className="rounded-xl overflow-hidden border border-foreground/10 bg-foreground/[0.02]">
+          <iframe
+            src="/docs"
+            title="IORA OS Dokumentation"
+            className="w-full"
+            style={{ height: '70vh', minHeight: 480, border: 'none' }}
+          />
+        </div>
+      </AdminCard>
+    </div>
+  )
 }
 
 function ServicesTab({ token }: { token: string }) {

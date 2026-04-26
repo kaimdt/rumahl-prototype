@@ -142,11 +142,23 @@ async fn main() -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()?;
-    let resp: CheckResponse = client
+    let resp_raw = client
         .get(&url)
         .send()
         .await
-        .context("update server unreachable")?
+        .context("update server unreachable")?;
+
+    // 404 = server simply has no record of this version/channel/arch yet.
+    // Treat that as "no update available" instead of a hard error so the
+    // periodic update timer doesn't spam the journal with FAILUREs and so
+    // the systemd unit's Restart=on-failure doesn't loop forever.
+    let status = resp_raw.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        println!("Update server has no release listed for this build yet.");
+        log("update server returned 404 — treating as no update available").await;
+        return Ok(());
+    }
+    let resp: CheckResponse = resp_raw
         .error_for_status()
         .context("update server returned error status")?
         .json()

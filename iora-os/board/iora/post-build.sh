@@ -3390,6 +3390,9 @@ PORT=8099
 RUST_LOG=info
 IORA_CORE_URL=http://localhost:8090
 IORA_HOME_URL=http://localhost:8126
+# SQLite file lives under /var/lib so it survives factory resets of /etc.
+# iora-api auto-creates the parent directory on first start.
+IORA_API_DB_URL=sqlite:/var/lib/iora-api/api.db?mode=rwc
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-appstore.env" <<'ENVEOF'
@@ -3439,6 +3442,9 @@ cat > "${TARGET_DIR}/etc/iora/iora-nginx.env" <<'ENVEOF'
 PORT=8089
 RUST_LOG=info
 NGINX_CONF_DIR=/etc/nginx
+# Reuse the iora_core database for app/route metadata. The actual
+# password is injected by the setup wizard once the iora role exists.
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-resource-manager.env" <<'ENVEOF'

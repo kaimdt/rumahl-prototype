@@ -448,6 +448,10 @@ pub fn default_settings() -> Vec<SettingDefinition> {
             .default(serde_json::json!(false))
             .build(),
         // ── Developer ────────────────────────────────────────────────────────
+        SettingBuilder::new("developer.mode", "Developer Mode", Developer, Bool)
+            .description("Master switch for developer/debug features in the dashboard: extra console logs, raw JSON drawers, render counters, SSE/WS frame inspector. Frontend only — does not change backend permissions.")
+            .default(serde_json::json!(false))
+            .build(),
         SettingBuilder::new("developer.log_level", "Log level", Developer, Enum)
             .options(&["error", "warn", "info", "debug", "trace"])
             .default(serde_json::json!("info"))

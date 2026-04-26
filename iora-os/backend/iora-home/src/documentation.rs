@@ -38,23 +38,120 @@ pub struct DocContent {
 }
 
 /// Get the documentation configuration
-pub async fn get_docs_config() -> Result<Json<DocsConfig>, (StatusCode, String)> {
+///
+/// Resolution order:
+///   1. Read `docs/docs-config.json` from the working directory if it
+///      exists (operator-supplied / mounted bundle).
+///   2. Fall back to a small embedded baseline so the Documentation page
+///      always renders something instead of hanging on the loading
+///      spinner forever on shipped images that don't bundle the docs.
+pub async fn get_docs_config() -> Json<DocsConfig> {
     let docs_path = PathBuf::from("docs/docs-config.json");
 
-    match fs::read_to_string(&docs_path).await {
-        Ok(content) => {
-            match serde_json::from_str::<DocsConfig>(&content) {
-                Ok(config) => Ok(Json(config)),
-                Err(e) => {
-                    error!("Failed to parse docs config: {}", e);
-                    Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse config: {}", e)))
-                }
-            }
+    if let Ok(content) = fs::read_to_string(&docs_path).await {
+        if let Ok(config) = serde_json::from_str::<DocsConfig>(&content) {
+            return Json(config);
+        } else {
+            warn!("docs/docs-config.json present but failed to parse — using embedded fallback");
         }
-        Err(e) => {
-            error!("Failed to read docs config: {}", e);
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read config: {}", e)))
-        }
+    }
+
+    Json(embedded_fallback_config())
+}
+
+fn embedded_fallback_config() -> DocsConfig {
+    DocsConfig {
+        title: "IORA OS Dokumentation".to_string(),
+        description: "Eingebettete Basisdokumentation für IORA OS".to_string(),
+        navigation: vec![
+            DocsSection {
+                section: "Erste Schritte".to_string(),
+                icon: "Rocket".to_string(),
+                items: vec![
+                    DocsItem {
+                        title: "Willkommen".to_string(),
+                        path: "embedded/welcome.md".to_string(),
+                        highlight: true,
+                    },
+                    DocsItem {
+                        title: "Dashboard im Überblick".to_string(),
+                        path: "embedded/dashboard.md".to_string(),
+                        highlight: false,
+                    },
+                ],
+            },
+            DocsSection {
+                section: "Administration".to_string(),
+                icon: "ShieldCheck".to_string(),
+                items: vec![
+                    DocsItem {
+                        title: "Admin Panel".to_string(),
+                        path: "embedded/admin.md".to_string(),
+                        highlight: false,
+                    },
+                    DocsItem {
+                        title: "Globale Konfiguration".to_string(),
+                        path: "embedded/global-config.md".to_string(),
+                        highlight: false,
+                    },
+                    DocsItem {
+                        title: "Dienste & Infrastruktur".to_string(),
+                        path: "embedded/services.md".to_string(),
+                        highlight: false,
+                    },
+                ],
+            },
+            DocsSection {
+                section: "Entwickler".to_string(),
+                icon: "Code".to_string(),
+                items: vec![
+                    DocsItem {
+                        title: "Developer Mode".to_string(),
+                        path: "embedded/developer-mode.md".to_string(),
+                        highlight: false,
+                    },
+                    DocsItem {
+                        title: "API Referenz".to_string(),
+                        path: "embedded/api.md".to_string(),
+                        highlight: false,
+                    },
+                ],
+            },
+        ],
+    }
+}
+
+fn embedded_doc(path: &str) -> Option<(&'static str, &'static str)> {
+    match path {
+        "embedded/welcome.md" => Some((
+            "Willkommen bei IORA OS",
+            include_str!("../docs_embedded/welcome.md"),
+        )),
+        "embedded/dashboard.md" => Some((
+            "Dashboard im Überblick",
+            include_str!("../docs_embedded/dashboard.md"),
+        )),
+        "embedded/admin.md" => Some((
+            "Admin Panel",
+            include_str!("../docs_embedded/admin.md"),
+        )),
+        "embedded/global-config.md" => Some((
+            "Globale Konfiguration",
+            include_str!("../docs_embedded/global-config.md"),
+        )),
+        "embedded/services.md" => Some((
+            "Dienste & Infrastruktur",
+            include_str!("../docs_embedded/services.md"),
+        )),
+        "embedded/developer-mode.md" => Some((
+            "Developer Mode",
+            include_str!("../docs_embedded/developer-mode.md"),
+        )),
+        "embedded/api.md" => Some((
+            "API Referenz",
+            include_str!("../docs_embedded/api.md"),
+        )),
+        _ => None,
     }
 }
 
@@ -64,6 +161,16 @@ pub async fn get_doc_file(
 ) -> Result<Json<DocContent>, (StatusCode, String)> {
     // Sanitize the path to prevent directory traversal
     let doc_path = doc_path.replace("..", "");
+
+    // 1. Embedded fallback docs (always available, even on stripped images).
+    if let Some((title, content)) = embedded_doc(&doc_path) {
+        return Ok(Json(DocContent {
+            path: doc_path,
+            content: content.to_string(),
+            title: title.to_string(),
+        }));
+    }
+
     let full_path = PathBuf::from("docs").join(&doc_path);
 
     // Ensure the path is within the docs directory

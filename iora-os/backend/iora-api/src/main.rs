@@ -62,7 +62,29 @@ async fn main() -> Result<()> {
         .init();
 
     let database_url = std::env::var("IORA_API_DB_URL")
-        .unwrap_or_else(|_| "sqlite:./data/api.db?mode=rwc".into());
+        .unwrap_or_else(|_| "sqlite:/var/lib/iora-api/api.db?mode=rwc".into());
+
+    // Ensure parent directory of the SQLite file exists. SQLx's
+    // `mode=rwc` will create the file but not the directory tree, so on
+    // a fresh install opening the connection fails with
+    // "(code: 14) unable to open database file" and systemd loops the
+    // service. Parse the path out of the URL and mkdir -p it.
+    if let Some(rest) = database_url.strip_prefix("sqlite:") {
+        let path_part = rest.split('?').next().unwrap_or("");
+        if !path_part.is_empty() && path_part != ":memory:" {
+            if let Some(parent) = std::path::Path::new(path_part).parent() {
+                if !parent.as_os_str().is_empty() {
+                    if let Err(e) = std::fs::create_dir_all(parent) {
+                        tracing::warn!(
+                            "Could not create SQLite parent directory {}: {}",
+                            parent.display(),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+    }
     let jwt_secret = std::env::var("IORA_JWT_SECRET")
         .unwrap_or_else(|_| "iora-api-dev-secret-change-me".into());
     let port: u16 = std::env::var("IORA_API_PORT")

@@ -167,7 +167,7 @@ fn stop_nginx() -> Result<()> {
 
 /// Fetch all enabled apps with their port assignments from the database
 async fn fetch_app_routes(pool: &PgPool) -> Result<Vec<AppRoute>> {
-    let rows = sqlx::query(
+    let rows = match sqlx::query(
         r#"
         SELECT
             a.app_id,
@@ -183,7 +183,16 @@ async fn fetch_app_routes(pool: &PgPool) -> Result<Vec<AppRoute>> {
     )
     .fetch_all(pool)
     .await
-    .context("Failed to fetch app routes from database")?;
+    {
+        Ok(r) => r,
+        Err(sqlx::Error::Database(db_err)) if db_err.message().contains("does not exist") => {
+            // Tables haven't been created yet (iora-supervisor / iora-appstore
+            // own the schema). Treat as "no apps" instead of failing.
+            warn!("apps/port_assignments tables not yet present — treating as zero routes");
+            return Ok(Vec::new());
+        }
+        Err(e) => return Err(anyhow::Error::from(e).context("Failed to fetch app routes from database")),
+    };
 
     let mut apps = Vec::new();
 
@@ -281,15 +290,30 @@ async fn main() -> Result<()> {
     // Load environment
     dotenv::dotenv().ok();
 
-    // Database connection
+    // Database connection — retry forever instead of crashing the
+    // service. On a fresh image the `iora_core` database may not yet
+    // contain the `apps` / `port_assignments` tables (they are created
+    // by iora-supervisor on demand). systemd Restart=on-failure used to
+    // turn that into an infinite crash-loop spamming the journal.
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora".to_string());
+        .unwrap_or_else(|_| "postgres://iora:CHANGEME@localhost:5432/iora_core".to_string());
 
-    let pool = PgPool::connect(&database_url)
-        .await
-        .context("Failed to connect to database")?;
-
-    info!("Connected to database");
+    let pool = loop {
+        match PgPool::connect(&database_url).await {
+            Ok(pool) => {
+                info!("Connected to database");
+                break pool;
+            }
+            Err(e) => {
+                warn!(
+                    "Database not yet reachable ({}). Retrying in 30s — iora-nginx \
+                     will idle until the iora_core schema exists.",
+                    e
+                );
+                sleep(Duration::from_secs(30)).await;
+            }
+        }
+    };
 
     // Generate initial NGINX configuration
     info!("Generating initial NGINX configuration...");

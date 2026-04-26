@@ -471,9 +471,55 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
 
-    // Load master key from environment
-    let master_key_hex = std::env::var("SECRETS_MASTER_KEY")
-        .context("SECRETS_MASTER_KEY environment variable must be set")?;
+    // Load master key. Resolution order:
+    //   1. SECRETS_MASTER_KEY env var (if set and not the placeholder).
+    //   2. /etc/iora/secrets-master.key (auto-generated on first boot).
+    //
+    // The env file shipped by post-build.sh contains the placeholder
+    // "CHANGEME" so a fresh image still parses without panicking; on
+    // first start we generate a real 32-byte key and persist it next to
+    // the env file. Subsequent restarts re-use the same key so encrypted
+    // values stay decryptable across reboots.
+    const KEY_FILE: &str = "/etc/iora/secrets-master.key";
+    let env_value = std::env::var("SECRETS_MASTER_KEY").ok();
+    let env_usable = env_value
+        .as_deref()
+        .map(|v| !v.is_empty() && v != "CHANGEME" && v != "changeme")
+        .unwrap_or(false);
+
+    let master_key_hex = if env_usable {
+        env_value.unwrap()
+    } else if let Ok(disk) = std::fs::read_to_string(KEY_FILE) {
+        let trimmed = disk.trim().to_string();
+        if trimmed.is_empty() {
+            anyhow::bail!("{} is empty", KEY_FILE);
+        }
+        info!("Loaded master key from {}", KEY_FILE);
+        trimmed
+    } else {
+        warn!(
+            "SECRETS_MASTER_KEY not set and {} missing — generating a new 32-byte key",
+            KEY_FILE
+        );
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        let hex_string = hex::encode(bytes);
+        // Best effort: ensure /etc/iora exists, write 0600 file.
+        if let Some(parent) = std::path::Path::new(KEY_FILE).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(KEY_FILE, &hex_string) {
+            warn!("Failed to persist generated master key to {}: {} — secrets stored now will be undecryptable after restart", KEY_FILE, e);
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(KEY_FILE, std::fs::Permissions::from_mode(0o600));
+            }
+            info!("Persisted new master key to {}", KEY_FILE);
+        }
+        hex_string
+    };
 
     let master_key_bytes = hex::decode(&master_key_hex)
         .context("SECRETS_MASTER_KEY must be a valid hex string")?;

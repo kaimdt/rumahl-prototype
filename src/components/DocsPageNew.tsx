@@ -76,10 +76,27 @@ export function DocsPage() {
       if (response.ok) {
         const data = await response.json()
         setConfig(data)
+        return
       }
+      console.warn('Docs config returned non-OK status:', response.status)
     } catch (error) {
       console.error('Failed to load docs config:', error)
     }
+    // Fallback so the spinner doesn't run forever when the docs
+    // endpoint is unreachable (e.g. backend offline / proxy failure).
+    setConfig({
+      title: 'IORA OS Dokumentation',
+      description: 'Eingebettete Dokumentation',
+      navigation: [
+        {
+          section: 'Hinweis',
+          icon: 'Info',
+          items: [
+            { title: 'Dokumentation derzeit nicht erreichbar', path: '__offline__', highlight: true },
+          ],
+        },
+      ],
+    })
   }
 
   const loadDocument = async (path: string) => {
