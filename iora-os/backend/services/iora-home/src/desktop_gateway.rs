@@ -9,7 +9,7 @@
 //! - Centralize control over external integrations
 
 use axum::{
-    extract::State,
+    extract::{State, Query, Path},
     http::StatusCode,
     Extension, Json,
 };
@@ -165,7 +165,15 @@ pub struct ServiceCallRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CommandRequest {
+    pub device_id: String,
     pub command: String,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct PendingCommandResponse {
+    pub id: i32,
+    pub command: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -426,6 +434,7 @@ pub async fn call_service(
     )
 )]
 pub async fn queue_command(
+    State(state): State<AppState>,
     Extension(identity): Extension<AuthIdentity>,
     Json(req): Json<CommandRequest>,
 ) -> Result<StatusCode, StatusCode> {
@@ -441,10 +450,108 @@ pub async fn queue_command(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    info!("Queuing command for desktop client: {}", req.command);
+    info!("Queuing command '{}' for desktop client: {}", req.command, req.device_id);
 
-    // TODO: Store command in database for desktop client to poll
-    // For now, just acknowledge
+    // Store command in database for desktop client to poll
+    match sqlx::query("INSERT INTO desktop_commands (device_id, command, status) VALUES ($1, $2, 'pending')")
+        .bind(&req.device_id)
+        .bind(&req.command)
+        .execute(&state.db_pool)
+        .await
+    {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(e) => {
+            warn!("Failed to store desktop command: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /api/desktop/commands
+/// Get pending commands for a specific desktop client
+#[utoipa::path(
+    get,
+    path = "/api/desktop/commands",
+    tag = "desktop",
+    params(
+        ("device_id" = String, Query, description = "Device ID of the desktop client"),
+    ),
+    responses(
+        (status = 200, description = "List of pending commands", body = Vec<PendingCommandResponse>),
+        (status = 401, description = "Unauthorized"),
+        (status = 400, description = "Bad Request - Missing device_id"),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn get_pending_commands(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<PendingCommandResponse>>, StatusCode> {
+    let device_id = match params.get("device_id") {
+        Some(id) => id,
+        None => {
+            warn!("get_pending_commands called without device_id by user {}", identity.user_id());
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
+    let commands: Vec<PendingCommandResponse> = sqlx::query_as(
+        "SELECT id, command, created_at::text as created_at FROM desktop_commands WHERE device_id = $1 AND status = 'pending' ORDER BY created_at ASC"
+    )
+    .bind(device_id)
+    .fetch_all(&state.db_pool)
+    .await
+    .map_err(|e| {
+        warn!("Failed to fetch pending commands for {}: {}", device_id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(Json(commands))
+}
+
+/// POST /api/desktop/commands/:id/ack
+/// Acknowledge execution of a command
+#[utoipa::path(
+    post,
+    path = "/api/desktop/commands/{id}/ack",
+    tag = "desktop",
+    params(
+        ("id" = i32, Path, description = "Command ID to acknowledge"),
+    ),
+    responses(
+        (status = 200, description = "Command acknowledged"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Command not found"),
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn ack_command(
+    State(state): State<AppState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(command_id): Path<i32>,
+) -> Result<StatusCode, StatusCode> {
+    info!("Desktop client {} acknowledging command {}", identity.user_id(), command_id);
+
+    let result = sqlx::query(
+        "UPDATE desktop_commands SET status = 'acknowledged', updated_at = NOW() WHERE id = $1 AND status = 'pending'"
+    )
+    .bind(command_id)
+    .execute(&state.db_pool)
+    .await
+    .map_err(|e| {
+        warn!("Failed to acknowledge command {}: {}", command_id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    if result.rows_affected() == 0 {
+        warn!("Command {} not found or already acknowledged", command_id);
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     Ok(StatusCode::OK)
 }
