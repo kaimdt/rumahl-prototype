@@ -101,6 +101,12 @@ pub struct AppConfig {
     /// ORA AI Privacy Mode - if true, AI is completely disabled
     #[serde(default)]
     pub ora_privacy_mode: bool,
+    /// ORA AI Autopilot - if true, AI can act autonomously without asking
+    #[serde(default)]
+    pub ora_autopilot: bool,
+    /// ORA AI Allow Control - if true, AI is allowed to control the system
+    #[serde(default)]
+    pub ora_allow_control: bool,
 }
 
 impl Default for AppConfig {
@@ -135,6 +141,8 @@ impl Default for AppConfig {
             kiosk_mode: false,
             send_diagnostics: false,
             ora_privacy_mode: false,
+            ora_autopilot: false,
+            ora_allow_control: false,
         }
     }
 }

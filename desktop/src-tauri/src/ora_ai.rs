@@ -5,6 +5,7 @@ use crate::commands::AppState;
 use screenshots::Screen;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use enigo::{Enigo, Keyboard, Mouse, Coordinate, Button, Key, Direction};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIChatMessage {
@@ -287,9 +288,21 @@ pub async fn ora_execute_desktop_action(
     params: serde_json::Value,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let is_privacy_mode = state.config.lock().await.ora_privacy_mode;
-    if is_privacy_mode {
+    let config = state.config.lock().await.clone();
+
+    if config.ora_privacy_mode {
         return Err("ORA AI is disabled (Privacy Mode active)".to_string());
+    }
+
+    // Unless it's a completely harmless read-only action, check permissions.
+    // For powerful system actions, require allow_control or autopilot.
+    let requires_control = match action_type.as_str() {
+        "open_url" => false, // Decided safe enough
+        _ => true,
+    };
+
+    if requires_control && !config.ora_allow_control && !config.ora_autopilot {
+        return Err("ORA AI does not have permission to control the system. Enable 'Allow Control' or 'Autopilot'.".to_string());
     }
 
     match action_type.as_str() {
@@ -346,6 +359,99 @@ pub async fn ora_execute_desktop_action(
                 Ok(format!("Opened app: {}", app_name))
             } else {
                 Err("Missing app parameter".to_string())
+            }
+        }
+        "run_shell" => {
+            if let Some(command) = params.get("command").and_then(|c| c.as_str()) {
+                #[cfg(target_os = "windows")]
+                {
+                    let output = std::process::Command::new("cmd")
+                        .args(&["/C", command])
+                        .output()
+                        .map_err(|e| e.to_string())?;
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Ok(format!("stdout: {}\nstderr: {}", stdout, stderr))
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let output = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(command)
+                        .output()
+                        .map_err(|e| e.to_string())?;
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Ok(format!("stdout: {}\nstderr: {}", stdout, stderr))
+                }
+            } else {
+                Err("Missing command parameter".to_string())
+            }
+        }
+        "type_text" => {
+            if let Some(text) = params.get("text").and_then(|t| t.as_str()) {
+                let mut enigo = Enigo::new(&enigo::Settings::default()).map_err(|e| e.to_string())?;
+                enigo.text(text).map_err(|e| e.to_string())?;
+                Ok(format!("Typed text: {}", text))
+            } else {
+                Err("Missing text parameter".to_string())
+            }
+        }
+        "press_key" => {
+            if let Some(key_str) = params.get("key").and_then(|k| k.as_str()) {
+                let mut enigo = Enigo::new(&enigo::Settings::default()).map_err(|e| e.to_string())?;
+
+                // Parse key
+                let key = match key_str.to_lowercase().as_str() {
+                    "enter" | "return" => Key::Return,
+                    "tab" => Key::Tab,
+                    "space" => Key::Space,
+                    "backspace" => Key::Backspace,
+                    "escape" | "esc" => Key::Escape,
+                    "super" | "win" | "cmd" | "command" => Key::Meta,
+                    "shift" => Key::Shift,
+                    "control" | "ctrl" => Key::Control,
+                    "alt" => Key::Alt,
+                    "up" => Key::UpArrow,
+                    "down" => Key::DownArrow,
+                    "left" => Key::LeftArrow,
+                    "right" => Key::RightArrow,
+                    // Simple fallback for single chars if not matched
+                    other => {
+                        let mut chars = other.chars();
+                        if let Some(c) = chars.next() {
+                            if chars.next().is_none() {
+                                Key::Unicode(c)
+                            } else {
+                                return Err(format!("Unknown key: {}", key_str));
+                            }
+                        } else {
+                            return Err("Empty key parameter".to_string());
+                        }
+                    }
+                };
+
+                enigo.key(key, Direction::Click).map_err(|e| e.to_string())?;
+                Ok(format!("Pressed key: {}", key_str))
+            } else {
+                Err("Missing key parameter".to_string())
+            }
+        }
+        "mouse_click" => {
+            let mut enigo = Enigo::new(&enigo::Settings::default()).map_err(|e| e.to_string())?;
+            enigo.button(Button::Left, Direction::Click).map_err(|e| e.to_string())?;
+            Ok("Clicked left mouse button".to_string())
+        }
+        "mouse_move" => {
+            if let (Some(x), Some(y)) = (
+                params.get("x").and_then(|v| v.as_i64()),
+                params.get("y").and_then(|v| v.as_i64()),
+            ) {
+                let mut enigo = Enigo::new(&enigo::Settings::default()).map_err(|e| e.to_string())?;
+                enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).map_err(|e| e.to_string())?;
+                Ok(format!("Moved mouse to ({}, {})", x, y))
+            } else {
+                Err("Missing x or y parameter".to_string())
             }
         }
         _ => Err(format!("Unknown action type: {}", action_type)),
