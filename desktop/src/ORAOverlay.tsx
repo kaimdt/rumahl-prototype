@@ -247,13 +247,11 @@ export function ORAOverlay() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 100 }}
         transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-        className="w-full h-auto max-h-[600px] relative rounded-3xl overflow-hidden shadow-2xl"
+        className="w-auto min-w-[320px] max-w-[400px] h-auto max-h-[600px] relative rounded-3xl overflow-hidden"
         style={{
           background: 'rgba(15, 15, 20, 0.75)',
           backdropFilter: 'blur(40px)',
           WebkitBackdropFilter: 'blur(40px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderTop: 'none',
         }}
       >
         {/* Animated gradient background */}

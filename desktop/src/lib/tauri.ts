@@ -21,6 +21,9 @@ export interface AppConfig {
   autostart_hidden: boolean;
   notification_sound: boolean;
   notifications_enabled: boolean;
+  ora_privacy_mode: boolean;
+  ora_autopilot: boolean;
+  ora_allow_control: boolean;
   screen_saver_enabled: boolean;
   screen_saver_timeout_secs: number;
   wake_on_motion: boolean;

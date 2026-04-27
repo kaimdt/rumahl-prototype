@@ -63,8 +63,13 @@ function connectWebSocket() {
       }
     }
 
-    ws.onerror = () => {
-      // onclose will fire after this
+    ws.onerror = (error) => {
+      // Only show error on the initial connection attempt to avoid spamming
+      if (reconnectDelay === 1000) {
+        import('sonner').then(({ toast }) => {
+          toast.error('WebSocket Verbindung fehlgeschlagen (ERR_CONNECTION_REFUSED). Versuche erneut...')
+        })
+      }
     }
 
     ws.onclose = () => {
