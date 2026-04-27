@@ -3751,15 +3751,19 @@ const RESTARTABLE_SERVICES: &[&str] = &[
 async fn admin_control_restart_service(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    if !RESTARTABLE_SERVICES.contains(&name.as_str()) {
-        return Err(ErrorResponse::bad_request(format!(
-            "Dienst '{}' ist nicht als neustartbar registriert.",
-            name
-        )));
-    }
+    let safe_name = RESTARTABLE_SERVICES
+        .iter()
+        .find(|&&s| s == name)
+        .ok_or_else(|| {
+            ErrorResponse::bad_request(format!(
+                "Dienst '{}' ist nicht als neustartbar registriert.",
+                name
+            ))
+        })?;
+
     // Best-effort: on Windows / dev workstations there's no systemctl —
     // surface the failure as 503 so the UI can display a hint.
-    let unit = format!("{}.service", name);
+    let unit = format!("{}.service", safe_name);
     match tokio::process::Command::new("systemctl")
         .arg("restart")
         .arg(&unit)
@@ -3768,7 +3772,7 @@ async fn admin_control_restart_service(
     {
         Ok(out) if out.status.success() => Ok(Json(json!({
             "success": true,
-            "service": name,
+            "service": safe_name,
             "message": format!("{unit} neu gestartet."),
         }))),
         Ok(out) => Err(ErrorResponse::internal(format!(
