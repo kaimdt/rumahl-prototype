@@ -96,7 +96,7 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile } = useAuth()
-  const { currentPageId, currentPage, modalPageId, closeModalPage, pages } = usePageNavigation()
+  const { currentPageId, currentPage, modalPageId, closeModalPage, pages, pageMap } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
   const screensaverSettings = useScreensaverSettings()
@@ -613,7 +613,7 @@ function DashboardContent() {
                   <ConnectionSettings />
                 </div>
               )}
-              {/* TODO: Music Player Page */}}
+              {/* TODO: Music Player Page */}
               {currentPageId === 'music' && (
                 <div className="space-y-3 w-full h-full flex flex-col z-1000 bg-card p-4 theme-transition absolute top-0 left-0">
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
@@ -679,7 +679,7 @@ function DashboardContent() {
       {/* Modal Page Overlay */}
       <AnimatePresence>
         {modalPageId && (() => {
-          const modalPage = pages.find(p => p.id === modalPageId)
+          const modalPage = pageMap.get(modalPageId)
           if (!modalPage) return null
           const ms = modalPage.modalSettings || {}
           const size = ms.size || 'large'

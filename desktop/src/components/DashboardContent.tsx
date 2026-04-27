@@ -95,7 +95,7 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile } = useAuth()
-  const { currentPageId, currentPage, modalPageId, closeModalPage, pages, setCurrentPageId } = usePageNavigation()
+  const { currentPageId, currentPage, modalPageId, closeModalPage, pages, pageMap, setCurrentPageId } = usePageNavigation()
   const { backend } = useConnection()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
@@ -779,7 +779,7 @@ function DashboardContent() {
       {/* Modal Page Overlay */}
       <AnimatePresence>
         {modalPageId && (() => {
-          const modalPage = pages.find(p => p.id === modalPageId)
+          const modalPage = pageMap.get(modalPageId)
           if (!modalPage) return null
           const ms = modalPage.modalSettings || {}
           const size = ms.size || 'large'

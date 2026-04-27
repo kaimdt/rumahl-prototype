@@ -1,0 +1,42 @@
+--- desktop/src/components/widgets/StreamWidget.tsx
++++ desktop/src/components/widgets/StreamWidget.tsx
+@@ -10,6 +10,7 @@ import { Camera, WarningCircle, Settings, Microphone, ArrowsOut, Record, Check }
+ import { useTheme } from '@/contexts/ThemeContext'
+ import { useConnection } from '@/contexts/ConnectionContext'
+ import { toast } from 'sonner'
++import { getApiBase } from '@/lib/apiBase'
+
+ interface StreamInfo {
+   id: string
+@@ -60,8 +61,9 @@ export default function StreamWidget({ entityId, config, widgetSize, isEditing }
+         }
+       }
+     }
++    const apiBase = getApiBase()
+     fetchStreams()
+-  }, [API_BASE])
++  }, [])
+
+   useEffect(() => {
+     if (!selectedStreamId) {
+@@ -283,8 +285,9 @@ export default function StreamWidget({ entityId, config, widgetSize, isEditing }
+       const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+       let wsHost = window.location.host
+
+-      if (API_BASE) {
+-        try { wsHost = new URL(API_BASE).host } catch { wsHost = window.location.host }
++      const apiBase = getApiBase()
++      if (apiBase) {
++        try { wsHost = new URL(apiBase).host } catch { wsHost = window.location.host }
+       }
+
+       const wsUrl = \`\${wsProto}//\${wsHost}/api/webrtc/\${selectedStreamId}/viewer\`
+@@ -391,7 +394,7 @@ export default function StreamWidget({ entityId, config, widgetSize, isEditing }
+     pcRef.current = null
+     setIsConnected(false)
+     setError(null)
+-  }, [selectedStreamId, API_BASE])
++  }, [selectedStreamId])
+
+   // Auto-connect if no explicit trigger button or if we started via tap
+   useEffect(() => {

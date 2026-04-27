@@ -4338,8 +4338,9 @@ function RealtimeTab({ token }: { token: string }) {
       return
     }
     let wsHost: string
-    if (API_BASE) {
-      try { wsHost = new URL(API_BASE).host } catch { wsHost = window.location.host }
+    const apiBase = getApiBase()
+    if (apiBase) {
+      try { wsHost = new URL(apiBase).host } catch { wsHost = window.location.host }
     } else {
       wsHost = window.location.host
     }
