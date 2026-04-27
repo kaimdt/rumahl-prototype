@@ -1,0 +1,196 @@
+{
+  "title": "IORA Documentation",
+  "description": "Complete documentation for the IORA home automation platform",
+  "logo": "/assets/iora-logo.png",
+  "repository": "https://github.com/kaimdt/home-assistant-dashb",
+  "navigation": [
+    {
+      "section": "Getting Started",
+      "icon": "rocket",
+      "items": [
+        {
+          "title": "Introduction",
+          "path": "README.md"
+        },
+        {
+          "title": "Installation",
+          "path": "getting-started/installation.md"
+        },
+        {
+          "title": "Quick Start",
+          "path": "getting-started/quick-start.md"
+        },
+        {
+          "title": "Configuration",
+          "path": "getting-started/configuration.md"
+        },
+        {
+          "title": "Architecture Overview",
+          "path": "getting-started/architecture.md"
+        }
+      ]
+    },
+    {
+      "section": "Development",
+      "icon": "code",
+      "items": [
+        {
+          "title": "App Development",
+          "path": "development/app-development.md",
+          "highlight": true
+        },
+        {
+          "title": "Plugin Development",
+          "path": "development/plugin-development.md",
+          "highlight": true
+        },
+        {
+          "title": "Manifest Schema",
+          "path": "development/manifest-schema.md"
+        },
+        {
+          "title": "Permissions System",
+          "path": "development/permissions.md"
+        },
+        {
+          "title": "Network Access Control",
+          "path": "development/network-access.md"
+        },
+        {
+          "title": "Testing & Debugging",
+          "path": "development/testing.md"
+        }
+      ]
+    },
+    {
+      "section": "API Reference",
+      "icon": "api",
+      "items": [
+        {
+          "title": "API Overview",
+          "path": "api/README.md"
+        },
+        {
+          "title": "Core API",
+          "path": "api/core.md"
+        },
+        {
+          "title": "Control Center API",
+          "path": "api/control.md"
+        },
+        {
+          "title": "App Store API",
+          "path": "api/appstore.md"
+        },
+        {
+          "title": "Security API",
+          "path": "api/security.md"
+        },
+        {
+          "title": "Network Monitor API",
+          "path": "api/network.md"
+        },
+        {
+          "title": "SSH Management API",
+          "path": "api/ssh.md"
+        }
+      ]
+    },
+    {
+      "section": "Security",
+      "icon": "shield",
+      "items": [
+        {
+          "title": "Security Overview",
+          "path": "security/README.md"
+        },
+        {
+          "title": "Permission System",
+          "path": "security/permissions.md"
+        },
+        {
+          "title": "Network Security",
+          "path": "security/network.md"
+        },
+        {
+          "title": "Encryption",
+          "path": "security/encryption.md"
+        },
+        {
+          "title": "Threat Detection",
+          "path": "security/threat-detection.md"
+        },
+        {
+          "title": "Best Practices",
+          "path": "security/best-practices.md"
+        }
+      ]
+    },
+    {
+      "section": "Guides",
+      "icon": "book",
+      "items": [
+        {
+          "title": "Port Management",
+          "path": "guides/port-management.md"
+        },
+        {
+          "title": "Creating Custom Pages",
+          "path": "guides/custom-pages.md"
+        },
+        {
+          "title": "Settings Schema",
+          "path": "guides/settings-schema.md"
+        },
+        {
+          "title": "Docker Configuration",
+          "path": "guides/docker-config.md"
+        },
+        {
+          "title": "Troubleshooting",
+          "path": "guides/troubleshooting.md"
+        }
+      ]
+    },
+    {
+      "section": "System Enhancements",
+      "icon": "star",
+      "items": [
+        {
+          "title": "Domain Validation & Resource Management",
+          "path": "DOMAIN_VALIDATION_AND_RESOURCE_MANAGEMENT.md",
+          "highlight": true
+        },
+        {
+          "title": "Network Access & Documentation",
+          "path": "NETWORK_ACCESS_AND_DOCUMENTATION_SUMMARY.md"
+        },
+        {
+          "title": "Port & Network Features",
+          "path": "PORT_MANAGEMENT_AND_SYSTEM_ENHANCEMENTS.md"
+        },
+        {
+          "title": "Enhancement Summary",
+          "path": "SYSTEM_ENHANCEMENTS_SUMMARY.md"
+        }
+      ]
+    }
+  ],
+  "footer": {
+    "links": [
+      {
+        "title": "GitHub",
+        "url": "https://github.com/kaimdt/home-assistant-dashb"
+      },
+      {
+        "title": "Issues",
+        "url": "https://github.com/kaimdt/home-assistant-dashb/issues"
+      },
+      {
+        "title": "Discussions",
+        "url": "https://github.com/kaimdt/home-assistant-dashb/discussions"
+      }
+    ],
+    "copyright": "© 2026 IORA Project"
+  }
+}

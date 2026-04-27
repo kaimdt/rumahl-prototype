@@ -1,0 +1,53 @@
+[workspace]
+# Crates are grouped by role on disk so it's obvious what each piece is:
+#   shared/      — cross-crate library code
+#   services/    — long-running systemd-managed daemons (always shipped)
+#   apps/system/ — system applications shipped with IORA OS (run on demand)
+#   tools/       — on-device CLI utilities (`ora`, signing, verification)
+#   dev/         — pieces shipped ONLY on the IORA OS Dev image
+#
+# Crate names are unchanged, so `cargo build -p iora-X` (and the image build
+# pipeline) keeps working as before.
+members = [
+    "shared/iora-shared",
+
+    # services
+    "services/iora-home",
+    "services/iora-core",
+    "services/iora-control",
+    "services/iora-assist",
+    "services/iora-secrets",
+    "services/iora-watchdog",
+    "services/iora-installer",
+    "services/iora-security",
+    "services/iora-gateway",
+    "services/iora-files",
+    "services/iora-connector",
+    "services/iora-api",
+    "services/iora-supervisor",
+    "services/iora-appstore",
+    "services/iora-nginx",
+    "services/iora-network-monitor",
+    "services/iora-domain-validator",
+    "services/iora-resource-manager",
+    "services/iora-updater",
+    "services/iora-backup",
+
+    # system apps
+    "apps/system/iora-developer-app",
+
+    # on-device CLI tools
+    "tools/iora-cli",
+    "tools/iora-sign",
+    "tools/iora-verify",
+
+    # dev-image-only on-device pieces
+    "dev/iora-dev-bridge",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

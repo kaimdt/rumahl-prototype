@@ -1,0 +1,24 @@
+[package]
+name = "network-scanner-app"
+version = "1.0.0"
+edition = "2021"
+authors = ["IORA Team"]
+description = "Network scanner app for IORA - demonstrates SDK usage"
+
+[dependencies]
+iora-sdk = { path = "../../sdks/rust" }
+tokio = { version = "1.0", features = ["full"] }
+axum = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+anyhow = "1.0"
+pnet = "0.35"
+ipnetwork = "0.20"
+mac_address = "1.1"
+
+[profile.release]
+opt-level = 3
+lto = true

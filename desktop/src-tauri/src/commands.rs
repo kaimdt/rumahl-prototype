@@ -6,7 +6,7 @@ use crate::lm_studio::{ChatMessage, ChatRequest, LmStudioClient, Model};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{State, Window};
 use tokio::sync::Mutex;
 
 // ─── Shared application state ────────────────────────────────────────────────
@@ -69,7 +69,18 @@ pub async fn save_config(
     *state.config.lock().await = new_config;
     Ok(())
 }
-
+#[tauri::command]
+pub async fn apply_window_settings(
+    window: Window,
+    always_on_top: bool,
+    kiosk_mode: bool,
+) -> Result<(), String> {
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|e| e.to_string())?;
+    window.set_fullscreen(kiosk_mode).map_err(|e| e.to_string())?;
+    Ok(())
+}
 // ─── LM Studio commands ──────────────────────────────────────────────────────
 
 /// Test connection to LM Studio and return status.

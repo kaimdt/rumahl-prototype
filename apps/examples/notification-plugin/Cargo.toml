@@ -1,0 +1,22 @@
+[package]
+name = "notification-formatter"
+version = "1.0.0"
+edition = "2021"
+authors = ["IORA Team"]
+
+[lib]
+name = "notification_formatter"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+iora-shared = { path = "../../backend/iora-shared" }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"

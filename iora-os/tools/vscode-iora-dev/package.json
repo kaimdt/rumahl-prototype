@@ -1,0 +1,142 @@
+{
+  "name": "iora-dev",
+  "displayName": "IORA OS Dev",
+  "description": "Discover IORA OS Dev devices on your LAN, hot-deploy components, watch crates, and stream device logs from VS Code — backed by the iora-dev-deploy daemon.",
+  "version": "0.2.0",
+  "publisher": "iora",
+  "license": "MIT",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iora-os/iora-os"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["iora", "embedded", "smart-home", "deploy", "rust"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "IORA OS Dev",
+      "properties": {
+        "ioraDev.cliPath": {
+          "type": "string",
+          "default": "iora-dev-deploy",
+          "description": "Path to the iora-dev-deploy binary."
+        },
+        "ioraDev.daemon.url": {
+          "type": "string",
+          "default": "",
+          "description": "Override daemon URL (e.g. http://127.0.0.1:8765). Empty = read from ~/.config/iora-dev-deploy/daemon.json or auto-spawn."
+        },
+        "ioraDev.daemon.token": {
+          "type": "string",
+          "default": "",
+          "description": "Override daemon bearer token. Empty = read from daemon.json."
+        },
+        "ioraDev.daemon.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the iora-dev-deploy daemon if it is not already running."
+        },
+        "ioraDev.daemon.bind": {
+          "type": "string",
+          "default": "127.0.0.1:8765",
+          "description": "Bind address used when auto-starting the daemon."
+        },
+        "ioraDev.target": {
+          "type": "string",
+          "default": "aarch64-unknown-linux-gnu",
+          "description": "Cross-compile target triple used for builds."
+        },
+        "ioraDev.discoverTimeoutSecs": {
+          "type": "number",
+          "default": 4,
+          "description": "Seconds to listen for mDNS responses on Discover."
+        },
+        "ioraDev.watchDebounceMs": {
+          "type": "number",
+          "default": 800,
+          "description": "Debounce window for file-watch sessions."
+        }
+      }
+    },
+    "commands": [
+      { "command": "ioraDev.discover",       "title": "IORA Dev: Discover Devices on LAN",   "icon": "$(broadcast)" },
+      { "command": "ioraDev.connect",        "title": "IORA Dev: Connect to Device…",        "icon": "$(plug)" },
+      { "command": "ioraDev.disconnect",     "title": "IORA Dev: Disconnect Saved Device" },
+      { "command": "ioraDev.status",         "title": "IORA Dev: Show Device Status" },
+      { "command": "ioraDev.deploy",         "title": "IORA Dev: Deploy Component(s)…",      "icon": "$(rocket)" },
+      { "command": "ioraDev.deployCurrent",  "title": "IORA Dev: Deploy Current Crate",      "icon": "$(rocket)" },
+      { "command": "ioraDev.watch",          "title": "IORA Dev: Watch Component(s)…",       "icon": "$(eye)" },
+      { "command": "ioraDev.stopWatch",      "title": "IORA Dev: Stop Watch Session",        "icon": "$(stop-circle)" },
+      { "command": "ioraDev.restart",        "title": "IORA Dev: Restart systemd Unit…" },
+      { "command": "ioraDev.reload",         "title": "IORA Dev: Reload systemd Unit…" },
+      { "command": "ioraDev.composeReload",  "title": "IORA Dev: Reload Compose Service…" },
+      { "command": "ioraDev.logs",           "title": "IORA Dev: Tail Compose Logs…" },
+      { "command": "ioraDev.dashboard",      "title": "IORA Dev: Open Dashboard",            "icon": "$(dashboard)" },
+      { "command": "ioraDev.startDaemon",    "title": "IORA Dev: Start Daemon" },
+      { "command": "ioraDev.stopDaemon",     "title": "IORA Dev: Stop Daemon" },
+      { "command": "ioraDev.refresh",        "title": "IORA Dev: Refresh Views",             "icon": "$(refresh)" },
+      { "command": "ioraDev.showOutput",     "title": "IORA Dev: Show Output Channel" },
+      { "command": "ioraDev.deployFromTree", "title": "Deploy",                              "icon": "$(rocket)" },
+      { "command": "ioraDev.watchFromTree",  "title": "Watch",                               "icon": "$(eye)" },
+      { "command": "ioraDev.connectFromTree","title": "Connect",                             "icon": "$(plug)" },
+      { "command": "ioraDev.stopWatchFromTree","title": "Stop",                              "icon": "$(stop-circle)" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ioraDev",
+          "title": "IORA OS Dev",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ioraDev": [
+        { "id": "ioraDev.devices",    "name": "Devices" },
+        { "id": "ioraDev.components", "name": "Components" },
+        { "id": "ioraDev.watches",    "name": "Watch Sessions" },
+        { "id": "ioraDev.jobs",       "name": "Recent Jobs" }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        { "command": "ioraDev.discover",  "when": "view == ioraDev.devices",    "group": "navigation@1" },
+        { "command": "ioraDev.refresh",   "when": "view == ioraDev.devices",    "group": "navigation@2" },
+        { "command": "ioraDev.dashboard", "when": "view == ioraDev.devices",    "group": "navigation@3" },
+        { "command": "ioraDev.deploy",    "when": "view == ioraDev.components", "group": "navigation@1" },
+        { "command": "ioraDev.watch",     "when": "view == ioraDev.components", "group": "navigation@2" },
+        { "command": "ioraDev.refresh",   "when": "view == ioraDev.components", "group": "navigation@3" },
+        { "command": "ioraDev.refresh",   "when": "view == ioraDev.watches",    "group": "navigation@1" },
+        { "command": "ioraDev.refresh",   "when": "view == ioraDev.jobs",       "group": "navigation@1" }
+      ],
+      "view/item/context": [
+        { "command": "ioraDev.connectFromTree",  "when": "view == ioraDev.devices && viewItem == device",      "group": "inline" },
+        { "command": "ioraDev.deployFromTree",   "when": "view == ioraDev.components && viewItem == component", "group": "inline@1" },
+        { "command": "ioraDev.watchFromTree",    "when": "view == ioraDev.components && viewItem == component", "group": "inline@2" },
+        { "command": "ioraDev.stopWatchFromTree","when": "view == ioraDev.watches && viewItem == watch",        "group": "inline" }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "package": "vsce package --out iora-dev.vsix",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.4.0"
+  }
+}

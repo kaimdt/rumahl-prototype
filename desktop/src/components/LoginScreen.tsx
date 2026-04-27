@@ -1,12 +1,14 @@
 import React, { useState } from "react";
+import { TitleBar } from "./TitleBar";
 
 interface Props {
   onLogin: (username: string, password: string) => Promise<void>;
+  onSkipToSettings?: () => void;
   error: string | null;
   loading: boolean;
 }
 
-export function LoginScreen({ onLogin, error, loading }: Props) {
+export function LoginScreen({ onLogin, onSkipToSettings, error, loading }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -17,149 +19,78 @@ export function LoginScreen({ onLogin, error, loading }: Props) {
   };
 
   return (
-    <div style={styles.root}>
-      <div style={styles.card}>
-        {/* Logo */}
-        <div style={styles.logoWrap}>
-          <span style={styles.logoText}>IORA</span>
-          <span style={styles.logoSub}>Desktop</span>
-        </div>
-        <p style={styles.subtitle}>Anmelden, um fortzufahren</p>
+    <div className="flex flex-col h-screen bg-background">
+      {/* Custom Titlebar */}
+      <TitleBar />
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.field}>
-            <label style={styles.label}>Benutzername</label>
+      <div className="flex-1 flex items-center justify-center p-5">
+        <div className="bg-card border border-border rounded-xl p-10 px-8 w-full max-w-[420px] flex flex-col gap-6 shadow-2xl">
+        {/* Logo */}
+        <div className="flex items-baseline gap-2 justify-center">
+          <span className="text-[28px] font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            IORA
+          </span>
+          <span className="text-sm text-muted-foreground font-medium tracking-widest uppercase">
+            Desktop
+          </span>
+        </div>
+        <p className="text-center text-sm text-muted-foreground -mt-2.5">
+          Anmelden, um fortzufahren
+        </p>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Benutzername</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Benutzername eingeben"
-              style={styles.input}
+              className="px-3.5 py-2.5 rounded-md border border-border bg-background text-foreground text-sm w-full outline-none transition-all"
               autoFocus
               autoComplete="username"
             />
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Passwort</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Passwort</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Passwort eingeben"
-              style={styles.input}
+              className="px-3.5 py-2.5 rounded-md border border-border bg-background text-foreground text-sm w-full outline-none transition-all"
               autoComplete="current-password"
             />
           </div>
 
-          {error && <div style={styles.error}>⚠ {error}</div>}
+          {error && (
+            <div className="bg-destructive/10 border border-destructive text-destructive rounded-md px-3.5 py-2.5 text-sm">
+              ⚠ {error}
+            </div>
+          )}
 
           <button
             type="submit"
             disabled={loading || !username || !password}
-            style={{
-              ...styles.btn,
-              opacity: loading || !username || !password ? 0.6 : 1,
-              cursor: loading || !username || !password ? "not-allowed" : "pointer",
-            }}
+            className="px-5 py-2.5 rounded-md border-none bg-primary text-primary-foreground text-sm font-semibold transition-all w-full mt-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? "Anmelden…" : "Anmelden"}
           </button>
         </form>
+
+        {/* Skip to Settings button */}
+        {onSkipToSettings && (
+          <button
+            type="button"
+            onClick={onSkipToSettings}
+            className="px-5 py-2.5 rounded-md border border-border bg-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground hover:border-foreground/20 text-sm font-medium transition-all w-full cursor-pointer"
+          >
+            Einstellungen öffnen (ohne Login)
+          </button>
+        )}
+      </div>
       </div>
     </div>
   );
 }
-
-const styles = {
-  root: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100vh",
-    background: "var(--color-bg)",
-    padding: "20px",
-  } as React.CSSProperties,
-  card: {
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "12px",
-    padding: "32px 28px",
-    width: "100%",
-    maxWidth: "360px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "20px",
-  } as React.CSSProperties,
-  logoWrap: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: "8px",
-    justifyContent: "center",
-  } as React.CSSProperties,
-  logoText: {
-    fontSize: "28px",
-    fontWeight: 700,
-    background: "linear-gradient(135deg, #6366f1, #a855f7)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  } as React.CSSProperties,
-  logoSub: {
-    fontSize: "13px",
-    color: "var(--color-muted)",
-    fontWeight: 500,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase" as const,
-  } as React.CSSProperties,
-  subtitle: {
-    textAlign: "center" as const,
-    fontSize: "13px",
-    color: "var(--color-muted)",
-    marginTop: "-10px",
-  } as React.CSSProperties,
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  } as React.CSSProperties,
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "5px",
-  } as React.CSSProperties,
-  label: {
-    fontSize: "13px",
-    fontWeight: 500,
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-  input: {
-    padding: "9px 12px",
-    borderRadius: "var(--radius)",
-    border: "1px solid var(--color-border)",
-    background: "var(--color-bg)",
-    color: "var(--color-text)",
-    fontSize: "14px",
-    width: "100%",
-    outline: "none",
-  } as React.CSSProperties,
-  error: {
-    background: "rgba(239,68,68,0.1)",
-    border: "1px solid var(--color-error)",
-    color: "var(--color-error)",
-    borderRadius: "var(--radius)",
-    padding: "8px 12px",
-    fontSize: "13px",
-  } as React.CSSProperties,
-  btn: {
-    padding: "10px 20px",
-    borderRadius: "var(--radius)",
-    border: "none",
-    background: "var(--color-primary)",
-    color: "white",
-    fontSize: "14px",
-    fontWeight: 600,
-    transition: "background 0.15s ease",
-    width: "100%",
-    marginTop: "4px",
-  } as React.CSSProperties,
-};

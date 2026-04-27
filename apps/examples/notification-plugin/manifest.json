@@ -1,0 +1,35 @@
+{
+  "id": "notification-formatter",
+  "name": "Benachrichtigungs-Formatierer",
+  "version": "1.0.0",
+  "developer": "IORA Team",
+  "description": "Ein Plugin zur Formatierung und Anreicherung von Benachrichtigungen. Nimmt einfache Benachrichtigungen entgegen und formatiert sie mit Emojis, Prioritäten und strukturierten Daten. Läuft on-demand in einer Sandbox.",
+  "icon": "https://example.com/notification-icon.png",
+  "type": "plugin",
+  "plugin_type": "data_processor",
+  "permissions": [
+    "ReadData",
+    "WriteData",
+    "Notifications"
+  ],
+  "sandbox": {
+    "max_execution_time_ms": 5000,
+    "max_memory_mb": 128,
+    "allow_network": false,
+    "allow_file_system": false
+  },
+  "endpoints": [
+    {
+      "path": "/api/notifications/format",
+      "method": "POST",
+      "description": "Formatiert eine Benachrichtigung mit Emojis und Struktur",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/notifications/validate",
+      "method": "POST",
+      "description": "Validiert eine Benachrichtigung auf Vollständigkeit",
+      "requires_auth": true
+    }
+  ]
+}

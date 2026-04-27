@@ -13,14 +13,17 @@
     "windows": [
       {
         "label": "settings",
-        "title": "IORA Desktop – Einstellungen",
-        "width": 480,
-        "height": 640,
-        "resizable": false,
+        "title": "IORA Desktop",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
         "visible": false,
-        "decorations": true,
+        "decorations": false,
         "center": true,
-        "closable": true
+        "closable": true,
+        "titleBarStyle": "Overlay"
       }
     ],
     "trayIcon": {

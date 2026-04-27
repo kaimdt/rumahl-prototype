@@ -1,5 +1,10 @@
 pub mod auth;
+pub mod autostart;
 pub mod commands;
 pub mod config;
+pub mod ha_commands;
+pub mod ha_integration;
 pub mod iora_home;
 pub mod lm_studio;
+pub mod system_commands;
+pub mod system_info;

@@ -40,3 +40,5 @@ nul
 /backend/target
 /desktop/src-tauri/target
 /backend/data
+/iora-os/buildroot-2024.02
+/update-server-main

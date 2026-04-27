@@ -1,0 +1,47 @@
+{
+  "metadata": {
+    "id": "energy-optimizer-ai",
+    "name": "Energy Optimizer AI",
+    "version": "1.0.0",
+    "description": "AI-powered energy optimization and smart scheduling for home devices",
+    "author": "IORA Team",
+    "license": "MIT",
+    "icon": "lightning-slash",
+    "repository": "https://github.com/kaimdt/home-assistant-dashb"
+  },
+  "type": "service",
+  "entry": "./src/index.ts",
+  "permissions": [
+    "homeassistant",
+    "storage",
+    "ai"
+  ],
+  "dependencies": {},
+  "config": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "electricity_rate_peak": {
+          "type": "number",
+          "title": "Peak Electricity Rate (€/kWh)",
+          "default": 0.35
+        },
+        "electricity_rate_offpeak": {
+          "type": "number",
+          "title": "Off-Peak Electricity Rate (€/kWh)",
+          "default": 0.22
+        },
+        "offpeak_hours": {
+          "type": "array",
+          "title": "Off-Peak Hours",
+          "default": [0, 1, 2, 3, 4, 5, 6, 22, 23],
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 23
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+[update]
+compatible=iora-os
+
+[bundle]
+format=verity
+verity-salt=random
+
+[image.rootfs]
+filename=rootfs.squashfs
+size=2048M
+sha256=auto
+
+[hooks]
+filename=hook.sh

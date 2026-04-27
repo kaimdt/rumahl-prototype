@@ -14,6 +14,20 @@ export interface AppConfig {
   auth_token: string;
   auth_username: string;
   auth_user_id: string;
+  ha_enabled: boolean;
+  ha_update_interval_secs: number;
+  autostart_enabled: boolean;
+  autostart_minimized: boolean;
+  autostart_hidden: boolean;
+  notification_sound: boolean;
+  notifications_enabled: boolean;
+  screen_saver_enabled: boolean;
+  screen_saver_timeout_secs: number;
+  wake_on_motion: boolean;
+  display_brightness: number;
+  always_on_top: boolean;
+  kiosk_mode: boolean;
+  send_diagnostics: boolean;
 }
 
 export interface Model {
@@ -56,10 +70,37 @@ export interface IoraHomeStatus {
   url: string;
 }
 
+export interface SystemMetrics {
+  timestamp: string;
+  hostname: string;
+  os: string;
+  cpu_usage: number;
+  cpu_temp: number | null;
+  memory_total_gb: number;
+  memory_used_gb: number;
+  memory_percent: number;
+  swap_total_gb: number;
+  swap_used_gb: number;
+  disk_total_gb: number;
+  disk_used_gb: number;
+  disk_percent: number;
+  network_rx_mb: number;
+  network_tx_mb: number;
+  battery_percent: number | null;
+  battery_state: string | null;
+  is_charging: boolean | null;
+  screen_on: boolean;
+}
+
 export const tauriApi = {
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) =>
     invoke<void>("save_config", { newConfig: config }),
+  setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
+  setAutostartOptions: (minimized: boolean, hidden: boolean) =>
+    invoke<void>("set_autostart_options", { minimized, hidden }),
+  applyWindowSettings: (alwaysOnTop: boolean, kioskMode: boolean) =>
+    invoke<void>("apply_window_settings", { alwaysOnTop, kioskMode }),
   testConnection: () => invoke<ConnectionResult>("test_connection"),
   listModels: () => invoke<Model[]>("list_models"),
   sendChat: (
@@ -82,4 +123,6 @@ export const tauriApi = {
   pingIoraHome: () => invoke<boolean>("ping_iora_home"),
   /** Fetch HA connection info and entity counts from IORA Home. */
   getIoraHomeStatus: () => invoke<IoraHomeStatus>("get_iora_home_status"),
+  /** Collect local system metrics (CPU, RAM, disk, battery). */
+  getSystemMetrics: () => invoke<SystemMetrics>("get_system_metrics"),
 };

@@ -49,6 +49,28 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **Rust + Axum + 
 - **PWA support** -- installable as standalone app
 - **German locale** -- date/time formatting in de-DE
 
+### Desktop App
+- **IORA Desktop** — Tauri shell for remote IORA Home rendering, local system integration and tray control
+- **Glass titlebar** — semi-transparent, borderless desktop titlebar with clean taskbar integration and no opaque background
+- **Remote home embedding** — show the live IORA Home page with desktop-sized viewport and reload/settings actions
+- **Desktop-only settings** — separate settings UI for tray, system, proxy and platform-specific desktop features
+- **System controls** — brightness, always-on-top, kiosk mode, screensaver, notifications and background startup
+- **Proxy management** — automatically start local proxy, configure ports, and keep LM Studio connected
+- **Remote Home URL** — configure the embedded IORA Home instance used by the desktop shell
+- **Advanced desktop diagnostics** — live CPU/RAM/disk/battery metrics, network status and system health in the desktop settings
+- **Fileshare backend** — secure file sharing with `iora-files`, public share links and upload/download support
+
+### Admin Control Center
+- **Sidebar navigation** for fast access to system, users, HA integration, network, logs and more
+- **Service & task monitoring** — inspect running services, queue state and control background jobs
+- **Control mode** — switch between autonomous, manual or supervised operation modes
+- **Home Assistant integration** — HA config, connection status, entity explorer, scenes, automations and logbook
+- **Device networks** — MQTT, Zigbee, Z-Wave, Matter, BLE and HomeKit diagnostics and status
+- **API keys & webhooks** — manage external access, rate limits and webhook subscriptions
+- **Network, backup and database tools** — monitor connectivity, export/import backups and inspect SQLite health
+- **Realtime streams** — SSE/WebSocket diagnostics and event stream inspection for debugging
+- **Full admin feature set** — services, users, API keys, webhooks, integrations, entities, scenes, automations, scheduler, analytics, backups, network, logs, logbook, calendars, realtime, database, warnings, system notifications
+
 ### Backend
 - **Rust + Axum** -- fast, memory-safe backend
 - **SQLite** -- zero-config database with WAL mode

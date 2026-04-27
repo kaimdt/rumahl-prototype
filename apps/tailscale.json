@@ -1,0 +1,178 @@
+{
+  "id": "tailscale",
+  "name": "Tailscale",
+  "version": "1.62.0",
+  "developer": "Tailscale Inc.",
+  "description": "Zero-config VPN for secure remote access to your IORA system and smart home devices. Create a private mesh network without port forwarding or complex firewall rules.",
+  "icon": "https://tailscale.com/files/press/tailscale-logo-square.svg",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "NetworkLocalAccess",
+    "NetworkAdmin",
+    "SystemConfig"
+  ],
+  "endpoints": [
+    {
+      "path": "/api/tailscale/status",
+      "method": "GET",
+      "description": "Get Tailscale connection status",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tailscale/connect",
+      "method": "POST",
+      "description": "Connect to Tailscale network",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tailscale/disconnect",
+      "method": "POST",
+      "description": "Disconnect from Tailscale network",
+      "requires_auth": true
+    }
+  ],
+  "widgets": [
+    {
+      "id": "tailscale-status",
+      "name": "Tailscale Status",
+      "type": "status",
+      "component_url": "/widgets/tailscale-status.js",
+      "description": "Display Tailscale connection status and network info"
+    }
+  ],
+  "custom_pages": [
+    {
+      "id": "tailscale-dashboard",
+      "title": "Tailscale",
+      "icon": "vpn_key",
+      "url": "/apps/tailscale",
+      "show_in_nav": true,
+      "order": 50
+    }
+  ],
+  "settings_schema": {
+    "title": "Tailscale Configuration",
+    "description": "Configure Tailscale VPN for secure remote access",
+    "fields": [
+      {
+        "key": "auth_key",
+        "label": "Authentication Key",
+        "description": "Get this from https://login.tailscale.com/admin/settings/keys. Use a reusable key for easier management.",
+        "type": "password",
+        "required": true,
+        "validation": {
+          "pattern": "^tskey-.+"
+        }
+      },
+      {
+        "key": "hostname",
+        "label": "Hostname",
+        "description": "Custom hostname for this device on your Tailscale network",
+        "type": "text",
+        "default": "iora-home",
+        "validation": {
+          "pattern": "^[a-z0-9-]+$",
+          "min_length": 1,
+          "max_length": 63
+        }
+      },
+      {
+        "key": "advertise_routes",
+        "label": "Advertise Routes",
+        "description": "Subnet routes to advertise (comma-separated, e.g., 192.168.1.0/24,10.0.0.0/8)",
+        "type": "text"
+      },
+      {
+        "key": "exit_node",
+        "label": "Act as Exit Node",
+        "description": "Allow other devices to use this as an exit node for internet traffic",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "accept_routes",
+        "label": "Accept Routes",
+        "description": "Accept subnet routes advertised by other devices",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "accept_dns",
+        "label": "Accept DNS",
+        "description": "Use DNS servers advertised by your Tailscale network",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "ssh_enabled",
+        "label": "Enable Tailscale SSH",
+        "description": "Allow SSH access through Tailscale (more secure than port forwarding)",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "docker": {
+    "auto_build": false,
+    "image": "tailscale/tailscale:stable",
+    "working_dir": "/var/lib/tailscale",
+    "start_cmd": null,
+    "internal_ports": [
+      {
+        "port": 41641,
+        "protocol": "udp",
+        "assignment_mode": "fixed",
+        "description": "Tailscale WireGuard"
+      }
+    ],
+    "environment": {
+      "TS_STATE_DIR": "/var/lib/tailscale",
+      "TS_USERSPACE": "false"
+    },
+    "volumes": [
+      "/var/lib/iora/apps/tailscale:/var/lib/tailscale",
+      "/dev/net/tun:/dev/net/tun"
+    ],
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 60,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "network_access": {
+    "allowed_domains": [
+      "login.tailscale.com",
+      "controlplane.tailscale.com",
+      "log.tailscale.io"
+    ],
+    "allow_user_domains": false,
+    "allow_network_scan": false,
+    "allowed_local_ips": [],
+    "allow_user_local_ips": false
+  },
+  "store_metadata": {
+    "category": "Network & Security",
+    "tags": [
+      "vpn",
+      "security",
+      "networking",
+      "remote-access",
+      "wireguard",
+      "mesh-network"
+    ],
+    "screenshots": [
+      "https://tailscale.com/files/images/solutions/home-network.png"
+    ],
+    "min_iora_version": "0.1.0",
+    "homepage": "https://tailscale.com",
+    "source_url": "https://github.com/tailscale/tailscale",
+    "support_url": "https://tailscale.com/contact/support",
+    "license": "BSD-3-Clause"
+  },
+  "developer_mode": {
+    "allowed": false,
+    "allow_in_production": false
+  }
+}

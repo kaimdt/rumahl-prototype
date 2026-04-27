@@ -1,0 +1,84 @@
+version: '3.8'
+
+# IORA OS - Services that require IORA OS
+# These services are only available when running on IORA OS
+# Do NOT use this file for standard Docker Compose installations
+
+services:
+  # IORA Supervisor - Docker orchestration (IORA OS ONLY)
+  # Requires privileged access to Docker socket - only safe on IORA OS
+  iora-supervisor:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: iora-supervisor
+    container_name: iora-supervisor
+    image: iora/supervisor:latest
+    ports:
+      - "${SUPERVISOR_PORT:-8097}:8097"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - supervisor_data:/var/lib/iora
+    networks:
+      - iora-network
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - PORT=8097
+      - RUST_LOG=${RUST_LOG:-info}
+      - IORA_OS=true
+    labels:
+      iora.managed: "true"
+      iora.service: "supervisor"
+      iora.critical: "true"
+      iora.os_only: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iora-core:
+        condition: service_started
+
+  # IORA Backup - Enhanced backup with full system access (IORA OS)
+  # On IORA OS, backup service has full system access for complete backups
+  iora-backup:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: iora-backup
+    container_name: iora-backup
+    image: iora/backup:latest
+    ports:
+      - "${BACKUP_PORT:-8100}:8100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/iora:/var/lib/iora
+      - /mnt/data:/mnt/data
+      - /etc/iora:/etc/iora:ro
+    networks:
+      - iora-network
+    restart: unless-stopped
+    environment:
+      - PORT=8100
+      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_backup
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-iora}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - BACKUP_DIR=/var/lib/iora/backups
+      - RUST_LOG=${RUST_LOG:-info}
+      - IORA_OS=true
+    labels:
+      iora.managed: "true"
+      iora.service: "backup"
+      iora.critical: "false"
+      iora.os_only: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  iora-network:
+    external: true
+
+volumes:
+  supervisor_data:
+    driver: local

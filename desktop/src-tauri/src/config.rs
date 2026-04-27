@@ -6,7 +6,19 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 fn default_iora_home_url() -> String {
-    "http://localhost:8080".to_string()
+    env!("IORA_HOME_URL_DEFAULT").to_string()
+}
+
+fn default_ha_update_interval() -> u64 {
+    env!("HA_UPDATE_INTERVAL_DEFAULT").parse().unwrap_or(60)
+}
+
+fn default_screen_saver_timeout() -> u64 {
+    300
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +53,51 @@ pub struct AppConfig {
     /// User ID
     #[serde(default)]
     pub auth_user_id: String,
+    /// Home Assistant integration enabled (via iora-home gateway)
+    #[serde(default)]
+    pub ha_enabled: bool,
+    /// JWT token for iora-home authentication (used for HA integration)
+    #[serde(default)]
+    pub ha_token: String,
+    /// Update interval for sending metrics to HA (seconds)
+    #[serde(default = "default_ha_update_interval")]
+    pub ha_update_interval_secs: u64,
+    /// Start on system boot
+    #[serde(default)]
+    pub autostart_enabled: bool,
+    /// Start minimized to tray
+    #[serde(default)]
+    pub autostart_minimized: bool,
+    /// Start hidden (tray only, no window)
+    #[serde(default = "default_true")]
+    pub autostart_hidden: bool,
+    /// Notification sound enabled
+    #[serde(default = "default_true")]
+    pub notification_sound: bool,
+    /// Desktop notifications enabled
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
+    /// Screen saver / dim after inactivity
+    #[serde(default)]
+    pub screen_saver_enabled: bool,
+    /// Screen saver timeout in seconds
+    #[serde(default = "default_screen_saver_timeout")]
+    pub screen_saver_timeout_secs: u64,
+    /// Wake-on-motion (camera/sensor based wake from screen saver)
+    #[serde(default)]
+    pub wake_on_motion: bool,
+    /// Display brightness override (0-100, 0 = system default)
+    #[serde(default)]
+    pub display_brightness: u8,
+    /// Always on top
+    #[serde(default)]
+    pub always_on_top: bool,
+    /// Kiosk mode (fullscreen, no title bar)
+    #[serde(default)]
+    pub kiosk_mode: bool,
+    /// Send crash / error reports
+    #[serde(default)]
+    pub send_diagnostics: bool,
 }
 
 impl Default for AppConfig {
@@ -48,17 +105,32 @@ impl Default for AppConfig {
         Self {
             client_id: Uuid::new_v4().to_string(),
             client_name: hostname(),
-            lm_studio_url: "http://localhost:1234".to_string(),
+            lm_studio_url: env!("LM_STUDIO_URL_DEFAULT").to_string(),
             lm_studio_api_key: String::new(),
             selected_model: String::new(),
-            iora_backend_url: "http://localhost:8092".to_string(),
+            iora_backend_url: env!("IORA_BACKEND_URL_DEFAULT").to_string(),
             auto_start_proxy: true,
-            proxy_port: 11435,
-            health_poll_interval_secs: 30,
+            proxy_port: env!("PROXY_PORT_DEFAULT").parse().unwrap_or(11435),
+            health_poll_interval_secs: env!("HEALTH_POLL_INTERVAL_DEFAULT").parse().unwrap_or(30),
             iora_home_url: default_iora_home_url(),
             auth_token: String::new(),
             auth_username: String::new(),
             auth_user_id: String::new(),
+            ha_enabled: false,
+            ha_token: String::new(),
+            ha_update_interval_secs: default_ha_update_interval(),
+            autostart_enabled: false,
+            autostart_minimized: false,
+            autostart_hidden: true,
+            notification_sound: true,
+            notifications_enabled: true,
+            screen_saver_enabled: false,
+            screen_saver_timeout_secs: default_screen_saver_timeout(),
+            wake_on_motion: false,
+            display_brightness: 0,
+            always_on_top: false,
+            kiosk_mode: false,
+            send_diagnostics: false,
         }
     }
 }

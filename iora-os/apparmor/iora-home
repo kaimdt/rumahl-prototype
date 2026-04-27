@@ -1,0 +1,29 @@
+#include <tunables/global>
+
+/app/iora-home {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # Binary execution
+  /app/iora-home r,
+
+  # Network (required for Home Assistant and client connections)
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+
+  # PostgreSQL client libraries
+  /usr/lib/** rm,
+
+  # Temporary files
+  /tmp/** rw,
+
+  # Configuration (read-only)
+  /etc/iora/** r,
+
+  # No privilege escalation
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_ptrace,
+}

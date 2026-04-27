@@ -2,14 +2,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
+mod autostart;
 mod commands;
 mod config;
+mod ha_commands;
+mod ha_integration;
 mod iora_home;
+mod iora_notifications;
 mod lm_studio;
+mod system_commands;
+mod system_info;
+mod ora_ai;
 
 use commands::AppState;
+use ha_integration::{HaClient, HaConfig};
 use lm_studio::LmStudioClient;
 use std::sync::atomic::Ordering;
+use system_info::collect_metrics;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -50,21 +59,30 @@ fn main() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("settings") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                    match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } => {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("settings") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
+                        TrayIconEvent::Click {
+                            button: MouseButton::Right,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } => {
+                            // Right-click shows menu (handled automatically by Tauri)
+                        }
+                        _ => {}
                     }
                 })
                 .build(app)?;
@@ -124,6 +142,73 @@ fn main() {
                 }
             });
 
+            // ── Home Assistant metrics reporter ───────────────────────────────
+            // Periodically sends system metrics to Home Assistant
+            let app_handle_ha = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                loop {
+                    let (ha_url, ha_token, device_name, update_interval, enabled) = {
+                        let state = app_handle_ha.state::<AppState>();
+                        let cfg = state.config.lock().await.clone();
+                        (
+                            cfg.iora_home_url.clone(), // Use iora-home URL, not HA URL
+                            cfg.ha_token.clone(),
+                            cfg.client_name.clone(),
+                            cfg.ha_update_interval_secs,
+                            cfg.ha_enabled,
+                        )
+                    };
+
+                    if enabled && !ha_token.is_empty() {
+                        let ha_config = HaConfig {
+                            url: ha_url,
+                            token: ha_token,
+                            device_name,
+                            update_interval_secs: update_interval,
+                            enabled: true,
+                        };
+
+                        if let Ok(metrics) = collect_metrics() {
+                            let client = HaClient::new(ha_config);
+                            if let Err(e) = client.send_metrics(&metrics).await {
+                                tracing::warn!("Failed to send metrics to HA: {}", e);
+                            } else {
+                                tracing::debug!("Successfully sent metrics to Home Assistant");
+                            }
+                        }
+                    }
+
+                    let mut ticker = interval(Duration::from_secs(update_interval.max(30)));
+                    ticker.tick().await;
+                    ticker.tick().await;
+                }
+            });
+
+            // ── IORA Desktop Notification Listener ───────────────────────────
+            // Connect to iora-home WebSocket and listen for desktop_notification events.
+            let app_handle_notif = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Small startup delay so config is ready
+                tokio::time::sleep(Duration::from_secs(3)).await;
+
+                let (iora_home_url, auth_token, client_name) = {
+                    let state = app_handle_notif.state::<AppState>();
+                    let cfg = state.config.lock().await.clone();
+                    (cfg.iora_home_url.clone(), cfg.auth_token.clone(), cfg.client_name.clone())
+                };
+                if !iora_home_url.is_empty() {
+                    // start_notification_listener runs its own reconnect loop indefinitely
+                    iora_notifications::start_notification_listener(
+                        app_handle_notif,
+                        iora_home_url,
+                        auth_token,
+                        client_name,
+                    );
+                }
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -138,6 +223,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
+            commands::apply_window_settings,
             commands::test_connection,
             commands::list_models,
             commands::send_chat,
@@ -148,6 +234,23 @@ fn main() {
             auth::get_current_user,
             iora_home::ping_iora_home,
             iora_home::get_iora_home_status,
+            ha_commands::test_ha_connection,
+            ha_commands::get_system_metrics,
+            ha_commands::send_metrics_to_ha,
+            ha_commands::get_ha_entities,
+            ha_commands::call_ha_service,
+            ha_commands::execute_command,
+            autostart::set_autostart,
+            autostart::get_autostart_status,
+            autostart::set_autostart_options,
+            // ORA AI commands
+            ora_ai::ora_send_chat,
+            ora_ai::ora_search_internet,
+            ora_ai::ora_show_overlay,
+            ora_ai::ora_hide_overlay,
+            ora_ai::ora_toggle_overlay,
+            ora_ai::ora_capture_screenshot,
+            ora_ai::ora_execute_desktop_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IORA Desktop");

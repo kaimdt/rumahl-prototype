@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import type { AppConfig } from "../lib/tauri";
 import { ModelSelector } from "./ModelSelector";
 import type { Model } from "../lib/tauri";
+import { Switch } from "@/components/ui/switch";
 
 interface Props {
   config: AppConfig;
@@ -9,6 +10,29 @@ interface Props {
   modelsLoading: boolean;
   onSave: (config: AppConfig) => Promise<void>;
   onLoadModels: () => void;
+}
+
+const inputClass = "w-full px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all";
+const inputNarrowClass = "px-3 py-2.5 rounded-xl bg-foreground/[0.04] border border-foreground/10 text-sm text-foreground focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all";
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-[11px] font-semibold text-foreground/40 uppercase tracking-[0.15em] pb-1">
+      {children}
+    </h2>
+  );
+}
+
+function ToggleRow({ label, description, checked, onChange }: { label: string; description?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-foreground/85">{label}</p>
+        {description && <p className="text-[11px] text-foreground/50 mt-0.5">{description}</p>}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
 }
 
 export function SettingsForm({
@@ -41,6 +65,10 @@ export function SettingsForm({
       }));
     };
 
+  const toggle = (key: keyof AppConfig) => (v: boolean) => {
+    setForm((prev) => ({ ...prev, [key]: v }));
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -54,30 +82,30 @@ export function SettingsForm({
   };
 
   return (
-    <form onSubmit={handleSave} style={styles.form}>
+    <form onSubmit={handleSave} className="flex flex-col gap-6">
       {/* LM Studio section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>LM Studio</h2>
+      <section className="flex flex-col gap-3">
+        <SectionHeader>LM Studio</SectionHeader>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Server URL</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">Server URL</label>
           <input
             type="url"
             value={form.lm_studio_url}
             onChange={field("lm_studio_url")}
             placeholder="http://localhost:1234"
-            style={styles.input}
+            className={inputClass}
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>API Key (optional)</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">API Key (optional)</label>
           <input
             type="password"
             value={form.lm_studio_api_key}
             onChange={field("lm_studio_api_key")}
             placeholder="Leer lassen, wenn nicht benötigt"
-            style={styles.input}
+            className={inputClass}
           />
         </div>
 
@@ -91,183 +119,152 @@ export function SettingsForm({
       </section>
 
       {/* IORA Backend section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>IORA Backend</h2>
+      <section className="flex flex-col gap-3">
+        <SectionHeader>IORA Backend</SectionHeader>
 
-        <div style={styles.field}>
-          <label style={styles.label}>IORA Assist URL</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">IORA Assist URL</label>
           <input
             type="url"
             value={form.iora_backend_url}
             onChange={field("iora_backend_url")}
             placeholder="http://localhost:8092"
-            style={styles.input}
+            className={inputClass}
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>IORA Home URL</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">IORA Home URL</label>
           <input
             type="url"
             value={form.iora_home_url}
             onChange={field("iora_home_url")}
-            placeholder="http://localhost:8080"
-            style={styles.input}
+            placeholder="http://localhost:3001"
+            className={inputClass}
           />
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Proxy Port</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">Proxy Port</label>
           <input
             type="number"
             value={form.proxy_port}
             onChange={field("proxy_port")}
             min={1024}
             max={65535}
-            style={{ ...styles.input, width: "120px" }}
+            className={`${inputNarrowClass} w-[120px]`}
           />
         </div>
 
-        <div style={styles.checkboxField}>
-          <input
-            id="auto_start"
-            type="checkbox"
-            checked={form.auto_start_proxy}
-            onChange={field("auto_start_proxy")}
-            style={styles.checkbox}
-          />
-          <label htmlFor="auto_start" style={styles.checkboxLabel}>
-            Proxy beim Start automatisch aktivieren
-          </label>
-        </div>
+        <ToggleRow
+          label="Proxy beim Start automatisch aktivieren"
+          checked={form.auto_start_proxy}
+          onChange={toggle("auto_start_proxy")}
+        />
       </section>
 
       {/* Client section */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Dieser Client</h2>
+      <section className="flex flex-col gap-3">
+        <SectionHeader>Dieser Client</SectionHeader>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Client-Name</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">Client-Name</label>
           <input
             type="text"
             value={form.client_name}
             onChange={field("client_name")}
             placeholder="z.B. Wohnzimmer-PC"
-            style={styles.input}
+            className={inputClass}
           />
-          <span style={styles.hint}>
+          <span className="text-[11px] text-foreground/40">
             Anzeigename in IORA Assist (bei mehreren Clients)
           </span>
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Prüfintervall (Sekunden)</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground/60">Prüfintervall (Sekunden)</label>
           <input
             type="number"
             value={form.health_poll_interval_secs}
             onChange={field("health_poll_interval_secs")}
             min={5}
             max={300}
-            style={{ ...styles.input, width: "100px" }}
+            className={`${inputNarrowClass} w-[100px]`}
           />
-          <span style={styles.hint}>
+          <span className="text-[11px] text-foreground/40">
             Wie oft der Hintergrundprozess die Verbindung prüft
           </span>
         </div>
 
-        <div style={styles.readonlyField}>
-          <span style={styles.label}>Client-ID</span>
-          <code style={styles.clientId}>{form.client_id}</code>
+        <div className="flex flex-col gap-1">
+          <span className="text-[13px] font-medium text-foreground/60">Client-ID</span>
+          <code className="text-[11px] text-foreground/50 bg-foreground/[0.04] border border-foreground/8 rounded-lg px-3 py-2 select-all overflow-x-auto">
+            {form.client_id}
+          </code>
         </div>
       </section>
 
-      <button type="submit" disabled={saving} style={styles.saveBtn}>
+      {/* Home Assistant Integration section */}
+      <section className="flex flex-col gap-3">
+        <SectionHeader>Home Assistant Integration</SectionHeader>
+
+        <ToggleRow
+          label="Home Assistant Integration aktivieren"
+          checked={form.ha_enabled}
+          onChange={toggle("ha_enabled")}
+        />
+
+        {form.ha_enabled && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[13px] font-medium text-foreground/60">Metriken-Update-Intervall (Sekunden)</label>
+            <input
+              type="number"
+              value={form.ha_update_interval_secs}
+              onChange={field("ha_update_interval_secs")}
+              min={30}
+              max={300}
+              className={`${inputNarrowClass} w-[120px]`}
+            />
+            <span className="text-[11px] text-foreground/40">
+              Wie oft System-Metriken an HA gesendet werden
+            </span>
+          </div>
+        )}
+      </section>
+
+      {/* Autostart section */}
+      <section className="flex flex-col gap-3">
+        <SectionHeader>Autostart</SectionHeader>
+
+        <ToggleRow
+          label="Beim Systemstart automatisch starten"
+          checked={form.autostart_enabled}
+          onChange={toggle("autostart_enabled")}
+        />
+
+        {form.autostart_enabled && (
+          <>
+            <ToggleRow
+              label="Minimiert starten"
+              checked={form.autostart_minimized}
+              onChange={toggle("autostart_minimized")}
+            />
+            <ToggleRow
+              label="Nur im Tray starten (kein Fenster)"
+              checked={form.autostart_hidden}
+              onChange={toggle("autostart_hidden")}
+            />
+          </>
+        )}
+      </section>
+
+      <button
+        type="submit"
+        disabled={saving}
+        className="px-5 py-2.5 rounded-xl border-none bg-accent text-white text-sm font-semibold cursor-pointer hover:opacity-90 transition-opacity self-end disabled:opacity-60 disabled:cursor-not-allowed"
+      >
         {saving ? "Speichern…" : saved ? "✓ Gespeichert" : "Einstellungen speichern"}
       </button>
     </form>
   );
 }
-
-const styles = {
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "24px",
-  } as React.CSSProperties,
-  section: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  } as React.CSSProperties,
-  sectionTitle: {
-    fontSize: "14px",
-    fontWeight: 600,
-    color: "var(--color-primary)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-    paddingBottom: "6px",
-    borderBottom: "1px solid var(--color-border)",
-  } as React.CSSProperties,
-  field: { display: "flex", flexDirection: "column", gap: "5px" } as React.CSSProperties,
-  label: {
-    fontSize: "13px",
-    fontWeight: 500,
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-  input: {
-    padding: "8px 12px",
-    borderRadius: "var(--radius)",
-    border: "1px solid var(--color-border)",
-    background: "var(--color-surface)",
-    color: "var(--color-text)",
-    fontSize: "14px",
-    width: "100%",
-    outline: "none",
-  } as React.CSSProperties,
-  hint: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-  } as React.CSSProperties,
-  checkboxField: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  } as React.CSSProperties,
-  checkbox: {
-    width: "16px",
-    height: "16px",
-    accentColor: "var(--color-primary)",
-  } as React.CSSProperties,
-  checkboxLabel: {
-    fontSize: "14px",
-    color: "var(--color-text)",
-    cursor: "pointer",
-  } as React.CSSProperties,
-  readonlyField: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  } as React.CSSProperties,
-  clientId: {
-    fontSize: "11px",
-    color: "var(--color-muted)",
-    background: "var(--color-bg)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "4px",
-    padding: "4px 8px",
-    userSelect: "all" as const,
-    overflowX: "auto" as const,
-  } as React.CSSProperties,
-  saveBtn: {
-    padding: "10px 20px",
-    borderRadius: "var(--radius)",
-    border: "none",
-    background: "var(--color-primary)",
-    color: "white",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "background 0.2s",
-    alignSelf: "flex-end",
-  } as React.CSSProperties,
-};
