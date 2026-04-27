@@ -182,11 +182,46 @@ impl TaskEngine {
             "suggest" => Self::execute_suggest_task(db, orchestrator, task).await,
             "reminder" => Self::execute_reminder_task(db, orchestrator, task).await,
             "notify" => Self::execute_notify_task(db, orchestrator, task).await,
+            "pidev_agent" => Self::execute_pidev_task(db, orchestrator, task).await,
             _ => {
                 tracing::warn!("Unknown task type: {}", task.task_type);
                 Ok(Value::Null)
             }
         }
+    }
+
+    /// Execute a pi.dev task via webhook
+    async fn execute_pidev_task(
+        _db: &DbPool,
+        orchestrator: &Arc<ProviderOrchestrator>,
+        task: &db_tasks::AutonomousTask,
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        let action = task.config.get("action")
+            .and_then(|a| a.as_str())
+            .unwrap_or("analyze");
+
+        let prompt = format!(
+            "Analyze current system metrics and user requests. Produce a payload for pi.dev to execute. Action: {}. Your response must only be the payload to send, wrapped in a JSON object.",
+            action
+        );
+
+        let messages = vec![crate::providers::ChatMessage {
+            role: "user".to_string(),
+            content: prompt,
+        }];
+
+        let response = orchestrator
+            .execute_chat(messages, Some("You are a pi.dev agent payload generator.".to_string()), None)
+            .await?;
+
+        // Here we could add logic to post `response.message` to pi.dev via webhook if a URL was provided
+        // Example: POST https://pi.dev/api/webhook
+
+        Ok(serde_json::json!({
+            "message": response.message,
+            "provider": response.provider,
+            "pidev_action": action,
+        }))
     }
 
     /// Execute a monitoring task

@@ -29,6 +29,7 @@ mod orchestrator;
 mod task_engine;
 mod conversation_manager;
 mod tools;
+mod api_proxy;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
