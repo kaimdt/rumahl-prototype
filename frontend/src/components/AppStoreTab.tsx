@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect } from 'react'
 import {
   Cube, Lightning, Plus, Play, Pause, TrashSimple, ShieldCheck,
   DownloadSimple, Upload, MagnifyingGlass, Gear, Check, X,
-  ShieldWarning, Package, ArrowClockwise
+  ShieldWarning, Package, ArrowClockwise, Info, Warning
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
+import { extractManifestFromZip } from '../lib/zip'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -418,14 +419,25 @@ function ZipUploadView({
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [manifest, setManifest] = useState<AppManifest | null>(null)
+  const [manifestError, setManifestError] = useState<string | null>(null)
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (!selectedFile) return
 
     setFile(selectedFile)
-    // TODO: Extract and parse manifest.json from ZIP
-    // For now, we'll require manual manifest input or implement ZIP parsing
+    setManifest(null)
+    setManifestError(null)
+
+    try {
+      const extractedManifest = await extractManifestFromZip(selectedFile)
+      setManifest(extractedManifest)
+      toast.success('manifest.json erfolgreich gelesen')
+    } catch (err) {
+      console.error('Manifest extraction failed:', err)
+      setManifestError((err as Error).message)
+      toast.error(`Konnte manifest.json nicht lesen: ${(err as Error).message}`)
+    }
   }
 
   const uploadAndInstall = async () => {
@@ -445,6 +457,7 @@ function ZipUploadView({
             body: JSON.stringify({
               zip_data: base64,
               file_name: fileRef.name,
+              manifest: manifest || undefined,
             }),
           }) as { install_id?: string }
 
@@ -508,6 +521,55 @@ function ZipUploadView({
             </div>
           )}
         </div>
+
+        {manifest && (
+          <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 space-y-2">
+            <div className="flex items-center gap-2 text-green-400">
+              <Check size={16} weight="bold" />
+              <span className="text-xs font-semibold">Manifest validiert</span>
+            </div>
+            <div className="flex gap-3">
+              {manifest.icon ? (
+                <div className="w-12 h-12 rounded bg-foreground/10 flex-shrink-0 overflow-hidden">
+                  <img src={manifest.icon} alt={manifest.name} className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-12 h-12 rounded bg-accent/20 flex items-center justify-center flex-shrink-0">
+                  <Cube size={24} className="text-accent" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold text-foreground truncate">{manifest.name}</div>
+                <div className="text-[10px] text-foreground/50">{manifest.version} • {manifest.developer}</div>
+                <p className="text-[10px] text-foreground/40 mt-1 line-clamp-1">{manifest.description}</p>
+              </div>
+            </div>
+            {manifest.type && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent font-semibold uppercase">
+                  {manifest.type}
+                </span>
+                {manifest.permissions && (
+                  <span className="text-[9px] text-foreground/40">
+                    {manifest.permissions.length} Berechtigungen angefordert
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {manifestError && (
+          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+            <div className="flex items-start gap-2 text-red-400">
+              <Warning size={16} className="mt-0.5 flex-shrink-0" />
+              <div>
+                <div className="text-xs font-semibold">Fehler im Manifest</div>
+                <div className="text-[10px] opacity-80">{manifestError}</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <div className="text-xs font-semibold text-foreground">Anforderungen:</div>
