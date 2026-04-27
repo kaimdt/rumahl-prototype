@@ -8,8 +8,12 @@ def run_cuj(page):
     page.locator('button[aria-label="Open Desktop Settings"]').click()
     page.wait_for_timeout(1000)
 
+    # Click Desktop tab
+    page.get_by_text("Desktop").click()
+    page.wait_for_timeout(1000)
+
     # Take screenshot at the key moment
-    page.screenshot(path="/home/jules/verification/screenshots/verification_settings_pre.png")
+    page.screenshot(path="/home/jules/verification/screenshots/verification_settings_moved.png")
     page.wait_for_timeout(1000)
 
 if __name__ == "__main__":

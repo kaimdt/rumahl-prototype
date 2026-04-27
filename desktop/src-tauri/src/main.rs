@@ -7,7 +7,6 @@ mod commands;
 mod config;
 mod ha_commands;
 mod ha_integration;
-mod iora_home;
 mod iora_notifications;
 mod lm_studio;
 mod ora_ai;
@@ -257,8 +256,6 @@ fn main() {
             auth::login,
             auth::logout,
             auth::get_current_user,
-            iora_home::ping_iora_home,
-            iora_home::get_iora_home_status,
             ha_commands::test_ha_connection,
             ha_commands::get_system_metrics,
             ha_commands::send_metrics_to_ha,
