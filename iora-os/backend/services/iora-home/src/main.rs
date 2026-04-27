@@ -16,7 +16,7 @@ use tower_http::{
     services::ServeDir,
     trace::TraceLayer,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme, ApiKey, ApiKeyValue};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
@@ -1143,6 +1143,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/maintenance/status", get(public_maintenance_status))
         .route("/api/desktop/extensions", get(desktop_gateway::get_desktop_extensions))
         .route("/api/desktop/settings", get(desktop_gateway::get_desktop_settings).post(desktop_gateway::update_desktop_settings))
+        .route("/api/desktop/register", post(desktop_gateway::register_desktop))
+        .route("/api/desktop/metrics", post(desktop_gateway::receive_metrics))
+        .route("/api/desktop/entities", get(desktop_gateway::get_entities))
+        .route("/api/desktop/service/call", post(desktop_gateway::call_service))
+        .route("/api/desktop/command/execute", post(desktop_gateway::queue_command))
+        .route("/api/desktop/commands", get(desktop_gateway::get_pending_commands))
+        .route("/api/desktop/commands/:id/ack", post(desktop_gateway::ack_command))
         // Authentication API (public)
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
@@ -5469,6 +5476,23 @@ async fn cleanup_old_history(db_pool: DbPool) {
             Err(e) => {
                 task_entry(0).record_error();
                 warn!("Failed to clean up entity history: {}", e);
+            }
+        }
+
+        let cmd_cutoff = chrono::Utc::now() - chrono::Duration::days(30);
+        match sqlx::query("DELETE FROM desktop_commands WHERE status = 'acknowledged' AND updated_at < $1")
+            .bind(cmd_cutoff)
+            .execute(&db_pool)
+            .await
+        {
+            Ok(result) => {
+                let rows = result.rows_affected();
+                if rows > 0 {
+                    info!("Cleaned up {} old desktop commands", rows);
+                }
+            }
+            Err(e) => {
+                error!("Failed to clean up old desktop commands: {}", e);
             }
         }
     }
