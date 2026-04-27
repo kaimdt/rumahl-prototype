@@ -23,6 +23,7 @@ const DEVELOPER_APP_TOKEN: &str = env!("IORA_DEVELOPER_APP_TOKEN", "dev-token-pl
 struct AppState {
     supervisor_url: String,
     iora_api_url: String,
+    http_client: reqwest::Client,
     hot_reload_history: Arc<RwLock<HashMap<String, Vec<HotReloadEntry>>>>,
     deployment_status: Arc<RwLock<HashMap<String, DeploymentStatus>>>,
     developer_mode_enabled: Arc<RwLock<bool>>,
@@ -99,10 +100,20 @@ async fn check_developer_mode(
     // Check for API key in header (for other apps)
     if let Some(api_key) = req.headers().get("X-API-Key") {
         if let Ok(key_str) = api_key.to_str() {
-            // TODO: Validate API key against IORA API
-            // For now, accept any key if Developer Mode is enabled
-            info!("API key authentication: {}", key_str);
-            return Ok(());
+            let auth_url = format!("{}/api/auth/verify", data.iora_api_url);
+
+            match data.http_client.get(&auth_url).header("X-API-Key", key_str).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    info!("API key authentication successful: {}", key_str);
+                    return Ok(());
+                }
+                _ => {
+                    return Err(HttpResponse::Unauthorized().json(serde_json::json!({
+                        "error": "Authentication failed",
+                        "message": "Invalid API key"
+                    })));
+                }
+            }
         }
     }
 
@@ -880,9 +891,15 @@ async fn main() -> std::io::Result<()> {
     info!("Supervisor URL: {}", supervisor_url);
     info!("IORA API URL: {}", iora_api_url);
 
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
     let app_state = web::Data::new(AppState {
         supervisor_url,
         iora_api_url,
+        http_client,
         hot_reload_history: Arc::new(RwLock::new(HashMap::new())),
         deployment_status: Arc::new(RwLock::new(HashMap::new())),
         developer_mode_enabled: Arc::new(RwLock::new(true)), // TODO: Sync with supervisor
