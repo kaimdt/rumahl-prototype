@@ -44,6 +44,18 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const appMenuRef = useRef<HTMLDivElement>(null)
   const [navLabels] = useLocalStorage('ha-nav-labels', true)
   const [navStyle] = useLocalStorage<'pill' | 'classic' | 'minimal'>('ha-nav-style', 'pill')
+  const [haEnabled, setHaEnabled] = useState<boolean>(true)
+
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data && data.enabled !== undefined) {
+          setHaEnabled(data.enabled)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // App menu pages (shown in 9-dot grid, not in main nav bar)
   const appMenuPageIds = ['streaming', 'docs', 'share']
@@ -56,7 +68,10 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   ]
 
   // Filter pages: show in nav, not settings, not app-menu pages, and only top-level
-  const visiblePages = pages.filter(p => p.showInNav !== false && p.id !== 'settings' && !p.parentPageId && !appMenuPageIds.includes(p.id))
+  const visiblePages = pages.filter(p => {
+    if (!haEnabled && ['lights', 'climate', 'switches', 'sensors', 'music'].includes(p.id)) return false;
+    return p.showInNav !== false && p.id !== 'settings' && !p.parentPageId && !appMenuPageIds.includes(p.id)
+  })
   // For app menu, use pages if they exist, or fall back to built-in entries
   const appMenuPages = builtInAppEntries.map(entry => {
     const existing = pages.find(p => p.id === entry.id)
@@ -647,7 +662,10 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
                   )
                 })}
                 {/* Pages hidden from nav (for discovery) */}
-                {pages.filter(p => p.showInNav === false && p.id !== 'settings' && !p.parentPageId).map((page, i) => {
+                {pages.filter(p => {
+                  if (!haEnabled && ['lights', 'climate', 'switches', 'sensors', 'music'].includes(p.id)) return false;
+                  return p.showInNav === false && p.id !== 'settings' && !p.parentPageId
+                }).map((page, i) => {
                   const Icon = iconMap[page.icon as keyof typeof iconMap]
                   const isActive = currentPageId === page.id
                   return (
