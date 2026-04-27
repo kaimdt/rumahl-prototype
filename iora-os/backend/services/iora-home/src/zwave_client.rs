@@ -21,6 +21,27 @@ impl Default for ZwaveConfig {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ZwaveNodeState {
+    Unavailable,
+    Dead,
+    Other,
+}
+
+impl ZwaveNodeState {
+    pub fn from_str(state: &str) -> Self {
+        match state {
+            "unavailable" => Self::Unavailable,
+            "dead" => Self::Dead,
+            _ => Self::Other,
+        }
+    }
+
+    pub fn is_reachable(&self) -> bool {
+        !matches!(self, Self::Unavailable | Self::Dead)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ZwaveNode {
     pub node_id: u32,
@@ -122,7 +143,7 @@ impl ZwaveClient {
                     is_routing: entity.attributes.get("is_routing").and_then(|v| v.as_bool()).unwrap_or(false),
                     is_beaming: entity.attributes.get("is_beaming").and_then(|v| v.as_bool()).unwrap_or(false),
                     status: entity.state.clone(),
-                    reachable: entity.state != "unavailable" && entity.state != "dead",
+                    reachable: ZwaveNodeState::from_str(&entity.state).is_reachable(),
                     last_seen: Some(entity.last_updated.clone()),
                 });
             }
