@@ -4,7 +4,8 @@
 use crate::database::{DbPool, tasks as db_tasks};
 use crate::orchestrator::ProviderOrchestrator;
 use crate::providers::ChatMessage;
-use chrono::{DateTime, Utc};
+use crate::schedule_engine::{ParsedSchedule, RecurrenceType, ScheduleEngine};
+use chrono::{DateTime, NaiveTime, Utc};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
@@ -54,6 +55,13 @@ impl TaskEngine {
                 if let Err(e) = Self::execute_pending_tasks(&db, &orchestrator).await {
                     tracing::error!("Error executing pending tasks: {}", e);
                 }
+
+                // Auto-resume tasks whose temporary pause has expired
+                match crate::database::tasks::resume_expired_pauses(&db).await {
+                    Ok(n) if n > 0 => tracing::info!("Auto-resumed {} temporarily paused task(s)", n),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("Failed to resume expired pauses: {}", e),
+                }
             }
         });
     }
@@ -74,9 +82,18 @@ impl TaskEngine {
         let now = Utc::now();
 
         for task in tasks {
-            // Check if task should be executed
-            if let Some(next_exec) = task.next_execution_at {
-                if next_exec > now {
+            // Determine when the task should next run:
+            //   - One-shot user/AI tasks carry a specific `trigger_at` timestamp.
+            //   - Recurring system tasks use `next_execution_at` (derived from their cron schedule).
+            // `trigger_at` takes precedence so that user-requested reminders fire at the
+            // exact time requested rather than the cron-calculated slot.
+            let exec_time = task
+                .trigger_at
+                .as_ref()
+                .or(task.next_execution_at.as_ref());
+
+            if let Some(next_exec) = exec_time {
+                if *next_exec > now {
                     continue; // Not yet time
                 }
             }
@@ -104,6 +121,49 @@ impl TaskEngine {
             .await
             {
                 tracing::error!("Failed to record task execution: {}", e);
+            }
+
+            // Disable one-shot tasks after execution.
+            // For recurring tasks, calculate the next execution time and update the DB.
+            if task.is_one_shot || task.recurrence_type == "once" {
+                if let Err(e) = db_tasks::set_enabled(&db, task.id, false).await {
+                    tracing::error!("Failed to disable one-shot task {}: {}", task.id, e);
+                }
+            } else {
+                // Check occurrence limit
+                let next_count = task.occurrence_count + 1;
+                let limit_reached = task
+                    .occurrence_limit
+                    .map(|lim| next_count >= lim)
+                    .unwrap_or(false);
+                let end_reached = task
+                    .recurrence_end_at
+                    .map(|end| now >= end)
+                    .unwrap_or(false);
+
+                if limit_reached || end_reached {
+                    tracing::info!(
+                        "Recurring task '{}' completed (limit={:?}, end_reached={})",
+                        task.name,
+                        task.occurrence_limit,
+                        end_reached
+                    );
+                    if let Err(e) = db_tasks::set_enabled(&db, task.id, false).await {
+                        tracing::error!("Failed to disable completed recurring task {}: {}", task.id, e);
+                    }
+                } else {
+                    // Advance to next trigger using the schedule engine
+                    let next_at = compute_next_trigger_for_task(&task, now);
+                    if let Err(e) = db_tasks::update_next_execution(&db, task.id, next_at).await {
+                        tracing::error!("Failed to advance recurring task {}: {}", task.id, e);
+                    } else {
+                        tracing::debug!(
+                            "Recurring task '{}' next execution at {:?}",
+                            task.name,
+                            next_at
+                        );
+                    }
+                }
             }
         }
 
@@ -360,4 +420,58 @@ impl ScheduleCalculator {
 
         None
     }
+}
+
+// ─── Recurrence helper ────────────────────────────────────────────────────────
+
+/// Compute the next trigger timestamp for a recurring task by delegating to the
+/// schedule engine.  Falls back to a simple "+24 hours" if the task has no
+/// recognisable schedule data.
+fn compute_next_trigger_for_task(
+    task: &db_tasks::AutonomousTask,
+    after: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    // Build a minimal ParsedSchedule from the task DB row
+    let recurrence_type = match task.recurrence_type.as_str() {
+        "daily"    => RecurrenceType::Daily,
+        "weekdays" => RecurrenceType::Weekdays,
+        "weekly"   => RecurrenceType::Weekly,
+        "custom"   => RecurrenceType::Custom,
+        _          => return None, // "once" and unknown → no next occurrence
+    };
+
+    // Parse days_of_week from JSONB (stored as JSON array of u8)
+    let days_of_week: Vec<u8> = task
+        .recurrence_days
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| {
+                    // ISO weekday values are 1–7; reject anything outside that range
+                    let n = v.as_u64()?;
+                    if (1..=7).contains(&n) { u8::try_from(n).ok() } else { None }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let time_of_day: Option<NaiveTime> = task.time_of_day;
+
+    let sched = ParsedSchedule {
+        name: task.name.clone(),
+        description: task.description.clone().unwrap_or_default(),
+        task_type: task.task_type.clone(),
+        recurrence_type,
+        days_of_week,
+        time_of_day,
+        first_trigger_at: after,
+        next_trigger_at: after,
+        recurrence_end_at: task.recurrence_end_at,
+        occurrence_limit: task.occurrence_limit,
+        user_timezone: task.user_timezone.clone(),
+        input_mode: task.input_mode.clone(),
+        is_recurring: true,
+    };
+
+    ScheduleEngine::compute_next_trigger(&sched, after)
 }

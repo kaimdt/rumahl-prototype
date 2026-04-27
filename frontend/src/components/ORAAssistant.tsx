@@ -1,37 +1,365 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { MessageContent } from '@/components/MessageContent'
+import { ActiveTasksPanel } from '@/components/ActiveTasksPanel'
 
 interface AIChatMessage {
   role: string
   content: string
   timestamp: string
+  // If present, an instant task is resolving in background for this message
+  instantTaskId?: string
+  instantTaskType?: string
+  instantTaskStatus?: 'pending' | 'completed' | 'failed' | 'deferred'
+  instantTaskResult?: string
 }
 
 interface AIChatResponse {
   message: string
   provider: string
   message_id: string
+  task_action?: {
+    action: string
+    task_id?: string
+    resume_at?: string
+    question?: string
+    requires_confirmation: boolean
+  } | null
+  instant_task_id?: string | null
+  instant_task_type?: string | null
+}
+
+// A pending action waiting for the user to confirm or decline
+interface PendingTaskAction {
+  action: string
+  task_id: string
+  resume_at?: string
+  question: string
 }
 
 type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+type DialogTab = 'chat' | 'tasks'
 
 const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
 
+// ─── Instant Task type badge labels ──────────────────────────────────────────
+
+const INSTANT_TASK_LABELS: Record<string, string> = {
+  search:  'Suche',
+  weather: 'Wetter',
+  news:    'Nachrichten',
+  music:   'Musik',
+  generic: 'Suche',
+}
+
 export function ORAAssistant() {
   const [isOpen, setIsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<DialogTab>('chat')
   const [state, setState] = useState<ORAState>('idle')
   const [messages, setMessages] = useState<AIChatMessage[]>([])
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  // Toast shown when a task was automatically created
+  const [taskCreatedToast, setTaskCreatedToast] = useState<string | null>(null)
+  // Pending task action awaiting user confirmation
+  const [pendingTaskAction, setPendingTaskAction] = useState<PendingTaskAction | null>(null)
   const [isTTSEnabled, setIsTTSEnabled] = useState(true)
+  // Whether the last user interaction was via voice (microphone)
+  const [voiceLastUsed, setVoiceLastUsed] = useState(false)
+  // Label shown in the voice-task slow-path banner ("Suche läuft…")
+  const [voiceTaskBanner, setVoiceTaskBanner] = useState<string | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
+  // Active SSE connections keyed by instant task id
+  const instantTaskSources = useRef<Map<string, EventSource>>(new Map())
+
+  // ─── Voice instant-task multitask state (refs avoid stale-closure issues in SSE callbacks) ──
+  /** How many ms to silently wait before switching to slow-path and starting conversation. */
+  const FAST_PATH_MS = 4000
+  /** Tracks the active voice instant task – used from SSE callbacks. */
+  const voiceInstantTask = useRef<{
+    taskId: string
+    msgTimestamp: string
+    holdingMsg: string
+    taskType: string
+    phase: 'fast-wait' | 'slow-talking'
+  } | null>(null)
+  /** The fast-path setTimeout handle. */
+  const fastPathTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Sync refs so SSE callbacks always read the latest values without re-subscription
+  const isTTSEnabledRef = useRef(isTTSEnabled)
+  useEffect(() => { isTTSEnabledRef.current = isTTSEnabled }, [isTTSEnabled])
+  const voiceLastUsedRef = useRef(voiceLastUsed)
+  useEffect(() => { voiceLastUsedRef.current = voiceLastUsed }, [voiceLastUsed])
+
+  // ─── Text-to-Speech ────────────────────────────────────────────────────────
+  /**
+   * Speak `text` via the browser's speech synthesis engine.
+   * `onDone` is called once the utterance finishes (or errors).
+   */
+  const speak = useCallback((text: string, onDone?: () => void) => {
+    if (!isTTSEnabledRef.current || !synthRef.current) {
+      onDone?.()
+      return
+    }
+    synthRef.current.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'de-DE'
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+    utterance.onstart = () => setState('speaking')
+    utterance.onend = () => { setState('idle'); onDone?.() }
+    utterance.onerror = (e) => {
+      console.error('TTS error:', e)
+      setState('idle')
+      onDone?.()
+    }
+    synthRef.current.speak(utterance)
+  }, [])
+
+  // ─── Voice conversation helpers ────────────────────────────────────────────
+  /**
+   * Start a new round of speech recognition for voice-mode conversation.
+   * Used during the slow-path so the user can keep chatting while the instant task runs.
+   * This function references `sendMessage` via a forward-declared ref to avoid circular deps.
+   */
+  const sendMessageRef = useRef<((text: string, opts?: { fromVoice?: boolean }) => Promise<void>) | null>(null)
+
+  const startVoiceConversation = useCallback(() => {
+    if (!recognitionRef.current || !isSpeechSupported) return
+    try { recognitionRef.current.abort() } catch { /* already stopped */ }
+
+    setState('listening')
+    recognitionRef.current.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setState('idle')
+      sendMessageRef.current?.(transcript, { fromVoice: true })
+    }
+    recognitionRef.current.onerror = () => setState('idle')
+    recognitionRef.current.onend = () => {
+      // Auto-restart mic only while still in slow-talking phase
+      if (voiceInstantTask.current?.phase === 'slow-talking') {
+        setTimeout(() => {
+          if (voiceInstantTask.current?.phase === 'slow-talking') {
+            startVoiceConversation()
+          }
+        }, 600)
+      } else {
+        setState(s => s === 'listening' ? 'idle' : s)
+      }
+    }
+    try { recognitionRef.current.start() } catch { /* already started */ }
+  }, [isSpeechSupported])
+
+  /**
+   * Clear all voice instant-task state – called when a result arrives or on cleanup.
+   */
+  const clearVoiceInstantTask = useCallback(() => {
+    if (fastPathTimerRef.current) {
+      clearTimeout(fastPathTimerRef.current)
+      fastPathTimerRef.current = null
+    }
+    voiceInstantTask.current = null
+    setVoiceTaskBanner(null)
+  }, [])
+
+  /**
+   * Activate the slow path: speak the holding sentence, then re-enable the microphone
+   * so the user can continue the conversation while the task finishes.
+   */
+  const activateSlowPath = useCallback(() => {
+    const task = voiceInstantTask.current
+    if (!task) return
+    task.phase = 'slow-talking'
+    setVoiceTaskBanner(INSTANT_TASK_LABELS[task.taskType] ?? 'Suche')
+
+    // Speak the AI's holding sentence, then start listening for conversation
+    speak(task.holdingMsg, () => {
+      if (voiceInstantTask.current?.phase === 'slow-talking') {
+        startVoiceConversation()
+      }
+    })
+  }, [speak, startVoiceConversation])
+
+  // ─── Instant task SSE subscription ────────────────────────────────────────
+  const subscribeToInstantTask = useCallback((taskId: string, msgTimestamp: string) => {
+    if (instantTaskSources.current.has(taskId)) return
+
+    const url = `${ASSIST_URL}/api/assist/tasks/instant/${taskId}/stream`
+    const es = new EventSource(url)
+
+    es.addEventListener('instant_task_result', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const eventType: string = data.event_type ?? 'completed'
+
+        // ── Progress: taking longer ──────────────────────────────────────────
+        if (eventType === 'taking_longer') {
+          // In voice fast-wait phase: activate slow path immediately (server confirmed it's slow)
+          const viTask = voiceInstantTask.current
+          if (viTask?.taskId === taskId && viTask.phase === 'fast-wait') {
+            // Cancel the local 4s timer – the server already told us it's slow
+            if (fastPathTimerRef.current) {
+              clearTimeout(fastPathTimerRef.current)
+              fastPathTimerRef.current = null
+            }
+            activateSlowPath()
+          }
+          // Keep SSE open – more events will follow
+          return
+        }
+
+        // ── Progress: deferred (>1 min threshold exceeded) ──────────────────
+        if (eventType === 'deferred') {
+          // Update message bubble to "deferred" state
+          setMessages(prev =>
+            prev.map(m =>
+              m.timestamp === msgTimestamp
+                ? { ...m, instantTaskStatus: 'deferred', instantTaskResult: 'Die Antwort dauert etwas länger – du bekommst eine Benachrichtigung.' }
+                : m
+            )
+          )
+
+          // Persist task id in sessionStorage so on next dialog open we can recover it
+          try {
+            sessionStorage.setItem('ora_deferred_task', JSON.stringify({ taskId, msgTimestamp, ts: Date.now() }))
+          } catch { /* storage unavailable */ }
+
+          // Voice: announce deferral context-aware
+          const viTask = voiceInstantTask.current
+          if (viTask?.taskId === taskId && isTTSEnabledRef.current) {
+            const inConversation = viTask.phase === 'slow-talking'
+            const announcement = inConversation
+              ? 'Das dauert noch etwas länger. Ich melde mich gleich, wenn ich das Ergebnis habe.'
+              : 'Das dauert etwas länger. Ich melde mich sobald ich fertig bin.'
+            try { recognitionRef.current?.abort() } catch { /* ok */ }
+            synthRef.current?.cancel()
+            speak(announcement)
+          }
+          clearVoiceInstantTask()
+          setVoiceTaskBanner(null)
+
+          // Close SSE – result will arrive via notification queue
+          es.close()
+          instantTaskSources.current.delete(taskId)
+          return
+        }
+
+        // ── Final result (completed / failed) ────────────────────────────────
+        const resultText: string = data.result_text ?? data.error ?? 'Keine Antwort erhalten.'
+        const status: 'completed' | 'failed' = data.status === 'completed' ? 'completed' : 'failed'
+
+        // Update the chat message bubble
+        setMessages(prev =>
+          prev.map(m =>
+            m.timestamp === msgTimestamp
+              ? { ...m, instantTaskStatus: status, instantTaskResult: resultText }
+              : m
+          )
+        )
+
+        // Clear deferred sessionStorage entry if we got the final result live
+        try { sessionStorage.removeItem('ora_deferred_task') } catch { /* ok */ }
+
+        // ── Voice-mode result delivery ─────────────────────────────────────
+        const viTask = voiceInstantTask.current
+        const wasVoiceFast = viTask?.taskId === taskId && viTask.phase === 'fast-wait'
+        const wasVoiceSlow = viTask?.taskId === taskId && viTask.phase === 'slow-talking'
+
+        if (viTask?.taskId === taskId) {
+          clearVoiceInstantTask()
+        } else {
+          if (fastPathTimerRef.current) clearTimeout(fastPathTimerRef.current)
+        }
+
+        if (status === 'completed' && isTTSEnabledRef.current) {
+          if (wasVoiceFast) {
+            try { recognitionRef.current?.abort() } catch { /* ok */ }
+            speak(resultText)
+          } else if (wasVoiceSlow) {
+            try { recognitionRef.current?.abort() } catch { /* ok */ }
+            synthRef.current?.cancel()
+            speak(`Ich hab's gefunden! ${resultText}`, () => {
+              if (voiceLastUsedRef.current) {
+                setTimeout(startVoiceConversation, 800)
+              }
+            })
+          } else {
+            speak(resultText)
+          }
+        }
+      } catch { /* parse error – ignore */ }
+      es.close()
+      instantTaskSources.current.delete(taskId)
+    })
+
+    es.onerror = () => {
+      setMessages(prev =>
+        prev.map(m =>
+          m.timestamp === msgTimestamp && m.instantTaskStatus === 'pending'
+            ? { ...m, instantTaskStatus: 'failed', instantTaskResult: 'Suche fehlgeschlagen.' }
+            : m
+        )
+      )
+      const viTask = voiceInstantTask.current
+      if (viTask?.taskId === taskId) clearVoiceInstantTask()
+      es.close()
+      instantTaskSources.current.delete(taskId)
+    }
+
+    instantTaskSources.current.set(taskId, es)
+  }, [speak, startVoiceConversation, clearVoiceInstantTask, activateSlowPath])
+
+  // Clean up SSE connections when dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      instantTaskSources.current.forEach(es => es.close())
+      instantTaskSources.current.clear()
+      clearVoiceInstantTask()
+      return
+    }
+
+    // Dialog just opened: check if we have a deferred task result waiting in the DB.
+    const raw = (() => { try { return sessionStorage.getItem('ora_deferred_task') } catch { return null } })()
+    if (!raw) return
+    try {
+      const saved: { taskId: string; msgTimestamp: string; ts: number } = JSON.parse(raw)
+      // Only recover tasks deferred within the last 30 minutes
+      if (Date.now() - saved.ts > 30 * 60 * 1000) {
+        sessionStorage.removeItem('ora_deferred_task')
+        return
+      }
+      // Poll the REST endpoint for the task result
+      fetch(`${ASSIST_URL}/api/assist/tasks/instant/${saved.taskId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((task: { status?: string; result_text?: string; error_message?: string } | null) => {
+          if (!task) return
+          if (task.status === 'completed' || task.status === 'failed') {
+            sessionStorage.removeItem('ora_deferred_task')
+            const resultText = task.result_text ?? task.error_message ?? 'Keine Antwort erhalten.'
+            const status = task.status === 'completed' ? 'completed' : 'failed'
+            // Inject as a notification-style message into the chat
+            setMessages(prev => [
+              ...prev,
+              {
+                role: 'assistant' as const,
+                content: status === 'completed'
+                  ? `📬 ORA hat die Antwort gefunden:\n\n${resultText}`
+                  : `❌ Die Suche ist leider fehlgeschlagen.`,
+                timestamp: new Date().toISOString(),
+              }
+            ])
+          }
+        })
+        .catch(() => { /* network error – ignore */ })
+    } catch { /* bad stored value */ }
+  }, [isOpen, clearVoiceInstantTask])
 
   // Check for Web Speech API support
   useEffect(() => {
@@ -54,30 +382,11 @@ export function ORAAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Text-to-Speech function
-  const speak = (text: string) => {
-    if (!isTTSEnabled || !synthRef.current) return
-
-    // Cancel any ongoing speech
-    synthRef.current.cancel()
-
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'de-DE'
-    utterance.rate = 1.0
-    utterance.pitch = 1.0
-
-    utterance.onstart = () => setState('speaking')
-    utterance.onend = () => setState('idle')
-    utterance.onerror = (e) => {
-      console.error('TTS error:', e)
-      setState('idle')
-    }
-
-    synthRef.current.speak(utterance)
-  }
-
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, opts?: { fromVoice?: boolean }) => {
     if (!text.trim()) return
+
+    const fromVoice = opts?.fromVoice ?? false
+    if (fromVoice) setVoiceLastUsed(true)
 
     const userMessage: AIChatMessage = {
       role: 'user',
@@ -89,12 +398,14 @@ export function ORAAssistant() {
     setInput('')
     setState('thinking')
     setError(null)
+    // Clear any pending confirmation when user sends a new message
+    setPendingTaskAction(null)
 
     try {
       const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, context: null }),
+        body: JSON.stringify({ message: text, context: null, voice_mode: fromVoice }),
       })
 
       if (!response.ok) {
@@ -103,21 +414,86 @@ export function ORAAssistant() {
 
       const data: AIChatResponse = await response.json()
 
+      // Build the AI message – mark it as pending instant task if one was created
+      const msgTimestamp = new Date().toISOString()
       const aiMessage: AIChatMessage = {
         role: 'assistant',
         content: data.message,
-        timestamp: new Date().toISOString(),
+        timestamp: msgTimestamp,
+        ...(data.instant_task_id
+          ? {
+              instantTaskId: data.instant_task_id,
+              instantTaskType: data.instant_task_type ?? 'search',
+              instantTaskStatus: 'pending' as const,
+            }
+          : {}),
       }
 
-      setMessages(prev => [...prev, aiMessage])
+      const updatedMessages = [...messages, userMessage, aiMessage]
+      setMessages(updatedMessages)
       setState('speaking')
 
-      // Speak the AI response if TTS is enabled
-      if (isTTSEnabled) {
+      // Handle instant task response
+      if (data.instant_task_id) {
+        subscribeToInstantTask(data.instant_task_id, msgTimestamp)
+
+        if (fromVoice) {
+          // ── Voice fast-path: wait silently for FAST_PATH_MS before speaking holding message
+          voiceInstantTask.current = {
+            taskId: data.instant_task_id,
+            msgTimestamp,
+            holdingMsg: data.message,
+            taskType: data.instant_task_type ?? 'search',
+            phase: 'fast-wait',
+          }
+          setState('thinking') // show "thinking" while silently waiting
+
+          fastPathTimerRef.current = setTimeout(() => {
+            // Still waiting → switch to slow path
+            if (voiceInstantTask.current?.taskId === data.instant_task_id) {
+              activateSlowPath()
+            }
+          }, FAST_PATH_MS)
+        } else {
+          // Text mode: just leave the spinner bubble, no TTS on holding message
+          setState('idle')
+        }
+      } else if (isTTSEnabled) {
         speak(data.message)
       } else {
-        // Return to idle after animation if TTS is disabled
         setTimeout(() => setState('idle'), 2000)
+      }
+
+      // Handle structured task action from AI response
+      if (data.task_action) {
+        const ta = data.task_action
+        if (ta.requires_confirmation && ta.task_id && ta.question) {
+          setPendingTaskAction({
+            action: ta.action,
+            task_id: ta.task_id,
+            resume_at: ta.resume_at,
+            question: ta.question,
+          })
+        } else if (!ta.requires_confirmation && ta.task_id) {
+          setTaskCreatedToast(`Aufgabe ${ta.action === 'pause_until' ? 'pausiert' : ta.action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
+          setTimeout(() => setTaskCreatedToast(null), 4000)
+        }
+      } else if (!data.instant_task_id) {
+        // Fall back to multi-message task detection for new task creation
+        const payload = updatedMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
+        fetch(`${ASSIST_URL}/api/assist/tasks/detect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: payload, input_mode: 'conversation' }),
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d?.success && d?.task_id) {
+              setTaskCreatedToast('Aufgabe wurde erstellt ✓')
+              setTimeout(() => setTaskCreatedToast(null), 4000)
+            }
+          })
+          .catch(() => { /* silent */ })
       }
     } catch (e) {
       console.error('Failed to send message:', e)
@@ -127,6 +503,29 @@ export function ORAAssistant() {
         setState('idle')
         setError(null)
       }, 3000)
+    }
+  }
+
+  // Keep the sendMessageRef in sync so startVoiceConversation can call it
+  useEffect(() => { sendMessageRef.current = sendMessage })
+
+  const handleTaskConfirmation = async (confirmed: boolean) => {
+    if (!pendingTaskAction) return
+    const { action, task_id, resume_at } = pendingTaskAction
+    setPendingTaskAction(null)
+
+    try {
+      const res = await fetch(`${ASSIST_URL}/api/assist/tasks/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed, action, task_id, resume_at }),
+      })
+      if (res.ok && confirmed) {
+        setTaskCreatedToast(`Aufgabe ${action === 'pause_until' ? 'pausiert' : action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
+        setTimeout(() => setTaskCreatedToast(null), 4000)
+      }
+    } catch (e) {
+      console.error('Confirmation failed:', e)
     }
   }
 
@@ -141,12 +540,14 @@ export function ORAAssistant() {
       return
     }
 
+    setVoiceLastUsed(true)
     setState('listening')
 
     recognitionRef.current.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript
-      setInput(transcript)
       setState('idle')
+      // Dispatch immediately with fromVoice=true so the TTS/instant-task flow activates
+      sendMessage(transcript, { fromVoice: true })
     }
 
     recognitionRef.current.onerror = (event: any) => {
@@ -296,15 +697,42 @@ export function ORAAssistant() {
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">ORA AI</h2>
                   <p className="text-xs text-foreground/50">
-                    {state === 'listening' && 'Höre zu...'}
-                    {state === 'thinking' && 'Denke nach...'}
+                    {state === 'listening' && (voiceTaskBanner ? 'Höre zu… (sucht noch)' : 'Höre zu...')}
+                    {state === 'thinking' && (voiceTaskBanner ? `Sucht: ${voiceTaskBanner}…` : 'Denke nach...')}
                     {state === 'speaking' && 'Antworte...'}
                     {state === 'error' && 'Fehler'}
-                    {state === 'idle' && 'Bereit'}
+                    {state === 'idle' && (voiceTaskBanner ? `Sucht: ${voiceTaskBanner}…` : 'Bereit')}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {/* Tab switcher */}
+                <div className="flex items-center rounded-full bg-foreground/10 p-0.5">
+                  <button
+                    onClick={() => setActiveTab('chat')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-all ${
+                      activeTab === 'chat'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/60 hover:text-foreground'
+                    }`}
+                    title="Chat"
+                  >
+                    <Chat size={12} />
+                    <span>Chat</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('tasks')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-all ${
+                      activeTab === 'tasks'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/60 hover:text-foreground'
+                    }`}
+                    title="Aufgaben"
+                  >
+                    <BellRinging size={12} />
+                    <span>Aufgaben</span>
+                  </button>
+                </div>
                 {/* TTS Toggle */}
                 <button
                   onClick={() => setIsTTSEnabled(!isTTSEnabled)}
@@ -323,6 +751,95 @@ export function ORAAssistant() {
               </div>
             </div>
           </div>
+
+          {/* Task-created toast notification */}
+          <AnimatePresence>
+            {taskCreatedToast && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-4 mb-0 px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs flex items-center gap-2"
+              >
+                <BellRinging size={13} weight="fill" />
+                {taskCreatedToast}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Voice slow-path banner: shown while ORA searches and user can keep talking */}
+          <AnimatePresence>
+            {voiceTaskBanner && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-4 mb-0 px-4 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs flex items-center gap-2"
+              >
+                <MagnifyingGlass size={13} weight="bold" className="animate-pulse shrink-0" />
+                <span>
+                  ORA sucht: <strong>{voiceTaskBanner}</strong> – du kannst weiter sprechen 🎙
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Confirmation banner – shown when AI is unsure and needs user approval */}
+          <AnimatePresence>
+            {pendingTaskAction && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mx-4 mb-0 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs"
+              >
+                <div className="flex items-start gap-2 mb-2">
+                  <Warning size={14} weight="fill" className="text-amber-400 mt-0.5 shrink-0" />
+                  <p className="text-amber-200 leading-snug">{pendingTaskAction.question}</p>
+                </div>
+                <div className="flex items-center gap-2 ml-5">
+                  <button
+                    onClick={() => handleTaskConfirmation(true)}
+                    className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-colors"
+                  >
+                    <Check size={11} weight="bold" />
+                    {pendingTaskAction?.action === 'delete' ? 'Ja, löschen'
+                      : pendingTaskAction?.action === 'resume' ? 'Ja, aktivieren'
+                      : 'Ja, deaktivieren'}
+                  </button>
+                  <button
+                    onClick={() => handleTaskConfirmation(false)}
+                    className="flex items-center gap-1 px-3 py-1 rounded-lg bg-foreground/10 hover:bg-foreground/15 text-foreground/60 text-xs transition-colors"
+                  >
+                    <X size={11} weight="bold" /> Nein
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Tab content */}
+          <AnimatePresence mode="wait">
+            {activeTab === 'tasks' ? (
+              <motion.div
+                key="tasks"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 overflow-hidden px-4 py-4"
+              >
+                <ActiveTasksPanel isVisible={activeTab === 'tasks'} />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="chat"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 flex flex-col overflow-hidden"
+              >
 
           {/* Messages container */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
@@ -344,6 +861,50 @@ export function ORAAssistant() {
                     }`}
                   >
                     <MessageContent content={msg.content} role={msg.role} />
+
+                    {/* Instant Task result area */}
+                    {msg.instantTaskId && (
+                      <div className="mt-2 pt-2 border-t border-foreground/10">
+                        {msg.instantTaskStatus === 'pending' && (
+                          <div className="flex items-center gap-1.5 text-xs text-foreground/50">
+                            <MagnifyingGlass size={12} className="animate-pulse" />
+                            <span>
+                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? 'Suche'} läuft…
+                            </span>
+                          </div>
+                        )}
+                        {msg.instantTaskStatus === 'completed' && msg.instantTaskResult && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-sm text-foreground/90 leading-relaxed"
+                          >
+                            <div className="flex items-center gap-1 text-[10px] text-accent mb-1">
+                              <Check size={10} weight="bold" />
+                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? 'Ergebnis'}
+                            </div>
+                            <MessageContent content={msg.instantTaskResult} role="assistant" />
+                          </motion.div>
+                        )}
+                        {msg.instantTaskStatus === 'failed' && (
+                          <p className="text-xs text-red-400/80 flex items-center gap-1">
+                            <Warning size={11} weight="fill" />
+                            {msg.instantTaskResult ?? 'Suche fehlgeschlagen.'}
+                          </p>
+                        )}
+                        {msg.instantTaskStatus === 'deferred' && (
+                          <motion.p
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-xs text-purple-400/80 flex items-center gap-1"
+                          >
+                            <BellRinging size={11} weight="fill" />
+                            Dauert etwas länger – du bekommst eine Meldung, sobald die Antwort da ist.
+                          </motion.p>
+                        )}
+                      </div>
+                    )}
+
                     <p className="text-[10px] text-foreground/40 mt-1">
                       {new Date(msg.timestamp).toLocaleTimeString('de-DE', {
                         hour: '2-digit',
@@ -446,6 +1007,10 @@ export function ORAAssistant() {
               </Button>
             </div>
           </div>
+          {/* End of chat tab inner flex */}
+          </motion.div>
+        )}
+        </AnimatePresence>
         </DialogContent>
       </Dialog>
     </>

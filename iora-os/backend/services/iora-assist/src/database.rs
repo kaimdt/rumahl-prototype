@@ -28,6 +28,26 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    sqlx::query(include_str!("../migrations/002_memory_and_tasks.sql"))
+        .execute(pool)
+        .await?;
+
+    sqlx::query(include_str!("../migrations/003_recurring_tasks.sql"))
+        .execute(pool)
+        .await?;
+
+    sqlx::query(include_str!("../migrations/004_temporary_pause.sql"))
+        .execute(pool)
+        .await?;
+
+    sqlx::query(include_str!("../migrations/005_instant_tasks.sql"))
+        .execute(pool)
+        .await?;
+
+    sqlx::query(include_str!("../migrations/006_instant_tasks_deferred.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -151,6 +171,24 @@ pub mod tasks {
         pub next_execution_at: Option<DateTime<Utc>>,
         pub created_at: DateTime<Utc>,
         pub updated_at: DateTime<Utc>,
+        // Extended fields (migration 002)
+        pub user_id: Option<Uuid>,
+        pub trigger_at: Option<DateTime<Utc>>,
+        pub is_one_shot: bool,
+        pub origin: String,
+        pub priority: i32,
+        // Extended fields (migration 003 – recurrence)
+        pub recurrence_type: String,
+        pub recurrence_days: serde_json::Value,
+        pub time_of_day: Option<chrono::NaiveTime>,
+        pub recurrence_end_at: Option<DateTime<Utc>>,
+        pub occurrence_limit: Option<i32>,
+        pub occurrence_count: i32,
+        pub user_timezone: String,
+        pub input_mode: String,
+        // Extended fields (migration 004 – temporary pause)
+        pub paused_until: Option<DateTime<Utc>>,
+        pub paused_temporarily: bool,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -202,13 +240,171 @@ pub mod tasks {
         .fetch_one(pool)
         .await?;
 
-        // Update task last_executed_at
-        sqlx::query("UPDATE autonomous_tasks SET last_executed_at = NOW() WHERE id = $1")
+        // Update task last_executed_at and occurrence_count
+        sqlx::query(
+            "UPDATE autonomous_tasks SET last_executed_at = NOW(), occurrence_count = occurrence_count + 1 WHERE id = $1"
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+
+        Ok(execution)
+    }
+
+    /// Set the `enabled` flag on a task (pause or resume).
+    pub async fn set_enabled(pool: &DbPool, task_id: Uuid, enabled: bool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE autonomous_tasks SET enabled = $1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(enabled)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Temporarily disable a task until `resume_at`.
+    /// The task engine will automatically re-enable it when the time comes.
+    pub async fn temporary_pause(
+        pool: &DbPool,
+        task_id: Uuid,
+        resume_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE autonomous_tasks
+               SET enabled = false,
+                   paused_until = $1,
+                   paused_temporarily = true,
+                   updated_at = NOW()
+               WHERE id = $2"#
+        )
+        .bind(resume_at)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Re-enable all tasks whose temporary pause has expired.
+    /// Called by the task engine on every tick.
+    /// Returns the number of tasks that were auto-resumed.
+    pub async fn resume_expired_pauses(pool: &DbPool) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE autonomous_tasks
+               SET enabled = true,
+                   paused_until = NULL,
+                   paused_temporarily = false,
+                   updated_at = NOW()
+               WHERE paused_temporarily = true
+                 AND paused_until IS NOT NULL
+                 AND paused_until <= NOW()"#
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Delete a task by id.
+    pub async fn delete(pool: &DbPool, task_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM autonomous_tasks WHERE id = $1")
             .bind(task_id)
             .execute(pool)
             .await?;
+        Ok(())
+    }
 
-        Ok(execution)
+    /// Update the `next_execution_at` of a recurring task after it fires.
+    pub async fn update_next_execution(
+        pool: &DbPool,
+        task_id: Uuid,
+        next_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE autonomous_tasks SET next_execution_at = $1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(next_at)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch a single task by id.
+    pub async fn get_by_id(pool: &DbPool, task_id: Uuid) -> Result<Option<AutonomousTask>, sqlx::Error> {
+        let task = sqlx::query_as::<_, AutonomousTask>(
+            "SELECT * FROM autonomous_tasks WHERE id = $1"
+        )
+        .bind(task_id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(task)
+    }
+
+    /// List all user-visible active tasks (one-shot and recurring), including paused ones.
+    pub async fn list_user_tasks(
+        pool: &DbPool,
+        user_id: Option<Uuid>,
+        include_paused: bool,
+        limit: i64,
+    ) -> Result<Vec<AutonomousTask>, sqlx::Error> {
+        let tasks = if include_paused {
+            sqlx::query_as::<_, AutonomousTask>(
+                r#"
+                SELECT * FROM autonomous_tasks
+                WHERE (origin IN ('user', 'ai'))
+                  AND (user_id = $1 OR $1 IS NULL)
+                ORDER BY COALESCE(trigger_at, next_execution_at) ASC NULLS LAST
+                LIMIT $2
+                "#
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, AutonomousTask>(
+                r#"
+                SELECT * FROM autonomous_tasks
+                WHERE (origin IN ('user', 'ai'))
+                  AND enabled = true
+                  AND (user_id = $1 OR $1 IS NULL)
+                ORDER BY COALESCE(trigger_at, next_execution_at) ASC NULLS LAST
+                LIMIT $2
+                "#
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        };
+        Ok(tasks)
+    }
+
+    /// Update task name, description, or schedule fields.
+    pub async fn update_task(
+        pool: &DbPool,
+        task_id: Uuid,
+        name: Option<&str>,
+        description: Option<&str>,
+        next_execution_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE autonomous_tasks
+            SET name = COALESCE($1, name),
+                description = COALESCE($2, description),
+                next_execution_at = COALESCE($3, next_execution_at),
+                updated_at = NOW()
+            WHERE id = $4
+            "#
+        )
+        .bind(name)
+        .bind(description)
+        .bind(next_execution_at)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 }
 
@@ -359,6 +555,201 @@ pub mod notifications {
         .execute(pool)
         .await?;
 
+        Ok(())
+    }
+}
+
+/// Instant Task repository
+pub mod instant_tasks {
+    use super::*;
+    use chrono::{DateTime, Utc};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+    pub struct InstantTask {
+        pub id: Uuid,
+        pub session_id: Option<String>,
+        pub user_id: Option<Uuid>,
+        pub task_type: String,
+        pub query: String,
+        pub params: serde_json::Value,
+        pub status: String,
+        pub result_text: Option<String>,
+        pub result_data: Option<serde_json::Value>,
+        pub error_message: Option<String>,
+        pub created_at: DateTime<Utc>,
+        pub started_at: Option<DateTime<Utc>>,
+        pub completed_at: Option<DateTime<Utc>>,
+        /// Set to true when the SSE listener disconnected before the result arrived;
+        /// the engine will queue a notification on completion.
+        pub notify_on_complete: bool,
+        /// Timestamp when the task was marked as "deferred" (>1 min threshold).
+        pub deferred_at: Option<DateTime<Utc>>,
+    }
+
+    /// Create a new instant task and return it.
+    pub async fn create(
+        pool: &DbPool,
+        session_id: Option<&str>,
+        user_id: Option<Uuid>,
+        task_type: &str,
+        query: &str,
+        params: serde_json::Value,
+    ) -> Result<InstantTask, sqlx::Error> {
+        let task = sqlx::query_as::<_, InstantTask>(
+            r#"
+            INSERT INTO instant_tasks (session_id, user_id, task_type, query, params)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+            "#,
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(task_type)
+        .bind(query)
+        .bind(params)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(task)
+    }
+
+    /// Fetch a single instant task by id.
+    pub async fn get_by_id(
+        pool: &DbPool,
+        task_id: Uuid,
+    ) -> Result<Option<InstantTask>, sqlx::Error> {
+        sqlx::query_as::<_, InstantTask>(
+            "SELECT * FROM instant_tasks WHERE id = $1",
+        )
+        .bind(task_id)
+        .fetch_optional(pool)
+        .await
+    }
+
+    /// Atomically claim one pending task – set status to "processing".
+    /// Returns the task if one was claimed, None otherwise.
+    pub async fn claim_pending(pool: &DbPool) -> Result<Option<InstantTask>, sqlx::Error> {
+        sqlx::query_as::<_, InstantTask>(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'processing', started_at = NOW()
+            WHERE id = (
+                SELECT id FROM instant_tasks
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *
+            "#,
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
+    /// Mark a task as completed with its result.
+    pub async fn complete(
+        pool: &DbPool,
+        task_id: Uuid,
+        result_text: &str,
+        result_data: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'completed',
+                result_text = $1,
+                result_data = $2,
+                completed_at = NOW()
+            WHERE id = $3
+            "#,
+        )
+        .bind(result_text)
+        .bind(result_data)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Mark a task as failed.
+    pub async fn fail(
+        pool: &DbPool,
+        task_id: Uuid,
+        error: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'failed',
+                error_message = $1,
+                completed_at = NOW()
+            WHERE id = $2
+            "#,
+        )
+        .bind(error)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// List recent instant tasks for a session.
+    pub async fn list_for_session(
+        pool: &DbPool,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<InstantTask>, sqlx::Error> {
+        sqlx::query_as::<_, InstantTask>(
+            r#"
+            SELECT * FROM instant_tasks
+            WHERE session_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(session_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Mark a task as "deferred" – the engine exceeded the long-task threshold but
+    /// is still running.  The frontend should close its SSE stream; the result will
+    /// be delivered via the notification queue when it eventually finishes.
+    pub async fn mark_deferred(pool: &DbPool, task_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instant_tasks
+            SET status = 'deferred',
+                deferred_at = NOW(),
+                notify_on_complete = TRUE
+            WHERE id = $1
+            "#,
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Set notify_on_complete so the engine knows to deliver the result as a
+    /// notification when the SSE listener has disconnected.
+    pub async fn set_notify_on_complete(
+        pool: &DbPool,
+        task_id: Uuid,
+        value: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE instant_tasks SET notify_on_complete = $1 WHERE id = $2",
+        )
+        .bind(value)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 }
