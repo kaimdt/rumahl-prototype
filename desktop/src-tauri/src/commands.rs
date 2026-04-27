@@ -20,6 +20,12 @@ pub struct AppState {
     pub auth_user: Mutex<Option<AuthUser>>,
 }
 
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppState {
     pub fn new() -> Self {
         Self {
@@ -57,10 +63,7 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 
 /// Save settings and immediately re-check connectivity.
 #[tauri::command]
-pub async fn save_config(
-    state: State<'_, AppState>,
-    new_config: AppConfig,
-) -> Result<(), String> {
+pub async fn save_config(state: State<'_, AppState>, new_config: AppConfig) -> Result<(), String> {
     config::save(&new_config).map_err(|e| e.to_string())?;
     // Re-test connectivity with the new URL
     let client = LmStudioClient::new(&new_config.lm_studio_url, &new_config.lm_studio_api_key);
@@ -78,26 +81,32 @@ pub async fn apply_window_settings(
     window
         .set_always_on_top(always_on_top)
         .map_err(|e| e.to_string())?;
-    window.set_fullscreen(kiosk_mode).map_err(|e| e.to_string())?;
+    window
+        .set_fullscreen(kiosk_mode)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 // ─── LM Studio commands ──────────────────────────────────────────────────────
 
 /// Test connection to LM Studio and return status.
 #[tauri::command]
-pub async fn test_connection(
-    state: State<'_, AppState>,
-) -> Result<ConnectionResult, String> {
+pub async fn test_connection(state: State<'_, AppState>) -> Result<ConnectionResult, String> {
     let cfg = state.config.lock().await.clone();
     let client = LmStudioClient::new(&cfg.lm_studio_url, &cfg.lm_studio_api_key);
     let online = client.ping().await;
     state.lm_online.store(online, Ordering::Relaxed);
     if online {
-        Ok(ConnectionResult { connected: true, error: None })
+        Ok(ConnectionResult {
+            connected: true,
+            error: None,
+        })
     } else {
         Ok(ConnectionResult {
             connected: false,
-            error: Some(format!("LM Studio nicht erreichbar unter {}", cfg.lm_studio_url)),
+            error: Some(format!(
+                "LM Studio nicht erreichbar unter {}",
+                cfg.lm_studio_url
+            )),
         })
     }
 }
@@ -162,7 +171,10 @@ pub async fn send_chat(
 pub async fn get_status(state: State<'_, AppState>) -> Result<ConnectionResult, String> {
     let online = state.lm_online.load(Ordering::Relaxed);
     if online {
-        Ok(ConnectionResult { connected: true, error: None })
+        Ok(ConnectionResult {
+            connected: true,
+            error: None,
+        })
     } else {
         let url = state.config.lock().await.lm_studio_url.clone();
         Ok(ConnectionResult {

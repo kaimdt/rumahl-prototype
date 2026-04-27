@@ -20,7 +20,7 @@ pub async fn test_ha_connection(state: State<'_, AppState>) -> Result<HaTestResu
     let cfg = state.config.lock().await.clone();
     let ha_config = HaConfig {
         url: cfg.iora_home_url.clone(), // Connect to iora-home, not HA directly
-        token: cfg.ha_token.clone(),     // JWT token from iora-home
+        token: cfg.ha_token.clone(),    // JWT token from iora-home
         device_name: cfg.client_name.clone(),
         update_interval_secs: cfg.ha_update_interval_secs,
         enabled: cfg.ha_enabled,

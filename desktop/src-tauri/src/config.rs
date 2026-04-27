@@ -98,6 +98,9 @@ pub struct AppConfig {
     /// Send crash / error reports
     #[serde(default)]
     pub send_diagnostics: bool,
+    /// ORA AI Privacy Mode - if true, AI is completely disabled
+    #[serde(default)]
+    pub ora_privacy_mode: bool,
 }
 
 impl Default for AppConfig {
@@ -131,6 +134,7 @@ impl Default for AppConfig {
             always_on_top: false,
             kiosk_mode: false,
             send_diagnostics: false,
+            ora_privacy_mode: false,
         }
     }
 }

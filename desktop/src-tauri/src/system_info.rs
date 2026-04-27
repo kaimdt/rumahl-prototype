@@ -105,7 +105,7 @@ fn bytes_to_gb(bytes: u64) -> f32 {
     bytes as f32 / 1_073_741_824.0 // 1024^3
 }
 
-fn get_cpu_temperature(sys: &System) -> Option<f32> {
+fn get_cpu_temperature(_sys: &System) -> Option<f32> {
     // Try to get CPU temperature from components
     let components = sysinfo::Components::new_with_refreshed_list();
     for component in &components {
@@ -126,7 +126,10 @@ fn calculate_disk_usage(disks: &Disks) -> (f64, f64) {
         used += total - disk.available_space();
     }
 
-    (total as f64 / 1_073_741_824.0, used as f64 / 1_073_741_824.0)
+    (
+        total as f64 / 1_073_741_824.0,
+        used as f64 / 1_073_741_824.0,
+    )
 }
 
 fn calculate_network_stats(networks: &Networks) -> (f64, f64) {
@@ -145,16 +148,13 @@ fn calculate_network_stats(networks: &Networks) -> (f64, f64) {
 }
 
 fn get_battery_info() -> (Option<f32>, Option<String>, Option<bool>) {
-    match BatteryManager::new() {
-        Ok(manager) => {
-            if let Some(Ok(battery)) = manager.batteries().ok().and_then(|mut b| b.next()) {
-                let percent = battery.state_of_charge().value * 100.0;
-                let state = format!("{:?}", battery.state());
-                let is_charging = matches!(battery.state(), battery::State::Charging);
-                return (Some(percent), Some(state), Some(is_charging));
-            }
+    if let Ok(manager) = BatteryManager::new() {
+        if let Some(Ok(battery)) = manager.batteries().ok().and_then(|mut b| b.next()) {
+            let percent = battery.state_of_charge().value * 100.0;
+            let state = format!("{:?}", battery.state());
+            let is_charging = matches!(battery.state(), battery::State::Charging);
+            return (Some(percent), Some(state), Some(is_charging));
         }
-        Err(_) => {}
     }
     (None, None, None)
 }

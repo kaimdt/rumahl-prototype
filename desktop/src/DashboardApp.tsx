@@ -613,7 +613,7 @@ function DashboardContent() {
                   <ConnectionSettings />
                 </div>
               )}
-              {/* TODO: Music Player Page */}}
+              {/* TODO: Music Player Page */}
               {currentPageId === 'music' && (
                 <div className="space-y-3 w-full h-full flex flex-col z-1000 bg-card p-4 theme-transition absolute top-0 left-0">
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>

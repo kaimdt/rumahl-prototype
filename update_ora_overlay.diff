@@ -1,0 +1,29 @@
+<<<<<<< SEARCH
+        // Position at top center of screen
+        if let Ok(monitor) = window.current_monitor() {
+            if let Some(monitor) = monitor {
+                let size = monitor.size();
+                let window_size = window.outer_size().map_err(|e| e.to_string())?;
+                let x = (size.width as i32 - window_size.width as i32) / 2;
+                window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x,
+                    y: 0,
+                })).map_err(|e| e.to_string())?;
+            }
+        }
+=======
+        // Position at bottom right of screen
+        if let Ok(monitor) = window.current_monitor() {
+            if let Some(monitor) = monitor {
+                let size = monitor.size();
+                let window_size = window.outer_size().map_err(|e| e.to_string())?;
+                let padding = 20;
+                let x = size.width as i32 - window_size.width as i32 - padding;
+                let y = size.height as i32 - window_size.height as i32 - padding;
+                window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x,
+                    y,
+                })).map_err(|e| e.to_string())?;
+            }
+        }
+>>>>>>> REPLACE

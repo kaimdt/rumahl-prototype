@@ -6,7 +6,7 @@
 //! - Receives and executes commands
 //! - Controls HA entities (lights, switches, etc.) via validated proxy
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -16,7 +16,7 @@ use crate::system_info::SystemMetrics;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HaConfig {
-    pub url: String, // iora-home URL (not Home Assistant!)
+    pub url: String,   // iora-home URL (not Home Assistant!)
     pub token: String, // JWT token from iora-home
     pub device_name: String,
     pub update_interval_secs: u64,
@@ -66,11 +66,7 @@ impl HaClient {
     /// Test connection to iora-home gateway
     pub async fn test_connection(&self) -> Result<bool> {
         let url = format!("{}/health", self.config.url);
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await?;
+        let response = self.client.get(&url).send().await?;
         Ok(response.status().is_success())
     }
 
@@ -148,7 +144,13 @@ impl HaClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Failed to call service {}.{}: {} - {}", domain, service, status, error_text);
+            anyhow::bail!(
+                "Failed to call service {}.{}: {} - {}",
+                domain,
+                service,
+                status,
+                error_text
+            );
         }
 
         Ok(())
@@ -156,21 +158,25 @@ impl HaClient {
 
     /// Convenience: Turn on a light
     pub async fn turn_on_light(&self, entity_id: &str) -> Result<()> {
-        self.call_service("light", "turn_on", Some(entity_id.to_string()), None).await
+        self.call_service("light", "turn_on", Some(entity_id.to_string()), None)
+            .await
     }
 
     /// Convenience: Turn off a light
     pub async fn turn_off_light(&self, entity_id: &str) -> Result<()> {
-        self.call_service("light", "turn_off", Some(entity_id.to_string()), None).await
+        self.call_service("light", "turn_off", Some(entity_id.to_string()), None)
+            .await
     }
 
     /// Convenience: Turn on a switch
     pub async fn turn_on_switch(&self, entity_id: &str) -> Result<()> {
-        self.call_service("switch", "turn_on", Some(entity_id.to_string()), None).await
+        self.call_service("switch", "turn_on", Some(entity_id.to_string()), None)
+            .await
     }
 
     /// Convenience: Turn off a switch
     pub async fn turn_off_switch(&self, entity_id: &str) -> Result<()> {
-        self.call_service("switch", "turn_off", Some(entity_id.to_string()), None).await
+        self.call_service("switch", "turn_off", Some(entity_id.to_string()), None)
+            .await
     }
 }
