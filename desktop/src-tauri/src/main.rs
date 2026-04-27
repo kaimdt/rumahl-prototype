@@ -7,12 +7,11 @@ mod commands;
 mod config;
 mod ha_commands;
 mod ha_integration;
-mod iora_home;
 mod iora_notifications;
 mod lm_studio;
+mod ora_ai;
 mod system_commands;
 mod system_info;
-mod ora_ai;
 
 use commands::AppState;
 use ha_integration::{HaClient, HaConfig};
@@ -37,6 +36,27 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcuts(["ctrl+shift+space"])
+                .unwrap()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed
+                        && shortcut.matches(
+                            tauri_plugin_global_shortcut::Modifiers::CONTROL
+                                | tauri_plugin_global_shortcut::Modifiers::SHIFT,
+                            tauri_plugin_global_shortcut::Code::Space,
+                        )
+                    {
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = app_handle.state::<AppState>();
+                            let _ = ora_ai::ora_toggle_overlay(app_handle.clone(), state).await;
+                        });
+                    }
+                })
+                .build(),
+        )
         .manage(AppState::new())
         .setup(|app| {
             // ── Tray menu ────────────────────────────────────────────────────
@@ -196,7 +216,11 @@ fn main() {
                 let (iora_home_url, auth_token, client_name) = {
                     let state = app_handle_notif.state::<AppState>();
                     let cfg = state.config.lock().await.clone();
-                    (cfg.iora_home_url.clone(), cfg.auth_token.clone(), cfg.client_name.clone())
+                    (
+                        cfg.iora_home_url.clone(),
+                        cfg.auth_token.clone(),
+                        cfg.client_name.clone(),
+                    )
                 };
                 if !iora_home_url.is_empty() {
                     // start_notification_listener runs its own reconnect loop indefinitely
@@ -232,8 +256,6 @@ fn main() {
             auth::login,
             auth::logout,
             auth::get_current_user,
-            iora_home::ping_iora_home,
-            iora_home::get_iora_home_status,
             ha_commands::test_ha_connection,
             ha_commands::get_system_metrics,
             ha_commands::send_metrics_to_ha,
@@ -250,6 +272,7 @@ fn main() {
             ora_ai::ora_hide_overlay,
             ora_ai::ora_toggle_overlay,
             ora_ai::ora_capture_screenshot,
+            ora_ai::ora_highlight_screen,
             ora_ai::ora_execute_desktop_action,
         ])
         .run(tauri::generate_context!())

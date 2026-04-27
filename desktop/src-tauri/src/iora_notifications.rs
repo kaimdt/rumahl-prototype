@@ -3,11 +3,11 @@
 //! Connects to the iora-home WebSocket and listens for `desktop_notification` events.
 //! Forwards them to the frontend via Tauri events, and emits a native OS notification.
 
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tokio_tungstenite::tungstenite::Message;
-use futures_util::StreamExt;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IoraNotification {
@@ -27,7 +27,7 @@ pub struct IoraNotification {
 pub fn start_notification_listener(
     app: AppHandle,
     iora_home_url: String,
-    auth_token: String,
+    _auth_token: String,
     client_id: String,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -99,16 +99,45 @@ fn handle_message(app: &AppHandle, text: &str, client_id: &str) {
         return;
     }
 
-    let Some(n) = value.get("notification") else { return };
+    let Some(n) = value.get("notification") else {
+        return;
+    };
 
     let notification = IoraNotification {
-        id: n.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        title: n.get("title").and_then(|v| v.as_str()).unwrap_or("IORA").to_string(),
-        message: n.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        level: n.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
-        source: n.get("source").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        icon: n.get("icon").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        auto_dismiss_secs: n.get("auto_dismiss_secs").and_then(|v| v.as_u64()).unwrap_or(0),
+        id: n
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        title: n
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("IORA")
+            .to_string(),
+        message: n
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        level: n
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info")
+            .to_string(),
+        source: n
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        icon: n
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        auto_dismiss_secs: n
+            .get("auto_dismiss_secs")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
     };
 
     info!(

@@ -1,0 +1,18 @@
+<<<<<<< SEARCH
+    // Convert to PNG and encode as base64
+    let mut png_data = Vec::new();
+    {
+        let mut cursor = Cursor::new(&mut png_data);
+        image.save(&mut cursor, ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+    }
+
+    let image_base64 = base64::encode(&png_data);
+=======
+    // Convert to PNG and encode as base64
+    let png_data = image.to_png(None)
+        .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+
+    use base64::prelude::*;
+    let image_base64 = BASE64_STANDARD.encode(&png_data);
+>>>>>>> REPLACE

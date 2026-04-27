@@ -1,0 +1,20 @@
+<<<<<<< SEARCH
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_shortcuts(["ctrl+shift+space"]).unwrap().with_handler(|app, shortcut, event| {
+            if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                if shortcut.matches(tauri_plugin_global_shortcut::Modifiers::CONTROL | tauri_plugin_global_shortcut::Modifiers::SHIFT, tauri_plugin_global_shortcut::Code::Space) {
+                    let _ = ora_ai::ora_toggle_overlay(app.clone());
+                }
+            }
+        }).build())
+=======
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_shortcuts(["ctrl+shift+space"]).unwrap().with_handler(|app, shortcut, event| {
+            if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                if shortcut.matches(tauri_plugin_global_shortcut::Modifiers::CONTROL | tauri_plugin_global_shortcut::Modifiers::SHIFT, tauri_plugin_global_shortcut::Code::Space) {
+                    let app_handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = ora_ai::ora_toggle_overlay(app_handle).await;
+                    });
+                }
+            }
+        }).build())
+>>>>>>> REPLACE

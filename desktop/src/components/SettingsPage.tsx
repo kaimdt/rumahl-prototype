@@ -6,7 +6,7 @@ import { tauriApi } from '@/lib/tauri'
 import { getApiBase, setApiBase } from '@/lib/apiBase'
 import type { AppConfig, SystemMetrics } from '@/lib/tauri'
 import { useTheme } from '@/contexts/ThemeContext'
-import { Palette, Eye, Globe, Desktop, Screencast, BellRinging, Info, Cpu, HardDrives, Database, BatteryHigh, ThermometerSimple, WifiHigh } from '@phosphor-icons/react'
+import { Palette, Eye, Globe, Desktop, Screencast, BellRinging, Info, Cpu, HardDrives, Database, BatteryHigh, ThermometerSimple, WifiHigh, Sparkle } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { ThemeMode } from '@/lib/types'
 
@@ -339,6 +339,35 @@ export function SettingsPage({ theme }: SettingsPageProps) {
               </div>
             ) : (
               <div className="rounded-3xl bg-white/5 p-4 text-sm text-foreground/60">Desktop-Einstellungen werden geladen...</div>
+            )}
+          </SettingsSection>
+
+          <SettingsSection icon={Sparkle} title="ORA AI Assistent" description="Verwalte Privatsphäre und Systemsteuerung der AI">
+            {tauriConfig ? (
+              <div className="space-y-4">
+                <ToggleRow
+                  label="Privatsphäre-Modus"
+                  description="Deaktiviert ORA AI vollständig für diesen Client"
+                  checked={tauriConfig.ora_privacy_mode}
+                  onCheckedChange={(value) => updateConfig({ ora_privacy_mode: value })}
+                />
+                <ToggleRow
+                  label="Systemsteuerung erlauben"
+                  description="Erlaubt der AI auf Befehl, dein System zu steuern (Tastatur, Maus, Programme)"
+                  checked={tauriConfig.ora_allow_control}
+                  onCheckedChange={(value) => updateConfig({ ora_allow_control: value })}
+                  disabled={tauriConfig.ora_privacy_mode}
+                />
+                <ToggleRow
+                  label="Autopilot Modus"
+                  description="Erlaubt der AI, selbstständig Systemsteuerungen durchzuführen ohne vorherige Bestätigung"
+                  checked={tauriConfig.ora_autopilot}
+                  onCheckedChange={(value) => updateConfig({ ora_autopilot: value })}
+                  disabled={tauriConfig.ora_privacy_mode}
+                />
+              </div>
+            ) : (
+              <div className="text-sm text-foreground/50">Lade AI-Einstellungen...</div>
             )}
           </SettingsSection>
 

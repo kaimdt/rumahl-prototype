@@ -39,6 +39,8 @@ chrono = { version = "0.4", features = ["serde"] }
 screenshots = "0.7"
 image = "0.25"
 base64 = "0.22"
+tauri-plugin-global-shortcut = "2.3.1"
+enigo = "0.6.1"
 
 [profile.release]
 panic = "abort"

@@ -61,14 +61,10 @@ pub fn execute_system_command(cmd: SystemCommand) -> Result<()> {
 fn execute_windows_command(cmd: SystemCommand) -> Result<()> {
     match cmd {
         SystemCommand::Shutdown => {
-            Command::new("shutdown")
-                .args(["/s", "/t", "0"])
-                .spawn()?;
+            Command::new("shutdown").args(["/s", "/t", "0"]).spawn()?;
         }
         SystemCommand::Reboot => {
-            Command::new("shutdown")
-                .args(["/r", "/t", "0"])
-                .spawn()?;
+            Command::new("shutdown").args(["/r", "/t", "0"]).spawn()?;
         }
         SystemCommand::Sleep => {
             // Use rundll32 to call powrprof.dll
@@ -77,9 +73,7 @@ fn execute_windows_command(cmd: SystemCommand) -> Result<()> {
                 .spawn()?;
         }
         SystemCommand::Hibernate => {
-            Command::new("shutdown")
-                .args(["/h"])
-                .spawn()?;
+            Command::new("shutdown").args(["/h"]).spawn()?;
         }
         SystemCommand::Lock => {
             Command::new("rundll32.exe")
@@ -87,9 +81,7 @@ fn execute_windows_command(cmd: SystemCommand) -> Result<()> {
                 .spawn()?;
         }
         SystemCommand::LogOut => {
-            Command::new("shutdown")
-                .args(["/l"])
-                .spawn()?;
+            Command::new("shutdown").args(["/l"]).spawn()?;
         }
     }
     Ok(())
@@ -117,12 +109,15 @@ fn execute_linux_command(cmd: SystemCommand) -> Result<()> {
         }
         SystemCommand::Lock => {
             // Try different lock commands based on desktop environment
-            if Command::new("loginctl").arg("lock-session").spawn().is_err() {
-                if Command::new("xdg-screensaver").arg("lock").spawn().is_err() {
-                    Command::new("gnome-screensaver-command")
-                        .arg("--lock")
-                        .spawn()?;
-                }
+            if Command::new("loginctl")
+                .arg("lock-session")
+                .spawn()
+                .is_err()
+                && Command::new("xdg-screensaver").arg("lock").spawn().is_err()
+            {
+                Command::new("gnome-screensaver-command")
+                    .arg("--lock")
+                    .spawn()?;
             }
         }
         SystemCommand::LogOut => {
@@ -156,9 +151,11 @@ fn execute_macos_command(cmd: SystemCommand) -> Result<()> {
             Command::new("pmset").args(["sleepnow"]).spawn()?;
         }
         SystemCommand::Lock => {
-            Command::new("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession")
-                .arg("-suspend")
-                .spawn()?;
+            Command::new(
+                "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
+            )
+            .arg("-suspend")
+            .spawn()?;
         }
         SystemCommand::LogOut => {
             Command::new("osascript")

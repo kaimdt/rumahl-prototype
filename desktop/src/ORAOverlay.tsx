@@ -240,20 +240,18 @@ export function ORAOverlay() {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-transparent flex items-start justify-center pt-0">
+    <div className="h-screen w-screen overflow-hidden bg-transparent flex items-end justify-end pb-0 pr-0">
       {/* Main overlay container with glass effect */}
       <motion.div
-        initial={{ opacity: 0, y: -100 }}
+        initial={{ opacity: 0, y: 100 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -100 }}
+        exit={{ opacity: 0, y: 100 }}
         transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-        className="w-full h-auto max-h-[600px] relative rounded-b-3xl overflow-hidden shadow-2xl"
+        className="w-auto min-w-[320px] max-w-[400px] h-auto max-h-[600px] relative rounded-3xl overflow-hidden"
         style={{
           background: 'rgba(15, 15, 20, 0.75)',
           backdropFilter: 'blur(40px)',
           WebkitBackdropFilter: 'blur(40px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderTop: 'none',
         }}
       >
         {/* Animated gradient background */}
@@ -455,6 +453,23 @@ export function ORAOverlay() {
             >
               <ImageSquare size={14} />
               <span>Screenshot</span>
+            </button>
+            <button
+              type="button"
+              disabled={oraState !== 'idle'}
+              onClick={() => {
+                // Mocking video capabilities
+                setMessages(prev => [...prev, { role: 'assistant', content: 'Videoaufnahme gestartet (Simulation)' }])
+                setOraState('thinking')
+                setTimeout(() => {
+                  setMessages(prev => [...prev, { role: 'assistant', content: 'Videoaufnahme verarbeitet.' }])
+                  setOraState('idle')
+                }, 3000)
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+              <span>Video</span>
             </button>
           </div>
         </div>

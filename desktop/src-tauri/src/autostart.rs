@@ -30,15 +30,12 @@ pub fn is_autostart_enabled(app_name: &str, app_path: &str) -> Result<bool> {
 // ─── Tauri commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn set_autostart(
-    state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<(), String> {
+pub async fn set_autostart(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
     let mut cfg = state.config.lock().await.clone();
 
     // Get current executable path
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Failed to get executable path: {}", e))?;
+    let exe_path =
+        std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
     let exe_path_str = exe_path.to_string_lossy().to_string();
 
     configure_autostart("IORA Desktop", &exe_path_str, enabled)
@@ -53,8 +50,8 @@ pub async fn set_autostart(
 
 #[tauri::command]
 pub async fn get_autostart_status() -> Result<bool, String> {
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Failed to get executable path: {}", e))?;
+    let exe_path =
+        std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
     let exe_path_str = exe_path.to_string_lossy().to_string();
 
     is_autostart_enabled("IORA Desktop", &exe_path_str)
