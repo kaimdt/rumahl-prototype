@@ -5,6 +5,7 @@ import { wsOnOpen, wsOnMessage, wsOnClose } from '@/lib/wsConnection'
 
 interface EntityStore {
   entities: EntityState[]
+  entityMap: Map<string, EntityState>
   loading: boolean
   wsConnected: boolean
   refresh: () => Promise<void>
@@ -122,6 +123,7 @@ export function useEntityStore(): EntityStore {
 
   return {
     entities: globalEntities,
+    entityMap: globalMap,
     loading: globalLoading,
     wsConnected: globalWsConnected,
     refresh: fetchEntities,

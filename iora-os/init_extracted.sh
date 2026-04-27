@@ -72,6 +72,34 @@ fi
 
 mkdir -p /mnt/iso /mnt/target /tmp /run
 
+# ── Set smaller console font (like Ubuntu) ─────────────────────────
+# Try a compact but readable 14/16px Terminus-style font.  Falls back
+# gracefully if the kbd package or font files are missing.
+set_console_font() {
+    # Try setfont with progressively smaller fonts
+    for font in \
+        Lat15-Terminus14 \
+        Lat15-Terminus16 \
+        TerminusBold14 \
+        default8x14 \
+        default8x16; do
+        if setfont "$font" 2>/dev/null; then
+            return 0
+        fi
+    done
+    # Try with explicit path
+    for font in \
+        /usr/share/consolefonts/Lat15-Terminus14.psf.gz \
+        /usr/share/consolefonts/Lat15-Terminus16.psf.gz \
+        /usr/share/kbd/consolefonts/Lat15-Terminus14.psf.gz; do
+        if [ -f "$font" ] && setfont "$font" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 0
+}
+set_console_font
+
 # Load modules
 for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci; do
     modprobe "$mod" 2>/dev/null || true
@@ -562,6 +590,99 @@ SDOPT
 }
 
 # ── Post-install configuration ─────────────────────────────────────
+# Robust password hashing for the target root/user accounts. The
+# original `openssl passwd | sed` path was silently failing in
+# minimal installer environments where openssl is missing — the
+# account was left with its empty/default password and "Login
+# incorrect" appeared for any user-chosen password. This helper
+# tries mkpasswd / openssl / python3 crypt / busybox cryptpw, falls
+# back to chroot+chpasswd, and VERIFIES the shadow update.
+iora_installer_hash_password() {
+    local pw="$1"
+    local salt hash
+    salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 \
+           | tr -d ' \n' | cut -c1-16)
+    [ -z "$salt" ] && salt="iorainstaller"
+
+    if command -v mkpasswd >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | mkpasswd -m sha-512 -s -S "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+        hash=$(printf '%s' "$pw" | openssl passwd -1 -stdin -salt "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        hash=$(PW="$pw" SALT="$salt" python3 -c '
+import crypt, os, sys
+try:
+    h = crypt.crypt(os.environ["PW"], crypt.mksalt(crypt.METHOD_SHA512))
+except Exception:
+    h = crypt.crypt(os.environ["PW"], "$6$" + os.environ["SALT"])
+sys.stdout.write(h or "")
+' 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+    if command -v cryptpw >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | cryptpw -m sha512 -S "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+    return 1
+}
+
+iora_installer_set_password() {
+    local target="$1"
+    local user="$2"
+    local pw="$3"
+    local shadow="${target}/etc/shadow"
+    [ -f "$shadow" ] || return 1
+    [ -z "$user" ] && return 1
+    [ -z "$pw" ] && return 1
+
+    local hash
+    hash=$(iora_installer_hash_password "$pw") || hash=""
+
+    if [ -n "$hash" ]; then
+        local tmp="${shadow}.iora.tmp"
+        USER="$user" HASH="$hash" awk -F: -v OFS=: '
+            BEGIN { u=ENVIRON["USER"]; h=ENVIRON["HASH"]; found=0 }
+            $1==u { $2=h; if ($3=="" || $3=="0") $3=19000; found=1 }
+            { print }
+            END { if (!found) printf "%s:%s:19000:0:99999:7:::\n", u, h }
+        ' "$shadow" > "$tmp" 2>/dev/null \
+            && mv "$tmp" "$shadow" 2>/dev/null \
+            && chmod 0640 "$shadow" 2>/dev/null
+        # Verify: the user's second field must be a non-trivial hash,
+        # not empty and not '!'/'*'.
+        if grep -q "^${user}:[^:!*]\{8,\}:" "$shadow" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    # Fallback: chroot + chpasswd/passwd (needs /bin/sh + chpasswd).
+    if [ -x "${target}/usr/sbin/chpasswd" ] || [ -x "${target}/usr/bin/chpasswd" ] \
+       || [ -x "${target}/bin/busybox" ]; then
+        local did_dev=false did_proc=false did_sys=false
+        [ -d "${target}/dev" ]  && mount --bind /dev  "${target}/dev"  2>/dev/null && did_dev=true
+        [ -d "${target}/proc" ] && mount --bind /proc "${target}/proc" 2>/dev/null && did_proc=true
+        [ -d "${target}/sys" ]  && mount --bind /sys  "${target}/sys"  2>/dev/null && did_sys=true
+        printf '%s:%s\n' "$user" "$pw" \
+            | chroot "$target" /bin/sh -c 'chpasswd 2>/dev/null || busybox chpasswd 2>/dev/null' \
+              >/dev/null 2>&1
+        local rc=$?
+        $did_dev  && umount "${target}/dev"  2>/dev/null || true
+        $did_proc && umount "${target}/proc" 2>/dev/null || true
+        $did_sys  && umount "${target}/sys"  2>/dev/null || true
+        [ $rc -eq 0 ] \
+            && grep -q "^${user}:[^:!*]\{8,\}:" "$shadow" 2>/dev/null \
+            && return 0
+    fi
+
+    return 1
+}
+
 apply_post_install_config() {
     local disk="$1"
     local target="/mnt/target"
@@ -617,54 +738,86 @@ apply_post_install_config() {
         echo "$IORA_TIMEZONE" > "${target}/etc/timezone" 2>/dev/null || true
     fi
 
-    # Set root password if changed
+    # Set root password if changed. Use the robust helper (multiple
+    # hashing backends + chroot fallback + shadow verification) so a
+    # missing openssl in the installer initramfs doesn't silently
+    # leave the account with its (empty) default password — which is
+    # exactly what caused "Login incorrect" even though the user had
+    # typed the right password during the wizard.
     if [ -n "$IORA_ROOT_PW" ]; then
-        local salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
-        local hash=$(echo "$IORA_ROOT_PW" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null || true)
-        if [ -n "$hash" ] && [ -f "${target}/etc/shadow" ]; then
-            sed -i "s|^root:[^:]*:|root:${hash}:|" "${target}/etc/shadow" 2>/dev/null || true
-        fi
+        iora_installer_set_password "$target" "root" "$IORA_ROOT_PW" || {
+            echo "WARNING: failed to set root password on target; default will remain" >&2
+        }
     fi
 
     # Configure network
     mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
+    # Remove any default wildcard so admin-chosen static/dhcp config wins
+    # regardless of the lexical sort order. We do it both here AND keep
+    # 90-iora-wired-default.network as fallback in case the admin never
+    # runs through networking.
+    rm -f "${target}/etc/systemd/network/eth0.network" 2>/dev/null || true
 
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
-        # Static network configuration
-        cat > "${target}/etc/systemd/network/10-static.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-Address=${IORA_IP}/${IORA_NETMASK:-24}
-Gateway=${IORA_GATEWAY:-}
-DNS=${IORA_DNS:-8.8.8.8}
-NETEOF
+        # Static network configuration (IPv4 + optional IPv6).
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "Address=${IORA_IP}/${IORA_NETMASK:-24}"
+            [ -n "${IORA_GATEWAY:-}" ]  && echo "Gateway=${IORA_GATEWAY}"
+            echo "DNS=${IORA_DNS:-8.8.8.8}"
+            [ -n "${IORA_DNS2:-}" ]     && echo "DNS=${IORA_DNS2}"
+            # IPv6: accept RA for SLAAC unless the admin gave us a fixed v6.
+            if [ -n "${IORA_IP6:-}" ]; then
+                echo "Address=${IORA_IP6}/${IORA_PREFIX6:-64}"
+                [ -n "${IORA_GATEWAY6:-}" ] && echo "Gateway=${IORA_GATEWAY6}"
+                [ -n "${IORA_DNS6:-}" ]     && echo "DNS=${IORA_DNS6}"
+                echo "IPv6AcceptRA=no"
+            else
+                echo "IPv6AcceptRA=yes"
+            fi
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-static.network"
     elif [ "$IORA_NETWORK" = "dhcp" ]; then
-        # DHCP configuration
-        if [ "$IORA_CUSTOM_DNS" = "yes" ] && [ -n "$IORA_DNS" ]; then
-            # DHCP with custom DNS
-            cat > "${target}/etc/systemd/network/10-dhcp.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-DHCP=yes
-DNS=${IORA_DNS}
-
-[DHCP]
-UseDNS=false
-NETEOF
-        else
-            # Standard DHCP (use DNS from DHCP server)
-            cat > "${target}/etc/systemd/network/10-dhcp.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-DHCP=yes
-NETEOF
-        fi
+        # DHCP configuration (IPv4 + IPv6 via DHCPv6/RA).
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "DHCP=yes"
+            echo "IPv6AcceptRA=yes"
+            if [ "${IORA_CUSTOM_DNS:-no}" = "yes" ] && [ -n "${IORA_DNS:-}" ]; then
+                echo "DNS=${IORA_DNS}"
+                [ -n "${IORA_DNS2:-}" ] && echo "DNS=${IORA_DNS2}"
+            fi
+            echo ""
+            echo "[DHCPv4]"
+            if [ "${IORA_CUSTOM_DNS:-no}" = "yes" ] && [ -n "${IORA_DNS:-}" ]; then
+                echo "UseDNS=false"
+            else
+                echo "UseDNS=true"
+            fi
+            echo "UseNTP=true"
+            echo "RouteMetric=100"
+            echo ""
+            echo "[DHCPv6]"
+            if [ "${IORA_CUSTOM_DNS:-no}" = "yes" ] && [ -n "${IORA_DNS:-}" ]; then
+                echo "UseDNS=false"
+            else
+                echo "UseDNS=true"
+            fi
+            echo "UseNTP=true"
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-dhcp.network"
     fi
 
     # Apply SD card optimizations if detected
@@ -921,21 +1074,30 @@ screen_network() {
     IORA_NETWORK="$mode"
 
     if [ "$mode" = "dhcp" ]; then
-        # DHCP mode - offer to test connection and show assigned IP
-        dlg_info " Network " "  Requesting IP address via DHCP..."
+        # Ask user if they want to try fetching an IP now, with skip option
+        local try_now
+        try_now=$(dlg --title " DHCP Network " --yesno \
+            "\n DHCP mode selected.\n\n Would you like to request an IP address now\n to confirm the network is working?\n\n (You can skip this — DHCP will be configured on boot.)\n" \
+            13 60 3>&1 1>&2 2>&3; echo $?)
 
-        if request_dhcp; then
-            local dhcp_info=$(get_dhcp_ip)
-            if [ -n "$dhcp_info" ]; then
-                local iface=$(echo "$dhcp_info" | cut -d: -f1)
-                local ip=$(echo "$dhcp_info" | cut -d: -f2)
+        if [ "$try_now" -eq 0 ]; then
+            dlg_info " Network " "  Requesting IP address via DHCP..."
 
-                dlg --title " DHCP Success " --msgbox \
-                    "\n Network configuration successful!\n\n Interface: ${iface}\n IP Address: ${ip}\n\n The system will use this configuration after installation.\n" \
-                    14 60
+            if request_dhcp; then
+                local dhcp_info=$(get_dhcp_ip)
+                if [ -n "$dhcp_info" ]; then
+                    local iface=$(echo "$dhcp_info" | cut -d: -f1)
+                    local ip=$(echo "$dhcp_info" | cut -d: -f2)
+
+                    dlg --title " DHCP Success " --msgbox \
+                        "\n Network configuration successful!\n\n Interface: ${iface}\n IP Address: ${ip}\n\n The system will use this configuration after installation.\n" \
+                        14 60
+                fi
+            else
+                dlg_msg " DHCP Warning " "Could not obtain IP via DHCP at this time.\n\nThe system will retry during first boot.\nYou can continue with installation."
             fi
         else
-            dlg_msg " DHCP Warning " "Could not obtain IP via DHCP at this time.\n\nThe system will retry during first boot.\nYou can continue with installation."
+            dlg_msg " DHCP Selected " "DHCP will be configured automatically on first boot.\n\nThe system will obtain an IP address when it starts."
         fi
 
         # Ask if user wants custom DNS even with DHCP
@@ -1019,27 +1181,62 @@ screen_network() {
 }
 
 screen_password() {
-    [ -z "$DIALOG_BIN" ] && return 0
+    local pw1 pw2 rc
 
-    local pw1 pw2
-
-    pw1=$(dlg --title " Root Password " --insecure --passwordbox \
-        "\n Set a new root password.\n Leave this blank to keep the default.\n" \
-        12 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
-    [ -z "$pw1" ] && return 0
-
-    pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
-        "\n Enter the password again for verification.\n" \
-        10 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
-
-    if [ "$pw1" != "$pw2" ]; then
-        dlg_msg " Password Mismatch " "The passwords do not match. The default password will remain active."
+    # Text-only (no dialog binary) path
+    if [ -z "$DIALOG_BIN" ]; then
+        while true; do
+            printf "  Root password (required): "
+            stty -echo 2>/dev/null; read -r pw1; stty echo 2>/dev/null; echo ""
+            if [ -z "$pw1" ]; then
+                echo "  ERROR: A root password is required. Please try again."
+                continue
+            fi
+            printf "  Confirm password: "
+            stty -echo 2>/dev/null; read -r pw2; stty echo 2>/dev/null; echo ""
+            if [ "$pw1" = "$pw2" ]; then
+                IORA_ROOT_PW="$pw1"
+                return 0
+            fi
+            echo "  ERROR: Passwords do not match. Please try again."
+        done
         return 0
     fi
 
-    IORA_ROOT_PW="$pw1"
+    # Loop: re-prompt until a non-empty matching password is entered.
+    # Cancel returns non-zero so the wizard's cancel menu is shown.
+    while true; do
+        pw1=$(dlg --title " Root Password " --insecure --passwordbox \
+            "\n Set the root password for this device.\n\n A password is REQUIRED — the root account\n has full system access and must be protected.\n" \
+            13 60 3>&1 1>&2 2>&3)
+        rc=$?
+        [ $rc -ne 0 ] && return 1
+
+        # Require a non-empty password
+        if [ -z "$pw1" ]; then
+            dlg_msg " Password Required " "\
+ A root password is required.\n\n\
+ The root account is the system administrator.\n\
+ Leaving it blank is a serious security risk.\n\n\
+ Please enter a secure password to continue."
+            continue
+        fi
+
+        pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
+            "\n Enter the password again for verification.\n" \
+            10 60 3>&1 1>&2 2>&3)
+        rc=$?
+        [ $rc -ne 0 ] && return 1
+
+        if [ "$pw1" = "$pw2" ]; then
+            IORA_ROOT_PW="$pw1"
+            return 0
+        fi
+
+        dlg_msg " Password Mismatch " "\
+ The passwords do not match.\n\n\
+ Please enter the password and the confirmation again."
+    done
 }
 
 screen_select_disk() {
@@ -1062,23 +1259,45 @@ screen_select_disk() {
             local mdl=$(get_disk_model "$disk")
             local bus=$(get_disk_transport "$disk")
             local dtype=$(get_disk_type "$disk")
-            local label="${sz}GB ${dtype}"
-            [ -n "$mdl" ] && label="${label} - ${mdl}"
+            local parts=$(get_disk_partitions "$disk")
+            # Build compact label: size, type, bus, model
+            local label="${sz}GB ${dtype} [${bus}]"
+            [ -n "$mdl" ] && label="${label} ${mdl}"
+            [ "$parts" -gt 0 ] && label="${label} (${parts}p)"
             set -- "$@" "/dev/${disk}" "$label"
             disk_count=$((disk_count + 1))
         done
 
-        local menu_h=$((disk_count + 12))
+        local menu_h=$((disk_count + 13))
         [ "$menu_h" -gt 22 ] && menu_h=22
 
         SEL_DISK=$(dlg --title " Installation Target " \
-            --menu "\n Release: ${ISO_IMAGE} (${img_size})\n\n Select the drive that should receive IORA OS.\n All existing data on the selected drive will be erased.\n" \
-            "$menu_h" 64 "$disk_count" \
+            --menu "\n Release: ${ISO_IMAGE} (${img_size})\n\n Select the drive for IORA OS installation.\n ALL existing data on the selected drive will be ERASED.\n" \
+            "$menu_h" 70 "$disk_count" \
             "$@" \
             3>&1 1>&2 2>&3)
 
         [ $? -ne 0 ] && return 1
         SEL_DISK=$(basename "$SEL_DISK")
+
+        # Show detailed disk info before confirming
+        local sel_sz=$(get_disk_size_gb "$SEL_DISK")
+        local sel_mdl=$(get_disk_model "$SEL_DISK")
+        local sel_bus=$(get_disk_transport "$SEL_DISK")
+        local sel_dtype=$(get_disk_type "$SEL_DISK")
+        local sel_vendor=$(get_disk_vendor "$SEL_DISK")
+        local sel_parts=$(get_disk_partitions "$SEL_DISK")
+        local disk_details=" Device:      /dev/${SEL_DISK}\n"
+        disk_details="${disk_details} Size:        ${sel_sz} GB\n"
+        disk_details="${disk_details} Type:        ${sel_dtype}\n"
+        disk_details="${disk_details} Interface:   ${sel_bus}\n"
+        [ -n "$sel_mdl" ] && disk_details="${disk_details} Model:       ${sel_mdl}\n"
+        [ -n "$sel_vendor" ] && disk_details="${disk_details} Vendor:      ${sel_vendor}\n"
+        disk_details="${disk_details} Partitions:  ${sel_parts} (will all be erased)\n"
+
+        dlg --title " Selected Disk Details " --msgbox \
+            "\n${disk_details}\n All data on this disk will be permanently erased.\n" \
+            16 64
 
         # Show SD card optimizations if detected
         if is_sd_card "$SEL_DISK"; then
@@ -1401,8 +1620,24 @@ run_wizard() {
     # Step 6: Network
     screen_network
 
-    # Step 7: Root password
-    screen_password
+    # Step 7: Root password.  A password is now REQUIRED.
+    # If the user cancels, offer to go back.  We do NOT allow skipping
+    # with an empty password because that would leave root accessible
+    # without authentication.
+    while true; do
+        if screen_password; then
+            break
+        fi
+        # User pressed Cancel on the password dialog
+        if dlg_yesno " Skip password? " "\
+ You cancelled the root password step.\n\n\
+ WARNING: Skipping leaves the root account with\n\
+ its DEFAULT password, which is a security risk!\n\n\
+ Yes  -> skip (keep default password — NOT recommended)\n\
+ No   -> go back and set a secure password"; then
+            break
+        fi
+    done
 
     # Step 8: Disk selection
     if ! screen_select_disk; then

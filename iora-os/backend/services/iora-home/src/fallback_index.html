@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IORA Home</title>
+<style>
+:root{--bg:#0a0a0a;--bg-elev:#0e0e0e;--surface:#161616;--surface2:#1f1f1f;--border:#2a2a2a;--primary:#2563eb;--primary-hover:#1d4ed8;--text:#e5e7eb;--muted:#9ca3af;--ok:#10b981;--warn:#f59e0b}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;line-height:1.5}
+.wrap{max-width:880px;margin:0 auto;padding:48px 24px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:32px}
+.brand-mark{width:40px;height:40px;border-radius:10px;background:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#fff}
+.brand-text{font-size:20px;font-weight:600}
+.brand-text span{color:var(--primary)}
+h1{font-size:32px;font-weight:600;margin-bottom:8px;letter-spacing:-0.02em}
+.lead{color:var(--muted);margin-bottom:32px;font-size:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px}
+.card h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:16px}
+.row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+.row:last-child{border-bottom:none}
+.row-label{font-weight:500}
+.row-meta{color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
+.badge-ok{background:rgba(16,185,129,.15);color:var(--ok)}
+.badge-warn{background:rgba(245,158,11,.15);color:var(--warn)}
+a{color:var(--primary);text-decoration:none}
+a:hover{color:var(--primary-hover);text-decoration:underline}
+.links{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-weight:500;transition:background .15s,border-color .15s}
+.btn:hover{background:var(--bg-elev);border-color:var(--primary);text-decoration:none}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover);color:#fff}
+.foot{margin-top:32px;color:var(--muted);font-size:13px;text-align:center}
+code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="brand-mark">I</div>
+    <div class="brand-text"><span>IORA</span> Home</div>
+  </div>
+
+  <h1>Backend is running</h1>
+  <p class="lead">The IORA Home dashboard backend is up and serving its API. The web UI bundle is not deployed in this image &mdash; this fallback page confirms the service is healthy.</p>
+
+  <div class="card">
+    <h2>Service</h2>
+    <div class="row"><div class="row-label">iora-home</div><div><span class="badge badge-ok">Online</span></div></div>
+    <div class="row"><div class="row-label">API base</div><div class="row-meta">/api/*</div></div>
+    <div class="row"><div class="row-label">Health</div><div class="row-meta"><a href="/api/health">/api/health</a></div></div>
+    <div class="row"><div class="row-label">Version</div><div class="row-meta"><a href="/api/version">/api/version</a></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Other entry points</h2>
+    <div class="row"><div class="row-label">Setup wizard</div><div class="row-meta"><a href="http://_HOST_:8080/setup">:8080/setup</a></div></div>
+    <div class="row"><div class="row-label">Control Center</div><div class="row-meta"><a href="http://_HOST_:8091">:8091</a></div></div>
+    <div class="row"><div class="row-label">Supervisor</div><div class="row-meta"><a href="http://_HOST_:8125">:8125</a></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Deploy the dashboard UI</h2>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:12px">When the React frontend bundle is built, place the contents of <code>dist/</code> next to the backend's working directory. The backend serves <code>../dist/index.html</code> automatically.</p>
+    <p style="color:var(--muted);font-size:14px">Override the location with the <code>IORA_HOME_DIST</code> environment variable.</p>
+  </div>
+
+  <div class="foot">IORA OS &middot; iora-home placeholder</div>
+</div>
+<script>
+// Replace _HOST_ with the current hostname so links work on LAN.
+document.querySelectorAll('a').forEach(function(a){
+  if(a.href.indexOf('_HOST_')>-1){a.href=a.href.replace('_HOST_',location.hostname);}
+});
+</script>
+</body>
+</html>

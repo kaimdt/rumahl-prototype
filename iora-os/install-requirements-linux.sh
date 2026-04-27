@@ -30,6 +30,8 @@ REQUIRED_PACKAGES=(
     libncurses-dev
     libssl-dev
     libelf-dev
+    pkg-config
+    musl-tools
     python3
     python3-pip
     qemu-utils
@@ -58,6 +60,24 @@ if ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y "${OPTIONAL_PACKAGE
 else
     echo "[WARN] Optional packages could not be installed automatically."
     echo "[WARN] OVA export (VBoxManage) and/or RAUC bundle creation may be skipped."
+fi
+
+# ── Docker Engine ─────────────────────────────────────────────────────────────
+# Docker is required on the build host to pre-compile IORA service binaries
+# via build-all-images.sh (it runs `docker build` to produce statically-linked
+# Go/Rust binaries that are embedded into the IORA OS image).
+if command -v docker >/dev/null 2>&1; then
+    echo "[INFO] Docker already installed: $(docker --version)"
+else
+    echo "[INFO] Installing Docker Engine via the official convenience script..."
+    curl -fsSL https://get.docker.com | ${SUDO} sh
+    # Allow the current user to use Docker without sudo.
+    if [ -n "${SUDO_USER:-}" ]; then
+        ${SUDO} usermod -aG docker "${SUDO_USER}"
+        echo "[INFO] Added ${SUDO_USER} to the docker group."
+        echo "[WARN] You may need to log out and back in (or run 'newgrp docker') for the group to take effect."
+    fi
+    echo "[INFO] Docker installed: $(docker --version 2>/dev/null || true)"
 fi
 
 echo "[SUCCESS] Linux requirements installation completed."

@@ -140,13 +140,14 @@ function evaluateNumeric(value: number, expected: number, operator: NumericOpera
   }
 }
 
-function findVisibilityEntity(entities: EntityState[], visibilityEntityId: unknown): EntityState | undefined {
+function findVisibilityEntity(entities: EntityState[], visibilityEntityId: unknown, entityMap?: Map<string, EntityState>): EntityState | undefined {
   const entityId = String(visibilityEntityId || '')
   if (!entityId) return undefined
+  if (entityMap) return entityMap.get(entityId)
   return entities.find((e) => e.entity_id === entityId)
 }
 
-function evaluateVisibilityCondition(condition: VisibilityCondition, entities: EntityState[]): boolean {
+function evaluateVisibilityCondition(condition: VisibilityCondition, entities: EntityState[], entityMap?: Map<string, EntityState>): boolean {
   const mode = ((condition.mode as string) || 'always') as VisibilityMode
   if (mode === 'always') return true
 
@@ -168,7 +169,7 @@ function evaluateVisibilityCondition(condition: VisibilityCondition, entities: E
   if (mode === 'when_entity_state') {
     const expectedState = String(condition.state || '').trim()
     if (!expectedState) return true
-    const entity = findVisibilityEntity(entities, condition.entityId)
+    const entity = findVisibilityEntity(entities, condition.entityId, entityMap)
     if (!entity) return false
     return String(entity.state).toLowerCase() === expectedState.toLowerCase()
   }
@@ -176,7 +177,7 @@ function evaluateVisibilityCondition(condition: VisibilityCondition, entities: E
   if (mode === 'when_entity_not_state') {
     const expectedState = String(condition.state || '').trim()
     if (!expectedState) return true
-    const entity = findVisibilityEntity(entities, condition.entityId)
+    const entity = findVisibilityEntity(entities, condition.entityId, entityMap)
     if (!entity) return false
     return String(entity.state).toLowerCase() !== expectedState.toLowerCase()
   }
@@ -187,13 +188,13 @@ function evaluateVisibilityCondition(condition: VisibilityCondition, entities: E
       .map((state) => state.trim().toLowerCase())
       .filter(Boolean)
     if (stateList.length === 0) return true
-    const entity = findVisibilityEntity(entities, condition.entityId)
+    const entity = findVisibilityEntity(entities, condition.entityId, entityMap)
     if (!entity) return false
     return stateList.includes(String(entity.state).toLowerCase())
   }
 
   if (mode === 'when_entity_numeric') {
-    const entity = findVisibilityEntity(entities, condition.entityId)
+    const entity = findVisibilityEntity(entities, condition.entityId, entityMap)
     if (!entity) return false
     const operator = String(condition.numericOperator || 'gte') as NumericOperator
     const threshold = Number(condition.numericValue)
@@ -216,7 +217,7 @@ function evaluateVisibilityCondition(condition: VisibilityCondition, entities: E
   }
 
   if (mode === 'when_recently_changed') {
-    const entity = findVisibilityEntity(entities, condition.entityId)
+    const entity = findVisibilityEntity(entities, condition.entityId, entityMap)
     if (!entity) return false
     const minutes = Number(condition.changedWithinMinutes)
     if (!Number.isFinite(minutes) || minutes <= 0) return true
@@ -232,15 +233,16 @@ function evaluateConditionSet(
   conditions: VisibilityCondition[],
   operator: VisibilityOperator,
   entities: EntityState[],
+  entityMap?: Map<string, EntityState>
 ): boolean {
   if (conditions.length === 0) return true
   if (operator === 'any') {
-    return conditions.some((condition) => evaluateVisibilityCondition(condition, entities))
+    return conditions.some((condition) => evaluateVisibilityCondition(condition, entities, entityMap))
   }
-  return conditions.every((condition) => evaluateVisibilityCondition(condition, entities))
+  return conditions.every((condition) => evaluateVisibilityCondition(condition, entities, entityMap))
 }
 
-function evaluateLegacyVisibility(widget: DashboardWidget, entities: EntityState[]): boolean {
+function evaluateLegacyVisibility(widget: DashboardWidget, entities: EntityState[], entityMap?: Map<string, EntityState>): boolean {
   const legacyCondition: VisibilityCondition = {
     mode: (((widget.config?.visibilityMode as string) || 'always') as VisibilityMode),
     entityId: String(widget.config?.visibilityEntityId || ''),
@@ -253,10 +255,10 @@ function evaluateLegacyVisibility(widget: DashboardWidget, entities: EntityState
     weekdays: parseWeekdayList(widget.config?.visibilityWeekdays),
     changedWithinMinutes: widget.config?.visibilityChangedWithinMinutes as number | string | undefined,
   }
-  return evaluateVisibilityCondition(legacyCondition, entities)
+  return evaluateVisibilityCondition(legacyCondition, entities, entityMap)
 }
 
-function isWidgetVisible(widget: DashboardWidget, entities: EntityState[]): boolean {
+function isWidgetVisible(widget: DashboardWidget, entities: EntityState[], entityMap?: Map<string, EntityState>): boolean {
   const conditions = Array.isArray(widget.config?.visibilityConditions)
     ? widget.config?.visibilityConditions.filter((item) => item && typeof item === 'object') as VisibilityCondition[]
     : []
@@ -266,14 +268,14 @@ function isWidgetVisible(widget: DashboardWidget, entities: EntityState[]): bool
 
   const hasRuleSets = conditions.length > 0 || exceptions.length > 0
   if (!hasRuleSets) {
-    return evaluateLegacyVisibility(widget, entities)
+    return evaluateLegacyVisibility(widget, entities, entityMap)
   }
 
   const conditionOperator = String(widget.config?.visibilityConditionOperator || 'all') === 'any' ? 'any' : 'all'
   const exceptionOperator = String(widget.config?.visibilityExceptionOperator || 'any') === 'all' ? 'all' : 'any'
-  const conditionsMatch = evaluateConditionSet(conditions, conditionOperator, entities)
+  const conditionsMatch = evaluateConditionSet(conditions, conditionOperator, entities, entityMap)
   if (!conditionsMatch) return false
-  const hasExceptionMatch = exceptions.length > 0 && evaluateConditionSet(exceptions, exceptionOperator, entities)
+  const hasExceptionMatch = exceptions.length > 0 && evaluateConditionSet(exceptions, exceptionOperator, entities, entityMap)
   return !hasExceptionMatch
 }
 
@@ -309,6 +311,7 @@ export function RenderWidget({
   weatherEntity,
   lightEntities,
   widgetSize,
+  entityMap,
 }: {
   widget: DashboardWidget
   entities: EntityState[]
@@ -317,10 +320,11 @@ export function RenderWidget({
   weatherEntity?: WeatherEntity
   lightEntities?: LightEntity[]
   widgetSize?: { w: number; h: number }
+  entityMap?: Map<string, EntityState>
 }) {
   const resolvedSize = widgetSize || widget.size
   const entity = widget.entity_id
-    ? entities.find((e) => e.entity_id === widget.entity_id)
+    ? (entityMap ? entityMap.get(widget.entity_id) : entities.find((e) => e.entity_id === widget.entity_id))
     : undefined
 
   switch (widget.type) {
@@ -548,7 +552,7 @@ export function RenderWidget({
           if (a.position.y !== b.position.y) return a.position.y - b.position.y
           return a.position.x - b.position.x
         })
-      const visibleGroupWidgets = groupWidgets.filter((item) => isWidgetVisible(item, entities))
+      const visibleGroupWidgets = groupWidgets.filter((item) => isWidgetVisible(item, entities, entityMap))
       const groupColumns = Math.max(1, Math.min(4, Number(widget.config?.groupColumns || 2)))
 
       if (visibleGroupWidgets.length === 0) {
@@ -710,7 +714,8 @@ export function CustomPageRenderer({
     return a.position.x - b.position.x
   })
 
-  const visibleWidgets = sortedWidgets.filter((widget) => isWidgetVisible(widget, entities))
+  const entityMap = useMemo(() => new Map(entities.map(e => [e.entity_id, e])), [entities])
+  const visibleWidgets = sortedWidgets.filter((widget) => isWidgetVisible(widget, entities, entityMap))
 
   // On mobile (reduced columns): use auto-flow to prevent overlap
   // On desktop: use exact designer positions

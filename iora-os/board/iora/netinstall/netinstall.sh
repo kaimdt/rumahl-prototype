@@ -873,6 +873,140 @@ show_complete() {
     rm -rf "$WORK_DIR"
 }
 
+
+# ── Live-system network check ──────────────────────────────────────────────────
+#
+# Checks whether the live installer environment has obtained an IP address.
+# If DHCP failed (common with VMware Host-Only adapters), the user is offered
+# three options: retry DHCP, configure a temporary static IP, or continue
+# without network (download step will fail, but config steps work offline).
+#
+check_live_network() {
+    # Skip in non-interactive mode — caller is responsible for pre-networking.
+    [ "$AUTO_CONFIRM" = true ] && return 0
+
+    local ip=""
+    local iface=""
+
+    # Find first non-loopback interface with an IPv4 address
+    _get_live_ip() {
+        for _iface in /sys/class/net/*; do
+            local _name
+            _name=$(basename "$_iface")
+            [ "$_name" = "lo" ] && continue
+            local _addr
+            _addr=$(ip -4 addr show "$_name" 2>/dev/null \
+                    | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+            if [ -n "$_addr" ]; then
+                printf '%s' "$_addr"
+                return
+            fi
+        done
+    }
+
+    # Find the interface used for the default route, if any.
+    _get_default_iface() {
+        ip route show default 2>/dev/null | awk '/default/{print $5; exit}'
+    }
+
+    ip=$(_get_live_ip)
+    if [ -n "$ip" ]; then
+        msg "Network: IP address ${ip} detected."
+        return 0
+    fi
+
+    # No IP found — warn and offer choices.
+    echo ""
+    echo -e "${YELLOW}${BOLD}  ⚠  No IP address detected on this system.${NC}"
+    if [ "$IORA_VIRT_TYPE" = "vmware" ]; then
+        echo -e "${YELLOW}     VMware Host-Only networks sometimes do not provide DHCP leases.${NC}"
+    fi
+    echo ""
+
+    while true; do
+        echo -e "${CYAN}${BOLD}─── Network setup ───${NC}"
+        echo "  1) Retry DHCP  (request a new lease)"
+        echo "  2) Configure a static IP  (for this installer session only)"
+        echo "  3) Continue without IP  (download will fail; offline config only)"
+        echo ""
+        local choice
+        read -rp "$(echo -e "${BOLD}Choice [1-3]:${NC} ")" choice || choice="3"
+        case "$choice" in
+            1)
+                iface=$(_get_default_iface)
+                if [ -z "$iface" ]; then
+                    # Pick first non-loopback interface
+                    for _f in /sys/class/net/*; do
+                        local _n; _n=$(basename "$_f")
+                        [ "$_n" != "lo" ] && { iface="$_n"; break; }
+                    done
+                fi
+                if [ -z "$iface" ]; then
+                    warn "No network interface found."
+                    continue
+                fi
+                echo "  Requesting DHCP lease on ${iface}..."
+                # Bring interface up and request DHCP (udhcpc preferred, dhclient fallback)
+                ip link set "$iface" up 2>/dev/null || true
+                if command -v udhcpc >/dev/null 2>&1; then
+                    udhcpc -i "$iface" -t 10 -n -q 2>/dev/null || true
+                elif command -v dhclient >/dev/null 2>&1; then
+                    dhclient -1 -v "$iface" 2>/dev/null || true
+                else
+                    warn "No DHCP client (udhcpc/dhclient) found. Cannot request lease."
+                fi
+                ip=$(_get_live_ip)
+                if [ -n "$ip" ]; then
+                    msg "DHCP: obtained IP ${ip} on ${iface}."
+                    return 0
+                fi
+                warn "DHCP lease not obtained. Try again or choose another option."
+                ;;
+            2)
+                local sip sgw sdns siface
+                iface=$(_get_default_iface)
+                if [ -z "$iface" ]; then
+                    for _f in /sys/class/net/*; do
+                        local _n; _n=$(basename "$_f")
+                        [ "$_n" != "lo" ] && { iface="$_n"; break; }
+                    done
+                fi
+                echo ""
+                read -rp "$(echo -e "${BOLD}Interface [${iface}]:${NC} ")" siface || siface=""
+                [ -n "$siface" ] && iface="$siface"
+                read -rp "$(echo -e "${BOLD}Static IPv4 (CIDR, e.g. 192.168.56.10/24):${NC} ")" sip || sip=""
+                read -rp "$(echo -e "${BOLD}Gateway (e.g. 192.168.56.1):${NC} ")" sgw || sgw=""
+                read -rp "$(echo -e "${BOLD}DNS (e.g. 1.1.1.1):${NC} ")" sdns || sdns="1.1.1.1"
+                [ -z "$sip" ] && { warn "IP address required."; continue; }
+                ip link set "$iface" up 2>/dev/null || true
+                ip addr flush dev "$iface" 2>/dev/null || true
+                ip addr add "$sip" dev "$iface" 2>/dev/null \
+                    || { warn "Failed to set IP ${sip} on ${iface}."; continue; }
+                if [ -n "$sgw" ]; then
+                    ip route add default via "$sgw" dev "$iface" 2>/dev/null || true
+                fi
+                if [ -n "$sdns" ]; then
+                    printf 'nameserver %s\n' "$sdns" > /etc/resolv.conf 2>/dev/null || true
+                fi
+                ip=$(_get_live_ip)
+                if [ -n "$ip" ]; then
+                    msg "Static IP ${ip} configured on ${iface}."
+                    return 0
+                fi
+                warn "Static IP not visible yet. Verify your settings and retry."
+                ;;
+            3)
+                warn "Continuing without network. The image download will fail."
+                warn "You can install from a local file with --disk and an offline image."
+                return 0
+                ;;
+            *)
+                echo "Invalid choice. Please enter 1, 2, or 3."
+                ;;
+        esac
+    done
+}
+
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1247,6 +1381,7 @@ main() {
         msg "${CYAN}Platform detected:${NC} ${IORA_VIRT_LABEL}"
     fi
     check_system_resources
+    check_live_network
     fetch_manifest
 
     # Interactive wizard (disk/system/network/review). Skipped in --yes mode

@@ -1,0 +1,13 @@
+# Exclude build artefacts and editor noise from the Docker build context.
+# Without this, `COPY . .` in Dockerfile uploads the multi-GB target/ tree
+# every build.
+target/
+**/target/
+*.log
+.git/
+.vscode/
+.idea/
+.env
+.env.*
+node_modules/
+data/

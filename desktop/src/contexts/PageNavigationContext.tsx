@@ -167,12 +167,20 @@ const defaultPages: DashboardPage[] = [
     order: 997,
   },
   {
+    id: 'music',
+    name: 'Musik',
+    icon: 'MusicNote',
+    widgets: [],
+    showInNav: true,
+    order: 996,
+  },
+  {
     id: 'share',
     name: 'Share',
     icon: 'ShareNetwork',
     widgets: [],
     showInNav: true,
-    order: 996,
+    order: 995,
   },
 ]
 

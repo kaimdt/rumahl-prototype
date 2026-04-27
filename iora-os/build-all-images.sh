@@ -85,7 +85,12 @@ xz_compress_file() {
     rm -f "${tmp_file}" "${dst_file}"
 
     # Use streaming compression to avoid metadata/chgrp issues on some filesystems.
-    if ! xz -9 -T0 -c "${src_file}" > "${tmp_file}"; then
+    # --memlimit-compress=0 disables xz's auto-throttling that otherwise drops
+    # the thread count from -T0 (=ncpu) to 2-3 on high-RAM hosts because the
+    # dictionary at -9 wants ~675 MiB per thread and xz caps total RAM at
+    # ~25% of system memory by default. Override via XZ_MEMLIMIT env if needed.
+    local _memlimit="${XZ_MEMLIMIT:-0}"
+    if ! xz -9 -T0 --memlimit-compress="${_memlimit}" -c "${src_file}" > "${tmp_file}"; then
         rm -f "${tmp_file}"
         return 1
     fi
@@ -541,6 +546,14 @@ build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
+    # Lift xz's auto memory throttling. xz defaults to ~25% of RAM as the
+    # compression memory limit and silently downgrades thread count when it
+    # would exceed that — on a 20 GB build VM that produced a misleading
+    # "reduced threads from 16 to 3" message. -T0 picks all cores, the
+    # explicit memlimit=0 disables the auto-throttling.
+    export XZ_OPT="${XZ_OPT:--T0 --memlimit-compress=0}"
+    export XZ_DEFAULTS="${XZ_DEFAULTS:--T0 --memlimit-compress=0}"
+
     cd "${BUILD_DIR}"
     if [ "${PROGRESS}" = true ]; then
         PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" IORA_UNATTENDED="${UNATTENDED}" make -j"$(nproc)" 2>&1 | show_progress_stream
@@ -549,6 +562,746 @@ build_base_image() {
     fi
 
     log_success "Base image built successfully"
+}
+
+# =============================================================================
+# Compile IORA service binaries and embed them in the rootfs overlay
+# =============================================================================
+# All IORA system containers are self-built on the device (no registry pulls).
+# To make the on-device build fast we pre-compile the Rust service binaries
+# here (on the build host) and place them into the rootfs overlay so that
+# post-build.sh can bundle them into /opt/iora/build/<service>/bin/.
+#
+# Build strategy (in order of preference):
+#   1) Native `cargo build --release` on the build host (fastest, no Docker).
+#      This is the default path since we migrated off the Docker-based build.
+#   2) Docker builder image (legacy fallback for hosts where cargo is missing
+#      but Docker is available).
+#   3) Skip with a loud warning — the resulting image will boot but every
+#      native IORA service will stay inactive because ConditionPathExists on
+#      /opt/iora/build/<svc>/bin/<svc> will fail. Setup wizard on :8080 may
+#      also be unreachable if it depends on the native stack.
+
+# ─── Frontend (React/Vite dashboard) ─────────────────────────────────────────
+# The IORA dashboard frontend lives in the repo root (one level up from
+# this iora-os/ folder): package.json + vite.config.ts + src/. iora-home
+# (Rust backend on port 8126) serves the produced dist/ directory; without
+# a built bundle it falls back to an embedded "backend is running" page.
+#
+# Strategy: build dist/ once via `npm ci && npm run build`, copy it into the
+# rootfs overlay at /opt/iora/iora-home/dist/, and let iora-home read the
+# path from the IORA_HOME_DIST env var (set in /etc/iora/iora-home.env).
+#
+# Reuses an existing dist/ on the host if (a) it exists, (b) all source
+# files in src/ + index.html are older than dist/index.html, and
+# IORA_REBUILD_FRONTEND is not set to 1. Otherwise rebuilds.
+#
+# Skip with IORA_SKIP_FRONTEND=1 if you only want the backend image.
+build_frontend_bundle() {
+    if [ "${IORA_SKIP_FRONTEND:-0}" = "1" ]; then
+        log_info "IORA_SKIP_FRONTEND=1 → skipping frontend bundle"
+        return 0
+    fi
+
+    # Locate the frontend source. The repo layout puts package.json at the
+    # repo root (one level up from iora-os/). Older sibling layouts placed
+    # it next to backend/. Try a few candidates.
+    local FRONTEND_DIR=""
+    for candidate in \
+        "${SCRIPT_DIR}/../frontend" \
+        "${SCRIPT_DIR}/.." \
+        "${SCRIPT_DIR}/../.." \
+        "${SCRIPT_DIR}/frontend"; do
+        if [ -f "${candidate}/package.json" ] && [ -f "${candidate}/vite.config.ts" ]; then
+            FRONTEND_DIR="$(cd "${candidate}" && pwd)"
+            break
+        fi
+    done
+    if [ -z "${FRONTEND_DIR}" ]; then
+        log_warn "Frontend source (package.json + vite.config.ts) not found near ${SCRIPT_DIR}"
+        log_warn "iora-home will serve the embedded fallback page on :8126."
+        return 0
+    fi
+    log_info "Building dashboard frontend from: ${FRONTEND_DIR}"
+
+    # Skip the build if dist/ is already up-to-date relative to src/.
+    local rebuild=1
+    if [ "${IORA_REBUILD_FRONTEND:-0}" != "1" ] && [ -f "${FRONTEND_DIR}/dist/index.html" ]; then
+        local newest_src
+        newest_src=$(find "${FRONTEND_DIR}/src" "${FRONTEND_DIR}/index.html" \
+            "${FRONTEND_DIR}/package.json" "${FRONTEND_DIR}/vite.config.ts" \
+            -type f -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1)
+        local dist_mtime
+        dist_mtime=$(stat -c '%Y' "${FRONTEND_DIR}/dist/index.html" 2>/dev/null || echo 0)
+        if [ -n "${newest_src}" ] && [ "${dist_mtime}" -gt "${newest_src%.*}" ]; then
+            log_success "Frontend dist/ is newer than sources — reusing existing build"
+            rebuild=0
+        fi
+    fi
+
+    if [ "${rebuild}" = "1" ]; then
+        # Auto-install nodejs+npm on Debian/Ubuntu if missing — the build is
+        # often run on a fresh VM where setup.sh hasn't been re-run after
+        # this commit added nodejs to COMMON_APT.
+        if ! command -v npm >/dev/null 2>&1; then
+            log_warn "npm not found — attempting auto-install via apt-get"
+            if command -v apt-get >/dev/null 2>&1; then
+                if [ "$(id -u)" = "0" ]; then
+                    apt-get update -qq >/tmp/iora-apt.log 2>&1 || true
+                    apt-get install -y --no-install-recommends nodejs npm >>/tmp/iora-apt.log 2>&1 || true
+                else
+                    sudo -n apt-get update -qq >/tmp/iora-apt.log 2>&1 || true
+                    sudo -n apt-get install -y --no-install-recommends nodejs npm >>/tmp/iora-apt.log 2>&1 || true
+                fi
+            fi
+        fi
+        if ! command -v npm >/dev/null 2>&1; then
+            log_error "npm STILL not found after auto-install attempt."
+            log_error "Install Node.js manually: sudo apt-get install -y nodejs npm"
+            log_error "Or skip the frontend with: IORA_SKIP_FRONTEND=1 sudo ./build.sh all"
+            log_error "Without the frontend, :8126 will only show the IORA placeholder page."
+            return 1
+        fi
+
+        log_info "  Node: $(node --version 2>/dev/null || echo unknown), npm: $(npm --version 2>/dev/null || echo unknown)"
+
+        # Use `npm ci` if package-lock.json exists (reproducible), else `npm install`.
+        local install_cmd="install"
+        [ -f "${FRONTEND_DIR}/package-lock.json" ] && install_cmd="ci"
+
+        log_info "  npm ${install_cmd} (in ${FRONTEND_DIR})..."
+        if ! ( cd "${FRONTEND_DIR}" && npm "${install_cmd}" --no-audit --no-fund --prefer-offline ) >/tmp/iora-npm-install.log 2>&1; then
+            log_error "  npm ${install_cmd} FAILED — last 30 lines of /tmp/iora-npm-install.log:"
+            tail -n 30 /tmp/iora-npm-install.log 2>/dev/null | sed 's/^/      /' || true
+            log_error "  Image will be built without the dashboard UI (:8126 → IORA placeholder page)."
+            log_error "  Set IORA_SKIP_FRONTEND=1 to silence this error, or fix npm and re-run."
+            return 1
+        fi
+
+        log_info "  npm run build..."
+        if ! ( cd "${FRONTEND_DIR}" && npm run build ) >/tmp/iora-npm-build.log 2>&1; then
+            log_error "  npm run build FAILED — last 40 lines of /tmp/iora-npm-build.log:"
+            tail -n 40 /tmp/iora-npm-build.log 2>/dev/null | sed 's/^/      /' || true
+            log_error "  Image will be built without the dashboard UI (:8126 → IORA placeholder page)."
+            return 1
+        fi
+        log_success "  npm run build OK"
+    fi
+
+    if [ ! -f "${FRONTEND_DIR}/dist/index.html" ]; then
+        log_warn "Frontend build produced no dist/index.html"
+        return 0
+    fi
+
+    # Stage dist/ into the rootfs overlay at /opt/iora/iora-home/dist/.
+    local FRONTEND_DEST="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/iora-home/dist"
+    rm -rf "${FRONTEND_DEST}"
+    mkdir -p "${FRONTEND_DEST}"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "${FRONTEND_DIR}/dist/" "${FRONTEND_DEST}/"
+    else
+        cp -a "${FRONTEND_DIR}/dist/." "${FRONTEND_DEST}/"
+    fi
+    local size
+    size=$(du -sh "${FRONTEND_DEST}" 2>/dev/null | cut -f1 || echo "?")
+    log_success "Frontend bundle staged: ${FRONTEND_DEST} (${size})"
+}
+
+build_service_binaries() {
+    local OVERLAY="${SCRIPT_DIR}/board/iora/rootfs-overlay/opt/iora/build"
+    # Resolve the backend/ source tree. We try the in-tree location first
+    # (iora-os/backend/) — that's where the workspace lives in this repo and
+    # is what `git pull` updates. The legacy sibling layout
+    # (home-assistant-dashb/backend/, one level up) is only used as a
+    # fallback for older checkouts. If both exist, the in-tree copy wins —
+    # otherwise an old sibling tree silently shadows freshly pulled changes
+    # and the build uses stale sources.
+    local BACKEND_DIR=""
+    for candidate in \
+        "${SCRIPT_DIR}/backend" \
+        "${SCRIPT_DIR}/../backend" \
+        "${SCRIPT_DIR}/../../backend"; do
+        if [ -f "${candidate}/Cargo.toml" ] && [ -f "${candidate}/Dockerfile" ]; then
+            BACKEND_DIR="${candidate}"
+            break
+        fi
+    done
+    if [ -z "${BACKEND_DIR}" ]; then
+        log_warn "backend/ source directory not found near ${SCRIPT_DIR}; skipping binary embedding."
+        log_warn "Without native service binaries, iora-core/iora-home/... will NOT start on boot."
+        return 0
+    fi
+    log_info "  Resolved backend source: ${BACKEND_DIR}"
+
+    # ── Make cargo visible to this script ────────────────────────────────
+    # setup.sh installs rustup with --no-modify-path, so a fresh shell after
+    # the installer does NOT have ~/.cargo/bin on PATH. That was the root
+    # cause of "overlay is empty after build": cargo existed on disk but
+    # `command -v cargo` returned false and the function silently fell
+    # through to the Docker fallback, which then also failed.
+    if ! command -v cargo >/dev/null 2>&1; then
+        for env_file in \
+            "${HOME}/.cargo/env" \
+            "${CARGO_HOME:-}/env" \
+            "/root/.cargo/env" \
+            "/home/${SUDO_USER:-$USER}/.cargo/env"
+        do
+            if [ -n "${env_file}" ] && [ -f "${env_file}" ]; then
+                # shellcheck disable=SC1090
+                . "${env_file}" 2>/dev/null || true
+            fi
+        done
+        # Also add the conventional install dirs directly, in case the env
+        # file is missing but the binaries exist.
+        for bin_dir in \
+            "${HOME}/.cargo/bin" \
+            "/root/.cargo/bin" \
+            "/home/${SUDO_USER:-$USER}/.cargo/bin" \
+            "/usr/local/cargo/bin"
+        do
+            if [ -d "${bin_dir}" ] && [[ ":${PATH}:" != *":${bin_dir}:"* ]]; then
+                PATH="${bin_dir}:${PATH}"
+                export PATH
+            fi
+        done
+    fi
+
+    # Auto-install rustup as a last-ditch effort so that a fresh CI host or
+    # a user who forgot to run setup.sh still produces working images
+    # instead of an empty overlay.
+    if ! command -v cargo >/dev/null 2>&1 && [ "${IORA_AUTO_INSTALL_RUST:-1}" = "1" ]; then
+        log_warn "cargo not found on PATH. Installing rustup non-interactively…"
+        if command -v curl >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path \
+                >/tmp/iora-rustup-install.log 2>&1 || \
+                log_warn "rustup install failed (see /tmp/iora-rustup-install.log)"
+            # shellcheck disable=SC1091
+            [ -f "${HOME}/.cargo/env" ] && . "${HOME}/.cargo/env"
+        else
+            log_warn "curl not available; cannot auto-install rustup."
+        fi
+    fi
+
+    local SERVICES="iora-core iora-home iora-control iora-assist iora-secrets \
+                    iora-watchdog iora-security iora-gateway iora-supervisor \
+                    iora-api iora-appstore iora-backup iora-connector \
+                    iora-dev-bridge iora-domain-validator iora-files \
+                    iora-network-monitor iora-nginx iora-resource-manager \
+                    iora-updater"
+    # CLI tools as `package:binary` pairs (binary may differ from crate name —
+    # iora-cli ships its binary as `ora`, the user-facing command).
+    local CLI_TOOLS="iora-cli:ora iora-sign:iora-sign iora-verify:iora-verify"
+
+    # ── GLIBC compatibility check ───────────────────────────────────────────
+    # Native cargo builds on a host with a newer glibc than the target produce
+    # binaries that fail at runtime with `version 'GLIBC_2.39' not found`
+    # (or similar). Buildroot 2024.02 ships glibc 2.38, so a host with
+    # glibc >= 2.39 (Ubuntu 24.04, recent Arch/Fedora) WILL produce broken
+    # binaries unless we use the Dockerfile path (Alpine/musl static).
+    # IORA_BUILD_BACKEND lets the user force a specific path:
+    #   auto    – pick the safest (default)
+    #   native  – always cargo on host
+    #   docker  – always Dockerfile / Alpine
+    local _IORA_BUILD_BACKEND="${IORA_BUILD_BACKEND:-auto}"
+    local _host_glibc
+    _host_glibc="$(ldd --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | tail -n 1 || echo 0.0)"
+    # Tracks whether we automatically switched the rust triple to musl below.
+    # When set, the native build path will use a statically-linked target
+    # instead of glibc, so the produced binaries have no host-glibc dep.
+    local _IORA_AUTO_MUSL=0
+    if [ "${_IORA_BUILD_BACKEND}" = "auto" ]; then
+        # Buildroot 2024.02 → glibc 2.38. We give 0.01 of headroom and treat
+        # anything >= 2.39 on the host as a mismatch.
+        if awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
+            # Prefer Docker when available: the Alpine builder image has
+            # musl-libssl pre-installed, so the openssl-sys crate (used by
+            # 9+ services via reqwest/sqlx/etc.) compiles out of the box.
+            # Cross-compiling openssl-sys from a glibc host to a musl target
+            # requires either a manually-built musl-libssl or per-crate
+            # `vendored` features in every Cargo.toml — both are fragile.
+            #
+            # musl-static is the secondary fallback for hosts without Docker:
+            # it works for crates that don't use openssl, and the failure
+            # mode for openssl users is a clear `openssl-sys build script
+            # failed` instead of a runtime GLIBC_2.39 crash.
+            if command -v docker >/dev/null 2>&1; then
+                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+                log_warn "Native cargo build would produce binaries that fail with GLIBC_2.39 errors."
+                log_warn "Switching to Docker / Alpine-musl build path automatically."
+                log_warn "Override with IORA_BUILD_BACKEND=native (musl) or IORA_RUST_TRIPLE=...."
+                _IORA_BUILD_BACKEND="docker"
+            elif [ -z "${IORA_RUST_TRIPLE:-}" ] \
+                && command -v rustup >/dev/null 2>&1 \
+                && [ "${IORA_ARCH:-x86_64}" = "x86_64" ]; then
+                log_warn "Host glibc ${_host_glibc} is newer than target glibc 2.38."
+                log_warn "Docker not available — falling back to musl-static cargo build."
+                log_warn "WARNING: services using openssl-sys will fail unless musl-libssl is"
+                log_warn "         installed. Install Docker for the most reliable build."
+                _IORA_AUTO_MUSL=1
+            else
+                log_warn "Host glibc ${_host_glibc} > target 2.38 but neither Docker nor"
+                log_warn "rustup+x86_64 is available — produced binaries WILL crash at boot."
+                log_warn "Install one of:"
+                log_warn "  - docker (preferred — handles openssl-sys out of the box)"
+                log_warn "  - rustup + musl-tools (fallback — limited crate support)"
+            fi
+        fi
+    fi
+
+    # ── Wipe stale binaries from a previous run ────────────────────────────
+    # Otherwise a newer host glibc + a previous-generation binary that
+    # happened to NOT use any 2.39 symbols can survive a "failed" rebuild
+    # and silently boot — only to crash the first time it hits a 2.39 syscall.
+    log_info "Cleaning stale service binaries from rootfs overlay…"
+    for svc in ${SERVICES}; do
+        rm -f "${OVERLAY}/${svc}/bin/${svc}"
+    done
+
+    # ── Strategy 1: native cargo build on the build host ────────────────────
+    if [ "${_IORA_BUILD_BACKEND}" != "docker" ] && command -v cargo >/dev/null 2>&1; then
+        log_info "Pre-compiling IORA service binaries natively with cargo..."
+        log_info "Backend source: ${BACKEND_DIR}"
+        log_info "cargo: $(command -v cargo) ($(cargo --version 2>/dev/null || echo unknown))"
+
+        local RUST_TRIPLE="${IORA_RUST_TRIPLE:-x86_64-unknown-linux-gnu}"
+        case "${IORA_ARCH:-x86_64}" in
+            aarch64|rpi3|rpi4|rpi5|generic-arm64)
+                RUST_TRIPLE="aarch64-unknown-linux-gnu" ;;
+            armhf)
+                RUST_TRIPLE="armv7-unknown-linux-gnueabihf" ;;
+        esac
+        if [ "${_IORA_AUTO_MUSL}" = "1" ]; then
+            RUST_TRIPLE="x86_64-unknown-linux-musl"
+            # Set RUSTFLAGS *per-target* via the CARGO_TARGET_<TRIPLE>_RUSTFLAGS
+            # env var, NOT the global RUSTFLAGS. A global RUSTFLAGS leaks into
+            # the host build of proc-macros (which are dylibs and break with
+            # +crt-static), causing errors like
+            #   "cannot produce proc-macro for `async-trait` as the target
+            #    `x86_64-unknown-linux-gnu` does not support these crate types"
+            # on the host-native fallback path.
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static"
+            # OpenSSL on musl: the openssl-sys crate's build script needs to
+            # find a musl-built libssl. We don't ship one, so prefer the
+            # vendored copy (compiled from source by the openssl-sys build
+            # script). Honored by openssl-sys >= 0.9.78.
+            export OPENSSL_STATIC="${OPENSSL_STATIC:-1}"
+            export PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}"
+            log_info "  Using musl-static target: ${RUST_TRIPLE}"
+            if ! command -v musl-gcc >/dev/null 2>&1; then
+                log_warn "  musl-gcc not found on PATH — crates with C deps may fail to link."
+                log_warn "  Install with: sudo apt-get install -y musl-tools  (Debian/Ubuntu)"
+                log_warn "             or: sudo dnf install -y musl-gcc        (Fedora)"
+            fi
+        fi
+
+        if command -v rustup >/dev/null 2>&1; then
+            # Always ensure a default toolchain is set. A fresh rustup
+            # install with --no-modify-path (the path setup.sh takes) does
+            # NOT configure one unless --default-toolchain was passed —
+            # and even if it was, an older rustup that was already on the
+            # system may be in a half-configured state. The command is
+            # cheap and idempotent: if `stable` is already the default
+            # rustup just re-links it. The previous "only run if default
+            # is empty" gate didn't work because rustup prints its error
+            # to stdout, which made the `grep -q '\S'` guard match.
+            log_info "Ensuring rustup default toolchain is set to stable…"
+            rustup default stable >/tmp/iora-rustup-default.log 2>&1 || \
+                log_warn "rustup default stable failed (see /tmp/iora-rustup-default.log — last 10 lines below)"
+            [ -f /tmp/iora-rustup-default.log ] && \
+                tail -n 10 /tmp/iora-rustup-default.log 2>/dev/null | sed 's/^/    /' || true
+            rustup target add "${RUST_TRIPLE}" >/dev/null 2>&1 || true
+        fi
+
+        # Use -p <package> instead of --bin: each IORA service lives in its
+        # own workspace crate of the same name, so -p is unambiguous and
+        # also builds the crate's *lib* dependencies in the right order.
+        local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
+        export CARGO_TARGET_DIR
+        : >/tmp/iora-cargo-build.log
+        local CARGO_LOG_DIR="/tmp/iora-cargo-logs"
+        rm -rf "${CARGO_LOG_DIR}"
+        mkdir -p "${CARGO_LOG_DIR}"
+
+        # Build each service INDIVIDUALLY so a single broken crate (e.g.
+        # iora-supervisor failing to typecheck after an unrelated refactor)
+        # doesn't stop the other 8 from being embedded. Missing binaries
+        # are caught below and only those services fail
+        # ConditionPathExists at boot — the rest come up.
+        local built_ok=""
+        local built_fail=""
+        for entry in ${SERVICES} ${CLI_TOOLS}; do
+            # CLI_TOOLS entries are `package:binary` pairs, SERVICES are bare
+            # package names. Strip the optional `:binary` suffix to get the
+            # crate name for `cargo build -p`.
+            local svc="${entry%%:*}"
+            local svc_log="${CARGO_LOG_DIR}/${svc}.log"
+            log_info "  cargo build -p ${svc} --release --target ${RUST_TRIPLE}"
+            local svc_triple="${RUST_TRIPLE}"
+            if ( cd "${BACKEND_DIR}" && \
+                 cargo build --release --target "${svc_triple}" -p "${svc}" \
+                     --message-format=short ) \
+                 >"${svc_log}" 2>&1; then
+                cat "${svc_log}" >>/tmp/iora-cargo-build.log
+                built_ok="${built_ok} ${svc}"
+                continue
+            fi
+            log_warn "    ${svc}: cross-compile failed."
+            # IMPORTANT: do NOT fall back to host-native here when AUTO_MUSL is
+            # active. A host-native build on a glibc>=2.39 host would link
+            # against GLIBC_2.39 symbols and the binary would crash at boot on
+            # the Buildroot 2024.02 target (glibc 2.38). Better to surface the
+            # failure so the user can either install OpenSSL/musl deps, or
+            # re-run with IORA_BUILD_BACKEND=docker.
+            if [ "${_IORA_AUTO_MUSL:-0}" = "1" ]; then
+                log_warn "    ${svc}: BUILD FAILED (musl) — first 5 errors:"
+                grep -m 5 -E "^error" "${svc_log}" 2>/dev/null \
+                    | sed 's/^/        /' || true
+                log_warn "    Hint: re-run with IORA_BUILD_BACKEND=docker to use the"
+                log_warn "          Alpine-based builder (musl + openssl pre-installed)."
+                built_fail="${built_fail} ${svc}"
+                continue
+            fi
+            log_warn "    ${svc}: trying host-native fallback…"
+            if ( cd "${BACKEND_DIR}" && \
+                 cargo build --release -p "${svc}" --message-format=short ) \
+                 >>"${svc_log}" 2>&1; then
+                cat "${svc_log}" >>/tmp/iora-cargo-build.log
+                # Remember that this one built for the host triple only.
+                built_ok="${built_ok} ${svc}:hostnative"
+            else
+                cat "${svc_log}" >>/tmp/iora-cargo-build.log
+                log_warn "    ${svc}: BUILD FAILED — first 5 errors:"
+                grep -m 5 -E "^error" "${svc_log}" 2>/dev/null \
+                    | sed 's/^/        /' || true
+                built_fail="${built_fail} ${svc}"
+            fi
+        done
+
+        if [ -n "${built_fail}" ]; then
+            log_warn "The following services did NOT compile:${built_fail}"
+            log_warn "Per-crate logs in ${CARGO_LOG_DIR}/<svc>.log"
+            log_warn "Combined log: /tmp/iora-cargo-build.log"
+            log_warn "The image will still be produced — failed services will stay INACTIVE on boot."
+            log_warn "Fix the compile errors in backend/<svc>/ and re-run the build."
+        fi
+
+        local failed=0
+        for svc in ${SERVICES}; do
+            local dest="${OVERLAY}/${svc}/bin"
+            mkdir -p "${dest}"
+
+            local src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${svc}"
+            local src_host="${CARGO_TARGET_DIR}/release/${svc}"
+            local src=""
+            if [ -f "${src_cross}" ]; then
+                src="${src_cross}"
+            elif [ -f "${src_host}" ]; then
+                src="${src_host}"
+            fi
+
+            if [ -n "${src}" ]; then
+                install -m 0755 "${src}" "${dest}/${svc}"
+                rm -f "${dest}/.keep"
+                log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
+            else
+                log_warn "  ${svc}: no binary produced (see above)."
+                rm -f "${dest}/${svc}"
+                failed=$((failed + 1))
+            fi
+        done
+
+        if [ "${failed}" -gt 0 ]; then
+            log_warn "${failed} service binary/binaries missing after cargo build."
+            log_warn "The resulting image will still boot; those services will stay INACTIVE"
+            log_warn "(ConditionPathExists on /opt/iora/build/<svc>/bin/<svc> will fail)."
+        else
+            log_success "All IORA service binaries embedded in rootfs overlay (native build)."
+        fi
+
+        # ── CLI tools → /usr/bin ───────────────────────────────────────────
+        local cli_dest="${SCRIPT_DIR}/board/iora/rootfs-overlay/usr/bin"
+        mkdir -p "${cli_dest}"
+        for entry in ${CLI_TOOLS}; do
+            local cli="${entry%%:*}"
+            local bin="${entry##*:}"
+            local cli_src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${bin}"
+            local cli_src_host="${CARGO_TARGET_DIR}/release/${bin}"
+            local cli_src=""
+            if [ -f "${cli_src_cross}" ]; then
+                cli_src="${cli_src_cross}"
+            elif [ -f "${cli_src_host}" ]; then
+                cli_src="${cli_src_host}"
+            fi
+            if [ -n "${cli_src}" ]; then
+                install -m 0755 "${cli_src}" "${cli_dest}/${bin}"
+                log_success "  ${cli} → /usr/bin/${bin}"
+            else
+                log_warn "  ${cli}: not built (CLI tool unavailable on target)"
+            fi
+        done
+
+        # ── glibc symbol audit ─────────────────────────────────────────────
+        # Last-line-of-defence: scan every produced binary for GLIBC version
+        # tags newer than what Buildroot 2024.02 ships (2.38). If found, the
+        # binary will crash at boot — try to auto-recover by rebuilding the
+        # offending services in Docker (Alpine/musl), where they get linked
+        # against musl-libc and produce no GLIBC version tags at all.
+        if command -v objdump >/dev/null 2>&1; then
+            local _too_new=""
+            local _too_new_svcs=""
+            for svc in ${SERVICES}; do
+                local _bin="${OVERLAY}/${svc}/bin/${svc}"
+                [ -f "${_bin}" ] || continue
+                local _max
+                _max="$(objdump -T "${_bin}" 2>/dev/null \
+                    | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
+                    | sort -uV | tail -n 1 || true)"
+                if [ -n "${_max}" ]; then
+                    local _ver="${_max#GLIBC_}"
+                    if awk -v v="${_ver}" 'BEGIN { exit !(v+0 > 2.38) }'; then
+                        _too_new="${_too_new} ${svc}(${_max})"
+                        _too_new_svcs="${_too_new_svcs} ${svc}"
+                    fi
+                fi
+            done
+            if [ -n "${_too_new}" ]; then
+                log_warn "GLIBC compatibility AUDIT FAILED:${_too_new}"
+                log_warn "These binaries reference glibc symbols newer than the target's 2.38."
+                log_warn "They WILL crash at boot with 'GLIBC_2.XX not found'."
+                # Attempt automatic recovery via the Docker/Alpine builder.
+                # This rebuilds ONLY the affected services in a musl-linked
+                # environment so the rest of the build (which already passed
+                # the audit) is not redone.
+                if [ "${IORA_GLIBC_AUDIT_NO_RECOVER:-0}" != "1" ] \
+                    && command -v docker >/dev/null 2>&1 \
+                    && [ -f "${BACKEND_DIR}/Dockerfile" ]; then
+                    log_warn "Auto-recovery: rebuilding affected services in Docker (Alpine/musl)…"
+                    if iora_docker_rebuild_services "${_too_new_svcs}"; then
+                        # Re-audit after recovery so the build status reflects reality.
+                        local _still_bad=""
+                        for svc in ${_too_new_svcs}; do
+                            local _bin="${OVERLAY}/${svc}/bin/${svc}"
+                            [ -f "${_bin}" ] || { _still_bad="${_still_bad} ${svc}(missing)"; continue; }
+                            local _max
+                            _max="$(objdump -T "${_bin}" 2>/dev/null \
+                                | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
+                                | sort -uV | tail -n 1 || true)"
+                            if [ -n "${_max}" ]; then
+                                local _ver="${_max#GLIBC_}"
+                                if awk -v v="${_ver}" 'BEGIN { exit !(v+0 > 2.38) }'; then
+                                    _still_bad="${_still_bad} ${svc}(${_max})"
+                                fi
+                            fi
+                        done
+                        if [ -z "${_still_bad}" ]; then
+                            log_success "GLIBC audit OK after Docker recovery — all binaries safe."
+                        else
+                            log_warn "GLIBC audit STILL FAILED after Docker recovery:${_still_bad}"
+                            if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                                log_error "IORA_GLIBC_AUDIT_FATAL=1 — aborting."
+                                return 1
+                            fi
+                        fi
+                    else
+                        log_warn "Docker recovery failed; binaries WILL crash at boot."
+                        if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                            log_error "IORA_GLIBC_AUDIT_FATAL=1 — aborting."
+                            return 1
+                        fi
+                    fi
+                else
+                    log_warn "Docker not available for auto-recovery."
+                    log_warn "Re-run with IORA_BUILD_BACKEND=docker, or install Docker."
+                    if [ "${IORA_GLIBC_AUDIT_FATAL:-0}" = "1" ]; then
+                        log_error "IORA_GLIBC_AUDIT_FATAL=1 is set — aborting build."
+                        return 1
+                    fi
+                fi
+            else
+                log_success "GLIBC audit OK — every binary stays within glibc 2.38 symbol set."
+            fi
+        fi
+
+        return 0
+    fi
+
+    # We reach here when either cargo is unavailable OR auto-detect chose the
+    # Docker path because of a host/target glibc mismatch. Only warn about
+    # missing cargo if we genuinely tried to use it (not when Docker was the
+    # explicit choice all along).
+    if [ "${_IORA_BUILD_BACKEND}" != "docker" ]; then
+        log_warn "cargo STILL not found after auto-install attempt."
+        log_warn "Install the Rust toolchain manually (https://rustup.rs) and re-run the build,"
+        log_warn "or set IORA_AUTO_INSTALL_RUST=1 and ensure curl is available."
+    fi
+
+    # ── Strategy 2: legacy Docker builder image ─────────────────────────────
+    if [ ! -f "${BACKEND_DIR}/Dockerfile" ]; then
+        log_warn "backend/Dockerfile not found at ${BACKEND_DIR}; cannot use Docker fallback."
+        log_warn "Install rustc + cargo on the build host (e.g. 'sudo apt install cargo' or rustup),"
+        log_warn "OR install docker, then re-run ./build.sh."
+        log_warn "Without binaries, native IORA services will NOT start on boot."
+        return 0
+    fi
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log_warn "Neither cargo nor docker available on build host."
+        log_warn "Install the Rust toolchain (https://rustup.rs) and re-run the build."
+        log_warn "Without binaries, native IORA services will NOT start on boot."
+        return 0
+    fi
+
+    log_info "Pre-compiling IORA service binaries via Docker builder image..."
+    log_info "Backend source: ${BACKEND_DIR}"
+
+    local BUILDER_TAG="iora-builder-tmp:$(date +%s)"
+
+    # Optional cache-busting flags. Set IORA_DOCKER_NOCACHE=1 if a previous
+    # build cached an older Dockerfile/source layout and you want to force
+    # rebuild everything from scratch. IORA_DOCKER_PULL=1 also re-pulls the
+    # base image (rust:1.77-alpine) in case the registry has updates.
+    local _docker_extra=""
+    if [ "${IORA_DOCKER_NOCACHE:-0}" = "1" ]; then
+        _docker_extra="${_docker_extra} --no-cache"
+        log_info "  IORA_DOCKER_NOCACHE=1 → using --no-cache"
+    fi
+    if [ "${IORA_DOCKER_PULL:-0}" = "1" ]; then
+        _docker_extra="${_docker_extra} --pull"
+        log_info "  IORA_DOCKER_PULL=1 → using --pull"
+    fi
+
+    # Build the compilation stage only (--target builder) — avoids running
+    # the runtime stages and is much faster on repeat builds if layer cache hits.
+    # --progress=plain forces BuildKit to stream RUN stdout/stderr inline,
+    # so cargo errors are visible (otherwise BuildKit hides them on success).
+    log_info "docker build --target builder ${_docker_extra}..."
+    # shellcheck disable=SC2086
+    if ! docker build \
+            --progress=plain \
+            ${_docker_extra} \
+            --target builder \
+            --tag "${BUILDER_TAG}" \
+            --file "${BACKEND_DIR}/Dockerfile" \
+            "${BACKEND_DIR}"; then
+        log_warn "Failed to build iora-builder image; skipping binary embedding."
+        return 0
+    fi
+
+    # Diagnostic: list what actually got produced in the builder image so a
+    # path mismatch (target/release/ vs target/<triple>/release/) or a
+    # silently-failed cargo build is immediately visible instead of showing
+    # up as 20 generic "binary not found" warnings further down.
+    log_info "Builder image artefacts:"
+    docker run --rm "${BUILDER_TAG}" sh -c '
+        if [ -d /out ]; then
+            echo "  /out:"
+            ls -la /out 2>/dev/null | sed "s/^/    /" | head -n 40
+        fi
+        for d in /app/backend/target/release /app/backend/target/*/release; do
+            [ -d "$d" ] || continue
+            echo "  $d:"
+            find "$d" -maxdepth 1 -type f -executable -printf "    %f (%s bytes)\n" 2>/dev/null \
+                | head -n 40
+        done' 2>&1 | sed 's/^/    /' || true
+
+    local failed=0
+
+    for svc in ${SERVICES}; do
+        local dest="${OVERLAY}/${svc}/bin"
+        mkdir -p "${dest}"
+
+        log_info "  Extracting ${svc}..."
+        # The builder Dockerfile copies all produced binaries to /out/ inside
+        # the builder image (so they survive the cargo cache mount). Try /out
+        # first, then fall back to the legacy target/ paths for older images.
+        if docker run --rm "${BUILDER_TAG}" sh -c "\
+                cat /out/${svc} 2>/dev/null \
+             || cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
+             || cat /app/backend/target/release/${svc} 2>/dev/null" \
+                > "${dest}/${svc}" 2>/dev/null \
+           && [ -s "${dest}/${svc}" ]; then
+            chmod +x "${dest}/${svc}"
+            log_success "  ${svc}: $(du -h "${dest}/${svc}" | cut -f1)"
+        else
+            log_warn "  ${svc}: binary not found in builder image (service may not be compiled yet)"
+            rm -f "${dest}/${svc}"
+            failed=$((failed + 1))
+        fi
+    done
+
+    # Extract CLI tools to /usr/bin in the rootfs overlay.
+    local cli_dest="${SCRIPT_DIR}/board/iora/rootfs-overlay/usr/bin"
+    mkdir -p "${cli_dest}"
+    for entry in ${CLI_TOOLS}; do
+        local cli="${entry%%:*}"
+        local bin="${entry##*:}"
+        if docker run --rm "${BUILDER_TAG}" sh -c "\
+                cat /out/${bin} 2>/dev/null \
+             || cat /app/backend/target/x86_64-unknown-linux-musl/release/${bin} 2>/dev/null \
+             || cat /app/backend/target/release/${bin} 2>/dev/null" \
+                > "${cli_dest}/${bin}" 2>/dev/null \
+           && [ -s "${cli_dest}/${bin}" ]; then
+            chmod +x "${cli_dest}/${bin}"
+            log_success "  ${cli} → /usr/bin/${bin}"
+        else
+            rm -f "${cli_dest}/${bin}"
+            log_warn "  ${cli}: not extracted (CLI tool unavailable)"
+        fi
+    done
+
+    # Clean up the temporary builder image
+    docker rmi "${BUILDER_TAG}" >/dev/null 2>&1 || true
+
+    if [ "${failed}" -gt 0 ]; then
+        log_warn "${failed} service binary/binaries could not be extracted."
+        log_warn "On-device first boot will fail for those services."
+    else
+        log_success "All IORA service binaries embedded in rootfs overlay."
+    fi
+}
+
+# Build a specific subset of services in Docker (Alpine/musl) and extract the
+# resulting binaries into the rootfs overlay. Used as auto-recovery when the
+# native cargo build produces glibc-2.39 binaries that would crash at boot.
+# Args: $1 = space-separated list of service names
+iora_docker_rebuild_services() {
+    local svcs="$1"
+    [ -z "${svcs}" ] && return 0
+
+    local BUILDER_TAG="iora-builder-recover:$(date +%s)"
+    log_info "  docker build --target builder (recovery)…"
+    if ! docker build --progress=plain --target builder \
+            --tag "${BUILDER_TAG}" \
+            --file "${BACKEND_DIR}/Dockerfile" \
+            "${BACKEND_DIR}"; then
+        log_warn "  Docker recovery build failed (image build error)."
+        docker rmi "${BUILDER_TAG}" >/dev/null 2>&1 || true
+        return 1
+    fi
+
+    local extracted=0
+    for svc in ${svcs}; do
+        local dest="${OVERLAY}/${svc}/bin"
+        mkdir -p "${dest}"
+        # Prefer /out/ (persisted past the cargo cache mount), fall back to
+        # legacy target/ paths for older Dockerfile variants.
+        if docker run --rm "${BUILDER_TAG}" sh -c "\
+                cat /out/${svc} 2>/dev/null \
+             || cat /app/backend/target/x86_64-unknown-linux-musl/release/${svc} 2>/dev/null \
+             || cat /app/backend/target/release/${svc} 2>/dev/null" \
+                > "${dest}/${svc}" 2>/dev/null \
+           && [ -s "${dest}/${svc}" ]; then
+            chmod +x "${dest}/${svc}"
+            log_success "  ${svc}: rebuilt via Docker ($(du -h "${dest}/${svc}" | cut -f1))"
+            extracted=$((extracted + 1))
+        else
+            log_warn "  ${svc}: Docker recovery produced no binary"
+            rm -f "${dest}/${svc}"
+        fi
+    done
+    docker rmi "${BUILDER_TAG}" >/dev/null 2>&1 || true
+    [ "${extracted}" -gt 0 ]
 }
 
 create_iso_image() {
@@ -665,10 +1418,32 @@ fi
 
 mkdir -p /mnt/iso /mnt/target /tmp /run
 
-# Load modules
-for mod in cdrom sr_mod iso9660 loop isofs sd_mod ahci virtio_blk virtio_pci vfat fat nls_cp437 nls_iso8859_1 nls_utf8; do
+# Load modules — include both VirtIO (Proxmox/KVM) and VMware SCSI drivers.
+# VMware Workstation/ESXi uses LSI Logic Parallel SCSI (mptspi) by default
+# for virtual disks and CD-ROMs.  Without mptspi the SCSI CD-ROM never appears
+# as /dev/sr0 and the installer silently fails to find the payload.
+# mpt3sas covers LSI SAS adapters; vmw_pvscsi covers the VMware Paravirtual
+# SCSI option; ata_piix handles VMware's emulated Intel IDE controller.
+for mod in \
+    scsi_mod cdrom sr_mod sd_mod \
+    iso9660 isofs loop \
+    ahci libahci libata \
+    ata_piix \
+    mptspi mpt3sas mpt2sas \
+    vmw_pvscsi \
+    virtio_blk virtio_pci virtio_scsi \
+    vfat fat nls_cp437 nls_iso8859_1 nls_utf8; do
     modprobe "$mod" 2>/dev/null || true
 done
+
+# Give the kernel a moment to enumerate SCSI/SATA devices after loading
+# the host-bus adapters above.  Without this brief pause the CD-ROM block
+# device (/dev/sr0) may not yet be present when mount_iso() runs.
+sleep 2
+# Trigger a BusyBox mdev rescan if available (populates /dev from sysfs).
+if command -v mdev >/dev/null 2>&1; then
+    mdev -s 2>/dev/null || true
+fi
 
 # ── Configuration ──────────────────────────────────────────────────
 ISO_MOUNT="/mnt/iso"
@@ -678,7 +1453,11 @@ PAYLOAD_BOOTABLE="unknown"
 PAYLOAD_LAYOUT="unknown"
 PAYLOAD_BOOT_MODE="unknown"
 MIN_DISK_GB=8
-BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
+if [ -f /etc/iora/os-dev-mode ]; then
+    BACKTITLE="IORA OS Installer  *** DEV BUILD — INTERNAL USE ONLY ***"
+else
+    BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
+fi
 IORA_HOSTNAME="iora"
 IORA_TIMEZONE="Europe/Berlin"
 IORA_NETWORK="dhcp"
@@ -999,6 +1778,17 @@ mount_iso() {
         [ -b "$dev" ] || continue
         mount -t iso9660 -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || \
             mount -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
+        [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ] && return 0
+        umount "${ISO_MOUNT}" 2>/dev/null || true
+    done
+    # Whole-disk block devices: when the installer ISO is written to a USB
+    # stick with `dd`, the ISO9660 filesystem sits directly on the whole
+    # disk (e.g. /dev/sda), not on a partition.  The pattern /dev/sd*[0-9]
+    # below requires a trailing digit and would miss /dev/sda.  Try all
+    # whole-disk SCSI/USB and VirtIO devices with iso9660 first.
+    for dev in /dev/sd[a-z] /dev/sd[a-z][a-z] /dev/vd[a-z] /dev/vd[a-z][a-z]; do
+        [ -b "$dev" ] || continue
+        mount -t iso9660 -o ro "$dev" "${ISO_MOUNT}" 2>/dev/null || continue
         [ -f "${ISO_MOUNT}/${ISO_IMAGE}" ] && return 0
         umount "${ISO_MOUNT}" 2>/dev/null || true
     done
@@ -1350,6 +2140,14 @@ repair_disk_and_bootloader() {
     fi
     log_r "Kernel: ${kernel_path}"
 
+    # If the rootfs we just installed is a DEV build, surface that in
+    # the GRUB menu titles so a quick reboot shows it loud and clear.
+    local _menu_suffix=""
+    if [ -f "${target}/etc/iora/os-dev-mode" ]; then
+        _menu_suffix=" — DEV BUILD (INTERNAL)"
+        log_r "DEV build detected — GRUB titles will be marked"
+    fi
+
     # NOTE: grub.cfg is NOT shell. GRUB's `search` command does NOT
     # support --partuuid, and tokens like `2>/dev/null` or `|| true`
     # cause "syntax error / Incorrect command". Use --fs-uuid and the
@@ -1370,36 +2168,36 @@ insmod linux
 insmod echo
 insmod all_video
 
-menuentry "IORA OS" {
+menuentry "IORA OS${_menu_suffix}" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/bzImage root=${root_a_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
-menuentry "IORA OS (second slot)" {
+menuentry "IORA OS (second slot)${_menu_suffix}" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/bzImage root=${root_b_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
-menuentry "IORA OS Recovery" {
+menuentry "IORA OS Recovery${_menu_suffix}" {
     search --no-floppy --set=root --fs-uuid ${fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+        linux /boot/vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+        linux /vmlinuz root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
     elif [ -f /boot/bzImage ]; then
-        linux /boot/bzImage root=${root_a_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+        linux /boot/bzImage root=${root_a_ref} rootwait rw rootfstype=ext4 init=/bin/sh
     fi
 }
 GRUBCFG
@@ -1868,6 +2666,12 @@ install_bootloader_fallback() {
         _root_b="$_part_b"
     fi
 
+    # Mirror the DEV-build suffix from the primary grub.cfg writer above.
+    local _menu_suffix2=""
+    if [ -f "${target}/etc/iora/os-dev-mode" ]; then
+        _menu_suffix2=" — DEV BUILD (INTERNAL)"
+    fi
+
     # Respect any LUKS-specific grub.cfg the encryption path already wrote.
     # NOTE: GRUB's `search` accepts --fs-uuid, NOT --partuuid. Shell tokens
     # like `2>/dev/null` or `|| true` are syntax errors in grub.cfg, and
@@ -1891,30 +2695,30 @@ insmod linux
 insmod echo
 insmod all_video
 
-menuentry "IORA OS" {
+menuentry "IORA OS${_menu_suffix2}" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${_root_a} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
-menuentry "IORA OS (Partition B)" {
+menuentry "IORA OS (Partition B)${_menu_suffix2}" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_b:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /boot/vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 nomodeset quiet
+        linux /vmlinuz root=${_root_b} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
     fi
 }
 
-menuentry "IORA OS Recovery" {
+menuentry "IORA OS Recovery${_menu_suffix2}" {
     search --no-floppy --set=root --fs-uuid ${_fsuuid_a:-00000000-0000-0000-0000-000000000000}
     if [ -f /boot/vmlinuz ]; then
-        linux /boot/vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 nomodeset init=/bin/bash
+        linux /boot/vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 init=/bin/bash
     elif [ -f /vmlinuz ]; then
-        linux /vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 nomodeset init=/bin/bash
+        linux /vmlinuz root=${_root_a} rootwait rw rootfstype=ext4 init=/bin/bash
     fi
 }
 GRUBCFG
@@ -1959,6 +2763,110 @@ EFIREDIR
     return "$boot_ok"
 }
 
+# ── Password hashing helper ────────────────────────────────────────
+# Set $user's password in $target/etc/shadow using the first hashing
+# backend that works in the current installer environment. Tries, in
+# order: mkpasswd, openssl passwd, python3 crypt, busybox cryptpw,
+# chroot+chpasswd, chroot+passwd via expect-less stdin. Returns 0
+# only when /etc/shadow actually contains the new hashed entry.
+iora_hash_password() {
+    local pw="$1"
+    local salt hash
+    salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 \
+           | tr -d ' \n' | cut -c1-16)
+    [ -z "$salt" ] && salt="iorainstaller"
+
+    # 1) mkpasswd (whois package on Debian/Ubuntu installers)
+    if command -v mkpasswd >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | mkpasswd -m sha-512 -s -S "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    # 2) openssl passwd -6 (SHA-512)
+    if command -v openssl >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+        # Older openssl: try -1 (MD5)
+        hash=$(printf '%s' "$pw" | openssl passwd -1 -stdin -salt "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    # 3) python3 crypt
+    if command -v python3 >/dev/null 2>&1; then
+        hash=$(PW="$pw" SALT="$salt" python3 -c '
+import crypt, os, sys
+try:
+    h = crypt.crypt(os.environ["PW"], crypt.mksalt(crypt.METHOD_SHA512))
+except Exception:
+    h = crypt.crypt(os.environ["PW"], "$6$" + os.environ["SALT"])
+sys.stdout.write(h or "")
+' 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    # 4) busybox cryptpw
+    if command -v cryptpw >/dev/null 2>&1; then
+        hash=$(printf '%s' "$pw" | cryptpw -m sha512 -S "$salt" 2>/dev/null)
+        [ -n "$hash" ] && { printf '%s' "$hash"; return 0; }
+    fi
+
+    return 1
+}
+
+iora_set_account_password() {
+    local target="$1"
+    local user="$2"
+    local pw="$3"
+    local shadow="${target}/etc/shadow"
+    [ -f "$shadow" ] || return 1
+    [ -z "$user" ] && return 1
+    [ -z "$pw" ] && return 1
+
+    local hash
+    hash=$(iora_hash_password "$pw") || hash=""
+
+    if [ -n "$hash" ]; then
+        # Rewrite the user's shadow line atomically. Use awk+FS=: to
+        # avoid sed quoting pitfalls with the '$6$...' hash content.
+        local tmp="${shadow}.iora.tmp"
+        USER="$user" HASH="$hash" awk -F: -v OFS=: '
+            BEGIN { u=ENVIRON["USER"]; h=ENVIRON["HASH"] }
+            $1==u { $2=h; if ($3=="" || $3=="0") $3=19000 }
+            { print }
+        ' "$shadow" > "$tmp" 2>/dev/null && mv "$tmp" "$shadow" 2>/dev/null
+        chmod 0640 "$shadow" 2>/dev/null || true
+        if grep -q "^${user}:\$" "$shadow" 2>/dev/null; then
+            : # empty password still — fall through to chroot attempt
+        elif grep -q "^${user}:[!*]" "$shadow" 2>/dev/null; then
+            : # locked — fall through
+        else
+            # Verify the hash is actually there.
+            if grep -q "^${user}:[^:]\{8,\}:" "$shadow" 2>/dev/null; then
+                return 0
+            fi
+        fi
+    fi
+
+    # Last-resort fallback: chroot into target and use chpasswd/passwd.
+    # Requires /bin/sh inside the target; the IORA rootfs always has it.
+    if [ -x "${target}/usr/sbin/chpasswd" ] || [ -x "${target}/usr/bin/chpasswd" ]; then
+        # Bind-mount /dev, /proc, /sys so PAM/chpasswd work.
+        local did_dev=false did_proc=false did_sys=false
+        [ ! -e "${target}/dev/null" ] && mount --bind /dev "${target}/dev" 2>/dev/null && did_dev=true
+        [ ! -e "${target}/proc/self" ] && mount --bind /proc "${target}/proc" 2>/dev/null && did_proc=true
+        [ ! -e "${target}/sys/class" ] && mount --bind /sys "${target}/sys" 2>/dev/null && did_sys=true
+        printf '%s:%s\n' "$user" "$pw" \
+            | chroot "$target" /bin/sh -c 'chpasswd 2>/dev/null || passwd' >/dev/null 2>&1
+        local rc=$?
+        $did_dev  && umount "${target}/dev"  2>/dev/null || true
+        $did_proc && umount "${target}/proc" 2>/dev/null || true
+        $did_sys  && umount "${target}/sys"  2>/dev/null || true
+        [ $rc -eq 0 ] && grep -q "^${user}:[^:!*]\{8,\}:" "$shadow" 2>/dev/null && return 0
+    fi
+
+    return 1
+}
+
 # ── Post-install configuration ─────────────────────────────────────
 apply_post_install_config() {
     local disk="$1"
@@ -1995,13 +2903,20 @@ apply_post_install_config() {
         echo "$IORA_TIMEZONE" > "${target}/etc/timezone" 2>/dev/null || true
     fi
 
-    # Set root password if changed
+    # Set root password if changed.
+    # openssl may be missing in minimal installer environments and
+    # `sed -i` can silently fail if /etc/shadow has unusual line
+    # endings → account would stay with empty/locked password and
+    # the user's chosen password wouldn't work at login. Use the
+    # robust helper which tries mkpasswd / openssl / python3 / busybox
+    # cryptpw / chroot+chpasswd and verifies the shadow update.
     if [ -n "$IORA_ROOT_PW" ]; then
-        local salt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
-        local hash=$(echo "$IORA_ROOT_PW" | openssl passwd -6 -stdin -salt "$salt" 2>/dev/null || true)
-        if [ -n "$hash" ] && [ -f "${target}/etc/shadow" ]; then
-            sed -i "s|^root:[^:]*:|root:${hash}:|" "${target}/etc/shadow" 2>/dev/null || true
-        fi
+        iora_set_account_password "$target" "root" "$IORA_ROOT_PW" \
+            || dlg_msg " Password Warning " "\
+ Could not set the root password on the target disk.\n\
+ Login will fall back to the default password.\n\n\
+ You can reset it later from the installer's\n\
+ Repair menu (Reset root password)."
     fi
 
     # Create an additional user account (Ubuntu/Debian-style)
@@ -2015,12 +2930,18 @@ apply_post_install_config() {
             echo "${IORA_USER}:x:${uid}:${gid}:${IORA_USER_FULLNAME:-${IORA_USER}}:/home/${IORA_USER}:/bin/sh" \
                 >> "${target}/etc/passwd"
             echo "${IORA_USER}:x:${gid}:" >> "${target}/etc/group" 2>/dev/null || true
-            local uhash='!'  # Locked by default
+            # Create the shadow entry with a locked placeholder; the
+            # real hash (if any) is applied immediately after via the
+            # shared helper which handles the hashing fallbacks and
+            # verifies the result.
+            echo "${IORA_USER}:!:19000:0:99999:7:::" >> "${target}/etc/shadow" 2>/dev/null || true
             if [ -n "$IORA_USER_PW" ]; then
-                local usalt=$(head -c 16 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n' | head -c 16)
-                uhash=$(echo "$IORA_USER_PW" | openssl passwd -6 -stdin -salt "$usalt" 2>/dev/null || echo '!')
+                iora_set_account_password "$target" "$IORA_USER" "$IORA_USER_PW" \
+                    || dlg_msg " Password Warning " "\
+ Could not set the password for '${IORA_USER}'.\n\
+ The account has been created but is LOCKED.\n\
+ Use 'passwd ${IORA_USER}' after first boot to set it."
             fi
-            echo "${IORA_USER}:${uhash}:19000:0:99999:7:::" >> "${target}/etc/shadow" 2>/dev/null || true
             mkdir -p "${target}/home/${IORA_USER}" 2>/dev/null || true
             if [ -d "${target}/etc/skel" ]; then
                 cp -a "${target}/etc/skel/." "${target}/home/${IORA_USER}/" 2>/dev/null || true
@@ -2042,18 +2963,33 @@ apply_post_install_config() {
         fi
     fi
 
-    # Configure static network if chosen
+    # Configure network (IPv4 + IPv6). Use 10-static so it wins over the
+    # build-in 90-iora-wired-default.network fallback.
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
         mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
-        cat > "${target}/etc/systemd/network/10-static.network" <<NETEOF
-[Match]
-Name=eth* en*
-
-[Network]
-Address=${IORA_IP}/${IORA_NETMASK:-24}
-Gateway=${IORA_GATEWAY:-}
-DNS=${IORA_DNS:-8.8.8.8}
-NETEOF
+        rm -f "${target}/etc/systemd/network/eth0.network" 2>/dev/null || true
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "Address=${IORA_IP}/${IORA_NETMASK:-24}"
+            [ -n "${IORA_GATEWAY:-}" ] && echo "Gateway=${IORA_GATEWAY}"
+            echo "DNS=${IORA_DNS:-8.8.8.8}"
+            [ -n "${IORA_DNS2:-}" ]    && echo "DNS=${IORA_DNS2}"
+            if [ -n "${IORA_IP6:-}" ]; then
+                echo "Address=${IORA_IP6}/${IORA_PREFIX6:-64}"
+                [ -n "${IORA_GATEWAY6:-}" ] && echo "Gateway=${IORA_GATEWAY6}"
+                [ -n "${IORA_DNS6:-}" ]     && echo "DNS=${IORA_DNS6}"
+                echo "IPv6AcceptRA=no"
+            else
+                echo "IPv6AcceptRA=yes"
+            fi
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-static.network"
     fi
 
     # Locale / keyboard defaults similar to common installers
@@ -2132,14 +3068,33 @@ KBDCONF
 
 INSTALLER_MODE="install"   # install | rescue | shell
 
+# True iff the running installer ISO is itself an IORA OS Dev build.
+# We use this to plaster a DEV warning on the welcome screen so a tester
+# can never confuse the dev installer with the production one.
+is_iora_dev_iso() {
+    [ -f /etc/iora/os-dev-mode ]
+}
+
 screen_welcome() {
+    local _dev_warn=""
+    if is_iora_dev_iso; then
+        _dev_warn=$(cat <<'DEVWARN'
+ ╔══════════════════════════════════════════════════════════════════╗
+ ║   *** IORA OS DEV BUILD — INTERNAL USE ONLY ***                  ║
+ ║   This installer image is NOT for production use.                ║
+ ║   Installed systems will run the OS-dev hot-reload bridge.       ║
+ ╚══════════════════════════════════════════════════════════════════╝
+
+DEVWARN
+)
+    fi
     if [ -n "$DIALOG_BIN" ]; then
         local choice
         choice=$(dlg --title " IORA OS Installer " --menu "\
- Welcome to IORA OS.\n\n\
+${_dev_warn} Welcome to IORA OS.\n\n\
  Use the arrow keys to navigate, Tab to switch\n\
  between the menu and the buttons, and Enter\n\
- to confirm your selection.\n" 20 72 4 \
+ to confirm your selection.\n" 24 72 4 \
             "install" "Install IORA OS on this computer" \
             "rescue"  "Rescue or repair an existing installation" \
             "shell"   "Drop to a rescue shell" \
@@ -2199,6 +3154,12 @@ screen_welcome() {
     else
         clear 2>/dev/null || true
         echo ""
+        if is_iora_dev_iso; then
+            echo "  *** IORA OS DEV BUILD — INTERNAL USE ONLY ***"
+            echo "  ============================================"
+            echo "  Not for production use."
+            echo ""
+        fi
         echo "  IORA OS Setup"
         echo "  ============="
         echo ""
@@ -2632,6 +3593,38 @@ screen_network() {
 
     IORA_NETWORK="$mode"
 
+    if [ "$mode" = "dhcp" ]; then
+        # Bring up the network and try to acquire a DHCP lease in the
+        # installer environment so the user can see which IP was assigned
+        # (and use it to reach the setup wizard after first boot).
+        local dhcp_ip=""
+        for _iface in /sys/class/net/*; do
+            local _ifname
+            _ifname=$(basename "$_iface")
+            [ "$_ifname" = "lo" ] && continue
+            ip link set "$_ifname" up 2>/dev/null || true
+            if udhcpc -i "$_ifname" -n -q -t 4 2>/dev/null; then
+                dhcp_ip=$(ip -4 addr show "$_ifname" 2>/dev/null \
+                    | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+                [ -n "$dhcp_ip" ] && break
+            fi
+        done
+        if [ -n "$dhcp_ip" ]; then
+            dlg_msg " Network - DHCP " "\
+ A DHCP lease was obtained in the installer environment.\n\n\
+ Current IP:  ${dhcp_ip}\n\n\
+ After installation and reboot the setup wizard will be at:\n\
+   http://${dhcp_ip}:8080\n\n\
+ The IP is also shown at the login prompt (MOTD).\n\
+ Note: DHCP may assign a different IP after reboot."
+        else
+            dlg_msg " Network - DHCP " "\
+ DHCP will be configured automatically on first boot.\n\n\
+ The assigned IP address will be shown in the MOTD\n\
+ when you log in, and at http://<IP>:8080."
+        fi
+    fi
+
     if [ "$mode" = "static" ]; then
         while true; do
             IORA_IP=$(dlg --title " Static IPv4 " --inputbox \
@@ -2674,25 +3667,36 @@ screen_network() {
 screen_password() {
     [ -z "$DIALOG_BIN" ] && return 0
 
-    local pw1 pw2
+    local pw1 pw2 rc
 
-    pw1=$(dlg --title " Root Password " --insecure --passwordbox \
-        "\n Set a new root password.\n Leave this blank to keep the default.\n" \
-        12 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
-    [ -z "$pw1" ] && return 0
+    # Loop until the user either (a) enters two matching passwords,
+    # (b) submits an empty password (keep default), or (c) cancels.
+    # Cancel returns non-zero so the wizard's cancel menu shows up
+    # (retry / back / jump / shell / reboot / abort) instead of
+    # silently advancing to the next step.
+    while true; do
+        pw1=$(dlg --title " Root Password " --insecure --passwordbox \
+            "\n Set a new root password.\n Leave this blank to keep the default.\n" \
+            12 60 3>&1 1>&2 2>&3)
+        rc=$?
+        [ $rc -ne 0 ] && return 1
+        [ -z "$pw1" ] && return 0
 
-    pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
-        "\n Enter the password again for verification.\n" \
-        10 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
+        pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
+            "\n Enter the password again for verification.\n" \
+            10 60 3>&1 1>&2 2>&3)
+        rc=$?
+        [ $rc -ne 0 ] && return 1
 
-    if [ "$pw1" != "$pw2" ]; then
-        dlg_msg " Password Mismatch " "The passwords do not match. The default password will remain active."
-        return 0
-    fi
+        if [ "$pw1" = "$pw2" ]; then
+            IORA_ROOT_PW="$pw1"
+            return 0
+        fi
 
-    IORA_ROOT_PW="$pw1"
+        dlg_msg " Password Mismatch " "\
+ The passwords do not match.\n\n\
+ Please enter the password and the confirmation again."
+    done
 }
 
 screen_user() {
@@ -2722,22 +3726,28 @@ screen_user() {
     [ $? -ne 0 ] && full=""
     IORA_USER_FULLNAME="$full"
 
-    pw1=$(dlg --title " User Password " --insecure --passwordbox \
-        "\n Password for ${IORA_USER} (min. 6 characters, empty = lock account).\n" \
-        10 60 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 0
-    if [ -n "$pw1" ]; then
+    # Loop user password entry until matched, empty (lock), or cancelled.
+    while true; do
+        pw1=$(dlg --title " User Password " --insecure --passwordbox \
+            "\n Password for ${IORA_USER} (min. 6 characters, empty = lock account).\n" \
+            10 60 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 1
+        if [ -z "$pw1" ]; then
+            IORA_USER_PW=""
+            break
+        fi
         pw2=$(dlg --title " Confirm Password " --insecure --passwordbox \
             "\n Enter the password again.\n" \
             10 60 3>&1 1>&2 2>&3)
-        [ $? -ne 0 ] && return 0
-        if [ "$pw1" != "$pw2" ]; then
-            dlg_msg " Password Mismatch " "Passwords do not match. User account will be LOCKED."
-            IORA_USER_PW=""
-        else
+        [ $? -ne 0 ] && return 1
+        if [ "$pw1" = "$pw2" ]; then
             IORA_USER_PW="$pw1"
+            break
         fi
-    fi
+        dlg_msg " Password Mismatch " "\
+ The passwords do not match.\n\n\
+ Please enter the password and the confirmation again."
+    done
 
     if dlg --title " Administrator " --yesno \
         "\n Grant ${IORA_USER} sudo (administrator) rights?\n" \
@@ -3445,19 +4455,19 @@ set timeout=5
 
 menuentry "IORA OS (encrypted)" {
     cryptomount -u ${uuid_a}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 nomodeset quiet iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
 ${initrd_line}
 }
 
 menuentry "IORA OS - second slot (encrypted)" {
     cryptomount -u ${uuid_b}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 nomodeset quiet iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_b rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on iora_slot=b cryptdevice=UUID=${uuid_b}:iora_root_b
 ${initrd_line}
 }
 
 menuentry "IORA OS Recovery (encrypted)" {
     cryptomount -u ${uuid_a}
-    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait rw rootfstype=ext4 nomodeset init=/bin/sh iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
+    linux /boot/vmlinuz root=/dev/mapper/iora_root_a rootwait rw rootfstype=ext4 init=/bin/sh iora_slot=a cryptdevice=UUID=${uuid_a}:iora_root_a
 ${initrd_line}
 }
 LUKSGRUB
@@ -3594,12 +4604,12 @@ set timeout=5
 
 menuentry "IORA OS" {
     search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
-    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 nomodeset quiet
+    linux /boot/vmlinuz root=${root_ref} rootwait ro rootfstype=ext4 loglevel=4 systemd.show_status=true printk.devkmsg=on
 }
 
 menuentry "IORA OS Recovery" {
     search --no-floppy --fs-uuid --set=root ${root_uuid:-0000}
-    linux /boot/vmlinuz root=${root_ref} rootwait rw rootfstype=ext4 nomodeset init=/bin/sh
+    linux /boot/vmlinuz root=${root_ref} rootwait rw rootfstype=ext4 init=/bin/sh
 }
 GRUBCFG
 
@@ -3872,11 +4882,12 @@ screen_install() {
 
 screen_complete() {
     # Determine expected IP address
-    local iora_ip="<IP>"
+    local iora_ip=""
+    local ip_note=""
     if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
         iora_ip="$IORA_IP"
     else
-        # Try to guess from first active interface
+        # Try to read current DHCP lease from any active interface
         for iface in /sys/class/net/*; do
             local name=$(basename "$iface")
             [ "$name" = "lo" ] && continue
@@ -3886,23 +4897,29 @@ screen_complete() {
                 break
             fi
         done
-        [ "$iora_ip" = "<IP>" ] && iora_ip="${IORA_HOSTNAME}.local"
+        if [ -z "$iora_ip" ]; then
+            iora_ip="${IORA_HOSTNAME}.local"
+            ip_note="  (IP not yet known — check MOTD after login)"
+        else
+            ip_note="  (DHCP — may differ after reboot)"
+        fi
     fi
 
     if [ -n "$DIALOG_BIN" ]; then
         local action
-                action=$(dlg --title " Setup Complete " --menu "\
+        action=$(dlg --title " Setup Complete " --menu "\
  IORA OS has been written to /dev/${SEL_DISK}.
 
- Next step after reboot:
+ Setup wizard URL after reboot:
      http://${iora_ip}:8080
+${ip_note}
 
  First-boot settings:
      Hostname: ${IORA_HOSTNAME}
      Timezone: ${IORA_TIMEZONE}
 
  Remove the installation media before continuing.\n" \
-                        18 64 3 \
+                    20 66 3 \
             "reboot"   "Reboot now (recommended)" \
             "shell"    "Drop to shell" \
             "poweroff" "Shut down" \
@@ -3920,6 +4937,7 @@ screen_complete() {
         echo ""
         echo "  After rebooting, open a browser:"
         echo "    http://${iora_ip}:8080"
+        [ -n "$ip_note" ] && echo "  ${ip_note}"
         echo ""
         echo "  Remove the media and press ENTER to reboot..."
         read _
@@ -4097,10 +5115,19 @@ run_wizard() {
     done
 
     if [ "$mounted" = false ]; then
+        # Collect visible block devices to aid diagnostics.
+        local _blkdevs=""
+        for _d in /dev/sr0 /dev/sr1 /dev/cdrom /dev/sd[a-z] /dev/vd[a-z] /dev/nvme0n1; do
+            [ -b "$_d" ] && _blkdevs="${_blkdevs} $_d"
+        done
+        [ -z "$_blkdevs" ] && _blkdevs=" (none detected — VMware SCSI driver may be missing)"
         dlg_msg " Error " "\
  Could not find the IORA OS image.\n\n\
  Make sure the installer ISO or USB\n\
  is connected and contains the installer payload.\n\n\
+ Detected block devices:${_blkdevs}\n\n\
+ If running under VMware, ensure the VM SCSI adapter\n\
+ is set to LSI Logic or SATA (not BusLogic).\n\n\
  Type 'install' to retry."
         return 1
     fi
@@ -4602,6 +5629,38 @@ EOF
         return
     fi
 
+    # ── Verify that iora-os.img.xz is actually embedded in the ISO ────────────
+    # Some versions of grub-mkrescue silently omit very large files or fail to
+    # include them when underlying tools (genisoimage, mkisofs) have size or
+    # filename restrictions.  A missing payload causes "Could not find the IORA
+    # OS image" at install time.  Catch this at build time instead.
+    local payload_ok=0
+    if command -v xorriso >/dev/null 2>&1; then
+        if xorriso -indev "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                   -find / -name "iora-os.img.xz" 2>/dev/null | grep -q "iora-os.img.xz"; then
+            payload_ok=1
+        fi
+    elif command -v isoinfo >/dev/null 2>&1; then
+        if isoinfo -i "${RELEASE_DIR}/iora-os-installer-boot.iso" \
+                   -l 2>/dev/null | grep -qi "iora-os.img"; then
+            payload_ok=1
+        fi
+    else
+        # No ISO inspection tool available; trust the build succeeded.
+        log_warn "Neither xorriso nor isoinfo available; cannot verify ISO payload contents."
+        payload_ok=1
+    fi
+
+    if [ "${payload_ok}" -eq 0 ]; then
+        log_error "iora-os.img.xz is NOT embedded inside iora-os-installer-boot.iso!"
+        log_error "The installer would fail with 'Could not find the IORA OS image'."
+        log_error "This can happen with older versions of grub-mkrescue or genisoimage."
+        log_error "Install xorriso and mtools, then rebuild: sudo apt install xorriso mtools"
+        rm -f "${RELEASE_DIR}/iora-os-installer-boot.iso" 2>/dev/null || true
+        mark_skipped "iora-os-installer-boot.iso (payload iora-os.img.xz missing from ISO)"
+        return
+    fi
+
     local size
     size=$(du -h "${RELEASE_DIR}/iora-os-installer-boot.iso" | cut -f1)
     log_success "Bootable installer ISO created: iora-os-installer-boot.iso (${size})"
@@ -5089,6 +6148,13 @@ main() {
     # Run build steps
     check_dependencies
     if [ "${IMAGES_ONLY}" = false ]; then
+        # Build the React/Vite dashboard bundle and stage it in the rootfs overlay
+        # so iora-home (port 8126) can serve it instead of the embedded fallback.
+        build_frontend_bundle
+        # Pre-compile IORA service binaries and embed them in the rootfs overlay
+        # so the on-device self-build (iora-build-images.service) has binaries
+        # available without needing a compiler on the device.
+        build_service_binaries
         download_buildroot
         configure_buildroot
         build_base_image

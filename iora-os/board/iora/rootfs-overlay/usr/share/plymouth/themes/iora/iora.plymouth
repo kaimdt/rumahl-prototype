@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=IORA OS
+Description=IORA OS boot splash screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/iora
+ScriptFile=/usr/share/plymouth/themes/iora/iora.script
