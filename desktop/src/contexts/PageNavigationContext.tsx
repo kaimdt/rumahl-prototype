@@ -112,6 +112,7 @@ interface PageNavigationContextType {
   currentPageId: string
   setCurrentPageId: (id: string) => void
   pages: DashboardPage[]
+  pageMap: Map<string, DashboardPage>
   setPages: (pages: DashboardPage[]) => void
   forceSavePages: (pages: DashboardPage[]) => void
   currentPage: DashboardPage | undefined
@@ -498,6 +499,15 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   const [globalCustomCss, setGlobalCustomCssState] = useState<string>('')
   const [userCustomCss, setUserCustomCssState] = useState<string>('')
 
+  // O(1) lookup map for pages
+  const pageMap = useMemo(() => {
+    const map = new Map<string, DashboardPage>()
+    for (const p of pages) {
+      map.set(p.id, p)
+    }
+    return map
+  }, [pages])
+
   // Backend profile id (set once on init)
   const profileIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
@@ -507,7 +517,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
 
   const setCurrentPageId = useCallback((id: string) => {
     // Check if the target page is a modal page
-    const targetPage = pages.find(p => p.id === id)
+    const targetPage = pageMap.get(id)
     if (targetPage?.displayMode === 'modal') {
       setModalPageId(id)
       return
@@ -518,7 +528,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path)
     }
-  }, [pages])
+  }, [pageMap])
 
   const openModalPage = useCallback((id: string) => {
     setModalPageId(id)
@@ -660,7 +670,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
 
   // ── Migrate home page: populate with default widgets if empty ──────
   useEffect(() => {
-    const homePage = pages.find(p => p.id === 'home')
+    const homePage = pageMap.get('home')
     if (homePage && homePage.widgets.length === 0) {
       setLocalPages(pages.map(p => p.id === 'home' ? { ...p, widgets: DEFAULT_HOME_WIDGETS } : p))
     }
@@ -756,7 +766,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     return () => clearInterval(interval)
   }, [pages, setLocalPages])
 
-  const currentPage = pages.find(p => p.id === currentPageId)
+  const currentPage = pageMap.get(currentPageId)
 
   const savePageLayout = useCallback((pageId: string, layout: { cols: number; rows: number; gap: number }) => {
     setPageLayoutsState(prev => {
@@ -844,6 +854,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     currentPageId,
     setCurrentPageId,
     pages,
+    pageMap,
     setPages,
     forceSavePages,
     currentPage,
@@ -861,7 +872,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     setGlobalCustomCss,
     userCustomCss,
     setUserCustomCss,
-  }), [currentPageId, setCurrentPageId, pages, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
+  }), [currentPageId, setCurrentPageId, pages, pageMap, setPages, forceSavePages, currentPage, modalPageId, openModalPage, closeModalPage, getSubPages, pageLayouts, savePageLayout, pageSettingsState, savePageSettings, deletePageSettings, globalCustomCss, setGlobalCustomCss, userCustomCss, setUserCustomCss])
 
   return (
     <PageNavigationContext.Provider value={contextValue}>

@@ -128,7 +128,7 @@ interface PageLinkWidgetProps {
 }
 
 export default function PageLinkWidget({ config, widgetSize }: PageLinkWidgetProps) {
-  const { pages, setCurrentPageId, openModalPage, getSubPages } = usePageNavigation()
+  const { pages, pageMap, setCurrentPageId, openModalPage, getSubPages } = usePageNavigation()
   const targetPageId = config?.targetPageId as string | undefined
   const customLabel = config?.label as string | undefined
   const customColor = config?.color as string | undefined
@@ -141,8 +141,8 @@ export default function PageLinkWidget({ config, widgetSize }: PageLinkWidgetPro
   const isTall = h >= 3
 
   const targetPage = useMemo(
-    () => pages.find(p => p.id === targetPageId),
-    [pages, targetPageId]
+    () => targetPageId ? pageMap.get(targetPageId) : undefined,
+    [pageMap, targetPageId]
   )
 
   const subPages = useMemo(

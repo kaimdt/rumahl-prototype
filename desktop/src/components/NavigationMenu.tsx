@@ -24,7 +24,7 @@ const defaultStyle = { bg: 'from-foreground/10 via-foreground/8 to-foreground/10
 
 
 export function NavigationMenu({ hidden }: { hidden?: boolean }) {
-  const { currentPageId, setCurrentPageId, pages, getSubPages, openModalPage } = usePageNavigation()
+  const { currentPageId, setCurrentPageId, pages, pageMap, getSubPages, openModalPage } = usePageNavigation()
   const { sleepMode, setSleepMode, theme } = useTheme()
   const { user } = useAuth()
   const { latestNotification, dismissLatestNotification } = useNotifications()
@@ -61,10 +61,10 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const visiblePages = pages.filter(p => p.showInNav !== false && p.id !== 'settings' && !p.parentPageId && !appMenuPageIds.includes(p.id))
   // For app menu, use pages if they exist, or fall back to built-in entries
   const appMenuPages = builtInAppEntries.map(entry => {
-    const existing = pages.find(p => p.id === entry.id)
+    const existing = pageMap.get(entry.id)
     return existing || { id: entry.id, name: entry.name, icon: entry.icon, widgets: [], showInNav: true, order: 997 } as any
   })
-  const settingsPage = pages.find(p => p.id === 'settings')
+  const settingsPage = pageMap.get('settings')
 
   // Show max 5 pages in compact mode
   const compactPageLimit = 5
@@ -72,7 +72,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const hasMorePages = visiblePages.length > compactPageLimit
 
   const handlePageSelect = useCallback((id: string) => {
-    const page = pages.find(p => p.id === id)
+    const page = pageMap.get(id)
     if (page?.displayMode === 'modal') {
       openModalPage(id)
     } else {
@@ -80,7 +80,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
     }
     setShowAllPages(false)
     setExpandedParent(null)
-  }, [setCurrentPageId, openModalPage, pages])
+  }, [setCurrentPageId, openModalPage, pageMap])
 
   const handleParentToggle = useCallback((parentId: string) => {
     setExpandedParent(prev => prev === parentId ? null : parentId)

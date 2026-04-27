@@ -150,8 +150,8 @@ export function PageWidgetEditor({
   pageId,
   availableEntities,
 }: PageWidgetEditorProps) {
-  const { pages, setPages } = usePageNavigation()
-  const page = pages.find((p) => p.id === pageId)
+  const { pages, pageMap, setPages } = usePageNavigation()
+  const page = pageMap.get(pageId)
   const [showAddWidget, setShowAddWidget] = useState(false)
   const [selectedType, setSelectedType] = useState<DashboardWidget['type']>('light')
   const [selectedEntity, setSelectedEntity] = useState<string>('')
