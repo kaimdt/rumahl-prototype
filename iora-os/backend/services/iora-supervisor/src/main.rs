@@ -969,6 +969,27 @@ async fn get_developer_mode_status(data: web::Data<AppState>) -> impl Responder 
     }))
 }
 
+/// Remove Developer App when Developer Mode is disabled
+async fn remove_developer_app(docker: &Docker) -> Result<(), Box<dyn std::error::Error>> {
+    const DEVELOPER_APP_CONTAINER: &str = "iora-app-io.iora.developer-app";
+
+    info!("Stopping Developer App container...");
+    let _ = docker.stop_container(DEVELOPER_APP_CONTAINER, None).await;
+
+    info!("Removing Developer App container...");
+    let _ = docker.remove_container(
+        DEVELOPER_APP_CONTAINER,
+        Some(bollard::container::RemoveContainerOptions {
+            force: true,
+            v: false, // Keep data volumes
+            ..Default::default()
+        }),
+    ).await;
+
+    info!("Developer App removed successfully");
+    Ok(())
+}
+
 /// Auto-install Developer App if not present
 async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn std::error::Error>> {
     const DEVELOPER_APP_ID: &str = "io.iora.developer-app";
@@ -1116,7 +1137,7 @@ async fn toggle_developer_mode(
 
     info!("Developer Mode {}", if enabled { "enabled" } else { "disabled" });
 
-    // Auto-install Developer App if enabling Developer Mode
+    // Auto-install or uninstall Developer App based on mode
     if enabled {
         info!("Auto-installing Developer App...");
         if let Err(e) = ensure_developer_app_installed(&data.docker).await {
@@ -1127,6 +1148,12 @@ async fn toggle_developer_mode(
                 "error": "Failed to install Developer App",
                 "details": e.to_string()
             }));
+        }
+    } else {
+        info!("Uninstalling Developer App...");
+        if let Err(e) = remove_developer_app(&data.docker).await {
+            error!("Failed to uninstall Developer App: {}", e);
+            // We don't return an error here, just log it, so that the mode toggle still succeeds
         }
     }
 
