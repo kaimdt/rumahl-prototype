@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
-import { ConnectionProvider } from '@/contexts/ConnectionContext'
+import { ConnectionProvider, useConnection } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
 import { EntityDiscoveryProvider, useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
@@ -21,6 +21,7 @@ import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotific
 import { PageDesigner } from '@/components/PageDesigner'
 import { CustomPageRenderer } from '@/components/CustomPageRenderer'
 import { SettingsPage } from '@/components/SettingsPage'
+import { SimpleDashboard } from '@/components/SimpleDashboard'
 // Share page for the Apps & Features app menu
 import { SharePage } from './components/SharePage'
 import { DynamicBackground } from '@/components/DynamicBackground'
@@ -111,6 +112,7 @@ function DashboardContent() {
   const [globalCardStyle] = useLocalStorage('ha-global-card-style', 'default')
   const { entities, loading, refresh } = useEntityStore()
   const warningLevel = useWarningLevel()
+  const { homeAssistant: haConnectionStatus, lastHACheck } = useConnection()
 
   // Apply global card style class on <html> so it covers portals/modals/dialogs
   useEffect(() => {
@@ -140,25 +142,22 @@ function DashboardContent() {
   const lastEvalRef = useRef(0)
   const hasActiveCustomBackground = Boolean(background?.is_active)
 
-  // Whether IORA Home has Home Assistant configured. On a fresh install
-  // (HA URL/token not yet entered) the Overview page is replaced with a
-  // "IORA Home not configured" placeholder so widgets don't try to render
-  // empty entity lists. Settings + Admin Control Center remain reachable.
+  // Whether IORA Home has Home Assistant configured and enabled.
   const [haConfigured, setHaConfigured] = useState<boolean | null>(null)
+  const [haEnabled, setHaEnabled] = useState<boolean>(true)
   useEffect(() => {
     let cancelled = false
     const refreshHaStatus = () => {
       fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
         .then(r => (r.ok ? r.json() : null))
-        .then((data: { configured?: boolean } | null) => {
+        .then((data: { configured?: boolean; enabled?: boolean } | null) => {
           if (cancelled || !data) return
           setHaConfigured(Boolean(data.configured))
+          setHaEnabled(data.enabled !== false)
         })
         .catch(() => { if (!cancelled) setHaConfigured(false) })
     }
     refreshHaStatus()
-    // Re-check whenever the user navigates back to the home page so
-    // entering HA credentials in Settings is reflected immediately.
     const onFocus = () => refreshHaStatus()
     window.addEventListener('focus', onFocus)
     return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
@@ -544,61 +543,34 @@ function DashboardContent() {
           </header>
 
           <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32">
-          {/*
-            Only block the home page on the entity-loading skeleton.
-            Admin / Settings / Apps & Features and other non-home pages must remain
-            usable even when Home Assistant is unreachable or still loading, since
-            they are needed to actually configure / repair the HA connection.
-          */}
-          {loading && currentPageId === 'home' && haConfigured !== false ? (
-            <DashboardSkeleton />
-          ) : (
-            <div className="space-y-6">
-              {currentPageId === 'home' && haConfigured === false && (
-                <div className="page-transition-enter">
-                  <div className="max-w-2xl mx-auto mt-8 sm:mt-16 px-4">
-                    <div className="glass-card rounded-2xl p-8 sm:p-12 text-center space-y-6">
-                      <div className="mx-auto w-16 h-16 rounded-full bg-accent/15 flex items-center justify-center">
-                        <Sparkle size={32} weight="duotone" className="text-accent" />
-                      </div>
-                      <div className="space-y-3">
-                        <h2 className="text-2xl font-semibold tracking-tight">IORA Home ist noch nicht eingerichtet</h2>
-                        <p className="text-sm text-foreground/60 leading-relaxed max-w-md mx-auto">
-                          Es ist noch keine Home-Assistant-Verbindung konfiguriert. Du kannst das Admin Control Center und die Einstellungen weiterhin nutzen, um IORA zu konfigurieren — die Übersicht erscheint, sobald Home Assistant verbunden ist.
-                        </p>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-                        <button
-                          className="btn btn-primary px-5 py-2.5 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 transition"
-                          onClick={() => setCurrentPageId('settings')}
-                        >
-                          Einstellungen öffnen
-                        </button>
-                        <button
-                          className="btn btn-secondary px-5 py-2.5 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/15 transition"
-                          onClick={() => setCurrentPageId('admin')}
-                        >
-                          Admin Control Center
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+          {(() => {
+            const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
+            // If HA is disabled, not configured, or offline for a long time, we show the Simple Dashboard.
+            // AND we should show it instead of any custom or HA dashboard page!
+            const isDashboardPage = currentPageId !== 'settings' && currentPageId !== 'admin' && currentPageId !== 'docs' && currentPageId !== 'share' && currentPageId !== 'streaming'
+            const showSimpleDashboard = isDashboardPage && (!haEnabled || haConfigured === false || isHAOfflineForLong)
 
-              {currentPageId === 'home' && haConfigured !== false && filteredHomePage && (
-                <CustomPageRenderer
-                  page={filteredHomePage}
-                  entities={entities}
-                  onUpdate={refresh}
-                  userName={userName}
-                  weatherEntity={weatherEntity}
-                  lightEntities={lightEntities}
-                  hideTitle
-                />
-              )}
+            if (loading && isDashboardPage && !showSimpleDashboard) {
+              return <DashboardSkeleton />
+            }
 
-              {currentPageId === 'lights' && lightEntities.length > 0 && (
+            return (
+              <div className="space-y-6">
+                {showSimpleDashboard && <SimpleDashboard />}
+
+                {currentPageId === 'home' && !showSimpleDashboard && filteredHomePage && (
+                  <CustomPageRenderer
+                    page={filteredHomePage}
+                    entities={entities}
+                    onUpdate={refresh}
+                    userName={userName}
+                    weatherEntity={weatherEntity}
+                    lightEntities={lightEntities}
+                    hideTitle
+                  />
+                )}
+
+              {currentPageId === 'lights' && !showSimpleDashboard && lightEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Beleuchtung</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
@@ -615,7 +587,7 @@ function DashboardContent() {
                 </div>
               )}
 
-              {currentPageId === 'climate' && climateEntities.length > 0 && (
+              {currentPageId === 'climate' && !showSimpleDashboard && climateEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Klima</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
@@ -631,7 +603,7 @@ function DashboardContent() {
                 </div>
               )}
 
-              {currentPageId === 'switches' && switchEntities.length > 0 && (
+              {currentPageId === 'switches' && !showSimpleDashboard && switchEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Schalter</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
@@ -647,7 +619,7 @@ function DashboardContent() {
                 </div>
               )}
 
-              {currentPageId === 'sensors' && sensorEntities.length > 0 && (
+              {currentPageId === 'sensors' && !showSimpleDashboard && sensorEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Sensoren</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
@@ -706,7 +678,7 @@ function DashboardContent() {
                 <StreamSender />
               )}
               {/* TODO: Music Player Page */}
-              {currentPageId === 'music' && (
+              {currentPageId === 'music' && !showSimpleDashboard && (
                 <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
                   {mediaPlayerEntities.length > 0 ? (
@@ -727,7 +699,7 @@ function DashboardContent() {
                   )}
                 </div>
               )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming', 'share'].includes(currentPageId) && currentPage && (
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming', 'share'].includes(currentPageId) && currentPage && !showSimpleDashboard && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}
@@ -737,8 +709,9 @@ function DashboardContent() {
                   lightEntities={lightEntities}
                 />
               )}
-            </div>
-          )}
+              </div>
+            )
+          })()}
         </main>
         </div>
       </div>

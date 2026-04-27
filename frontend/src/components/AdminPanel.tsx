@@ -511,6 +511,18 @@ export function AdminPanel() {
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>(() => adminPathToTab(window.location.pathname))
   const [expandedGroup, setExpandedGroup] = useState<string>('core')
+  const [haEnabled, setHaEnabled] = useState<boolean>(true)
+
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data && data.enabled !== undefined) {
+          setHaEnabled(data.enabled)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   if (!token) return null
 
@@ -548,6 +560,7 @@ export function AdminPanel() {
           </div>
           <div className="space-y-4">
             {tabGroups.map(group => {
+                if (group.id === 'home' && !haEnabled) return null
               const GroupIcon = group.icon
               const isExpanded = expandedGroup === group.id
               return (
