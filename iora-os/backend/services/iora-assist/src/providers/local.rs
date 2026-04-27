@@ -1,5 +1,5 @@
 // Local AI Provider Implementation (Ollama, LM Studio, LocalAI)
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, SpeechSynthesis};
+use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -39,31 +39,90 @@ struct LocalChatResponse {
     done: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct OllamaTagsResponse {
+    #[serde(default)]
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModel {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiModelsResponse {
+    data: Vec<OpenAiModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiModel {
+    id: String,
+}
+
 #[async_trait]
 impl AIProvider for LocalAIProvider {
     fn name(&self) -> &str {
         "LocalAI"
     }
 
+    fn provider_id(&self) -> &str {
+        "local"
+    }
+
+    fn capabilities(&self) -> &'static [&'static str] {
+        &["chat", "stt", "tts", "models"]
+    }
+
     async fn is_available(&self) -> bool {
         if let Some(base_url) = &self.config.base_url {
-            // Try to ping the local AI server
-            if let Ok(response) = self.client
-                .get(format!("{}/api/tags", base_url))
-                .send()
-                .await
-            {
-                return response.status().is_success();
+            let base_url = base_url.trim_end_matches('/');
+            for path in ["/v1/models", "/api/tags"] {
+                if let Ok(response) = self.client.get(format!("{}{}", base_url, path)).send().await {
+                    if response.status().is_success() {
+                        return true;
+                    }
+                }
             }
         }
         false
+    }
+
+    async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
+        let base_url = self.config.base_url.as_ref()
+            .ok_or("Local AI base URL not configured")?;
+        let base_url = base_url.trim_end_matches('/');
+
+        if let Ok(response) = self.client.get(format!("{}/v1/models", base_url)).send().await {
+            if response.status().is_success() {
+                let payload: OpenAiModelsResponse = response.json().await?;
+                return Ok(payload.data.into_iter().map(|model| ProviderModel {
+                    id: model.id.clone(),
+                    name: model.id,
+                    provider: "local".to_string(),
+                }).collect());
+            }
+        }
+
+        let response = self.client.get(format!("{}/api/tags", base_url)).send().await?;
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("Local AI model discovery failed: {}", error_text).into());
+        }
+
+        let payload: OllamaTagsResponse = response.json().await?;
+        Ok(payload.models.into_iter().map(|model| ProviderModel {
+            id: model.name.clone(),
+            name: model.name,
+            provider: "local".to_string(),
+        }).collect())
     }
 
     async fn chat(
         &self,
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
-    ) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ChatResponse, ProviderError> {
         let base_url = self.config.base_url.as_ref()
             .ok_or("Local AI base URL not configured")?;
 
@@ -118,7 +177,7 @@ impl AIProvider for LocalAIProvider {
         &self,
         audio_data: Vec<u8>,
         format: &str,
-    ) -> Result<AudioTranscription, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<AudioTranscription, ProviderError> {
         let base_url = self.config.base_url.as_ref()
             .ok_or("Local AI base URL not configured")?;
 
@@ -163,7 +222,7 @@ impl AIProvider for LocalAIProvider {
         &self,
         text: &str,
         voice: Option<&str>,
-    ) -> Result<SpeechSynthesis, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<SpeechSynthesis, ProviderError> {
         let base_url = self.config.base_url.as_ref()
             .ok_or("Local AI base URL not configured")?;
 

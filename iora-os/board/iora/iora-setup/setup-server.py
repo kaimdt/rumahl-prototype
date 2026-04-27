@@ -808,6 +808,7 @@ def apply_config(config):
             db_envs = {
                 "/etc/iora/iora-core.env":     "iora_core",
                 "/etc/iora/iora-home.env":     "iora_home",
+              "/etc/iora/iora-assist.env":   "iora_assist",
                 "/etc/iora/iora-secrets.env":  "iora_secrets",
                 "/etc/iora/iora-security.env": "iora_security",
             }

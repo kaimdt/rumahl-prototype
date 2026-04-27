@@ -1,5 +1,5 @@
 // Desktop AI Provider Implementation (via IORA Desktop client)
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, SpeechSynthesis};
+use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -41,10 +41,28 @@ struct DesktopChoice {
     message: DesktopChatMessage,
 }
 
+#[derive(Debug, Deserialize)]
+struct DesktopModelsResponse {
+    data: Vec<DesktopModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DesktopModel {
+    id: String,
+}
+
 #[async_trait]
 impl AIProvider for DesktopAIProvider {
     fn name(&self) -> &str {
         "DesktopAI"
+    }
+
+    fn provider_id(&self) -> &str {
+        "desktop"
+    }
+
+    fn capabilities(&self) -> &'static [&'static str] {
+        &["chat", "stt", "tts", "models"]
     }
 
     async fn is_available(&self) -> bool {
@@ -61,16 +79,48 @@ impl AIProvider for DesktopAIProvider {
         false
     }
 
+    async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
+        let base_url = self.config.base_url.as_ref()
+            .ok_or("Desktop AI base URL not configured")?;
+
+        let mut req_builder = self.client
+            .get(format!("{}/v1/models", base_url.trim_end_matches('/')));
+
+        if let Some(api_key) = &self.config.api_key {
+            req_builder = req_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let response = req_builder.send().await?;
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("Desktop AI model discovery failed: {}", error_text).into());
+        }
+
+        let payload: DesktopModelsResponse = response.json().await?;
+        Ok(payload.data.into_iter().map(|model| ProviderModel {
+            id: model.id.clone(),
+            name: model.id,
+            provider: "desktop".to_string(),
+        }).collect())
+    }
+
     async fn chat(
         &self,
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
-    ) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ChatResponse, ProviderError> {
         let base_url = self.config.base_url.as_ref()
             .ok_or("Desktop AI base URL not configured (should point to IORA Desktop proxy)")?;
 
-        let model = self.config.model.as_deref()
-            .unwrap_or("local-model");
+        let model = if let Some(model) = self.config.model.as_deref() {
+            model.to_string()
+        } else {
+            self.list_models().await?
+                .into_iter()
+                .next()
+                .map(|model| model.id)
+                .unwrap_or_else(|| "local-model".to_string())
+        };
 
         let mut desktop_messages = Vec::new();
 
@@ -89,7 +139,7 @@ impl AIProvider for DesktopAIProvider {
         }
 
         let request = DesktopChatRequest {
-            model: model.to_string(),
+            model,
             messages: desktop_messages,
         };
 
@@ -124,7 +174,7 @@ impl AIProvider for DesktopAIProvider {
         &self,
         audio_data: Vec<u8>,
         format: &str,
-    ) -> Result<AudioTranscription, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<AudioTranscription, ProviderError> {
         let base_url = self.config.base_url.as_ref()
             .ok_or("Desktop AI base URL not configured")?;
 
@@ -173,7 +223,7 @@ impl AIProvider for DesktopAIProvider {
         &self,
         text: &str,
         voice: Option<&str>,
-    ) -> Result<SpeechSynthesis, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<SpeechSynthesis, ProviderError> {
         let base_url = self.config.base_url.as_ref()
             .ok_or("Desktop AI base URL not configured")?;
 

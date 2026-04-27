@@ -3540,8 +3540,15 @@ ENVEOF
 cat > "${TARGET_DIR}/etc/iora/iora-api.env" <<'ENVEOF'
 PORT=8099
 RUST_LOG=info
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_assist
+ASSIST_AI_PROVIDER=desktop
 IORA_CORE_URL=http://localhost:8090
 IORA_HOME_URL=http://localhost:8126
+ASSIST_AI_MODEL=
+ORA_AI_PROVIDER=desktop
+ORA_AI_BASE_URL=
+ORA_AI_API_KEY=
+ORA_AI_MODEL=
 # SQLite file lives under /var/lib so it survives factory resets of /etc.
 # iora-api auto-creates the parent directory on first start.
 IORA_API_DB_URL=sqlite:/var/lib/iora-api/api.db?mode=rwc

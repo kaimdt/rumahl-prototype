@@ -1,7 +1,7 @@
 // Multi-Provider Orchestrator
 // Manages multiple AI providers simultaneously and routes tasks to appropriate providers
 
-use crate::providers::{AIProvider, ChatMessage, ChatResponse, AudioTranscription, SpeechSynthesis, ProviderConfig, ProviderType, create_provider};
+use crate::providers::{AIProvider, ChatMessage, ChatResponse, AudioTranscription, SpeechSynthesis, ProviderConfig, create_provider, provider_type_from_str};
 use crate::database::{DbPool, providers as db_providers};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,12 +59,8 @@ impl ProviderOrchestrator {
                     api_version: config.config["api_version"].as_str().map(|s| s.to_string()),
                 };
 
-                let provider_type = match config.provider_type.as_str() {
-                    "openai" => ProviderType::OpenAI,
-                    "anthropic" => ProviderType::Anthropic,
-                    "local" => ProviderType::Local,
-                    "desktop" => ProviderType::Desktop,
-                    _ => continue,
+                let Some(provider_type) = provider_type_from_str(&config.provider_type) else {
+                    continue;
                 };
 
                 let provider = create_provider(provider_type, provider_config);

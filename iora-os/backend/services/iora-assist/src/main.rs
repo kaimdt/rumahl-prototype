@@ -41,8 +41,8 @@ use conversation_manager::ConversationManager;
 use tools::ToolExecutor;
 
 use providers::{
-    create_provider, AIProvider, ChatMessage as ProviderChatMessage, ProviderConfig,
-    ProviderType,
+    create_provider, provider_type_from_str, AIProvider, ChatMessage as ProviderChatMessage,
+    ProviderConfig, ProviderModel, ProviderType,
 };
 
 #[derive(Clone)]
@@ -208,14 +208,32 @@ struct SynthesizeRequest {
 async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     let provider = state.current_provider.read().await;
     let provider_available = provider.is_available().await;
+    let db_available = state.db.is_some();
+    let degraded_reasons: Vec<&str> = [
+        if !provider_available { Some("ai_provider_unavailable") } else { None },
+        if !db_available { Some("database_unavailable") } else { None },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let status = if provider_available && db_available {
+        "healthy"
+    } else if provider_available || db_available {
+        "degraded"
+    } else {
+        "unhealthy"
+    };
 
     Json(serde_json::json!({
         "service": "iora-assist",
-        "status": "healthy",
+        "status": status,
         "uptime_seconds": state.started_at.elapsed().as_secs(),
         "timestamp": Utc::now().to_rfc3339(),
         "ai_provider": provider.name(),
+        "ai_provider_id": provider.provider_id(),
         "ai_available": provider_available,
+        "database_available": db_available,
+        "degraded_reasons": degraded_reasons,
         "capabilities": {
             "chat": true,
             "voice_input": true,
@@ -223,6 +241,30 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
             "live_audio": true,
         }
     }))
+}
+
+async fn execute_chat_with_fallback(
+    state: &AppState,
+    messages: Vec<ProviderChatMessage>,
+    system_prompt: String,
+) -> Result<(providers::ChatResponse, bool), String> {
+    let provider = state.current_provider.read().await;
+    let provider_available = provider.is_available().await;
+    if provider_available {
+        return provider
+            .chat(messages, Some(system_prompt))
+            .await
+            .map(|response| (response, false))
+            .map_err(|e| e.to_string());
+    }
+    drop(provider);
+
+    state
+        .orchestrator
+        .execute_chat(messages, Some(system_prompt), None)
+        .await
+        .map(|response| (response, true))
+        .map_err(|e| format!("Current provider unavailable and fallback failed: {}", e))
 }
 
 async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> impl IntoResponse {
@@ -234,20 +276,6 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         timestamp: Utc::now().to_rfc3339(),
     };
     state.history.write().await.push(user_msg);
-
-    // Get AI provider
-    let provider = state.current_provider.read().await;
-
-    if !provider.is_available().await {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "AI provider not available",
-                "provider": provider.name(),
-                "message": "The configured AI provider is not available. Please check configuration and connectivity.",
-            })),
-        );
-    }
 
     // Convert history to provider format
     let messages: Vec<ProviderChatMessage> = state
@@ -279,9 +307,10 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         system_prompt.push_str(VOICE_MODE_PROMPT_SUFFIX);
     }
 
-    // Call AI provider
-    match provider.chat(messages, Some(system_prompt)).await {
-        Ok(response) => {
+    // Call AI provider, falling back to any configured orchestrator provider
+    // when the currently selected provider is unavailable.
+    match execute_chat_with_fallback(&state, messages, system_prompt).await {
+        Ok((response, used_fallback_provider)) => {
             // Parse structured task commands out of the AI response
             let (after_task_cmd, maybe_cmd) =
                 task_resolver::TaskResolver::parse_ai_response(&response.message);
@@ -380,6 +409,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                     "message": clean_response,
                     "model": response.model,
                     "provider": response.provider,
+                    "used_fallback_provider": used_fallback_provider,
                     "tokens_used": response.tokens_used,
                     "message_id": assistant_msg.id,
                     "timestamp": assistant_msg.timestamp,
@@ -393,7 +423,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         Err(e) => {
             error!("AI provider error: {}", e);
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({
                     "error": "AI provider request failed",
                     "details": e.to_string(),
@@ -496,38 +526,98 @@ async fn get_providers(State(state): State<AppState>) -> Json<serde_json::Value>
     let current_provider = state.current_provider.read().await;
     let current_name = current_provider.name();
     let current_available = current_provider.is_available().await;
+    let current_models = current_provider.list_models().await.unwrap_or_default();
+
+    let mut configured_providers = Vec::new();
+    if let Some(db) = state.db.as_ref() {
+        if let Ok(rows) = database::providers::get_all_enabled_providers(db).await {
+            for row in rows {
+                let Some(provider_type) = provider_type_from_str(&row.provider_type) else {
+                    continue;
+                };
+                let cfg = ProviderConfig {
+                    api_key: row.config.get("api_key").and_then(|v| v.as_str()).map(str::to_string),
+                    base_url: row.config.get("base_url").and_then(|v| v.as_str()).map(str::to_string),
+                    model: row.config.get("model").and_then(|v| v.as_str()).map(str::to_string),
+                    api_version: row.config.get("api_version").and_then(|v| v.as_str()).map(str::to_string),
+                };
+                let provider = create_provider(provider_type, cfg.clone());
+                let available = provider.is_available().await;
+                let models = provider.list_models().await.unwrap_or_else(|_| {
+                    cfg.model.clone().map(|model| vec![ProviderModel {
+                        id: model.clone(),
+                        name: model,
+                        provider: provider.provider_id().to_string(),
+                    }]).unwrap_or_default()
+                });
+                configured_providers.push(serde_json::json!({
+                    "id": row.id,
+                    "provider_type": row.provider_type,
+                    "purpose": row.purpose,
+                    "priority": row.priority,
+                    "enabled": row.enabled,
+                    "name": provider.name(),
+                    "provider_id": provider.provider_id(),
+                    "available": available,
+                    "capabilities": provider.capabilities(),
+                    "models": models,
+                    "selected_model": cfg.model,
+                    "base_url": cfg.base_url,
+                }));
+            }
+        }
+    }
 
     Json(serde_json::json!({
         "current": {
             "name": current_name,
+            "id": current_provider.provider_id(),
             "available": current_available,
+            "capabilities": current_provider.capabilities(),
+            "models": current_models,
         },
         "available_providers": [
             {
                 "name": "OpenAI",
                 "id": "openai",
-                "capabilities": ["chat", "stt", "tts"],
+                "capabilities": ["chat", "stt", "tts", "models"],
                 "requires_api_key": true,
             },
             {
                 "name": "Anthropic",
                 "id": "anthropic",
-                "capabilities": ["chat"],
+                "capabilities": ["chat", "models"],
                 "requires_api_key": true,
+            },
+            {
+                "name": "Custom API",
+                "id": "compatible",
+                "capabilities": ["chat", "stt", "tts", "models"],
+                "requires_api_key": false,
+                "description": "OpenAI-compatible APIs over LAN/WAN, including shared local gateways.",
             },
             {
                 "name": "LocalAI",
                 "id": "local",
-                "capabilities": ["chat", "stt", "tts"],
+                "capabilities": ["chat", "stt", "tts", "models"],
                 "requires_api_key": false,
             },
             {
                 "name": "DesktopAI",
                 "id": "desktop",
-                "capabilities": ["chat", "stt", "tts"],
+                "capabilities": ["chat", "stt", "tts", "models"],
                 "requires_api_key": false,
+                "description": "Fetches all OpenAI-compatible models from the active IORA Desktop local AI proxy (e.g. LM Studio).",
+            },
+            {
+                "name": "pi.dev",
+                "id": "pidev",
+                "capabilities": ["chat", "stt", "tts", "models"],
+                "requires_api_key": false,
+                "description": "pi.dev endpoint via OpenAI-compatible API or webhook-backed integration.",
             },
         ],
+        "configured_providers": configured_providers,
     }))
 }
 
@@ -535,20 +625,14 @@ async fn switch_provider(
     State(state): State<AppState>,
     Json(req): Json<ProviderSwitchRequest>,
 ) -> impl IntoResponse {
-    let provider_type = match req.provider.to_lowercase().as_str() {
-        "openai" => ProviderType::OpenAI,
-        "anthropic" => ProviderType::Anthropic,
-        "local" | "localai" => ProviderType::Local,
-        "desktop" | "desktopai" => ProviderType::Desktop,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Invalid provider",
-                    "message": format!("Unknown provider: {}", req.provider),
-                })),
-            );
-        }
+    let Some(provider_type) = provider_type_from_str(&req.provider) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Invalid provider",
+                "message": format!("Unknown provider: {}", req.provider),
+            })),
+        );
     };
 
     let config = req.config.unwrap_or_default();
@@ -564,7 +648,9 @@ async fn switch_provider(
         Json(serde_json::json!({
             "success": true,
             "provider": provider.name(),
+            "provider_id": provider.provider_id(),
             "available": available,
+            "models": provider.list_models().await.unwrap_or_default(),
         })),
     )
 }
@@ -848,21 +934,25 @@ async fn analyze_video(
 
 fn load_config_from_env() -> (ProviderType, ProviderConfig) {
     let provider_type = std::env::var("ORA_AI_PROVIDER")
+        .or_else(|_| std::env::var("ASSIST_AI_PROVIDER"))
         .unwrap_or_else(|_| "local".to_string())
         .to_lowercase();
 
-    let provider = match provider_type.as_str() {
-        "openai" => ProviderType::OpenAI,
-        "anthropic" | "claude" => ProviderType::Anthropic,
-        "desktop" => ProviderType::Desktop,
-        _ => ProviderType::Local,
-    };
+    let provider = provider_type_from_str(&provider_type).unwrap_or(ProviderType::Local);
 
     let config = ProviderConfig {
-        api_key: std::env::var("ORA_AI_API_KEY").ok(),
-        base_url: std::env::var("ORA_AI_BASE_URL").ok(),
-        model: std::env::var("ORA_AI_MODEL").ok(),
-        api_version: std::env::var("ORA_AI_API_VERSION").ok(),
+        api_key: std::env::var("ORA_AI_API_KEY")
+            .ok()
+            .or_else(|| std::env::var("ASSIST_AI_API_KEY").ok()),
+        base_url: std::env::var("ORA_AI_BASE_URL")
+            .ok()
+            .or_else(|| std::env::var("ASSIST_AI_BACKEND_URL").ok()),
+        model: std::env::var("ORA_AI_MODEL")
+            .ok()
+            .or_else(|| std::env::var("ASSIST_AI_MODEL").ok()),
+        api_version: std::env::var("ORA_AI_API_VERSION")
+            .ok()
+            .or_else(|| std::env::var("ASSIST_AI_API_VERSION").ok()),
     };
 
     (provider, config)

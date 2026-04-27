@@ -1,5 +1,5 @@
 // OpenAI Provider Implementation
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, SpeechSynthesis};
+use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -7,14 +7,54 @@ use serde::{Deserialize, Serialize};
 pub struct OpenAIProvider {
     client: Client,
     config: ProviderConfig,
+    provider_id: &'static str,
+    display_name: &'static str,
+    default_base_url: &'static str,
+    default_model: &'static str,
 }
 
 impl OpenAIProvider {
     pub fn new(config: ProviderConfig) -> Self {
+        Self::with_defaults(config, "openai", "OpenAI", "https://api.openai.com/v1", "gpt-4o-mini")
+    }
+
+    pub fn new_compatible(config: ProviderConfig) -> Self {
+        Self::with_defaults(config, "compatible", "Custom API", "", "gpt-4o-mini")
+    }
+
+    pub fn new_pidev(config: ProviderConfig) -> Self {
+        Self::with_defaults(config, "pidev", "pi.dev", "", "gpt-4o-mini")
+    }
+
+    fn with_defaults(
+        config: ProviderConfig,
+        provider_id: &'static str,
+        display_name: &'static str,
+        default_base_url: &'static str,
+        default_model: &'static str,
+    ) -> Self {
         Self {
             client: Client::new(),
             config,
+            provider_id,
+            display_name,
+            default_base_url,
+            default_model,
         }
+    }
+
+    fn base_url(&self) -> Option<&str> {
+        self.config.base_url.as_deref().or_else(|| {
+            if self.default_base_url.is_empty() {
+                None
+            } else {
+                Some(self.default_base_url)
+            }
+        })
+    }
+
+    fn selected_model(&self) -> &str {
+        self.config.model.as_deref().unwrap_or(self.default_model)
     }
 }
 
@@ -49,29 +89,84 @@ struct OpenAIUsage {
     total_tokens: u32,
 }
 
+#[derive(Debug, Deserialize)]
+struct OpenAIModelListResponse {
+    data: Vec<OpenAIModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIModel {
+    id: String,
+}
+
 #[async_trait]
 impl AIProvider for OpenAIProvider {
     fn name(&self) -> &str {
-        "OpenAI"
+        self.display_name
+    }
+
+    fn provider_id(&self) -> &str {
+        self.provider_id
+    }
+
+    fn capabilities(&self) -> &'static [&'static str] {
+        &["chat", "stt", "tts", "models"]
     }
 
     async fn is_available(&self) -> bool {
-        self.config.api_key.is_some()
+        let Some(api_key) = self.config.api_key.as_ref() else {
+            return false;
+        };
+        let Some(base_url) = self.base_url() else {
+            return false;
+        };
+
+        self.client
+            .get(format!("{}/models", base_url.trim_end_matches('/')))
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send()
+            .await
+            .map(|response| response.status().is_success())
+            .unwrap_or(false)
+    }
+
+    async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
+        let api_key = self.config.api_key.as_ref()
+            .ok_or("OpenAI-compatible API key not configured")?;
+        let base_url = self.base_url()
+            .ok_or("OpenAI-compatible base URL not configured")?;
+
+        let response = self.client
+            .get(format!("{}/models", base_url.trim_end_matches('/')))
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("{} models API error: {}", self.display_name, error_text).into());
+        }
+
+        let payload: OpenAIModelListResponse = response.json().await?;
+        Ok(payload.data.into_iter().map(|model| ProviderModel {
+            id: model.id.clone(),
+            name: model.id,
+            provider: self.provider_id.to_string(),
+        }).collect())
     }
 
     async fn chat(
         &self,
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
-    ) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ChatResponse, ProviderError> {
         let api_key = self.config.api_key.as_ref()
             .ok_or("OpenAI API key not configured")?;
 
-        let base_url = self.config.base_url.as_deref()
-            .unwrap_or("https://api.openai.com/v1");
+        let base_url = self.base_url()
+            .ok_or("OpenAI-compatible base URL not configured")?;
 
-        let model = self.config.model.as_deref()
-            .unwrap_or("gpt-4o-mini");
+        let model = self.selected_model();
 
         let mut openai_messages = Vec::new();
 
@@ -96,7 +191,7 @@ impl AIProvider for OpenAIProvider {
         };
 
         let response = self.client
-            .post(format!("{}/chat/completions", base_url))
+            .post(format!("{}/chat/completions", base_url.trim_end_matches('/')))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&request)
@@ -113,7 +208,7 @@ impl AIProvider for OpenAIProvider {
         Ok(ChatResponse {
             message: openai_response.choices[0].message.content.clone(),
             model: openai_response.model,
-            provider: "OpenAI".to_string(),
+            provider: self.display_name.to_string(),
             tokens_used: Some(openai_response.usage.total_tokens),
         })
     }
@@ -122,12 +217,12 @@ impl AIProvider for OpenAIProvider {
         &self,
         audio_data: Vec<u8>,
         format: &str,
-    ) -> Result<AudioTranscription, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<AudioTranscription, ProviderError> {
         let api_key = self.config.api_key.as_ref()
             .ok_or("OpenAI API key not configured")?;
 
-        let base_url = self.config.base_url.as_deref()
-            .unwrap_or("https://api.openai.com/v1");
+        let base_url = self.base_url()
+            .ok_or("OpenAI-compatible base URL not configured")?;
 
         let form = reqwest::multipart::Form::new()
             .text("model", "whisper-1")
@@ -139,7 +234,7 @@ impl AIProvider for OpenAIProvider {
             );
 
         let response = self.client
-            .post(format!("{}/audio/transcriptions", base_url))
+            .post(format!("{}/audio/transcriptions", base_url.trim_end_matches('/')))
             .header("Authorization", format!("Bearer {}", api_key))
             .multipart(form)
             .send()
@@ -170,12 +265,12 @@ impl AIProvider for OpenAIProvider {
         &self,
         text: &str,
         voice: Option<&str>,
-    ) -> Result<SpeechSynthesis, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<SpeechSynthesis, ProviderError> {
         let api_key = self.config.api_key.as_ref()
             .ok_or("OpenAI API key not configured")?;
 
-        let base_url = self.config.base_url.as_deref()
-            .unwrap_or("https://api.openai.com/v1");
+        let base_url = self.base_url()
+            .ok_or("OpenAI-compatible base URL not configured")?;
 
         let voice_name = voice.unwrap_or("alloy");
 
@@ -193,7 +288,7 @@ impl AIProvider for OpenAIProvider {
         };
 
         let response = self.client
-            .post(format!("{}/audio/speech", base_url))
+            .post(format!("{}/audio/speech", base_url.trim_end_matches('/')))
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&request)

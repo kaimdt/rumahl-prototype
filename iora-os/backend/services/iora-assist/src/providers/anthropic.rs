@@ -1,5 +1,5 @@
 // Anthropic Claude Provider Implementation
-use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, SpeechSynthesis};
+use super::{AIProvider, AudioTranscription, ChatMessage, ChatResponse, ProviderConfig, ProviderError, ProviderModel, SpeechSynthesis};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -57,15 +57,32 @@ impl AIProvider for AnthropicProvider {
         "Anthropic"
     }
 
+    fn provider_id(&self) -> &str {
+        "anthropic"
+    }
+
+    fn capabilities(&self) -> &'static [&'static str] {
+        &["chat", "models"]
+    }
+
     async fn is_available(&self) -> bool {
         self.config.api_key.is_some()
+    }
+
+    async fn list_models(&self) -> Result<Vec<ProviderModel>, ProviderError> {
+        let configured = self.config.model.as_deref().unwrap_or("claude-3-5-sonnet-20241022");
+        Ok(vec![ProviderModel {
+            id: configured.to_string(),
+            name: configured.to_string(),
+            provider: "anthropic".to_string(),
+        }])
     }
 
     async fn chat(
         &self,
         messages: Vec<ChatMessage>,
         system_prompt: Option<String>,
-    ) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ChatResponse, ProviderError> {
         let api_key = self.config.api_key.as_ref()
             .ok_or("Anthropic API key not configured")?;
 
@@ -129,7 +146,7 @@ impl AIProvider for AnthropicProvider {
         &self,
         _audio_data: Vec<u8>,
         _format: &str,
-    ) -> Result<AudioTranscription, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<AudioTranscription, ProviderError> {
         Err("Anthropic does not currently support native audio transcription. Use OpenAI Whisper or local STT.".into())
     }
 
@@ -137,7 +154,7 @@ impl AIProvider for AnthropicProvider {
         &self,
         _text: &str,
         _voice: Option<&str>,
-    ) -> Result<SpeechSynthesis, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<SpeechSynthesis, ProviderError> {
         Err("Anthropic does not support text-to-speech. Use OpenAI TTS or local TTS.".into())
     }
 }
