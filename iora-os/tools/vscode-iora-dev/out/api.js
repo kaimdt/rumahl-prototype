@@ -125,6 +125,7 @@ class DaemonClient {
     health() {
         return this.req('GET', '/api/v1/health');
     }
+    version() { return this.req('GET', '/api/v1/version'); }
     components() { return this.req('GET', '/api/v1/components'); }
     devices() { return this.req('GET', '/api/v1/devices'); }
     discover(timeout = 4) {
@@ -144,6 +145,15 @@ class DaemonClient {
     composeReload(svc) { return this.req('POST', '/api/v1/compose/reload', { svc }); }
     composeLogs(svc, tail = 200) {
         return this.req('POST', '/api/v1/compose/logs', { svc, tail });
+    }
+    serviceLogs(unit, tail = 200) {
+        return this.req('POST', '/api/v1/service/logs', { unit, tail });
+    }
+    systemList(path) {
+        return this.req('POST', '/api/v1/system/list', { path });
+    }
+    systemRead(path, max_bytes = 64 * 1024) {
+        return this.req('POST', '/api/v1/system/read', { path, max_bytes });
     }
     watches() { return this.req('GET', '/api/v1/watch'); }
     startWatch(opts) {

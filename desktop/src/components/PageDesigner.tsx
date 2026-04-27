@@ -1,6 +1,6 @@
 // Placeholder PageDesigner component - to be implemented
-export function PageDesigner({ show, onClose }: { show: boolean; onClose: () => void }) {
-  if (!show) return null
+export function PageDesigner({ show, isOpen, onClose, ...rest }: { show?: boolean; isOpen?: boolean; onClose: () => void; [key: string]: unknown }) {
+  if (!show && !isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm">

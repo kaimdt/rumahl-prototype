@@ -40,6 +40,7 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
 const api_1 = require("./api");
+const REQUIRED_DAEMON_FEATURES = ['device-build'];
 class DaemonManager {
     output;
     child;
@@ -48,6 +49,30 @@ class DaemonManager {
     }
     cliPath() {
         return vscode.workspace.getConfiguration('ioraDev').get('cliPath') || 'iora-dev-deploy';
+    }
+    workspaceRoot() {
+        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    }
+    workspaceCliManifest() {
+        const root = this.workspaceRoot();
+        if (!root)
+            return undefined;
+        const manifest = path.join(root, 'tools', 'iora-dev-deploy', 'Cargo.toml');
+        return fs.existsSync(manifest) ? manifest : undefined;
+    }
+    daemonSpawnSpec() {
+        const manifest = this.workspaceCliManifest();
+        if (manifest) {
+            return {
+                command: 'cargo',
+                args: ['run', '--manifest-path', manifest, '--', 'daemon', '--bind', this.bind()],
+                cwd: this.workspaceRoot(),
+            };
+        }
+        return {
+            command: this.cliPath(),
+            args: ['daemon', '--bind', this.bind()],
+        };
     }
     bind() {
         return vscode.workspace.getConfiguration('ioraDev').get('daemon.bind') || '127.0.0.1:8765';
@@ -60,7 +85,12 @@ class DaemonManager {
         // Try existing.
         let info = (0, api_1.readDaemonInfo)();
         if (info && await this.ping(info)) {
-            return new api_1.DaemonClient(info);
+            const existing = new api_1.DaemonClient(info);
+            if (await this.supportsRequiredFeatures(existing)) {
+                return existing;
+            }
+            this.output.appendLine('[daemon] existing daemon is missing required features; restarting workspace daemon');
+            await this.stopStaleDaemon(info);
         }
         if (!this.autoStart()) {
             throw new Error('Daemon not running and ioraDev.daemon.autoStart is false. Run "IORA Dev: Start Daemon" first.');
@@ -78,18 +108,18 @@ class DaemonManager {
     async start() {
         if (this.child && this.child.exitCode === null)
             return;
-        const cli = this.cliPath();
-        const args = ['daemon', '--bind', this.bind()];
-        this.output.appendLine(`$ ${cli} ${args.join(' ')}`);
+        const spec = this.daemonSpawnSpec();
+        this.output.appendLine(`$ ${spec.command} ${spec.args.join(' ')}`);
         try {
-            this.child = (0, child_process_1.spawn)(cli, args, {
+            this.child = (0, child_process_1.spawn)(spec.command, spec.args, {
                 stdio: ['ignore', 'pipe', 'pipe'],
                 detached: false,
                 shell: false,
+                cwd: spec.cwd,
             });
         }
         catch (e) {
-            throw new Error(`failed to spawn ${cli}: ${e.message ?? e}`);
+            throw new Error(`failed to spawn ${spec.command}: ${e.message ?? e}`);
         }
         this.child.stdout?.on('data', (d) => this.output.append(d.toString()));
         this.child.stderr?.on('data', (d) => this.output.append(d.toString()));
@@ -127,6 +157,36 @@ class DaemonManager {
         catch {
             return false;
         }
+    }
+    async supportsRequiredFeatures(client) {
+        try {
+            const version = await client.version();
+            const features = new Set(version.features ?? []);
+            return REQUIRED_DAEMON_FEATURES.every(feature => features.has(feature));
+        }
+        catch {
+            return false;
+        }
+    }
+    async stopStaleDaemon(info) {
+        if (this.child) {
+            this.child.kill();
+            this.child = undefined;
+        }
+        if (typeof info.pid === 'number') {
+            try {
+                process.kill(info.pid);
+            }
+            catch { }
+        }
+        const daemonFile = path.join((0, api_1.configDir)(), 'daemon.json');
+        if (fs.existsSync(daemonFile)) {
+            try {
+                fs.unlinkSync(daemonFile);
+            }
+            catch { }
+        }
+        await sleep(300);
     }
     dispose() { this.stop().catch(() => { }); }
 }

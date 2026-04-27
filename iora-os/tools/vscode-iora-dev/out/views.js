@@ -34,13 +34,80 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JobsProvider = exports.WatchesProvider = exports.ComponentsProvider = exports.DevicesProvider = void 0;
+exports.JobsProvider = exports.WatchesProvider = exports.ComponentsProvider = exports.DevicesProvider = exports.ConnectionProvider = void 0;
 const vscode = __importStar(require("vscode"));
 class BaseProvider {
     _onDidChange = new vscode.EventEmitter();
     onDidChangeTreeData = this._onDidChange.event;
     refresh() { this._onDidChange.fire(); }
 }
+class ConnectionProvider extends BaseProvider {
+    conn = null;
+    runningJobs = 0;
+    watchCount = 0;
+    bridgeBuildStatus() {
+        const supported = this.conn?.capabilities?.includes('binary.build_replace') ?? false;
+        return supported
+            ? {
+                label: 'Device bridge',
+                description: 'remote build supported',
+                tooltip: 'The connected iora-dev-bridge supports binary.build_replace for device-side builds.',
+                icon: 'check',
+            }
+            : {
+                label: 'Device bridge',
+                description: 'update required',
+                tooltip: 'The connected iora-dev-bridge does not report binary.build_replace. Update the bridge on the device before using device build mode.',
+                icon: 'warning',
+            };
+    }
+    setState(conn, jobs, watches) {
+        this.conn = conn;
+        this.runningJobs = jobs.filter(j => j.status === 'running' || j.status === 'pending').length;
+        this.watchCount = watches.length;
+        this.refresh();
+    }
+    getChildren() {
+        if (!this.conn?.host) {
+            return ['No configured IORA dev server'];
+        }
+        const reachability = this.conn.reachable === false ? 'offline' : 'connected';
+        return [
+            {
+                label: this.conn.hostname || this.conn.host,
+                description: `${this.conn.host} • ${reachability}`,
+                tooltip: `host: ${this.conn.host}\nbuild: ${this.conn.build || '?'}\nvariant: ${this.conn.variant || '?'}\nreachable: ${this.conn.reachable !== false}`,
+                icon: this.conn.reachable === false ? 'warning' : 'plug',
+            },
+            this.bridgeBuildStatus(),
+            {
+                label: 'Build mode',
+                description: vscode.workspace.getConfiguration('ioraDev').get('buildMode') || 'device',
+                tooltip: 'Current deploy/watch build mode',
+                icon: 'tools',
+            },
+            {
+                label: 'Activity',
+                description: `${this.runningJobs} running jobs • ${this.watchCount} watch sessions`,
+                tooltip: 'Current extension activity overview',
+                icon: this.runningJobs > 0 ? 'sync~spin' : 'pulse',
+            },
+        ];
+    }
+    getTreeItem(item) {
+        if (typeof item === 'string') {
+            const info = new vscode.TreeItem(item);
+            info.iconPath = new vscode.ThemeIcon('info');
+            return info;
+        }
+        const tree = new vscode.TreeItem(item.label, vscode.TreeItemCollapsibleState.None);
+        tree.description = item.description;
+        tree.tooltip = item.tooltip;
+        tree.iconPath = new vscode.ThemeIcon(item.icon);
+        return tree;
+    }
+}
+exports.ConnectionProvider = ConnectionProvider;
 // ─── Devices ──────────────────────────────────────────────────────────────
 class DevicesProvider extends BaseProvider {
     client;
@@ -106,9 +173,9 @@ class WatchesProvider extends BaseProvider {
             i.iconPath = new vscode.ThemeIcon('info');
             return i;
         }
-        const item = new vscode.TreeItem(w.components.join(', '), vscode.TreeItemCollapsibleState.None);
-        item.description = `${w.target} • since ${new Date(w.started_at).toLocaleTimeString()}`;
-        item.tooltip = `id: ${w.id}\ndebounce: ${w.debounce_ms}ms`;
+        const item = new vscode.TreeItem(w.automatic ? 'Automatic workspace mode' : w.components.join(', '), vscode.TreeItemCollapsibleState.None);
+        item.description = `${w.build_mode}${w.automatic ? ' • automatic' : ''} • ${w.target} • since ${new Date(w.started_at).toLocaleTimeString()}`;
+        item.tooltip = `id: ${w.id}\nbuild mode: ${w.build_mode}\nautomatic: ${!!w.automatic}\ndebounce: ${w.debounce_ms}ms`;
         item.iconPath = new vscode.ThemeIcon('eye');
         item.contextValue = 'watch';
         return item;

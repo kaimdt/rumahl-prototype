@@ -19,6 +19,9 @@
 //   POST /dev/service/{name}/reload  → systemctl try-reload-or-restart
 //   POST /dev/compose/{svc}/reload   → docker compose up -d --force-recreate
 //   POST /dev/compose/{svc}/logs     → tail compose logs
+//   POST /dev/service/{name}/logs    → tail journalctl logs for a unit
+//   POST /dev/fs/list                → list files/directories on the device
+//   POST /dev/fs/read                → read a file preview from the device
 //   POST /dev/replace-binary         → multipart upload, atomic swap + restart
 //
 // None of these work on a production image because the binary isn't there.
@@ -48,6 +51,11 @@ const DEV_TOKEN_FILE: &str = "/etc/iora/dev-token";
 const DEV_TOKEN_FILE_WRITABLE: &str = "/var/lib/iora/dev-token";
 const VERSION_FILE:  &str = "/etc/iora-version";
 const COMPOSE_DIR:   &str = "/mnt/data/iora";
+const REMOTE_BUILD_IMAGE: &str = "rust:1.90";
+const NODE_BUILD_IMAGE: &str = "node:20-bookworm";
+const PYTHON_BUILD_IMAGE: &str = "python:3.12-bookworm";
+const GO_BUILD_IMAGE: &str = "golang:1.24-bookworm";
+const JAVA_BUILD_IMAGE: &str = "eclipse-temurin:21-jdk";
 
 /// Resolve the path of the dev-token file, honoring `$IORA_DEV_TOKEN_FILE`
 /// when set. Without override, prefers the writable copy under /var/lib.
@@ -252,9 +260,13 @@ async fn main() -> Result<()> {
         .route("/dev/status", get(status))
         .route("/dev/service/:name/restart", post(service_restart))
         .route("/dev/service/:name/reload", post(service_reload))
+        .route("/dev/service/:name/logs", post(service_logs))
         .route("/dev/compose/:svc/reload", post(compose_reload))
         .route("/dev/compose/:svc/logs", post(compose_logs))
+        .route("/dev/fs/list", post(fs_list))
+        .route("/dev/fs/read", post(fs_read))
         .route("/dev/replace-binary", post(replace_binary))
+        .route("/dev/build-replace", post(build_replace))
         .layer(DefaultBodyLimit::max(512 * 1024 * 1024))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state.clone());
@@ -361,9 +373,14 @@ async fn status(State(s): State<AppState>) -> impl IntoResponse {
         capabilities: vec![
             "service.restart",
             "service.reload",
+            "service.logs",
             "compose.reload",
             "compose.logs",
+            "fs.list",
+            "fs.read",
+            "tooling.auto_provision",
             "binary.replace",
+            "binary.build_replace",
         ],
     })
 }
@@ -449,6 +466,134 @@ async fn compose_logs(
     run_cmd_in("docker", &args, COMPOSE_DIR).await.into_response()
 }
 
+async fn service_logs(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    body: Option<Json<LogReq>>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&s, &headers) {
+        return e.into_response();
+    }
+    if !is_allowed_unit(&name) {
+        return (StatusCode::FORBIDDEN, "unit not allowlisted".to_string()).into_response();
+    }
+    let tail = body
+        .and_then(|b| b.tail)
+        .unwrap_or(200)
+        .min(5000)
+        .to_string();
+    let args = ["-u", &name, "-n", &tail, "--no-pager", "-o", "short-iso"];
+    run_cmd("journalctl", &args).await.into_response()
+}
+
+#[derive(Deserialize)]
+struct FsPathReq {
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct FsReadReq {
+    path: String,
+    #[serde(default)]
+    max_bytes: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct FsEntry {
+    name: String,
+    path: String,
+    kind: &'static str,
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct FsListResponse {
+    path: String,
+    entries: Vec<FsEntry>,
+}
+
+#[derive(Serialize)]
+struct FsReadResponse {
+    path: String,
+    content: String,
+    bytes: usize,
+    total_bytes: usize,
+    truncated: bool,
+    binary_hint: bool,
+}
+
+async fn fs_list(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<FsPathReq>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&s, &headers) {
+        return e.into_response();
+    }
+    if !is_allowed_system_path(&body.path) {
+        return (StatusCode::FORBIDDEN, "path is not allowed".to_string()).into_response();
+    }
+    let dir_path = PathBuf::from(&body.path);
+    let mut dir = match tokio::fs::read_dir(&dir_path).await {
+        Ok(d) => d,
+        Err(e) => return (StatusCode::BAD_GATEWAY, format!("read_dir {}: {e}", dir_path.display())).into_response(),
+    };
+    let mut entries = Vec::new();
+    loop {
+        match dir.next_entry().await {
+            Ok(Some(entry)) => {
+                let path = entry.path();
+                let meta = match entry.metadata().await {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let kind = if meta.is_dir() { "dir" } else if meta.is_file() { "file" } else if meta.file_type().is_symlink() { "symlink" } else { "other" };
+                entries.push(FsEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    path: path.display().to_string(),
+                    kind,
+                    size: meta.len(),
+                });
+            }
+            Ok(None) => break,
+            Err(e) => return (StatusCode::BAD_GATEWAY, format!("iterating {}: {e}", dir_path.display())).into_response(),
+        }
+    }
+    entries.sort_by(|a, b| a.kind.cmp(b.kind).then_with(|| a.name.cmp(&b.name)));
+    Json(FsListResponse { path: body.path, entries }).into_response()
+}
+
+async fn fs_read(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<FsReadReq>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&s, &headers) {
+        return e.into_response();
+    }
+    if !is_allowed_system_path(&body.path) {
+        return (StatusCode::FORBIDDEN, "path is not allowed".to_string()).into_response();
+    }
+    let max_bytes = body.max_bytes.unwrap_or(64 * 1024).clamp(1024, 512 * 1024);
+    let path = PathBuf::from(&body.path);
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(e) => return (StatusCode::BAD_GATEWAY, format!("read {}: {e}", path.display())).into_response(),
+    };
+    let total_bytes = bytes.len();
+    let preview = &bytes[..bytes.len().min(max_bytes)];
+    let binary_hint = preview.iter().any(|b| *b == 0);
+    Json(FsReadResponse {
+        path: body.path,
+        content: String::from_utf8_lossy(preview).into_owned(),
+        bytes: preview.len(),
+        total_bytes,
+        truncated: total_bytes > preview.len(),
+        binary_hint,
+    }).into_response()
+}
+
 async fn replace_binary(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -497,64 +642,9 @@ async fn replace_binary(
         }
     }
 
-    // Atomic swap: write <target>.new, fsync, rename, restart unit.
-    let tmp = PathBuf::from(format!("{target}.new"));
-    if let Some(parent) = tmp.parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("mkdir: {e}"),
-            )
-                .into_response();
-        }
-    }
-    match tokio::fs::File::create(&tmp).await {
-        Ok(mut f) => {
-            if let Err(e) = f.write_all(&payload).await {
-                return (StatusCode::INTERNAL_SERVER_ERROR, format!("write: {e}"))
-                    .into_response();
-            }
-            if let Err(e) = f.sync_all().await {
-                return (StatusCode::INTERNAL_SERVER_ERROR, format!("fsync: {e}"))
-                    .into_response();
-            }
-        }
-        Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, format!("open: {e}"))
-                .into_response();
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
-    }
-    if let Err(e) = tokio::fs::rename(&tmp, &target).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("rename: {e}"),
-        )
-            .into_response();
-    }
-
-    let restart_result = if let Some(u) = unit {
-        if is_allowed_unit(&u) {
-            run_cmd("systemctl", &["restart", &u]).await
-        } else {
-            CmdResult {
-                ok: false,
-                code: -1,
-                stdout: String::new(),
-                stderr: "unit not allowlisted".into(),
-            }
-        }
-    } else {
-        CmdResult {
-            ok: true,
-            code: 0,
-            stdout: "no unit restart requested".into(),
-            stderr: String::new(),
-        }
+    let restart_result = match install_binary_and_restart(&target, &payload, unit.as_deref()).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
     };
 
     Json(serde_json::json!({
@@ -569,6 +659,164 @@ async fn replace_binary(
         }
     }))
     .into_response()
+}
+
+async fn build_replace(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&s, &headers) {
+        return e.into_response();
+    }
+
+    let mut target: Option<String> = None;
+    let mut unit: Option<String> = None;
+    let mut component: Option<String> = None;
+    let mut bundle: Vec<u8> = Vec::new();
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "target" => target = field.text().await.ok(),
+            "unit" => unit = field.text().await.ok(),
+            "component" => component = field.text().await.ok(),
+            "bundle" => bundle = field.bytes().await.map(|b| b.to_vec()).unwrap_or_default(),
+            _ => {}
+        }
+    }
+
+    let target = match target {
+        Some(t) => t,
+        None => return (StatusCode::BAD_REQUEST, "missing `target`".to_string()).into_response(),
+    };
+    let component = match component {
+        Some(c) => c,
+        None => return (StatusCode::BAD_REQUEST, "missing `component`".to_string()).into_response(),
+    };
+    if !is_allowed_binary_target(&target) {
+        return (StatusCode::FORBIDDEN, "target path not allowlisted".to_string()).into_response();
+    }
+    if !is_allowed_component_name(&component) {
+        return (StatusCode::FORBIDDEN, "component name not allowlisted".to_string()).into_response();
+    }
+    if bundle.is_empty() {
+        return (StatusCode::BAD_REQUEST, "empty bundle".to_string()).into_response();
+    }
+
+    let work_root = std::env::temp_dir().join(format!(
+        "iora-dev-build-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+    ));
+    let bundle_path = work_root.join("backend.tar.gz");
+    let backend_root = work_root.join("backend");
+
+    if let Err(e) = tokio::fs::create_dir_all(&work_root).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir work root: {e}")).into_response();
+    }
+    if let Err(e) = tokio::fs::write(&bundle_path, &bundle).await {
+        let _ = tokio::fs::remove_dir_all(&work_root).await;
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("write bundle: {e}")).into_response();
+    }
+
+    let extract = run_cmd_owned(
+        "tar",
+        vec![
+            "-xzf".into(),
+            bundle_path.display().to_string(),
+            "-C".into(),
+            work_root.display().to_string(),
+        ],
+        None,
+    ).await;
+    if !extract.ok {
+        let _ = tokio::fs::remove_dir_all(&work_root).await;
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "extract failed", "extract": extract }))).into_response();
+    }
+
+    let bootstrap = ensure_build_tooling().await;
+    if !bootstrap.ok {
+        let _ = tokio::fs::remove_dir_all(&work_root).await;
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "tooling bootstrap failed", "bootstrap": bootstrap }))).into_response();
+    }
+
+    let build = if command_exists("docker") {
+        run_cmd_owned(
+            "docker",
+            vec![
+                "run".into(),
+                "--rm".into(),
+                "-v".into(),
+                format!("{}:/app/backend", backend_root.display()),
+                "-w".into(),
+                "/app/backend".into(),
+                REMOTE_BUILD_IMAGE.into(),
+                "sh".into(),
+                "-lc".into(),
+                format!(
+                    "apt-get update >/dev/null 2>&1 && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libpq-dev perl cmake git curl ca-certificates >/dev/null 2>&1 && cargo build --release -p {}",
+                    component
+                ),
+            ],
+            None,
+        ).await
+    } else if command_exists("cargo") {
+        run_cmd_owned(
+            "cargo",
+            vec!["build".into(), "--release".into(), "-p".into(), component.clone()],
+            Some(&backend_root),
+        ).await
+    } else {
+        CmdResult {
+            ok: false,
+            code: -1,
+            stdout: String::new(),
+            stderr: "neither docker nor cargo available on device".into(),
+        }
+    };
+
+    if !build.ok {
+        let _ = tokio::fs::remove_dir_all(&work_root).await;
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "build failed", "build": build }))).into_response();
+    }
+
+    let built_path = backend_root.join("target").join("release").join(&component);
+    let payload = match tokio::fs::read(&built_path).await {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = tokio::fs::remove_dir_all(&work_root).await;
+            return (StatusCode::BAD_GATEWAY, format!("read built binary {}: {e}", built_path.display())).into_response();
+        }
+    };
+    let got_sha = hex::encode(Sha256::digest(&payload));
+    let restart_result = match install_binary_and_restart(&target, &payload, unit.as_deref()).await {
+        Ok(r) => r,
+        Err(resp) => {
+            let _ = tokio::fs::remove_dir_all(&work_root).await;
+            return resp;
+        }
+    };
+    let _ = tokio::fs::remove_dir_all(&work_root).await;
+
+    Json(serde_json::json!({
+        "component": component,
+        "target": target,
+        "sha256": got_sha,
+        "bytes": payload.len(),
+        "build": {
+            "ok": build.ok,
+            "code": build.code,
+            "stdout": build.stdout,
+            "stderr": build.stderr,
+        },
+        "restart": {
+            "ok": restart_result.ok,
+            "code": restart_result.code,
+            "stdout": restart_result.stdout,
+            "stderr": restart_result.stderr,
+        }
+    })).into_response()
 }
 
 // ─── Allowlists ─────────────────────────────────────────────────────────────
@@ -592,6 +840,16 @@ fn is_allowed_compose_svc(svc: &str) -> bool {
     !svc.is_empty()
         && !svc.contains(['/', '\\', '\0', ';', '|', '&', ' ', '\n', '.'])
         && svc.len() < 64
+}
+
+fn is_allowed_component_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\', '\0', ';', '|', '&', ' ', '\n', '\r', '\t', '`', '$'])
+        && name.len() < 128
+}
+
+fn is_allowed_system_path(path: &str) -> bool {
+    path.starts_with('/') && !path.contains('\0') && !path.contains("..")
 }
 
 fn is_allowed_binary_target(path: &str) -> bool {
@@ -631,6 +889,121 @@ async fn run_cmd_in(bin: &str, args: &[&str], cwd: &str) -> CmdResult {
     run_cmd_inner(bin, args, Some(cwd)).await
 }
 
+async fn run_cmd_owned(bin: &str, args: Vec<String>, cwd: Option<&std::path::Path>) -> CmdResult {
+    let mut c = Command::new(bin);
+    c.args(&args);
+    if let Some(d) = cwd {
+        c.current_dir(d);
+    }
+    match c.output().await {
+        Ok(o) => CmdResult {
+            ok: o.status.success(),
+            code: o.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+        },
+        Err(e) => CmdResult {
+            ok: false,
+            code: -1,
+            stdout: String::new(),
+            stderr: format!("spawn failed: {e}"),
+        },
+    }
+}
+
+async fn run_shell(script: String) -> CmdResult {
+    run_cmd_owned("sh", vec!["-lc".into(), script], None).await
+}
+
+async fn ensure_build_tooling() -> CmdResult {
+    if command_exists("docker") {
+        return ensure_tooling_with_docker().await;
+    }
+    ensure_tooling_locally().await
+}
+
+async fn ensure_tooling_with_docker() -> CmdResult {
+    let images = [
+        REMOTE_BUILD_IMAGE,
+        NODE_BUILD_IMAGE,
+        PYTHON_BUILD_IMAGE,
+        GO_BUILD_IMAGE,
+        JAVA_BUILD_IMAGE,
+    ];
+    let mut stdout = String::new();
+    for image in images {
+        let inspect = run_cmd_owned(
+            "docker",
+            vec!["image".into(), "inspect".into(), image.into()],
+            None,
+        ).await;
+        if inspect.ok {
+            stdout.push_str(&format!("tool image ready: {image}\n"));
+            continue;
+        }
+        let pull = run_cmd_owned(
+            "docker",
+            vec!["pull".into(), image.into()],
+            None,
+        ).await;
+        if !pull.ok {
+            return CmdResult {
+                ok: false,
+                code: pull.code,
+                stdout: format!("{stdout}{}", pull.stdout),
+                stderr: format!("failed to prepare {image}\n{}", pull.stderr),
+            };
+        }
+        stdout.push_str(&format!("tool image pulled: {image}\n"));
+    }
+    CmdResult { ok: true, code: 0, stdout, stderr: String::new() }
+}
+
+async fn ensure_tooling_locally() -> CmdResult {
+    let mut missing_packages: Vec<&str> = Vec::new();
+    if !command_exists("gcc") { missing_packages.push("build-essential"); }
+    if !command_exists("pkg-config") { missing_packages.push("pkg-config"); }
+    if !command_exists("cmake") { missing_packages.push("cmake"); }
+    if !command_exists("git") { missing_packages.push("git"); }
+    if !command_exists("curl") { missing_packages.push("curl"); }
+    if !command_exists("cargo") || !command_exists("rustc") {
+        missing_packages.push("cargo");
+        missing_packages.push("rustc");
+    }
+    if !command_exists("node") { missing_packages.push("nodejs"); }
+    if !command_exists("npm") { missing_packages.push("npm"); }
+    if !command_exists("python3") { missing_packages.push("python3"); }
+    if !command_exists("pip3") { missing_packages.push("python3-pip"); }
+    if !command_exists("go") { missing_packages.push("golang-go"); }
+    if !command_exists("javac") { missing_packages.push("openjdk-17-jdk-headless"); }
+
+    if missing_packages.is_empty() {
+        return CmdResult {
+            ok: true,
+            code: 0,
+            stdout: "local build tooling already installed\n".into(),
+            stderr: String::new(),
+        };
+    }
+    if !command_exists("apt-get") {
+        return CmdResult {
+            ok: false,
+            code: -1,
+            stdout: String::new(),
+            stderr: format!(
+                "docker is unavailable and apt-get is missing; cannot auto-install required tooling: {}",
+                missing_packages.join(", ")
+            ),
+        };
+    }
+
+    let install_script = format!(
+        "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends {}",
+        missing_packages.join(" ")
+    );
+    run_shell(install_script).await
+}
+
 async fn run_cmd_inner(bin: &str, args: &[&str], cwd: Option<&str>) -> CmdResult {
     let mut c = Command::new(bin);
     c.args(args);
@@ -651,6 +1024,60 @@ async fn run_cmd_inner(bin: &str, args: &[&str], cwd: Option<&str>) -> CmdResult
             stderr: format!("spawn failed: {e}"),
         },
     }
+}
+
+fn command_exists(bin: &str) -> bool {
+    std::process::Command::new(bin)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+async fn install_binary_and_restart(
+    target: &str,
+    payload: &[u8],
+    unit: Option<&str>,
+) -> Result<CmdResult, axum::response::Response> {
+    let tmp = PathBuf::from(format!("{target}.new"));
+    if let Some(parent) = tmp.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir: {e}")).into_response());
+        }
+    }
+    match tokio::fs::File::create(&tmp).await {
+        Ok(mut f) => {
+            if let Err(e) = f.write_all(payload).await {
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("write: {e}")).into_response());
+            }
+            if let Err(e) = f.sync_all().await {
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("fsync: {e}")).into_response());
+            }
+        }
+        Err(e) => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("open: {e}")).into_response());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
+    }
+    if let Err(e) = tokio::fs::rename(&tmp, target).await {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("rename: {e}")).into_response());
+    }
+    let restart_result = if let Some(u) = unit {
+        if is_allowed_unit(u) {
+            run_cmd("systemctl", &["restart", u]).await
+        } else {
+            CmdResult { ok: false, code: -1, stdout: String::new(), stderr: "unit not allowlisted".into() }
+        }
+    } else {
+        CmdResult { ok: true, code: 0, stdout: "no unit restart requested".into(), stderr: String::new() }
+    };
+    Ok(restart_result)
 }
 
 impl IntoResponse for CmdResult {

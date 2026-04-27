@@ -6,12 +6,46 @@ import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { configDir, DaemonClient, DaemonInfo, readDaemonInfo } from './api';
 
+type SpawnSpec = {
+    command: string;
+    args: string[];
+    cwd?: string;
+};
+
+const REQUIRED_DAEMON_FEATURES = ['device-build'];
+
 export class DaemonManager {
     private child?: ChildProcess;
     constructor(private output: vscode.OutputChannel) {}
 
     private cliPath(): string {
         return vscode.workspace.getConfiguration('ioraDev').get<string>('cliPath') || 'iora-dev-deploy';
+    }
+
+    private workspaceRoot(): string | undefined {
+        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    }
+
+    private workspaceCliManifest(): string | undefined {
+        const root = this.workspaceRoot();
+        if (!root) return undefined;
+        const manifest = path.join(root, 'tools', 'iora-dev-deploy', 'Cargo.toml');
+        return fs.existsSync(manifest) ? manifest : undefined;
+    }
+
+    private daemonSpawnSpec(): SpawnSpec {
+        const manifest = this.workspaceCliManifest();
+        if (manifest) {
+            return {
+                command: 'cargo',
+                args: ['run', '--manifest-path', manifest, '--', 'daemon', '--bind', this.bind()],
+                cwd: this.workspaceRoot(),
+            };
+        }
+        return {
+            command: this.cliPath(),
+            args: ['daemon', '--bind', this.bind()],
+        };
     }
     private bind(): string {
         return vscode.workspace.getConfiguration('ioraDev').get<string>('daemon.bind') || '127.0.0.1:8765';
@@ -25,7 +59,12 @@ export class DaemonManager {
         // Try existing.
         let info = readDaemonInfo();
         if (info && await this.ping(info)) {
-            return new DaemonClient(info);
+            const existing = new DaemonClient(info);
+            if (await this.supportsRequiredFeatures(existing)) {
+                return existing;
+            }
+            this.output.appendLine('[daemon] existing daemon is missing required features; restarting workspace daemon');
+            await this.stopStaleDaemon(info);
         }
         if (!this.autoStart()) {
             throw new Error('Daemon not running and ioraDev.daemon.autoStart is false. Run "IORA Dev: Start Daemon" first.');
@@ -42,17 +81,17 @@ export class DaemonManager {
 
     async start(): Promise<void> {
         if (this.child && this.child.exitCode === null) return;
-        const cli = this.cliPath();
-        const args = ['daemon', '--bind', this.bind()];
-        this.output.appendLine(`$ ${cli} ${args.join(' ')}`);
+        const spec = this.daemonSpawnSpec();
+        this.output.appendLine(`$ ${spec.command} ${spec.args.join(' ')}`);
         try {
-            this.child = spawn(cli, args, {
+            this.child = spawn(spec.command, spec.args, {
                 stdio: ['ignore', 'pipe', 'pipe'],
                 detached: false,
                 shell: false,
+                cwd: spec.cwd,
             });
         } catch (e: any) {
-            throw new Error(`failed to spawn ${cli}: ${e.message ?? e}`);
+            throw new Error(`failed to spawn ${spec.command}: ${e.message ?? e}`);
         }
         this.child.stdout?.on('data', (d) => this.output.append(d.toString()));
         this.child.stderr?.on('data', (d) => this.output.append(d.toString()));
@@ -87,6 +126,31 @@ export class DaemonManager {
             });
             return r.ok;
         } catch { return false; }
+    }
+
+    private async supportsRequiredFeatures(client: DaemonClient): Promise<boolean> {
+        try {
+            const version = await client.version();
+            const features = new Set(version.features ?? []);
+            return REQUIRED_DAEMON_FEATURES.every(feature => features.has(feature));
+        } catch {
+            return false;
+        }
+    }
+
+    private async stopStaleDaemon(info: DaemonInfo): Promise<void> {
+        if (this.child) {
+            this.child.kill();
+            this.child = undefined;
+        }
+        if (typeof info.pid === 'number') {
+            try { process.kill(info.pid); } catch {}
+        }
+        const daemonFile = path.join(configDir(), 'daemon.json');
+        if (fs.existsSync(daemonFile)) {
+            try { fs.unlinkSync(daemonFile); } catch {}
+        }
+        await sleep(300);
     }
 
     dispose() { this.stop().catch(() => {}); }

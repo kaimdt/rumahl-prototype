@@ -6,12 +6,22 @@ import { tauriApi } from '@/lib/tauri'
 import { getApiBase, setApiBase } from '@/lib/apiBase'
 import type { AppConfig, SystemMetrics } from '@/lib/tauri'
 import { useTheme } from '@/contexts/ThemeContext'
-import { Palette, Eye, Globe, Desktop, Screencast, BellRinging, Info, Cpu, HardDrives, Database, BatteryHigh, ThermometerSimple, WifiHigh, Sparkle } from '@phosphor-icons/react'
+import { Palette, Eye, Globe, Desktop, Screencast, BellRinging, Info, Cpu, HardDrives, Database, BatteryHigh, ThermometerSimple, WifiHigh, Sparkle, Robot, Lightning, IdentificationCard, SealCheck } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { ThemeMode } from '@/lib/types'
 
+/**
+ * @ai-info This is the ONLY active page in IORA Desktop.
+ * Everything else in /desktop/src/components/ is legacy IORA Home code.
+ * This page shows local Desktop/Tauri settings (no auth needed).
+ *
+ * DashboardContent passes many legacy props that this component does
+ * not use. We accept them via [key: string]: unknown to avoid TS errors.
+ */
 interface SettingsPageProps {
   theme: string
+  /** Accept any additional legacy props from DashboardContent without TS errors */
+  [key: string]: unknown
 }
 
 function SettingsSection({
@@ -79,19 +89,21 @@ function ToggleRow({
   description,
   checked,
   onCheckedChange,
+  disabled,
 }: {
   label: string
   description: string
   checked: boolean
   onCheckedChange: (next: boolean) => void
+  disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 p-4">
+    <div className={`flex items-center justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 p-4${disabled ? ' opacity-50' : ''}`}>
       <div className="min-w-0">
         <p className="text-sm font-medium text-foreground">{label}</p>
         <p className="text-xs text-foreground/60 mt-1">{description}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
     </div>
   )
 }
@@ -134,6 +146,9 @@ export function SettingsPage({ theme }: SettingsPageProps) {
   const [deviceMetrics, setDeviceMetrics] = useState<SystemMetrics | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [models, setModels] = useState<import('@/lib/tauri').Model[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
   const { setCurrentPageId } = usePageNavigation()
   const remoteHomeUrl = getApiBase()
 
@@ -218,6 +233,35 @@ export function SettingsPage({ theme }: SettingsPageProps) {
     setTauriConfig({ ...tauriConfig, ...patch })
   }
 
+  const loadModels = useCallback(async () => {
+    try {
+      setModelsLoading(true)
+      const list = await tauriApi.listModels()
+      setModels(list)
+    } catch {
+      toast.error('Modelle konnten nicht geladen werden. Ist LM Studio gestartet?')
+      setModels([])
+    } finally {
+      setModelsLoading(false)
+    }
+  }, [])
+
+  const testLmConnection = useCallback(async () => {
+    setConnectionStatus('testing')
+    try {
+      const result = await tauriApi.testConnection()
+      setConnectionStatus(result.connected ? 'ok' : 'error')
+      if (result.connected) {
+        toast.success('LM Studio verbunden!')
+      } else {
+        toast.error(result.error ?? 'Verbindung fehlgeschlagen')
+      }
+    } catch {
+      setConnectionStatus('error')
+      toast.error('Verbindungstest fehlgeschlagen')
+    }
+  }, [])
+
   return (
     <div className="space-y-6 px-4 py-5">
       <div className="rounded-[2.5rem] border border-white/10 bg-white/10 p-6 shadow-[0_24px_110px_rgba(15,23,42,0.12)] backdrop-blur-3xl">
@@ -288,6 +332,158 @@ export function SettingsPage({ theme }: SettingsPageProps) {
         </TabsContent>
 
         <TabsContent value="desktop" className="space-y-4 mt-4">
+          {/* ── Local AI / LM Studio ── */}
+          <SettingsSection icon={Robot} title="Local AI (LM Studio)" description="Stelle deine lokalen AI-Modelle dem IORA-Netzwerk zur Verfügung">
+            {tauriConfig ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl bg-accent/10 border border-accent/20 p-3">
+                  <p className="text-xs text-accent font-medium">💡 Wenn LM Studio auf diesem PC läuft, stellt IORA Desktop die Modelle automatisch dem gesamten IORA-Netzwerk bereit.</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground/60">LM Studio Server URL</label>
+                  <input
+                    type="url"
+                    value={tauriConfig.lm_studio_url}
+                    onChange={(e) => updateConfig({ lm_studio_url: e.target.value })}
+                    placeholder="http://localhost:1234"
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-foreground outline-none transition focus:border-accent/60 focus:ring-2 focus:ring-accent/10"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground/60">API Key (optional)</label>
+                  <input
+                    type="password"
+                    value={tauriConfig.lm_studio_api_key}
+                    onChange={(e) => updateConfig({ lm_studio_api_key: e.target.value })}
+                    placeholder="Leer lassen, wenn nicht benötigt"
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-foreground outline-none transition focus:border-accent/60 focus:ring-2 focus:ring-accent/10"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground/60">Aktives Modell</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={tauriConfig.selected_model}
+                      onChange={(e) => updateConfig({ selected_model: e.target.value })}
+                      disabled={modelsLoading}
+                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-foreground outline-none transition focus:border-accent/60 disabled:opacity-50"
+                    >
+                      <option value="">– Modell auswählen –</option>
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>{m.id}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={loadModels}
+                      disabled={modelsLoading}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-foreground transition hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {modelsLoading ? '…' : '↺'}
+                    </button>
+                  </div>
+                  {models.length === 0 && !modelsLoading && (
+                    <p className="text-[11px] text-foreground/40 mt-1">Klicke ↺ um Modelle von LM Studio zu laden</p>
+                  )}
+                  {models.length > 0 && (
+                    <p className="text-[11px] text-accent/80 mt-1">✓ {models.length} Modell{models.length > 1 ? 'e' : ''} gefunden</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={testLmConnection}
+                    disabled={connectionStatus === 'testing'}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {connectionStatus === 'testing' ? 'Teste…' : 'Verbindung testen'}
+                  </button>
+                  {connectionStatus === 'ok' && (
+                    <span className="flex items-center gap-1 text-xs text-green-400"><SealCheck size={14} weight="fill" /> Verbunden</span>
+                  )}
+                  {connectionStatus === 'error' && (
+                    <span className="text-xs text-red-400">✗ Nicht erreichbar</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-3xl bg-white/5 p-4 text-sm text-foreground/60">Wird geladen...</div>
+            )}
+          </SettingsSection>
+
+          {/* ── IORA Assist Backend ── */}
+          <SettingsSection icon={Lightning} title="IORA Assist Backend" description="Verbindung zum zentralen IORA Assist Server">
+            {tauriConfig ? (
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground/60">IORA Assist URL</label>
+                  <input
+                    type="url"
+                    value={tauriConfig.iora_backend_url}
+                    onChange={(e) => updateConfig({ iora_backend_url: e.target.value })}
+                    placeholder="http://localhost:8092"
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-foreground outline-none transition focus:border-accent/60 focus:ring-2 focus:ring-accent/10"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-3xl bg-white/5 p-4 text-sm text-foreground/60">Wird geladen...</div>
+            )}
+          </SettingsSection>
+
+          {/* ── Client Identity ── */}
+          <SettingsSection icon={IdentificationCard} title="Geräte-Identität" description="Name und ID dieses Clients im IORA-Netzwerk">
+            {tauriConfig ? (
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground/60">Client-Name</label>
+                  <input
+                    type="text"
+                    value={tauriConfig.client_name}
+                    onChange={(e) => updateConfig({ client_name: e.target.value })}
+                    placeholder="z.B. Wohnzimmer-PC"
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-foreground outline-none transition focus:border-accent/60 focus:ring-2 focus:ring-accent/10"
+                  />
+                  <p className="text-[11px] text-foreground/40">Anzeigename in IORA Assist (bei mehreren Clients)</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground/60">Client-ID</label>
+                  <code className="block select-all overflow-x-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-foreground/50">
+                    {tauriConfig.client_id}
+                  </code>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-3xl bg-white/5 p-4 text-sm text-foreground/60">Wird geladen...</div>
+            )}
+          </SettingsSection>
+
+          {/* ── HA Integration ── */}
+          <SettingsSection icon={Globe} title="Home Assistant Integration" description="System-Metriken an HA senden">
+            {tauriConfig ? (
+              <div className="space-y-4">
+                <ToggleRow
+                  label="Home Assistant Integration"
+                  description="Systemdaten dieses Geräts an Home Assistant melden"
+                  checked={tauriConfig.ha_enabled}
+                  onCheckedChange={(value) => updateConfig({ ha_enabled: value })}
+                />
+                {tauriConfig.ha_enabled && (
+                  <SliderRow
+                    label="Metriken-Update-Intervall"
+                    value={tauriConfig.ha_update_interval_secs}
+                    min={30}
+                    max={300}
+                    unit="s"
+                    onChange={(value) => updateConfig({ ha_update_interval_secs: value })}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="rounded-3xl bg-white/5 p-4 text-sm text-foreground/60">Wird geladen...</div>
+            )}
+          </SettingsSection>
+
           <SettingsSection icon={Globe} title="Remote Home URL" description="Ziele auf die entfernte IORA Home-Instanz">
             {tauriConfig ? (
               <div className="space-y-4">

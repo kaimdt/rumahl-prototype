@@ -811,9 +811,13 @@ build_service_binaries() {
     # instead of glibc, so the produced binaries have no host-glibc dep.
     local _IORA_AUTO_MUSL=0
     if [ "${_IORA_BUILD_BACKEND}" = "auto" ]; then
-        # Buildroot 2024.02 → glibc 2.38. We give 0.01 of headroom and treat
-        # anything >= 2.39 on the host as a mismatch.
-        if awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
+        if ! command -v ldd >/dev/null 2>&1; then
+            if command -v docker >/dev/null 2>&1; then
+                log_warn "No glibc runtime detected on the host (ldd unavailable)."
+                log_warn "Using Docker / Alpine builder on this host."
+                _IORA_BUILD_BACKEND="docker"
+            fi
+        elif awk -v h="${_host_glibc}" 'BEGIN { exit !(h+0 >= 2.39) }'; then
             # Prefer Docker when available: the Alpine builder image has
             # musl-libssl pre-installed, so the openssl-sys crate (used by
             # 9+ services via reqwest/sqlx/etc.) compiles out of the box.
@@ -910,10 +914,24 @@ build_service_binaries() {
                 log_warn "rustup default stable failed (see /tmp/iora-rustup-default.log — last 10 lines below)"
             [ -f /tmp/iora-rustup-default.log ] && \
                 tail -n 10 /tmp/iora-rustup-default.log 2>/dev/null | sed 's/^/    /' || true
-            rustup target add "${RUST_TRIPLE}" >/dev/null 2>&1 || true
+            if ! rustup target add "${RUST_TRIPLE}" >/tmp/iora-rustup-target.log 2>&1; then
+                log_warn "rustup target add ${RUST_TRIPLE} failed — falling back to Docker if available."
+                if command -v docker >/dev/null 2>&1; then
+                    log_warn "Switching build backend to Docker because ${RUST_TRIPLE} cannot be installed locally."
+                    _IORA_BUILD_BACKEND="docker"
+                fi
+            fi
+        else
+            if command -v docker >/dev/null 2>&1; then
+                log_warn "rustup not found on PATH; switching to Docker build backend."
+                _IORA_BUILD_BACKEND="docker"
+            fi
         fi
 
-        # Use -p <package> instead of --bin: each IORA service lives in its
+        if [ "${_IORA_BUILD_BACKEND}" = "docker" ]; then
+            log_info "Docker build backend selected; skipping native cargo build."
+        else
+            # Use -p <package> instead of --bin: each IORA service lives in its
         # own workspace crate of the same name, so -p is unambiguous and
         # also builds the crate's *lib* dependencies in the right order.
         local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
@@ -1124,6 +1142,7 @@ build_service_binaries() {
         fi
 
         return 0
+        fi
     fi
 
     # We reach here when either cargo is unavailable OR auto-detect chose the
@@ -1549,7 +1568,7 @@ fi
 
 dlg() {
     if [ "$DIALOG_BIN" = "dialog" ]; then
-        $DIALOG_BIN --backtitle "$BACKTITLE" --colors "$@"
+        $DIALOG_BIN --ascii-lines --backtitle "$BACKTITLE" --colors "$@"
     else
         $DIALOG_BIN --backtitle "$BACKTITLE" "$@"
     fi

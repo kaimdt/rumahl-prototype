@@ -78,6 +78,8 @@ pub struct WatchSession {
     pub id: Uuid,
     pub components: Vec<String>,
     pub target: String,
+    pub build_mode: String,
+    pub automatic: bool,
     pub debounce_ms: u64,
     pub started_at: DateTime<Utc>,
     #[serde(skip)]
@@ -96,6 +98,8 @@ pub enum Event {
     WatchStopped { id: Uuid },
     WatchTriggered { id: Uuid, components: Vec<String> },
     Connection { host: Option<String>, hostname: Option<String>, build: Option<String>, variant: Option<String> },
+    ServiceLogs { unit: String, tail: u32, stdout: String, stderr: String },
+    SystemData { path: String, kind: String, content: serde_json::Value },
     Log { source: String, line: String },
 }
 
@@ -110,6 +114,8 @@ struct DeployBody {
     components: Vec<String>,
     #[serde(default = "default_target")]
     target: String,
+    #[serde(default = "default_build_mode")]
+    build_mode: String,
     #[serde(default)]
     no_build: bool,
     #[serde(default)]
@@ -123,17 +129,32 @@ struct UnitBody { unit: String }
 struct ComposeBody { svc: String, #[serde(default = "default_tail")] tail: u32 }
 
 #[derive(Deserialize)]
+struct ServiceLogBody { unit: String, #[serde(default = "default_tail")] tail: u32 }
+
+#[derive(Deserialize)]
+struct FsPathBody { path: String }
+
+#[derive(Deserialize)]
+struct FsReadBody { path: String, #[serde(default = "default_fs_max_bytes")] max_bytes: usize }
+
+#[derive(Deserialize)]
 struct WatchBody {
     components: Vec<String>,
     #[serde(default = "default_target")]
     target: String,
+    #[serde(default = "default_build_mode")]
+    build_mode: String,
+    #[serde(default)]
+    automatic: bool,
     #[serde(default = "default_debounce")]
     debounce_ms: u64,
 }
 
 fn default_target() -> String { "aarch64-unknown-linux-gnu".into() }
+fn default_build_mode() -> String { "device".into() }
 fn default_tail() -> u32 { 200 }
 fn default_debounce() -> u64 { 800 }
+fn default_fs_max_bytes() -> usize { 64 * 1024 }
 
 pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool) -> Result<()> {
     let token = match token_override {
@@ -176,6 +197,9 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool)
         .route("/api/v1/service/reload", post(h_service_reload))
         .route("/api/v1/compose/reload", post(h_compose_reload))
         .route("/api/v1/compose/logs", post(h_compose_logs))
+        .route("/api/v1/service/logs", post(h_service_logs))
+        .route("/api/v1/system/list", post(h_system_list))
+        .route("/api/v1/system/read", post(h_system_read))
         .route("/api/v1/watch", get(h_watch_list).post(h_watch_start))
         .route("/api/v1/watch/:id", delete(h_watch_stop))
         .route("/api/v1/events", get(h_events_ws))
@@ -208,6 +232,9 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool)
     println!("  POST   /api/v1/service/reload      ← systemctl try-reload-or-restart");
     println!("  POST   /api/v1/compose/reload      ← compose up -d --force-recreate");
     println!("  POST   /api/v1/compose/logs        ← tail compose logs");
+    println!("  POST   /api/v1/service/logs        ← tail journalctl for a unit");
+    println!("  POST   /api/v1/system/list         ← browse device directories");
+    println!("  POST   /api/v1/system/read         ← preview device files");
     println!("  GET    /api/v1/jobs[/:id]          ← deploy/log job history");
     println!("  POST   /api/v1/watch / DELETE /:id ← live watch sessions");
     println!("  WS     /api/v1/events              ← live event stream");
@@ -268,6 +295,7 @@ async fn h_version() -> Json<serde_json::Value> {
         "name": "iora-dev-deploy",
         "version": env!("CARGO_PKG_VERSION"),
         "api": "v1",
+        "features": ["device-build", "build-mode", "connection-view", "system-data", "service-logs"],
     }))
 }
 
@@ -395,18 +423,74 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
     if let Err(e) = ensure_dev(&client).await {
         fail_job(&s, job_id, format!("{e:#}")).await; return;
     }
+    let mut all_ok = true;
     for name in &b.components {
         let entry = match catalog::lookup(name) {
             Some(e) => e,
-            None => { append_log(&s, job_id, format!("✗ unknown component: {name}")).await; continue; }
+            None => {
+                append_log(&s, job_id, format!("✗ unknown component: {name}")).await;
+                all_ok = false;
+                continue;
+            }
         };
         let bin = if b.no_build {
-            match build::existing_binary(&entry, &b.target) { Ok(p) => p, Err(e) => { append_log(&s, job_id, format!("✗ {e:#}")).await; continue; } }
-        } else {
-            append_log(&s, job_id, format!("▶ build {} ({})", entry.name, b.target)).await;
-            match build::cargo_release(&entry, &b.target).await {
+            match build::existing_binary(&entry, &b.target) {
                 Ok(p) => p,
-                Err(e) => { append_log(&s, job_id, format!("✗ build {}: {e:#}", entry.name)).await; continue; }
+                Err(e) => {
+                    append_log(&s, job_id, format!("✗ {e:#}")).await;
+                    all_ok = false;
+                    continue;
+                }
+            }
+        } else {
+            let effective_build_mode = if b.build_mode == "device" && build::must_build_on_host(&entry) {
+                append_log(&s, job_id, format!("▶ {} uses dedicated host bridge update path", entry.name)).await;
+                "host"
+            } else {
+                b.build_mode.as_str()
+            };
+            append_log(&s, job_id, format!("▶ build {} ({}) via {}", entry.name, b.target, effective_build_mode)).await;
+            if effective_build_mode == "device" {
+                match client.build_replace_remote(&entry.name, &entry.target_path, if b.no_restart { None } else { Some(entry.unit.as_str()) }).await {
+                    Ok(resp) => {
+                        append_log(&s, job_id, format!("✓ device build {} ({} bytes)", entry.name, resp["bytes"])).await;
+                        if let Some(stdout) = resp["build"]["stdout"].as_str() {
+                            for line in stdout.lines().filter(|line| !line.trim().is_empty()).take(200) {
+                                append_log(&s, job_id, format!("  {line}")).await;
+                            }
+                        }
+                        if let Some(stderr) = resp["build"]["stderr"].as_str() {
+                            for line in stderr.lines().filter(|line| !line.trim().is_empty()).take(200) {
+                                append_log(&s, job_id, format!("  {line}")).await;
+                            }
+                        }
+                        if !b.no_restart {
+                            let r = &resp["restart"];
+                            if r["ok"].as_bool().unwrap_or(false) {
+                                append_log(&s, job_id, format!("✓ {} restarted", entry.unit)).await;
+                                emit_service_logs_event(&s, &client, &entry.unit, 120).await;
+                            } else {
+                                append_log(&s, job_id, format!("✗ restart {} failed: {}", entry.unit, r["stderr"].as_str().unwrap_or(""))).await;
+                                all_ok = false;
+                            }
+                        }
+                        continue;
+                    }
+                    Err(e) => {
+                        append_log(&s, job_id, format!("✗ device build {}: {e:#}", entry.name)).await;
+                        all_ok = false;
+                        continue;
+                    }
+                }
+            } else {
+                match build::cargo_release(&entry, &b.target).await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        append_log(&s, job_id, format!("✗ build {}: {e:#}", entry.name)).await;
+                        all_ok = false;
+                        continue;
+                    }
+                }
             }
         };
         append_log(&s, job_id, format!("▶ upload {} → {}", bin.display(), entry.target_path)).await;
@@ -419,15 +503,20 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
                     let ok = r["ok"].as_bool().unwrap_or(false);
                     if ok {
                         append_log(&s, job_id, format!("✓ {} restarted", entry.unit)).await;
+                        emit_service_logs_event(&s, &client, &entry.unit, 120).await;
                     } else {
                         append_log(&s, job_id, format!("✗ restart {} failed: {}", entry.unit, r["stderr"].as_str().unwrap_or(""))).await;
+                        all_ok = false;
                     }
                 }
             }
-            Err(e) => append_log(&s, job_id, format!("✗ upload {}: {e:#}", entry.name)).await,
+            Err(e) => {
+                append_log(&s, job_id, format!("✗ upload {}: {e:#}", entry.name)).await;
+                all_ok = false;
+            }
         }
     }
-    finalize_job(&s, job_id, JobStatus::Succeeded).await;
+    finalize_job(&s, job_id, if all_ok { JobStatus::Succeeded } else { JobStatus::Failed }).await;
 }
 
 async fn ensure_dev(c: &client::Client) -> Result<()> {
@@ -470,6 +559,49 @@ async fn h_compose_logs(headers: HeaderMap, State(s): State<AppState>, Json(b): 
     Ok(Json(c.compose_logs(&b.svc, b.tail).await.map_err(server_err)?))
 }
 
+async fn h_service_logs(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<ServiceLogBody>) -> Result<Json<client::CmdResult>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    ensure_dev(&c).await.map_err(server_err)?;
+    let logs = c.service_logs(&b.unit, b.tail).await.map_err(server_err)?;
+    let _ = s.inner.events.send(Event::ServiceLogs {
+        unit: b.unit,
+        tail: b.tail,
+        stdout: logs.stdout.clone(),
+        stderr: logs.stderr.clone(),
+    });
+    Ok(Json(logs))
+}
+
+async fn h_system_list(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<FsPathBody>) -> Result<Json<client::FsListResult>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    ensure_dev(&c).await.map_err(server_err)?;
+    let listing = c.fs_list(&b.path).await.map_err(server_err)?;
+    let _ = s.inner.events.send(Event::SystemData {
+        path: listing.path.clone(),
+        kind: "directory".into(),
+        content: serde_json::to_value(&listing).unwrap_or_else(|_| serde_json::json!({})),
+    });
+    Ok(Json(listing))
+}
+
+async fn h_system_read(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<FsReadBody>) -> Result<Json<client::FsReadResult>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    ensure_dev(&c).await.map_err(server_err)?;
+    let file = c.fs_read(&b.path, b.max_bytes).await.map_err(server_err)?;
+    let _ = s.inner.events.send(Event::SystemData {
+        path: file.path.clone(),
+        kind: "file".into(),
+        content: serde_json::to_value(&file).unwrap_or_else(|_| serde_json::json!({})),
+    });
+    Ok(Json(file))
+}
+
 // ─── watch sessions ───────────────────────────────────────────────────────
 
 async fn h_watch_list(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<Vec<WatchSession>>, (StatusCode, String)> {
@@ -479,14 +611,14 @@ async fn h_watch_list(headers: HeaderMap, State(s): State<AppState>) -> Result<J
 
 async fn h_watch_start(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<WatchBody>) -> Result<Json<WatchSession>, (StatusCode, String)> {
     check_auth(&s, &headers)?;
-    if b.components.is_empty() {
+    if b.components.is_empty() && !b.automatic {
         return Err((StatusCode::BAD_REQUEST, "components is empty".into()));
     }
     let cfg = config::load().map_err(server_err)?;
     let id = Uuid::new_v4();
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
     let session = WatchSession {
-        id, components: b.components.clone(), target: b.target.clone(),
+        id, components: b.components.clone(), target: b.target.clone(), build_mode: b.build_mode.clone(), automatic: b.automatic,
         debounce_ms: b.debounce_ms, started_at: Utc::now(), cancel: cancel_tx,
     };
     s.inner.watches.write().await.insert(id, session.clone());
@@ -494,9 +626,11 @@ async fn h_watch_start(headers: HeaderMap, State(s): State<AppState>, Json(b): J
     let st = s.clone();
     let comps = b.components.clone();
     let target = b.target.clone();
+    let build_mode = b.build_mode.clone();
+    let automatic = b.automatic;
     let debounce = b.debounce_ms;
     tokio::spawn(async move {
-        let _ = run_watch_session(st.clone(), id, cfg, comps, target, debounce, cancel_rx).await;
+        let _ = run_watch_session(st.clone(), id, cfg, comps, target, build_mode, automatic, debounce, cancel_rx).await;
         st.inner.watches.write().await.remove(&id);
         let _ = st.inner.events.send(Event::WatchStopped { id });
     });
@@ -519,6 +653,8 @@ async fn run_watch_session(
     cfg: config::Config,
     components: Vec<String>,
     target: String,
+    build_mode: String,
+    automatic: bool,
     debounce_ms: u64,
     mut cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
@@ -529,14 +665,12 @@ async fn run_watch_session(
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    let entries: Vec<_> = components.iter()
-        .filter_map(|n| catalog::lookup(n))
-        .collect();
+    let entries: Vec<_> = if automatic {
+        catalog::all()
+    } else {
+        components.iter().filter_map(|n| catalog::lookup(n)).collect()
+    };
     if entries.is_empty() { return Ok(()); }
-
-    let root = build::workspace_root()?;
-    let backend = root.join("backend");
-    let shared = backend.join("iora-shared");
 
     // The debouncer pushes events into a std mpsc; a dedicated thread forwards
     // them to a tokio channel that this async loop can `select!` on alongside
@@ -544,11 +678,9 @@ async fn run_watch_session(
     let (std_tx, std_rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_millis(debounce_ms), std_tx)?;
     for e in &entries {
-        let d = backend.join(e.name).join("src");
-        if d.is_dir() { let _ = debouncer.watcher().watch(&d, RecursiveMode::Recursive); }
-    }
-    if shared.is_dir() {
-        let _ = debouncer.watcher().watch(&shared, RecursiveMode::Recursive);
+        for d in build::watch_dirs(e)? {
+            if d.is_dir() { let _ = debouncer.watcher().watch(&d, RecursiveMode::Recursive); }
+        }
     }
     // Keep the debouncer alive for the duration of the session.
     let _debouncer_keep = debouncer;
@@ -574,11 +706,10 @@ async fn run_watch_session(
             maybe = tok_rx.recv() => {
                 let paths = match maybe { Some(p) => p, None => break };
                 let touched: HashSet<PathBuf> = paths.into_iter().collect();
-                let shared_changed = touched.iter().any(|p| p.starts_with(&shared));
                 let mut to_build = Vec::new();
                 for e in &entries {
-                    let dir = backend.join(e.name);
-                    if shared_changed || touched.iter().any(|p| p.starts_with(&dir)) {
+                    let dirs = build::watch_dirs(e)?;
+                    if touched.iter().any(|p| dirs.iter().any(|d| p.starts_with(d))) {
                         to_build.push(e.clone());
                     }
                 }
@@ -590,13 +721,38 @@ async fn run_watch_session(
                 set_job_status(&s, job, JobStatus::Running).await;
                 let mut all_ok = true;
                 for e in to_build {
-                    append_log(&s, job, format!("▶ build {}", e.name)).await;
-                    match build::cargo_release(&e, &target).await {
-                        Ok(bin) => match client.replace_binary(&bin, &e.target_path, Some(&e.unit)).await {
-                            Ok(resp) => append_log(&s, job, format!("✓ {} deployed ({} bytes)", e.name, resp["bytes"])).await,
-                            Err(err) => { append_log(&s, job, format!("✗ upload: {err:#}")).await; all_ok = false; }
-                        },
-                        Err(err) => { append_log(&s, job, format!("✗ build: {err:#}")).await; all_ok = false; }
+                    let effective_build_mode = if build_mode == "device" && build::must_build_on_host(&e) {
+                        append_log(&s, job, format!("▶ {} uses host bridge update path", e.name)).await;
+                        "host"
+                    } else {
+                        build_mode.as_str()
+                    };
+                    append_log(&s, job, format!("▶ build {} via {}{}", e.name, effective_build_mode, if automatic { " (automatic)" } else { "" })).await;
+                    if effective_build_mode == "device" {
+                        match client.build_replace_remote(&e.name, &e.target_path, Some(&e.unit)).await {
+                            Ok(resp) => {
+                                append_log(&s, job, format!("✓ {} deployed ({} bytes)", e.name, resp["bytes"])).await;
+                                if resp["restart"]["ok"].as_bool().unwrap_or(false) {
+                                    append_log(&s, job, format!("✓ {} restarted", e.unit)).await;
+                                    emit_service_logs_event(&s, &client, &e.unit, 120).await;
+                                }
+                            }
+                            Err(err) => { append_log(&s, job, format!("✗ device build: {err:#}")).await; all_ok = false; }
+                        }
+                    } else {
+                        match build::cargo_release(&e, &target).await {
+                            Ok(bin) => match client.replace_binary(&bin, &e.target_path, Some(&e.unit)).await {
+                                Ok(resp) => {
+                                    append_log(&s, job, format!("✓ {} deployed ({} bytes)", e.name, resp["bytes"])).await;
+                                    if resp["restart"]["ok"].as_bool().unwrap_or(false) {
+                                        append_log(&s, job, format!("✓ {} restarted", e.unit)).await;
+                                        emit_service_logs_event(&s, &client, &e.unit, 120).await;
+                                    }
+                                }
+                                Err(err) => { append_log(&s, job, format!("✗ upload: {err:#}")).await; all_ok = false; }
+                            },
+                            Err(err) => { append_log(&s, job, format!("✗ build: {err:#}")).await; all_ok = false; }
+                        }
                     }
                 }
                 finalize_job(&s, job, if all_ok { JobStatus::Succeeded } else { JobStatus::Failed }).await;
@@ -722,6 +878,17 @@ async fn finalize_job(s: &AppState, id: Uuid, status: JobStatus) {
     };
     if let Some(j) = snap {
         let _ = s.inner.events.send(Event::JobFinished { job: j });
+    }
+}
+
+async fn emit_service_logs_event(s: &AppState, client: &client::Client, unit: &str, tail: u32) {
+    if let Ok(logs) = client.service_logs(unit, tail).await {
+        let _ = s.inner.events.send(Event::ServiceLogs {
+            unit: unit.to_string(),
+            tail,
+            stdout: logs.stdout,
+            stderr: logs.stderr,
+        });
     }
 }
 

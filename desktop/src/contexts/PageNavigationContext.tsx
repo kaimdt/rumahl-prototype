@@ -1,3 +1,13 @@
+/**
+ * @ai-info IORA Desktop – PageNavigationContext.tsx
+ *
+ * The `defaultPages` defined below are used ONLY for the Desktop client's
+ * offline / fallback mode. When IORA Home is reachable, the real page
+ * definitions are loaded from the IORA Home backend via profile sync.
+ *
+ * The IORA Home frontend has its own page navigation system. Changes to
+ * dashboard page structure should be made in the IORA Home frontend, not here.
+ */
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocalStorage } from '@/lib/storage'
 import type { DashboardPage, DashboardWidget } from '@/lib/types'
@@ -166,14 +176,8 @@ const defaultPages: DashboardPage[] = [
     showInNav: true,
     order: 997,
   },
-  {
-    id: 'music',
-    name: 'Musik',
-    icon: 'MusicNote',
-    widgets: [],
-    showInNav: true,
-    order: 996,
-  },
+  // NOTE: The 'music' page has been moved to the IORA Home frontend.
+  // It does not belong in the Desktop client's default pages.
   {
     id: 'share',
     name: 'Share',
@@ -487,7 +491,10 @@ function ensureDefaultPages(backendPages: DashboardPage[]): DashboardPage[] {
 
 // ── Provider ──────────────────────────────────────────────────────────
 
+import { useAuth } from '@/contexts/AuthContext'
+
 export function PageNavigationProvider({ children }: { children: React.ReactNode }) {
+  const { token } = useAuth()
   const [pages, setLocalPages] = useLocalStorage<DashboardPage[]>('ha-dashboard-pages', defaultPages)
   const [currentPageId, setCurrentPageIdState] = useState<string>(() =>
     pathToPageId(window.location.pathname)
@@ -546,6 +553,15 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
     let cancelled = false
 
     async function initSync() {
+      if (!token) {
+        console.log('[PageSync] Running locally (offline mode, no auth token)')
+        const local = localStorage.getItem('ha-page-designer-pages')
+        if (local) setLocalPages(JSON.parse(local))
+        const localLayouts = localStorage.getItem('ha-page-designer-layouts')
+        if (localLayouts) setPageLayoutsState(JSON.parse(localLayouts))
+        return
+      }
+
       try {
         const userId = await ensureUser()
         await ensureDevice()
@@ -654,9 +670,14 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
       }
     }
 
-    initSync()
-    return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!profileIdRef.current || token) {
+      initSync()
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Migrate home page: populate with default widgets if empty ──────
   useEffect(() => {

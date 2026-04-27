@@ -1,9 +1,15 @@
+use crate::build;
 use anyhow::{anyhow, Context, Result};
+use flate2::{write::GzEncoder, Compression};
 use reqwest::{multipart, Client as HttpClient};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
+use tar::Builder;
+use tempfile::NamedTempFile;
+use walkdir::WalkDir;
 
 #[derive(Deserialize, Debug, serde::Serialize)]
 pub struct Status {
@@ -20,6 +26,30 @@ pub struct CmdResult {
     pub code: i32,
     pub stdout: String,
     pub stderr: String,
+}
+
+#[derive(Deserialize, Debug, serde::Serialize)]
+pub struct FsEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: String,
+    pub size: u64,
+}
+
+#[derive(Deserialize, Debug, serde::Serialize)]
+pub struct FsListResult {
+    pub path: String,
+    pub entries: Vec<FsEntry>,
+}
+
+#[derive(Deserialize, Debug, serde::Serialize)]
+pub struct FsReadResult {
+    pub path: String,
+    pub content: String,
+    pub bytes: usize,
+    pub total_bytes: usize,
+    pub truncated: bool,
+    pub binary_hint: bool,
 }
 
 pub struct Client {
@@ -80,6 +110,33 @@ impl Client {
         Ok(r.json().await?)
     }
 
+    pub async fn service_logs(&self, unit: &str, tail: u32) -> Result<CmdResult> {
+        let url = format!("{}/dev/service/{}/logs", self.base, unit);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .json(&serde_json::json!({ "tail": tail }))
+            .send().await?;
+        Ok(r.json().await?)
+    }
+
+    pub async fn fs_list(&self, path: &str) -> Result<FsListResult> {
+        let url = format!("{}/dev/fs/list", self.base);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .json(&serde_json::json!({ "path": path }))
+            .send().await?;
+        Ok(r.json().await?)
+    }
+
+    pub async fn fs_read(&self, path: &str, max_bytes: usize) -> Result<FsReadResult> {
+        let url = format!("{}/dev/fs/read", self.base);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .json(&serde_json::json!({ "path": path, "max_bytes": max_bytes }))
+            .send().await?;
+        Ok(r.json().await?)
+    }
+
     pub async fn replace_binary(
         &self,
         local: &Path,
@@ -116,6 +173,92 @@ impl Client {
         }
         Ok(body)
     }
+
+    pub async fn build_replace_remote(
+        &self,
+        component: &str,
+        target: &str,
+        unit: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let status = self.status().await.context("contacting device /dev/status before device build")?;
+        if !status.capabilities.iter().any(|capability| capability == "binary.build_replace") {
+            return Err(anyhow!(
+                "device bridge at {} does not support remote builds yet; missing capability `binary.build_replace`. Update iora-dev-bridge on the device first",
+                self.base,
+            ));
+        }
+
+        let archive = create_backend_bundle()
+            .with_context(|| format!("bundle backend workspace for {component}"))?;
+        let bytes = tokio::fs::read(archive.path()).await
+            .with_context(|| format!("read {}", archive.path().display()))?;
+
+        let file_part = multipart::Part::bytes(bytes)
+            .file_name("backend.tar.gz")
+            .mime_str("application/gzip")?;
+
+        let mut form = multipart::Form::new()
+            .text("component", component.to_string())
+            .text("target", target.to_string())
+            .part("bundle", file_part);
+        if let Some(u) = unit {
+            form = form.text("unit", u.to_string());
+        }
+
+        let url = format!("{}/dev/build-replace", self.base);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .multipart(form)
+            .send().await?;
+        let status = r.status();
+        let body: serde_json::Value = r.json().await
+            .unwrap_or_else(|_| serde_json::json!({ "error": "non-JSON response" }));
+        if !status.is_success() {
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(anyhow!(
+                    "device bridge at {} returned 404 for /dev/build-replace; update iora-dev-bridge on the device first",
+                    self.base,
+                ));
+            }
+            return Err(anyhow!("build-replace failed ({status}): {body}"));
+        }
+        Ok(body)
+    }
+}
+
+fn create_backend_bundle() -> Result<NamedTempFile> {
+    let root = build::workspace_root()?;
+    let backend = root.join("backend");
+    let tmp = NamedTempFile::new().context("create temp archive")?;
+    let file = File::create(tmp.path()).with_context(|| format!("open {}", tmp.path().display()))?;
+    let encoder = GzEncoder::new(file, Compression::default());
+    let mut builder = Builder::new(encoder);
+
+    builder.append_dir("backend", &backend)
+        .with_context(|| format!("append backend dir {}", backend.display()))?;
+
+    let walker = WalkDir::new(&backend).into_iter().filter_entry(|entry| {
+        let name = entry.file_name().to_string_lossy();
+        name != "target" && name != ".git"
+    });
+
+    for entry in walker {
+        let entry = entry?;
+        let path = entry.path();
+        if path == backend {
+            continue;
+        }
+        let rel = path.strip_prefix(&backend)?;
+        let archive_path = Path::new("backend").join(rel);
+        if entry.file_type().is_dir() {
+            builder.append_dir(&archive_path, path)?;
+        } else if entry.file_type().is_file() {
+            builder.append_path_with_name(path, &archive_path)?;
+        }
+    }
+
+    builder.finish().context("finish backend archive")?;
+    Ok(tmp)
 }
 
 fn normalize_base(host: &str) -> String {

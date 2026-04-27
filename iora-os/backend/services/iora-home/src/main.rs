@@ -165,6 +165,91 @@ pub struct AppState {
     pub dev_image: Arc<dev_image::DevImageInfo>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct HaRuntimeConfig {
+    pub url: String,
+    pub token: String,
+}
+
+impl HaRuntimeConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.url.is_empty() && !self.token.is_empty()
+    }
+}
+
+fn non_empty_json_string(raw: &str) -> Option<String> {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|value| !value.is_empty())
+}
+
+fn apply_legacy_ha_config(raw: &str, current: &mut HaRuntimeConfig) {
+    let Ok(cfg) = serde_json::from_str::<Value>(raw) else {
+        return;
+    };
+
+    if current.url.is_empty() {
+        if let Some(url) = cfg
+            .get("url")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            current.url = url.to_string();
+        }
+    }
+
+    if current.token.is_empty() {
+        if let Some(token) = cfg
+            .get("token")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            current.token = token.to_string();
+        }
+    }
+}
+
+pub(crate) async fn load_ha_runtime_config(config_repo: &ConfigRepository) -> HaRuntimeConfig {
+    let ha_url_raw = std::env::var("HA_URL").unwrap_or_default();
+    let mut config = HaRuntimeConfig {
+        url: if ha_url_raw.trim().is_empty() {
+            String::new()
+        } else {
+            ha_url_raw.trim().to_string()
+        },
+        token: std::env::var("HA_TOKEN")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_default(),
+    };
+
+    if let Ok(Some(pref)) = config_repo.get_system_preference("ha.url").await {
+        if let Some(url) = non_empty_json_string(&pref.preference_value) {
+            config.url = url;
+        }
+    }
+    if let Ok(Some(pref)) = config_repo.get_system_preference("ha.token").await {
+        if let Some(token) = non_empty_json_string(&pref.preference_value) {
+            config.token = token;
+        }
+    }
+
+    if let Ok(Some(pref)) = config_repo.get_system_preference("ha_config").await {
+        apply_legacy_ha_config(&pref.preference_value, &mut config);
+    }
+
+    config
+}
+
+pub(crate) async fn load_ha_runtime_config_from_pool(pool: &DbPool) -> HaRuntimeConfig {
+    let config_repo = ConfigRepository::new(pool.clone());
+    load_ha_runtime_config(&config_repo).await
+}
+
 /// Entity state from Home Assistant
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityState {
@@ -387,35 +472,11 @@ async fn main() -> anyhow::Result<()> {
     let iora_env = iora_shared::env::IoraEnv::detect();
     info!("IORA environment: {}", iora_env);
 
-    // Get Home Assistant configuration.
-    //
-    // On a fresh IORA OS install no Home Assistant is configured yet — the
-    // user picks one (or skips it) from the Admin Control Center.  We treat
-    // both "unset" and "empty" as not-configured so that the env file the
-    // setup wizard writes (with HA_URL= / HA_TOKEN= placeholders) doesn't
-    // make us spam the journal with "relative URL without a base" warnings
-    // from the safety-net poll, the WS reconnect loop, the connection
-    // health checker, the location sync, and the person tracker.
-    let ha_url_raw = std::env::var("HA_URL").unwrap_or_default();
-    let mut ha_url = if ha_url_raw.trim().is_empty() {
-        String::new()
-    } else {
-        ha_url_raw.trim().to_string()
-    };
-    let mut ha_token = std::env::var("HA_TOKEN")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_default();
-    // ha_configured will be re-evaluated AFTER we attempt to load HA settings
-    // from the database below — env values are only the fallback.
-
     // Get database configuration
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://iora:iora_password@localhost:5432/iora_home".to_string());
 
     info!("Starting Home Assistant Dashboard Backend");
-    info!("Home Assistant URL: {}", ha_url);
     info!("Database URL: {}", database_url);
 
     // Initialize database — retry with backoff so the service stays up
@@ -453,39 +514,23 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Override HA settings from the DB-backed system_preferences table when
-    // present.  This is the path the Admin Control Center writes to via
-    // PUT /api/config/system/preferences (key="ha_config"), which is also
-    // how the first-boot setup wizard configures Home Assistant when the
-    // user opts in.  Falling back to env vars keeps `cargo run`-style local
-    // development working with HA_URL / HA_TOKEN exported in the shell.
-    {
-        let bootstrap_repo = ConfigRepository::new(db_pool.clone());
-        if let Ok(Some(pref)) = bootstrap_repo.get_system_preference("ha_config").await {
-            match serde_json::from_str::<serde_json::Value>(&pref.preference_value) {
-                Ok(cfg) => {
-                    if let Some(u) = cfg.get("url").and_then(|v| v.as_str())
-                        .filter(|s| !s.trim().is_empty())
-                    {
-                        ha_url = u.trim().to_string();
-                    }
-                    if let Some(t) = cfg.get("token").and_then(|v| v.as_str())
-                        .filter(|s| !s.trim().is_empty())
-                    {
-                        ha_token = t.trim().to_string();
-                    }
-                    if !ha_url.is_empty() && !ha_token.is_empty() {
-                        info!("Loaded HA configuration from system_preferences (DB)");
-                    }
-                }
-                Err(e) => warn!("Failed to parse system_preferences/ha_config: {}", e),
-            }
-        }
+    // Get Home Assistant configuration.
+    //
+    // On a fresh IORA OS install no Home Assistant is configured yet — the
+    // user picks one (or skips it) from the Admin Control Center. We accept
+    // both the new schema-backed settings keys (`ha.url`, `ha.token`) and
+    // the legacy aggregate `ha_config` record, with env vars only as a local
+    // development fallback.
+    let bootstrap_repo = ConfigRepository::new(db_pool.clone());
+    let ha_config = load_ha_runtime_config(&bootstrap_repo).await;
+    let ha_configured = ha_config.is_configured();
+    let ha_url = ha_config.url;
+    let ha_token = ha_config.token;
+    info!("Home Assistant URL: {}", ha_url);
+    if ha_configured {
+        info!("Loaded HA configuration from runtime settings");
     }
-    // Re-evaluate the ha_configured flag now that the DB may have populated
-    // the URL / token. Only spawn HA-touching background tasks when both
-    // values are non-empty.
-    let ha_configured = !ha_url.is_empty() && !ha_token.is_empty();
+
     if !ha_configured {
         info!(
             "Home Assistant integration is OFF \u{2014} configure HA from the IORA \
@@ -1757,22 +1802,19 @@ static ARS_REGIONS_CACHE: std::sync::LazyLock<tokio::sync::RwLock<Option<Vec<Val
 static ARS_REGIONS_LAST_REFRESH: std::sync::LazyLock<tokio::sync::RwLock<u64>> =
     std::sync::LazyLock::new(|| tokio::sync::RwLock::new(0));
 
-/// Public, lightweight check for whether Home Assistant has been configured
-/// (URL + token both present in `system_preferences/ha_config`). Used by the
+/// Public, lightweight check for whether Home Assistant has been configured.
+/// Accepts the schema-driven settings keys (`ha.url`, `ha.token`) and the
+/// legacy `system_preferences/ha_config` aggregate for backwards compatibility.
+/// Used by the
 /// frontend so the Overview page can be replaced with a "IORA Home not
 /// configured" placeholder on a fresh install — Settings and the Admin
 /// Control Center remain reachable so the user can configure HA from there.
 async fn integration_ha_configured(State(state): State<AppState>) -> impl IntoResponse {
-    let mut has_url = false;
-    let mut has_token = false;
-    if let Ok(Some(pref)) = state.config_repo.get_system_preference("ha_config").await {
-        if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&pref.preference_value) {
-            has_url = cfg.get("url").and_then(|v| v.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false);
-            has_token = cfg.get("token").and_then(|v| v.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false);
-        }
-    }
+    let ha_config = load_ha_runtime_config(&state.config_repo).await;
+    let has_url = !ha_config.url.is_empty();
+    let has_token = !ha_config.token.is_empty();
     Json(serde_json::json!({
-        "configured": has_url && has_token,
+        "configured": ha_config.is_configured(),
         "has_url": has_url,
         "has_token": has_token,
     }))
@@ -6009,14 +6051,14 @@ async fn admin_delete_api_key(
 
 /// Helper: Make a GET request to the HA REST API
 async fn ha_api_get(state: &AppState, path: &str) -> Result<Value, ErrorResponse> {
-    let ha_url = std::env::var("HA_URL")
-        .unwrap_or_else(|_| "http://homeassistant.local:8123".to_string());
-    let ha_token = std::env::var("HA_TOKEN")
-        .map_err(|_| ErrorResponse::internal("HA_TOKEN not configured"))?;
+    let ha_config = load_ha_runtime_config(&state.config_repo).await;
+    if !ha_config.is_configured() {
+        return Err(ErrorResponse::internal("Home Assistant is not configured"));
+    }
 
     let response = state.http_client
-        .get(format!("{}{}", ha_url, path))
-        .header("Authorization", format!("Bearer {}", ha_token))
+        .get(format!("{}{}", ha_config.url, path))
+        .header("Authorization", format!("Bearer {}", ha_config.token))
         .header("Content-Type", "application/json")
         .send()
         .await

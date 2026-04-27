@@ -58,11 +58,42 @@ export interface WatchSession {
     id: string;
     components: string[];
     target: string;
+    build_mode: string;
+    automatic?: boolean;
     debounce_ms: number;
     started_at: string;
 }
 
+export interface CmdResult {
+    ok: boolean;
+    code: number;
+    stdout: string;
+    stderr: string;
+}
+
+export interface SystemEntry {
+    name: string;
+    path: string;
+    kind: string;
+    size: number;
+}
+
+export interface SystemListResult {
+    path: string;
+    entries: SystemEntry[];
+}
+
+export interface SystemReadResult {
+    path: string;
+    content: string;
+    bytes: number;
+    total_bytes: number;
+    truncated: boolean;
+    binary_hint: boolean;
+}
+
 export interface DaemonInfo { url: string; token: string; pid?: number; }
+export interface DaemonVersionInfo { name: string; version: string; api: string; features?: string[]; }
 
 export class DaemonUnavailable extends Error { constructor(m: string) { super(m); this.name = 'DaemonUnavailable'; } }
 
@@ -128,6 +159,7 @@ export class DaemonClient {
     health(): Promise<{ ok: boolean; version: string; uptime_secs: number; active_watches: number; jobs: number }>{
         return this.req('GET', '/api/v1/health');
     }
+    version(): Promise<DaemonVersionInfo> { return this.req('GET', '/api/v1/version'); }
     components(): Promise<Component[]> { return this.req('GET', '/api/v1/components'); }
     devices(): Promise<DeviceFound[]> { return this.req('GET', '/api/v1/devices'); }
     discover(timeout = 4): Promise<DeviceFound[]> {
@@ -137,7 +169,7 @@ export class DaemonClient {
     connect(host: string, token: string) { return this.req('POST', '/api/v1/connect', { host, token }); }
     disconnect() { return this.req('POST', '/api/v1/disconnect'); }
     deviceStatus(): Promise<Status> { return this.req('GET', '/api/v1/status'); }
-    deploy(opts: { components: string[]; target: string; no_build?: boolean; no_restart?: boolean }): Promise<{ job_id: string }> {
+    deploy(opts: { components: string[]; target: string; build_mode: string; no_build?: boolean; no_restart?: boolean }): Promise<{ job_id: string }> {
         return this.req('POST', '/api/v1/deploy', opts);
     }
     jobs(): Promise<Job[]> { return this.req('GET', '/api/v1/jobs'); }
@@ -145,11 +177,20 @@ export class DaemonClient {
     restart(unit: string) { return this.req('POST', '/api/v1/restart', { unit }); }
     serviceReload(unit: string) { return this.req('POST', '/api/v1/service/reload', { unit }); }
     composeReload(svc: string) { return this.req('POST', '/api/v1/compose/reload', { svc }); }
-    composeLogs(svc: string, tail = 200): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> {
+    composeLogs(svc: string, tail = 200): Promise<CmdResult> {
         return this.req('POST', '/api/v1/compose/logs', { svc, tail });
     }
+    serviceLogs(unit: string, tail = 200): Promise<CmdResult> {
+        return this.req('POST', '/api/v1/service/logs', { unit, tail });
+    }
+    systemList(path: string): Promise<SystemListResult> {
+        return this.req('POST', '/api/v1/system/list', { path });
+    }
+    systemRead(path: string, max_bytes = 64 * 1024): Promise<SystemReadResult> {
+        return this.req('POST', '/api/v1/system/read', { path, max_bytes });
+    }
     watches(): Promise<WatchSession[]> { return this.req('GET', '/api/v1/watch'); }
-    startWatch(opts: { components: string[]; target: string; debounce_ms?: number }): Promise<WatchSession> {
+    startWatch(opts: { components: string[]; target: string; build_mode: string; automatic?: boolean; debounce_ms?: number }): Promise<WatchSession> {
         return this.req('POST', '/api/v1/watch', opts);
     }
     stopWatch(id: string) { return this.req('DELETE', `/api/v1/watch/${id}`); }

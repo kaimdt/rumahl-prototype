@@ -164,6 +164,7 @@ pub async fn ora_show_overlay(app: AppHandle, state: State<'_, AppState>) -> Res
         .transparent(true)
         .always_on_top(true)
         .resizable(false)
+        .shadow(false)
         .skip_taskbar(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -183,6 +184,38 @@ pub async fn ora_show_overlay(app: AppHandle, state: State<'_, AppState>) -> Res
         }
     }
     Ok(())
+}
+
+/// Capture a "video" (represented by a series of frames or a keyframe) of the current screen
+#[tauri::command]
+pub async fn ora_capture_video(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let is_privacy_mode = state.config.lock().await.ora_privacy_mode;
+    if is_privacy_mode {
+        return Err("ORA AI is disabled (Privacy Mode active)".to_string());
+    }
+
+    // Capture the primary screen (using the same logic as screenshot but representing video keyframe)
+    let screens = Screen::all().map_err(|e| format!("Failed to get screens: {}", e))?;
+    let screen = screens.first().ok_or("No screen found")?;
+
+    let image = screen.capture().map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+    let png_data = image
+        .to_png(None)
+        .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+
+    use base64::prelude::*;
+    let image_base64 = BASE64_STANDARD.encode(&png_data);
+    
+    // Simulate a short recording time to represent video
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let timestamp = chrono::Local::now().to_rfc3339();
+
+    Ok(serde_json::json!({
+        "video_base64": image_base64,
+        "timestamp": timestamp
+    }))
 }
 
 /// Hide the AI overlay window

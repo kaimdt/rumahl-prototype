@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Cached item with TTL tracking
 struct CachedItem {
@@ -153,15 +153,13 @@ pub async fn background_ha_cache_refresh(
     loop {
         interval.tick().await;
 
-        let ha_url = std::env::var("HA_URL")
-            .unwrap_or_else(|_| "http://homeassistant.local:8123".to_string());
-        let ha_token = match std::env::var("HA_TOKEN") {
-            Ok(t) => t,
-            Err(_) => {
-                warn!("HA_TOKEN not set, skipping cache refresh");
-                continue;
-            }
-        };
+        let ha_config = crate::load_ha_runtime_config_from_pool(&db_pool).await;
+        if !ha_config.is_configured() {
+            tracing::debug!("HA not configured; skipping cache refresh");
+            continue;
+        }
+        let ha_url = ha_config.url;
+        let ha_token = ha_config.token;
 
         // Fetch multiple HA API endpoints in parallel
         let (config_res, services_res, supervisor_res, addons_res, backups_res, network_res) = tokio::join!(

@@ -126,6 +126,7 @@ interface ConfigurationContextType {
 const ConfigurationContext = createContext<ConfigurationContextType | undefined>(undefined)
 
 import { getApiBase } from '@/lib/apiBase'
+import { authFetch } from '@/lib/authHelpers'
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth()
@@ -139,10 +140,15 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Initialize device on mount
+  // Initialize device only once a valid auth token is available.
+  // Without a token all /api/config/* calls would return 401.
   useEffect(() => {
+    if (!token) {
+      setIsLoading(false)
+      return
+    }
     initializeDevice()
-  }, [])
+  }, [token])
 
   // Load profile when user/device or design mode changes
   useEffect(() => {
@@ -151,12 +157,12 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     }
   }, [profile?.id])
 
-  // Update profile when design mode changes
+  // Update profile when design mode changes (token check inside loadOrCreateProfile)
   useEffect(() => {
-    if (user && device) {
+    if (user && device && token) {
       loadOrCreateProfile()
     }
-  }, [user, device, designMode])
+  }, [user, device, designMode, token])
 
   const initializeDevice = async () => {
     try {
@@ -166,7 +172,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
       if (deviceId) {
         // Try to get existing device
-        const response = await fetch(`${getApiBase()}/api/config/devices/${deviceId}`)
+        const response = await authFetch(`/api/config/devices/${deviceId}`)
         if (response.ok) {
           storedDevice = await response.json()
           setDevice(storedDevice)
@@ -175,7 +181,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
       // If no device found, register new one
       if (!storedDevice) {
-        const response = await fetch(`${getApiBase()}/api/config/devices`, {
+        const response = await authFetch(`/api/config/devices`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -207,7 +213,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
   const getOrCreateUser = async (username: string) => {
     try {
-      let response = await fetch(`${getApiBase()}/api/config/users/${username}`)
+      let response = await authFetch(`/api/config/users/${username}`)
 
       if (response.ok) {
         const existingUser = await response.json()
@@ -215,7 +221,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('ha-username', username)
       } else {
         // Create new user
-        response = await fetch(`${getApiBase()}/api/config/users`, {
+        response = await authFetch(`/api/config/users`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -237,7 +243,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
   }
 
   const loadOrCreateProfile = async () => {
-    if (!user || !device) return
+    if (!user || !device || !token) return
 
     try {
       setIsLoading(true)
@@ -245,9 +251,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
       // Try to get existing profile
       // This is a simplified approach - in production you'd have a specific endpoint
-      const response = await fetch(`${getApiBase()}/api/config/profiles`, {
+      const response = await authFetch(`/api/config/profiles`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: designMode === 'user' ? `${user.username}'s Profile` : `${device.device_name} Profile`,
           profile_type: designMode,
@@ -272,9 +278,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
     try {
       setIsLoading(true)
-      const response = await fetch(`${getApiBase()}/api/config/profiles/${profile.id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
+      const response = await authFetch(`/api/config/profiles/${profile.id}`)
 
       if (response.ok) {
         const data = await response.json()
@@ -326,9 +330,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
         })),
       }))
 
-      const response = await fetch(`${getApiBase()}/api/config/profiles/${profile.id}/pages`, {
+      const response = await authFetch(`/api/config/profiles/${profile.id}/pages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pagesPayload),
       })
 
@@ -347,9 +351,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!profile) return
 
     try {
-      const response = await fetch(`${getApiBase()}/api/config/profiles/${profile.id}/theme`, {
+      const response = await authFetch(`/api/config/profiles/${profile.id}/theme`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(themeData),
       })
 
@@ -371,9 +375,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!profile) return
 
     try {
-      const response = await fetch(`${getApiBase()}/api/config/profiles/${profile.id}/background`, {
+      const response = await authFetch(`/api/config/profiles/${profile.id}/background`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(backgroundData),
       })
 
@@ -393,9 +397,9 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!user) return
 
     try {
-      const response = await fetch(`${getApiBase()}/api/config/preferences/${user.id}`, {
+      const response = await authFetch(`/api/config/preferences/${user.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           preference_key: key,
           preference_value: value,
@@ -415,9 +419,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!user) return null
 
     try {
-      const response = await fetch(`${getApiBase()}/api/config/preferences/${user.id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
+      const response = await authFetch(`/api/config/preferences/${user.id}`)
 
       if (response.ok) {
         const prefs = await response.json()
@@ -436,9 +438,8 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
     const interval = setInterval(async () => {
       try {
-        await fetch(`${getApiBase()}/api/config/devices/${device.id}/heartbeat`, {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        await authFetch(`/api/config/devices/${device.id}/heartbeat`, {
+          method: 'POST'
         })
       } catch (err) {
         console.error('Failed to send heartbeat:', err)

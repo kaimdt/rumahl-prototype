@@ -40,6 +40,11 @@ rustup target add aarch64-unknown-linux-gnu
 sudo apt install gcc-aarch64-linux-gnu
 ```
 
+On Windows or macOS, if the native target toolchain is missing the CLI can now
+fall back to a Docker-based cross-compile container when `cargo build --target`
+fails. Ensure Docker Desktop is installed and running on your host before using
+that path.
+
 …and add to `~/.cargo/config.toml`:
 
 ```toml

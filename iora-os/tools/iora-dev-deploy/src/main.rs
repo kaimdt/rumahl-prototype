@@ -88,6 +88,9 @@ enum Cmd {
         /// Cross-compile target triple (default: aarch64-unknown-linux-gnu).
         #[arg(long, default_value = "aarch64-unknown-linux-gnu")]
         target: String,
+        /// Build mode: `device` builds on the IORA system via dev-bridge, `host` builds locally.
+        #[arg(long, default_value = "device")]
+        build_mode: String,
     },
 
     /// Watch one or more crates and auto-deploy on file changes.
@@ -95,6 +98,10 @@ enum Cmd {
         components: Vec<String>,
         #[arg(long, default_value = "aarch64-unknown-linux-gnu")]
         target: String,
+        #[arg(long, default_value = "device")]
+        build_mode: String,
+        #[arg(long, default_value_t = false)]
+        automatic: bool,
         /// Debounce window for file changes (milliseconds).
         #[arg(long, default_value_t = 800)]
         debounce_ms: u64,
@@ -195,20 +202,20 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Deploy { components, no_build, no_restart, target } => {
+        Cmd::Deploy { components, no_build, no_restart, target, build_mode } => {
             let (host, token) = resolve_target(&cli.host, &cli.token)?;
             let client = client::Client::new(&host, &token)?;
             ensure_dev(&client).await?;
             for name in components {
-                deploy_one(&client, &name, no_build, no_restart, &target).await?;
+                deploy_one(&client, &name, no_build, no_restart, &target, &build_mode).await?;
             }
             Ok(())
         }
-        Cmd::Watch { components, target, debounce_ms } => {
+        Cmd::Watch { components, target, build_mode, automatic, debounce_ms } => {
             let (host, token) = resolve_target(&cli.host, &cli.token)?;
             let client = client::Client::new(&host, &token)?;
             ensure_dev(&client).await?;
-            watch::run(client, components, target, debounce_ms).await
+            watch::run(client, components, target, build_mode, automatic, debounce_ms).await
         }
         Cmd::Restart { unit } => {
             let (host, token) = resolve_target(&cli.host, &cli.token)?;
@@ -283,12 +290,49 @@ async fn deploy_one(
     no_build: bool,
     no_restart: bool,
     target: &str,
+    build_mode: &str,
 ) -> Result<()> {
     let entry = catalog::lookup(name)
         .with_context(|| format!("unknown component `{name}` — see `iora-dev-deploy list`"))?;
+    let effective_build_mode = if build_mode == "device" && build::must_build_on_host(&entry) {
+        println!(
+            "{} {} uses a dedicated host-build bridge update path",
+            "▶ info".bold(),
+            entry.name.cyan()
+        );
+        "host"
+    } else {
+        build_mode
+    };
 
     let bin_path = if no_build {
         build::existing_binary(&entry, target)?
+    } else if effective_build_mode == "device" {
+        println!("{} {} on device", "▶ build".bold(), entry.name.cyan());
+        let resp = client
+            .build_replace_remote(&entry.name, &entry.target_path, if no_restart { None } else { Some(entry.unit.as_str()) })
+            .await?;
+        println!(
+            "{} {} bytes, sha256={}",
+            "✓ deployed".green(),
+            resp["bytes"],
+            resp["sha256"].as_str().unwrap_or("?")
+        );
+        if !no_restart {
+            let r = &resp["restart"];
+            if r["ok"].as_bool().unwrap_or(false) {
+                println!("{} {} restarted", "✓".green(), entry.unit);
+            } else {
+                eprintln!(
+                    "{} restart of {} failed (code {}): {}",
+                    "✗".red(),
+                    entry.unit,
+                    r["code"],
+                    r["stderr"].as_str().unwrap_or("")
+                );
+            }
+        }
+        return Ok(());
     } else {
         println!("{} {} ({})", "▶ build".bold(), entry.name.cyan(), target);
         build::cargo_release(&entry, target).await?

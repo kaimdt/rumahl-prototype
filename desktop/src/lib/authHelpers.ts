@@ -11,15 +11,15 @@ export function parseStoredToken(raw: string | null): string | null {
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
-    if (typeof parsed === 'string') return parsed
+    if (typeof parsed === 'string') return parsed === 'null' || parsed === 'undefined' ? null : parsed
     if (parsed && typeof parsed === 'object') {
       const token = (parsed as Record<string, unknown>).token
       const accessToken = (parsed as Record<string, unknown>).access_token
-      if (typeof token === 'string') return token
-      if (typeof accessToken === 'string') return accessToken
+      if (typeof token === 'string') return token === 'null' || token === 'undefined' ? null : token
+      if (typeof accessToken === 'string') return accessToken === 'null' || accessToken === 'undefined' ? null : accessToken
     }
   } catch {
-    return raw
+    return raw === 'null' || raw === 'undefined' ? null : raw
   }
   return null
 }

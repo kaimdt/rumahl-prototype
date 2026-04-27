@@ -57,6 +57,10 @@ let devicesProvider;
 let componentsProvider;
 let watchesProvider;
 let jobsProvider;
+let connectionProvider;
+let currentConnection = null;
+let currentJobs = [];
+let currentWatches = [];
 async function activate(ctx) {
     output = vscode.window.createOutputChannel('IORA OS Dev');
     statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -65,12 +69,13 @@ async function activate(ctx) {
     statusItem.show();
     manager = new daemonManager_1.DaemonManager(output);
     dashboard = new dashboard_1.Dashboard(ctx, () => client);
+    connectionProvider = new views_1.ConnectionProvider();
     devicesProvider = new views_1.DevicesProvider(() => client);
     componentsProvider = new views_1.ComponentsProvider();
     watchesProvider = new views_1.WatchesProvider();
     jobsProvider = new views_1.JobsProvider();
-    ctx.subscriptions.push(output, statusItem, vscode.window.registerTreeDataProvider('ioraDev.devices', devicesProvider), vscode.window.registerTreeDataProvider('ioraDev.components', componentsProvider), vscode.window.registerTreeDataProvider('ioraDev.watches', watchesProvider), vscode.window.registerTreeDataProvider('ioraDev.jobs', jobsProvider));
-    ctx.subscriptions.push(cmd('ioraDev.discover', cmdDiscover), cmd('ioraDev.connect', cmdConnect), cmd('ioraDev.disconnect', cmdDisconnect), cmd('ioraDev.status', cmdStatus), cmd('ioraDev.deploy', cmdDeploy), cmd('ioraDev.deployCurrent', cmdDeployCurrent), cmd('ioraDev.watch', cmdWatchStart), cmd('ioraDev.stopWatch', cmdWatchStop), cmd('ioraDev.restart', cmdRestart), cmd('ioraDev.reload', cmdReload), cmd('ioraDev.composeReload', cmdComposeReload), cmd('ioraDev.logs', cmdLogs), cmd('ioraDev.dashboard', () => dashboard.show()), cmd('ioraDev.startDaemon', cmdStartDaemon), cmd('ioraDev.stopDaemon', cmdStopDaemon), cmd('ioraDev.refresh', refreshAll), cmd('ioraDev.showOutput', () => output.show()), cmd('ioraDev.deployFromTree', (item) => cmdDeploy(item?.label ? [item.label] : undefined)), cmd('ioraDev.watchFromTree', (item) => cmdWatchStart(item?.label ? [item.label] : undefined)), cmd('ioraDev.connectFromTree', (ep) => cmdConnect(ep)), cmd('ioraDev.stopWatchFromTree', (item) => cmdWatchStop(item?.id ?? item)));
+    ctx.subscriptions.push(output, statusItem, vscode.window.registerTreeDataProvider('ioraDev.connection', connectionProvider), vscode.window.registerTreeDataProvider('ioraDev.devices', devicesProvider), vscode.window.registerTreeDataProvider('ioraDev.components', componentsProvider), vscode.window.registerTreeDataProvider('ioraDev.watches', watchesProvider), vscode.window.registerTreeDataProvider('ioraDev.jobs', jobsProvider));
+    ctx.subscriptions.push(cmd('ioraDev.discover', cmdDiscover), cmd('ioraDev.connect', cmdConnect), cmd('ioraDev.disconnect', cmdDisconnect), cmd('ioraDev.status', cmdStatus), cmd('ioraDev.deploy', cmdDeploy), cmd('ioraDev.deployCurrent', cmdDeployCurrent), cmd('ioraDev.watch', cmdWatchStart), cmd('ioraDev.stopWatch', cmdWatchStop), cmd('ioraDev.restart', cmdRestart), cmd('ioraDev.reload', cmdReload), cmd('ioraDev.composeReload', cmdComposeReload), cmd('ioraDev.logs', cmdLogs), cmd('ioraDev.dashboard', () => dashboard.show()), cmd('ioraDev.startDaemon', cmdStartDaemon), cmd('ioraDev.stopDaemon', cmdStopDaemon), cmd('ioraDev.refresh', refreshAll), cmd('ioraDev.showOutput', () => output.show()), cmd('ioraDev.deployFromTree', (item) => cmdDeploy(item?.label ? [item.label] : undefined)), cmd('ioraDev.watchFromTree', (item) => cmdWatchStart(item?.label ? [item.label] : undefined)), cmd('ioraDev.logsFromTree', (item) => cmdComponentLogs(item?.label ? item.label : undefined)), cmd('ioraDev.componentActions', (item) => cmdComponentActions(item?.label ? item.label : undefined)), cmd('ioraDev.connectFromTree', (ep) => cmdConnect(ep)), cmd('ioraDev.stopWatchFromTree', (item) => cmdWatchStop(item?.id ?? item)));
     // Initial connection (spawns daemon if needed). Don't fail activation.
     connectDaemon().catch(e => output.appendLine(`startup: ${e}`));
 }
@@ -121,38 +126,89 @@ function onEvent(e) {
         case 'snapshot':
             if (Array.isArray(e.devices))
                 devicesProvider.setDevices(e.devices);
-            if (Array.isArray(e.watches))
+            if (Array.isArray(e.watches)) {
+                currentWatches = e.watches;
                 watchesProvider.setItems(e.watches);
-            if (Array.isArray(e.jobs_recent))
+            }
+            if (Array.isArray(e.jobs_recent)) {
+                currentJobs = e.jobs_recent;
                 jobsProvider.setItems(e.jobs_recent);
+            }
+            syncConnectionView();
             break;
         case 'devices_updated':
             devicesProvider.setDevices(e.devices ?? []);
             break;
         case 'watch_started':
         case 'watch_stopped':
-            client?.watches().then(w => watchesProvider.setItems(w)).catch(() => { });
+            client?.watches().then(w => {
+                currentWatches = w;
+                watchesProvider.setItems(w);
+                syncConnectionView();
+            }).catch(() => { });
             break;
         case 'job_created':
         case 'job_finished':
             jobsProvider.upsert(e.job);
+            upsertJob(e.job);
+            syncConnectionView();
             break;
         case 'job_updated':
-            // Lazy: just refetch list periodically; the upsert path covers full lifecycle.
+            if (e.id) {
+                const idx = currentJobs.findIndex(j => j.id === e.id);
+                if (idx >= 0) {
+                    currentJobs[idx] = {
+                        ...currentJobs[idx],
+                        status: e.status ?? currentJobs[idx].status,
+                        log: e.line ? [...currentJobs[idx].log, e.line] : currentJobs[idx].log,
+                    };
+                }
+                syncConnectionView();
+            }
             break;
         case 'connection':
-            updateStatusBar(e);
+            const preservedCapabilities = currentConnection?.host === (e.host ?? null)
+                ? currentConnection?.capabilities
+                : undefined;
+            currentConnection = {
+                host: e.host ?? null,
+                configured: !!e.host,
+                hostname: e.hostname,
+                build: e.build,
+                variant: e.variant,
+                capabilities: preservedCapabilities,
+                reachable: !!e.host,
+            };
+            syncConnectionView();
             break;
     }
 }
-function updateStatusBar(e) {
-    if (e.host) {
-        statusItem.text = `$(broadcast) IORA Dev: ${e.hostname ?? e.host} (${e.build ?? '?'})`;
-        statusItem.tooltip = `host=${e.host}\nvariant=${e.variant}\nbuild=${e.build}`;
+function renderStatusBar() {
+    if (currentConnection?.host) {
+        const activeJobs = currentJobs.filter(j => j.status === 'running' || j.status === 'pending').length;
+        const watchCount = currentWatches.length;
+        const bridgeReady = currentConnection.capabilities?.includes('binary.build_replace') ?? false;
+        const suffix = activeJobs > 0 ? ` • ${activeJobs} active job${activeJobs === 1 ? '' : 's'}` : watchCount > 0 ? ` • ${watchCount} watch${watchCount === 1 ? '' : 'es'}` : '';
+        statusItem.text = `$(broadcast) IORA Dev: ${currentConnection.hostname ?? currentConnection.host}${suffix}`;
+        statusItem.tooltip = `host=${currentConnection.host}\nvariant=${currentConnection.variant}\nbuild=${currentConnection.build}\nbridgeRemoteBuild=${bridgeReady ? 'ready' : 'update required'}\nactiveJobs=${activeJobs}\nwatchSessions=${watchCount}`;
     }
     else {
         statusItem.text = '$(circle-slash) IORA Dev: not connected';
+        statusItem.tooltip = 'No active IORA dev server connection';
     }
+}
+function upsertJob(job) {
+    const idx = currentJobs.findIndex(j => j.id === job.id);
+    if (idx >= 0)
+        currentJobs[idx] = job;
+    else
+        currentJobs.unshift(job);
+    if (currentJobs.length > 100)
+        currentJobs.length = 100;
+}
+function syncConnectionView() {
+    connectionProvider.setState(currentConnection, currentJobs, currentWatches);
+    renderStatusBar();
 }
 async function refreshAll() {
     if (!client) {
@@ -173,12 +229,15 @@ async function refreshAll() {
             client.watches(),
             client.jobs(),
         ]);
-        updateStatusBar({ host: conn.host, hostname: conn.hostname, build: conn.build, variant: conn.variant });
+        currentConnection = conn;
+        currentWatches = watches;
+        currentJobs = jobs;
         componentsProvider.setItems(comps);
         devicesProvider.setDevices(devs);
         devicesProvider.setActive(conn.host);
         watchesProvider.setItems(watches);
         jobsProvider.setItems(jobs);
+        syncConnectionView();
     }
     catch (e) {
         output.appendLine(`refresh: ${e.message ?? e}`);
@@ -234,13 +293,19 @@ async function pickComponents(prefilled) {
     const picked = await vscode.window.showQuickPick(all.map(x => ({ label: x.name, description: x.unit, detail: x.target_path })), { canPickMany: true, title: 'Select component(s)' });
     return picked?.map(p => p.label);
 }
+async function componentByName(name) {
+    const c = await ensureClient();
+    const all = await c.components();
+    return all.find(component => component.name === name);
+}
 async function cmdDeploy(prefilled) {
     const c = await ensureClient();
     const comps = await pickComponents(prefilled);
     if (!comps || comps.length === 0)
         return;
     const target = vscode.workspace.getConfiguration('ioraDev').get('target') ?? 'aarch64-unknown-linux-gnu';
-    const r = await c.deploy({ components: comps, target });
+    const buildMode = vscode.workspace.getConfiguration('ioraDev').get('buildMode') ?? 'device';
+    const r = await c.deploy({ components: comps, target, build_mode: buildMode });
     vscode.window.showInformationMessage(`IORA Dev: deploy started (${r.job_id.slice(0, 8)}).`);
 }
 async function cmdDeployCurrent() {
@@ -259,21 +324,92 @@ async function cmdDeployCurrent() {
     const parts = path.relative(root, file).split(/[\\/]/);
     const i = parts.indexOf('backend');
     if (i < 0 || !parts[i + 1]) {
-        vscode.window.showWarningMessage('Active file is not inside backend/.');
+        vscode.window.showWarningMessage('Active file is not inside a deployable IORA component.');
         return;
+    }
+    if (parts[i + 1] === 'dev' && parts[i + 2] === 'iora-dev-bridge') {
+        return cmdDeploy(['iora-dev-bridge']);
     }
     return cmdDeploy([parts[i + 1]]);
 }
 async function cmdWatchStart(prefilled) {
     const c = await ensureClient();
-    const comps = await pickComponents(prefilled);
-    if (!comps || comps.length === 0)
+    const automatic = (vscode.workspace.getConfiguration('ioraDev').get('automaticMode') ?? false) && (!prefilled || prefilled.length === 0);
+    const comps = automatic ? [] : await pickComponents(prefilled);
+    if (!automatic && (!comps || comps.length === 0))
         return;
     const target = vscode.workspace.getConfiguration('ioraDev').get('target') ?? 'aarch64-unknown-linux-gnu';
+    const buildMode = vscode.workspace.getConfiguration('ioraDev').get('buildMode') ?? 'device';
     const debounce = vscode.workspace.getConfiguration('ioraDev').get('watchDebounceMs') ?? 800;
-    const w = await c.startWatch({ components: comps, target, debounce_ms: debounce });
-    vscode.window.showInformationMessage(`IORA Dev: watching ${w.components.join(', ')}.`);
+    const w = await c.startWatch({ components: comps ?? [], target, build_mode: buildMode, automatic, debounce_ms: debounce });
+    const label = w.automatic ? 'automatic workspace mode' : w.components.join(', ');
+    vscode.window.showInformationMessage(`IORA Dev: watching ${label}.`);
     refreshAll();
+}
+async function cmdComponentLogs(componentName) {
+    const c = await ensureClient();
+    let targetName = componentName;
+    if (!targetName) {
+        const selected = await pickComponents();
+        if (!selected || selected.length === 0)
+            return;
+        targetName = selected[0];
+    }
+    const component = await componentByName(targetName);
+    if (!component) {
+        vscode.window.showWarningMessage(`Unknown component: ${targetName}`);
+        return;
+    }
+    const r = await c.serviceLogs(component.unit, 300);
+    output.show(true);
+    output.appendLine(`--- service logs ${component.unit} (tail=300) ---`);
+    output.append(r.stdout);
+    if (r.stderr) {
+        output.appendLine('---stderr---');
+        output.append(r.stderr);
+    }
+}
+async function cmdComponentActions(componentName) {
+    let targetName = componentName;
+    if (!targetName) {
+        const selected = await pickComponents();
+        if (!selected || selected.length === 0)
+            return;
+        targetName = selected[0];
+    }
+    const component = await componentByName(targetName);
+    if (!component) {
+        vscode.window.showWarningMessage(`Unknown component: ${targetName}`);
+        return;
+    }
+    const pick = await vscode.window.showQuickPick([
+        { label: 'Deploy', action: 'deploy' },
+        { label: 'Watch', action: 'watch' },
+        { label: 'Show Logs', action: 'logs' },
+        { label: 'Restart Service', action: 'restart' },
+        { label: 'Reload Service', action: 'reload' },
+    ], { title: `Actions for ${component.name}` });
+    if (!pick)
+        return;
+    switch (pick.action) {
+        case 'deploy': return cmdDeploy([component.name]);
+        case 'watch': return cmdWatchStart([component.name]);
+        case 'logs': return cmdComponentLogs(component.name);
+        case 'restart': {
+            const daemon = await ensureClient();
+            const r = await daemon.restart(component.unit);
+            output.show(true);
+            output.appendLine(`--- restart ${component.unit} ---\n${JSON.stringify(r, null, 2)}`);
+            return;
+        }
+        case 'reload': {
+            const daemon = await ensureClient();
+            const r = await daemon.serviceReload(component.unit);
+            output.show(true);
+            output.appendLine(`--- reload ${component.unit} ---\n${JSON.stringify(r, null, 2)}`);
+            return;
+        }
+    }
 }
 async function cmdWatchStop(arg) {
     const c = await ensureClient();

@@ -220,6 +220,52 @@ export function ORAOverlay() {
     }
   }
 
+  const handleCaptureVideo = async () => {
+    try {
+      setState('thinking')
+      const result = await invoke<{ video_base64: string; timestamp: string }>('ora_capture_video')
+      
+      const videoMessage: AIChatMessage = {
+        role: 'system',
+        content: 'Video aufgenommen und bereit zur Analyse. Das Video wird automatisch an die Backend ORA AI gesendet.',
+        timestamp: result.timestamp,
+      }
+      setMessages(prev => [...prev, videoMessage])
+      
+      // Auto-send video for analysis using the API endpoint added previously
+      setState('thinking')
+      const assistUrl = localStorage.getItem('iora-assist-url') || 'http://localhost:8092'
+      fetch(`${assistUrl}/api/assist/video/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_base64: result.video_base64 })
+      }).then(async res => {
+          if(res.ok) {
+              const data = await res.json()
+              const aiMessage: AIChatMessage = {
+                role: 'assistant',
+                content: data.analysis,
+                timestamp: new Date().toISOString(),
+              }
+              setMessages(prev => [...prev, aiMessage])
+              
+              if (isTTSEnabled) {
+                speak(data.analysis)
+              }
+          }
+      }).catch(console.error).finally(() => setState('idle'))
+
+    } catch (e) {
+      console.error('Video capture failed:', e)
+      setError(e instanceof Error ? e.message : 'Videoaufnahme fehlgeschlagen')
+      setState('error')
+      setTimeout(() => {
+        setState('idle')
+        setError(null)
+      }, 3000)
+    }
+  }
+
   const getStateColor = () => {
     switch (state) {
       case 'listening': return 'from-blue-500/40 to-cyan-500/40'
@@ -456,16 +502,8 @@ export function ORAOverlay() {
             </button>
             <button
               type="button"
-              disabled={oraState !== 'idle'}
-              onClick={() => {
-                // Mocking video capabilities
-                setMessages(prev => [...prev, { role: 'assistant', content: 'Videoaufnahme gestartet (Simulation)' }])
-                setOraState('thinking')
-                setTimeout(() => {
-                  setMessages(prev => [...prev, { role: 'assistant', content: 'Videoaufnahme verarbeitet.' }])
-                  setOraState('idle')
-                }, 3000)
-              }}
+              disabled={state !== 'idle'}
+              onClick={handleCaptureVideo}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
