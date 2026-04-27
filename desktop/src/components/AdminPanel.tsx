@@ -91,6 +91,8 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
 ]
 
+const tabMap = new Map(tabs.map((t) => [t.id, t]))
+
 function CloudSettingsTab({ token }: { token: string }) {
   const [settings, setSettings] = useState<CloudSettings>({
     privateApiUrl: '',
@@ -302,7 +304,7 @@ function adminPathToTab(path: string): Tab {
   const sub = segments[1]
   if (!sub) return 'services'
   if (sub === 'cloud') return 'cloud-settings'
-  if (tabs.some((t) => t.id === sub)) return sub as Tab
+  if (tabMap.has(sub as Tab)) return sub as Tab
   return 'services'
 }
 
@@ -315,6 +317,9 @@ function tabToAdminPath(tab: Tab): string {
 export function AdminPanel() {
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>(() => adminPathToTab(window.location.pathname))
+
+  const currentTab = tabMap.get(activeTab) || tabs[0]
+  const ActiveIcon = currentTab.icon || Cpu
 
   if (!token) return null
 
@@ -379,10 +384,10 @@ export function AdminPanel() {
         <div className="space-y-4">
           <div className="glass-card rounded-3xl border border-white/10 bg-white/10 px-5 py-4 shadow-xl shadow-black/5 backdrop-blur-xl">
             <div className="flex items-center gap-3">
-              {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <Icon size={18} className="text-accent" /> })()}
+              <ActiveIcon size={18} className="text-accent" />
               <div>
-                <p className="text-sm font-semibold text-foreground">{tabs.find(t => t.id === activeTab)?.label}</p>
-                <p className="text-xs text-foreground/60">{tabs.find(t => t.id === activeTab)?.description}</p>
+                <p className="text-sm font-semibold text-foreground">{currentTab.label}</p>
+                <p className="text-xs text-foreground/60">{currentTab.description}</p>
               </div>
             </div>
           </div>
