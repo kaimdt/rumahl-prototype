@@ -737,7 +737,7 @@ async fn ide_logs_stream(
                     match chunk {
                         Ok(bytes) => {
                             let text = String::from_utf8_lossy(&bytes);
-                            yield sse::Event::Data(sse::Data::new(text.to_string()));
+                            yield Ok::<_, std::convert::Infallible>(sse::Event::Data(sse::Data::new(text.to_string())));
                         }
                         Err(e) => {
                             error!("Error streaming logs: {}", e);
@@ -880,12 +880,50 @@ async fn main() -> std::io::Result<()> {
     info!("Supervisor URL: {}", supervisor_url);
     info!("IORA API URL: {}", iora_api_url);
 
+    let developer_mode_enabled = Arc::new(RwLock::new(true));
+
+    // Spawn task to sync developer mode with supervisor
+    let dev_mode_sync = developer_mode_enabled.clone();
+    let sup_url = supervisor_url.clone();
+    tokio::spawn(async move {
+        #[derive(Deserialize)]
+        struct DevModeStatus {
+            developer_mode: bool,
+        }
+
+        let client = reqwest::Client::new();
+        let status_url = format!("{}/api/developer/status", sup_url);
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+
+        loop {
+            interval.tick().await;
+            match client.get(&status_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(status) = resp.json::<DevModeStatus>().await {
+                        let mut dev_mode = dev_mode_sync.write().await;
+                        if *dev_mode != status.developer_mode {
+                            info!("Developer mode status changed to: {}", status.developer_mode);
+                            *dev_mode = status.developer_mode;
+
+                            // If disabled, exit the app since it's no longer allowed to run
+                            if !status.developer_mode {
+                                info!("Developer mode disabled. Shutting down Developer App.");
+                                std::process::exit(0);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+
     let app_state = web::Data::new(AppState {
         supervisor_url,
         iora_api_url,
         hot_reload_history: Arc::new(RwLock::new(HashMap::new())),
         deployment_status: Arc::new(RwLock::new(HashMap::new())),
-        developer_mode_enabled: Arc::new(RwLock::new(true)), // TODO: Sync with supervisor
+        developer_mode_enabled,
     });
 
     let port = std::env::var("PORT")
