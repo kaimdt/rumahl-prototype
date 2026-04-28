@@ -934,6 +934,11 @@ async fn main() -> Result<()> {
     info!("AI request monitoring enabled");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-gateway",
+        port.parse::<u16>().unwrap_or(8096),
+        "API gateway / reverse proxy",
+    );
     axum::serve(listener, app).await?;
 
     Ok(())

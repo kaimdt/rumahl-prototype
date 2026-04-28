@@ -49,6 +49,11 @@ fn not_implemented(action: &str) -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-backup",
+        8084,
+        "Backup & restore service",
+    );
     HttpServer::new(|| {
         App::new()
             .service(health)

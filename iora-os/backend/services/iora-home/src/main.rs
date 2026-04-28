@@ -1278,6 +1278,11 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(3001);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Backend server listening on {}", addr);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-home",
+        addr.port(),
+        "Smart-home / Home Assistant bridge",
+    );
 
     // Log which dashboard bundle path was resolved so a missing dist/ is
     // immediately visible in `journalctl -u iora-home` instead of users

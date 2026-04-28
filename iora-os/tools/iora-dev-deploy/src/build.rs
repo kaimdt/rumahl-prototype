@@ -22,6 +22,125 @@ fn command_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Heuristic: can the host realistically cross-compile to `target` with
+/// just `cargo build --target=...`? On Windows this practically requires
+/// a cross-linker that almost nobody has installed; the result is the
+/// classic `linker not found` error followed by a frustrating hour of
+/// googling. We refuse to even try in that case so the user gets a
+/// clear message and we go straight to docker (or device-build).
+pub fn host_can_cross_compile(target: &str) -> bool {
+    // Same-platform builds: always fine.
+    let host_os = std::env::consts::OS;
+    let host_arch = std::env::consts::ARCH;
+    let target_lc = target.to_lowercase();
+    let target_is_linux = target_lc.contains("linux");
+    let target_is_windows = target_lc.contains("windows");
+    let target_is_aarch64 = target_lc.starts_with("aarch64") || target_lc.starts_with("arm64");
+    let target_is_x86_64  = target_lc.starts_with("x86_64");
+
+    let host_is_linux  = host_os == "linux";
+    let host_is_macos  = host_os == "macos";
+    let host_is_windows= host_os == "windows";
+
+    // Native build.
+    if (host_is_linux && target_is_linux
+        && ((host_arch == "aarch64" && target_is_aarch64) || (host_arch == "x86_64" && target_is_x86_64)))
+        || (host_is_windows && target_is_windows)
+        || (host_is_macos && target_lc.contains("apple-darwin"))
+    {
+        return true;
+    }
+
+    // Cross-compile from Windows to anything Linux: not worth attempting
+    // without an explicit `IORA_DEV_TRUST_HOST_CROSS=1` opt-in. The cargo
+    // build will fail at link time in 99 % of setups.
+    if host_is_windows && !target_is_windows {
+        return std::env::var("IORA_DEV_TRUST_HOST_CROSS").ok().as_deref() == Some("1");
+    }
+
+    // Cross-compile from macOS to Linux/aarch64: same story — needs a
+    // cross-linker (e.g. `aarch64-unknown-linux-gnu-gcc` from
+    // homebrew). We let the user opt in once they've installed it.
+    if host_is_macos && target_is_linux {
+        return command_exists("aarch64-unknown-linux-gnu-gcc")
+            || command_exists("aarch64-linux-gnu-gcc")
+            || std::env::var("IORA_DEV_TRUST_HOST_CROSS").ok().as_deref() == Some("1");
+    }
+
+    // Cross-compile from Linux to non-native Linux arch: usually works
+    // with the right gcc-aarch64-linux-gnu/gcc-x86-64-linux-gnu package
+    // but we still verify a likely linker is present.
+    if host_is_linux && target_is_linux {
+        if target_is_aarch64 {
+            return command_exists("aarch64-linux-gnu-gcc");
+        }
+        if target_is_x86_64 {
+            return command_exists("x86_64-linux-gnu-gcc");
+        }
+    }
+
+    false
+}
+
+/// Resolved build strategy for a single (component, target) pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildStrategy {
+    /// `cargo build` directly on the developer workstation.
+    Cargo,
+    /// Containerised cargo using the rust:1.90 image.
+    Docker,
+    /// Push the workspace to the device and let the bridge build it.
+    Device,
+}
+
+impl BuildStrategy {
+    pub fn label(self) -> &'static str {
+        match self {
+            BuildStrategy::Cargo  => "cargo (native)",
+            BuildStrategy::Docker => "docker (rust:1.90)",
+            BuildStrategy::Device => "device build",
+        }
+    }
+}
+
+/// Pick the best available strategy given the user's preference, the
+/// host capabilities and the component. The dev-bridge component is
+/// special-cased because it must run on the developer workstation
+/// architecture, not on the device.
+pub fn resolve_strategy(component: &Component, target: &str, requested_mode: &str) -> BuildStrategy {
+    if must_build_on_host(component) {
+        // The bridge itself can't be device-built (chicken-and-egg).
+        if host_can_cross_compile(target) {
+            return BuildStrategy::Cargo;
+        }
+        if command_exists("docker") {
+            return BuildStrategy::Docker;
+        }
+        return BuildStrategy::Cargo; // best-effort; the failure mode is at least obvious.
+    }
+    let mode = requested_mode.to_lowercase();
+    let mode = mode.as_str();
+    match mode {
+        "device" => BuildStrategy::Device,
+        "host"   => {
+            if host_can_cross_compile(target) { BuildStrategy::Cargo }
+            else if command_exists("docker") { BuildStrategy::Docker }
+            else { BuildStrategy::Device }
+        }
+        "cargo"  => BuildStrategy::Cargo,
+        "docker" => BuildStrategy::Docker,
+        // Default "auto": prefer native cargo when realistic, else docker,
+        // else device build. This is what we recommend for Windows users
+        // because the cargo path is impossible there for ARM Linux
+        // targets and we don't want to waste 30 s probing it first.
+        _ => {
+            if host_can_cross_compile(target) { BuildStrategy::Cargo }
+            else if command_exists("docker") { BuildStrategy::Docker }
+            else { BuildStrategy::Device }
+        }
+    }
+}
+
 fn docker_mount_path(path: &Path) -> String {
     let path_str = path.display().to_string();
     if cfg!(windows) {
@@ -230,8 +349,37 @@ async fn docker_release(c: &Component, target: &str) -> Result<PathBuf> {
 }
 
 pub async fn cargo_release(c: &Component, target: &str) -> Result<PathBuf> {
+    cargo_release_with_mode(c, target, "auto").await
+}
+
+/// Build the component using the requested mode (`auto` / `cargo` /
+/// `docker` / `device` / `host`). `device` is rejected here — it must
+/// be handled by the caller via the bridge's `/dev/build-replace`
+/// endpoint, this function only produces a *local* binary.
+pub async fn cargo_release_with_mode(c: &Component, target: &str, mode: &str) -> Result<PathBuf> {
+    let strategy = resolve_strategy(c, target, mode);
+    if strategy == BuildStrategy::Device && !must_build_on_host(c) {
+        bail!(
+            "build mode `device` requested but cargo_release_with_mode only \
+             produces local binaries; the daemon should call the bridge's \
+             /dev/build-replace endpoint instead"
+        );
+    }
+    eprintln!("build strategy for {}: {}", c.name, strategy.label());
+    match strategy {
+        BuildStrategy::Cargo  => cargo_strategy(c, target).await,
+        BuildStrategy::Docker => docker_release(c, target).await,
+        BuildStrategy::Device => cargo_strategy(c, target).await, // fallback when nothing else available
+    }
+}
+
+async fn cargo_strategy(c: &Component, target: &str) -> Result<PathBuf> {
     let root = workspace_root()?;
     let backend = component_build_root(&root, c);
+
+    if cfg!(windows) && !host_can_cross_compile(target) {
+        return Err(anyhow!(windows_cross_hint(c, target)));
+    }
 
     let mut attempted_rustup = false;
     if command_exists("rustup") && rustup_target_add(target).await.is_ok() {
@@ -283,9 +431,42 @@ pub async fn cargo_release(c: &Component, target: &str) -> Result<PathBuf> {
     }
 
     Err(anyhow!(
-        "cargo build failed for {} (target {})\n{}",
+        "cargo build failed for {} (target {})\n{}\n\n{}",
         c.name,
         target,
-        tail_lines(&output, 30)
+        tail_lines(&output, 30),
+        post_failure_hint(c, target)
     ))
+}
+
+fn windows_cross_hint(c: &Component, target: &str) -> String {
+    format!(
+        "refusing to run `cargo build --target {target}` for {} on a Windows host: \
+         cross-compiling Linux/ARM binaries from Windows requires a cross-linker that is not installed.\n\n\
+         Recommended fix: keep the IDE's build mode at `auto` (the default) or set it to `device`.\n\
+         The IORA OS Dev Bridge will build the component on the device itself, with a persistent \
+         workspace at /var/lib/iora-dev/builds/{0} so subsequent rebuilds are incremental.\n\n\
+         If you really know what you are doing and have a working cross toolchain, set the env var \
+         IORA_DEV_TRUST_HOST_CROSS=1 to opt back in.",
+        c.name
+    )
+}
+
+fn post_failure_hint(c: &Component, target: &str) -> String {
+    if cfg!(windows) {
+        format!(
+            "hint: Windows hosts are not great at cross-compiling for {target}. \
+             Switch the build mode to `device` (the IORA OS Dev Bridge will build on \
+             the device itself, incrementally) or install Docker Desktop and rerun."
+        )
+    } else if cfg!(target_os = "macos") {
+        format!(
+            "hint: install a cross-linker (`brew install aarch64-unknown-linux-gnu` \
+             via `messense/macos-cross-toolchains`) or Docker Desktop, or switch the \
+             build mode to `device` so the bridge builds {} on the device.",
+            c.name
+        )
+    } else {
+        format!("hint: install gcc-aarch64-linux-gnu (or the matching cross gcc for {target}), or use Docker, or switch to device build.")
+    }
 }

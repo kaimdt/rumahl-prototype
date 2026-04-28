@@ -332,6 +332,12 @@ async fn main() -> Result<()> {
     });
 
     info!("IORA NGINX service is running on port {}", DEFAULT_PORT);
+
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-nginx",
+        DEFAULT_PORT,
+        "NGINX reverse-proxy controller",
+    );
     info!("Configuration will be auto-updated every {} seconds", CONFIG_RELOAD_INTERVAL_SECS);
 
     // Wait for shutdown signal

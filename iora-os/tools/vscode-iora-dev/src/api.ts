@@ -92,6 +92,49 @@ export interface SystemReadResult {
     binary_hint: boolean;
 }
 
+export type EffectiveStatus = 'healthy' | 'degraded' | 'unhealthy';
+
+export interface ServiceStatusEntry {
+    name: string;
+    url: string;
+    description: string;
+    registered_at: string;
+    last_heartbeat: string | null;
+    heartbeat_age_secs: number | null;
+    heartbeat_count: number;
+    reported_status: EffectiveStatus | null;
+    effective_status: EffectiveStatus;
+    message: string | null;
+    version: string | null;
+    pid: number | null;
+    host: string | null;
+    uptime_seconds: number | null;
+    metrics: Record<string, number>;
+    stale: boolean;
+    last_poll: string | null;
+    last_poll_status: EffectiveStatus | null;
+}
+
+export interface ServicesStatus {
+    services: ServiceStatusEntry[];
+    summary: { total: number; healthy: number; degraded: number; unhealthy: number; stale: number };
+    stale_after_seconds: number;
+    timestamp: string;
+}
+
+export interface SystemInfo {
+    hostname: string;
+    build: string;
+    uptime_seconds: number;
+    loadavg: string;
+    cpu_count: number;
+    mem_total_bytes: number;
+    mem_available_bytes: number;
+    disk_total_bytes: number;
+    disk_used_bytes: number;
+    disk_free_bytes: number;
+}
+
 export interface DaemonInfo { url: string; token: string; pid?: number; }
 export interface DaemonVersionInfo { name: string; version: string; api: string; features?: string[]; }
 
@@ -182,6 +225,17 @@ export class DaemonClient {
     }
     serviceLogs(unit: string, tail = 200): Promise<CmdResult> {
         return this.req('POST', '/api/v1/service/logs', { unit, tail });
+    }
+    /// Live service status from the device (aggregated heartbeats).
+    /// The daemon proxies `/dev/services` from the bridge, which proxies
+    /// `/api/core/services/status` from iora-core.
+    services(): Promise<ServicesStatus> { return this.req('GET', '/api/v1/services'); }
+    systemInfo(): Promise<SystemInfo> { return this.req('GET', '/api/v1/system/info'); }
+    systemReboot(): Promise<{ ok: boolean; scheduled_in_secs: number }> { return this.req('POST', '/api/v1/system/reboot'); }
+    /// Returns a directly-usable Server-Sent-Events URL (token in the query
+    /// string) for live `journalctl -f` of a systemd unit on the device.
+    serviceLogsUrl(unit: string): Promise<{ unit: string; url: string; token: string; base: string }> {
+        return this.req('GET', `/api/v1/service/${encodeURIComponent(unit)}/logs-url`);
     }
     systemList(path: string): Promise<SystemListResult> {
         return this.req('POST', '/api/v1/system/list', { path });

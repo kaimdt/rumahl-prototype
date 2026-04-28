@@ -607,6 +607,11 @@ async fn main() -> anyhow::Result<()> {
     info!("Monitoring services every 10 seconds");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-watchdog",
+        port.parse::<u16>().unwrap_or(8094),
+        "System & service watchdog",
+    );
     axum::serve(listener, app).await?;
 
     Ok(())

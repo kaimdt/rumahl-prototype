@@ -330,6 +330,11 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("IORA Files listening on {}", addr);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-files",
+        addr.port(),
+        "File sharing service",
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())

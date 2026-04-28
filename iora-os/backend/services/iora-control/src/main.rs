@@ -973,6 +973,11 @@ async fn main() -> anyhow::Result<()> {
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8091));
     info!("iora-control listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-control",
+        addr.port(),
+        "Administrative control panel",
+    );
     axum::serve(listener, app).await?;
 
     Ok(())

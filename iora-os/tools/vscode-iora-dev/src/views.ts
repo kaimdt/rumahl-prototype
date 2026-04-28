@@ -163,6 +163,88 @@ export class WatchesProvider extends BaseProvider<WatchSession | string> {
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────
 
+export class ServicesProvider extends BaseProvider<ServiceStatusEntry | string> {
+    private snapshot: ServicesStatus | null = null;
+    private err: string | null = null;
+
+    setSnapshot(snap: ServicesStatus | null, err?: string | null) {
+        this.snapshot = snap;
+        this.err = err ?? null;
+        this.refresh();
+    }
+
+    summary(): { healthy: number; degraded: number; unhealthy: number; stale: number; total: number } | null {
+        return this.snapshot?.summary ?? null;
+    }
+
+    getChildren(): (ServiceStatusEntry | string)[] {
+        if (this.err) return [`(error: ${this.err})`];
+        if (!this.snapshot) return ['(no data — connect to a device)'];
+        if (this.snapshot.services.length === 0) return ['(no services have heartbeated yet)'];
+        const order: Record<string, number> = { unhealthy: 0, degraded: 1, healthy: 2 };
+        return [...this.snapshot.services].sort((a, b) => {
+            const sa = order[a.effective_status] ?? 9;
+            const sb = order[b.effective_status] ?? 9;
+            if (sa !== sb) return sa - sb;
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    getTreeItem(e: ServiceStatusEntry | string): vscode.TreeItem {
+        if (typeof e === 'string') {
+            const i = new vscode.TreeItem(e);
+            i.iconPath = new vscode.ThemeIcon('info');
+            return i;
+        }
+        const item = new vscode.TreeItem(e.name, vscode.TreeItemCollapsibleState.None);
+        const ageStr = e.heartbeat_age_secs == null
+            ? 'no beat'
+            : (e.heartbeat_age_secs < 60 ? `${e.heartbeat_age_secs}s ago` : `${Math.floor(e.heartbeat_age_secs / 60)}m ago`);
+        item.description = `${e.effective_status} • ♥ ${ageStr}`;
+        const metricLines = Object.entries(e.metrics ?? {}).map(([k, v]) => `  ${k}=${v}`);
+        item.tooltip = [
+            e.description || null,
+            `status: ${e.effective_status}${e.reported_status && e.reported_status !== e.effective_status ? ` (reported: ${e.reported_status})` : ''}`,
+            e.message ? `message: ${e.message}` : null,
+            e.version ? `version: ${e.version}` : null,
+            e.host ? `host: ${e.host}${e.pid ? ` pid=${e.pid}` : ''}` : null,
+            e.uptime_seconds != null ? `uptime: ${formatDuration(e.uptime_seconds)}` : null,
+            e.last_heartbeat ? `last beat: ${e.last_heartbeat}` : 'no heartbeat received',
+            e.last_poll ? `last poll: ${e.last_poll} (${e.last_poll_status ?? 'n/a'})` : null,
+            e.url ? `url: ${e.url}` : null,
+            e.stale ? '⚠  stale (no recent heartbeat)' : null,
+            metricLines.length ? '\nmetrics:' : null,
+            ...metricLines,
+        ].filter(Boolean).join('\n');
+        item.iconPath = new vscode.ThemeIcon(statusIcon(e), statusColor(e));
+        item.contextValue = 'service';
+        return item;
+    }
+}
+
+function statusIcon(e: ServiceStatusEntry): string {
+    if (e.stale) return 'circle-slash';
+    switch (e.effective_status) {
+        case 'healthy':   return 'pass-filled';
+        case 'degraded':  return 'warning';
+        case 'unhealthy': return 'error';
+    }
+}
+function statusColor(e: ServiceStatusEntry): vscode.ThemeColor | undefined {
+    if (e.stale) return new vscode.ThemeColor('descriptionForeground');
+    switch (e.effective_status) {
+        case 'healthy':   return new vscode.ThemeColor('charts.green');
+        case 'degraded':  return new vscode.ThemeColor('charts.yellow');
+        case 'unhealthy': return new vscode.ThemeColor('errorForeground');
+    }
+}
+function formatDuration(secs: number): string {
+    if (secs < 60) return `${secs}s`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m${secs % 60}s`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h${Math.floor((secs % 3600) / 60)}m`;
+    return `${Math.floor(secs / 86400)}d${Math.floor((secs % 86400) / 3600)}h`;
+}
+
 export class JobsProvider extends BaseProvider<Job | string> {
     private items: Job[] = [];
     setItems(items: Job[]) { this.items = items; this.refresh(); }

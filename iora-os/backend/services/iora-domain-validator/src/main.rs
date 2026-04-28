@@ -685,6 +685,11 @@ async fn main() -> Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
     info!("iora-domain-validator listening on {}", addr);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-domain-validator",
+        addr.port(),
+        "Domain ownership validator",
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

@@ -1067,6 +1067,11 @@ async fn main() -> Result<()> {
     }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-security",
+        port.parse::<u16>().unwrap_or(8095),
+        "Security policy & intrusion detection",
+    );
     axum::serve(listener, app).await?;
 
     Ok(())

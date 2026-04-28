@@ -92,6 +92,11 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting IORA Resource Manager (stub) on {}", addr);
 
     let listener = TcpListener::bind(&addr).await?;
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-resource-manager",
+        port,
+        "System resource allocator",
+    );
     axum::serve(listener, app).await?;
 
     Ok(())
