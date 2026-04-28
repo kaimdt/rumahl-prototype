@@ -51,6 +51,7 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("019_temp_db_users", include_str!("../../migrations/019_temp_db_users.sql")),
         ("020_notification_channels", include_str!("../../migrations/020_notification_channels.sql")),
         ("021_desktop_commands", include_str!("../../migrations/021_desktop_commands.sql")),
+        ("022_app_extended_capabilities", include_str!("../../migrations/022_app_extended_capabilities.sql")),
     ];
 
     // Apply each migration if not already applied

@@ -63,9 +63,9 @@ pub enum Permission {
     // User management (DANGEROUS - Apps only, requires consent)
     ReadUserData,
     WriteUserData,
-    CreateUser,          // NEW: Can create regular users (NOT admins)
-    ModifyUser,          // NEW: Can modify user properties (NOT roles)
-    DeleteUser,          // NEW: Can delete users (NOT admins)
+    CreateUser,
+    ModifyUser,
+    DeleteUser,
 
     // Camera/Media
     CameraAccess,
@@ -87,15 +87,46 @@ pub enum Permission {
     FileShareManage,
 
     // Developer Mode permissions (ONLY available when Developer Mode enabled)
-    DeveloperAccess,        // Full system data access including internals
-    InterAppCommunication,  // Call and query other apps
-    LiveMetrics,            // Real-time metrics and monitoring data
-    DirectDeploy,           // IDE integration for build/deploy
-    DebugAccess,            // Access debug interfaces and breakpoints
-    LiveLogs,               // Stream live logs from any component
+    DeveloperAccess,
+    InterAppCommunication,
+    LiveMetrics,
+    DirectDeploy,
+    DebugAccess,
+    LiveLogs,
 
-    // EXCLUSIVE Developer App permission (ONLY for system Developer App)
-    HotReload,              // Exclusive: Hot reload and live app upload APIs
+    // EXCLUSIVE Developer App permission
+    HotReload,
+
+    // --- New in v2.1: Extended App Capabilities ---
+
+    // App Storage permissions
+    AppStorageRead,
+    AppStorageWrite,
+    AppStorageDelete,
+    AppStorageManage,
+
+    // App Database permissions
+    AppDatabaseSqlite,
+    AppDatabaseManage,
+
+    // App Scheduling permissions
+    AppScheduleCreate,
+    AppScheduleRead,
+    AppScheduleUpdate,
+    AppScheduleDelete,
+
+    // App Messaging permissions
+    MessagingPublish,
+    MessagingSubscribe,
+    MessagingWildcard,
+    MessagingDirect,
+
+    // App Webhook permissions
+    WebhookCreate,
+    WebhookRead,
+    WebhookUpdate,
+    WebhookDelete,
+    WebhookManage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +161,7 @@ pub struct PermissionGrant {
     pub provider_id: String,
     pub permission: Permission,
     pub granted_at: String,
-    pub granted_by: String,  // Admin user ID
+    pub granted_by: String,
     pub expires_at: Option<String>,
     pub is_active: bool,
 }
@@ -194,7 +225,6 @@ impl PermissionSystem {
         let provider_id = request.provider_id.clone();
         drop(requests);
 
-        // Grant permissions
         let mut grants = self.grants.write().await;
         let provider_grants = grants.entry(provider_id.clone()).or_insert_with(Vec::new);
 
@@ -373,6 +403,26 @@ impl Permission {
             Permission::DebugAccess => "DEVELOPER MODE: Zugriff auf Debug-Interfaces",
             Permission::LiveLogs => "DEVELOPER MODE: Live-Streaming aller Logs",
             Permission::HotReload => "EXKLUSIV: Hot-Reload und Live-App-Upload (nur Developer App)",
+            // New v2.1
+            Permission::AppStorageRead => "Lesen des app-eigenen Datei-/KV-Speichers",
+            Permission::AppStorageWrite => "Schreiben in den app-eigenen Speicher",
+            Permission::AppStorageDelete => "Löschen aus dem app-eigenen Speicher",
+            Permission::AppStorageManage => "Verwaltung von Speicherkontingenten und -Einstellungen",
+            Permission::AppDatabaseSqlite => "Bereitstellung einer app-eigenen SQLite-Datenbank",
+            Permission::AppDatabaseManage => "Verwaltung von Datenbankeinstellungen und Backups",
+            Permission::AppScheduleCreate => "Erstellen geplanter Aufgaben / Cron-Jobs",
+            Permission::AppScheduleRead => "Lesen geplanter Aufgaben",
+            Permission::AppScheduleUpdate => "Aktualisieren geplanter Aufgaben",
+            Permission::AppScheduleDelete => "Löschen geplanter Aufgaben",
+            Permission::MessagingPublish => "Veröffentlichen von Nachrichten in Kanälen",
+            Permission::MessagingSubscribe => "Abonnieren von Nachrichtenkanälen",
+            Permission::MessagingWildcard => "Abonnieren JEDES Kanals (gefährlich!)",
+            Permission::MessagingDirect => "Direktnachrichten an andere Apps senden",
+            Permission::WebhookCreate => "Erstellen von Webhook-Endpunkten",
+            Permission::WebhookRead => "Lesen von Webhook-Konfigurationen",
+            Permission::WebhookUpdate => "Aktualisieren von Webhook-Endpunkten",
+            Permission::WebhookDelete => "Löschen von Webhook-Endpunkten",
+            Permission::WebhookManage => "Verwaltung aller Webhooks (Admin)",
         }
     }
 
@@ -381,26 +431,33 @@ impl Permission {
         match self {
             Permission::ReadEntities | Permission::StorageRead | Permission::SystemInfo
             | Permission::DatabaseRead | Permission::ReadNotifications | Permission::FileSystemRead
-            | Permission::ReadUserData | Permission::MediaAccess | Permission::FileShareRead => RiskLevel::Low,
+            | Permission::ReadUserData | Permission::MediaAccess | Permission::FileShareRead
+            | Permission::AppStorageRead | Permission::AppScheduleRead | Permission::WebhookRead => RiskLevel::Low,
 
             Permission::ControlEntities | Permission::StorageWrite | Permission::NetworkAccess
             | Permission::DatabaseWrite | Permission::RegisterApi | Permission::CallApi
             | Permission::RegisterWidget | Permission::ControlWidget | Permission::SendNotifications
             | Permission::FileSystemWrite | Permission::WriteUserData | Permission::LocationAccess
-            | Permission::CreateAutomations | Permission::RunAutomations => RiskLevel::Medium,
+            | Permission::CreateAutomations | Permission::RunAutomations
+            | Permission::AppStorageWrite | Permission::AppScheduleCreate | Permission::AppScheduleUpdate
+            | Permission::MessagingPublish | Permission::MessagingSubscribe | Permission::MessagingDirect
+            | Permission::WebhookCreate | Permission::WebhookUpdate => RiskLevel::Medium,
 
             Permission::CreateEntities | Permission::DeleteEntities | Permission::StorageDelete
             | Permission::NetworkOutbound | Permission::NetworkInbound | Permission::NetworkLocalAccess
             | Permission::DatabaseCreate | Permission::DatabaseDelete | Permission::FileSystemExecute
             | Permission::InstallPlugins | Permission::UninstallPlugins | Permission::CameraAccess
             | Permission::MicrophoneAccess | Permission::LocationPrecise | Permission::NetworkScan
-            | Permission::FileShareWrite | Permission::FileShareDelete => RiskLevel::High,
+            | Permission::FileShareWrite | Permission::FileShareDelete
+            | Permission::AppStorageDelete | Permission::AppScheduleDelete | Permission::WebhookDelete
+            | Permission::AppDatabaseSqlite | Permission::MessagingWildcard => RiskLevel::High,
 
             Permission::SystemControl | Permission::SystemRestart | Permission::PluginManager
             | Permission::CreateUser | Permission::ModifyUser | Permission::DeleteUser
             | Permission::FileShareManage | Permission::DeveloperAccess | Permission::InterAppCommunication
             | Permission::LiveMetrics | Permission::DirectDeploy | Permission::DebugAccess
-            | Permission::LiveLogs | Permission::HotReload => RiskLevel::Critical,
+            | Permission::LiveLogs | Permission::HotReload
+            | Permission::AppStorageManage | Permission::AppDatabaseManage | Permission::WebhookManage => RiskLevel::Critical,
         }
     }
 
@@ -416,7 +473,16 @@ impl Permission {
             Permission::CallApi |
             Permission::SendNotifications |
             Permission::ReadNotifications |
-            Permission::MediaAccess
+            Permission::MediaAccess |
+            // New v2.1
+            Permission::AppStorageRead |
+            Permission::AppStorageWrite |
+            Permission::AppScheduleCreate |
+            Permission::AppScheduleRead |
+            Permission::MessagingPublish |
+            Permission::MessagingSubscribe |
+            Permission::WebhookCreate |
+            Permission::WebhookRead
         )
     }
 
@@ -444,7 +510,12 @@ impl Permission {
             Permission::LiveMetrics |
             Permission::DirectDeploy |
             Permission::DebugAccess |
-            Permission::LiveLogs
+            Permission::LiveLogs |
+            // New v2.1
+            Permission::AppStorageManage |
+            Permission::AppDatabaseManage |
+            Permission::MessagingWildcard |
+            Permission::WebhookManage
         )
     }
 

@@ -22,6 +22,18 @@ fn command_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if Docker daemon is actually reachable (not just the CLI binary).
+/// On Windows, docker CLI exists even when Docker Desktop isn't running.
+fn docker_daemon_running() -> bool {
+    std::process::Command::new("docker")
+        .args(["info", "--format", "{{.ServerVersion}}"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 /// Heuristic: can the host realistically cross-compile to `target` with
 /// just `cargo build --target=...`? On Windows this practically requires
 /// a cross-linker that almost nobody has installed; the result is the
@@ -113,7 +125,7 @@ pub fn resolve_strategy(component: &Component, target: &str, requested_mode: &st
         if host_can_cross_compile(target) {
             return BuildStrategy::Cargo;
         }
-        if command_exists("docker") {
+        if command_exists("docker") && docker_daemon_running() {
             return BuildStrategy::Docker;
         }
         return BuildStrategy::Cargo; // best-effort; the failure mode is at least obvious.
@@ -124,18 +136,21 @@ pub fn resolve_strategy(component: &Component, target: &str, requested_mode: &st
         "device" => BuildStrategy::Device,
         "host"   => {
             if host_can_cross_compile(target) { BuildStrategy::Cargo }
-            else if command_exists("docker") { BuildStrategy::Docker }
+            else if command_exists("docker") && docker_daemon_running() { BuildStrategy::Docker }
             else { BuildStrategy::Device }
         }
         "cargo"  => BuildStrategy::Cargo,
-        "docker" => BuildStrategy::Docker,
+        "docker" => {
+            if docker_daemon_running() { BuildStrategy::Docker }
+            else { BuildStrategy::Device }
+        },
         // Default "auto": prefer native cargo when realistic, else docker,
         // else device build. This is what we recommend for Windows users
         // because the cargo path is impossible there for ARM Linux
         // targets and we don't want to waste 30 s probing it first.
         _ => {
             if host_can_cross_compile(target) { BuildStrategy::Cargo }
-            else if command_exists("docker") { BuildStrategy::Docker }
+            else if command_exists("docker") && docker_daemon_running() { BuildStrategy::Docker }
             else { BuildStrategy::Device }
         }
     }
@@ -317,6 +332,21 @@ async fn docker_release(c: &Component, target: &str) -> Result<PathBuf> {
     let target_arg = target.to_string();
     let build_cmd_text = cargo_build_command(c, target).join(" ");
 
+    // First try pulling the image so the user sees progress
+    eprintln!("docker: pulling rust:1.90...");
+    let pull = Command::new("docker")
+        .args(["pull", "rust:1.90"])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .await
+        .context("spawning docker pull")?;
+    if !pull.success() {
+        bail!(
+            "Docker: failed to pull rust:1.90 image — check internet or run 'docker pull rust:1.90' manually"
+        );
+    }
+
     let mut build_cmd = Command::new("docker");
     build_cmd
         .arg("run")
@@ -328,21 +358,59 @@ async fn docker_release(c: &Component, target: &str) -> Result<PathBuf> {
         .arg("-w")
         .arg("/app/build")
         .arg("rust:1.90")
-        .arg("sh")
+        .arg("bash")
         .arg("-lc")
         .arg(format!(
-            "apt-get update >/dev/null 2>&1 && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu build-essential pkg-config libssl-dev git curl ca-certificates >/dev/null 2>&1 && rustup target add {target_arg} >/dev/null 2>&1 && cargo {build_cmd_text}",
+            "export DEBIAN_FRONTEND=noninteractive; set -e; \
+             dpkg --add-architecture arm64 && \
+             apt-get update -qq && \
+             apt-get install -y -qq --no-install-recommends \
+               gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+               libc6-dev-arm64-cross linux-libc-dev-arm64-cross \
+               libssl-dev:arm64 \
+               build-essential pkg-config libssl-dev \
+               git curl ca-certificates >/dev/null 2>&1 && \
+             # Ensure the cross-compiler search path includes ARM headers
+             export PKG_CONFIG_ALLOW_CROSS=1 && \
+             export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig && \
+             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc && \
+             export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc && \
+             export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ && \
+             export OPENSSL_DIR=/usr/aarch64-linux-gnu && \
+             export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu && \
+             export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu && \
+             export BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu=\"--sysroot=/usr/aarch64-linux-gnu \" && \
+             . /usr/local/cargo/env && \
+             rustup target add {target_arg} && \
+             # Regenerate lockfile in the Linux container to avoid
+             # resolver differences between Windows-host and Linux.
+             rm -f Cargo.lock && cargo generate-lockfile && \
+             cargo {build_cmd_text}",
         ))
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    let status = build_cmd
-        .status()
+    let output = build_cmd
+        .output()
         .await
         .context("spawning docker cross-compile container")?;
 
-    if !status.success() {
-        bail!("Docker cross-compile failed for {} (target {})", c.name, target);
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Take last 30 lines from stderr for a useful diagnostic
+        let tail: Vec<&str> = stderr.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect();
+        let detail = tail.join("\n");
+        bail!(
+            "Docker cross-compile failed for {} (target {})\n\n--- last {} lines of stderr ---\n{}\n\n--- stdout ---\n{}",
+            c.name, target, tail.len(), detail, stdout.chars().take(500).collect::<String>(),
+        );
+    }
+
+    // Print build output for visibility in the daemon console
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !stdout.trim().is_empty() {
+        eprintln!("--- docker build output ---\n{}", stdout);
     }
 
     existing_binary(c, target)
@@ -404,7 +472,7 @@ async fn cargo_strategy(c: &Component, target: &str) -> Result<PathBuf> {
             return existing_binary(c, target);
         }
 
-        if command_exists("docker") {
+        if command_exists("docker") && docker_daemon_running() {
             eprintln!(
                 "cargo retry still failed for {} (target {}) — falling back to Docker cross-compile...",
                 c.name,
@@ -421,7 +489,7 @@ async fn cargo_strategy(c: &Component, target: &str) -> Result<PathBuf> {
         ));
     }
 
-    if command_exists("docker") {
+    if command_exists("docker") && docker_daemon_running() {
         eprintln!(
             "cargo build failed for {} (target {}) — falling back to Docker cross-compile...",
             c.name,

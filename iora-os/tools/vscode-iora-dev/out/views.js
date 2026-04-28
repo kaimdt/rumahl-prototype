@@ -34,7 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JobsProvider = exports.WatchesProvider = exports.ComponentsProvider = exports.DevicesProvider = exports.ConnectionProvider = void 0;
+exports.JobsProvider = exports.ActivityProvider = exports.ServicesProvider = exports.WatchesProvider = exports.ComponentsProvider = exports.DevicesProvider = exports.ConnectionProvider = void 0;
 const vscode = __importStar(require("vscode"));
 class BaseProvider {
     _onDidChange = new vscode.EventEmitter();
@@ -183,6 +183,148 @@ class WatchesProvider extends BaseProvider {
 }
 exports.WatchesProvider = WatchesProvider;
 // ─── Jobs ─────────────────────────────────────────────────────────────────
+class ServicesProvider extends BaseProvider {
+    snapshot = null;
+    err = null;
+    setSnapshot(snap, err) {
+        this.snapshot = snap;
+        this.err = err ?? null;
+        this.refresh();
+    }
+    summary() {
+        return this.snapshot?.summary ?? null;
+    }
+    getChildren() {
+        if (this.err)
+            return [`(error: ${this.err})`];
+        if (!this.snapshot)
+            return ['(no data — connect to a device)'];
+        if (this.snapshot.services.length === 0)
+            return ['(no services have heartbeated yet)'];
+        const order = { unhealthy: 0, degraded: 1, healthy: 2 };
+        return [...this.snapshot.services].sort((a, b) => {
+            const sa = order[a.effective_status] ?? 9;
+            const sb = order[b.effective_status] ?? 9;
+            if (sa !== sb)
+                return sa - sb;
+            return a.name.localeCompare(b.name);
+        });
+    }
+    getTreeItem(e) {
+        if (typeof e === 'string') {
+            const i = new vscode.TreeItem(e);
+            i.iconPath = new vscode.ThemeIcon('info');
+            return i;
+        }
+        const item = new vscode.TreeItem(e.name, vscode.TreeItemCollapsibleState.None);
+        const ageStr = e.heartbeat_age_secs == null
+            ? 'no beat'
+            : (e.heartbeat_age_secs < 60 ? `${e.heartbeat_age_secs}s ago` : `${Math.floor(e.heartbeat_age_secs / 60)}m ago`);
+        item.description = `${e.effective_status} • ♥ ${ageStr}`;
+        const metricLines = Object.entries(e.metrics ?? {}).map(([k, v]) => `  ${k}=${v}`);
+        item.tooltip = [
+            e.description || null,
+            `status: ${e.effective_status}${e.reported_status && e.reported_status !== e.effective_status ? ` (reported: ${e.reported_status})` : ''}`,
+            e.message ? `message: ${e.message}` : null,
+            e.version ? `version: ${e.version}` : null,
+            e.host ? `host: ${e.host}${e.pid ? ` pid=${e.pid}` : ''}` : null,
+            e.uptime_seconds != null ? `uptime: ${formatDuration(e.uptime_seconds)}` : null,
+            e.last_heartbeat ? `last beat: ${e.last_heartbeat}` : 'no heartbeat received',
+            e.last_poll ? `last poll: ${e.last_poll} (${e.last_poll_status ?? 'n/a'})` : null,
+            e.url ? `url: ${e.url}` : null,
+            e.stale ? '⚠  stale (no recent heartbeat)' : null,
+            metricLines.length ? '\nmetrics:' : null,
+            ...metricLines,
+        ].filter(Boolean).join('\n');
+        item.iconPath = new vscode.ThemeIcon(statusIcon(e), statusColor(e));
+        item.contextValue = 'service';
+        return item;
+    }
+}
+exports.ServicesProvider = ServicesProvider;
+function statusIcon(e) {
+    if (e.stale)
+        return 'circle-slash';
+    switch (e.effective_status) {
+        case 'healthy': return 'pass-filled';
+        case 'degraded': return 'warning';
+        case 'unhealthy': return 'error';
+    }
+}
+function statusColor(e) {
+    if (e.stale)
+        return new vscode.ThemeColor('descriptionForeground');
+    switch (e.effective_status) {
+        case 'healthy': return new vscode.ThemeColor('charts.green');
+        case 'degraded': return new vscode.ThemeColor('charts.yellow');
+        case 'unhealthy': return new vscode.ThemeColor('errorForeground');
+    }
+}
+// ─── Activity (Watches + Jobs combined) ────────────────────────────────
+class ActivityProvider extends BaseProvider {
+    watches = [];
+    jobs = [];
+    setWatches(w) { this.watches = w; this.refresh(); }
+    setJobs(j) { this.jobs = j; this.refresh(); }
+    upsertJob(job) {
+        const i = this.jobs.findIndex(j => j.id === job.id);
+        if (i >= 0)
+            this.jobs[i] = job;
+        else
+            this.jobs.unshift(job);
+        if (this.jobs.length > 100)
+            this.jobs.length = 100;
+        this.refresh();
+    }
+    getChildren() {
+        const children = [];
+        if (this.watches.length > 0) {
+            for (const w of this.watches)
+                children.push(w);
+        }
+        if (this.jobs.length > 0) {
+            // Show only the most recent 10 jobs
+            for (const j of this.jobs.slice(0, 10))
+                children.push(j);
+        }
+        if (children.length === 0)
+            return ['(no active watches or recent jobs)'];
+        return children;
+    }
+    getTreeItem(e) {
+        if (typeof e === 'string') {
+            const i = new vscode.TreeItem(e);
+            i.iconPath = new vscode.ThemeIcon('info');
+            return i;
+        }
+        // WatchSession
+        if ('components' in e && 'started_at' in e) {
+            const w = e;
+            const item = new vscode.TreeItem(w.automatic ? '👁 Auto-watch' : `👁 ${w.components.join(', ')}`, vscode.TreeItemCollapsibleState.None);
+            item.description = `${w.build_mode}${w.automatic ? ' • auto' : ''} • since ${new Date(w.started_at).toLocaleTimeString()}`;
+            item.tooltip = `watch ${w.id}\nbuild mode: ${w.build_mode}\nautomatic: ${!!w.automatic}\ndebounce: ${w.debounce_ms}ms`;
+            item.contextValue = 'watch';
+            return item;
+        }
+        // Job
+        const j = e;
+        const item = new vscode.TreeItem(j.label, vscode.TreeItemCollapsibleState.None);
+        item.description = j.status;
+        item.tooltip = `${j.kind}\nstarted: ${new Date(j.started_at).toLocaleTimeString()}\n${j.finished_at ? 'finished: ' + new Date(j.finished_at).toLocaleTimeString() : 'running…'}\n\n${j.log.slice(-5).join('\n')}`;
+        item.iconPath = new vscode.ThemeIcon(jobIcon(j.status), jobColor(j.status));
+        return item;
+    }
+}
+exports.ActivityProvider = ActivityProvider;
+function formatDuration(secs) {
+    if (secs < 60)
+        return `${secs}s`;
+    if (secs < 3600)
+        return `${Math.floor(secs / 60)}m${secs % 60}s`;
+    if (secs < 86400)
+        return `${Math.floor(secs / 3600)}h${Math.floor((secs % 3600) / 60)}m`;
+    return `${Math.floor(secs / 86400)}d${Math.floor((secs % 86400) / 3600)}h`;
+}
 class JobsProvider extends BaseProvider {
     items = [];
     setItems(items) { this.items = items; this.refresh(); }

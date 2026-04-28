@@ -327,8 +327,9 @@ async fn h_discover(headers: HeaderMap, State(s): State<AppState>, Query(q): Que
     Ok(Json(devices))
 }
 
-async fn h_connection(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&s, &headers)?;
+/// Build a JSON representation of the current device connection state.
+/// Used by both the REST /api/v1/connection handler and the WS snapshot.
+async fn connection_state() -> serde_json::Value {
     let saved = config::load().ok();
     let mut out = serde_json::json!({
         "host": saved.as_ref().map(|c| c.host.clone()),
@@ -348,7 +349,12 @@ async fn h_connection(headers: HeaderMap, State(s): State<AppState>) -> Result<J
             }
         }
     }
-    Ok(Json(out))
+    out
+}
+
+async fn h_connection(headers: HeaderMap, State(_s): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&_s, &headers)?;
+    Ok(Json(connection_state().await))
 }
 
 async fn h_connect(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<ConnectBody>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -359,6 +365,22 @@ async fn h_connect(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<
     if st.variant != "dev" {
         return Err((StatusCode::CONFLICT, format!("device variant `{}` ≠ `dev` — refusing", st.variant)));
     }
+    // Verify that the token actually works by calling an authenticated
+    // endpoint. /dev/status is unauthenticated, so a wrong token would
+    // still get `connected` and then fail on every other call with 401.
+    client.system_info().await.map_err(|e| {
+        let msg = format!("{e}");
+        if msg.contains("401") || msg.contains("Unauthorized") {
+            (StatusCode::UNAUTHORIZED,
+             "The dev-token you entered was rejected by the device bridge.\n\n"
+             .to_string() +
+             "1. SSH into the device and check: cat /var/lib/iora/dev-token\n" +
+             "2. Or regenerate: sudo rm -f /var/lib/iora/dev-token && sudo systemctl restart iora-dev-bridge\n" +
+             "3. Then copy the token shown in the bridge logs (journalctl -u iora-dev-bridge -n 20 --no-pager)")
+        } else {
+            server_err(e)
+        }
+    })?;
     let path = config::save(&cfg).map_err(server_err)?;
     let _ = s.inner.events.send(Event::Connection {
         host: Some(cfg.host.clone()),
@@ -859,8 +881,10 @@ async fn ws_loop(s: AppState, mut sock: WebSocket) {
         let jobs = s.inner.jobs.read().await;
         order.iter().rev().take(20).filter_map(|id| jobs.get(id).cloned()).collect()
     };
+    let conn = connection_state().await;
     let snapshot = serde_json::json!({
         "type": "snapshot",
+        "connection": conn,
         "devices": devices,
         "watches": watches,
         "jobs_recent": jobs_recent,

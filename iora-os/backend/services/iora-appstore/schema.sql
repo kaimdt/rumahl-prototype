@@ -142,6 +142,179 @@ CREATE TRIGGER update_apps_updated_at BEFORE UPDATE ON apps
 CREATE TRIGGER update_app_settings_updated_at BEFORE UPDATE ON app_settings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- New v2.1: Extended App Capabilities
+
+-- App storage: tracks file and key-value storage for apps
+CREATE TABLE IF NOT EXISTS app_storage_files (
+    id UUID PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name VARCHAR(512) NOT NULL,
+    mime_type VARCHAR(255),
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    sha256 VARCHAR(64),
+    storage_path TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_storage_kv (
+    id UUID PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    key VARCHAR(512) NOT NULL,
+    value JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    UNIQUE(app_id, key)
+);
+
+-- App database provisioning
+CREATE TABLE IF NOT EXISTS app_databases (
+    id UUID PRIMARY KEY,
+    app_id UUID UNIQUE NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    backend VARCHAR(20) NOT NULL DEFAULT 'sqlite' CHECK (backend IN ('sqlite', 'postgres')),
+    db_path TEXT,
+    wal_mode BOOLEAN NOT NULL DEFAULT TRUE,
+    max_size_bytes BIGINT NOT NULL DEFAULT 104857600,
+    auto_backup BOOLEAN NOT NULL DEFAULT TRUE,
+    backup_interval_minutes INTEGER NOT NULL DEFAULT 1440,
+    last_backup_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_database_backups (
+    id UUID PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    backup_path TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- App scheduled tasks
+CREATE TABLE IF NOT EXISTS app_schedules (
+    id UUID PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    schedule_type VARCHAR(20) NOT NULL CHECK (schedule_type IN ('cron', 'interval', 'one_shot')),
+    cron_expression VARCHAR(100),
+    interval_seconds BIGINT,
+    run_at TIMESTAMP WITH TIME ZONE,
+    payload JSONB DEFAULT '{}',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    retry_delay_seconds BIGINT NOT NULL DEFAULT 60,
+    tags TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_schedule_logs (
+    id BIGSERIAL PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    task_id UUID NOT NULL REFERENCES app_schedules(id) ON DELETE CASCADE,
+    executed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    success BOOLEAN NOT NULL,
+    duration_ms BIGINT NOT NULL DEFAULT 0,
+    error TEXT,
+    status_code INTEGER
+);
+
+-- App webhooks
+CREATE TABLE IF NOT EXISTS app_webhooks (
+    id UUID PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT DEFAULT '',
+    method VARCHAR(10) NOT NULL DEFAULT 'POST' CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')),
+    target_url TEXT NOT NULL,
+    header_mapping JSONB DEFAULT '{}',
+    verify_signature BOOLEAN NOT NULL DEFAULT FALSE,
+    secret TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    rate_limit_per_minute INTEGER NOT NULL DEFAULT 0,
+    timeout_seconds BIGINT NOT NULL DEFAULT 30,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_webhook_deliveries (
+    id UUID PRIMARY KEY,
+    webhook_id UUID NOT NULL REFERENCES app_webhooks(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    request_method VARCHAR(10),
+    request_headers JSONB,
+    request_body TEXT,
+    request_query_params JSONB,
+    source_ip VARCHAR(45),
+    response_status_code INTEGER,
+    response_headers JSONB,
+    response_body TEXT,
+    response_error TEXT,
+    duration_ms BIGINT NOT NULL DEFAULT 0,
+    delivered_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- App messaging channels
+CREATE TABLE IF NOT EXISTS app_messaging_channels (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    channel_type VARCHAR(20) NOT NULL DEFAULT 'public' CHECK (channel_type IN ('public', 'protected', 'system')),
+    description TEXT DEFAULT '',
+    allowed_publishers TEXT[] DEFAULT '{}',
+    allowed_subscribers TEXT[] DEFAULT '{}',
+    retention_seconds BIGINT NOT NULL DEFAULT 3600,
+    max_message_size_bytes BIGINT NOT NULL DEFAULT 102400,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_messaging_subscriptions (
+    id UUID PRIMARY KEY,
+    app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    channel_id UUID NOT NULL REFERENCES app_messaging_channels(id) ON DELETE CASCADE,
+    filter TEXT,
+    webhook_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    UNIQUE(app_id, channel_id)
+);
+
+CREATE TABLE IF NOT EXISTS app_messaging_messages (
+    id UUID PRIMARY KEY,
+    channel_id UUID NOT NULL REFERENCES app_messaging_channels(id) ON DELETE CASCADE,
+    publisher VARCHAR(255) NOT NULL,
+    payload JSONB NOT NULL,
+    priority VARCHAR(20) NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'critical')),
+    ttl_seconds BIGINT NOT NULL DEFAULT 300,
+    published_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_direct_messages (
+    id UUID PRIMARY KEY,
+    from_app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    to_app_id UUID NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    payload JSONB NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    read_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_app_storage_files_app_id ON app_storage_files(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_storage_kv_app_id ON app_storage_kv(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_databases_app_id ON app_databases(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_database_backups_app_id ON app_database_backups(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_schedules_app_id ON app_schedules(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_schedule_logs_app_id ON app_schedule_logs(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_schedule_logs_task_id ON app_schedule_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_app_webhooks_app_id ON app_webhooks(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_webhook_deliveries_webhook_id ON app_webhook_deliveries(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_app_messaging_subscriptions_app_id ON app_messaging_subscriptions(app_id);
+CREATE INDEX IF NOT EXISTS idx_app_messaging_messages_channel_id ON app_messaging_messages(channel_id);
+CREATE INDEX IF NOT EXISTS idx_app_direct_messages_from ON app_direct_messages(from_app_id);
+CREATE INDEX IF NOT EXISTS idx_app_direct_messages_to ON app_direct_messages(to_app_id);
+
 -- Comments for documentation
 COMMENT ON TABLE apps IS 'Stores installed apps and their metadata';
 COMMENT ON TABLE port_assignments IS 'Tracks dynamically assigned ports for apps';
@@ -151,3 +324,15 @@ COMMENT ON TABLE app_pages IS 'Custom pages created by apps';
 COMMENT ON TABLE app_widgets IS 'Widgets provided by apps';
 COMMENT ON TABLE app_store_cache IS 'Caches app store metadata to reduce external API calls';
 COMMENT ON TABLE installation_history IS 'Audit log of all installation/uninstallation actions';
+COMMENT ON TABLE app_storage_files IS 'Files uploaded by apps';
+COMMENT ON TABLE app_storage_kv IS 'Key-value data stored by apps';
+COMMENT ON TABLE app_databases IS 'Per-app SQLite/PostgreSQL database provisioning';
+COMMENT ON TABLE app_database_backups IS 'Database backup history';
+COMMENT ON TABLE app_schedules IS 'Scheduled/cron tasks registered by apps';
+COMMENT ON TABLE app_schedule_logs IS 'Execution logs for scheduled tasks';
+COMMENT ON TABLE app_webhooks IS 'Webhook endpoints registered by apps';
+COMMENT ON TABLE app_webhook_deliveries IS 'Delivery logs for webhook calls';
+COMMENT ON TABLE app_messaging_channels IS 'Message channels for inter-app communication';
+COMMENT ON TABLE app_messaging_subscriptions IS 'Channel subscriptions by app';
+COMMENT ON TABLE app_messaging_messages IS 'Published messages on channels';
+COMMENT ON TABLE app_direct_messages IS 'Direct messages between apps';

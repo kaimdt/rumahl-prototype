@@ -60,7 +60,44 @@ class DaemonManager {
         const manifest = path.join(root, 'tools', 'iora-dev-deploy', 'Cargo.toml');
         return fs.existsSync(manifest) ? manifest : undefined;
     }
+    /** Check if there's a pre-built daemon binary available. */
+    hasBuiltBinary() {
+        const root = this.workspaceRoot();
+        if (!root)
+            return false;
+        // Check for a release build first, then debug
+        const candidates = [
+            path.join(root, 'tools', 'iora-dev-deploy', 'target', 'release', 'iora-dev-deploy.exe'),
+            path.join(root, 'tools', 'iora-dev-deploy', 'target', 'debug', 'iora-dev-deploy.exe'),
+            path.join(root, 'tools', 'iora-dev-deploy', 'target', 'release', 'iora-dev-deploy'),
+            path.join(root, 'tools', 'iora-dev-deploy', 'target', 'debug', 'iora-dev-deploy'),
+        ];
+        for (const c of candidates) {
+            if (fs.existsSync(c))
+                return true;
+        }
+        return false;
+    }
     daemonSpawnSpec() {
+        // Prefer pre-built binary over cargo run (much faster startup)
+        const root = this.workspaceRoot();
+        if (root && this.hasBuiltBinary()) {
+            const binDir = path.join(root, 'tools', 'iora-dev-deploy', 'target');
+            const releaseBin = path.join(binDir, 'release', 'iora-dev-deploy.exe');
+            const debugBin = path.join(binDir, 'debug', 'iora-dev-deploy.exe');
+            const releaseBinNix = path.join(binDir, 'release', 'iora-dev-deploy');
+            const debugBinNix = path.join(binDir, 'debug', 'iora-dev-deploy');
+            const binary = fs.existsSync(releaseBin) ? releaseBin
+                : fs.existsSync(debugBin) ? debugBin
+                    : fs.existsSync(releaseBinNix) ? releaseBinNix
+                        : fs.existsSync(debugBinNix) ? debugBinNix
+                            : this.cliPath();
+            return {
+                command: binary,
+                args: ['daemon', '--bind', this.bind()],
+                cwd: root,
+            };
+        }
         const manifest = this.workspaceCliManifest();
         if (manifest) {
             return {
@@ -82,28 +119,48 @@ class DaemonManager {
     }
     /** Returns a usable client, auto-starting the daemon if required. */
     async ensureClient() {
-        // Try existing.
+        // First: try to find an already-running daemon by pinging known URLs.
+        // This handles the case where the user started the daemon manually
+        // (via `cargo run` or the binary directly) before opening VS Code.
         let info = (0, api_1.readDaemonInfo)();
-        if (info && await this.ping(info)) {
-            const existing = new api_1.DaemonClient(info);
-            if (await this.supportsRequiredFeatures(existing)) {
-                return existing;
+        if (info) {
+            if (await this.ping(info)) {
+                const existing = new api_1.DaemonClient(info);
+                if (await this.supportsRequiredFeatures(existing)) {
+                    this.output.appendLine('[daemon] found running daemon');
+                    return existing;
+                }
+                this.output.appendLine('[daemon] existing daemon is missing required features; restarting workspace daemon');
+                await this.stopStaleDaemon(info);
             }
-            this.output.appendLine('[daemon] existing daemon is missing required features; restarting workspace daemon');
-            await this.stopStaleDaemon(info);
+            else {
+                this.output.appendLine('[daemon] daemon.json exists but daemon is not responding — will start a new one');
+            }
         }
         if (!this.autoStart()) {
             throw new Error('Daemon not running and ioraDev.daemon.autoStart is false. Run "IORA Dev: Start Daemon" first.');
         }
         await this.start();
-        // Wait for daemon to write daemon.json + start serving (up to ~5s).
-        for (let i = 0; i < 25; i++) {
+        // Determine timeout based on how the daemon is started:
+        // - Pre-built binary: ~2s
+        // - `cargo run`: can take 30s+ to compile first
+        const spec = this.daemonSpawnSpec();
+        const usingCargo = spec.command === 'cargo';
+        const maxAttempts = usingCargo ? 300 : 25; // 60s for cargo, 5s for binary
+        this.output.appendLine(`[daemon] waiting for daemon to respond (${usingCargo ? 'cargo mode, up to 60s' : 'binary mode, up to 5s'})...`);
+        for (let i = 0; i < maxAttempts; i++) {
             await sleep(200);
             info = (0, api_1.readDaemonInfo)();
-            if (info && await this.ping(info))
+            if (info && await this.ping(info)) {
+                this.output.appendLine('[daemon] daemon is responding');
                 return new api_1.DaemonClient(info);
+            }
+            // Log progress periodically
+            if (usingCargo && i > 0 && i % 50 === 0) {
+                this.output.appendLine(`[daemon] still waiting... (${(i * 200) / 1000}s elapsed)`);
+            }
         }
-        throw new Error('Daemon failed to start within 5s — see "IORA OS Dev" output channel.');
+        throw new Error(`Daemon failed to start within ${usingCargo ? '60' : '5'}s — see "IORA OS Dev" output channel.`);
     }
     async start() {
         if (this.child && this.child.exitCode === null)

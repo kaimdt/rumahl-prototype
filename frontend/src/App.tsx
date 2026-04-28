@@ -548,7 +548,11 @@ function DashboardContent() {
             // If HA is disabled, not configured, or offline for a long time, we show the Simple Dashboard.
             // AND we should show it instead of any custom or HA dashboard page!
             const isDashboardPage = currentPageId !== 'settings' && currentPageId !== 'admin' && currentPageId !== 'docs' && currentPageId !== 'share' && currentPageId !== 'streaming'
-            const showSimpleDashboard = isDashboardPage && (!haEnabled || haConfigured === false || isHAOfflineForLong)
+            // Show SimpleDashboard when HA is disabled, not configured, or we waited for
+            // HA status + entities but got nothing back (haConfigured stays null, loading finished).
+            // This prevents the loading skeleton from sticking forever on HA-less setups.
+            const haNotAvailable = !haEnabled || haConfigured === false || (haConfigured === null && !loading) || isHAOfflineForLong
+            const showSimpleDashboard = isDashboardPage && haNotAvailable
 
             if (loading && isDashboardPage && !showSimpleDashboard) {
               return <DashboardSkeleton />

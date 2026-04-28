@@ -1,0 +1,2 @@
+Erstelle ein kleines Idle Game als App für IORA. Beispiele für Apps findet du in diesem Ordner das Game soll eine
+SQLite Datenbank verwenden

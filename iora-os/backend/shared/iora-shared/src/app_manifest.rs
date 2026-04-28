@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::{app_storage::StorageConfig, app_database::AppDatabaseConfig, app_scheduler::ScheduleConfig, app_messaging::MessagingConfig, app_webhooks::WebhookConfig};
+
 /// Complete app/plugin manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppManifest {
@@ -80,6 +82,28 @@ pub struct AppManifest {
     /// Installation source (set by system during installation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installation_source: Option<InstallationSource>,
+
+    /// --- New in v2.1: Extended capabilities ---
+
+    /// Database configuration (PostgreSQL or per-app SQLite)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<AppDatabaseConfig>,
+
+    /// File and key-value storage configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage: Option<StorageConfig>,
+
+    /// Scheduled / cron task configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedules: Option<ScheduleConfig>,
+
+    /// Webhook configuration for external integrations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhooks: Option<WebhookConfig>,
+
+    /// Inter-app messaging (pub/sub) configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messaging: Option<MessagingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

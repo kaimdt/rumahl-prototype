@@ -149,6 +149,17 @@ class DaemonClient {
     serviceLogs(unit, tail = 200) {
         return this.req('POST', '/api/v1/service/logs', { unit, tail });
     }
+    /// Live service status from the device (aggregated heartbeats).
+    /// The daemon proxies `/dev/services` from the bridge, which proxies
+    /// `/api/core/services/status` from iora-core.
+    services() { return this.req('GET', '/api/v1/services'); }
+    systemInfo() { return this.req('GET', '/api/v1/system/info'); }
+    systemReboot() { return this.req('POST', '/api/v1/system/reboot'); }
+    /// Returns a directly-usable Server-Sent-Events URL (token in the query
+    /// string) for live `journalctl -f` of a systemd unit on the device.
+    serviceLogsUrl(unit) {
+        return this.req('GET', `/api/v1/service/${encodeURIComponent(unit)}/logs-url`);
+    }
     systemList(path) {
         return this.req('POST', '/api/v1/system/list', { path });
     }

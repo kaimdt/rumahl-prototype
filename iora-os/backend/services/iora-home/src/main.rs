@@ -44,6 +44,11 @@ mod location_sync;
 mod desktop_gateway;
 mod notification_dispatcher;
 mod documentation;
+mod app_storage_handler;
+mod app_database_handler;
+mod app_scheduler_handler;
+mod app_messaging_handler;
+mod app_webhooks_handler;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -163,6 +168,23 @@ pub struct AppState {
     /// Snapshot of `/etc/iora/os-dev-mode` markers — drives the
     /// "Developer Mode is locked on" UX on dev builds.
     pub dev_image: Arc<dev_image::DevImageInfo>,
+
+    // --- New v2.1: Extended App Capabilities ---
+
+    /// App file and key-value storage handler
+    pub app_storage: Arc<app_storage_handler::AppStorageState>,
+
+    /// App SQLite database handler
+    pub app_database: Arc<app_database_handler::AppDatabaseState>,
+
+    /// App scheduled task handler
+    pub app_scheduler: Arc<app_scheduler_handler::AppSchedulerState>,
+
+    /// App inter-app messaging handler
+    pub app_messaging: Arc<app_messaging_handler::AppMessagingState>,
+
+    /// App webhook handler
+    pub app_webhooks: Arc<app_webhooks_handler::AppWebhooksState>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -654,6 +676,13 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         dev_image: Arc::new(dev_image::DevImageInfo::detect()),
+
+        // New v2.1: Extended App Capabilities
+        app_storage: Arc::new(app_storage_handler::AppStorageState::new()),
+        app_database: Arc::new(app_database_handler::AppDatabaseState::new()),
+        app_scheduler: Arc::new(app_scheduler_handler::AppSchedulerState::new()),
+        app_messaging: Arc::new(app_messaging_handler::AppMessagingState::new()),
+        app_webhooks: Arc::new(app_webhooks_handler::AppWebhooksState::new()),
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -1007,12 +1036,63 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
         .with_state(state.clone());
 
+    // ── App Extension sub-routers (each has its own state type, converted to AppState) ──
+    let storage_router = Router::<Arc<app_storage_handler::AppStorageState>>::new()
+        .route("/api/apps/:app_id/storage/files", get(app_storage_handler::list_files).post(app_storage_handler::upload_file))
+        .route("/api/apps/:app_id/storage/files/:file_id", get(app_storage_handler::get_file).delete(app_storage_handler::delete_file))
+        .route("/api/apps/:app_id/storage/kv", get(app_storage_handler::list_kv))
+        .route("/api/apps/:app_id/storage/kv/:key", get(app_storage_handler::get_kv).put(app_storage_handler::set_kv).delete(app_storage_handler::delete_kv))
+        .route("/api/apps/:app_id/storage/usage", get(app_storage_handler::get_storage_usage))
+        .with_state(state.app_storage.clone());
+
+    let db_router = Router::<Arc<app_database_handler::AppDatabaseState>>::new()
+        .route("/api/apps/:app_id/database/provision", post(app_database_handler::provision_database))
+        .route("/api/apps/:app_id/database", delete(app_database_handler::drop_database))
+        .route("/api/apps/:app_id/database/status", get(app_database_handler::database_status))
+        .route("/api/apps/:app_id/database/execute", post(app_database_handler::execute_sql))
+        .route("/api/apps/:app_id/database/backup", post(app_database_handler::backup_database))
+        .route("/api/apps/:app_id/database/backups", get(app_database_handler::list_backups))
+        .with_state(state.app_database.clone());
+
+    let scheduler_router = Router::<Arc<app_scheduler_handler::AppSchedulerState>>::new()
+        .route("/api/apps/:app_id/schedules", get(app_scheduler_handler::list_schedules).post(app_scheduler_handler::create_schedule))
+        .route("/api/apps/:app_id/schedules/:task_id", get(app_scheduler_handler::get_schedule).put(app_scheduler_handler::update_schedule).delete(app_scheduler_handler::delete_schedule))
+        .route("/api/apps/:app_id/schedules/:task_id/trigger", post(app_scheduler_handler::trigger_schedule))
+        .route("/api/apps/:app_id/schedules/:task_id/logs", get(app_scheduler_handler::get_task_logs))
+        .with_state(state.app_scheduler.clone());
+
+    let webhooks_router = Router::<Arc<app_webhooks_handler::AppWebhooksState>>::new()
+        .route("/api/apps/:app_id/webhooks", get(app_webhooks_handler::list_webhooks).post(app_webhooks_handler::create_webhook))
+        .route("/api/apps/:app_id/webhooks/:hook_id", get(app_webhooks_handler::get_webhook).put(app_webhooks_handler::update_webhook).delete(app_webhooks_handler::delete_webhook))
+        .route("/api/apps/:app_id/webhooks/:hook_id/test", post(app_webhooks_handler::test_webhook))
+        .route("/api/apps/:app_id/webhooks/:hook_id/logs", get(app_webhooks_handler::get_webhook_logs))
+        .route("/api/apps/:app_id/webhooks/:hook_id/stats", get(app_webhooks_handler::get_webhook_stats))
+        .with_state(state.app_webhooks.clone());
+
+    let messaging_router = Router::<Arc<app_messaging_handler::AppMessagingState>>::new()
+        .route("/api/apps/messaging/channels", get(app_messaging_handler::list_channels).post(app_messaging_handler::register_channel))
+        .route("/api/apps/messaging/publish", post(app_messaging_handler::publish_message))
+        .route("/api/apps/messaging/events", get(app_messaging_handler::message_stream))
+        .route("/api/apps/:app_id/messaging/subscribe", post(app_messaging_handler::subscribe))
+        .route("/api/apps/:app_id/messaging/subscriptions", get(app_messaging_handler::list_subscriptions))
+        .route("/api/apps/:app_id/messaging/subscriptions/:sub_id", delete(app_messaging_handler::unsubscribe))
+        .route("/api/apps/:app_id/messaging/direct", post(app_messaging_handler::send_direct_message))
+        .route("/api/apps/:app_id/messaging/inbox", get(app_messaging_handler::get_inbox))
+        .route("/api/apps/:app_id/messaging/inbox/:msg_id/read", post(app_messaging_handler::mark_message_read))
+        .with_state(state.app_messaging.clone());
+
     // Protected data routes (JWT or API key required)
-    let data_routes = Router::new()
+    let data_routes = Router::<AppState>::new()
         // Documentation endpoints
         .route("/api/documentation/config", get(documentation::get_docs_config))
         .route("/api/documentation/list", get(documentation::list_docs))
         .route("/api/documentation/*doc_path", get(documentation::get_doc_file))
+        // Merge app extension sub-routers (each was converted to Router<AppState>)
+        .merge(storage_router)
+        .merge(db_router)
+        .merge(scheduler_router)
+        .merge(webhooks_router)
+        .merge(messaging_router)
         // Home Assistant API proxy
         .route("/api/states", get(get_states))
         .route("/api/states/:entity_id", get(get_state))
@@ -1135,6 +1215,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Swagger UI
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
+        // Redirect /docs to /api/docs for convenience
+        .route("/docs", get(|| async {
+            axum::response::Redirect::permanent("/api/docs")
+        }))
         // Health check (public)
         .route("/health", get(health_check))
         // Version endpoint (public, never cached – desktop client uses this to detect updates)

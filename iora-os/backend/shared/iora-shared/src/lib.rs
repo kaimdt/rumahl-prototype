@@ -16,3 +16,8 @@ pub mod permissions;
 pub mod settings;
 pub mod token_manager;
 pub mod integrity_monitor;
+pub mod app_storage;
+pub mod app_database;
+pub mod app_scheduler;
+pub mod app_messaging;
+pub mod app_webhooks;

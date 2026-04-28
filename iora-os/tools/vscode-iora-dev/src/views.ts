@@ -1,7 +1,7 @@
 // Tree-view providers for the IORA OS Dev activity-bar container.
 
 import * as vscode from 'vscode';
-import { Component, Connection, DaemonClient, DeviceFound, Job, WatchSession } from './api';
+import { Component, Connection, DaemonClient, DeviceFound, Job, ServiceStatusEntry, ServicesStatus, WatchSession } from './api';
 
 abstract class BaseProvider<T> implements vscode.TreeDataProvider<T> {
     private _onDidChange = new vscode.EventEmitter<T | undefined | void>();
@@ -238,6 +238,64 @@ function statusColor(e: ServiceStatusEntry): vscode.ThemeColor | undefined {
         case 'unhealthy': return new vscode.ThemeColor('errorForeground');
     }
 }
+// ─── Activity (Watches + Jobs combined) ────────────────────────────────
+
+export class ActivityProvider extends BaseProvider<WatchSession | Job | string> {
+    private watches: WatchSession[] = [];
+    private jobs: Job[] = [];
+
+    setWatches(w: WatchSession[]) { this.watches = w; this.refresh(); }
+    setJobs(j: Job[]) { this.jobs = j; this.refresh(); }
+
+    upsertJob(job: Job) {
+        const i = this.jobs.findIndex(j => j.id === job.id);
+        if (i >= 0) this.jobs[i] = job;
+        else this.jobs.unshift(job);
+        if (this.jobs.length > 100) this.jobs.length = 100;
+        this.refresh();
+    }
+
+    getChildren(): (WatchSession | Job | string)[] {
+        const children: (WatchSession | Job | string)[] = [];
+        if (this.watches.length > 0) {
+            for (const w of this.watches) children.push(w);
+        }
+        if (this.jobs.length > 0) {
+            // Show only the most recent 10 jobs
+            for (const j of this.jobs.slice(0, 10)) children.push(j);
+        }
+        if (children.length === 0) return ['(no active watches or recent jobs)'];
+        return children;
+    }
+
+    getTreeItem(e: WatchSession | Job | string): vscode.TreeItem {
+        if (typeof e === 'string') {
+            const i = new vscode.TreeItem(e);
+            i.iconPath = new vscode.ThemeIcon('info');
+            return i;
+        }
+        // WatchSession
+        if ('components' in e && 'started_at' in e) {
+            const w = e as WatchSession;
+            const item = new vscode.TreeItem(
+                w.automatic ? '👁 Auto-watch' : `👁 ${w.components.join(', ')}`,
+                vscode.TreeItemCollapsibleState.None,
+            );
+            item.description = `${w.build_mode}${w.automatic ? ' • auto' : ''} • since ${new Date(w.started_at).toLocaleTimeString()}`;
+            item.tooltip = `watch ${w.id}\nbuild mode: ${w.build_mode}\nautomatic: ${!!w.automatic}\ndebounce: ${w.debounce_ms}ms`;
+            item.contextValue = 'watch';
+            return item;
+        }
+        // Job
+        const j = e as Job;
+        const item = new vscode.TreeItem(j.label, vscode.TreeItemCollapsibleState.None);
+        item.description = j.status;
+        item.tooltip = `${j.kind}\nstarted: ${new Date(j.started_at).toLocaleTimeString()}\n${j.finished_at ? 'finished: ' + new Date(j.finished_at).toLocaleTimeString() : 'running…'}\n\n${j.log.slice(-5).join('\n')}`;
+        item.iconPath = new vscode.ThemeIcon(jobIcon(j.status), jobColor(j.status));
+        return item;
+    }
+}
+
 function formatDuration(secs: number): string {
     if (secs < 60) return `${secs}s`;
     if (secs < 3600) return `${Math.floor(secs / 60)}m${secs % 60}s`;
