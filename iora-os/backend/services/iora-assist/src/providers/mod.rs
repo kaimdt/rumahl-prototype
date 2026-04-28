@@ -5,6 +5,8 @@ pub mod openai;
 pub mod anthropic;
 pub mod local;
 pub mod desktop;
+pub mod pidev;
+pub mod cloud;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -95,6 +97,14 @@ pub enum ProviderType {
     Desktop,
     Compatible,
     PiDev,
+    DeepSeek,
+    Grok,
+    Mistral,
+    Cohere,
+    Together,
+    Fireworks,
+    Perplexity,
+    CloudCustom,
 }
 
 impl ProviderType {
@@ -106,6 +116,14 @@ impl ProviderType {
             Self::Desktop => "desktop",
             Self::Compatible => "compatible",
             Self::PiDev => "pidev",
+            Self::DeepSeek => "deepseek",
+            Self::Grok => "grok",
+            Self::Mistral => "mistral",
+            Self::Cohere => "cohere",
+            Self::Together => "together",
+            Self::Fireworks => "fireworks",
+            Self::Perplexity => "perplexity",
+            Self::CloudCustom => "cloud_custom",
         }
     }
 }
@@ -118,6 +136,14 @@ pub fn provider_type_from_str(value: &str) -> Option<ProviderType> {
         "desktop" | "desktopai" => Some(ProviderType::Desktop),
         "compatible" | "custom" | "openai-compatible" | "openai_compatible" => Some(ProviderType::Compatible),
         "pidev" | "pi.dev" | "pi_dev" => Some(ProviderType::PiDev),
+        "deepseek" => Some(ProviderType::DeepSeek),
+        "grok" | "xai" => Some(ProviderType::Grok),
+        "mistral" | "mistralai" | "mistral-ai" => Some(ProviderType::Mistral),
+        "cohere" | "cohereai" => Some(ProviderType::Cohere),
+        "together" | "together-ai" | "together_ai" => Some(ProviderType::Together),
+        "fireworks" | "fireworks-ai" | "fireworks_ai" => Some(ProviderType::Fireworks),
+        "perplexity" | "perplexity-ai" | "perplexity_ai" => Some(ProviderType::Perplexity),
+        "cloud_custom" | "cloud-custom" => Some(ProviderType::CloudCustom),
         _ => None,
     }
 }
@@ -132,7 +158,15 @@ pub fn create_provider(
         ProviderType::Local => Box::new(local::LocalAIProvider::new(config)),
         ProviderType::Desktop => Box::new(desktop::DesktopAIProvider::new(config)),
         ProviderType::Compatible => Box::new(openai::OpenAIProvider::new_compatible(config)),
-        ProviderType::PiDev => Box::new(openai::OpenAIProvider::new_pidev(config)),
+        ProviderType::PiDev => pidev::PiDevProvider::from_config(config),
+        ProviderType::DeepSeek => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::DeepSeek, config)),
+        ProviderType::Grok => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Grok, config)),
+        ProviderType::Mistral => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Mistral, config)),
+        ProviderType::Cohere => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Cohere, config)),
+        ProviderType::Together => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Together, config)),
+        ProviderType::Fireworks => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Fireworks, config)),
+        ProviderType::Perplexity => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Perplexity, config)),
+        ProviderType::CloudCustom => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Custom, config)),
     }
 }
 

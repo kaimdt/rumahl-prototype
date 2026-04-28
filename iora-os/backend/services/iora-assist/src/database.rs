@@ -1,3 +1,4 @@
+use sqlx::Row;
 // Database Module for ORA AI
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres};
 use std::time::Duration;

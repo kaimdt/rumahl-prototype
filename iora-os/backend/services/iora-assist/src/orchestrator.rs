@@ -1,3 +1,4 @@
+use sqlx::Row;
 // Multi-Provider Orchestrator
 // Manages multiple AI providers simultaneously and routes tasks to appropriate providers
 

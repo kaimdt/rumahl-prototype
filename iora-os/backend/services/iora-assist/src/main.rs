@@ -30,6 +30,7 @@ mod task_engine;
 mod conversation_manager;
 mod tools;
 mod api_proxy;
+mod self_evolution;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
@@ -45,6 +46,12 @@ use providers::{
     ProviderConfig, ProviderModel, ProviderType,
 };
 
+use self_evolution::{
+    evolution_cycle::{SelfEvolutionOrchestrator, EvolutionCycleConfig},
+    knowledge_base::KnowledgeBase,
+    scheduler::EvolutionScheduler,
+};
+
 #[derive(Clone)]
 struct AppState {
     history: Arc<RwLock<Vec<ChatMessage>>>,
@@ -58,6 +65,8 @@ struct AppState {
     conversation_manager: Option<Arc<ConversationManager>>,
     tool_executor: Arc<RwLock<ToolExecutor>>,
     memory_manager: Option<Arc<MemoryManager>>,
+    evolution_orchestrator: Option<Arc<SelfEvolutionOrchestrator>>,
+    knowledge_base: Option<Arc<KnowledgeBase>>,
 }
 
 /// Default system prompt injected when no custom prompt is provided.
@@ -928,6 +937,298 @@ async fn analyze_video(
             "provider": p.name()
         })),
     )
+}
+
+// ============================================================================
+// OPENAI-COMPATIBLE API (Proxy für andere Dienste)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct OpenAiChatRequest {
+    model: Option<String>,
+    messages: Vec<OpenAiMessage>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    stream: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiChatResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<OpenAiChoice>,
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiChoice {
+    index: u32,
+    message: OpenAiResponseMessage,
+    finish_reason: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiResponseMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiErrorResponse {
+    error: OpenAiError,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiError {
+    message: String,
+    r#type: String,
+    code: String,
+}
+
+async fn openai_chat_completions(
+    State(state): State<AppState>,
+    Json(req): Json<OpenAiChatRequest>,
+) -> impl IntoResponse {
+    // Extrahiere System-Prompt
+    let system_prompt: Option<String> = req.messages.iter()
+        .find(|m| m.role == "system")
+        .map(|m| m.content.clone());
+
+    // Konvertiere Messages in ORA-Format (ohne system)
+    let messages: Vec<providers::ChatMessage> = req.messages.iter()
+        .filter(|m| m.role != "system")
+        .map(|m| providers::ChatMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        })
+        .collect();
+
+    let provider = state.current_provider.read().await;
+
+    if !provider.is_available().await {
+        let err = OpenAiErrorResponse {
+            error: OpenAiError {
+                message: "AI provider not available".to_string(),
+                r#type: "server_error".to_string(),
+                code: "provider_unavailable".to_string(),
+            },
+        };
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::to_value(err).unwrap_or_default()));
+    }
+
+    match provider.chat(messages, system_prompt).await {
+        Ok(response) => {
+            let resp = OpenAiChatResponse {
+                id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
+                object: "chat.completion".to_string(),
+                created: chrono::Utc::now().timestamp(),
+                model: response.model,
+                choices: vec![OpenAiChoice {
+                    index: 0,
+                    message: OpenAiResponseMessage {
+                        role: "assistant".to_string(),
+                        content: response.message,
+                    },
+                    finish_reason: "stop".to_string(),
+                }],
+                usage: response.tokens_used.map(|t| OpenAiUsage {
+                    prompt_tokens: t / 2,
+                    completion_tokens: t / 2,
+                    total_tokens: t,
+                }),
+            };
+            (StatusCode::OK, Json(serde_json::to_value(resp).unwrap_or_default()))
+        }
+        Err(e) => {
+            let err = OpenAiErrorResponse {
+                error: OpenAiError {
+                    message: e.to_string(),
+                    r#type: "api_error".to_string(),
+                    code: "provider_error".to_string(),
+                },
+            };
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::to_value(err).unwrap_or_default()))
+        }
+    }
+}
+
+async fn list_available_models(State(state): State<AppState>) -> impl IntoResponse {
+    let provider = state.current_provider.read().await;
+    let models = provider.list_models().await.unwrap_or_default();
+
+    #[derive(Serialize)]
+    struct OpenAiModel {
+        id: String,
+        object: String,
+        created: i64,
+        owned_by: String,
+    }
+
+    #[derive(Serialize)]
+    struct OpenAiModelList {
+        object: String,
+        data: Vec<OpenAiModel>,
+    }
+
+    let data: Vec<OpenAiModel> = models.into_iter().map(|m| OpenAiModel {
+        id: m.id,
+        object: "model".to_string(),
+        created: chrono::Utc::now().timestamp(),
+        owned_by: m.provider,
+    }).collect();
+
+    let resp = OpenAiModelList {
+        object: "list".to_string(),
+        data,
+    };
+
+    (StatusCode::OK, Json(serde_json::to_value(resp).unwrap_or_default()))
+}
+
+// ============================================================================
+// SELF-EVOLUTION API ENDPOINTS
+// ============================================================================
+
+/// Trigger a self-evolution cycle manually
+async fn trigger_evolution_cycle(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(ref orchestrator) = state.evolution_orchestrator else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Evolution engine not available"})),
+        );
+    };
+
+    match orchestrator.run_cycle().await {
+        Ok(cycle) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "cycle_id": cycle.id.to_string(),
+                "phases_completed": cycle.phase_results.len(),
+                "summary": cycle.summary,
+                "status": "completed",
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Evolution cycle failed",
+                "details": e,
+            })),
+        ),
+    }
+}
+
+/// List all evolution proposals
+async fn list_evolution_proposals(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(ref orch) = state.evolution_orchestrator else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Evolution engine not available"})),
+        );
+    };
+
+    let proposals = orch.code_generation.list_proposals(None, None, 50).await.unwrap_or_default();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "proposals": proposals,
+            "total": proposals.len(),
+        })),
+    )
+}
+
+/// Store a knowledge entry
+async fn store_knowledge(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let Some(ref kb) = state.knowledge_base else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Knowledge base not available"})),
+        );
+    };
+
+    let topic = req.get("topic").and_then(|v| v.as_str()).unwrap_or("general");
+    let content = req.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    let source = req.get("source").and_then(|v| v.as_str()).unwrap_or("api");
+    let tags: Vec<String> = req.get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    match kb.store(topic, content, source, &tags).await {
+        Ok(entry) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "entry": entry})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        ),
+    }
+}
+
+/// Search knowledge base
+async fn search_knowledge(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let Some(ref kb) = state.knowledge_base else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Knowledge base not available"})),
+        );
+    };
+
+    let query = req.get("query").and_then(|v| v.as_str()).unwrap_or("");
+    let limit = req.get("limit").and_then(|v| v.as_i64()).unwrap_or(20);
+
+    match kb.search(query, limit).await {
+        Ok(results) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "results": results,
+                "total": results.len(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        ),
+    }
+}
+
+/// Get evolution system status
+async fn get_evolution_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let evolution_available = state.evolution_orchestrator.is_some();
+    let knowledge_available = state.knowledge_base.is_some();
+
+    Json(serde_json::json!({
+        "self_evolution_available": evolution_available,
+        "knowledge_base_available": knowledge_available,
+        "database_available": state.db.is_some(),
+        "ai_provider": state.current_provider.read().await.name(),
+    }))
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -1931,6 +2232,32 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let (evolution_orchestrator, knowledge_base) = if let Some(ref db_pool) = db {
+        let evo_config = EvolutionCycleConfig::default();
+        let project_root = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .to_string_lossy()
+            .to_string();
+        let kb = Arc::new(KnowledgeBase::new(db_pool.clone()));
+        let orch = Arc::new(SelfEvolutionOrchestrator::new(
+            db_pool.clone(),
+            project_root,
+            evo_config,
+        ));
+        let scheduler = EvolutionScheduler::new(
+            orch.clone(),
+            self_evolution::EvolutionConfig::default(),
+        );
+        tokio::spawn(async move {
+            scheduler.start().await;
+        });
+        info!("Self-evolution system initialized");
+        (Some(orch), Some(kb))
+    } else {
+        info!("Self-evolution disabled (no database connection)");
+        (None, None)
+    };
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
@@ -1943,6 +2270,8 @@ async fn main() -> anyhow::Result<()> {
         conversation_manager,
         tool_executor,
         memory_manager,
+        evolution_orchestrator,
+        knowledge_base,
     };
 
     let app = Router::new()
@@ -1996,6 +2325,15 @@ async fn main() -> anyhow::Result<()> {
         // Instant Tasks API – real-time one-shot tasks
         .route("/api/assist/tasks/instant/:id", get(get_instant_task))
         .route("/api/assist/tasks/instant/:id/stream", get(stream_instant_task))
+        // Self-Evolution API
+        .route("/api/assist/evolution/cycle", post(trigger_evolution_cycle))
+        .route("/api/assist/evolution/proposals", get(list_evolution_proposals))
+        .route("/api/assist/evolution/knowledge", post(store_knowledge))
+        .route("/api/assist/evolution/knowledge", get(search_knowledge))
+        .route("/api/assist/evolution/status", get(get_evolution_status))
+        // OpenAI-Compatible API (Proxy für andere Dienste)
+        .route("/v1/chat/completions", post(openai_chat_completions))
+        .route("/v1/models", get(list_available_models))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

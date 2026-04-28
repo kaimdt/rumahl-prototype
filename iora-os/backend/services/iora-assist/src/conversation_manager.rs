@@ -1,3 +1,4 @@
+use sqlx::Row;
 // Proactive Conversation Manager
 // Manages continuous conversation threads and AI-initiated messages
 
