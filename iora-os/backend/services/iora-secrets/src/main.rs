@@ -570,6 +570,11 @@ async fn main() -> Result<()> {
     info!("Master key loaded successfully");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-secrets",
+        port.parse::<u16>().unwrap_or(8093),
+        "Encrypted secrets vault",
+    );
     axum::serve(listener, app).await?;
 
     Ok(())

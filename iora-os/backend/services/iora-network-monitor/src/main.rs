@@ -518,6 +518,11 @@ async fn main() -> Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
     info!("iora-network-monitor listening on {}", addr);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-network-monitor",
+        addr.port(),
+        "LAN/WAN network monitor",
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

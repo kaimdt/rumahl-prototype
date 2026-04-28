@@ -1915,6 +1915,11 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("ORA AI (iora-assist) listening on {}", addr);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-assist",
+        addr.port(),
+        "ORA AI assistant",
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

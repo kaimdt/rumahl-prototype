@@ -665,6 +665,12 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-appstore",
+        port,
+        "App store / app catalog",
+    );
+
     HttpServer::new(move || {
         ActixApp::new()
             .app_data(app_state.clone())

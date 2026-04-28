@@ -1,8 +1,8 @@
 {
   "name": "iora-dev",
   "displayName": "IORA OS Dev",
-  "description": "Discover IORA OS Dev devices on your LAN, hot-deploy components, watch crates, and stream device logs from VS Code — backed by the iora-dev-deploy daemon.",
-  "version": "0.2.0",
+  "description": "Discover IORA OS Dev devices on your LAN, hot-deploy components, watch crates, monitor live service heartbeats and stream device logs from VS Code — backed by the iora-dev-deploy daemon.",
+  "version": "0.4.0",
   "publisher": "iora",
   "license": "MIT",
   "private": false,
@@ -53,9 +53,16 @@
         },
         "ioraDev.buildMode": {
           "type": "string",
-          "enum": ["device", "host"],
-          "default": "device",
-          "description": "Build mode for deploy and watch. `device` uploads the workspace and builds directly on the IORA system. `host` builds locally first."
+          "enum": ["auto", "device", "host", "cargo", "docker"],
+          "enumDescriptions": [
+            "Auto-detect: native cargo if the host can cross-compile, else docker, else build on the device. Recommended.",
+            "Always upload the workspace and build incrementally on the IORA device. Slowest first build, fastest subsequent builds, works on any host (Windows-friendly).",
+            "Always build locally on the developer machine (cargo or docker, whichever works).",
+            "Force the native cargo path (will fail on Windows for ARM Linux targets).",
+            "Force the docker cross-compile path. Requires Docker Desktop / Engine on the developer machine."
+          ],
+          "default": "auto",
+          "description": "Build mode for deploy and watch. Defaults to `auto` so Windows hosts hot-reload via the on-device incremental build instead of failing on the cross-linker."
         },
         "ioraDev.discoverTimeoutSecs": {
           "type": "number",
@@ -97,7 +104,16 @@
       { "command": "ioraDev.deployFromTree", "title": "Deploy",                              "icon": "$(rocket)" },
       { "command": "ioraDev.watchFromTree",  "title": "Watch",                               "icon": "$(eye)" },
       { "command": "ioraDev.connectFromTree","title": "Connect",                             "icon": "$(plug)" },
-      { "command": "ioraDev.stopWatchFromTree","title": "Stop",                              "icon": "$(stop-circle)" }
+      { "command": "ioraDev.stopWatchFromTree","title": "Stop",                              "icon": "$(stop-circle)" },
+      { "command": "ioraDev.serviceLogs",            "title": "IORA Dev: Tail Service Logs…",   "icon": "$(output)" },
+      { "command": "ioraDev.serviceLogsFromTree",    "title": "Logs",                           "icon": "$(output)" },
+      { "command": "ioraDev.serviceRestartFromTree", "title": "Restart",                        "icon": "$(debug-restart)" },
+      { "command": "ioraDev.openServiceLiveLogs",    "title": "IORA Dev: Open Live Logs…",        "icon": "$(broadcast)" },
+      { "command": "ioraDev.stopServiceLiveLogs",    "title": "IORA Dev: Stop Live Logs…" },
+      { "command": "ioraDev.openServiceUrl",         "title": "IORA Dev: Open Service URL",       "icon": "$(link-external)" },
+      { "command": "ioraDev.systemInfo",             "title": "IORA Dev: Show Device System Info", "icon": "$(info)" },
+      { "command": "ioraDev.rebootDevice",           "title": "IORA Dev: Reboot Device",          "icon": "$(refresh)" },
+      { "command": "ioraDev.servicePalette",         "title": "IORA Dev: Service Actions…",       "icon": "$(list-selection)" }
     ],
     "viewsContainers": {
       "activitybar": [
@@ -112,6 +128,7 @@
       "ioraDev": [
         { "id": "ioraDev.connection", "name": "Connection" },
         { "id": "ioraDev.devices",    "name": "Devices" },
+        { "id": "ioraDev.services",   "name": "Services (live)" },
         { "id": "ioraDev.components", "name": "Components" },
         { "id": "ioraDev.watches",    "name": "Watch Sessions" },
         { "id": "ioraDev.jobs",       "name": "Recent Jobs" }
@@ -124,6 +141,11 @@
         { "command": "ioraDev.refresh",   "when": "view == ioraDev.connection", "group": "navigation@3" },
         { "command": "ioraDev.discover",  "when": "view == ioraDev.devices",    "group": "navigation@1" },
         { "command": "ioraDev.refresh",   "when": "view == ioraDev.devices",    "group": "navigation@2" },
+        { "command": "ioraDev.refresh",                "when": "view == ioraDev.services", "group": "navigation@1" },
+        { "command": "ioraDev.serviceLogs",            "when": "view == ioraDev.services", "group": "navigation@2" },
+        { "command": "ioraDev.openServiceLiveLogs",    "when": "view == ioraDev.services", "group": "navigation@3" },
+        { "command": "ioraDev.systemInfo",             "when": "view == ioraDev.connection", "group": "navigation@4" },
+        { "command": "ioraDev.rebootDevice",           "when": "view == ioraDev.connection", "group": "navigation@5" },
         { "command": "ioraDev.dashboard", "when": "view == ioraDev.devices",    "group": "navigation@3" },
         { "command": "ioraDev.deploy",    "when": "view == ioraDev.components", "group": "navigation@1" },
         { "command": "ioraDev.watch",     "when": "view == ioraDev.components", "group": "navigation@2" },
@@ -137,7 +159,11 @@
         { "command": "ioraDev.watchFromTree",    "when": "view == ioraDev.components && viewItem == component", "group": "inline@2" },
         { "command": "ioraDev.logsFromTree",     "when": "view == ioraDev.components && viewItem == component", "group": "inline@3" },
         { "command": "ioraDev.componentActions", "when": "view == ioraDev.components && viewItem == component", "group": "navigation" },
-        { "command": "ioraDev.stopWatchFromTree","when": "view == ioraDev.watches && viewItem == watch",        "group": "inline" }
+        { "command": "ioraDev.stopWatchFromTree","when": "view == ioraDev.watches && viewItem == watch",        "group": "inline" },
+        { "command": "ioraDev.openServiceLiveLogs",  "when": "view == ioraDev.services && viewItem == service", "group": "inline@0" },
+        { "command": "ioraDev.serviceLogsFromTree",  "when": "view == ioraDev.services && viewItem == service", "group": "inline@1" },
+        { "command": "ioraDev.serviceRestartFromTree","when": "view == ioraDev.services && viewItem == service", "group": "inline@2" },
+        { "command": "ioraDev.openServiceUrl",       "when": "view == ioraDev.services && viewItem == service", "group": "navigation@1" }
       ]
     }
   },

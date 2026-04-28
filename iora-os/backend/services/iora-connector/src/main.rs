@@ -387,6 +387,11 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("IORA Connector listening on {} (WireGuard on UDP {})", addr, wg_port);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-connector",
+        addr.port(),
+        "WireGuard / public exposure connector",
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())

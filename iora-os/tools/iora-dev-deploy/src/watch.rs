@@ -62,15 +62,18 @@ pub async fn run(
                 }
                 // Only rebuild components whose tree was actually touched (or always if shared).
                 for e in &entries {
-                    let effective_build_mode = if build_mode == "device" && build::must_build_on_host(e) {
+                    let strategy = build::resolve_strategy(e, &target, &build_mode);
+                    let effective_build_mode = if build::must_build_on_host(e) {
                         "host"
+                    } else if strategy == build::BuildStrategy::Device {
+                        "device"
                     } else {
-                        build_mode.as_str()
+                        "host"
                     };
                     let component_dirs = build::watch_dirs(e)?;
                     if touched.iter().any(|p| component_dirs.iter().any(|dir| p.starts_with(dir))) {
                         println!();
-                        println!("{} {}", "▶ rebuild".bold(), e.name.cyan());
+                        println!("{} {} ({})", "▶ rebuild".bold(), e.name.cyan(), strategy.label().dimmed());
                         if effective_build_mode == "device" {
                             match client.build_replace_remote(&e.name, &e.target_path, Some(e.unit.as_str())).await {
                                 Ok(resp) => println!(
@@ -82,10 +85,10 @@ pub async fn run(
                                 Err(err) => eprintln!("{} device build: {err:#}", "✗".red()),
                             }
                         } else {
-                            if build_mode == "device" && build::must_build_on_host(e) {
+                            if build::must_build_on_host(e) {
                                 println!("{} {} uses host bridge update path", "▶ info".bold(), e.name.cyan());
                             }
-                            match build::cargo_release(e, &target).await {
+                            match build::cargo_release_with_mode(e, &target, &build_mode).await {
                                 Ok(bin) => {
                                     let unit = e.unit.as_str();
                                     match client

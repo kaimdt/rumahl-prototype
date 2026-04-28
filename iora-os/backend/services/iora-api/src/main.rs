@@ -172,6 +172,11 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("IORA API gateway listening on {}", addr);
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-api",
+        addr.port(),
+        "REST v2 API surface",
+    );
     info!("  GraphQL:   http://{}:{}/graphql", "0.0.0.0", port);
     info!("  WebDAV:    http://{}:{}/webdav/", "0.0.0.0", port);
     info!("  CalDAV:    http://{}:{}/caldav/", "0.0.0.0", port);

@@ -119,6 +119,60 @@ impl Client {
         Ok(r.json().await?)
     }
 
+    /// Aggregated live service status from the bridge (which proxies it
+    /// from `iora-core` heartbeats). Returns the raw JSON document so we
+    /// don't have to redefine every field on the daemon side.
+    pub async fn services(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/dev/services", self.base);
+        let r = self.http.get(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .send().await?;
+        if !r.status().is_success() {
+            return Err(anyhow!("services {} from {url}", r.status()));
+        }
+        Ok(r.json().await?)
+    }
+
+    pub async fn system_info(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/dev/system/info", self.base);
+        let r = self.http.get(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .send().await?;
+        if !r.status().is_success() {
+            return Err(anyhow!("system/info {} from {url}", r.status()));
+        }
+        Ok(r.json().await?)
+    }
+
+    pub async fn system_reboot(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/dev/system/reboot", self.base);
+        let r = self.http.post(&url)
+            .header("X-IORA-Dev-Token", &self.token)
+            .send().await?;
+        if !r.status().is_success() {
+            return Err(anyhow!("system/reboot {} from {url}", r.status()));
+        }
+        Ok(r.json().await?)
+    }
+
+    /// URL the VS Code extension uses for its EventSource connection
+    /// (live service log streaming). The daemon hands this to the IDE
+    /// instead of proxying SSE itself — streaming through axum's
+    /// `WebSocket` is fine but proxying SSE end-to-end with backpressure
+    /// is tricky and there's no privacy benefit when both endpoints are
+    /// already on the same trust boundary (developer LAN).
+    pub fn service_logs_stream_url(&self, unit: &str) -> String {
+        format!(
+            "{}/dev/service/{}/logs/stream?token={}",
+            self.base,
+            unit,
+            urlencoding::encode(&self.token),
+        )
+    }
+
+    pub fn base(&self) -> &str { &self.base }
+    pub fn token(&self) -> &str { &self.token }
+
     pub async fn fs_list(&self, path: &str) -> Result<FsListResult> {
         let url = format!("{}/dev/fs/list", self.base);
         let r = self.http.post(&url)

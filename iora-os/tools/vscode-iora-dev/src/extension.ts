@@ -8,10 +8,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import WebSocket from 'ws';
-import { Component, Connection, DaemonClient, DaemonUnavailable, Job, WatchSession } from './api';
+import { Component, Connection, DaemonClient, DaemonUnavailable, Job, ServicesStatus, WatchSession } from './api';
 import { DaemonManager } from './daemonManager';
-import { ComponentsProvider, ConnectionProvider, DevicesProvider, JobsProvider, WatchesProvider } from './views';
+import { ComponentsProvider, ConnectionProvider, DevicesProvider, JobsProvider, ServicesProvider, WatchesProvider } from './views';
 import { Dashboard } from './dashboard';
+import { LiveLogManager } from './liveLogs';
 
 let output: vscode.OutputChannel;
 let statusItem: vscode.StatusBarItem;
@@ -25,16 +26,25 @@ let componentsProvider: ComponentsProvider;
 let watchesProvider: WatchesProvider;
 let jobsProvider: JobsProvider;
 let connectionProvider: ConnectionProvider;
+let servicesProvider: ServicesProvider;
+let liveLogs: LiveLogManager;
 
 let currentConnection: Connection | null = null;
 let currentJobs: Job[] = [];
 let currentWatches: WatchSession[] = [];
+let currentServices: ServicesStatus | null = null;
+
+let wsBackoffMs = 1000;
+let servicesPollTimer: NodeJS.Timeout | undefined;
 
 export async function activate(ctx: vscode.ExtensionContext) {
     output = vscode.window.createOutputChannel('IORA OS Dev');
     statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
     statusItem.text = '$(broadcast) IORA Dev: starting…';
-    statusItem.command = 'ioraDev.dashboard';
+    // Clicking the status bar opens the service quick-pick — the most
+    // useful entry point in the steady state. The dashboard is still
+    // reachable via Cmd-Shift-P.
+    statusItem.command = 'ioraDev.servicePalette';
     statusItem.show();
     manager = new DaemonManager(output);
     dashboard = new Dashboard(ctx, () => client);
@@ -44,11 +54,14 @@ export async function activate(ctx: vscode.ExtensionContext) {
     componentsProvider = new ComponentsProvider();
     watchesProvider = new WatchesProvider();
     jobsProvider = new JobsProvider();
+    servicesProvider = new ServicesProvider();
+    liveLogs = new LiveLogManager(() => client, output);
 
     ctx.subscriptions.push(
         output, statusItem,
         vscode.window.registerTreeDataProvider('ioraDev.connection', connectionProvider),
         vscode.window.registerTreeDataProvider('ioraDev.devices',    devicesProvider),
+        vscode.window.registerTreeDataProvider('ioraDev.services',   servicesProvider),
         vscode.window.registerTreeDataProvider('ioraDev.components', componentsProvider),
         vscode.window.registerTreeDataProvider('ioraDev.watches',    watchesProvider),
         vscode.window.registerTreeDataProvider('ioraDev.jobs',       jobsProvider),
@@ -78,6 +91,15 @@ export async function activate(ctx: vscode.ExtensionContext) {
         cmd('ioraDev.componentActions', (item: any) => cmdComponentActions(item?.label ? item.label : undefined)),
         cmd('ioraDev.connectFromTree',  (ep: string | undefined) => cmdConnect(ep)),
         cmd('ioraDev.stopWatchFromTree',(item: any) => cmdWatchStop(item?.id ?? item)),
+        cmd('ioraDev.serviceLogs',           cmdServiceLogsTail),
+        cmd('ioraDev.serviceLogsFromTree',   (item: any) => cmdServiceLogsTail(item?.label)),
+        cmd('ioraDev.serviceRestartFromTree',(item: any) => cmdServiceRestart(item?.label)),
+        cmd('ioraDev.openServiceLiveLogs',     (arg?: any) => cmdOpenLiveLogs(arg?.label ?? arg)),
+        cmd('ioraDev.stopServiceLiveLogs',     () => cmdStopLiveLogs()),
+        cmd('ioraDev.openServiceUrl',          (arg?: any) => cmdOpenServiceUrl(arg?.label ?? arg)),
+        cmd('ioraDev.systemInfo',              cmdSystemInfo),
+        cmd('ioraDev.rebootDevice',            cmdRebootDevice),
+        cmd('ioraDev.servicePalette',          cmdServicePalette),
     );
 
     // Initial connection (spawns daemon if needed). Don't fail activation.
@@ -86,6 +108,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 
 export function deactivate() {
     try { ws?.close(); } catch {}
+    if (servicesPollTimer) { clearInterval(servicesPollTimer); servicesPollTimer = undefined; }
+    liveLogs?.disposeAll();
     manager?.dispose();
 }
 
@@ -111,11 +135,42 @@ async function connectDaemon() {
 function openEvents() {
     if (!client) return;
     try { ws?.close(); } catch {}
-    ws = client.openEvents(onEvent, () => {
-        statusItem.text = '$(circle-slash) IORA Dev: events disconnected';
-        // Try to reconnect after a short delay.
-        setTimeout(() => { if (client) openEvents(); }, 2000);
-    });
+    ws = client.openEvents(
+        (e) => {
+            // Successful message → we have a working channel → reset backoff.
+            wsBackoffMs = 1000;
+            onEvent(e);
+        },
+        () => {
+            statusItem.text = '$(circle-slash) IORA Dev: events disconnected';
+            // Exponential backoff up to 30s. Without this, a daemon
+            // restart used to cause a reconnect storm in the journal.
+            const delay = wsBackoffMs;
+            wsBackoffMs = Math.min(wsBackoffMs * 2, 30_000);
+            output.appendLine(`events: socket closed; retrying in ${delay}ms`);
+            setTimeout(() => { if (client) openEvents(); }, delay);
+        },
+    );
+}
+
+/// Lightweight 5s poll for the live service map. Belts-and-braces in
+/// case the daemon's snapshot events don't include `services` (older
+/// daemons) or the WebSocket is briefly down.
+function startServicesPolling() {
+    if (servicesPollTimer) clearInterval(servicesPollTimer);
+    servicesPollTimer = setInterval(async () => {
+        if (!client || !currentConnection?.host) return;
+        try {
+            const snap = await client.services();
+            currentServices = snap;
+            servicesProvider.setSnapshot(snap);
+            renderStatusBar();
+        } catch (e: any) {
+            // Fail quiet — the WS feed should usually be enough; we just
+            // surface the last known snapshot until the next attempt.
+            servicesProvider.setSnapshot(currentServices, e?.message ?? String(e));
+        }
+    }, 5000);
 }
 
 function onEvent(e: any) {
@@ -131,7 +186,30 @@ function onEvent(e: any) {
                 currentJobs = e.jobs_recent;
                 jobsProvider.setItems(e.jobs_recent);
             }
+            if (e.services && typeof e.services === 'object') {
+                currentServices = e.services as ServicesStatus;
+                servicesProvider.setSnapshot(currentServices);
+            }
             syncConnectionView();
+            break;
+        case 'services_updated':
+            if (e.services) {
+                currentServices = e.services as ServicesStatus;
+                servicesProvider.setSnapshot(currentServices);
+                renderStatusBar();
+            }
+            break;
+        case 'service.heartbeat':
+        case 'service.stale':
+        case 'service.registered':
+            // Nudge the poll loop without waiting for the next tick.
+            if (client) {
+                client.services().then(s => {
+                    currentServices = s;
+                    servicesProvider.setSnapshot(s);
+                    renderStatusBar();
+                }).catch(() => {});
+            }
             break;
         case 'devices_updated':
             devicesProvider.setDevices(e.devices ?? []);
@@ -186,10 +264,37 @@ function renderStatusBar() {
         const activeJobs = currentJobs.filter(j => j.status === 'running' || j.status === 'pending').length;
         const watchCount = currentWatches.length;
         const bridgeReady = currentConnection.capabilities?.includes('binary.build_replace') ?? false;
-        const suffix = activeJobs > 0 ? ` • ${activeJobs} active job${activeJobs === 1 ? '' : 's'}` : watchCount > 0 ? ` • ${watchCount} watch${watchCount === 1 ? '' : 'es'}` : '';
-        statusItem.text = `$(broadcast) IORA Dev: ${currentConnection.hostname ?? currentConnection.host}${suffix}`;
-        statusItem.tooltip = `host=${currentConnection.host}\nvariant=${currentConnection.variant}\nbuild=${currentConnection.build}\nbridgeRemoteBuild=${bridgeReady ? 'ready' : 'update required'}\nactiveJobs=${activeJobs}\nwatchSessions=${watchCount}`;
+        const summary = currentServices?.summary;
+        const bad = (summary?.unhealthy ?? 0) + (summary?.stale ?? 0);
+        const degraded = summary?.degraded ?? 0;
+        let icon = '$(broadcast)';
+        let bg: vscode.ThemeColor | undefined;
+        if (summary && summary.total > 0) {
+            if (bad > 0) {
+                icon = '$(error)';
+                bg = new vscode.ThemeColor('statusBarItem.errorBackground');
+            } else if (degraded > 0) {
+                icon = '$(warning)';
+                bg = new vscode.ThemeColor('statusBarItem.warningBackground');
+            } else {
+                icon = '$(pass-filled)';
+            }
+        }
+        statusItem.backgroundColor = bg;
+        const parts: string[] = [];
+        if (activeJobs > 0) parts.push(`${activeJobs} job${activeJobs === 1 ? '' : 's'}`);
+        if (watchCount > 0) parts.push(`${watchCount} watch${watchCount === 1 ? '' : 'es'}`);
+        if (summary && summary.total > 0) {
+            parts.push(`${summary.healthy}/${summary.total} services up`);
+        }
+        const suffix = parts.length ? ` • ${parts.join(' • ')}` : '';
+        statusItem.text = `${icon} IORA Dev: ${currentConnection.hostname ?? currentConnection.host}${suffix}`;
+        const summaryLines = summary
+            ? `\nservices: total=${summary.total} healthy=${summary.healthy} degraded=${summary.degraded} unhealthy=${summary.unhealthy} stale=${summary.stale}`
+            : '\nservices: (no data)';
+        statusItem.tooltip = `host=${currentConnection.host}\nvariant=${currentConnection.variant}\nbuild=${currentConnection.build}\nbridgeRemoteBuild=${bridgeReady ? 'ready' : 'update required'}\nactiveJobs=${activeJobs}\nwatchSessions=${watchCount}${summaryLines}`;
     } else {
+        statusItem.backgroundColor = undefined;
         statusItem.text = '$(circle-slash) IORA Dev: not connected';
         statusItem.tooltip = 'No active IORA dev server connection';
     }
@@ -226,7 +331,17 @@ async function refreshAll() {
         devicesProvider.setActive(conn.host);
         watchesProvider.setItems(watches);
         jobsProvider.setItems(jobs);
+        // Pull the live service map; tolerate older daemons that don't
+        // expose /api/v1/services yet.
+        try {
+            const services = await client.services();
+            currentServices = services;
+            servicesProvider.setSnapshot(services);
+        } catch (e: any) {
+            servicesProvider.setSnapshot(currentServices, `services unavailable: ${e?.message ?? e}`);
+        }
         syncConnectionView();
+        startServicesPolling();
     } catch (e: any) {
         output.appendLine(`refresh: ${e.message ?? e}`);
     }
@@ -463,6 +578,179 @@ async function cmdStopDaemon() {
     try { ws?.close(); } catch {}
     await manager.stop();
     statusItem.text = '$(circle-slash) IORA Dev: daemon stopped';
+}
+
+async function cmdServiceLogsTail(serviceName?: string) {
+    const c = await ensureClient();
+    let name = serviceName;
+    if (!name) {
+        const list = currentServices?.services ?? [];
+        const pick = list.length
+            ? await vscode.window.showQuickPick(list.map(s => ({ label: s.name, description: s.effective_status, detail: s.url })), { title: 'Tail logs of which service?' })
+            : undefined;
+        name = pick?.label ?? await vscode.window.showInputBox({ prompt: 'systemd unit name (e.g. iora-watchdog)', ignoreFocusOut: true });
+        if (!name) return;
+    }
+    const r = await c.serviceLogs(name, 300);
+    output.show(true);
+    output.appendLine(`--- service logs ${name} (tail=300) ---`);
+    output.append(r.stdout);
+    if (r.stderr) { output.appendLine('---stderr---'); output.append(r.stderr); }
+}
+
+async function cmdOpenLiveLogs(serviceName?: string) {
+    let unit = serviceName;
+    if (!unit) {
+        const list = currentServices?.services ?? [];
+        const pick = list.length
+            ? await vscode.window.showQuickPick(
+                list.map(s => ({
+                    label: s.name,
+                    description: s.effective_status,
+                    detail: s.message ?? s.url,
+                })),
+                { title: 'Open live logs for which service?' })
+            : undefined;
+        unit = pick?.label;
+        if (!unit) {
+            unit = await vscode.window.showInputBox({
+                prompt: 'systemd unit name (e.g. iora-watchdog)',
+                ignoreFocusOut: true,
+            });
+        }
+        if (!unit) return;
+    }
+    // Most callers pass a friendly name (`iora-watchdog`); the bridge
+    // also accepts the explicit `.service` form. We let the bridge
+    // figure it out so users don't have to think about it.
+    await liveLogs.open(unit);
+}
+
+async function cmdStopLiveLogs() {
+    const active = liveLogs.activeUnits();
+    if (active.length === 0) {
+        vscode.window.showInformationMessage('No live-log streams are active.');
+        return;
+    }
+    const pick = await vscode.window.showQuickPick(
+        active.map(u => ({ label: u })),
+        { title: 'Stop which live-log stream?', canPickMany: true });
+    if (!pick) return;
+    for (const p of pick) liveLogs.close(p.label);
+}
+
+async function cmdOpenServiceUrl(serviceName?: string) {
+    const list = currentServices?.services ?? [];
+    const svc = list.find(s => s.name === serviceName)
+        ?? (await pickServiceFromTree('Open which service URL?'));
+    if (!svc) return;
+    if (!svc.url) {
+        vscode.window.showWarningMessage(`${svc.name} has not reported a URL yet.`);
+        return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(svc.url));
+}
+
+async function pickServiceFromTree(title: string) {
+    const list = currentServices?.services ?? [];
+    if (list.length === 0) {
+        vscode.window.showInformationMessage('No services have heartbeated yet.');
+        return undefined;
+    }
+    const pick = await vscode.window.showQuickPick(
+        list.map(s => ({
+            label: s.name,
+            description: `${s.effective_status}${s.url ? ' • ' + s.url : ''}`,
+            detail: s.message ?? '',
+            svc: s,
+        })),
+        { title });
+    return pick?.svc;
+}
+
+async function cmdSystemInfo() {
+    const c = await ensureClient();
+    try {
+        const info = await c.systemInfo();
+        const fmtBytes = (n: number) => {
+            if (n > 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+            if (n > 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+            if (n > 1e3) return `${(n / 1e3).toFixed(1)} kB`;
+            return `${n} B`;
+        };
+        const lines = [
+            `host:    ${info.hostname}`,
+            `build:   ${info.build}`,
+            `uptime:  ${info.uptime_seconds}s`,
+            `loadavg: ${info.loadavg}`,
+            `cpus:    ${info.cpu_count}`,
+            `memory:  ${fmtBytes(info.mem_total_bytes - info.mem_available_bytes)} / ${fmtBytes(info.mem_total_bytes)} used`,
+            `disk /:  ${fmtBytes(info.disk_used_bytes)} / ${fmtBytes(info.disk_total_bytes)} used (${fmtBytes(info.disk_free_bytes)} free)`,
+        ];
+        output.show(true);
+        output.appendLine('--- system info ---');
+        for (const l of lines) output.appendLine(l);
+    } catch (e: any) {
+        vscode.window.showErrorMessage(`system info failed: ${e?.message ?? e}`);
+    }
+}
+
+async function cmdRebootDevice() {
+    const yes = await vscode.window.showWarningMessage(
+        'Reboot the connected IORA device? This will interrupt all running services.',
+        { modal: true },
+        'Reboot');
+    if (yes !== 'Reboot') return;
+    const c = await ensureClient();
+    try {
+        const r = await c.systemReboot();
+        vscode.window.showInformationMessage(`Reboot scheduled in ${r.scheduled_in_secs}s.`);
+    } catch (e: any) {
+        vscode.window.showErrorMessage(`reboot failed: ${e?.message ?? e}`);
+    }
+}
+
+/// Quick-pick of every known service with the typical actions: deploy,
+/// watch, restart, reload, live logs, open URL. Bound to clicking the
+/// status-bar item so the most useful ops are one shortcut away.
+async function cmdServicePalette() {
+    const svc = await pickServiceFromTree('IORA Dev — Service Actions');
+    if (!svc) return;
+    const action = await vscode.window.showQuickPick([
+        { label: '$(broadcast) Live Logs',  action: 'live'    },
+        { label: '$(output) Tail Logs',     action: 'logs'    },
+        { label: '$(rocket) Deploy',        action: 'deploy'  },
+        { label: '$(eye) Watch',            action: 'watch'   },
+        { label: '$(debug-restart) Restart',action: 'restart' },
+        { label: '$(refresh) Reload',       action: 'reload'  },
+        { label: '$(link-external) Open URL', action: 'url'   },
+    ], { title: `Actions for ${svc.name}` });
+    if (!action) return;
+    switch (action.action) {
+        case 'live':    return cmdOpenLiveLogs(svc.name);
+        case 'logs':    return cmdServiceLogsTail(svc.name);
+        case 'deploy':  return cmdDeploy([svc.name]);
+        case 'watch':   return cmdWatchStart([svc.name]);
+        case 'restart': return cmdServiceRestart(svc.name);
+        case 'reload':  {
+            const c = await ensureClient();
+            const r = await c.serviceReload(svc.name) as any;
+            output.show(true);
+            output.appendLine(`--- reload ${svc.name} ---\n${JSON.stringify(r, null, 2)}`);
+            return;
+        }
+        case 'url':     return cmdOpenServiceUrl(svc.name);
+    }
+}
+
+async function cmdServiceRestart(serviceName?: string) {
+    if (!serviceName) return;
+    const yes = await vscode.window.showWarningMessage(`Restart ${serviceName}?`, { modal: true }, 'Restart');
+    if (yes !== 'Restart') return;
+    const c = await ensureClient();
+    const r = await c.restart(serviceName) as any;
+    output.show(true);
+    output.appendLine(`--- restart ${serviceName} ---\n${JSON.stringify(r, null, 2)}`);
 }
 
 async function ensureClient(): Promise<DaemonClient> {

@@ -151,7 +151,12 @@ struct WatchBody {
 }
 
 fn default_target() -> String { "aarch64-unknown-linux-gnu".into() }
-fn default_build_mode() -> String { "device".into() }
+/// Default to `auto`: the daemon picks the best strategy per component
+/// (native cargo if the host can realistically cross-compile, else
+/// docker if available, else the device-side build). Previously this
+/// was hard-coded to `device`, which forced a slow path that was very
+/// flaky for the dev-bridge component itself (chicken-and-egg).
+fn default_build_mode() -> String { "auto".into() }
 fn default_tail() -> u32 { 200 }
 fn default_debounce() -> u64 { 800 }
 fn default_fs_max_bytes() -> usize { 64 * 1024 }
@@ -190,6 +195,10 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool)
         .route("/api/v1/connect", post(h_connect))
         .route("/api/v1/disconnect", post(h_disconnect))
         .route("/api/v1/status", get(h_status))
+        .route("/api/v1/services", get(h_services))
+        .route("/api/v1/system/info", get(h_system_info))
+        .route("/api/v1/system/reboot", post(h_system_reboot))
+        .route("/api/v1/service/:unit/logs-url", get(h_service_logs_url))
         .route("/api/v1/deploy", post(h_deploy))
         .route("/api/v1/jobs", get(h_jobs))
         .route("/api/v1/jobs/:id", get(h_job_one))
@@ -382,6 +391,46 @@ async fn h_status(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<
     Ok(Json(c.status().await.map_err(server_err)?))
 }
 
+/// Live service map from the device. Aggregated heartbeats coming from
+/// every IORA service through `iora-core` and forwarded by the bridge.
+async fn h_services(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    Ok(Json(c.services().await.map_err(server_err)?))
+}
+
+/// Hand the IDE a directly-usable EventSource URL (with token in the
+/// query string) for live `journalctl -f` of a unit. The daemon doesn't
+/// proxy the SSE stream itself — the IDE connects straight to the bridge,
+/// which is on the same LAN and already trusted.
+async fn h_service_logs_url(headers: HeaderMap, State(s): State<AppState>, AxPath(unit): AxPath<String>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    let url = c.service_logs_stream_url(&unit);
+    Ok(Json(serde_json::json!({
+        "unit":  unit,
+        "url":   url,
+        "token": c.token(),
+        "base":  c.base(),
+    })))
+}
+
+async fn h_system_info(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    Ok(Json(c.system_info().await.map_err(server_err)?))
+}
+
+async fn h_system_reboot(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let cfg = config::load().map_err(server_err)?;
+    let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
+    Ok(Json(c.system_reboot().await.map_err(server_err)?))
+}
+
 // ─── jobs ─────────────────────────────────────────────────────────────────
 
 async fn h_jobs(headers: HeaderMap, State(s): State<AppState>) -> Result<Json<Vec<Job>>, (StatusCode, String)> {
@@ -443,17 +492,35 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
                 }
             }
         } else {
-            let effective_build_mode = if b.build_mode == "device" && build::must_build_on_host(&entry) {
-                append_log(&s, job_id, format!("▶ {} uses dedicated host bridge update path", entry.name)).await;
+            // Resolve the requested build mode into a concrete strategy
+            // (cargo / docker / device) given the component and the host
+            // OS. This is what makes Windows hot-reload Just Work: when
+            // the host can't realistically cross-compile, we silently
+            // fall back to letting the bridge build on the device.
+            let strategy = build::resolve_strategy(&entry, &b.target, &b.build_mode);
+            let effective_build_mode = if build::must_build_on_host(&entry) {
+                append_log(&s, job_id, format!("▶ {} must be built on the host (it is the bridge itself) — using {}", entry.name, strategy.label())).await;
                 "host"
+            } else if strategy == build::BuildStrategy::Device {
+                "device"
             } else {
-                b.build_mode.as_str()
+                "host"
             };
-            append_log(&s, job_id, format!("▶ build {} ({}) via {}", entry.name, b.target, effective_build_mode)).await;
+            append_log(&s, job_id, format!("▶ build {} ({}) via {} [requested: {}]", entry.name, b.target, strategy.label(), b.build_mode)).await;
             if effective_build_mode == "device" {
                 match client.build_replace_remote(&entry.name, &entry.target_path, if b.no_restart { None } else { Some(entry.unit.as_str()) }).await {
                     Ok(resp) => {
-                        append_log(&s, job_id, format!("✓ device build {} ({} bytes)", entry.name, resp["bytes"])).await;
+                        let ms = resp["elapsed_ms"].as_u64().unwrap_or(0);
+                        let inc = resp["incremental"].as_bool().unwrap_or(false);
+                        let workspace = resp["workspace"].as_str().unwrap_or("");
+                        append_log(&s, job_id, format!(
+                            "✓ device build {} ({} bytes, {}ms{}{})",
+                            entry.name,
+                            resp["bytes"],
+                            ms,
+                            if inc { ", incremental cache" } else { "" },
+                            if !workspace.is_empty() { format!(" @ {}", workspace) } else { String::new() },
+                        )).await;
                         if let Some(stdout) = resp["build"]["stdout"].as_str() {
                             for line in stdout.lines().filter(|line| !line.trim().is_empty()).take(200) {
                                 append_log(&s, job_id, format!("  {line}")).await;
@@ -483,7 +550,7 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
                     }
                 }
             } else {
-                match build::cargo_release(&entry, &b.target).await {
+                match build::cargo_release_with_mode(&entry, &b.target, &b.build_mode).await {
                     Ok(p) => p,
                     Err(e) => {
                         append_log(&s, job_id, format!("✗ build {}: {e:#}", entry.name)).await;
@@ -721,17 +788,20 @@ async fn run_watch_session(
                 set_job_status(&s, job, JobStatus::Running).await;
                 let mut all_ok = true;
                 for e in to_build {
-                    let effective_build_mode = if build_mode == "device" && build::must_build_on_host(&e) {
-                        append_log(&s, job, format!("▶ {} uses host bridge update path", e.name)).await;
+                    let strategy = build::resolve_strategy(&e, &target, &build_mode);
+                    let effective_build_mode = if build::must_build_on_host(&e) {
                         "host"
+                    } else if strategy == build::BuildStrategy::Device {
+                        "device"
                     } else {
-                        build_mode.as_str()
+                        "host"
                     };
-                    append_log(&s, job, format!("▶ build {} via {}{}", e.name, effective_build_mode, if automatic { " (automatic)" } else { "" })).await;
+                    append_log(&s, job, format!("▶ build {} via {}{}", e.name, strategy.label(), if automatic { " (automatic)" } else { "" })).await;
                     if effective_build_mode == "device" {
                         match client.build_replace_remote(&e.name, &e.target_path, Some(&e.unit)).await {
                             Ok(resp) => {
-                                append_log(&s, job, format!("✓ {} deployed ({} bytes)", e.name, resp["bytes"])).await;
+                                let ms = resp["elapsed_ms"].as_u64().unwrap_or(0);
+                                append_log(&s, job, format!("✓ {} deployed ({} bytes, {}ms)", e.name, resp["bytes"], ms)).await;
                                 if resp["restart"]["ok"].as_bool().unwrap_or(false) {
                                     append_log(&s, job, format!("✓ {} restarted", e.unit)).await;
                                     emit_service_logs_event(&s, &client, &e.unit, 120).await;
@@ -740,7 +810,7 @@ async fn run_watch_session(
                             Err(err) => { append_log(&s, job, format!("✗ device build: {err:#}")).await; all_ok = false; }
                         }
                     } else {
-                        match build::cargo_release(&e, &target).await {
+                        match build::cargo_release_with_mode(&e, &target, &build_mode).await {
                             Ok(bin) => match client.replace_binary(&bin, &e.target_path, Some(&e.unit)).await {
                                 Ok(resp) => {
                                     append_log(&s, job, format!("✓ {} deployed ({} bytes)", e.name, resp["bytes"])).await;

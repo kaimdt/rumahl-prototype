@@ -1628,6 +1628,12 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 
+    let _hb = iora_shared::heartbeat::spawn_default(
+        "iora-supervisor",
+        port,
+        "Container & system supervisor",
+    );
+
     HttpServer::new(move || {
         App::new()
             .app_data(app_state.clone())

@@ -16,7 +16,9 @@ use iora_shared::{
     types::{HealthStatus, IoraEvent, ServiceHealth},
     api_gateway::ApiGateway,
     widget_registry::WidgetRegistry,
+    heartbeat::ServiceHeartbeat,
 };
+use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::sync::{broadcast, RwLock};
@@ -48,6 +50,25 @@ struct ServiceEntry {
     registered_at: String,
     last_health: Option<HealthStatus>,
     last_checked: Option<String>,
+    /// Last self-reported heartbeat — populated by
+    /// `POST /api/core/services/heartbeat`. Combined with `last_health`
+    /// (the reverse-poll result) it gives us a full picture even if one
+    /// direction of the link is broken.
+    last_heartbeat:    Option<String>,
+    /// Seconds since we last received a heartbeat. Computed on read.
+    #[serde(skip)]
+    _seen_baseline:    Option<Instant>,
+    last_status:       Option<HealthStatus>,
+    last_message:      Option<String>,
+    version:           Option<String>,
+    pid:               Option<u32>,
+    host:              Option<String>,
+    uptime_seconds:    Option<u64>,
+    metrics:           BTreeMap<String, f64>,
+    /// `true` when no heartbeat has arrived within
+    /// `HEARTBEAT_STALE_AFTER_SECS`.
+    stale:             bool,
+    heartbeat_count:   u64,
 }
 
 // ─── Request / Response bodies ───────────────────────────────────────────────
@@ -121,6 +142,17 @@ async fn register_service(
         registered_at: Utc::now().to_rfc3339(),
         last_health: None,
         last_checked: None,
+        last_heartbeat: None,
+        _seen_baseline: None,
+        last_status: None,
+        last_message: None,
+        version: None,
+        pid: None,
+        host: None,
+        uptime_seconds: None,
+        metrics: BTreeMap::new(),
+        stale: true,
+        heartbeat_count: 0,
     };
     state.services.write().await.insert(req.name.clone(), entry);
 
@@ -548,6 +580,201 @@ async fn get_widget(
     }
 }
 
+// ─── Heartbeat receiver ───────────────────────────────────────────────────────
+
+/// Services that don't send a heartbeat for this long are flagged stale
+/// and downgraded to `Unhealthy` in the aggregated status view. The
+/// default heartbeat cadence is 5s, so 20s is generous (3× missed beats
+/// + slack) without being so loose that operators stop trusting the UI.
+const HEARTBEAT_STALE_AFTER_SECS: u64 = 20;
+
+async fn receive_heartbeat(
+    State(state): State<AppState>,
+    Json(beat): Json<ServiceHeartbeat>,
+) -> Json<serde_json::Value> {
+    let now = Utc::now().to_rfc3339();
+    let mut map = state.services.write().await;
+    let entry = map.entry(beat.name.clone()).or_insert_with(|| ServiceEntry {
+        name:           beat.name.clone(),
+        url:            beat.url.clone(),
+        description:    beat.description.clone(),
+        registered_at:  now.clone(),
+        last_health:    None,
+        last_checked:   None,
+        last_heartbeat: None,
+        _seen_baseline: None,
+        last_status:    None,
+        last_message:   None,
+        version:        None,
+        pid:            None,
+        host:           None,
+        uptime_seconds: None,
+        metrics:        BTreeMap::new(),
+        stale:          false,
+        heartbeat_count: 0,
+    });
+
+    // Always refresh registration metadata: a service may have moved
+    // ports or been redeployed with a new build between heartbeats.
+    let was_known = entry.heartbeat_count > 0;
+    if !beat.url.is_empty() {
+        entry.url = beat.url.clone();
+    }
+    if !beat.description.is_empty() {
+        entry.description = beat.description.clone();
+    }
+    entry.last_heartbeat   = Some(beat.timestamp.clone());
+    entry._seen_baseline   = Some(Instant::now());
+    entry.last_status      = Some(beat.status.clone());
+    entry.last_message     = beat.message.clone();
+    entry.version          = Some(beat.version.clone());
+    entry.pid              = Some(beat.pid);
+    entry.host             = Some(beat.host.clone());
+    entry.uptime_seconds   = Some(beat.uptime_seconds);
+    entry.metrics          = beat.metrics.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    entry.stale            = false;
+    entry.heartbeat_count  = entry.heartbeat_count.saturating_add(1);
+
+    drop(map);
+
+    if !was_known {
+        let event = IoraEvent {
+            event_type: "service.registered".to_string(),
+            source:     "iora-core".to_string(),
+            payload:    serde_json::json!({
+                "name": beat.name, "url": beat.url, "via": "heartbeat",
+            }),
+            timestamp:  now.clone(),
+        };
+        let _ = state.events_tx.send(event);
+    }
+
+    let event = IoraEvent {
+        event_type: "service.heartbeat".to_string(),
+        source:     "iora-core".to_string(),
+        payload:    serde_json::json!({
+            "name":   beat.name,
+            "status": beat.status,
+            "uptime": beat.uptime_seconds,
+        }),
+        timestamp:  now.clone(),
+    };
+    let _ = state.events_tx.send(event);
+
+    Json(serde_json::json!({
+        "ok": true,
+        "interval_hint_seconds": 5,
+        "stale_after_seconds": HEARTBEAT_STALE_AFTER_SECS,
+        "server_time": now,
+    }))
+}
+
+/// Aggregated, UI-friendly view: every known service with its current
+/// liveness, last heartbeat age, and last reverse-poll result.
+async fn services_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let map = state.services.read().await;
+    let now_ms = Instant::now();
+    let mut healthy = 0usize;
+    let mut degraded = 0usize;
+    let mut unhealthy = 0usize;
+    let mut stale = 0usize;
+
+    let services: Vec<serde_json::Value> = map
+        .values()
+        .map(|e| {
+            let age_seconds = e._seen_baseline.map(|t| now_ms.saturating_duration_since(t).as_secs());
+            let is_stale = match age_seconds {
+                Some(a) => a > HEARTBEAT_STALE_AFTER_SECS,
+                None => true,
+            };
+            // Effective status combines the self-reported status and
+            // the staleness check: a service that hasn't beat in 20s is
+            // unhealthy by definition, regardless of what it last said.
+            let effective = if is_stale {
+                HealthStatus::Unhealthy
+            } else {
+                e.last_status.clone().unwrap_or(HealthStatus::Healthy)
+            };
+            match effective {
+                HealthStatus::Healthy   => healthy   += 1,
+                HealthStatus::Degraded  => degraded  += 1,
+                HealthStatus::Unhealthy => unhealthy += 1,
+            }
+            if is_stale {
+                stale += 1;
+            }
+            serde_json::json!({
+                "name":               e.name,
+                "url":                e.url,
+                "description":        e.description,
+                "registered_at":      e.registered_at,
+                "last_heartbeat":     e.last_heartbeat,
+                "heartbeat_age_secs": age_seconds,
+                "heartbeat_count":    e.heartbeat_count,
+                "reported_status":    e.last_status,
+                "effective_status":   effective,
+                "message":            e.last_message,
+                "version":            e.version,
+                "pid":                e.pid,
+                "host":               e.host,
+                "uptime_seconds":     e.uptime_seconds,
+                "metrics":            e.metrics,
+                "stale":              is_stale,
+                "last_poll":          e.last_checked,
+                "last_poll_status":   e.last_health,
+            })
+        })
+        .collect();
+
+    let total = services.len();
+    Json(serde_json::json!({
+        "services": services,
+        "summary": {
+            "total":     total,
+            "healthy":   healthy,
+            "degraded":  degraded,
+            "unhealthy": unhealthy,
+            "stale":     stale,
+        },
+        "stale_after_seconds": HEARTBEAT_STALE_AFTER_SECS,
+        "timestamp": Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Faster loop dedicated to staleness detection. The reverse-poll loop
+/// runs every 30s, but heartbeats arrive every 5s; we want stale
+/// services to flip status within ~5s of going dark, not 30s.
+async fn watch_heartbeat_freshness(state: AppState) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let now = Instant::now();
+        let mut newly_stale: Vec<String> = Vec::new();
+        {
+            let mut map = state.services.write().await;
+            for entry in map.values_mut() {
+                let age = entry
+                    ._seen_baseline
+                    .map(|t| now.saturating_duration_since(t).as_secs())
+                    .unwrap_or(u64::MAX);
+                let is_stale = age > HEARTBEAT_STALE_AFTER_SECS;
+                if is_stale && !entry.stale {
+                    newly_stale.push(entry.name.clone());
+                }
+                entry.stale = is_stale;
+            }
+        }
+        for name in newly_stale {
+            tracing::warn!("iora-core: service '{}' missed heartbeats; marking stale", name);
+            let _ = state.events_tx.send(IoraEvent {
+                event_type: "service.stale".into(),
+                source:     "iora-core".into(),
+                payload:    serde_json::json!({ "name": name }),
+                timestamp:  Utc::now().to_rfc3339(),
+            });
+        }
+    }
+}
+
 // ─── Background health poller ─────────────────────────────────────────────────
 
 async fn poll_service_health(state: AppState) {
@@ -564,6 +791,9 @@ async fn poll_service_health(state: AppState) {
         };
 
         for (name, url) in entries {
+            if url.is_empty() {
+                continue;
+            }
             let health_url = format!("{}/health", url.trim_end_matches('/'));
             let status = match client.get(&health_url).send().await {
                 Ok(r) if r.status().is_success() => HealthStatus::Healthy,
@@ -686,6 +916,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     tokio::spawn(poll_service_health(state.clone()));
+    tokio::spawn(watch_heartbeat_freshness(state.clone()));
 
     let port: u16 = std::env::var("CORE_PORT")
         .ok()
@@ -696,6 +927,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/api/core/services", get(list_services))
         .route("/api/core/services/register", post(register_service))
+        .route("/api/core/services/heartbeat", post(receive_heartbeat))
+        .route("/api/core/services/status", get(services_status))
         .route("/api/core/services/:name/health", get(service_health))
         .route("/api/core/plugins", get(list_plugins).post(install_plugin))
         .route("/api/core/plugins/with-stats", get(list_plugins_with_stats))
