@@ -63,6 +63,41 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
 
 type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
 
+// ═══ Unified Control Center Design Components ═══
+// Theme-aware, consistent input/button/card primitives for the entire Control Center.
+
+const ccInput = (base: string = '') =>
+  `w-full rounded-xl border border-foreground/[0.08] bg-foreground/[0.04] px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/30 outline-none transition-all duration-200 hover:border-foreground/[0.15] focus:border-accent/60 focus:ring-2 focus:ring-accent/10 focus:bg-foreground/[0.06] ${base}`
+
+const ccSelect = (base: string = '') =>
+  `${ccInput()} appearance-none cursor-pointer pr-10 ${base}`
+
+const ccTextarea = (base: string = '') =>
+  `${ccInput()} resize-y min-h-[80px] ${base}`
+
+const ccBtnPrimary = (base: string = '') =>
+  `inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-accent/20 transition-all duration-200 hover:bg-accent/90 hover:shadow-md hover:shadow-accent/25 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent ${base}`
+
+const ccBtnSecondary = (base: string = '') =>
+  `inline-flex items-center justify-center gap-1.5 rounded-xl border border-foreground/[0.08] bg-foreground/[0.04] px-5 py-2.5 text-sm font-semibold text-foreground/80 transition-all duration-200 hover:border-foreground/[0.15] hover:bg-foreground/[0.08] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed ${base}`
+
+const ccBtnDanger = (base: string = '') =>
+  `inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-5 py-2.5 text-sm font-semibold text-red-400 transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/30 active:scale-[0.98] disabled:opacity-40 ${base}`
+
+const ccBtnIcon = (base: string = '') =>
+  `inline-flex items-center justify-center rounded-xl p-2 text-foreground/50 hover:text-foreground hover:bg-foreground/[0.06] transition-all duration-200 active:scale-95 ${base}`
+
+const ccCard = (base: string = '') =>
+  `rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-5 ${base}`
+
+const ccBadge = (color: string, base: string = '') =>
+  `inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${color} ${base}`
+
+const ccLabel = 'text-[10px] font-semibold uppercase tracking-[0.15em] text-foreground/50 mb-1.5 block'
+const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
+
+// ═══ End Design Components ═══
+
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
   { id: 'global-config', label: 'Globale Konfiguration', icon: Gear, description: 'Zentrale IORA-OS Konfiguration mit Kategorien — spiegelt das .env-System wider, mit Beschreibungen und Validierung pro Eintrag' },
@@ -261,131 +296,94 @@ function CloudSettingsTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+      <div className={ccCard()}>
         <div className="flex items-center gap-3 mb-4">
-          <CloudArrowUp size={18} className="text-foreground" />
+          <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center">
+            <CloudArrowUp size={18} className="text-accent" />
+          </div>
           <div>
             <p className="text-sm font-semibold text-foreground">IORA Cloud Connector</p>
-            <p className="text-xs text-foreground/60">Konfiguriere den Connector mit IP, Ports und Verschlüsselung.</p>
+            <p className="text-[11px] text-foreground/40">Konfiguriere den Connector mit IP, Ports und Verschlüsselung.</p>
           </div>
         </div>
 
         <div className="grid gap-4">
-          <div className="grid gap-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Connector Host / IP</label>
-            <input
-              type="text"
-              value={settings.connectorHost}
-              onChange={(event) => setSettings({ ...settings, connectorHost: event.target.value })}
-              placeholder="10.0.0.2"
-              className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
-            />
+          <div className="grid gap-1.5">
+            <label className={ccLabel}>Connector Host / IP</label>
+            <input type="text" value={settings.connectorHost} onChange={(e) => setSettings({ ...settings, connectorHost: e.target.value })} placeholder="10.0.0.2" className={ccInput()} />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="grid gap-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Protokoll</label>
-              <select
-                value={settings.useTls ? 'https' : 'http'}
-                onChange={(event) => setSettings({ ...settings, useTls: event.target.value === 'https' })}
-                className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
-              >
+            <div className="grid gap-1.5">
+              <label className={ccLabel}>Protokoll</label>
+              <select value={settings.useTls ? 'https' : 'http'} onChange={(e) => setSettings({ ...settings, useTls: e.target.value === 'https' })} className={ccSelect()}>
                 <option value="https">HTTPS</option>
                 <option value="http">HTTP</option>
               </select>
             </div>
-            <div className="grid gap-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Privater API Port</label>
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                value={settings.privatePort}
-                onChange={(event) => setSettings({ ...settings, privatePort: Number(event.target.value) || 3001 })}
-                className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
-              />
+            <div className="grid gap-1.5">
+              <label className={ccLabel}>Privater API Port</label>
+              <input type="number" min={1} max={65535} value={settings.privatePort} onChange={(e) => setSettings({ ...settings, privatePort: Number(e.target.value) || 3001 })} className={ccInput()} />
             </div>
-            <div className="grid gap-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Öffentlicher Proxy-Port</label>
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                value={settings.publicProxyPort}
-                onChange={(event) => setSettings({ ...settings, publicProxyPort: Number(event.target.value) || 443 })}
-                className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
-              />
+            <div className="grid gap-1.5">
+              <label className={ccLabel}>Öffentlicher Proxy-Port</label>
+              <input type="number" min={1} max={65535} value={settings.publicProxyPort} onChange={(e) => setSettings({ ...settings, publicProxyPort: Number(e.target.value) || 443 })} className={ccInput()} />
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={settings.enableReverseProxy}
-                onChange={(event) => setSettings({ ...settings, enableReverseProxy: event.target.checked })}
-                className="h-4 w-4 rounded border-white/10 bg-background text-accent focus:ring-accent"
-              />
+            <label className={`flex items-center gap-3 rounded-xl border border-foreground/[0.06] bg-foreground/[0.03] px-4 py-3 text-sm text-foreground/80 cursor-pointer hover:border-foreground/[0.12] transition-all duration-200`}>
+              <input type="checkbox" checked={settings.enableReverseProxy} onChange={(e) => setSettings({ ...settings, enableReverseProxy: e.target.checked })} className="h-4 w-4 rounded-md border-foreground/30 bg-transparent text-accent focus:ring-accent focus:ring-offset-0 cursor-pointer" />
               Öffentlichen Reverse-Proxy aktivieren
             </label>
-            <label className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={settings.requireVpnOnly}
-                onChange={(event) => setSettings({ ...settings, requireVpnOnly: event.target.checked })}
-                className="h-4 w-4 rounded border-white/10 bg-background text-accent focus:ring-accent"
-              />
+            <label className={`flex items-center gap-3 rounded-xl border border-foreground/[0.06] bg-foreground/[0.03] px-4 py-3 text-sm text-foreground/80 cursor-pointer hover:border-foreground/[0.12] transition-all duration-200`}>
+              <input type="checkbox" checked={settings.requireVpnOnly} onChange={(e) => setSettings({ ...settings, requireVpnOnly: e.target.checked })} className="h-4 w-4 rounded-md border-foreground/30 bg-transparent text-accent focus:ring-accent focus:ring-offset-0 cursor-pointer" />
               Nur VPN/Tailscale-Zugriff auf privaten Port
             </label>
           </div>
 
-          <div className="rounded-3xl border border-foreground/10 bg-foreground/5 p-4 text-sm text-foreground/70">
-            <p className="font-semibold text-foreground">Wichtig</p>
-            <p className="mt-2">Der Connector soll auf allen ihm zugewiesenen IP-Adressen hören. Der private API-Port ist für interne Cloud-Verbindungen vorgesehen, der öffentliche Proxy-Port nur für verschlüsselte Zugriffe.</p>
-            <p className="mt-2">Diese Seite ist die einzige Stelle zur Einrichtung und Anpassung des IORA Cloud Connectors.</p>
+          <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-4 text-sm text-foreground/70">
+            <p className="font-semibold text-foreground flex items-center gap-1"><Warning size={14} className="text-amber-400" /> Wichtig</p>
+            <p className="mt-2 text-[12px]">Der Connector soll auf allen ihm zugewiesenen IP-Adressen hören. Der private API-Port ist für interne Cloud-Verbindungen vorgesehen, der öffentliche Proxy-Port nur für verschlüsselte Zugriffe.</p>
+            <p className="mt-1.5 text-[12px]">Diese Seite ist die einzige Stelle zur Einrichtung und Anpassung des IORA Cloud Connectors.</p>
           </div>
 
-          <div className="grid gap-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">Berechnete Connector-URL</label>
-            <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground">{currentUrl}</div>
+          <div className="grid gap-1.5">
+            <label className={ccLabel}>Berechnete Connector-URL</label>
+            <div className={`${ccInput()} font-mono text-xs flex items-center justify-between gap-2`}>
+              <span className="truncate">{currentUrl}</span>
+              <button onClick={() => { navigator.clipboard.writeText(currentUrl); toast.success('URL kopiert') }} className={ccBtnIcon('flex-shrink-0')}><Copy size={14} /></button>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={saveSettings}
-              disabled={saving || loading}
-              className="inline-flex items-center justify-center rounded-3xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent/95 disabled:opacity-50"
-            >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center pt-2">
+            <button onClick={saveSettings} disabled={saving || loading} className={ccBtnPrimary()}>
               {saving ? 'Speichert…' : 'Einstellungen speichern'}
             </button>
-            <button
-              type="button"
-              onClick={testConnection}
-              disabled={!settings.connectorHost.trim() || testState === 'testing'}
-              className="inline-flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-foreground transition hover:bg-white/10 disabled:opacity-50"
-            >
+            <button onClick={testConnection} disabled={!settings.connectorHost.trim() || testState === 'testing'} className={ccBtnSecondary()}>
               {testState === 'testing' ? 'Teste Verbindung…' : 'Verbindung testen'}
             </button>
           </div>
 
           {testState === 'success' && testInfo && (
-            <div className="rounded-3xl border border-green-500/20 bg-green-500/10 p-4 text-sm text-foreground">
-              <p className="font-semibold text-green-600">Verbindung erfolgreich</p>
-              <p className="mt-2">Status: online</p>
-              <p>Home Assistant: {testInfo.ha ? 'verbunden' : 'nicht verbunden'}</p>
-              <p>Entitäten: {testInfo.entities}</p>
+            <div className="rounded-xl border border-green-500/20 bg-green-500/[0.06] p-4">
+              <p className="text-sm font-semibold text-green-400 flex items-center gap-1.5"><CheckCircle size={14} weight="fill" /> Verbindung erfolgreich</p>
+              <div className="mt-2 space-y-1 text-[12px] text-foreground/60">
+                <p>Status: online</p>
+                <p>Home Assistant: {testInfo.ha ? 'verbunden' : 'nicht verbunden'}</p>
+                <p>Entitäten: {testInfo.entities}</p>
+              </div>
             </div>
           )}
 
           {testState === 'error' && (
-            <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-destructive">
-              <p className="font-semibold text-red-600">Verbindung fehlgeschlagen</p>
-              <p className="mt-2">{testError}</p>
+            <div className="rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4">
+              <p className="text-sm font-semibold text-red-400 flex items-center gap-1.5"><XCircle size={14} weight="fill" /> Verbindung fehlgeschlagen</p>
+              <p className="mt-2 text-[12px] text-red-300">{testError}</p>
             </div>
           )}
 
-          {error && <div className="rounded-3xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
+          {error && <div className="rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4 text-sm text-red-300">{error}</div>}
         </div>
       </div>
     </div>
@@ -552,15 +550,17 @@ export function AdminPanel() {
   return (
     <div className="pb-28">
       <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
-        <aside className="glass-card rounded-3xl border border-white/10 bg-white/10 p-4 shadow-xl shadow-black/5 backdrop-blur-xl">
-          <div className="flex items-center gap-3 mb-4">
-            <ShieldCheck size={24} weight="fill" className="text-accent" />
+        <aside className={ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')}>
+          <div className="flex items-center gap-3 mb-4 flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center">
+              <ShieldCheck size={20} weight="fill" className="text-accent" />
+            </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">IORA Control Center</p>
-              <p className="text-xs text-foreground/60">Admin-Funktionen nach Bereich gruppiert.</p>
+              <p className="text-sm font-semibold text-foreground">Control Center</p>
+              <p className="text-[10px] text-foreground/40">System & Apps verwalten</p>
             </div>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-3 overflow-y-auto flex-1">
             {tabGroups.map(group => {
                 if (group.id === 'home' && !haEnabled) return null
               const GroupIcon = group.icon
@@ -570,7 +570,7 @@ export function AdminPanel() {
                   <button
                     type="button"
                     onClick={() => setExpandedGroup(isExpanded ? '' : group.id)}
-                    className="flex w-full items-center justify-between gap-2 rounded-3xl border border-white/10 bg-white/5 px-3 py-3 text-left text-sm font-semibold text-foreground transition hover:border-white/20 hover:bg-white/10"
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all duration-200 ${isExpanded ? 'border-accent/30 bg-accent/[0.06] text-accent' : 'border-foreground/[0.05] bg-foreground/[0.02] text-foreground/80 hover:border-foreground/[0.1] hover:bg-foreground/[0.05] hover:text-foreground'}`}
                   >
                     <span className="flex items-center gap-2">
                       <GroupIcon size={16} />
@@ -589,10 +589,10 @@ export function AdminPanel() {
                           <button
                             type="button"
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex w-full items-center gap-2 rounded-3xl px-4 py-2 text-left text-sm transition ${
+                            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-all duration-200 ${
                               isActive
-                                ? 'bg-accent/20 text-accent shadow-sm shadow-accent/10'
-                                : 'text-foreground/70 hover:text-foreground hover:bg-white/5'
+                                ? 'bg-accent/15 text-accent font-semibold'
+                                : 'text-foreground/60 hover:text-foreground hover:bg-foreground/[0.04]'
                             }`}
                           >
                             <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
@@ -609,19 +609,14 @@ export function AdminPanel() {
         </aside>
 
         <div className="space-y-3">
-          <div className="glass-card rounded-3xl border border-white/10 bg-white/10 px-5 py-4 shadow-xl shadow-black/5 backdrop-blur-xl">
+          <div className={ccCard()}>
             <div className="flex items-center gap-3">
-              {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <Icon size={18} className="text-accent" /> })()}
+              {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center flex-shrink-0"><Icon size={18} className="text-accent" /></div> })()}
               <div>
                 <p className="text-sm font-semibold text-foreground">{tabs.find(t => t.id === activeTab)?.label}</p>
-                <p className="text-xs text-foreground/60">{tabs.find(t => t.id === activeTab)?.description}</p>
+                <p className="text-[11px] text-foreground/40">{tabs.find(t => t.id === activeTab)?.description}</p>
               </div>
             </div>
-          </div>
-
-          <div className="glass-card rounded-3xl border border-white/10 bg-white/10 px-4 py-2.5 mb-4 flex items-center gap-2 theme-transition">
-            {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <Icon size={15} className="text-accent shrink-0" /> })()}
-            <span className="text-xs text-foreground/70">{tabs.find(t => t.id === activeTab)?.description}</span>
           </div>
 
           <AnimatePresence mode="wait">
@@ -887,13 +882,7 @@ function GlobalConfigTab({ token }: { token: string }) {
           <p className="text-xs text-foreground/70 leading-relaxed">
             {CATEGORY_DESCRIPTIONS[activeCategory]}
           </p>
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="In dieser Kategorie suchen…"
-            className="w-full mt-2 px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:border-accent"
-          />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="In dieser Kategorie suchen…" className={`${ccInput('text-xs px-3 py-2')}`} />
         </div>
       </AdminCard>
 
@@ -956,18 +945,11 @@ function GlobalConfigTab({ token }: { token: string }) {
                 {!readOnly && (
                   <div className="flex justify-end gap-2 pt-1">
                     {dirty && (
-                      <button
-                        onClick={() => setPendingValues(prev => { const n = { ...prev }; delete n[def.key]; return n })}
-                        className="px-3 py-1 rounded-lg text-[11px] text-foreground/60 hover:bg-foreground/5 transition"
-                      >
+                      <button onClick={() => setPendingValues(prev => { const n = { ...prev }; delete n[def.key]; return n })} className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-foreground/60 hover:text-foreground hover:bg-foreground/[0.04] transition-all duration-200">
                         Verwerfen
                       </button>
                     )}
-                    <button
-                      disabled={!dirty || savingKey === def.key}
-                      onClick={() => save(def.key, current)}
-                      className="px-3 py-1 rounded-lg text-[11px] bg-accent text-white disabled:bg-foreground/10 disabled:text-foreground/40 transition"
-                    >
+                    <button disabled={!dirty || savingKey === def.key} onClick={() => save(def.key, current)} className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-accent text-white hover:bg-accent/90 disabled:bg-foreground/[0.05] disabled:text-foreground/30 transition-all duration-200">
                       {savingKey === def.key ? 'Speichert…' : 'Speichern'}
                     </button>
                   </div>
@@ -993,19 +975,19 @@ function SettingInput({ def, value, onChange, disabled }: {
   onChange: (v: unknown) => void
   disabled?: boolean
 }) {
-  const baseInput = 'w-full px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/40 focus:outline-none focus:border-accent disabled:opacity-50'
+  const baseInput = `${ccInput('text-xs px-3 py-2')} disabled:opacity-40 disabled:cursor-not-allowed`
   switch (def.setting_type) {
     case 'bool':
       return (
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label className="flex items-center gap-3 cursor-pointer group py-1">
           <input
             type="checkbox"
             checked={Boolean(value)}
             disabled={disabled}
             onChange={e => onChange(e.target.checked)}
-            className="w-4 h-4"
+            className="w-4 h-4 rounded-md border-foreground/30 bg-transparent text-accent focus:ring-accent focus:ring-offset-0 cursor-pointer"
           />
-          <span className="text-xs text-foreground/70">{Boolean(value) ? 'Aktiviert' : 'Deaktiviert'}</span>
+          <span className="text-xs text-foreground/70 group-hover:text-foreground transition-colors">{Boolean(value) ? 'Aktiviert' : 'Deaktiviert'}</span>
         </label>
       )
     case 'integer':
@@ -1800,10 +1782,14 @@ export function AdminCard({ children, title, icon: Icon, className = '' }: {
   className?: string
 }) {
   return (
-    <div className={`glass-card rounded-2xl p-4 theme-transition ${className}`}>
+    <div className={`rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-4 ${className}`}>
       {title && (
         <div className="flex items-center gap-2 mb-3">
-          {Icon && <Icon size={16} className="text-accent" />}
+          {Icon && (
+            <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center">
+              <Icon size={14} className="text-accent" />
+            </div>
+          )}
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         </div>
       )}
@@ -2786,7 +2772,7 @@ function MqttTab({ token }: { token: string }) {
         <AdminCard title="Topics & Subscriptions" icon={ListBullets}>
           <div className="space-y-2">
             <div className="flex gap-2">
-              <input value={subTopic} onChange={e => setSubTopic(e.target.value)} placeholder="Topic (z.B. home/#)" className="flex-1 px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" onKeyDown={e => e.key === 'Enter' && handleSubscribe()} />
+              <input value={subTopic} onChange={e => setSubTopic(e.target.value)} placeholder="Topic (z.B. home/#)" className={`flex-1 ${ccInput('text-xs px-3 py-2')}`} onKeyDown={e => e.key === 'Enter' && handleSubscribe()} />
               <button onClick={handleSubscribe} disabled={actionLoading === 'subscribe'}
                 className="px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-xs font-medium hover:bg-accent/30 transition disabled:opacity-40">
                 {actionLoading === 'subscribe' ? <InlineSpinner size={12} /> : <Plus size={12} />}
@@ -2813,8 +2799,8 @@ function MqttTab({ token }: { token: string }) {
       {isConnected && (
         <AdminCard title="Nachricht senden" icon={CloudArrowUp}>
           <div className="space-y-2">
-            <input value={pubTopic} onChange={e => setPubTopic(e.target.value)} placeholder="Topic" className="w-full px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
-            <input value={pubPayload} onChange={e => setPubPayload(e.target.value)} placeholder="Payload (JSON oder Text)" className="w-full px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" onKeyDown={e => e.key === 'Enter' && handlePublish()} />
+            <input value={pubTopic} onChange={e => setPubTopic(e.target.value)} placeholder="Topic" className={`w-full ${ccInput('text-xs px-3 py-2')}`} />
+            <input value={pubPayload} onChange={e => setPubPayload(e.target.value)} placeholder="Payload (JSON oder Text)" className={`w-full ${ccInput('text-xs px-3 py-2')}`} onKeyDown={e => e.key === 'Enter' && handlePublish()} />
             <button onClick={handlePublish} disabled={!pubTopic.trim() || actionLoading === 'publish'}
               className="px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-xs font-medium hover:bg-accent/30 transition disabled:opacity-40 flex items-center gap-1.5">
               {actionLoading === 'publish' && <InlineSpinner size={12} />}
@@ -2878,14 +2864,14 @@ function MqttConfigForm({ host, setHost, port, setPort, username, setUsername, p
     <div className="space-y-2">
       {error && <div className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1">{error}</div>}
       <div className="grid grid-cols-2 gap-2">
-        <input value={host} onChange={e => setHost(e.target.value)} placeholder="Host (z.B. 192.168.1.10)" className="col-span-2 px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
-        <input value={port} onChange={e => setPort(e.target.value)} placeholder="Port" type="number" className="px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
+        <input value={host} onChange={e => setHost(e.target.value)} placeholder="Host (z.B. 192.168.1.10)" className={`col-span-2 ${ccInput('text-xs px-3 py-2')}`} />
+        <input value={port} onChange={e => setPort(e.target.value)} placeholder="Port" type="number" className={`${ccInput('text-xs px-3 py-2')}`} />
         <label className="flex items-center gap-2 text-xs text-foreground/85 px-2">
           <input type="checkbox" checked={useTls} onChange={e => setUseTls(e.target.checked)} className="rounded accent-[var(--accent)]" />
           TLS
         </label>
-        <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Benutzername (optional)" className="px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
-        <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Passwort (optional)" type="password" className="px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
+        <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Benutzername (optional)" className={ccInput('text-xs px-3 py-2')} />
+        <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Passwort (optional)" type="password" className={ccInput('text-xs px-3 py-2')} />
       </div>
       <button onClick={onConnect} disabled={connecting || !host} className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-accent/20 text-accent text-xs font-medium hover:bg-accent/30 transition disabled:opacity-40">
         <Play size={12} weight="fill" /> {connecting ? 'Verbinde...' : 'Verbinden & Speichern'}
@@ -4725,7 +4711,7 @@ function WarningsTab({ token }: { token: string }) {
                     className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition-all font-medium ${
                       testLevel === opt.value
                         ? opt.color
-                        : 'bg-white/5 text-foreground/50 border-white/10 hover:bg-white/10'
+                        : 'bg-foreground/[0.03] text-foreground/50 border-foreground/[0.06] hover:bg-foreground/[0.06] hover:text-foreground/70'
                     }`}
                   >
                     {opt.label}
@@ -4742,7 +4728,7 @@ function WarningsTab({ token }: { token: string }) {
                 value={testHeadline}
                 onChange={e => setTestHeadline(e.target.value)}
                 placeholder="Test-Warnung"
-                className="w-full text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground/90 placeholder:text-foreground/30 focus:outline-none focus:border-accent/40"
+                className={ccInput('text-xs px-3 py-2')}
               />
             </div>
           </div>
@@ -4755,7 +4741,7 @@ function WarningsTab({ token }: { token: string }) {
               onChange={e => setTestDescription(e.target.value)}
               placeholder="Dies ist eine Testwarnung des NINA-Warnsystems."
               rows={2}
-              className="w-full text-xs px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground/90 placeholder:text-foreground/30 focus:outline-none focus:border-accent/40 resize-none"
+              className={`${ccTextarea('text-xs px-3 py-2')} min-h-[60px]`}
             />
           </div>
 

@@ -126,6 +126,7 @@ impl AgentTaskExecutor {
                 "fast" => "Work QUICKLY. Make minimal changes, focus on the core request. Be concise.",
                 "detailed" => "Be THOROUGH. Add comments, error handling, documentation. Consider edge cases.",
                 "creative" => "Be CREATIVE. Suggest improvements, refactor if beneficial. Think outside the box.",
+                "economy" => "SAVE TOKENS. Be extremely concise. Skip explanations, output only essential code changes. Use abbreviations.",
                 _ => "Work methodically. Balance speed and quality. Keep existing code style.",
             };
 

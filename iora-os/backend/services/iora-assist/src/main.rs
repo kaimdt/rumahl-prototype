@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant, collections::HashMap};
 
 use axum::{
     body::Body,
@@ -34,6 +34,11 @@ mod self_evolution;
 mod sandbox;
 mod agent_task_executor;
 mod agent_pipeline;
+mod cost_manager;
+mod lsp;
+mod acp;
+mod subagents;
+mod github;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
@@ -57,6 +62,11 @@ use self_evolution::{
 
 use sandbox::SandboxManager;
 use agent_task_executor::AgentTaskExecutor;
+use cost_manager::{BudgetConfig, CostManager};
+use lsp::LspManager;
+use acp::AcpRouter;
+use subagents::SubagentPool;
+use github::{GitHubAuth, GitHubClient, GitHubActionExecutor};
 
 #[derive(Clone)]
 struct AppState {
@@ -75,6 +85,12 @@ struct AppState {
     knowledge_base: Option<Arc<KnowledgeBase>>,
     sandbox_manager: Arc<SandboxManager>,
     agent_task_executor: Option<Arc<AgentTaskExecutor>>,
+    cost_manager: Arc<CostManager>,
+    lsp_manager: Arc<LspManager>,
+    acp_router: Arc<AcpRouter>,
+    subagent_pool: Arc<SubagentPool>,
+    github_client: Arc<GitHubClient>,
+    github_actions: Arc<GitHubActionExecutor>,
 }
 
 /// Default system prompt injected when no custom prompt is provided.
@@ -324,6 +340,68 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
         system_prompt.push_str(VOICE_MODE_PROMPT_SUFFIX);
     }
 
+    // Check economy mode and inject token-saving instructions
+    let budget_config = state.cost_manager.get_config().await;
+    if budget_config.mode == "economy" {
+        system_prompt = CostManager::inject_economy_prompt(&system_prompt, "economy");
+        tracing::debug!("Economy mode active – injecting token-saving prompt");
+    }
+
+    // Check budget before calling AI
+    if let Err(budget_err) = state.cost_manager.check_budget().await {
+        return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
+            "error": "Budget exceeded",
+            "details": budget_err,
+        })));
+    }
+
+    // Try cache lookup in economy mode
+    let cache_key = if budget_config.enable_cache {
+        Some(CostManager::cache_key(&messages, Some(&system_prompt)))
+    } else {
+        None
+    };
+
+    if let Some(ref key) = cache_key {
+        if let Some(cached) = state.cost_manager.cache_get(key).await {
+            tracing::info!("Cache hit – returning cached response");
+            let assistant_msg = ChatMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "assistant".to_string(),
+                content: cached.clone(),
+                timestamp: Utc::now().to_rfc3339(),
+            };
+            state.history.write().await.push(assistant_msg.clone());
+
+            // Post-chat: extract memories
+            if let Some(mm) = state.memory_manager.clone() {
+                let user_msg = req.message.clone();
+                let ai_resp = cached.clone();
+                tokio::spawn(async move {
+                    mm.auto_extract_from_conversation(&user_msg, &ai_resp, None).await;
+                    mm.detect_and_create_tasks(&user_msg, &ai_resp, None).await;
+                });
+            }
+
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": cached,
+                    "model": "cache",
+                    "provider": "cache",
+                    "used_fallback_provider": false,
+                    "tokens_used": 0,
+                    "message_id": assistant_msg.id,
+                    "timestamp": assistant_msg.timestamp,
+                    "task_action": null,
+                    "instant_task_id": null,
+                    "instant_task_type": null,
+                    "cached": true,
+                })),
+            );
+        }
+    }
+
     // Call AI provider, falling back to any configured orchestrator provider
     // when the currently selected provider is unavailable.
     match execute_chat_with_fallback(&state, messages, system_prompt).await {
@@ -398,6 +476,23 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
                 timestamp: Utc::now().to_rfc3339(),
             };
             state.history.write().await.push(assistant_msg.clone());
+
+            // Record cost for tracking
+            if let Some(tokens) = response.tokens_used {
+                state.cost_manager.record_call(
+                    &response.provider,
+                    &response.model,
+                    "chat",
+                    tokens / 2,  // estimated input
+                    tokens / 2,  // estimated output
+                    &budget_config.mode,
+                ).await;
+            }
+
+            // Cache the response for economy mode
+            if let Some(ref key) = cache_key {
+                state.cost_manager.cache_set(key.clone(), clean_response.clone()).await;
+            }
 
             // Post-chat: extract memories and detect new tasks in the background.
             if let Some(mm) = state.memory_manager.clone() {
@@ -1725,6 +1820,989 @@ async fn agent_task_stats(
     })))
 }
 
+// ─── Cost Manager & Economy Mode Handlers ───────────────────────────────────
+
+async fn cost_summary(State(state): State<AppState>) -> impl IntoResponse {
+    let summary = state.cost_manager.get_summary().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "summary": summary,
+    })))
+}
+
+async fn cost_config_get(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.cost_manager.get_config().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "config": config,
+    })))
+}
+
+async fn cost_config_update(
+    State(state): State<AppState>,
+    Json(config): Json<BudgetConfig>,
+) -> impl IntoResponse {
+    state.cost_manager.update_config(config.clone()).await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "config": config,
+    })))
+}
+
+async fn cost_records_clear(State(state): State<AppState>) -> impl IntoResponse {
+    state.cost_manager.clear_records().await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true})))
+}
+
+async fn cost_cache_clear(State(state): State<AppState>) -> impl IntoResponse {
+    state.cost_manager.cache_clear().await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true})))
+}
+
+#[derive(Debug, Deserialize)]
+struct CostModeRequest {
+    mode: String,
+}
+
+async fn cost_mode_get(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.cost_manager.get_config().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "mode": config.mode,
+    })))
+}
+
+async fn cost_mode_set(
+    State(state): State<AppState>,
+    Json(req): Json<CostModeRequest>,
+) -> impl IntoResponse {
+    let mut config = state.cost_manager.get_config().await;
+    config.mode = req.mode;
+    state.cost_manager.update_config(config).await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "mode": state.cost_manager.get_config().await.mode,
+    })))
+}
+
+// ─── LSP Handlers ───────────────────────────────────────────────────────────
+
+async fn lsp_available_servers(State(state): State<AppState>) -> impl IntoResponse {
+    let servers: Vec<serde_json::Value> = state.lsp_manager
+        .available_servers()
+        .iter()
+        .map(|s| serde_json::json!({
+            "language": s.language,
+            "file_extensions": s.file_extensions,
+            "command": s.command,
+        }))
+        .collect();
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "servers": servers,
+    })))
+}
+
+async fn lsp_start_for_workspace(
+    State(state): State<AppState>,
+    axum::extract::Path(ws_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    // Get workspace path from sandbox manager
+    let workspace = state.sandbox_manager.get_workspace(&ws_id).await;
+    let path = match workspace {
+        Some(ws) => std::path::PathBuf::from(&ws.path),
+        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Workspace not found"}))),
+    };
+
+    match state.lsp_manager.start_for_workspace(path).await {
+        Ok(languages) => (StatusCode::OK, Json(serde_json::json!({
+            "success": true,
+            "languages_started": languages,
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": e,
+        }))),
+    }
+}
+
+async fn lsp_workspace_diagnostics(
+    State(state): State<AppState>,
+    axum::extract::Path(ws_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let diagnostics = state.lsp_manager.all_diagnostics().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "workspace_id": ws_id,
+        "diagnostics": diagnostics,
+        "total_files": diagnostics.len(),
+    })))
+}
+
+async fn lsp_all_diagnostics(State(state): State<AppState>) -> impl IntoResponse {
+    let diagnostics = state.lsp_manager.all_diagnostics().await;
+    let total_issues: usize = diagnostics.values().map(|d| d.len()).sum();
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "diagnostics": diagnostics,
+        "total_files": diagnostics.len(),
+        "total_issues": total_issues,
+    })))
+}
+
+async fn lsp_shutdown(State(state): State<AppState>) -> impl IntoResponse {
+    state.lsp_manager.shutdown_all().await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "message": "All LSP servers shut down"})))
+}
+
+// ─── ACP Handlers ───────────────────────────────────────────────────────────
+
+async fn acp_list_agents(State(state): State<AppState>) -> impl IntoResponse {
+    let agents = state.acp_router.list_agents().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "agents": agents,
+        "total": agents.len(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct AcpDiscoverRequest {
+    query: Option<String>,
+    capability: Option<String>,
+    agent_type: Option<String>,
+}
+
+async fn acp_discover_agents(
+    State(state): State<AppState>,
+    Json(req): Json<AcpDiscoverRequest>,
+) -> impl IntoResponse {
+    let agents = state.acp_router
+        .discover(req.query.as_deref(), req.capability.as_deref(), req.agent_type.as_deref())
+        .await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "agents": agents,
+        "total": agents.len(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct AcpMessageRequest {
+    target_id: String,
+    content: String,
+    #[serde(default = "default_role")]
+    role: String,
+}
+
+fn default_role() -> String { "user".to_string() }
+
+async fn acp_send_message(
+    State(state): State<AppState>,
+    Json(req): Json<AcpMessageRequest>,
+) -> impl IntoResponse {
+    match state.acp_router.send_message(&req.target_id, &req.content, &req.role).await {
+        Ok(msg) => (StatusCode::OK, Json(serde_json::json!({
+            "success": true,
+            "message_id": msg.id,
+        }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn acp_broadcast(
+    State(state): State<AppState>,
+    Json(req): Json<AcpMessageRequest>,
+) -> impl IntoResponse {
+    match state.acp_router.broadcast(&req.content, &req.role).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn acp_event_stream(State(state): State<AppState>) -> impl IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use tokio_stream::wrappers::BroadcastStream;
+
+    let rx = state.acp_router.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|msg| {
+        futures_util::future::ready(match msg {
+            Ok(acp_msg) => {
+                let data = serde_json::to_string(&acp_msg).unwrap_or_default();
+                Some(Ok::<Event, std::convert::Infallible>(Event::default()
+                    .event("acp_message")
+                    .data(data)))
+            }
+            Err(_) => None,
+        })
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ─── Subagents Handlers ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct SubagentSpawnRequest {
+    agent_type: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    custom_prompt: Option<String>,
+    #[serde(default = "default_true")]
+    auto_destroy: bool,
+    #[serde(default)]
+    temperature: Option<f32>,
+}
+
+fn default_true() -> bool { true }
+
+async fn subagent_spawn(
+    State(state): State<AppState>,
+    Json(req): Json<SubagentSpawnRequest>,
+) -> impl IntoResponse {
+    use subagents::{SubagentConfig, SubagentType};
+
+    let agent_type = match req.agent_type.as_str() {
+        "code-reviewer" => SubagentType::CodeReviewer,
+        "web-researcher" => SubagentType::WebResearcher,
+        "task-executor" => SubagentType::TaskExecutor,
+        "planner" => SubagentType::Planner,
+        "summarizer" => SubagentType::Summarizer,
+        "code-generator" => SubagentType::CodeGenerator,
+        "debugger" => SubagentType::Debugger,
+        "translator" => SubagentType::Translator,
+        other => SubagentType::Custom(other.to_string()),
+    };
+
+    let default_cfg = state.cost_manager.get_config().await;
+    let provider = req.provider.unwrap_or_else(|| "openai".to_string());
+    let model = req.model.unwrap_or_else(|| {
+        if default_cfg.mode == "economy" { "gpt-4o-mini".to_string() } else { "gpt-4o".to_string() }
+    });
+
+    let config = SubagentConfig {
+        agent_type,
+        name: req.name,
+        provider,
+        model,
+        custom_prompt: req.custom_prompt,
+        auto_destroy: req.auto_destroy,
+        temperature: req.temperature,
+        ..SubagentConfig::default()
+    };
+
+    match state.subagent_pool.spawn(config).await {
+        Ok(subagent_state) => (StatusCode::CREATED, Json(serde_json::json!({
+            "success": true,
+            "subagent": subagent_state,
+        }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn subagent_list(State(state): State<AppState>) -> impl IntoResponse {
+    let agents = state.subagent_pool.list_agents().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "subagents": agents,
+        "total": agents.len(),
+    })))
+}
+
+async fn subagent_stats(State(state): State<AppState>) -> impl IntoResponse {
+    let stats = state.subagent_pool.stats_async().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "stats": stats,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct SubagentDelegateRequest {
+    description: String,
+    #[serde(default)]
+    task_data: serde_json::Value,
+    #[serde(default)]
+    capability: Option<String>,
+    #[serde(default)]
+    priority: Option<u8>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+}
+
+async fn subagent_delegate(
+    State(state): State<AppState>,
+    Json(req): Json<SubagentDelegateRequest>,
+) -> impl IntoResponse {
+    let capability = req.capability.unwrap_or_else(|| {
+        subagents::SubagentPool::infer_capability_static(&req.description, &req.task_data)
+    });
+
+    match state.subagent_pool.delegate(
+        &req.description,
+        req.task_data,
+        &capability,
+        req.priority.unwrap_or(5),
+        req.timeout_secs,
+    ).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({
+            "success": result.success,
+            "result": result,
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn subagent_delegate_auto(
+    State(state): State<AppState>,
+    Json(req): Json<SubagentDelegateRequest>,
+) -> impl IntoResponse {
+    match state.subagent_pool.delegate_auto(&req.description, req.task_data).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({
+            "success": result.success,
+            "result": result,
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn subagent_get(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let agents = state.subagent_pool.list_agents().await;
+    match agents.iter().find(|a| a.id == id) {
+        Some(agent) => (StatusCode::OK, Json(serde_json::json!({"success": true, "subagent": agent}))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Subagent not found"}))),
+    }
+}
+
+async fn subagent_terminate(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.subagent_pool.terminate(&id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn subagent_terminate_all(State(state): State<AppState>) -> impl IntoResponse {
+    state.subagent_pool.terminate_all().await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "message": "All subagents terminated"})))
+}
+
+async fn subagent_event_stream(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    let rx = state.subagent_pool.subscribe();
+    let stream = async_stream::stream! {
+        let mut rx = rx;
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if let subagents::SubagentEvent::TaskStarted { ref agent_id, .. }
+                        | subagents::SubagentEvent::TaskCompleted { ref agent_id, .. }
+                        | subagents::SubagentEvent::TaskFailed { ref agent_id, .. }
+                        | subagents::SubagentEvent::Heartbeat { ref agent_id, .. } = &event
+                    {
+                        if agent_id != &id { continue; }
+                    }
+                    let data = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok::<Event, std::convert::Infallible>(Event::default()
+                        .event("subagent_event")
+                        .data(data));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+async fn subagent_pool_event_stream(State(state): State<AppState>) -> impl IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    let mut rx = state.subagent_pool.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let data = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok::<Event, std::convert::Infallible>(Event::default()
+                        .event("subagent_event")
+                        .data(data));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ─── GitHub Integration Handlers ────────────────────────────────────────────
+
+async fn github_auth_status(State(state): State<AppState>) -> impl IntoResponse {
+    let auth = state.github_client.get_auth().await;
+    let is_configured = state.github_client.is_configured().await;
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "configured": is_configured,
+        "auth_type": auth.auth_type,
+        "username": auth.username,
+        "has_pat": auth.pat.is_some(),
+        "has_app": auth.app_id.is_some(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubAuthRequest {
+    auth_type: Option<String>,
+    pat: Option<String>,
+    app_id: Option<String>,
+    installation_id: Option<String>,
+    private_key: Option<String>,
+}
+
+async fn github_auth_set(
+    State(state): State<AppState>,
+    Json(req): Json<GitHubAuthRequest>,
+) -> impl IntoResponse {
+    let mut auth = GitHubAuth {
+        auth_type: req.auth_type.unwrap_or_else(|| "pat".to_string()),
+        pat: req.pat.or_else(|| std::env::var("GITHUB_TOKEN").ok()),
+        app_id: req.app_id.or_else(|| std::env::var("GITHUB_APP_ID").ok()),
+        installation_id: req.installation_id.or_else(|| std::env::var("GITHUB_INSTALLATION_ID").ok()),
+        private_key: req.private_key.or_else(|| std::env::var("GITHUB_PRIVATE_KEY").ok()),
+        is_configured: true,
+        ..Default::default()
+    };
+
+    state.github_client.update_auth(auth.clone()).await;
+
+    // Verify in background
+    let gc = state.github_client.clone();
+    let result = tokio::spawn(async move { gc.verify_auth().await }).await.unwrap_or_else(|e| Err(e.to_string()));
+
+    match result {
+        Ok(user) => (StatusCode::OK, Json(serde_json::json!({
+            "success": true,
+            "username": user.login,
+            "message": "Authenticated successfully",
+        }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": format!("Authentication failed: {}", e),
+        }))),
+    }
+}
+
+async fn github_list_repos(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let owner = params.get("owner").map(|s| s.as_str());
+    let org = params.get("org").map(|s| s.as_str());
+
+    let result = if let Some(owner) = owner {
+        state.github_client.list_repos_for_owner(owner, 1, 100).await
+    } else if let Some(org) = org {
+        state.github_client.list_org_repos(org, 1, 100).await
+    } else {
+        state.github_client.get_all_accessible_repos().await
+    };
+
+    match result {
+        Ok(repos) => (StatusCode::OK, Json(serde_json::json!({"success": true, "repos": repos, "total": repos.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_suggest_targets(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let query = params.get("query").map(|s| s.as_str());
+    match state.github_client.suggest_targets(query).await {
+        Ok(suggestions) => (StatusCode::OK, Json(serde_json::json!({"success": true, "suggestions": suggestions}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_search_repos(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let query = params.get("query").map(|s| s.as_str()).unwrap_or("");
+    match state.github_client.search_repos(query, 1, 30).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "search": result}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_repo(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.get_repo(&owner, &repo).await {
+        Ok(r) => (StatusCode::OK, Json(serde_json::json!({"success": true, "repo": r}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_list_branches(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.get_all_branches(&owner, &repo).await {
+        Ok(branches) => (StatusCode::OK, Json(serde_json::json!({"success": true, "branches": branches, "total": branches.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_branch(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, branch)): axum::extract::Path<(String, String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.get_branch(&owner, &repo, &branch).await {
+        Ok(b) => (StatusCode::OK, Json(serde_json::json!({"success": true, "branch": b}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateBranchRequest {
+    branch_name: String,
+    base_sha: Option<String>,
+    base_branch: Option<String>,
+}
+
+async fn github_create_branch(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    Json(req): Json<CreateBranchRequest>,
+) -> impl IntoResponse {
+    let sha = if let Some(s) = req.base_sha {
+        s
+    } else if let Some(ref b) = req.base_branch {
+        match state.github_client.get_branch(&owner, &repo, b).await {
+            Ok(br) => br.commit.sha,
+            Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        }
+    } else {
+        match state.github_client.get_repo(&owner, &repo).await {
+            Ok(r) => {
+                match state.github_client.get_branch(&owner, &repo, &r.default_branch).await {
+                    Ok(br) => br.commit.sha,
+                    Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+                }
+            }
+            Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+        }
+    };
+
+    match state.github_client.create_branch(&owner, &repo, &req.branch_name, &sha).await {
+        Ok(branch) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "branch": branch}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_delete_branch(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, branch)): axum::extract::Path<(String, String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.delete_branch(&owner, &repo, &branch).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Issues ─────────────────────────────────────────────────────────────
+
+async fn github_list_issues(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let state_filter = params.get("state").map(|s| s.as_str());
+    let labels = params.get("labels").map(|s| s.as_str());
+    let assignee = params.get("assignee").map(|s| s.as_str());
+
+    match state.github_client.list_issues(&owner, &repo, state_filter, labels, assignee, 1, 50).await {
+        Ok(issues) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issues": issues, "total": issues.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_issue(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+) -> impl IntoResponse {
+    match state.github_client.get_issue(&owner, &repo, number).await {
+        Ok(issue) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issue": issue}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_create_issue(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let title = req["title"].as_str().unwrap_or("Untitled");
+    let body = req["body"].as_str().unwrap_or("");
+    let labels: Option<Vec<String>> = req["labels"].as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+    let assignees: Option<Vec<String>> = req["assignees"].as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+
+    match state.github_client.create_issue(&owner, &repo, title, body, labels.as_deref(), assignees.as_deref()).await {
+        Ok(issue) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "issue": issue}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_update_issue(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let title = req.get("title").and_then(|v| v.as_str());
+    let body = req.get("body").and_then(|v| v.as_str());
+    let state_val = req.get("state").and_then(|v| v.as_str());
+    let labels: Option<Vec<String>> = req.get("labels").and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+
+    match state.github_client.update_issue(&owner, &repo, number, title, body, state_val, labels.as_deref()).await {
+        Ok(issue) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issue": issue}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_close_issue(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+) -> impl IntoResponse {
+    match state.github_client.close_issue(&owner, &repo, number).await {
+        Ok(issue) => (StatusCode::OK, Json(serde_json::json!({"success": true, "issue": issue}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_add_comment(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let body = req["body"].as_str().unwrap_or("");
+    match state.github_client.create_issue_comment(&owner, &repo, number, body).await {
+        Ok(comment) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "comment": comment}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Pull Requests ──────────────────────────────────────────────────────
+
+async fn github_list_prs(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let state_filter = params.get("state").map(|s| s.as_str());
+    match state.github_client.list_pull_requests(&owner, &repo, state_filter, 1, 50).await {
+        Ok(prs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "pull_requests": prs, "total": prs.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_pr(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+) -> impl IntoResponse {
+    match state.github_client.get_pull_request(&owner, &repo, number).await {
+        Ok(pr) => (StatusCode::OK, Json(serde_json::json!({"success": true, "pull_request": pr}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_create_pr(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let title = req["title"].as_str().unwrap_or("ORA Agent PR");
+    let body = req["body"].as_str().unwrap_or("");
+    let head = req["head"].as_str().unwrap_or("feature/ora-agent");
+    let base = req["base"].as_str().unwrap_or("main");
+    let draft = req["draft"].as_bool().unwrap_or(false);
+
+    match state.github_client.create_pull_request(&owner, &repo, title, body, head, base, draft).await {
+        Ok(pr) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "pull_request": pr}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_merge_pr(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let title = req.get("commit_title").and_then(|v| v.as_str());
+    let method = req.get("merge_method").and_then(|v| v.as_str());
+    match state.github_client.merge_pull_request(&owner, &repo, number, title, method).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "result": result}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_pr_diff(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, number)): axum::extract::Path<(String, String, u64)>,
+) -> impl IntoResponse {
+    match state.github_client.get_pr_diff(&owner, &repo, number).await {
+        Ok(diff) => (StatusCode::OK, Json(serde_json::json!({"success": true, "diff": diff}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Contents / Files ───────────────────────────────────────────────────
+
+async fn github_get_contents(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, path)): axum::extract::Path<(String, String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let ref_name = params.get("ref").map(|s| s.as_str());
+    match state.github_client.get_contents(&owner, &repo, &path, ref_name).await {
+        Ok(contents) => (StatusCode::OK, Json(serde_json::json!({"success": true, "contents": contents}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_write_file(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, path)): axum::extract::Path<(String, String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let content = req["content"].as_str().unwrap_or("");
+    let message = req["message"].as_str().unwrap_or("Update via ORA Agent");
+    let branch = req.get("branch").and_then(|v| v.as_str());
+
+    match state.github_client.write_file(&owner, &repo, &path, content, message, branch).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "result": result}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_delete_file(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, path)): axum::extract::Path<(String, String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let message = req["message"].as_str().unwrap_or("Delete via ORA Agent");
+    let branch = req.get("branch").and_then(|v| v.as_str());
+
+    match state.github_client.delete_file(&owner, &repo, &path, message, branch).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "result": result}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Commits ────────────────────────────────────────────────────────────
+
+async fn github_list_commits(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let branch = params.get("branch").map(|s| s.as_str());
+    match state.github_client.list_commits(&owner, &repo, branch, 1, 50).await {
+        Ok(commits) => (StatusCode::OK, Json(serde_json::json!({"success": true, "commits": commits, "total": commits.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_commit(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo, sha)): axum::extract::Path<(String, String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.get_commit(&owner, &repo, &sha).await {
+        Ok(commit) => (StatusCode::OK, Json(serde_json::json!({"success": true, "commit": commit}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_compare(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let base = params.get("base").map(|s| s.as_str()).unwrap_or("main");
+    let head = params.get("head").map(|s| s.as_str()).unwrap_or("HEAD");
+    match state.github_client.compare_commits(&owner, &repo, base, head).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!({"success": true, "comparison": result}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Workflows ──────────────────────────────────────────────────────────
+
+async fn github_list_workflows(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.list_workflows(&owner, &repo).await {
+        Ok(workflows) => (StatusCode::OK, Json(serde_json::json!({"success": true, "workflows": workflows, "total": workflows.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_trigger_workflow(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let workflow_id = req["workflow_id"].as_u64().unwrap_or(0);
+    let ref_name = req["ref"].as_str().unwrap_or("main");
+    let inputs = req.get("inputs").cloned().unwrap_or(serde_json::json!({}));
+
+    match state.github_client.trigger_workflow(&owner, &repo, workflow_id, ref_name, inputs).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_list_workflow_runs(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let branch = params.get("branch").map(|s| s.as_str());
+    let status = params.get("status").map(|s| s.as_str());
+    match state.github_client.list_workflow_runs(&owner, &repo, branch, status, 1, 30).await {
+        Ok(runs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "workflow_runs": runs, "total": runs.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Releases ───────────────────────────────────────────────────────────
+
+async fn github_list_releases(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.list_releases(&owner, &repo, 1, 20).await {
+        Ok(releases) => (StatusCode::OK, Json(serde_json::json!({"success": true, "releases": releases, "total": releases.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_get_latest_release(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.get_latest_release(&owner, &repo).await {
+        Ok(release) => (StatusCode::OK, Json(serde_json::json!({"success": true, "release": release}))),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn github_create_release(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let tag_name = req["tag_name"].as_str().unwrap_or("");
+    let name = req["name"].as_str().unwrap_or(tag_name);
+    let body = req["body"].as_str().unwrap_or("");
+    let draft = req["draft"].as_bool().unwrap_or(false);
+    let prerelease = req["prerelease"].as_bool().unwrap_or(false);
+
+    match state.github_client.create_release(&owner, &repo, tag_name, name, body, draft, prerelease).await {
+        Ok(release) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "release": release}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Fork ───────────────────────────────────────────────────────────────
+
+async fn github_fork_repo(
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.github_client.fork_repo(&owner, &repo).await {
+        Ok(forked) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "fork": forked}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Automated Actions ──────────────────────────────────────────────────
+
+async fn github_list_actions(State(state): State<AppState>) -> impl IntoResponse {
+    let actions = state.github_actions.list_actions().await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "actions": actions, "total": actions.len()})))
+}
+
+async fn github_get_action(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.github_actions.get_action(&id).await {
+        Some(action) => (StatusCode::OK, Json(serde_json::json!({"success": true, "action": action}))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Action not found"}))),
+    }
+}
+
+async fn github_execute_action(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    use github::GitHubActionType;
+
+    let action_type = GitHubActionType::from_str(
+        req["action_type"].as_str().unwrap_or("custom")
+    );
+    let repo_owner = req["repo_owner"].as_str().unwrap_or("");
+    let repo_name = req["repo_name"].as_str().unwrap_or("");
+
+    let mut action = github::GitHubAction {
+        id: uuid::Uuid::new_v4().to_string(),
+        action_type,
+        repo_owner: repo_owner.to_string(),
+        repo_name: repo_name.to_string(),
+        branch: req.get("branch").and_then(|v| v.as_str()).map(String::from),
+        params: req.get("params").cloned().unwrap_or(serde_json::json!({})),
+        status: "queued".to_string(),
+        result: None,
+        created_at: chrono::Utc::now(),
+        completed_at: None,
+    };
+
+    match state.github_actions.execute(&mut action).await {
+        Ok(result) => {
+            let _ = state.github_actions.queue_action(action.clone()).await;
+            (StatusCode::OK, Json(serde_json::json!({"success": true, "action": action, "result": result})))
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Rate Limit ─────────────────────────────────────────────────────────
+
+async fn github_rate_limit(State(state): State<AppState>) -> impl IntoResponse {
+    match state.github_client.rate_limit().await {
+        Ok(limit) => (StatusCode::OK, Json(serde_json::json!({"success": true, "rate_limit": limit}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn load_config_from_env() -> (ProviderType, ProviderConfig) {
@@ -2763,6 +3841,43 @@ async fn main() -> anyhow::Result<()> {
         Some(executor)
     };
 
+    // Initialize Cost Manager for token/cost budgeting
+    let cost_manager = Arc::new(CostManager::new());
+    info!("Cost manager initialized");
+
+    // Initialize LSP Manager for language intelligence
+    let lsp_manager = Arc::new(LspManager::new());
+    info!("LSP manager initialized");
+
+    // Initialize ACP Router for agent-to-agent communication
+    let acp_router = Arc::new(AcpRouter::new(
+        "ora-assist",
+        "Primary ORA AI Assistant agent for the IORA ecosystem",
+        "primary",
+    ));
+    info!("ACP router initialized");
+
+    // Initialize Subagent Pool for hierarchical task delegation
+    let default_provider = shared_provider.read().await.name().to_string();
+    let default_model = std::env::var("ORA_AI_MODEL")
+        .unwrap_or_else(|_| "gpt-4o-mini".to_string());
+    let subagent_pool = Arc::new(SubagentPool::new(&default_provider, &default_model));
+    info!("Subagent pool initialized");
+
+    // Initialize GitHub integration
+    let github_auth = GitHubAuth::default();
+    let github_client = Arc::new(GitHubClient::new(github_auth));
+    let github_actions = Arc::new(GitHubActionExecutor::new(github_client.clone()));
+    // Async verify in background
+    let gc = github_client.clone();
+    tokio::spawn(async move {
+        match gc.verify_auth().await {
+            Ok(user) => tracing::info!("GitHub authenticated as: {}", user.login),
+            Err(e) => tracing::info!("GitHub not configured (set GITHUB_TOKEN): {}", e),
+        }
+    });
+    info!("GitHub integration initialized");
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
@@ -2779,6 +3894,12 @@ async fn main() -> anyhow::Result<()> {
         knowledge_base,
         sandbox_manager,
         agent_task_executor,
+        cost_manager,
+        lsp_manager,
+        acp_router,
+        subagent_pool,
+        github_client,
+        github_actions,
     };
 
     let app = Router::new()
@@ -2869,6 +3990,64 @@ async fn main() -> anyhow::Result<()> {
         // OpenAI-Compatible API (Proxy für andere Dienste)
         .route("/v1/chat/completions", post(openai_chat_completions))
         .route("/v1/models", get(list_available_models))
+        // ─── Cost Manager & Economy Mode API ──────────────────────────
+        .route("/api/assist/cost/summary", get(cost_summary))
+        .route("/api/assist/cost/config", get(cost_config_get).put(cost_config_update))
+        .route("/api/assist/cost/records/clear", post(cost_records_clear))
+        .route("/api/assist/cost/cache/clear", post(cost_cache_clear))
+        .route("/api/assist/cost/mode", get(cost_mode_get).put(cost_mode_set))
+        // ─── LSP API ─────────────────────────────────────────────────
+        .route("/api/assist/lsp/servers", get(lsp_available_servers))
+        .route("/api/assist/lsp/workspaces/:id/start", post(lsp_start_for_workspace))
+        .route("/api/assist/lsp/workspaces/:id/diagnostics", get(lsp_workspace_diagnostics))
+        .route("/api/assist/lsp/diagnostics", get(lsp_all_diagnostics))
+        .route("/api/assist/lsp/shutdown", post(lsp_shutdown))
+        // ─── ACP API ─────────────────────────────────────────────────
+        .route("/api/assist/acp/agents", get(acp_list_agents))
+        .route("/api/assist/acp/agents/discover", post(acp_discover_agents))
+        .route("/api/assist/acp/message", post(acp_send_message))
+        .route("/api/assist/acp/broadcast", post(acp_broadcast))
+        .route("/api/assist/acp/events", get(acp_event_stream))
+        // ─── Subagents API ───────────────────────────────────────────
+        .route("/api/assist/subagents/spawn", post(subagent_spawn))
+        .route("/api/assist/subagents/list", get(subagent_list))
+        .route("/api/assist/subagents/stats", get(subagent_stats))
+        .route("/api/assist/subagents/delegate", post(subagent_delegate))
+        .route("/api/assist/subagents/delegate/auto", post(subagent_delegate_auto))
+        .route("/api/assist/subagents/:id", get(subagent_get).delete(subagent_terminate))
+        .route("/api/assist/subagents/:id/events", get(subagent_event_stream))
+        .route("/api/assist/subagents/terminate-all", post(subagent_terminate_all))
+        .route("/api/assist/subagents/events", get(subagent_pool_event_stream))
+        // ─── GitHub Integration API ───────────────────────────────────
+        .route("/api/assist/github/auth", get(github_auth_status).post(github_auth_set))
+        .route("/api/assist/github/repos", get(github_list_repos))
+        .route("/api/assist/github/repos/suggest", get(github_suggest_targets))
+        .route("/api/assist/github/repos/search", get(github_search_repos))
+        .route("/api/assist/github/repos/:owner/:repo", get(github_get_repo))
+        .route("/api/assist/github/repos/:owner/:repo/branches", get(github_list_branches))
+        .route("/api/assist/github/repos/:owner/:repo/branches/create", post(github_create_branch))
+        .route("/api/assist/github/repos/:owner/:repo/branches/:branch", get(github_get_branch).delete(github_delete_branch))
+        .route("/api/assist/github/repos/:owner/:repo/issues", get(github_list_issues).post(github_create_issue))
+        .route("/api/assist/github/repos/:owner/:repo/issues/:number", get(github_get_issue).patch(github_update_issue))
+        .route("/api/assist/github/repos/:owner/:repo/issues/:number/close", post(github_close_issue))
+        .route("/api/assist/github/repos/:owner/:repo/issues/:number/comment", post(github_add_comment))
+        .route("/api/assist/github/repos/:owner/:repo/pulls", get(github_list_prs).post(github_create_pr))
+        .route("/api/assist/github/repos/:owner/:repo/pulls/:number", get(github_get_pr))
+        .route("/api/assist/github/repos/:owner/:repo/pulls/:number/merge", post(github_merge_pr))
+        .route("/api/assist/github/repos/:owner/:repo/pulls/:number/diff", get(github_get_pr_diff))
+        .route("/api/assist/github/repos/:owner/:repo/contents/*path", get(github_get_contents).put(github_write_file).delete(github_delete_file))
+        .route("/api/assist/github/repos/:owner/:repo/commits", get(github_list_commits))
+        .route("/api/assist/github/repos/:owner/:repo/commits/:sha", get(github_get_commit))
+        .route("/api/assist/github/repos/:owner/:repo/compare", get(github_compare))
+        .route("/api/assist/github/repos/:owner/:repo/workflows", get(github_list_workflows))
+        .route("/api/assist/github/repos/:owner/:repo/workflows/trigger", post(github_trigger_workflow))
+        .route("/api/assist/github/repos/:owner/:repo/workflows/runs", get(github_list_workflow_runs))
+        .route("/api/assist/github/repos/:owner/:repo/releases", get(github_list_releases).post(github_create_release))
+        .route("/api/assist/github/repos/:owner/:repo/releases/latest", get(github_get_latest_release))
+        .route("/api/assist/github/repos/:owner/:repo/fork", post(github_fork_repo))
+        .route("/api/assist/github/actions", get(github_list_actions).post(github_execute_action))
+        .route("/api/assist/github/actions/:id", get(github_get_action))
+        .route("/api/assist/github/ratelimit", get(github_rate_limit))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

@@ -71,7 +71,7 @@ pub struct TaskConfig {
     pub confirm_each_file: bool,
     /// Maximale Anzahl Dateien im Kontext
     pub max_context_files: u32,
-    /// Modus: "fast" | "balanced" | "detailed" | "creative"
+    /// Modus: "fast" | "balanced" | "detailed" | "creative" | "economy"
     pub mode: String,
     /// Custom instructions, die dem System-Prompt hinzugefügt werden
     pub custom_instructions: Option<String>,
