@@ -7,6 +7,7 @@ import {
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
 import { extractManifestFromZip } from '../lib/zip'
+import { AppDetailDialog } from './AppDetailDialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -19,17 +20,30 @@ interface AppInfo {
   icon?: string
   trust_level: 'trusted' | 'untrusted' | 'verified'
   enabled: boolean
+  status?: string
   installed_at: string
   ports?: PortInfo[]
   kind?: 'app' | 'plugin' | 'system'
   system?: boolean
   source?: string
+  open_url?: string
+  custom_pages?: CustomPage[]
 }
 
 interface PortInfo {
   internal: number
   external: number
   protocol: string
+}
+
+interface CustomPage {
+  id: string
+  title: string
+  icon: string
+  url: string
+  show_in_nav?: boolean
+  order?: number
+  iframe?: boolean
 }
 
 interface AppManifest {
@@ -62,6 +76,8 @@ export function AppStoreTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  // App detail dialog
+  const [detailAppId, setDetailAppId] = useState<string | null>(null)
   // On OS-dev images the Developer App may replace/delete *any* app,
   // including system apps. We probe the dev-image marker once on mount.
   const [isOsDev, setIsOsDev] = useState(false)
@@ -83,7 +99,29 @@ export function AppStoreTab({ token }: { token: string }) {
     setLoading(true)
     setError('')
     try {
-      const data = await adminFetch('/api/appstore/installed', token) as { apps: AppInfo[] }
+      // Try supervisor endpoint first (has status, custom_pages, etc.)
+      let data: { apps: AppInfo[] }
+      try {
+        data = await adminFetch('/api/supervisor/apps', token) as { apps: AppInfo[] }
+      } catch {
+        // Fall back to local appstore
+        data = await adminFetch('/api/appstore/installed', token) as { apps: AppInfo[] }
+      }
+      // Also fetch from appstore to get trust_level and source info
+      try {
+        const localData = await adminFetch('/api/appstore/installed', token) as { apps: AppInfo[] }
+        if (localData.apps && localData.apps.length > 0) {
+          // Merge trust_level from local appstore into supervisor data
+          const localMap = new Map(localData.apps.map(a => [a.id, a]))
+          data.apps = (data.apps || []).map(app => {
+            const local = localMap.get(app.id)
+            if (local) {
+              return { ...app, trust_level: local.trust_level || 'untrusted' }
+            }
+            return app
+          })
+        }
+      } catch { /* ignore */ }
       setApps(data.apps || [])
     } catch (e) {
       setError((e as Error).message)
@@ -159,7 +197,7 @@ export function AppStoreTab({ token }: { token: string }) {
           ) : error ? (
             <ErrorMessage>{error}</ErrorMessage>
           ) : (
-            <InstalledAppsView apps={apps} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} />
+            <InstalledAppsView apps={apps} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
           )}
         </>
       )}
@@ -173,6 +211,14 @@ export function AppStoreTab({ token }: { token: string }) {
       {view === 'upload' && (
         <ZipUploadView token={token} onSuccess={() => { setView('installed'); loadInstalled() }} />
       )}
+
+      {/* App Detail Dialog */}
+      <AppDetailDialog
+        appId={detailAppId}
+        token={token}
+        onClose={() => setDetailAppId(null)}
+        onReload={loadInstalled}
+      />
     </div>
   )
 }
@@ -185,17 +231,43 @@ function InstalledAppsView({
   onReload,
   getTrustBadge,
   isOsDev,
+  onAppClick,
 }: {
   apps: AppInfo[]
   token: string
   onReload: () => void
   getTrustBadge: (level: string) => JSX.Element
   isOsDev: boolean
+  onAppClick: (appId: string) => void
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
+  const startApp = async (appId: string) => {
+    setActionLoading(`start-${appId}`)
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/start`, token, { method: 'POST' })
+      toast.success('App gestartet')
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setActionLoading(null)
+  }
+
+  const stopApp = async (appId: string) => {
+    setActionLoading(`stop-${appId}`)
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/stop`, token, { method: 'POST' })
+      toast.success('App gestoppt')
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setActionLoading(null)
+  }
+
   const enableApp = async (appId: string) => {
-    setActionLoading(appId)
+    setActionLoading(`enable-${appId}`)
     try {
       await adminFetch(`/api/appstore/apps/${appId}/enable`, token, { method: 'POST' })
       toast.success('App aktiviert')
@@ -207,7 +279,7 @@ function InstalledAppsView({
   }
 
   const disableApp = async (appId: string) => {
-    setActionLoading(appId)
+    setActionLoading(`disable-${appId}`)
     try {
       await adminFetch(`/api/appstore/apps/${appId}/disable`, token, { method: 'POST' })
       toast.success('App deaktiviert')
@@ -238,6 +310,12 @@ function InstalledAppsView({
     setActionLoading(null)
   }
 
+  const openApp = (appId: string, openUrl?: string) => {
+    const url = openUrl || `/apps/${appId}`
+    // Use the router to navigate to the app's page
+    window.location.href = url
+  }
+
   return (
     <AdminCard title={`Installierte Apps (${apps.length})`} icon={Package}>
       {apps.length === 0 ? (
@@ -249,10 +327,14 @@ function InstalledAppsView({
       ) : (
         <div className="space-y-2">
           {apps.map((app) => (
-            <div key={app.id} className="p-3 rounded-lg bg-foreground/3 hover:bg-foreground/5 transition-colors">
+            <div
+              key={app.id}
+              className="p-3 rounded-lg bg-foreground/3 hover:bg-foreground/5 hover:border-accent/30 border border-transparent transition-all cursor-pointer"
+              onClick={() => onAppClick(app.id)}
+            >
               <div className="flex items-start gap-3 mb-3">
                 {app.icon ? (
-                  <img src={app.icon} alt={app.name} className="w-10 h-10 rounded-lg flex-shrink-0" />
+                  <img src={app.icon} alt={app.name} className="w-10 h-10 rounded-lg flex-shrink-0 object-cover" />
                 ) : (
                   <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0">
                     <Cube size={20} className="text-accent" />
@@ -261,7 +343,12 @@ function InstalledAppsView({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-foreground truncate">{app.name}</div>
+                      <div className="text-xs font-semibold text-foreground truncate flex items-center gap-2">
+                        {app.name}
+                        {app.status === 'running' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                        )}
+                      </div>
                       <div className="text-[10px] text-foreground/40">{app.version} • {app.developer}</div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -301,48 +388,95 @@ function InstalledAppsView({
                 </div>
               )}
 
+              {/* Status badge */}
+              <div className="mb-2 flex items-center gap-2">
+                {app.status === 'running' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Läuft
+                  </span>
+                ) : app.status === 'stopped' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-foreground/10 text-foreground/50 rounded text-[10px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-foreground/30" /> Gestoppt
+                  </span>
+                ) : null}
+                {(app.custom_pages?.length ?? 0) > 0 && (
+                  <span className="text-[10px] text-foreground/40">
+                    {app.custom_pages!.length} Seite{(app.custom_pages!.length !== 1) ? 'n' : ''}
+                  </span>
+                )}
+              </div>
+
               {/* Actions */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Open button - for apps with custom pages */}
+                {(app.custom_pages?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => openApp(app.id, app.open_url)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors"
+                  >
+                    <Play size={12} weight="fill" /> Öffnen
+                  </button>
+                )}
+
                 {app.system ? (
                   <span className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/15 text-blue-300 rounded text-[10px] font-semibold">
                     <ShieldCheck size={12} weight="fill" /> System-App
                   </span>
-                ) : app.enabled ? (
-                  <button
-                    onClick={() => disableApp(app.id)}
-                    disabled={actionLoading === app.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
-                  >
-                    {actionLoading === app.id ? <InlineSpinner size={12} /> : <Pause size={12} />}
-                    Deaktivieren
-                  </button>
                 ) : (
-                  <button
-                    onClick={() => enableApp(app.id)}
-                    disabled={actionLoading === app.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                  >
-                    {actionLoading === app.id ? <InlineSpinner size={12} /> : <Play size={12} />}
-                    Aktivieren
-                  </button>
-                )}
-                {!app.system && (
-                  <button
-                    onClick={() => window.open(`/app-settings/${app.id}`, '_blank')}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
-                  >
-                    <Gear size={12} /> Einstellungen
-                  </button>
-                )}
-                {!app.system && (
-                  <button
-                    onClick={() => uninstallApp(app.id)}
-                    disabled={actionLoading === app.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/15 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
-                  >
-                    {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
-                    Deinstallieren
-                  </button>
+                  <>
+                    {app.status === 'running' ? (
+                      <button
+                        onClick={() => stopApp(app.id)}
+                        disabled={actionLoading === `stop-${app.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
+                      >
+                        {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                        Stoppen
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => startApp(app.id)}
+                        disabled={actionLoading === `start-${app.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
+                      >
+                        {actionLoading === `start-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
+                        Starten
+                      </button>
+                    )}
+                    {app.enabled ? (
+                      <button
+                        onClick={() => disableApp(app.id)}
+                        disabled={actionLoading === `disable-${app.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
+                      >
+                        {actionLoading === `disable-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                        Deaktivieren
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => enableApp(app.id)}
+                        disabled={actionLoading === `enable-${app.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
+                      >
+                        {actionLoading === `enable-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
+                        Aktivieren
+                      </button>
+                    )}
+                    <button
+                      onClick={() => window.open(`/app-settings/${app.id}`, '_blank')}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
+                    >
+                      <Gear size={12} /> Einstellungen
+                    </button>
+                    <button
+                      onClick={() => uninstallApp(app.id)}
+                      disabled={actionLoading === app.id}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/15 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                    >
+                      {actionLoading === app.id ? <InlineSpinner size={12} /> : <TrashSimple size={12} />}
+                      Deinstallieren
+                    </button>
+                  </>
                 )}
                 {app.system && isOsDev && (
                   <button

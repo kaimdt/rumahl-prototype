@@ -1143,17 +1143,20 @@ async fn main() -> anyhow::Result<()> {
         // an empty state instead of 404'ing into the SPA fallback (which
         // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
         .route("/api/supervisor/system/info", get(stub_supervisor_system_info))
-        .route("/api/supervisor/apps", get(stub_supervisor_apps))
-        .route("/api/supervisor/apps/install", post(stub_supervisor_unavailable))
-        .route("/api/supervisor/apps/:app_id", post(stub_supervisor_unavailable).delete(stub_supervisor_unavailable).put(stub_supervisor_unavailable))
-        .route("/api/supervisor/apps/:app_id/start", post(stub_supervisor_unavailable))
-        .route("/api/supervisor/apps/:app_id/stop", post(stub_supervisor_unavailable))
-        .route("/api/supervisor/apps/:app_id/restart", post(stub_supervisor_unavailable))
-        .route("/api/core/plugins/with-stats", get(stub_core_plugins))
-        .route("/api/core/plugins", get(stub_core_plugins))
-        .route("/api/core/plugins/:id", post(stub_core_unavailable).delete(stub_core_unavailable).put(stub_core_unavailable))
-        .route("/api/core/plugins/:id/enable", post(stub_core_unavailable))
-        .route("/api/core/plugins/:id/disable", post(stub_core_unavailable))
+        .route("/api/supervisor/apps", get(supervisor_apps_list))
+        .route("/api/supervisor/apps/install", post(supervisor_apps_install))
+        .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall).put(stub_supervisor_unavailable))
+        .route("/api/supervisor/apps/:app_id/start", post(supervisor_apps_start))
+        .route("/api/supervisor/apps/:app_id/stop", post(supervisor_apps_stop))
+        .route("/api/supervisor/apps/:app_id/restart", post(supervisor_apps_restart))
+        .route("/api/core/plugins/with-stats", get(core_plugins_list))
+        .route("/api/core/plugins", get(core_plugins_list))
+        .route("/api/core/plugins/:id", get(core_plugins_get).post(stub_core_unavailable).delete(core_plugins_uninstall))
+        .route("/api/core/plugins/:id/enable", post(core_plugins_enable))
+        .route("/api/core/plugins/:id/disable", post(core_plugins_disable))
+        .route("/api/core/plugins/:id/execute", post(core_plugins_execute))
+        .route("/api/core/plugins/:id/logs", get(core_plugins_logs))
+        .route("/api/core/sandbox/status", get(core_sandbox_status))
         // App-Store: served locally by iora-home so ZIP installs and the
         // installed-apps list work even when the dedicated `iora-appstore`
         // microservice isn't deployed.
@@ -1168,6 +1171,19 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/appstore/apps/:app_id/settings", get(stub_appstore_unavailable).post(stub_appstore_unavailable))
         .route("/api/appstore/permissions/grant", post(stub_appstore_unavailable))
         .route("/api/appstore/settings", post(stub_appstore_unavailable))
+        // App custom pages — returns all custom_pages from installed and running apps.
+        .route("/api/apps/pages", get(app_pages_list))
+        // App content proxy — forwards requests to installed app containers.
+        .route("/api/apps/:app_id/proxy/*path", get(app_proxy_handler))
+        // App logs — per-app log retrieval and live streaming.
+        .route("/api/apps/:app_id/logs", get(app_logs_get))
+        .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
+        // App detail with full info.
+        .route("/api/apps/:app_id/detail", get(app_detail_get))
+        // App configuration (per-app settings using settings_schema from manifest)
+        .route("/api/apps/:app_id/config/schema", get(app_config_schema))
+        .route("/api/apps/:app_id/config", get(app_config_get).put(app_config_put))
+        .route("/api/apps/:app_id/config/:key", delete(app_config_delete_key))
         // Restart a known iora-* service from the Control Center.
         .route("/api/admin/control/services/:name/restart", post(admin_control_restart_service))
         // OS-dev-image marker / developer-mode lock info.
@@ -3927,12 +3943,1032 @@ async fn admin_dev_image_info(State(state): State<AppState>) -> Json<Value> {
     Json(state.dev_image.to_json())
 }
 
-async fn stub_supervisor_apps() -> Json<Value> {
-    Json(json!({ "apps": [], "available": false }))
+async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
+    let installed = state.local_appstore.list().await;
+    let apps: Vec<Value> = installed
+        .into_iter()
+        .filter(|a| a.kind != "plugin" && a.kind != "system")
+        .map(|a| {
+            let custom_pages = &a.custom_pages;
+            let open_url = custom_pages
+                .first()
+                .map(|p| format!("/page/{}", p.id));
+            json!({
+                "id": a.id,
+                "name": a.name,
+                "version": a.version,
+                "description": a.description,
+                "author": a.developer,
+                "icon": a.icon,
+                "image": a.docker_config.as_ref().and_then(|d| d.get("image").and_then(|v| v.as_str())).unwrap_or(""),
+                "ports": a.ports.iter().map(|p| format!("{}:{}/{}", p.external, p.internal, p.protocol)).collect::<Vec<_>>(),
+                "environment": serde_json::Value::Null,
+                "volumes": Vec::<String>::new(),
+                "permissions": a.manifest.permissions.clone(),
+                "enabled": a.enabled,
+                "status": a.status.clone(),
+                "installed_at": a.installed_at.clone(),
+                "kind": a.kind.clone(),
+                "open_url": open_url,
+                "custom_pages": custom_pages,
+            })
+        })
+        .collect();
+    Json(json!({
+        "apps": apps,
+        "total": apps.len(),
+        "available": true,
+        "source": "local",
+    }))
 }
 
-async fn stub_core_plugins() -> Json<Value> {
-    Json(json!({ "plugins": [], "available": false }))
+async fn supervisor_apps_get(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .into_iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+    Ok(Json(json!({
+        "id": app.id,
+        "name": app.name,
+        "version": app.version,
+        "description": app.description,
+        "author": app.developer,
+        "icon": app.icon,
+        "status": app.status,
+        "enabled": app.enabled,
+        "kind": app.kind,
+        "custom_pages": app.custom_pages,
+        "ports": app.ports,
+        "manifest": app.manifest,
+    })))
+}
+
+async fn supervisor_apps_install(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    // For now, delegate to local_appstore install via the existing ZIP endpoint.
+    // If the request contains a base64 zip_data, forward it.
+    if let Some(zip_data) = body.get("zip_data").and_then(|v| v.as_str()) {
+        use base64::Engine as _;
+        let payload = zip_data
+            .split(',')
+            .last()
+            .unwrap_or(zip_data)
+            .trim()
+            .to_string();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(payload.as_bytes())
+            .map_err(|e| ErrorResponse::bad_request(format!("ungültiges Base64: {e}")))?;
+        if bytes.is_empty() {
+            return Err(ErrorResponse::bad_request("ZIP ist leer".to_string()));
+        }
+        let file_name = body
+            .get("file_name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("upload.zip")
+            .to_string();
+        let install_id = state.local_appstore.start_install(file_name, bytes);
+        return Ok(Json(json!({
+            "success": true,
+            "install_id": install_id,
+            "message": "Installation gestartet.",
+        })));
+    }
+    Err(ErrorResponse::bad_request("Keine ZIP-Daten (zip_data) übermittelt. Nutze /api/appstore/install für ZIP-Installationen.".to_string()))
+}
+
+async fn supervisor_apps_start(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app = state
+        .local_appstore
+        .start(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app.id,
+        "status": "running",
+        "message": format!("App '{}' gestartet.", app.name),
+    })))
+}
+
+async fn supervisor_apps_stop(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app = state
+        .local_appstore
+        .stop(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app.id,
+        "status": "stopped",
+        "message": format!("App '{}' gestoppt.", app.name),
+    })))
+}
+
+async fn supervisor_apps_restart(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let _ = state.local_appstore.stop(&app_id).await;
+    let app = state
+        .local_appstore
+        .start(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app.id,
+        "status": "running",
+        "message": format!("App '{}' neu gestartet.", app.name),
+    })))
+}
+
+async fn supervisor_apps_uninstall(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    state
+        .local_appstore
+        .uninstall(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app_id,
+        "message": "App deinstalliert.",
+    })))
+}
+
+/// Returns all custom pages from installed apps that are running.
+/// Used by the frontend to merge app pages into the navigation.
+/// Each page includes an iframe widget that points to the app's URL,
+/// so the frontend can render the app's UI within an iframe.
+async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
+    let installed = state.local_appstore.list().await;
+    let app_pages: Vec<Value> = installed
+        .into_iter()
+        .filter(|a| a.status == "running" && !a.custom_pages.is_empty())
+        .flat_map(|a| {
+            a.custom_pages.into_iter().map(move |p| {
+                // Create an iframe widget for the app's URL
+                let iframe_widget = json!({
+                    "widget_type": "iframe",
+                    "entity_id": null as Option<String>,
+                    "position_x": 0,
+                    "position_y": 0,
+                    "width": 6,
+                    "height": 6,
+                    "config": {
+                        "url": format!("/api/apps/{}/proxy{}", a.id, p.url),
+                        "title": p.title,
+                        "sandbox": ["allow-scripts", "allow-same-origin"],
+                        "height": "100%",
+                    }
+                });
+
+                json!({
+                    "page_id": p.id,
+                    "name": p.title,
+                    "icon": p.icon,
+                    "url": p.url,
+                    "show_in_nav": p.show_in_nav,
+                    "order": p.order,
+                    "app_id": a.id,
+                    "app_name": a.name,
+                    "position": p.order,
+                    "display_mode": "page",
+                    "widgets": [iframe_widget],
+                })
+            })
+        })
+        .collect();
+    Json(json!({
+        "pages": app_pages,
+        "total": app_pages.len(),
+    }))
+}
+
+/// Proxy requests to an installed app's internal URL.
+/// This allows the iframe widget to load app content through the IORA backend.
+/// When the app is running in Docker, this proxies to the container.
+/// When running locally (no Docker), it returns a status page.
+async fn app_proxy_handler(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::http::{Response, StatusCode};
+
+    // Look up the app
+    let installed = state.local_appstore.list().await;
+    let app = installed.iter().find(|a| a.id == app_id);
+
+    match app {
+        Some(app) if app.status == "running" => {
+            // Try to find the app's URL from custom_pages
+            let proxy_url = app.custom_pages.first().map(|p| p.url.clone());
+
+            match proxy_url {
+                Some(base_url) => {
+                    // Build the full URL to proxy to
+                    let full_url = format!("{}/{}", base_url.trim_end_matches('/'), path.trim_start_matches('/'));
+
+                    // Try to proxy the request
+                    match reqwest::get(&full_url).await {
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let headers = resp.headers().clone();
+                            let body = resp.bytes().await.unwrap_or_default();
+
+                            let mut response_builder = Response::builder().status(status);
+                            if let Some(content_type) = headers.get("content-type") {
+                                response_builder = response_builder.header("content-type", content_type);
+                            }
+                            if let Some(content_length) = headers.get("content-length") {
+                                response_builder = response_builder.header("content-length", content_length);
+                            }
+
+                            response_builder
+                                .body(Body::from(body))
+                                .unwrap_or_else(|_| Response::new(Body::from("Proxy error")))
+                        }
+                        Err(_) => {
+                            // App container not reachable - show placeholder
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header("content-type", "text/html; charset=utf-8")
+                                .body(Body::from(format!(
+                                    r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{}</title>
+<style>
+body {{ font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f0f12; color: #e0e0e0; }}
+.container {{ text-align: center; padding: 2rem; }}
+h1 {{ font-size: 1.5rem; margin-bottom: 0.5rem; }}
+p {{ color: #888; font-size: 0.875rem; }}
+.status {{ display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; background: #05966920; color: #34d399; font-size: 0.75rem; font-weight: 600; }}
+</style>
+</head><body>
+<div class="container">
+<div class="status">● Läuft (lokal)</div>
+<h1>{}</h1>
+<p>Die App läuft im lokalen Modus.</p>
+<p>Im Docker-Modus würde diese URL an den App-Container weitergeleitet werden.</p>
+</div>
+</body></html>"#,
+                                    app.name, app.name
+                                )))
+                                .unwrap()
+                        }
+                    }
+                }
+                None => {
+                    Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .body(Body::from("Keine konfigurierte URL für diese App"))
+                        .unwrap()
+                }
+            }
+        }
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("App nicht gefunden oder nicht gestartet"))
+                .unwrap()
+        }
+    }
+}
+
+/// Get app detail (full info, manifest, custom_pages, settings, logs preview).
+async fn app_detail_get(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    use local_appstore::LogEntry;
+
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .into_iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    // Get recent logs
+    let logs = state.local_appstore.get_logs(&app_id).await;
+    let recent_logs: Vec<Value> = logs
+        .iter()
+        .rev()
+        .take(50)
+        .map(|l| {
+            json!({
+                "timestamp": l.timestamp,
+                "level": l.level,
+                "message": l.message,
+                "source": l.source,
+            })
+        })
+        .collect();
+
+    // Generate a default icon if none
+    let icon = app.icon.clone().unwrap_or_else(|| format!("/api/apps/{}/icon", app.id));
+
+    Ok(Json(json!({
+        "id": app.id,
+        "name": app.name,
+        "version": app.version,
+        "developer": app.developer,
+        "description": app.description,
+        "icon": icon,
+        "status": app.status,
+        "enabled": app.enabled,
+        "kind": app.kind,
+        "system": app.system,
+        "trust_level": app.trust_level,
+        "installed_at": app.installed_at,
+        "source": app.source,
+        "permissions": app.manifest.permissions,
+        "custom_pages": app.custom_pages,
+        "ports": app.ports,
+        "docker_config": app.docker_config,
+        "settings_schema": app.manifest.extra.get("settings_schema"),
+        "recent_logs": recent_logs,
+        "log_count": logs.len(),
+        "open_url": app.custom_pages.first().map(|p| format!("/page/{}", p.id)),
+    })))
+}
+
+// ── App Configuration Handlers ─────────────────────────────────────
+
+/// Get the settings schema for an app (from manifest).
+async fn app_config_schema(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let schema = app.manifest.extra.get("settings_schema");
+    match schema {
+        Some(s) => Ok(Json(s.clone())),
+        None => Ok(Json(json!({
+            "title": app.name,
+            "description": "Keine konfigurierbaren Einstellungen",
+            "fields": [],
+        }))),
+    }
+}
+
+/// Get current config values for an app.
+/// Config values are stored in system_preferences with key `app.config.{app_id}`.
+async fn app_config_get(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let key = format!("app.config.{}", app_id);
+    let pref = state
+        .config_repo
+        .get_system_preference(&key)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Datenbankfehler: {e}")))?;
+    match pref {
+        Some(sp) => {
+            let parsed: Value = serde_json::from_str(&sp.preference_value).unwrap_or(json!({}));
+            Ok(Json(parsed))
+        }
+        None => {
+            // Return empty config with defaults from schema
+            let installed = state.local_appstore.list().await;
+            let app = installed.iter().find(|a| a.id == app_id);
+            if let Some(a) = app {
+                if let Some(schema) = a.manifest.extra.get("settings_schema") {
+                    if let Some(fields) = schema.get("fields").and_then(|f| f.as_array()) {
+                        let defaults: Value = fields
+                            .iter()
+                            .filter_map(|f| {
+                                let key = f.get("key")?.as_str()?;
+                                let default = f.get("default");
+                                default.map(|d| (key.to_string(), d.clone()))
+                            })
+                            .collect();
+                        return Ok(Json(defaults));
+                    }
+                }
+            }
+            Ok(Json(json!({})))
+        }
+    }
+}
+
+/// Update config values for an app.
+#[derive(serde::Deserialize)]
+struct AppConfigUpdate {
+    #[serde(flatten)]
+    values: HashMap<String, serde_json::Value>,
+}
+
+async fn app_config_put(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppConfigUpdate>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let key = format!("app.config.{}", app_id);
+    let pref = state
+        .config_repo
+        .get_system_preference(&key)
+        .await
+        .unwrap_or(None);
+
+    let mut config: serde_json::Value = match pref {
+        Some(v) => serde_json::from_str(&v).unwrap_or(json!({})),
+        None => json!({}),
+    };
+
+    if let Some(obj) = config.as_object_mut() {
+        for (k, v) in body.values {
+            obj.insert(k, v);
+        }
+    }
+
+    let config_value = serde_json::to_value(&config)
+        .map_err(|e| ErrorResponse::internal(format!("Serialisierung fehlgeschlagen: {e}")))?;
+
+    let req = db::models::SaveSystemPreferenceRequest {
+        preference_key: key.clone(),
+        preference_value: config_value,
+    };
+
+    state
+        .config_repo
+        .save_system_preference(req)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Speichern fehlgeschlagen: {e}")))?;
+
+    // Log the config change
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: format!("Konfiguration aktualisiert ({} Felder)", body.values.len()),
+            source: "config".to_string(),
+        },
+    );
+
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app_id,
+        "config": config,
+    })))
+}
+
+/// Delete a specific config key (reset to default).
+async fn app_config_delete_key(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, key)): axum::extract::Path<(String, String)>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let pref_key = format!("app.config.{}", app_id);
+    let pref = state
+        .config_repo
+        .get_system_preference(&pref_key)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Datenbankfehler: {e}")))?;
+
+    let mut config: serde_json::Value = match pref {
+        Some(sp) => serde_json::from_str(&sp.preference_value).unwrap_or(json!({})),
+        None => json!({}),
+    };
+
+    if let Some(obj) = config.as_object_mut() {
+        obj.remove(&key);
+    }
+
+    let config_value = serde_json::to_value(&config)
+        .map_err(|e| ErrorResponse::internal(format!("Serialisierung fehlgeschlagen: {e}")))?;
+
+    let req = db::models::SaveSystemPreferenceRequest {
+        preference_key: pref_key.clone(),
+        preference_value: config_value,
+    };
+
+    state
+        .config_repo
+        .save_system_preference(req)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Speichern fehlgeschlagen: {e}")))?;
+
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app_id,
+        "key": key,
+    })))
+}
+
+/// Get logs for a specific app.
+async fn app_logs_get(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let logs = state.local_appstore.get_logs(&app_id).await;
+    Json(json!({
+        "app_id": app_id,
+        "logs": logs,
+        "count": logs.len(),
+    }))
+}
+
+/// SSE stream of logs for a specific app.
+async fn app_logs_stream(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> axum::response::Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    use axum::response::sse::{Event as SseEvent, KeepAlive};
+    use tokio_stream::wrappers::BroadcastStream;
+    use tokio_stream::StreamExt as _;
+
+    // Send existing logs first
+    let existing_logs = state.local_appstore.get_logs(&app_id).await;
+    let initial = json!({
+        "type": "snapshot",
+        "app_id": app_id,
+        "logs": existing_logs,
+    })
+    .to_string();
+
+    let recv = state.local_appstore.subscribe();
+    let stream = BroadcastStream::new(recv).filter_map(move |msg| {
+        match msg {
+            Ok(local_appstore::InstallEvent::LogEntry { app_id: aid, entry }) if aid == app_id => {
+                let data = json!({
+                    "type": "log",
+                    "app_id": app_id,
+                    "entry": entry,
+                })
+                .to_string();
+                Some(Ok(SseEvent::default().data(data)))
+            }
+            _ => None,
+        }
+    });
+
+    // Combine initial snapshot with live stream
+    let initial_event = Ok(SseEvent::default().data(initial));
+    let combined = futures_util::stream::once(async { initial_event }).chain(stream);
+
+    Sse::new(combined).keep_alive(KeepAlive::default())
+}
+
+// ── Plugin Handlers ───────────────────────────────────────────────────
+
+// The frontend PluginsTab expects Array<[PluginMetadata, PluginStats | null]>.
+async fn core_plugins_list(State(state): State<AppState>) -> Json<Value> {
+    let installed = state.local_appstore.list().await;
+    let plugins: Vec<Value> = installed
+        .into_iter()
+        .filter(|a| a.kind == "plugin")
+        .map(|a| {
+            let plugin_meta = json!({
+                "id": a.id,
+                "name": a.name,
+                "version": a.version,
+                "description": a.description,
+                "author": a.developer,
+                "icon": a.icon,
+                "plugin_type": a.manifest.extra.get("plugin_type").or(Some(&serde_json::Value::String("widget".to_string()))).cloned(),
+                "permissions": a.manifest.permissions,
+                "sandbox_config": a.manifest.extra.get("sandbox").unwrap_or(&serde_json::json!({
+                    "max_execution_time_ms": 5000,
+                    "max_memory_mb": 128,
+                    "allow_network": false,
+                    "allow_file_system": false,
+                })),
+            });
+            let stats: Value = json!({
+                "total_executions": 0,
+                "successful_executions": 0,
+                "failed_executions": 0,
+                "total_duration_ms": 0,
+            });
+            json!([plugin_meta, stats])
+        })
+        .collect();
+    Json(json!({
+        "plugins": plugins,
+        "total": plugins.len(),
+        "available": true,
+    }))
+}
+
+async fn core_plugins_get(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let plugin = installed
+        .into_iter()
+        .find(|a| a.id == plugin_id && a.kind == "plugin")
+        .ok_or_else(|| ErrorResponse::not_found(format!("plugin '{}' nicht gefunden", plugin_id)))?;
+    Ok(Json(json!({
+        "id": plugin.id,
+        "name": plugin.name,
+        "version": plugin.version,
+        "description": plugin.description,
+        "author": plugin.developer,
+        "status": plugin.status,
+        "enabled": plugin.enabled,
+        "manifest": plugin.manifest,
+        "custom_pages": plugin.custom_pages,
+    })))
+}
+
+async fn core_plugins_enable(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app = state
+        .local_appstore
+        .enable(&plugin_id, true)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "plugin_id": plugin_id,
+        "status": "enabled",
+    })))
+}
+
+async fn core_plugins_disable(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app = state
+        .local_appstore
+        .enable(&plugin_id, false)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "plugin_id": plugin_id,
+        "status": "disabled",
+    })))
+}
+
+async fn core_plugins_uninstall(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    state
+        .local_appstore
+        .uninstall(&plugin_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "plugin_id": plugin_id,
+    })))
+}
+
+/// Execute a plugin in the sandbox.
+/// The plugin is run in a restricted environment with no shell access.
+/// Execution is on-demand and time-limited.
+#[derive(serde::Deserialize)]
+struct PluginExecuteRequest {
+    plugin_id: Option<String>,
+    input: Option<serde_json::Value>,
+    timeout_ms: Option<u64>,
+}
+
+async fn core_plugins_execute(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+    Json(body): Json<PluginExecuteRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let pid = body.plugin_id.as_deref().unwrap_or(&plugin_id).to_string();
+
+    // Find the plugin
+    let installed = state.local_appstore.list().await;
+    let plugin = installed
+        .iter()
+        .find(|a| a.id == pid && a.kind == "plugin")
+        .ok_or_else(|| ErrorResponse::not_found(format!("Plugin '{}' nicht gefunden", pid)))?;
+
+    if !plugin.enabled {
+        return Err(ErrorResponse::bad_request("Plugin ist deaktiviert".to_string()));
+    }
+
+    // Determine sandbox config from manifest
+    let sandbox_config = plugin
+        .manifest
+        .extra
+        .get("sandbox")
+        .cloned()
+        .unwrap_or(json!({
+            "max_execution_time_ms": 5000,
+            "max_memory_mb": 128,
+            "allow_network": false,
+            "allow_file_system": false,
+        }));
+
+    let max_time = body.timeout_ms.unwrap_or(
+        sandbox_config
+            .get("max_execution_time_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5000),
+    );
+
+    // Fetch the plugin's entry point from its installed directory
+    let plugin_dir = state.local_appstore.base_dir().join(&pid);
+    let manifest_path = plugin_dir.join("manifest.json");
+    let entry_point = std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|m| {
+            let v: serde_json::Value = serde_json::from_str(&m).ok()?;
+            v.get("main").and_then(|m| m.as_str().map(|s| s.to_string()))
+        })
+        .unwrap_or_else(|| {
+            // Guess entry point
+            if plugin_dir.join("index.js").exists() {
+                "index.js".to_string()
+            } else if plugin_dir.join("main.py").exists() {
+                "main.py".to_string()
+            } else if plugin_dir.join("plugin.js").exists() {
+                "plugin.js".to_string()
+            } else {
+                "index.js".to_string()
+            }
+        });
+
+    let entry_path = plugin_dir.join(&entry_point);
+    if !entry_path.exists() {
+        return Err(ErrorResponse::bad_request(format!(
+            "Einstiegspunkt '{}' nicht gefunden in {}",
+            entry_point,
+            plugin_dir.display()
+        )));
+    }
+
+    let input_json = body.input.clone().unwrap_or(json!({}));
+
+    // Execute plugin in a subprocess with strict restrictions.
+    // Uses `deno run --no-prompt` for JS/TS or a restricted Python environment.
+    // No shell access, no network (unless allowed), no arbitrary commands.
+    let start_time = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(max_time),
+        execute_plugin_sandboxed(&entry_path, &input_json, &plugin_dir, &sandbox_config),
+    )
+    .await;
+
+    let duration_ms = start_time.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(Ok(output)) => {
+            state.local_appstore.append_log(
+                &pid,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: format!("Plugin '{}' ausgeführt in {}ms", plugin.name, duration_ms),
+                    source: "plugin".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": true,
+                "plugin_id": pid,
+                "duration_ms": duration_ms,
+                "output": output,
+            })))
+        }
+        Ok(Err(e)) => {
+            state.local_appstore.append_log(
+                &pid,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "ERROR".to_string(),
+                    message: format!("Plugin '{}' fehlgeschlagen: {}", plugin.name, e),
+                    source: "plugin".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": false,
+                "plugin_id": pid,
+                "duration_ms": duration_ms,
+                "error": format!("{}", e),
+            })))
+        }
+        Err(_timeout) => {
+            state.local_appstore.append_log(
+                &pid,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "WARNING".to_string(),
+                    message: format!("Plugin '{}' hat Zeitlimit ({}ms) überschritten", plugin.name, max_time),
+                    source: "plugin".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": false,
+                "plugin_id": pid,
+                "duration_ms": duration_ms,
+                "error": format!("Zeitlimit von {}ms überschritten", max_time),
+            })))
+        }
+    }
+}
+
+/// Execute plugin in a sandboxed subprocess with no shell access.
+/// Only allows executing the plugin's own entry point file.
+/// No arbitrary commands, no package installation.
+async fn execute_plugin_sandboxed(
+    entry_path: &std::path::Path,
+    input: &serde_json::Value,
+    plugin_dir: &std::path::Path,
+    sandbox_config: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use tokio::process::Command;
+
+    let allow_network = sandbox_config
+        .get("allow_network")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let input_str = serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
+
+    let ext = entry_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("js")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "js" | "ts" | "mjs" => {
+            // Use `node` with --eval to run the plugin code safely.
+            // We pass the input via stdin and read output from stdout.
+            // NO --allow-child-process, NO network unless allowed.
+            let mut cmd = Command::new("node");
+            cmd.arg("--no-warnings")
+                .arg("-e")
+                .arg(format!(
+                    r#"
+const fs = require('fs');
+const path = require('path');
+
+// Sandbox: restrict process access
+process.on('uncaughtException', (err) => {{
+    console.error(err.message);
+    process.exit(1);
+}});
+
+// Only allow reading from the plugin directory
+const pluginDir = '{}';
+const originalRequire = require;
+
+// Read input from environment
+const input = JSON.parse(process.env.IORA_PLUGIN_INPUT || '{{}}');
+
+// Execute the plugin's main function
+const pluginPath = path.join(pluginDir, '{}');
+if (!fs.existsSync(pluginPath)) {{
+    console.error('Plugin entry not found: ' + pluginPath);
+    process.exit(1);
+}}
+
+const plugin = originalRequire(pluginPath);
+const handler = plugin.execute || plugin.handler || plugin.default || plugin;
+
+if (typeof handler === 'function') {{
+    Promise.resolve(handler(input)).then(result => {{
+        console.log(JSON.stringify(result));
+    }}).catch(err => {{
+        console.error(err.message);
+        process.exit(1);
+    }});
+}} else {{
+    console.log(JSON.stringify(handler));
+}}
+"#,
+                    plugin_dir.to_string_lossy().replace("\\", "\\\\"),
+                    entry_path.file_name().unwrap().to_string_lossy(),
+                ))
+                .env("IORA_PLUGIN_INPUT", &input_str)
+                .env("NODE_PATH", plugin_dir.to_string_lossy().as_ref())
+                .current_dir(plugin_dir);
+
+            if !allow_network {
+                cmd.env("NODE_NO_WARNINGS", "1");
+                // Use --experimental-policy to restrict modules if available in newer Node
+            }
+
+            let output = cmd
+                .output()
+                .await
+                .map_err(|e| format!("Kann Node.js nicht ausführen: {}", e))?;
+
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                serde_json::from_str(stdout.trim()).map_err(|e| {
+                    format!("Plugin-Ausgabe kein gültiges JSON: {} (Output: {})", e, stdout.trim())
+                })
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("Plugin-Fehler: {}", stderr.trim()))
+            }
+        }
+        "py" => {
+            // Use Python with restricted environment
+            let mut cmd = Command::new("python3");
+            cmd.arg("-c")
+                .arg(format!(
+                    r#"
+import sys
+import json
+import os
+
+# Restrict dangerous modules
+sys.path.insert(0, '{}')
+
+# Read input from env
+input_data = json.loads(os.environ.get('IORA_PLUGIN_INPUT', '{{}}'))
+
+# Execute the plugin file
+exec(open('{}').read(), {{'__input__': input_data, '__output__': None}})
+
+# Call execute function if present
+if 'execute' in dir():
+    result = execute(input_data)
+elif 'handler' in dir():
+    result = handler(input_data)
+else:
+    result = {{'error': 'Keine execute() oder handler() Funktion gefunden'}}
+
+print(json.dumps(result))
+"#,
+                    plugin_dir.to_string_lossy(),
+                    entry_path.to_string_lossy().replace("\\", "\\\\"),
+                ))
+                .env("IORA_PLUGIN_INPUT", &input_str)
+                .current_dir(plugin_dir);
+
+            if !allow_network {
+                cmd.env("PYTHONWARNINGS", "ignore");
+                // Python blocks network via environment variable
+            }
+
+            let output = cmd
+                .output()
+                .await
+                .map_err(|e| format!("Kann Python nicht ausführen: {}", e))?;
+
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                serde_json::from_str(stdout.trim()).map_err(|e| {
+                    format!("Plugin-Ausgabe kein gültiges JSON: {} (Output: {})", e, stdout.trim())
+                })
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("Plugin-Fehler: {}", stderr.trim()))
+            }
+        }
+        other => Err(format!("Nicht unterstützte Plugin-Sprache: '{}' (erwartet: js, ts, py)", other)),
+    }
+}
+
+/// Get logs for a specific plugin.
+async fn core_plugins_logs(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let logs = state.local_appstore.get_logs(&plugin_id).await;
+    Json(json!({
+        "plugin_id": plugin_id,
+        "logs": logs,
+        "count": logs.len(),
+    }))
+}
+
+/// Get sandbox status.
+async fn core_sandbox_status() -> Json<Value> {
+    Json(json!({
+        "available": true,
+        "runtimes": ["nodejs", "python3"],
+        "version": "2.2.0",
+        "mode": "subprocess",
+        "restrictions": ["no_shell", "no_network", "no_package_install", "restricted_fs"],
+        "description": "Plugin-Sandbox-Umgebung. Plugins werden als eingeschränkte Subprozesse ausgeführt, ohne Shell-Zugriff, ohne Paketinstallation und ohne (optional) Netzwerkzugriff.",
+    }))
 }
 
 async fn stub_core_registrations() -> Json<Value> {

@@ -67,6 +67,8 @@ pub struct InstalledApp {
     pub icon: Option<String>,
     pub trust_level: String,
     pub enabled: bool,
+    #[serde(default = "default_status")]
+    pub status: String,
     pub installed_at: String,
     pub source: String,
     /// "app" / "plugin" / "system" — used by the UI to filter.
@@ -77,6 +79,44 @@ pub struct InstalledApp {
     #[serde(default)]
     pub system: bool,
     pub manifest: AppManifest,
+    /// Custom pages extracted from the manifest (custom_pages).
+    #[serde(default)]
+    pub custom_pages: Vec<CustomPageEntry>,
+    /// Docker config extracted from the manifest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_config: Option<serde_json::Value>,
+    /// Port mappings (external:internal), populated when app is started.
+    #[serde(default)]
+    pub ports: Vec<PortMapping>,
+}
+
+fn default_status() -> String { "stopped".to_string() }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomPageEntry {
+    pub id: String,
+    pub title: String,
+    pub icon: String,
+    pub url: String,
+    #[serde(default = "default_true")]
+    pub show_in_nav: bool,
+    #[serde(default)]
+    pub order: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_page_id: Option<String>,
+    #[serde(default)]
+    pub iframe: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iframe_config: Option<serde_json::Value>,
+}
+
+fn default_true() -> bool { true }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortMapping {
+    pub internal: u16,
+    pub external: u16,
+    pub protocol: String,
 }
 
 fn default_kind() -> String { "app".to_string() }
@@ -112,13 +152,25 @@ pub struct InstallJob {
     pub log: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+    #[serde(default)]
+    pub source: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InstallEvent {
     Snapshot { installed: Vec<InstalledApp>, jobs: Vec<InstallJob> },
     JobUpdated { job: InstallJob },
     AppsChanged { installed: Vec<InstalledApp> },
+    LogEntry { app_id: String, entry: LogEntry },
 }
+
+const MAX_APP_LOG_LINES: usize = 500;
 
 #[derive(Default)]
 struct Inner {
@@ -126,6 +178,8 @@ struct Inner {
     jobs: HashMap<Uuid, InstallJob>,
     /// FIFO of recent job ids so we can prune.
     job_order: Vec<Uuid>,
+    /// Per-app log ring buffers.
+    app_logs: HashMap<String, Vec<LogEntry>>,
 }
 
 pub struct LocalAppStore {
@@ -176,8 +230,27 @@ impl LocalAppStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e).context("reading local-apps index"),
         };
+        // Populate custom_pages and docker_config from manifest extra for
+        // apps that were installed before these fields were added.
+        let mut enriched: Vec<InstalledApp> = apps
+            .into_iter()
+            .map(|mut a| {
+                if a.custom_pages.is_empty() {
+                    if let Some(cp) = a.manifest.extra.get("custom_pages") {
+                        if let Ok(pages) = serde_json::from_value::<Vec<CustomPageEntry>>(cp.clone()) {
+                            a.custom_pages = pages;
+                        }
+                    }
+                }
+                if a.docker_config.is_none() {
+                    a.docker_config = a.manifest.extra.get("docker").cloned();
+                }
+                a
+            })
+            .collect();
+
         let mut inner = self.inner.write().await;
-        inner.apps = apps.into_iter().map(|a| (a.id.clone(), a)).collect();
+        inner.apps = enriched.into_iter().map(|a| (a.id.clone(), a)).collect();
         Ok(())
     }
 
@@ -299,6 +372,58 @@ impl LocalAppStore {
             ));
         }
         app.enabled = enable;
+        if enable && app.status == "stopped" {
+            app.status = "running".to_string();
+        } else if !enable {
+            app.status = "stopped".to_string();
+        }
+        let updated = app.clone();
+        drop(inner);
+        self.persist_index().await?;
+        let _ = self.events.send(InstallEvent::AppsChanged {
+            installed: self.list().await,
+        });
+        Ok(updated)
+    }
+
+    /// Start the app (mark as running and optionally assign ports).
+    pub async fn start(&self, app_id: &str) -> Result<InstalledApp> {
+        let mut inner = self.inner.write().await;
+        let app = inner
+            .apps
+            .get_mut(app_id)
+            .ok_or_else(|| anyhow!("app '{}' not installed", app_id))?;
+        if app.system {
+            return Err(anyhow!(
+                "system app '{}' wird automatisch verwaltet",
+                app_id
+            ));
+        }
+        app.status = "running".to_string();
+        app.enabled = true;
+        let updated = app.clone();
+        drop(inner);
+        self.persist_index().await?;
+        let _ = self.events.send(InstallEvent::AppsChanged {
+            installed: self.list().await,
+        });
+        Ok(updated)
+    }
+
+    /// Stop the app (mark as stopped).
+    pub async fn stop(&self, app_id: &str) -> Result<InstalledApp> {
+        let mut inner = self.inner.write().await;
+        let app = inner
+            .apps
+            .get_mut(app_id)
+            .ok_or_else(|| anyhow!("app '{}' not installed", app_id))?;
+        if app.system {
+            return Err(anyhow!(
+                "system app '{}' wird automatisch verwaltet",
+                app_id
+            ));
+        }
+        app.status = "stopped".to_string();
         let updated = app.clone();
         drop(inner);
         self.persist_index().await?;
@@ -493,6 +618,16 @@ impl LocalAppStore {
         })
         .await;
 
+        // Extract custom_pages from manifest extra.
+        let custom_pages = manifest
+            .extra
+            .get("custom_pages")
+            .and_then(|v| serde_json::from_value::<Vec<CustomPageEntry>>(v.clone()).ok())
+            .unwrap_or_default();
+
+        // Extract docker config from manifest extra.
+        let docker_config = manifest.extra.get("docker").cloned();
+
         let app = InstalledApp {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
@@ -502,6 +637,7 @@ impl LocalAppStore {
             icon: manifest.icon.clone(),
             trust_level: "untrusted".to_string(),
             enabled: false,
+            status: "stopped".to_string(),
             installed_at: now_iso(),
             source: "zip".to_string(),
             kind: manifest
@@ -512,6 +648,9 @@ impl LocalAppStore {
                 .unwrap_or_else(|| "app".to_string()),
             system: false,
             manifest: manifest.clone(),
+            custom_pages,
+            docker_config,
+            ports: Vec::new(),
         };
 
         // Persist manifest.json next to the extracted files (not strictly
@@ -532,6 +671,38 @@ impl LocalAppStore {
 
     pub fn base_dir(&self) -> &Path {
         &self.base_dir
+    }
+
+    /// Append a log entry for a specific app.
+    pub fn append_log(&self, app_id: &str, entry: LogEntry) {
+        let mut inner = self.inner.try_write().unwrap_or_else(|e| e.into_inner());
+        let logs = inner.app_logs.entry(app_id.to_string()).or_default();
+        logs.push(entry.clone());
+        if logs.len() > MAX_APP_LOG_LINES {
+            let drop_n = logs.len() - MAX_APP_LOG_LINES;
+            logs.drain(0..drop_n);
+        }
+        drop(inner);
+        let _ = self.events.send(InstallEvent::LogEntry {
+            app_id: app_id.to_string(),
+            entry,
+        });
+    }
+
+    /// Get all log entries for a specific app.
+    pub async fn get_logs(&self, app_id: &str) -> Vec<LogEntry> {
+        let inner = self.inner.read().await;
+        inner
+            .app_logs
+            .get(app_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Get all log entries across all apps.
+    pub async fn get_all_logs(&self) -> HashMap<String, Vec<LogEntry>> {
+        let inner = self.inner.read().await;
+        inner.app_logs.clone()
     }
 }
 

@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use uuid::Uuid;
-use futures_util::stream::Stream;
+use futures_util::stream::{Stream, StreamExt};
 use std::convert::Infallible;
 
 mod providers;
@@ -31,6 +31,9 @@ mod conversation_manager;
 mod tools;
 mod api_proxy;
 mod self_evolution;
+mod sandbox;
+mod agent_task_executor;
+mod agent_pipeline;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
@@ -52,6 +55,9 @@ use self_evolution::{
     scheduler::EvolutionScheduler,
 };
 
+use sandbox::SandboxManager;
+use agent_task_executor::AgentTaskExecutor;
+
 #[derive(Clone)]
 struct AppState {
     history: Arc<RwLock<Vec<ChatMessage>>>,
@@ -67,6 +73,8 @@ struct AppState {
     memory_manager: Option<Arc<MemoryManager>>,
     evolution_orchestrator: Option<Arc<SelfEvolutionOrchestrator>>,
     knowledge_base: Option<Arc<KnowledgeBase>>,
+    sandbox_manager: Arc<SandboxManager>,
+    agent_task_executor: Option<Arc<AgentTaskExecutor>>,
 }
 
 /// Default system prompt injected when no custom prompt is provided.
@@ -1231,6 +1239,492 @@ async fn get_evolution_status(State(state): State<AppState>) -> Json<serde_json:
     }))
 }
 
+// ============================================================================
+// SANDBOX & AGENT TASK API ENDPOINTS
+// ============================================================================
+
+/// Create a new workspace
+async fn create_workspace(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed");
+    let source = req.get("source").and_then(|v| v.as_str()).unwrap_or("new");
+    let git_url = req.get("git_url").and_then(|v| v.as_str());
+
+    match state.sandbox_manager.create_workspace(name, source, git_url).await {
+        Ok(ws) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "workspace": ws}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// List all workspaces
+async fn list_workspaces(State(state): State<AppState>) -> impl IntoResponse {
+    let workspaces = state.sandbox_manager.list_workspaces().await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "workspaces": workspaces, "total": workspaces.len()})))
+}
+
+/// Get single workspace
+async fn get_workspace(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.get_workspace(&id).await {
+        Some(ws) => (StatusCode::OK, Json(serde_json::json!({"success": true, "workspace": ws}))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Workspace not found"}))),
+    }
+}
+
+/// Delete a workspace
+async fn delete_workspace(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.delete_workspace(&id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// List files in workspace
+async fn list_workspace_files(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let sub_path = params.get("path").map(|s| s.as_str());
+    match state.sandbox_manager.list_files(&id, sub_path).await {
+        Ok(files) => (StatusCode::OK, Json(serde_json::json!({"success": true, "files": files, "total": files.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Read a file in workspace
+async fn read_workspace_file(
+    State(state): State<AppState>,
+    axum::extract::Path((ws_id, file_path)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.read_file(&ws_id, &file_path).await {
+        Ok(content) => (StatusCode::OK, Json(serde_json::json!({"success": true, "content": content}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Write a file in workspace
+async fn write_workspace_file(
+    State(state): State<AppState>,
+    axum::extract::Path((ws_id, file_path)): axum::extract::Path<(String, String)>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let content = req.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    match state.sandbox_manager.write_file(&ws_id, &file_path, content).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Get git status/diff for workspace
+async fn workspace_git_status(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.git_status(&id).await {
+        Ok(diffs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "changes": diffs, "total": diffs.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Git commit changes
+async fn workspace_git_commit(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let message = req.get("message").and_then(|v| v.as_str()).unwrap_or("Update via ORA Agent");
+    match state.sandbox_manager.git_commit(&id, message).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Git push
+async fn workspace_git_push(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let remote = req.get("remote").and_then(|v| v.as_str()).unwrap_or("origin");
+    let branch = req.get("branch").and_then(|v| v.as_str()).unwrap_or("main");
+    match state.sandbox_manager.git_push(&id, remote, branch).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Create git branch
+async fn workspace_git_create_branch(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("feature/ora-agent");
+    let base = req.get("base").and_then(|v| v.as_str());
+    match state.sandbox_manager.git_create_branch(&id, name, base).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// Create GitHub Pull Request
+async fn workspace_create_pr(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let title = req.get("title").and_then(|v| v.as_str()).unwrap_or("ORA Agent Changes");
+    let body = req.get("body").and_then(|v| v.as_str()).unwrap_or("Automated changes by ORA Agent.");
+    let head = req.get("head").and_then(|v| v.as_str()).unwrap_or("feature/ora-agent");
+    let base = req.get("base").and_then(|v| v.as_str()).unwrap_or("main");
+    match state.sandbox_manager.create_pull_request(&id, title, body, head, base).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Enhanced Git Handlers ────────────────────────────────────────────────
+
+async fn workspace_git_log(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let max = params.get("max").and_then(|v| v.parse::<u32>().ok()).unwrap_or(20);
+    match state.sandbox_manager.git_log(&id, max).await {
+        Ok(entries) => (StatusCode::OK, Json(serde_json::json!({"success": true, "entries": entries, "total": entries.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_branches(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.git_branches(&id).await {
+        Ok(branches) => (StatusCode::OK, Json(serde_json::json!({"success": true, "branches": branches, "total": branches.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_checkout(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let branch = req.get("branch").and_then(|v| v.as_str()).unwrap_or("main");
+    match state.sandbox_manager.git_checkout(&id, branch).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_delete_branch(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let branch = req.get("branch").and_then(|v| v.as_str()).unwrap_or("");
+    match state.sandbox_manager.git_delete_branch(&id, branch).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_stash(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let message = req.get("message").and_then(|v| v.as_str());
+    match state.sandbox_manager.git_stash(&id, message).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_stash_pop(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let index = req.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
+    match state.sandbox_manager.git_stash_pop(&id, index).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_stash_list(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.git_stash_list(&id).await {
+        Ok(stashes) => (StatusCode::OK, Json(serde_json::json!({"success": true, "stashes": stashes, "total": stashes.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_reset(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let mode = req.get("mode").and_then(|v| v.as_str()).unwrap_or("mixed");
+    let target = req.get("target").and_then(|v| v.as_str()).unwrap_or("HEAD");
+    match state.sandbox_manager.git_reset(&id, mode, target).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_revert(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let commit = req.get("commit").and_then(|v| v.as_str()).unwrap_or("HEAD");
+    match state.sandbox_manager.git_revert(&id, commit).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_merge(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let source = req.get("source").and_then(|v| v.as_str()).unwrap_or("");
+    match state.sandbox_manager.git_merge(&id, source).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_rebase(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let onto = req.get("onto").and_then(|v| v.as_str()).unwrap_or("main");
+    match state.sandbox_manager.git_rebase(&id, onto).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_blame(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let file = req.get("file").and_then(|v| v.as_str()).unwrap_or("");
+    match state.sandbox_manager.git_blame(&id, file).await {
+        Ok(lines) => (StatusCode::OK, Json(serde_json::json!({"success": true, "lines": lines, "total": lines.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_fetch(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let remote = req.get("remote").and_then(|v| v.as_str()).unwrap_or("origin");
+    match state.sandbox_manager.git_fetch(&id, remote).await {
+        Ok(output) => (StatusCode::OK, Json(serde_json::json!({"success": true, "output": output}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+async fn workspace_git_diff_between(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let a = req.get("a").and_then(|v| v.as_str()).unwrap_or("HEAD~1");
+    let b = req.get("b").and_then(|v| v.as_str()).unwrap_or("HEAD");
+    match state.sandbox_manager.git_diff_between(&id, a, b).await {
+        Ok(diffs) => (StatusCode::OK, Json(serde_json::json!({"success": true, "changes": diffs, "total": diffs.len()}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ─── Agent Task Handler (updated with TaskConfig) ─────────────────────────
+
+/// Create an agent task in a workspace
+async fn create_agent_task(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let workspace_id = req.get("workspace_id").and_then(|v| v.as_str()).unwrap_or("");
+    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("Unnamed Task");
+    let description = req.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let model = req.get("model").and_then(|v| v.as_str()).unwrap_or("gpt-4o");
+    let provider = req.get("provider").and_then(|v| v.as_str()).unwrap_or("openai");
+    
+    // Parse steering config
+    let config = req.get("config").map(|c| serde_json::from_value(c.clone()).ok()).flatten();
+
+    let task = match state.sandbox_manager.create_task(workspace_id, name, description, model, provider, config).await {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    };
+
+    // Start executing the task in background
+    if let Some(ref executor) = state.agent_task_executor {
+        let api_key = req.get("api_key").and_then(|v| v.as_str());
+        let base_url = req.get("base_url").and_then(|v| v.as_str());
+        let exec = executor.clone();
+        let task_id = task.id.clone();
+        let prov = provider.to_string();
+        let mdl = model.to_string();
+        let key = api_key.map(|s| s.to_string());
+        let url = base_url.map(|s| s.to_string());
+        tokio::spawn(async move {
+            let _ = exec.execute_task(
+                task_id, prov, mdl,
+                key, url,
+            ).await;
+        });
+    }
+
+    (StatusCode::CREATED, Json(serde_json::json!({"success": true, "task": task})))
+}
+
+/// List agent tasks
+async fn list_agent_tasks(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let tasks = state.sandbox_manager.list_tasks(None).await;
+    (StatusCode::OK, Json(serde_json::json!({"success": true, "tasks": tasks, "total": tasks.len()})))
+}
+
+/// Get single agent task
+async fn get_agent_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.get_task(&id).await {
+        Some(task) => (StatusCode::OK, Json(serde_json::json!({"success": true, "task": task}))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Task not found"}))),
+    }
+}
+
+/// Cancel an agent task
+async fn cancel_agent_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.sandbox_manager.cancel_task(&id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// SSE stream for agent task events (live output)
+async fn stream_agent_task_events(
+    State(state): State<AppState>,
+) -> axum::response::Sse<impl futures_util::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use tokio_stream::wrappers::BroadcastStream;
+
+    let rx = if let Some(ref executor) = state.agent_task_executor {
+        executor.subscribe()
+    } else {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        rx
+    };
+
+    let stream = BroadcastStream::new(rx).filter_map(|msg| {
+        futures_util::future::ready(match msg {
+            Ok(agent_task_executor::AgentTaskEvent::Output { task_id, line }) => {
+                Some(Ok::<_, std::convert::Infallible>(Event::default()
+                    .event("agent_task_output")
+                    .data(serde_json::json!({
+                        "type": "output",
+                        "task_id": task_id,
+                        "line": line,
+                    }).to_string())))
+            }
+            Ok(agent_task_executor::AgentTaskEvent::Progress { task_id, progress }) => {
+                Some(Ok(Event::default()
+                    .event("agent_task_progress")
+                    .data(serde_json::json!({
+                        "type": "progress",
+                        "task_id": task_id,
+                        "progress": progress,
+                    }).to_string())))
+            }
+            Ok(agent_task_executor::AgentTaskEvent::StatusChange { task_id, status }) => {
+                Some(Ok(Event::default()
+                    .event("agent_task_status")
+                    .data(serde_json::json!({
+                        "type": "status_change",
+                        "task_id": task_id,
+                        "status": status,
+                    }).to_string())))
+            }
+            Ok(agent_task_executor::AgentTaskEvent::Completed { task_id, changes }) => {
+                Some(Ok(Event::default()
+                    .event("agent_task_completed")
+                    .data(serde_json::json!({
+                        "type": "completed",
+                        "task_id": task_id,
+                        "changes": changes,
+                    }).to_string())))
+            }
+            Ok(agent_task_executor::AgentTaskEvent::Failed { task_id, error }) => {
+                Some(Ok(Event::default()
+                    .event("agent_task_failed")
+                    .data(serde_json::json!({
+                        "type": "failed",
+                        "task_id": task_id,
+                        "error": error,
+                    }).to_string())))
+            }
+            Err(_) => None,
+        })
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// Get running agent task count
+async fn agent_task_stats(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let running = if let Some(ref executor) = state.agent_task_executor {
+        executor.running_count().await
+    } else {
+        0
+    };
+    let tasks = state.sandbox_manager.list_tasks(None).await;
+    let queued = tasks.iter().filter(|t| t.status == "queued").count();
+    let completed = tasks.iter().filter(|t| t.status == "completed").count();
+    let failed = tasks.iter().filter(|t| t.status == "failed").count();
+
+    (StatusCode::OK, Json(serde_json::json!({
+        "success": true,
+        "stats": {
+            "running": running,
+            "queued": queued,
+            "completed": completed,
+            "failed": failed,
+            "total": tasks.len(),
+        }
+    })))
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn load_config_from_env() -> (ProviderType, ProviderConfig) {
@@ -2258,6 +2752,17 @@ async fn main() -> anyhow::Result<()> {
         (None, None)
     };
 
+    // Initialize sandbox manager (works in memory – no DB needed)
+    let sandbox_dir = std::env::var("ORA_SANDBOX_DIR")
+        .unwrap_or_else(|_| "./sandbox_workspaces".to_string());
+    let sandbox_manager = Arc::new(SandboxManager::new(std::path::PathBuf::from(&sandbox_dir)));
+    
+    let agent_task_executor = {
+        let executor = Arc::new(AgentTaskExecutor::new(sandbox_manager.clone()));
+        info!("Agent task executor initialized");
+        Some(executor)
+    };
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
@@ -2272,6 +2777,8 @@ async fn main() -> anyhow::Result<()> {
         memory_manager,
         evolution_orchestrator,
         knowledge_base,
+        sandbox_manager,
+        agent_task_executor,
     };
 
     let app = Router::new()
@@ -2331,6 +2838,34 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/evolution/knowledge", post(store_knowledge))
         .route("/api/assist/evolution/knowledge", get(search_knowledge))
         .route("/api/assist/evolution/status", get(get_evolution_status))
+        // Sandbox & Agent Task API
+        .route("/api/assist/workspaces", get(list_workspaces).post(create_workspace))
+        .route("/api/assist/workspaces/:id", get(get_workspace).delete(delete_workspace))
+        .route("/api/assist/workspaces/:id/files", get(list_workspace_files))
+        .route("/api/assist/workspaces/:ws_id/files/*file_path", get(read_workspace_file).put(write_workspace_file))
+        .route("/api/assist/workspaces/:id/git/status", get(workspace_git_status))
+        .route("/api/assist/workspaces/:id/git/commit", post(workspace_git_commit))
+        .route("/api/assist/workspaces/:id/git/push", post(workspace_git_push))
+        .route("/api/assist/workspaces/:id/git/branch", post(workspace_git_create_branch))
+        .route("/api/assist/workspaces/:id/git/pr", post(workspace_create_pr))
+        .route("/api/assist/workspaces/:id/git/log", get(workspace_git_log))
+        .route("/api/assist/workspaces/:id/git/branches", get(workspace_git_branches))
+        .route("/api/assist/workspaces/:id/git/checkout", post(workspace_git_checkout))
+        .route("/api/assist/workspaces/:id/git/delete-branch", post(workspace_git_delete_branch))
+        .route("/api/assist/workspaces/:id/git/stash", post(workspace_git_stash))
+        .route("/api/assist/workspaces/:id/git/stash-pop", post(workspace_git_stash_pop))
+        .route("/api/assist/workspaces/:id/git/stash-list", get(workspace_git_stash_list))
+        .route("/api/assist/workspaces/:id/git/reset", post(workspace_git_reset))
+        .route("/api/assist/workspaces/:id/git/revert", post(workspace_git_revert))
+        .route("/api/assist/workspaces/:id/git/merge", post(workspace_git_merge))
+        .route("/api/assist/workspaces/:id/git/rebase", post(workspace_git_rebase))
+        .route("/api/assist/workspaces/:id/git/blame", post(workspace_git_blame))
+        .route("/api/assist/workspaces/:id/git/fetch", post(workspace_git_fetch))
+        .route("/api/assist/workspaces/:id/git/diff-between", post(workspace_git_diff_between))
+        .route("/api/assist/agent/tasks", get(list_agent_tasks).post(create_agent_task))
+        .route("/api/assist/agent/tasks/:id", get(get_agent_task).delete(cancel_agent_task))
+        .route("/api/assist/agent/tasks/events", get(stream_agent_task_events))
+        .route("/api/assist/agent/stats", get(agent_task_stats))
         // OpenAI-Compatible API (Proxy für andere Dienste)
         .route("/v1/chat/completions", post(openai_chat_completions))
         .route("/v1/models", get(list_available_models))

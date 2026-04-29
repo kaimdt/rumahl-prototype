@@ -27,6 +27,7 @@ import { SharePage } from './components/SharePage'
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
 import { AdminPanel } from '@/components/AdminPanel'
+import { AgentTab } from '@/components/AgentTab'
 import { DocsPage } from '@/components/DocsPageNew'
 import { StreamSender } from '@/components/StreamSender'
 import { NotificationProvider } from '@/contexts/NotificationContext'
@@ -98,7 +99,7 @@ async function hashPin(pin: string): Promise<string> {
 function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
-  const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile } = useAuth()
+  const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile, token } = useAuth()
   const { currentPageId, currentPage, modalPageId, closeModalPage, pages, setCurrentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
@@ -680,6 +681,11 @@ function DashboardContent() {
               )}
               {currentPageId === 'streaming' && (
                 <StreamSender />
+              )}
+              {currentPageId === 'ai-agent' && (
+                <div className="pb-28">
+                  <AgentTab token={token || ''} />
+                </div>
               )}
               {/* TODO: Music Player Page */}
               {currentPageId === 'music' && !showSimpleDashboard && (

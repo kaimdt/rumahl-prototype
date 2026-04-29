@@ -131,7 +131,7 @@ impl ProviderType {
 pub fn provider_type_from_str(value: &str) -> Option<ProviderType> {
     match value.trim().to_ascii_lowercase().as_str() {
         "openai" => Some(ProviderType::OpenAI),
-        "anthropic" | "claude" => Some(ProviderType::Anthropic),
+        "anthropic" | "claude" | "claude-sonnet" | "claude-opus" | "claude-haiku" => Some(ProviderType::Anthropic),
         "local" | "localai" | "ollama" | "lmstudio" | "lm-studio" => Some(ProviderType::Local),
         "desktop" | "desktopai" => Some(ProviderType::Desktop),
         "compatible" | "custom" | "openai-compatible" | "openai_compatible" => Some(ProviderType::Compatible),

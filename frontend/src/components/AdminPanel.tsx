@@ -19,6 +19,7 @@ import {
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
+import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
 
 interface CloudSettings {
@@ -60,7 +61,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
+type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
@@ -115,6 +116,7 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'ai-tasks', label: 'AI Aufgaben', icon: Robot, description: 'Autonome AI-Aufgaben — Zeitpläne, Trigger und Status der Hintergrund-Agenten' },
   { id: 'ai-tools', label: 'AI Tools', icon: Hand, description: 'Internet-Suche, Web-Scraping und Screenshot-Tools des Assistenten testen und ausführen' },
   { id: 'ai-voice', label: 'AI Stimme', icon: Microphone, description: 'Spracheingabe (STT) und Sprachausgabe (TTS) testen — Voice-Modelle und Latenz prüfen' },
+  { id: 'ai-agent', label: '🤖 Agent', icon: Robot, description: 'Vollständiger Agent-Arbeitsbereich mit Chat, Aufgaben und Verlauf — wie GitHub Agent Tab' },
   { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten IORA Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
   { id: 'secrets', label: 'Secrets', icon: Vault, description: 'Verschlüsselter Tresor für API-Keys, Tokens und Passwörter — verwalten, rotieren und Audit-Log einsehen (iora-secrets)' },
   { id: 'files', label: 'Dateien', icon: FolderOpen, description: 'Datei-Verwaltung mit Versionierung, Freigabe-Links, Berechtigungen und Quotas (iora-files)' },
@@ -140,7 +142,7 @@ type TabGroup = {
 
 const tabGroups: TabGroup[] = [
   { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
-  { id: 'ai', title: 'KI & Assistent', icon: Brain, items: ['ai-overview', 'ai-providers', 'ai-conversations', 'ai-tasks', 'ai-tools', 'ai-voice'] },
+  { id: 'ai', title: 'KI & Assistent', icon: Brain, items: ['ai-agent', 'ai-overview', 'ai-providers', 'ai-conversations', 'ai-tasks', 'ai-tools', 'ai-voice'] },
   { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
@@ -682,6 +684,7 @@ export function AdminPanel() {
               {activeTab === 'ai-tasks' && <AiTasksTab token={token} />}
               {activeTab === 'ai-tools' && <AiToolsTab token={token} />}
               {activeTab === 'ai-voice' && <AiVoiceTab token={token} />}
+              {activeTab === 'ai-agent' && <AgentTab token={token} />}
               {activeTab === 'secrets' && <SecretsTab token={token} />}
               {activeTab === 'files' && <FilesTab token={token} />}
               {activeTab === 'gateway' && <GatewayTab token={token} />}

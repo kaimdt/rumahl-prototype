@@ -4,6 +4,11 @@ import type {
   NotificationPayload,
   AppSettings,
   HealthStatus,
+  SettingsSchema,
+  SettingsField,
+  PluginExecutionRequest,
+  PluginExecutionResult,
+  PluginSandboxConfig,
 } from './types';
 
 /**
@@ -571,6 +576,91 @@ export default class IoraClient {
     markRead: async (msgId: string, appId?: string): Promise<any> => {
       const id = appId || this.appId;
       return this.request('POST', `/api/apps/${id}/messaging/inbox/${msgId}/read`);
+    },
+  };
+
+  /**
+   * v2.2: App Configuration API
+   *
+   * Manage per-app settings using the app's settings_schema from its manifest.
+   */
+  appConfig = {
+    /**
+     * Get the configuration schema for the app
+     */
+    getSchema: async (appId?: string): Promise<SettingsSchema> => {
+      const id = appId || this.appId;
+      return this.request('GET', `/api/apps/${id}/config/schema`);
+    },
+
+    /**
+     * Get current configuration values
+     */
+    get: async (appId?: string): Promise<Record<string, any>> => {
+      const id = appId || this.appId;
+      return this.request('GET', `/api/apps/${id}/config`);
+    },
+
+    /**
+     * Update configuration values
+     */
+    update: async (config: Record<string, any>, appId?: string): Promise<any> => {
+      const id = appId || this.appId;
+      return this.request('PUT', `/api/apps/${id}/config`, config);
+    },
+
+    /**
+     * Reset a specific config key to its default value
+     */
+    reset: async (key: string, appId?: string): Promise<any> => {
+      const id = appId || this.appId;
+      return this.request('DELETE', `/api/apps/${id}/config/${key}`);
+    },
+  };
+
+  /**
+   * v2.2: Plugin Execution API
+   *
+   * Execute plugins in the sandbox environment.
+   */
+  plugins = {
+    /**
+     * List installed plugins
+     */
+    list: async (): Promise<any[]> => {
+      return this.request('GET', '/api/core/plugins');
+    },
+
+    /**
+     * Get plugin details
+     */
+    get: async (pluginId: string): Promise<any> => {
+      return this.request('GET', `/api/core/plugins/${pluginId}`);
+    },
+
+    /**
+     * Execute a plugin in the sandbox
+     */
+    execute: async (pluginId: string, input: Record<string, any>, timeoutMs?: number): Promise<PluginExecutionResult> => {
+      return this.request('POST', `/api/core/plugins/${pluginId}/execute`, {
+        plugin_id: pluginId,
+        input,
+        timeout_ms: timeoutMs,
+      });
+    },
+
+    /**
+     * Get plugin execution logs
+     */
+    getLogs: async (pluginId: string): Promise<any[]> => {
+      return this.request('GET', `/api/core/plugins/${pluginId}/logs`);
+    },
+
+    /**
+     * Get plugin sandbox status
+     */
+    getSandboxStatus: async (): Promise<any> => {
+      return this.request('GET', '/api/core/sandbox/status');
     },
   };
 }

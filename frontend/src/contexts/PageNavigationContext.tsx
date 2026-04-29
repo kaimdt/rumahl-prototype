@@ -174,6 +174,14 @@ const defaultPages: DashboardPage[] = [
     showInNav: true,
     order: 996,
   },
+  {
+    id: 'ai-agent',
+    name: 'Agent',
+    icon: 'Robot',
+    widgets: [],
+    showInNav: true,
+    order: 995,
+  },
 ]
 
 export const iconMap = {
@@ -634,6 +642,44 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
             }
             return p
           })
+
+          // Load app custom pages from running apps
+          try {
+            const appPagesRes = await authFetch('/api/apps/pages')
+            if (appPagesRes.ok) {
+              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string }> }
+              if (appPagesData.pages && appPagesData.pages.length > 0) {
+                const existingIds = new Set(migrated.map(p => p.id))
+                for (const p of appPagesData.pages) {
+                  if (!existingIds.has(p.page_id)) {
+                    // Parse widgets from backend format to frontend format
+                    const widgets = (p.widgets || []).map((w: any) => ({
+                      id: `widget-${p.page_id}-${w.position_x}-${w.position_y}`,
+                      type: w.widget_type,
+                      entity_id: w.entity_id || undefined,
+                      position: { x: w.position_x, y: w.position_y },
+                      size: { w: w.width || 6, h: w.height || 6 },
+                      config: w.config || undefined,
+                    }))
+                    migrated.push({
+                      id: p.page_id,
+                      name: p.name,
+                      icon: p.icon,
+                      widgets,
+                      showInNav: p.show_in_nav !== false,
+                      order: p.position || 500,
+                      displayMode: (p.display_mode as 'page' | 'modal') || 'page',
+                    })
+                    existingIds.add(p.page_id)
+                  }
+                }
+                console.log('[PageSync] Merged', appPagesData.pages.length, 'app pages')
+              }
+            }
+          } catch {
+            // App pages loading is non-critical
+          }
+
           skipNextSaveRef.current = true
           setLocalPages(migrated)
           console.log('[PageSync] Loaded', migrated.length, 'pages from backend')
@@ -644,6 +690,43 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
         } else {
           // Backend is empty → push current localStorage pages to backend
           console.log('[PageSync] Backend empty, pushing', pages.length, 'pages from localStorage')
+
+          // Load app custom pages from running apps
+          try {
+            const appPagesRes = await authFetch('/api/apps/pages')
+            if (appPagesRes.ok) {
+              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string }> }
+              if (appPagesData.pages && appPagesData.pages.length > 0) {
+                const existingIds = new Set(pages.map(p => p.id))
+                for (const p of appPagesData.pages) {
+                  if (!existingIds.has(p.page_id)) {
+                    const widgets = (p.widgets || []).map((w: any) => ({
+                      id: `widget-${p.page_id}-${w.position_x}-${w.position_y}`,
+                      type: w.widget_type,
+                      entity_id: w.entity_id || undefined,
+                      position: { x: w.position_x, y: w.position_y },
+                      size: { w: w.width || 6, h: w.height || 6 },
+                      config: w.config || undefined,
+                    }))
+                    setLocalPages(prev => [...prev, {
+                      id: p.page_id,
+                      name: p.name,
+                      icon: p.icon,
+                      widgets,
+                      showInNav: p.show_in_nav !== false,
+                      order: p.position || 500,
+                      displayMode: (p.display_mode as 'page' | 'modal') || 'page',
+                    }])
+                    existingIds.add(p.page_id)
+                  }
+                }
+                console.log('[PageSync] Merged', appPagesData.pages.length, 'app pages')
+              }
+            }
+          } catch {
+            // App pages loading is non-critical
+          }
+
           await savePagesToBackend(profileId, pages)
 
           // Also push current settings to backend for the first time

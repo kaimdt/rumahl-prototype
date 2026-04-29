@@ -35,6 +35,54 @@ export interface AppSettings {
   settings: Record<string, any>;
 }
 
+/** v2.2: App Configuration Field definition */
+export interface SettingsField {
+  key: string;
+  label: string;
+  description?: string;
+  type: 'text' | 'number' | 'boolean' | 'select' | 'textarea' | 'password' | 'url' | 'email' | 'color';
+  default?: any;
+  required?: boolean;
+  options?: Array<{ value: string; label: string }>;
+  validation?: {
+    min?: number;
+    max?: number;
+    min_length?: number;
+    max_length?: number;
+    pattern?: string;
+  };
+}
+
+/** v2.2: App Configuration Schema */
+export interface SettingsSchema {
+  title: string;
+  description: string;
+  fields: SettingsField[];
+}
+
+/** v2.2: Plugin Execution Request */
+export interface PluginExecutionRequest {
+  plugin_id: string;
+  input: Record<string, any>;
+  timeout_ms?: number;
+}
+
+/** v2.2: Plugin Execution Result */
+export interface PluginExecutionResult {
+  success: boolean;
+  duration_ms: number;
+  output: any;
+  error?: string;
+}
+
+/** v2.2: Plugin sandbox configuration */
+export interface PluginSandboxConfig {
+  max_execution_time_ms: number;
+  max_memory_mb: number;
+  allow_network: boolean;
+  allow_file_system: boolean;
+}
+
 export interface HealthStatus {
   healthy: boolean;
   message?: string;
