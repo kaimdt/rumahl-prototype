@@ -66,6 +66,11 @@
           "highlight": true
         },
         {
+          "title": "App & Plugin System (v2.2)",
+          "path": "system/app-plugin-system.md",
+          "highlight": true
+        },
+        {
           "title": "App Database (SQLite)",
           "path": "development/app-database.md",
           "highlight": true

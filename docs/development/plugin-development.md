@@ -2,6 +2,9 @@
 
 This guide will help you create plugins for the IORA platform.
 
+> 📚 **Vollständige System-Referenz**: Siehe [App & Plugin System (v2.2)](../system/app-plugin-system.md)
+> für die komplette API-Referenz, die Plugin-Sandbox-API und die Sandbox-Restriktionen.
+
 ## Table of Contents
 
 - [Overview](#overview)

@@ -4133,8 +4133,10 @@ async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
                     "config": {
                         "url": format!("/api/apps/{}/proxy{}", a.id, p.url),
                         "title": p.title,
+                        "appId": a.id,
                         "sandbox": ["allow-scripts", "allow-same-origin"],
                         "height": "100%",
+                        "allowFullscreen": true,
                     }
                 });
 
@@ -4206,30 +4208,69 @@ async fn app_proxy_handler(
                                 .unwrap_or_else(|_| Response::new(Body::from("Proxy error")))
                         }
                         Err(_) => {
-                            // App container not reachable - show placeholder
-                            Response::builder()
-                                .status(StatusCode::OK)
-                                .header("content-type", "text/html; charset=utf-8")
-                                .body(Body::from(format!(
-                                    r#"<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{}</title>
+                            // App container not reachable - show informative placeholder
+                            let status_cls = if app.status == "running" { "running" } else { "stopped" };
+                            let status_label = if app.status == "running" { "Läuft (kein Container)" } else { "Gestoppt" };
+                            let desc = if app.status == "running" {
+                                "Die App läuft im lokalen Modus ohne Docker-Container. Der Proxy kann die angeforderte Seite nicht laden, da kein Container antwortet."
+                            } else {
+                                "Die App ist gestoppt. Starte die App im Admin-Bereich, um ihren Inhalt zu sehen."
+                            };
+                            let hint = if app.status == "running" {
+                                "Im Docker-Modus würde diese Anfrage an den App-Container weitergeleitet werden."
+                            } else {
+                                "Klicke unten auf \"Details\", um die App zu starten."
+                            };
+                            let html = format!(
+                                r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>{title}</title>
 <style>
-body {{ font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f0f12; color: #e0e0e0; }}
-.container {{ text-align: center; padding: 2rem; }}
-h1 {{ font-size: 1.5rem; margin-bottom: 0.5rem; }}
-p {{ color: #888; font-size: 0.875rem; }}
-.status {{ display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; background: #05966920; color: #34d399; font-size: 0.75rem; font-weight: 600; }}
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #0f0f12; color: #e0e0e0; }}
+.container {{ text-align: center; padding: 2rem; max-width: 420px; }}
+.icon {{ width: 64px; height: 64px; margin: 0 auto 1rem; background: linear-gradient(135deg, #6366f1, #8b5cf6); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; }}
+.status {{ display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }}
+.status.running {{ background: rgba(5,150,105,0.12); color: #34d399; }}
+.status.stopped {{ background: rgba(107,114,128,0.12); color: #9ca3af; }}
+h1 {{ font-size: 20px; margin-bottom: 8px; }}
+p {{ color: #9ca3af; font-size: 14px; line-height: 1.5; margin-bottom: 8px; }}
+.hint {{ color: #6b7280; font-size: 12px; }}
+.actions {{ margin-top: 24px; display: flex; gap: 8px; justify-content: center; }}
+.btn {{ padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; display: inline-block; }}
+.btn-primary {{ background: #6366f1; color: white; border: none; }}
+.btn-primary:hover {{ background: #4f46e5; }}
+.btn-secondary {{ background: #1f2937; color: #e0e0e0; border: 1px solid #374151; }}
+.btn-secondary:hover {{ background: #374151; }}
 </style>
 </head><body>
 <div class="container">
-<div class="status">● Läuft (lokal)</div>
-<h1>{}</h1>
-<p>Die App läuft im lokalen Modus.</p>
-<p>Im Docker-Modus würde diese URL an den App-Container weitergeleitet werden.</p>
+<div class="icon">📦</div>
+<div class="status {sc}">● {sl}</div>
+<h1>{title}</h1>
+<p>{d}</p>
+<p class="hint">{h}</p>
+<div class="actions">
+<a href="/admin" class="btn btn-secondary">⚙ Admin</a>
+<button onclick="parent.postMessage({{type:'request',id:'proxy',method:'ui.openAppDetail',params:['{aid}']}},'*')" class="btn btn-primary">📋 Details</button>
 </div>
+</div>
+<script>
+parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:'{aid}',status:'{st}',name:'{title}'}}}}}},'*');
+</script>
 </body></html>"#,
-                                    app.name, app.name
-                                )))
+                                title = app.name,
+                                sc = status_cls,
+                                sl = status_label,
+                                d = desc,
+                                h = hint,
+                                aid = app.id,
+                                st = app.status,
+                            );
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header("content-type", "text/html; charset=utf-8")
+                                .body(Body::from(html))
                                 .unwrap()
                         }
                     }

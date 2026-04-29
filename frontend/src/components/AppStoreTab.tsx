@@ -152,6 +152,18 @@ export function AppStoreTab({ token }: { token: string }) {
     }
   }
 
+  // Listen for custom 'open-app-detail' events from iframes
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      if (e.detail?.appId) {
+        setDetailAppId(e.detail.appId)
+        setView('installed')
+      }
+    }
+    window.addEventListener('open-app-detail', handler as EventListener)
+    return () => window.removeEventListener('open-app-detail', handler as EventListener)
+  }, [])
+
   return (
     <div className="space-y-3">
       {/* View Switcher */}

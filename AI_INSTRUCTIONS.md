@@ -17,6 +17,9 @@
 | **Ressourcen** | Volle Container-Ressourcen | Limitierte Sandbox (max 5s, 128MB) |
 | **Use Cases** | Wetter-App, Kalender, Admin-Tools | Dashboard-Widgets, Automationen |
 
+> 📚 **Vollständige Dokumentation**: Siehe [App & Plugin System (v2.2)](docs/system/app-plugin-system.md)
+> für API-Referenz, Datenbank-System, Plugin-Sandbox und SDK-Referenz.
+
 ### Datenfluss
 
 ```
