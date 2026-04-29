@@ -88,6 +88,12 @@ pub struct InstalledApp {
     /// Port mappings (external:internal), populated when app is started.
     #[serde(default)]
     pub ports: Vec<PortMapping>,
+    /// Whether this is a multi-container bundle app (v2.3).
+    #[serde(default)]
+    pub is_bundle: bool,
+    /// Bundle configuration (services, network, volumes) if is_bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_config: Option<serde_json::Value>,
 }
 
 fn default_status() -> String { "stopped".to_string() }
@@ -245,6 +251,12 @@ impl LocalAppStore {
                 if a.docker_config.is_none() {
                     a.docker_config = a.manifest.extra.get("docker").cloned();
                 }
+                if !a.is_bundle && a.bundle_config.is_none() {
+                    if let Some(bundle) = a.manifest.extra.get("bundle") {
+                        a.is_bundle = true;
+                        a.bundle_config = Some(bundle.clone());
+                    }
+                }
                 a
             })
             .collect();
@@ -324,6 +336,7 @@ impl LocalAppStore {
                         icon: None,
                         trust_level: "trusted".to_string(),
                         enabled: true,
+                        status: "running".to_string(),
                         installed_at: now_iso(),
                         source: "system".to_string(),
                         kind: "system".to_string(),
@@ -339,6 +352,11 @@ impl LocalAppStore {
                             permissions: vec!["dev-bridge".to_string(), "service-control".to_string()],
                             extra: serde_json::Value::Null,
                         },
+                        custom_pages: Vec::new(),
+                        docker_config: None,
+                        ports: Vec::new(),
+                        is_bundle: false,
+                        bundle_config: None,
                     },
                 );
                 true
@@ -628,6 +646,10 @@ impl LocalAppStore {
         // Extract docker config from manifest extra.
         let docker_config = manifest.extra.get("docker").cloned();
 
+        // Extract bundle config (v2.3 multi-container apps).
+        let is_bundle = manifest.extra.get("bundle").is_some();
+        let bundle_config = manifest.extra.get("bundle").cloned();
+
         let app = InstalledApp {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
@@ -651,6 +673,8 @@ impl LocalAppStore {
             custom_pages,
             docker_config,
             ports: Vec::new(),
+            is_bundle,
+            bundle_config,
         };
 
         // Persist manifest.json next to the extracted files (not strictly

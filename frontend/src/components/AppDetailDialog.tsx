@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Cube, Play, Pause, TrashSimple, ShieldCheck, Gear,
   Terminal, Warning, X, Clock, ArrowClockwise,
-  Code, PlugsConnected, Globe, Star, Info, CaretDown, CaretUp
+  Code, PlugsConnected, Globe, Star, Info, CaretDown, CaretUp,
+  Stack, CubeFocus, DownloadSimple
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
@@ -41,6 +42,9 @@ interface AppDetail {
   recent_logs: Array<{ timestamp: string; level: string; message: string; source: string }>
   log_count: number
   open_url?: string
+  is_bundle?: boolean
+  bundle_config?: any
+  services?: any[]
 }
 
 interface LogEntry {
@@ -67,7 +71,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
   const [detail, setDetail] = useState<AppDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'info' | 'logs' | 'settings' | 'pages'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'logs' | 'settings' | 'pages' | 'bundle'>('info')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
@@ -161,6 +165,36 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     }
   }
 
+  const downloadCompose = () => {
+    if (!appId) return
+    const baseUrl = import.meta.env.VITE_BACKEND_URL || ''
+    window.open(`${baseUrl}/api/supervisor/apps/${appId}/compose`, '_blank')
+  }
+
+  const bundleStart = async () => {
+    if (!appId) return
+    setActionLoading('bundle-start')
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/bundle/start`, token, { method: 'POST' })
+      toast.success('Bundle gestartet')
+      setDetail(prev => prev ? { ...prev, status: 'running' } : prev)
+      onReload()
+    } catch (e) { toast.error((e as Error).message) }
+    setActionLoading(null)
+  }
+
+  const bundleStop = async () => {
+    if (!appId) return
+    setActionLoading('bundle-stop')
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/bundle/stop`, token, { method: 'POST' })
+      toast.success('Bundle gestoppt')
+      setDetail(prev => prev ? { ...prev, status: 'stopped' } : prev)
+      onReload()
+    } catch (e) { toast.error((e as Error).message) }
+    setActionLoading(null)
+  }
+
   const getLogLevelColor = (level: string) => {
     switch (level.toUpperCase()) {
       case 'ERROR': case 'CRITICAL': return 'text-red-400 bg-red-500/10'
@@ -229,7 +263,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
         {/* Tab Navigation */}
         <div className="flex gap-1 p-2 bg-foreground/5 mx-4 mt-3 rounded-lg flex-shrink-0">
-          {(['info', 'logs', 'settings', 'pages'] as const).map(tab => (
+          {(['info', 'logs', 'settings', 'pages', ...(detail?.is_bundle ? ['bundle' as const] : [])] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -243,7 +277,8 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {tab === 'logs' && <Terminal size={12} />}
               {tab === 'settings' && <Gear size={12} />}
               {tab === 'pages' && <Code size={12} />}
-              {tab === 'info' ? 'Info' : tab === 'logs' ? `Logs (${logs.length})` : tab === 'settings' ? 'Einstellungen' : 'Seiten'}
+              {tab === 'bundle' && <Stack size={12} />}
+              {tab === 'info' ? 'Info' : tab === 'logs' ? `Logs (${logs.length})` : tab === 'settings' ? 'Einstellungen' : tab === 'pages' ? 'Seiten' : 'Bundle'}
             </button>
           ))}
         </div>
@@ -275,10 +310,13 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
-                      <div><span className="text-foreground/40">Typ:</span> <span className="text-foreground/70">{detail.kind}</span></div>
+                      <div><span className="text-foreground/40">Typ:</span> <span className="text-foreground/70">{detail.is_bundle ? 'Bundle' : detail.kind}</span></div>
                       <div><span className="text-foreground/40">Vertrauen:</span> <span className="text-foreground/70">{detail.trust_level}</span></div>
                       <div><span className="text-foreground/40">Installiert:</span> <span className="text-foreground/70">{new Date(detail.installed_at).toLocaleDateString('de-DE')}</span></div>
                       <div><span className="text-foreground/40">Quelle:</span> <span className="text-foreground/70">{detail.source}</span></div>
+                      {detail.is_bundle && (
+                        <div className="col-span-2"><span className="text-foreground/40">Services:</span> <span className="text-foreground/70">{detail.services?.length || 0} Container</span></div>
+                      )}
                     </div>
                   </div>
 
@@ -420,6 +458,115 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   <Code size={24} className="mx-auto mb-2 text-foreground/30" />
                   <p className="text-xs text-foreground/50">Keine eigenen Seiten</p>
                   <p className="text-[10px] text-foreground/30 mt-1">Diese App hat keine benutzerdefinierten Seiten definiert.</p>
+                </div>
+              )}
+
+              {/* Bundle Tab */}
+              {activeTab === 'bundle' && detail.is_bundle && (
+                <div className="space-y-3">
+                  {/* Bundle Header */}
+                  <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Stack size={18} weight="fill" className="text-purple-400" />
+                      <span className="text-xs font-semibold text-purple-300">App Bundle</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-semibold">
+                        {(detail.services?.length || 0)} Services
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-purple-300/70">
+                      Diese App besteht aus mehreren Docker-Containern, die über ein internes Netzwerk kommunizieren.
+                    </p>
+                  </div>
+
+                  {/* Bundle Actions */}
+                  <div className="flex items-center gap-2">
+                    {detail.status === 'running' ? (
+                      <button onClick={bundleStop} disabled={actionLoading === 'bundle-stop'}
+                        className="flex items-center gap-1 px-3 py-2 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40">
+                        {actionLoading === 'bundle-stop' ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                        Bundle stoppen
+                      </button>
+                    ) : (
+                      <button onClick={bundleStart} disabled={actionLoading === 'bundle-start'}
+                        className="flex items-center gap-1 px-3 py-2 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40">
+                        {actionLoading === 'bundle-start' ? <InlineSpinner size={12} /> : <Play size={12} />}
+                        Bundle starten
+                      </button>
+                    )}
+                    <button onClick={downloadCompose}
+                      className="flex items-center gap-1 px-3 py-2 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors">
+                      <DownloadSimple size={12} /> docker-compose.yml
+                    </button>
+                  </div>
+
+                  {/* Service List */}
+                  {detail.services && detail.services.length > 0 && (
+                    <div>
+                      <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-2">Services</div>
+                      <div className="space-y-1.5">
+                        {detail.services.map((svc: any, i: number) => (
+                          <div key={i} className="p-2.5 rounded-lg bg-foreground/3 border border-foreground/5">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <CubeFocus size={14} className="text-accent" />
+                                <span className="text-[11px] font-semibold text-foreground">{svc.name}</span>
+                              </div>
+                              {svc.image && (
+                                <span className="text-[9px] font-mono text-foreground/40 bg-foreground/5 px-1.5 py-0.5 rounded truncate max-w-[200px]">
+                                  {svc.image}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-[9px] text-foreground/40">
+                              {svc.build && <span className="flex items-center gap-1">🔨 Build: {svc.build.context}</span>}
+                              {svc.command && <span className="flex items-center gap-1">▶ {svc.command}</span>}
+                              {svc.restart && <span className="flex items-center gap-1">↻ {svc.restart}</span>}
+                              {(svc.internal_ports?.length ?? 0) > 0 && (
+                                <span className="flex items-center gap-1">
+                                  🔌 {svc.internal_ports.map((p: any) => `${p.port}/${p.protocol}`).join(', ')}
+                                </span>
+                              )}
+                              {(svc.depends_on?.length ?? 0) > 0 && (
+                                <span className="flex items-center gap-1 text-purple-400/70">
+                                  → {svc.depends_on.join(', ')}
+                                </span>
+                              )}
+                            </div>
+                            {/* Service env vars */}
+                            {svc.environment && Object.keys(svc.environment).length > 0 && (
+                              <details className="mt-1.5">
+                                <summary className="text-[9px] text-foreground/30 cursor-pointer hover:text-foreground/50">
+                                  {Object.keys(svc.environment).length} Umgebungsvariablen
+                                </summary>
+                                <pre className="mt-1 text-[9px] font-mono text-foreground/40 bg-black/30 rounded p-1.5 max-h-24 overflow-auto">
+                                  {JSON.stringify(svc.environment, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No services */}
+                  {(!detail.services || detail.services.length === 0) && (
+                    <div className="p-4 rounded-lg bg-foreground/3 text-center">
+                      <Stack size={24} className="mx-auto mb-2 text-foreground/20" />
+                      <p className="text-xs text-foreground/50">Keine Services definiert</p>
+                      <p className="text-[10px] text-foreground/30 mt-1">
+                        Die Bundle-Konfiguration enthält keine Service-Definitionen.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'bundle' && !detail.is_bundle && (
+                <div className="p-4 rounded-lg bg-foreground/3 text-center">
+                  <Cube size={24} className="mx-auto mb-2 text-foreground/30" />
+                  <p className="text-xs text-foreground/50">Kein Bundle</p>
+                  <p className="text-[10px] text-foreground/30 mt-1">Diese App ist eine Standard-App mit einem einzelnen Container.</p>
                 </div>
               )}
             </>

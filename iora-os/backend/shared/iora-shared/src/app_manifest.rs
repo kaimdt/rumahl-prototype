@@ -59,9 +59,15 @@ pub struct AppManifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings_schema: Option<SettingsSchema>,
 
-    /// Docker configuration (for apps)
+    /// Docker configuration (for single-container apps)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docker: Option<DockerConfig>,
+
+    /// Multi-container app bundle (Docker Compose-style).
+    /// When set, the app is treated as a "Bundle" with multiple services,
+    /// internal networking, and dependency ordering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<AppBundle>,
 
     /// Sandbox configuration (for plugins)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -368,6 +374,190 @@ fn default_health_timeout() -> u64 {
 
 fn default_health_retries() -> u32 {
     3
+}
+
+/// ─── v2.3: Multi-Container App Bundle ────────────────────────────
+
+/// A multi-container app bundle (Docker Compose-like).
+/// When an app defines `bundle` in its manifest, IORA manages
+/// all services as a coordinated group with internal networking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppBundle {
+    /// Version of the bundle format (for future compatibility)
+    #[serde(default = "default_bundle_version")]
+    pub version: String,
+
+    /// Display name for the bundle in the UI
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+
+    /// Individual service definitions
+    pub services: Vec<BundleService>,
+
+    /// Network configuration for the bundle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<BundleNetwork>,
+
+    /// Volumes shared across services in the bundle
+    #[serde(default)]
+    pub volumes: Vec<BundleVolume>,
+
+    /// Whether to auto-generate a docker-compose.yml from this definition
+    #[serde(default = "default_true")]
+    pub auto_compose: bool,
+
+    /// Minimum IORA version required for this bundle format
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_iora_version: Option<String>,
+}
+
+fn default_bundle_version() -> String {
+    "1.0".to_string()
+}
+
+/// A single service within an app bundle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleService {
+    /// Unique service name within the bundle
+    pub name: String,
+
+    /// Docker image (pre-built). Mutually exclusive with `build`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+
+    /// Build configuration (image built from source). Mutually exclusive with `image`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build: Option<BundleBuildConfig>,
+
+    /// Working directory inside the container
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+
+    /// Command to start the service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// Entry point override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<Vec<String>>,
+
+    /// Internal ports this service exposes
+    #[serde(default)]
+    pub internal_ports: Vec<InternalPort>,
+
+    /// Environment variables
+    #[serde(default)]
+    pub environment: HashMap<String, String>,
+
+    /// Volume mounts (path or named volume)
+    #[serde(default)]
+    pub volumes: Vec<String>,
+
+    /// Services this service depends on (startup ordering)
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+
+    /// Health check for this service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_check: Option<HealthCheck>,
+
+    /// Restart policy (no, always, on-failure, unless-stopped)
+    #[serde(default = "default_restart_policy")]
+    pub restart: String,
+
+    /// Resource limits
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<BundleResources>,
+
+    /// Labels for this service
+    #[serde(default)]
+    pub labels: HashMap<String, String>,
+}
+
+fn default_restart_policy() -> String {
+    "unless-stopped".to_string()
+}
+
+/// Build configuration for a service.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleBuildConfig {
+    /// Build context path (relative to the app's extracted directory)
+    pub context: String,
+
+    /// Dockerfile name (default: "Dockerfile")
+    #[serde(default = "default_dockerfile")]
+    pub dockerfile: String,
+
+    /// Build arguments
+    #[serde(default)]
+    pub args: HashMap<String, String>,
+}
+
+fn default_dockerfile() -> String {
+    "Dockerfile".to_string()
+}
+
+/// Resource limits for a service.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleResources {
+    /// CPU limit (e.g. "0.5" for half a core)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu: Option<String>,
+
+    /// Memory limit (e.g. "256M")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<String>,
+
+    /// Memory reservation (soft limit)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_reservation: Option<String>,
+}
+
+/// Network configuration for a bundle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleNetwork {
+    /// Network driver (default: "bridge")
+    #[serde(default = "default_network_driver")]
+    pub driver: String,
+
+    /// Whether the network is internal-only (no external access)
+    #[serde(default)]
+    pub internal: bool,
+
+    /// Subnet for the internal network
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subnet: Option<String>,
+
+    /// Custom network name (auto-generated if not set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    /// Enable IPv6
+    #[serde(default)]
+    pub enable_ipv6: bool,
+}
+
+fn default_network_driver() -> String {
+    "bridge".to_string()
+}
+
+/// Named volume in a bundle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleVolume {
+    /// Volume name (auto-prefixed with app ID)
+    pub name: String,
+
+    /// Driver (default: "local")
+    #[serde(default = "default_volume_driver")]
+    pub driver: String,
+
+    /// Driver options
+    #[serde(default)]
+    pub driver_opts: HashMap<String, String>,
+}
+
+fn default_volume_driver() -> String {
+    "local".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

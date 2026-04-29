@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import {
   Cube, Lightning, Plus, Play, Pause, TrashSimple, ShieldCheck,
   DownloadSimple, Upload, MagnifyingGlass, Gear, Check, X,
-  ShieldWarning, Package, ArrowClockwise, Info, Warning
+  ShieldWarning, Package, ArrowClockwise, Info, Warning,
+  Stack, CubeFocus
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
@@ -28,6 +29,9 @@ interface AppInfo {
   source?: string
   open_url?: string
   custom_pages?: CustomPage[]
+  is_bundle?: boolean
+  bundle_config?: any
+  services?: any[]
 }
 
 interface PortInfo {
@@ -363,7 +367,12 @@ function InstalledAppsView({
                       </div>
                       <div className="text-[10px] text-foreground/40">{app.version} • {app.developer}</div>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                      {app.is_bundle && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-purple-500/15 text-purple-400 flex items-center gap-1">
+                          <Stack size={10} weight="fill" /> Bundle
+                        </span>
+                      )}
                       {getTrustBadge(app.trust_level)}
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
                         app.enabled ? 'bg-green-500/15 text-green-400' : 'bg-foreground/10 text-foreground/40'

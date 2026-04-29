@@ -1,0 +1,147 @@
+{
+  "id": "home-assistant-bundle",
+  "name": "Home Assistant Bundle",
+  "version": "1.0.0",
+  "developer": "IORA Team",
+  "description": "Volle Home Assistant Installation als IORA App Bundle. Enthält HA Core, PostgreSQL und MQTT Broker in einem internen Netzwerk.",
+  "type": "app",
+  "icon": "icon.png",
+  "permissions": [
+    "NetworkAccess",
+    "ReadEntities",
+    "ControlEntities",
+    "StorageWrite",
+    "AppStorageRead",
+    "AppDatabaseManage"
+  ],
+
+  "bundle": {
+    "version": "1.0",
+    "display_name": "Home Assistant Bundle",
+
+    "services": [
+      {
+        "name": "postgres",
+        "image": "postgres:16-alpine",
+        "environment": {
+          "POSTGRES_USER": "hass",
+          "POSTGRES_PASSWORD": "${DB_PASSWORD}",
+          "POSTGRES_DB": "hass"
+        },
+        "internal_ports": [
+          { "port": 5432, "protocol": "tcp", "assignment_mode": "fixed", "description": "PostgreSQL" }
+        ],
+        "volumes": ["./postgres-data:/var/lib/postgresql/data"],
+        "restart": "unless-stopped",
+        "health_check": {
+          "endpoint": "pg_isready -U hass",
+          "interval": 10,
+          "timeout": 5,
+          "retries": 5
+        },
+        "resources": {
+          "memory": "256M",
+          "cpu": "0.5"
+        }
+      },
+      {
+        "name": "mqtt",
+        "image": "eclipse-mosquitto:2",
+        "internal_ports": [
+          { "port": 1883, "protocol": "tcp", "assignment_mode": "fixed", "description": "MQTT" }
+        ],
+        "volumes": ["./mosquitto-config:/mosquitto/config", "./mosquitto-data:/mosquitto/data"],
+        "restart": "unless-stopped",
+        "depends_on": [],
+        "resources": {
+          "memory": "128M",
+          "cpu": "0.3"
+        }
+      },
+      {
+        "name": "homeassistant",
+        "image": "ghcr.io/home-assistant/home-assistant:stable",
+        "internal_ports": [
+          { "port": 8123, "protocol": "tcp", "assignment_mode": "random", "description": "HA Web UI" }
+        ],
+        "environment": {
+          "TZ": "Europe/Berlin"
+        },
+        "volumes": ["./ha-config:/config"],
+        "depends_on": ["postgres", "mqtt"],
+        "restart": "unless-stopped",
+        "health_check": {
+          "endpoint": "/",
+          "interval": 30,
+          "timeout": 10,
+          "retries": 3
+        },
+        "resources": {
+          "memory": "1G",
+          "cpu": "1.0"
+        }
+      }
+    ],
+
+    "network": {
+      "driver": "bridge",
+      "internal": false,
+      "name": "iora-bundle-home-assistant",
+      "subnet": "172.28.0.0/24"
+    },
+
+    "volumes": [],
+    "auto_compose": true,
+    "min_iora_version": "2.3.0"
+  },
+
+  "custom_pages": [
+    {
+      "id": "ha-dashboard",
+      "title": "Home Assistant",
+      "icon": "House",
+      "url": "/",
+      "show_in_nav": true,
+      "order": 200
+    }
+  ],
+
+  "settings_schema": {
+    "title": "Home Assistant Einstellungen",
+    "description": "Konfiguriere die Home Assistant Bundle-Installation",
+    "fields": [
+      {
+        "key": "db_password",
+        "label": "PostgreSQL-Passwort",
+        "type": "password",
+        "required": true
+      },
+      {
+        "key": "ha_port",
+        "label": "HA Port (extern)",
+        "type": "number",
+        "default": 8123,
+        "validation": { "min": 1024, "max": 65535 }
+      },
+      {
+        "key": "mqtt_enabled",
+        "label": "MQTT aktivieren",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "auto_update",
+        "label": "Automatische Updates",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+
+  "store_metadata": {
+    "category": "Smart Home",
+    "tags": ["home-automation", "smarthome", "bundle", "multi-container"],
+    "homepage": "https://www.home-assistant.io/",
+    "license": "Apache-2.0"
+  }
+}

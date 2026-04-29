@@ -1,6 +1,6 @@
 # IORA App & Plugin System – Vollständige Referenz
 
-> Stand: v2.2.0 | Gültig für Entwickler, Administratoren und KI-Agenten
+> Stand: v2.3.0 | Gültig für Entwickler, Administratoren und KI-Agenten
 
 ---
 
@@ -196,12 +196,75 @@
 | `type` | String | ✅ | `"app"` oder `"plugin"` |
 | `main` | String | ❌ | Einstiegspunkt (Default: `index.js`) |
 | `permissions` | String[] | ❌ | Benötigte Berechtigungen |
-| `docker` | Object | ❌ | Docker-Konfiguration (nur Apps) |
+| `docker` | Object | ❌ | Docker-Konfiguration (Einzel-Container) |
+| `bundle` | Object | ❌ | 🆕 Multi-Container Bundle (v2.3) |
 | `database` | Object | ❌ | DB-Konfiguration |
 | `storage` | Object | ❌ | Storage-Konfiguration |
 | `custom_pages` | Object[] | ❌ | Eigene Dashboard-Seiten |
 | `settings_schema` | Object | ❌ | App-Konfigurations-Schema |
 | `sandbox` | Object | ❌ | Sandbox-Konfiguration (nur Plugins) |
+
+### 3.2 🆕 Multi-Container App Bundles (v2.3)
+
+Apps können mehrere Docker-Container als **Bundle** definieren. Container im Bundle kommunizieren über ein internes Docker-Netzwerk und werden gemeinsam gestartet/gestoppt.
+
+**Beispiel: Home Assistant Bundle (PostgreSQL + MQTT + HA Core):**
+```json
+{
+  "type": "app",
+  "bundle": {
+    "version": "1.0",
+    "services": [
+      {
+        "name": "postgres",
+        "image": "postgres:16-alpine",
+        "environment": { "POSTGRES_USER": "hass" },
+        "internal_ports": [{ "port": 5432, "protocol": "tcp" }],
+        "health_check": { "endpoint": "pg_isready -U hass", "interval": 10 }
+      },
+      {
+        "name": "homeassistant",
+        "image": "ghcr.io/home-assistant/home-assistant:stable",
+        "internal_ports": [{ "port": 8123, "protocol": "tcp" }],
+        "volumes": ["./ha-config:/config"],
+        "depends_on": ["postgres"],
+        "resources": { "memory": "1G", "cpu": "1.0" }
+      }
+    ],
+    "network": { "driver": "bridge", "subnet": "172.28.0.0/24" },
+    "auto_compose": true
+  }
+}
+```
+
+**Interne Kommunikation:** Container erreichen sich über den **Service-Namen** als DNS-Hostname:
+- `postgres` → erreichbar unter `postgres:5432`
+- `homeassistant` → erreichbar unter `homeassistant:8123`
+
+**Bundle-API:**
+```
+GET  /api/supervisor/apps/{id}/compose         → docker-compose.yml downloaden
+POST /api/supervisor/apps/{id}/bundle/start    → Alle Services starten
+POST /api/supervisor/apps/{id}/bundle/stop     → Alle Services stoppen
+POST /api/supervisor/apps/{id}/bundle/restart  → Alle Services neustarten
+GET  /api/supervisor/apps/{id}/bundle/status   → Status aller Services
+```
+
+**UI:** Bundle-Apps erhalten ein **lila "Bundle"-Badge** und einen neuen **"Bundle"-Tab** im App-Detail-Dialog mit Service-Übersicht, Start/Stop-Buttons und docker-compose.yml Download.
+
+**Bundle-Felder:**
+| Feld | Typ | Beschreibung |
+|------|-----|------------|
+| `services[].name` | String | Name (auch DNS-Hostname im Netzwerk) |
+| `services[].image` | String | Docker-Image (ODER build) |
+| `services[].build` | Object | Build-Konfig (context, dockerfile, args) |
+| `services[].depends_on` | String[] | Startup-Reihenfolge |
+| `services[].health_check` | Object | Healthcheck |
+| `services[].resources` | Object | CPU/Memory-Limits |
+| `network.driver` | String | Netzwerk-Treiber (bridge) |
+| `network.internal` | Bool | Nur internes Netzwerk? |
+| `network.subnet` | String | Subnetz (z.B. "172.28.0.0/24") |
+| `auto_compose` | Bool | docker-compose.yml generieren |
 
 ---
 
@@ -916,6 +979,15 @@ POST   /api/supervisor/apps/:app_id/stop
 POST   /api/supervisor/apps/:app_id/restart
 DELETE /api/supervisor/apps/:app_id
 GET    /api/supervisor/system/info
+```
+
+### App Bundle (v2.3)
+```
+GET    /api/supervisor/apps/:app_id/compose
+POST   /api/supervisor/apps/:app_id/bundle/start
+POST   /api/supervisor/apps/:app_id/bundle/stop
+POST   /api/supervisor/apps/:app_id/bundle/restart
+GET    /api/supervisor/apps/:app_id/bundle/status
 ```
 
 ### App Store

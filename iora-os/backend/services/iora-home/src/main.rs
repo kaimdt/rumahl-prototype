@@ -1149,6 +1149,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/supervisor/apps/:app_id/start", post(supervisor_apps_start))
         .route("/api/supervisor/apps/:app_id/stop", post(supervisor_apps_stop))
         .route("/api/supervisor/apps/:app_id/restart", post(supervisor_apps_restart))
+        // App Bundle management (v2.3 multi-container)
+        .route("/api/supervisor/apps/:app_id/compose", get(supervisor_apps_compose))
+        .route("/api/supervisor/apps/:app_id/bundle/start", post(supervisor_bundle_start))
+        .route("/api/supervisor/apps/:app_id/bundle/stop", post(supervisor_bundle_stop))
+        .route("/api/supervisor/apps/:app_id/bundle/restart", post(supervisor_bundle_restart))
+        .route("/api/supervisor/apps/:app_id/bundle/status", get(supervisor_bundle_status))
         .route("/api/core/plugins/with-stats", get(core_plugins_list))
         .route("/api/core/plugins", get(core_plugins_list))
         .route("/api/core/plugins/:id", get(core_plugins_get).post(stub_core_unavailable).delete(core_plugins_uninstall))
@@ -3971,6 +3977,9 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
                 "kind": a.kind.clone(),
                 "open_url": open_url,
                 "custom_pages": custom_pages,
+                "is_bundle": a.is_bundle,
+                "bundle_config": a.bundle_config,
+                "services": a.bundle_config.as_ref().and_then(|b| b.get("services").cloned()).unwrap_or(serde_json::Value::Array(Vec::new())),
             })
         })
         .collect();
@@ -4109,6 +4118,370 @@ async fn supervisor_apps_uninstall(
         "app_id": app_id,
         "message": "App deinstalliert.",
     })))
+}
+
+// ── App-Bundle-Management (v2.3 multi-container) ──────────────────
+
+/// Generate a docker-compose.yml from an app's bundle definition.
+/// This is returned as plain text for the user/admin to inspect or use.
+async fn supervisor_apps_compose(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<axum::response::Response<String>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let bundle = app
+        .bundle_config
+        .as_ref()
+        .ok_or_else(|| ErrorResponse::bad_request(format!("app '{}' ist kein Bundle", app_id)))?;
+
+    let compose_yaml = generate_compose_yaml(&app_id, bundle);
+
+    Ok(axum::response::Response::builder()
+        .header("content-type", "text/yaml; charset=utf-8")
+        .header("content-disposition", format!("attachment; filename=\"docker-compose-{}.yml\"", app_id))
+        .body(compose_yaml)
+        .unwrap())
+}
+
+/// Generate a docker-compose.yml from a bundle definition.
+fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
+    let version = bundle.get("version").and_then(|v| v.as_str()).unwrap_or("3.8");
+    let services = bundle.get("services").and_then(|s| s.as_array());
+    let network_config = bundle.get("network");
+    let volumes_config = bundle.get("volumes").and_then(|v| v.as_array());
+
+    let net_name = network_config
+        .and_then(|n| n.get("name").and_then(|v| v.as_str()))
+        .unwrap_or(&format!("iora-bundle-{}", app_id))
+        .to_string();
+    let net_driver = network_config
+        .and_then(|n| n.get("driver").and_then(|v| v.as_str()))
+        .unwrap_or("bridge");
+    let net_internal = network_config
+        .and_then(|n| n.get("internal").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
+    let net_subnet = network_config
+        .and_then(|n| n.get("subnet").and_then(|v| v.as_str()));
+
+    let mut yaml = format!(
+        "# IORA App Bundle: {app_id}\n# Bundled components:\n#\n",
+        app_id = app_id
+    );
+
+    yaml.push_str(&format!("version: '{version}'\nname: iora-bundle-{app_id}\n\nservices:\n", version = version, app_id = app_id));
+
+    if let Some(svcs) = services {
+        for svc in svcs {
+            let name = svc.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let image = svc.get("image").and_then(|v| v.as_str());
+            let build = svc.get("build");
+            let command = svc.get("command").and_then(|v| v.as_str());
+            let working_dir = svc.get("working_dir").and_then(|v| v.as_str());
+            let restart = svc.get("restart").and_then(|v| v.as_str()).unwrap_or("unless-stopped");
+            let depends_on = svc.get("depends_on").and_then(|v| v.as_array());
+            let ports = svc.get("internal_ports").and_then(|v| v.as_array());
+            let env = svc.get("environment").and_then(|v| v.as_object());
+            let volumes_list = svc.get("volumes").and_then(|v| v.as_array());
+            let health_check = svc.get("health_check");
+            let resources = svc.get("resources");
+
+            yaml.push_str(&format!("  {name}:\n", name = name));
+
+            if let Some(img) = image {
+                yaml.push_str(&format!("    image: {img}\n"));
+            }
+            if let Some(bld) = build {
+                let context = bld.get("context").and_then(|v| v.as_str()).unwrap_or(".");
+                let dockerfile = bld.get("dockerfile").and_then(|v| v.as_str()).unwrap_or("Dockerfile");
+                yaml.push_str(&format!("    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"));
+                if let Some(args) = bld.get("args").and_then(|v| v.as_object()) {
+                    yaml.push_str("      args:\n");
+                    for (k, v) in args {
+                        yaml.push_str(&format!("        {k}: {v}\n"));
+                    }
+                }
+            }
+            if let Some(cmd) = command {
+                yaml.push_str(&format!("    command: {cmd}\n"));
+            }
+            if let Some(wd) = working_dir {
+                yaml.push_str(&format!("    working_dir: {wd}\n"));
+            }
+            yaml.push_str(&format!("    restart: {restart}\n"));
+
+            // Internal network
+            yaml.push_str(&format!("    networks:\n      - {net_name}\n"));
+
+            // Depends on
+            if let Some(deps) = depends_on {
+                if !deps.is_empty() {
+                    yaml.push_str("    depends_on:\n");
+                    for dep in deps {
+                        if let Some(d) = dep.as_str() {
+                            yaml.push_str(&format!("      {d}:\n        condition: service_started\n"));
+                        }
+                    }
+                }
+            }
+
+            // Ports
+            if let Some(pts) = ports {
+                if !pts.is_empty() {
+                    yaml.push_str("    ports:\n");
+                    for pt in pts {
+                        let port = pt.get("port").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let proto = pt.get("protocol").and_then(|v| v.as_str()).unwrap_or("tcp");
+                        let mode = pt.get("assignment_mode").and_then(|v| v.as_str()).unwrap_or("random");
+                        if mode == "random" {
+                            yaml.push_str(&format!("      - '{port}:{port}/{proto}' # random\n"));
+                        } else {
+                            yaml.push_str(&format!("      - '{port}:{port}/{proto}'\n"));
+                        }
+                    }
+                }
+            }
+
+            // Environment
+            if let Some(env_obj) = env {
+                yaml.push_str("    environment:\n");
+                for (k, v) in env_obj {
+                    yaml.push_str(&format!("      {k}: {v}\n"));
+                }
+            }
+
+            // Volumes
+            if let Some(vols) = volumes_list {
+                if !vols.is_empty() {
+                    yaml.push_str("    volumes:\n");
+                    for vol in vols {
+                        if let Some(v_str) = vol.as_str() {
+                            yaml.push_str(&format!("      - {v_str}\n"));
+                        }
+                    }
+                }
+            }
+
+            // Health check
+            if let Some(hc) = health_check {
+                let endpoint = hc.get("endpoint").and_then(|v| v.as_str()).unwrap_or("/");
+                let interval = hc.get("interval").and_then(|v| v.as_u64()).unwrap_or(30);
+                let timeout = hc.get("timeout").and_then(|v| v.as_u64()).unwrap_or(10);
+                let retries = hc.get("retries").and_then(|v| v.as_u64()).unwrap_or(3);
+                yaml.push_str(&format!(
+                    "    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"{endpoint}\"]\n      interval: {interval}s\n      timeout: {timeout}s\n      retries: {retries}\n"
+                ));
+            }
+
+            // Resources
+            if let Some(res) = resources {
+                yaml.push_str("    deploy:\n      resources:\n        limits:\n");
+                if let Some(mem) = res.get("memory").and_then(|v| v.as_str()) {
+                    yaml.push_str(&format!("          memory: {mem}\n"));
+                }
+                if let Some(cpu) = res.get("cpu").and_then(|v| v.as_str()) {
+                    yaml.push_str(&format!("          cpus: '{cpu}'\n"));
+                }
+                yaml.push_str("        reservations:\n");
+                if let Some(mem_res) = res.get("memory_reservation").and_then(|v| v.as_str()) {
+                    yaml.push_str(&format!("          memory: {mem_res}\n"));
+                }
+            }
+
+            yaml.push('\n');
+        }
+    }
+
+    // Network
+    yaml.push_str(&format!("networks:\n  {net_name}:\n    driver: {net_driver}\n"));
+    if net_internal {
+        yaml.push_str("    internal: true\n");
+    }
+    if let Some(subnet) = net_subnet {
+        yaml.push_str(&format!("    ipam:\n      config:\n        - subnet: {subnet}\n"));
+    }
+
+    // Named volumes
+    if let Some(vols) = volumes_config {
+        if !vols.is_empty() {
+            yaml.push_str("\nvolumes:\n");
+            for vol in vols {
+                if let Some(v_name) = vol.get("name").and_then(|v| v.as_str()) {
+                    yaml.push_str(&format!("  {v_name}:\n"));
+                    if let Some(driver) = vol.get("driver").and_then(|v| v.as_str()) {
+                        yaml.push_str(&format!("    driver: {driver}\n"));
+                    }
+                }
+            }
+        }
+    }
+
+    yaml
+}
+
+/// Start all services in an app bundle.
+async fn supervisor_bundle_start(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let _app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    // Start the app using local appstore
+    let app = state
+        .local_appstore
+        .start(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+
+    // Try docker-compose up if Docker is available
+    let docker_result = try_docker_compose_up(&app_id, &app).await;
+
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app_id,
+        "status": "running",
+        "docker_compose": docker_result,
+        "message": format!("Bundle '{}' gestartet.", app.name),
+        "hint": if docker_result.is_none() { "Docker ist nicht verfügbar – Bundle läuft im lokalen Modus. Services sind über docker-compose.yaml abrufbar." } else { "" },
+    })))
+}
+
+/// Stop all services in an app bundle.
+async fn supervisor_bundle_stop(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let _result = try_docker_compose_down(&app_id).await;
+
+    let app = state
+        .local_appstore
+        .stop(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app_id,
+        "status": "stopped",
+        "message": format!("Bundle '{}' gestoppt.", app.name),
+    })))
+}
+
+/// Restart all services in an app bundle.
+async fn supervisor_bundle_restart(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let _ = state.local_appstore.stop(&app_id).await;
+    let _ = try_docker_compose_down(&app_id).await;
+    let app = state
+        .local_appstore
+        .start(&app_id)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    let _ = try_docker_compose_up(&app_id, &app).await;
+
+    Ok(Json(json!({
+        "success": true,
+        "app_id": app_id,
+        "status": "running",
+        "message": format!("Bundle '{}' neu gestartet.", app.name),
+    })))
+}
+
+/// Get status of all services in an app bundle.
+async fn supervisor_bundle_status(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let bundle = app
+        .bundle_config
+        .as_ref()
+        .ok_or_else(|| ErrorResponse::bad_request(format!("app '{}' ist kein Bundle", app_id)))?;
+
+    let services = bundle.get("services").and_then(|s| s.as_array());
+    let service_count = services.map(|s| s.len()).unwrap_or(0);
+
+    Ok(Json(json!({
+        "app_id": app_id,
+        "name": app.name,
+        "status": app.status,
+        "enabled": app.enabled,
+        "service_count": service_count,
+        "services": services,
+        "network": bundle.get("network"),
+        "volumes": bundle.get("volumes"),
+        "compose_url": format!("/api/supervisor/apps/{}/compose", app_id),
+    })))
+}
+
+/// Try running docker-compose up for a bundle app.
+async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp) -> Option<String> {
+    use tokio::process::Command;
+
+    let compose_content = match &app.bundle_config {
+        Some(bundle) => generate_compose_yaml(app_id, bundle),
+        None => return None,
+    };
+
+    let compose_dir = std::path::Path::new(app.base_dir().display().to_string().as_str()).to_path_buf();
+    let compose_path = compose_dir.join("docker-compose.yml");
+
+    // Write compose file
+    if let Err(e) = tokio::fs::write(&compose_path, &compose_content).await {
+        return Some(format!("Kann docker-compose.yml nicht schreiben: {e}"));
+    }
+
+    // Try docker compose up
+    let result = Command::new("docker")
+        .args(["compose", "-p", &format!("iora-bundle-{}", app_id), "up", "-d"])
+        .current_dir(&compose_dir)
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => {
+            Some(format!(
+                "docker compose up erfolgreich. stdout: {}",
+                String::from_utf8_lossy(&output.stdout).trim()
+            ))
+        }
+        Ok(output) => Some(format!(
+            "docker compose fehlgeschlagen: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )),
+        Err(e) => Some(format!("Docker nicht verfügbar: {e}")),
+    }
+}
+
+/// Try running docker-compose down for a bundle app.
+async fn try_docker_compose_down(app_id: &str) -> Option<String> {
+    use tokio::process::Command;
+
+    let result = Command::new("docker")
+        .args(["compose", "-p", &format!("iora-bundle-{}", app_id), "down"])
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => Some("docker compose down erfolgreich".to_string()),
+        Ok(output) => Some(format!("docker compose down: {}", String::from_utf8_lossy(&output.stderr).trim())),
+        Err(_) => None, // Docker not available – expected in dev mode
+    }
 }
 
 /// Returns all custom pages from installed apps that are running.
@@ -4343,6 +4716,9 @@ async fn app_detail_get(
         "ports": app.ports,
         "docker_config": app.docker_config,
         "settings_schema": app.manifest.extra.get("settings_schema"),
+        "is_bundle": app.is_bundle,
+        "bundle_config": app.bundle_config,
+        "services": app.bundle_config.as_ref().and_then(|b| b.get("services").cloned()).unwrap_or(serde_json::Value::Array(Vec::new())),
         "recent_logs": recent_logs,
         "log_count": logs.len(),
         "open_url": app.custom_pages.first().map(|p| format!("/page/{}", p.id)),
