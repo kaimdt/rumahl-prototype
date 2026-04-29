@@ -4342,7 +4342,7 @@ async fn supervisor_bundle_start(
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
 
     // Try docker-compose up if Docker is available
-    let docker_result = try_docker_compose_up(&app_id, &app).await;
+    let docker_result = try_docker_compose_up(&app_id, &app, state.local_appstore.base_dir()).await;
 
     Ok(Json(json!({
         "success": true,
@@ -4387,7 +4387,7 @@ async fn supervisor_bundle_restart(
         .start(&app_id)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
-    let _ = try_docker_compose_up(&app_id, &app).await;
+    let _ = try_docker_compose_up(&app_id, &app, state.local_appstore.base_dir()).await;
 
     Ok(Json(json!({
         "success": true,
@@ -4430,7 +4430,7 @@ async fn supervisor_bundle_status(
 }
 
 /// Try running docker-compose up for a bundle app.
-async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp) -> Option<String> {
+async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<String> {
     use tokio::process::Command;
 
     let compose_content = match &app.bundle_config {
@@ -4438,7 +4438,7 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp)
         None => return None,
     };
 
-    let compose_dir = std::path::Path::new(app.base_dir().display().to_string().as_str()).to_path_buf();
+    let compose_dir = base_dir.join(app_id);
     let compose_path = compose_dir.join("docker-compose.yml");
 
     // Write compose file
@@ -4498,7 +4498,7 @@ async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
                 // Create an iframe widget for the app's URL
                 let iframe_widget = json!({
                     "widget_type": "iframe",
-                    "entity_id": null as Option<String>,
+                    "entity_id": null,
                     "position_x": 0,
                     "position_y": 0,
                     "width": 6,
@@ -4568,12 +4568,21 @@ async fn app_proxy_handler(
                             let headers = resp.headers().clone();
                             let body = resp.bytes().await.unwrap_or_default();
 
-                            let mut response_builder = Response::builder().status(status);
+                            let axum_status = axum::http::StatusCode::from_u16(status.as_u16()).unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
+                            let mut response_builder = Response::builder().status(axum_status);
                             if let Some(content_type) = headers.get("content-type") {
-                                response_builder = response_builder.header("content-type", content_type);
+                                if let Ok(v) = content_type.to_str() {
+                                    if let Ok(hv) = axum::http::HeaderValue::from_str(v) {
+                                        response_builder = response_builder.header("content-type", hv);
+                                    }
+                                }
                             }
                             if let Some(content_length) = headers.get("content-length") {
-                                response_builder = response_builder.header("content-length", content_length);
+                                if let Ok(v) = content_length.to_str() {
+                                    if let Ok(hv) = axum::http::HeaderValue::from_str(v) {
+                                        response_builder = response_builder.header("content-length", hv);
+                                    }
+                                }
                             }
 
                             response_builder
@@ -4810,13 +4819,13 @@ async fn app_config_put(
         .unwrap_or(None);
 
     let mut config: serde_json::Value = match pref {
-        Some(v) => serde_json::from_str(&v).unwrap_or(json!({})),
+        Some(v) => serde_json::from_str(&v.preference_value).unwrap_or(json!({})),
         None => json!({}),
     };
 
     if let Some(obj) = config.as_object_mut() {
-        for (k, v) in body.values {
-            obj.insert(k, v);
+        for (k, v) in &body.values {
+            obj.insert(k.clone(), v.clone());
         }
     }
 

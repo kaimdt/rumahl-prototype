@@ -699,7 +699,7 @@ impl LocalAppStore {
 
     /// Append a log entry for a specific app.
     pub fn append_log(&self, app_id: &str, entry: LogEntry) {
-        let mut inner = self.inner.try_write().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self.inner.blocking_write();
         let logs = inner.app_logs.entry(app_id.to_string()).or_default();
         logs.push(entry.clone());
         if logs.len() > MAX_APP_LOG_LINES {
