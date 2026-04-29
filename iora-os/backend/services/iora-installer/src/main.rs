@@ -666,10 +666,14 @@ fn migrate() -> Result<()> {
     Ok(())
 }
 
-fn validate() -> Result<()> {
+fn validate(enforce: bool) -> Result<()> {
     println!("{}", "✅ System Validation".bright_blue().bold());
-    println!("  ℹ️  Validation functionality not yet implemented");
-    Ok(())
+    if enforce {
+        validate_installation()
+    } else {
+        println!("  ℹ️  Validation functionality not yet implemented");
+        Ok(())
+    }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

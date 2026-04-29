@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
         .await?;
 
     let migration_sql = include_str!("../migrations/001_initial_schema.sql");
-    match sqlx::raw_sql(migration_sql).execute(&db).await {
+    match sqlx::query(migration_sql).execute(&db).await {
         Ok(_) => info!("Database migrations applied"),
         Err(e) => {
             let msg = e.to_string();

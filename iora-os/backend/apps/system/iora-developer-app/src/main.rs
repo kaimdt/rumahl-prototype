@@ -17,7 +17,7 @@ use utoipa_swagger_ui::SwaggerUi;
 /// to hot-reload APIs and other development features.
 
 // Security token for Developer App - injected at build time
-const DEVELOPER_APP_TOKEN: &str = env!("IORA_DEVELOPER_APP_TOKEN", "dev-token-placeholder");
+const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") { Some(v) => v, None => "dev-token-placeholder" };
 
 #[derive(Debug, Clone)]
 struct AppState {
