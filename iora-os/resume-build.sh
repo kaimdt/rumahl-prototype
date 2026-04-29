@@ -200,12 +200,23 @@ if [ "${CLEAN_LINUX}" = true ]; then
     PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make linux-dirclean
 fi
 
+# Force xz parallelism — prevent silent thread downgrades (16→3).
+export XZ_OPT="-T0 --memlimit-compress=0"
+export XZ_DEFAULTS="-T0 --memlimit-compress=0"
+log_info "make -j${JOBS} (cores: ${JOBS}, xz: $(xz --version 2>/dev/null | head -1 || echo unknown))"
+
 set +e
 if [ "${PROGRESS}" = true ]; then
-    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
+    PATH="${SAFE_PATH}" \
+        XZ_OPT="${XZ_OPT}" XZ_DEFAULTS="${XZ_DEFAULTS}" \
+        FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" \
+        make -j"${JOBS}" 2>&1 | show_progress_stream | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 else
-    PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
+    PATH="${SAFE_PATH}" \
+        XZ_OPT="${XZ_OPT}" XZ_DEFAULTS="${XZ_DEFAULTS}" \
+        FORCE_UNSAFE_CONFIGURE=1 IORA_POST_IMAGE_MODE="${POST_IMAGE_MODE}" \
+        make -j"${JOBS}" 2>&1 | tee "${LOG_FILE}"
     BUILD_RC=${PIPESTATUS[0]}
 fi
 set -e
