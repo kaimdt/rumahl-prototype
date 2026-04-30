@@ -702,6 +702,9 @@ ExecStart=/usr/lib/iora/iora-data-unlock
 # Non-fatal: a failure here just means the data partition won't mount,
 # which is handled gracefully by ConditionPathIsMountPoint checks downstream.
 SuccessExitStatus=0 1
+# Prevent cryptsetup/dmsetup hangs from blocking the entire boot chain.
+# 60 s is generous for LUKS operations on slow hardware.
+TimeoutStartSec=60
 StandardOutput=journal
 StandardError=journal
 
@@ -1748,17 +1751,29 @@ Description=IORA OS First-Boot Setup Wizard
 After=network-online.target iora-init-data.service
 Wants=network-online.target
 Before=iora-stack.service
-# The wizard must be reachable BEFORE first-boot setup has been completed.
-# Re-running the wizard is blocked by the flag-file check inside the Python
-# server itself, so we don't need a ConditionPathExists here.
+# Dual-flag guard: skip the wizard if EITHER the data-partition flag
+# OR the rootfs flag exists. Multiple ConditionPathExists= lines are
+# ANDed, so with the ! (negation) prefix, the service only runs when
+# BOTH flags are absent. If either flag exists → condition fails →
+# service is skipped. Both flags are written on successful setup.
 ConditionPathExists=!/mnt/data/iora/.setup-complete
+ConditionPathExists=!/etc/iora/.setup-complete
 
 [Service]
 Type=simple
-ExecStartPre=/bin/mkdir -p /mnt/data/iora
+ExecStartPre=/bin/mkdir -p /mnt/data/iora /etc/iora
 ExecStart=/usr/bin/python3 /opt/iora/setup/setup-server.py
+# Hard timeout: if the setup server hasn't completed within 30 minutes,
+# something is wrong (stuck LUKS, broken Python, etc.). Kill it so the
+# boot can continue. The state file preserves progress for a retry.
+TimeoutStartSec=1800
+# Restart on crash only — do NOT restart if it exits cleanly (0 = setup
+# was already complete, server finished and shut itself down).
 Restart=on-failure
-RestartSec=5
+RestartSec=10
+# Max 3 crashes in 5 minutes, then give up permanently for this boot.
+StartLimitBurst=3
+StartLimitIntervalSec=300
 StandardOutput=journal
 StandardError=journal
 
@@ -1784,9 +1799,10 @@ fi
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup-tui.service" <<'EOF'
 [Unit]
 Description=IORA OS first-boot progress display on tty1
-# Only run while setup has not yet completed. Once the flag file exists we
-# stay out of the way and let getty@tty1 own the console.
+# Only run while setup has not yet completed. Dual-flag: skip if either
+# flag exists (both ANDed with ! = run only when BOTH absent).
 ConditionPathExists=!/mnt/data/iora/.setup-complete
+ConditionPathExists=!/etc/iora/.setup-complete
 # Start after the setup server so /mnt/data/iora/setup-state.json is there.
 After=iora-setup.service
 Wants=iora-setup.service
@@ -1807,10 +1823,7 @@ TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 # Only restart on crash (non-zero exit). When setup completes the TUI exits
-# with code 0 and must NOT be restarted: with Restart=always the service
-# would conflict with and stop getty@tty1 on every restart attempt while its
-# condition check (ConditionPathExists=!.setup-complete) fails, leaving the
-# console permanently blank/frozen after setup finishes.
+# with code 0 and must NOT be restarted.
 Restart=on-failure
 RestartSec=2
 # Use a login-like environment (TERM so ANSI renders).

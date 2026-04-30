@@ -213,7 +213,15 @@ async fn get_status(data: web::Data<AppState>) -> impl Responder {
         docker_version,
     };
 
-    HttpResponse::Ok().json(status)
+    HttpResponse::Ok().json(serde_json::json!({
+        "version": status.version,
+        "uptime_seconds": status.uptime_seconds,
+        "total_containers": status.total_containers,
+        "running_containers": status.running_containers,
+        "stopped_containers": status.stopped_containers,
+        "docker_version": status.docker_version,
+        "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
+    }))
 }
 
 /// List all IORA containers

@@ -26,6 +26,10 @@ SETUP_PORT = 8080
 DATA_DIR = "/mnt/data/iora"
 CONFIG_FILE = "/mnt/data/iora/setup.json"
 SETUP_DONE_FLAG = "/mnt/data/iora/.setup-complete"
+# Secondary flag on rootfs — survives data partition issues (LUKS failure,
+# missing mount, etc.). Prevents the wizard from re-launching on every boot
+# when the data partition is temporarily unavailable.
+SETUP_DONE_FLAG_ROOTFS = "/etc/iora/.setup-complete"
 # Persistent apply-progress state — survives a browser reload and is shared
 # across all open tabs so the user can close/reopen the page without losing
 # visibility into the running setup. Lives on the data partition when
@@ -41,6 +45,11 @@ DATA_KEYFILE = "/etc/iora/data.keyfile"
 DATA_DEV = "/dev/disk/by-label/iora-data"
 PIN_HASH_ITERATIONS = 1000
 PIN_DIGITS = 16
+
+# Maximum time a setup run is allowed to be "running" before it's considered
+# stale/crashed. After this many seconds without an update, the state is
+# automatically reset so the wizard becomes usable again.
+STALE_RUN_TIMEOUT_SECONDS = 600  # 10 minutes
 
 
 def get_local_ip() -> str:
@@ -313,16 +322,34 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     filesystem inside the LUKS container and remount /mnt/data so that all
     subsequent setup steps write to the encrypted partition.
     """
+    # ── Timeout-aware subprocess helper ──────────────────────────────────
+    # All disk operations use a timeout to prevent indefinite hangs.
+    # cryptsetup and dmsetup can block forever on broken block devices.
+    # 90s is generous for LUKS format on slow hardware; most operations
+    # complete in <10s.
+    LUKS_TIMEOUT = 90
+
+    def _run(cmd, timeout=LUKS_TIMEOUT, check=False, **kwargs):
+        """Run a subprocess with timeout. Returns CompletedProcess or None on timeout."""
+        try:
+            kwargs.setdefault("capture_output", True)
+            kwargs.setdefault("text", True)
+            kwargs["timeout"] = timeout
+            return subprocess.run(cmd, **kwargs)
+        except subprocess.TimeoutExpired as e:
+            print(f"WARN: command timed out after {timeout}s: {' '.join(cmd)}", file=sys.stderr)
+            return None
+        except Exception as e:
+            print(f"WARN: command failed: {' '.join(cmd)}: {e}", file=sys.stderr)
+            return None
+
     errors: list[str] = []
     if not os.path.exists(DATA_DEV):
         return []  # Partition does not exist yet — skip silently.
 
     # Check if already LUKS.
-    r = subprocess.run(
-        ["cryptsetup", "isLuks", DATA_DEV],
-        capture_output=True,
-    )
-    if r.returncode == 0:
+    r = _run(["cryptsetup", "isLuks", DATA_DEV], timeout=30)
+    if r is not None and r.returncode == 0:
         return []  # Already encrypted — nothing to do.
 
     if not os.path.exists(keyfile_path):
@@ -364,26 +391,28 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
         Appends to ``errors`` on any sub-step failure.
         """
         # Lazy unmount — failure is expected and non-fatal if already unmounted.
-        subprocess.run(["umount", "-l", "/mnt/data"], capture_output=True)
+        _run(["umount", "-l", "/mnt/data"])
         os.sync()
-        r = subprocess.run(
+        r = _run(
             ["mkfs.ext4", "-F", "-L", "iora-data", real_dev],
-            capture_output=True, text=True,
+            timeout=120,
         )
-        if r.returncode != 0:
+        if r is None or r.returncode != 0:
+            err = r.stderr.strip() if r else "timeout"
             errors.append(
-                f"mkfs.ext4 fallback failed on {real_dev}: {r.stderr.strip()}"
+                f"mkfs.ext4 fallback failed on {real_dev}: {err}"
             )
             return
         os.makedirs("/mnt/data", exist_ok=True)
-        r = subprocess.run(
+        r = _run(
             ["mount", "-t", "ext4", "-o", "defaults,noatime",
              real_dev, "/mnt/data"],
-            capture_output=True, text=True,
+            timeout=60,
         )
-        if r.returncode != 0:
+        if r is None or r.returncode != 0:
+            err = r.stderr.strip() if r else "timeout"
             errors.append(
-                f"mount /mnt/data (plain ext4 fallback) failed: {r.stderr.strip()}"
+                f"mount /mnt/data (plain ext4 fallback) failed: {err}"
             )
             return
         # Recreate directory tree on the fresh filesystem so all subsequent
@@ -396,24 +425,24 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     # destructive format when the kernel simply doesn't have DM support.
     # This happens when CONFIG_BLK_DEV_DM was not compiled in and the module
     # cannot be loaded (the kernel config fix requires a full rebuild).
-    subprocess.run(["modprobe", "dm_mod"], capture_output=True)
-    subprocess.run(["modprobe", "dm-crypt"], capture_output=True)
-    subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
+    _run(["modprobe", "dm_mod"], timeout=10)
+    _run(["modprobe", "dm-crypt"], timeout=10)
+    _run(["udevadm", "settle", "--timeout=5"], timeout=10)
     os.makedirs("/dev/mapper", exist_ok=True)
     if not os.path.exists("/dev/mapper/control"):
-        r = subprocess.run(
+        r = _run(
             ["mknod", "/dev/mapper/control", "c", "10", "236"],
-            capture_output=True, text=True,
+            timeout=10,
         )
-        if r.returncode != 0:
+        if r is not None and r.returncode != 0:
             # Non-fatal: if dm_mod is truly absent the subsequent dmsetup
             # probe will catch it; log for diagnostics only.
             errors.append(
                 f"mknod /dev/mapper/control failed (dm_mod may be absent): "
                 f"{r.stderr.strip()}"
             )
-    dm_probe = subprocess.run(["dmsetup", "ls"], capture_output=True)
-    if dm_probe.returncode != 0:
+    dm_probe = _run(["dmsetup", "ls"], timeout=10)
+    if dm_probe is None or dm_probe.returncode != 0:
         # Device-mapper is not usable — skip LUKS entirely.
         # Format the raw partition as plain ext4 and mount it directly so
         # the rest of setup can write its files.
@@ -438,38 +467,35 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
 
     # 1. Attempt a normal unmount first (synchronous — releases the device
     #    immediately once all in-kernel references are dropped).
-    subprocess.run(["umount", "/mnt/data"], capture_output=True)
+    _run(["umount", "/mnt/data"], timeout=30)
 
     # 2. Remove the dm-mapper alias BEFORE the lazy unmount.  A lazy unmount
     #    leaves the backing dm node referenced by the still-live superblock;
     #    tearing it down first gives the kernel a chance to drop references
     #    to the raw block device synchronously.
     if os.path.exists("/dev/mapper/iora-data"):
-        subprocess.run(["dmsetup", "remove", "--force", "iora-data"],
-                       capture_output=True)
+        _run(["dmsetup", "remove", "--force", "iora-data"], timeout=30)
         # Also try cryptsetup close in case it's a real LUKS node from a
         # previous encryption attempt.
-        subprocess.run(["cryptsetup", "close", "iora-data"],
-                       capture_output=True)
+        _run(["cryptsetup", "close", "iora-data"], timeout=30)
 
     # 3. Sweep any remaining kernel dm holders on the underlying block device.
     try:
         holders_dir = f"/sys/class/block/{os.path.basename(real_dev)}/holders"
         if os.path.isdir(holders_dir):
             for name in os.listdir(holders_dir):
-                subprocess.run(["dmsetup", "remove", "--force", name],
-                               capture_output=True)
+                _run(["dmsetup", "remove", "--force", name], timeout=30)
     except Exception:
         pass
 
     # 4. Lazy unmount as final fallback (detaches the mount-point name even
     #    if the device is still busy; harmless if already unmounted above).
-    subprocess.run(["umount", "-l", "/mnt/data"], capture_output=True)
+    _run(["umount", "-l", "/mnt/data"], timeout=30)
 
     # 5. Flush again and wait for udev to finish processing any related
     #    events so the kernel reference counts drain before luksFormat.
     os.sync()
-    subprocess.run(["udevadm", "settle", "--timeout=5"], capture_output=True)
+    _run(["udevadm", "settle", "--timeout=5"], timeout=15)
     time.sleep(0.5)
 
     # Format as LUKS2 with the generated keyfile.  We set --label iora-data
@@ -478,8 +504,8 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     # boot to detect and open the LUKS container.
     # Retry once to handle the kernel reference-count race that can persist
     # briefly after lazy unmount.
-    def _try_format() -> subprocess.CompletedProcess:
-        return subprocess.run(
+    def _try_format():
+        return _run(
             [
                 "cryptsetup", "luksFormat",
                 "--type", "luks2",
@@ -488,42 +514,43 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
                 "--key-file", keyfile_path,
                 real_dev,
             ],
-            capture_output=True,
-            text=True,
+            timeout=120,
         )
 
     r = _try_format()
-    if r.returncode != 0:
+    if r is None or r.returncode != 0:
         # Wait a little longer and retry once — the lazy-unmount may still
         # be releasing inodes in the background.
         time.sleep(2)
         os.sync()
         r = _try_format()
 
-    if r.returncode != 0:
-        errors.append(f"cryptsetup luksFormat failed: {r.stderr.strip()}")
+    if r is None or r.returncode != 0:
+        err_msg = r.stderr.strip() if r else "timeout"
+        errors.append(f"cryptsetup luksFormat failed: {err_msg}")
         # Recreate the plain dm passthrough alias so /mnt/data can still be
         # mounted for the remainder of the setup (docker-compose.yml, .env,
         # .setup-complete).  The error is non-fatal: the data partition stays
         # unencrypted and a reboot will restore the normal unlock path.
         try:
-            sectors = subprocess.check_output(
+            sectors_result = _run(
                 ["blockdev", "--getsz", real_dev],
-                stderr=subprocess.DEVNULL, text=True,
-            ).strip()
+                timeout=10,
+            )
+            sectors = sectors_result.stdout.strip() if sectors_result else ""
             if sectors:
-                subprocess.run(
+                _run(
                     ["dmsetup", "create", "iora-data",
                      "--table", f"0 {sectors} linear {real_dev} 0"],
-                    capture_output=True,
+                    timeout=30,
                 )
         except Exception:
             pass
         os.makedirs("/mnt/data", exist_ok=True)
-        subprocess.run(
+        _run(
             ["mount", "-t", "ext4", "-o", "defaults,noatime",
              "/dev/mapper/iora-data", "/mnt/data"],
-            capture_output=True,
+            timeout=60,
         )
         _recreate_data_dirs()
         return errors
@@ -531,14 +558,14 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     # Open the newly formatted LUKS partition.  Use real_dev: the ext4 label
     # on the raw device is gone (LUKS header replaced it) so the by-label
     # symlink no longer exists at this point.
-    ro = subprocess.run(
+    ro = _run(
         ["cryptsetup", "luksOpen", real_dev, "iora-data",
          "--key-file", keyfile_path],
-        capture_output=True,
-        text=True,
+        timeout=60,
     )
-    if ro.returncode != 0:
-        errors.append(f"cryptsetup luksOpen failed: {ro.stderr.strip()}")
+    if ro is None or ro.returncode != 0:
+        err_msg = ro.stderr.strip() if ro else "timeout"
+        errors.append(f"cryptsetup luksOpen failed: {err_msg}")
         # luksFormat already destroyed the ext4 header; the device is now a
         # bare LUKS container we cannot open.  Re-format it as plain ext4 so
         # /mnt/data is at least mountable and the rest of setup can proceed.
@@ -549,24 +576,24 @@ def setup_luks_data_partition(keyfile_path: str) -> list[str]:
     # /mnt/data so that all subsequent setup steps (docker-compose.yml, .env,
     # .setup-complete) are written to the encrypted partition and persist
     # across reboots.
-    mf = subprocess.run(
+    mf = _run(
         ["mkfs.ext4", "-F", "/dev/mapper/iora-data"],
-        capture_output=True,
-        text=True,
+        timeout=120,
     )
-    if mf.returncode != 0:
-        errors.append(f"mkfs.ext4 on LUKS container failed: {mf.stderr.strip()}")
+    if mf is None or mf.returncode != 0:
+        err_msg = mf.stderr.strip() if mf else "timeout"
+        errors.append(f"mkfs.ext4 on LUKS container failed: {err_msg}")
         return errors
 
     os.makedirs("/mnt/data", exist_ok=True)
-    mr = subprocess.run(
+    mr = _run(
         ["mount", "-t", "ext4", "-o", "defaults,noatime",
          "/dev/mapper/iora-data", "/mnt/data"],
-        capture_output=True,
-        text=True,
+        timeout=60,
     )
-    if mr.returncode != 0:
-        errors.append(f"mount /mnt/data failed after LUKS setup: {mr.stderr.strip()}")
+    if mr is None or mr.returncode != 0:
+        err_msg = mr.stderr.strip() if mr else "timeout"
+        errors.append(f"mount /mnt/data failed after LUKS setup: {err_msg}")
     else:
         # Recreate directory tree on the new LUKS-backed filesystem so all
         # subsequent setup writes (docker-compose.yml, .env, .setup-complete)
@@ -758,10 +785,43 @@ def apply_config(config):
         if not os.path.exists(DATA_KEYFILE):
             keyfile = generate_and_store_luks_keyfile()
             if keyfile:
-                luks_errors = setup_luks_data_partition(keyfile)
-                for e in luks_errors:
-                    PROGRESS.add_error(e)
-                errors.extend(luks_errors)
+                # Run LUKS setup with a hard timeout — if cryptsetup hangs
+                # (e.g., device-mapper unavailable, broken block device),
+                # we must not block the entire setup indefinitely.
+                luks_errors = []
+                luks_done = threading.Event()
+                luks_exception = [None]  # mutable container for thread exception
+
+                def _luks_worker():
+                    try:
+                        result = setup_luks_data_partition(keyfile)
+                        luks_errors.extend(result)
+                    except Exception as exc:
+                        luks_exception[0] = exc
+                    finally:
+                        luks_done.set()
+
+                t = threading.Thread(target=_luks_worker, daemon=True)
+                t.start()
+                # Wait up to 120 seconds for LUKS setup. If it times out,
+                # log the error and continue — the data partition stays
+                # unencrypted but the rest of setup can proceed.
+                if not luks_done.wait(timeout=120):
+                    msg = (
+                        "LUKS setup timed out after 120s — data partition "
+                        "will remain unencrypted. This is non-fatal: all "
+                        "other setup steps will complete normally."
+                    )
+                    errors.append(msg)
+                    PROGRESS.add_error(msg)
+                elif luks_exception[0] is not None:
+                    msg = f"LUKS setup crashed: {luks_exception[0]}"
+                    errors.append(msg)
+                    PROGRESS.add_error(msg)
+                else:
+                    for e in luks_errors:
+                        PROGRESS.add_error(e)
+                    errors.extend(luks_errors)
             else:
                 msg = "Failed to generate LUKS keyfile — data partition will remain unencrypted"
                 errors.append(msg)
@@ -1042,23 +1102,28 @@ def apply_config(config):
     else:
         PROGRESS.log("Web-Admin credentials missing or password too short — skipping bootstrap (you can register from the UI)", level="warn")
 
-    # Mark setup as complete
+    # Mark setup as complete — write BOTH flags.
+    # Primary: data partition (survives normal reboots with data partition mounted).
+    # Secondary: rootfs (survives data-partition mount failures / LUKS issues).
     PROGRESS.set_phase("flag")
-    try:
-        with open(SETUP_DONE_FLAG, "w") as f:
-            f.write("1\n")
-            f.flush()
-            os.fsync(f.fileno())  # guarantee on-disk before any reboot/reset
-        # Also fsync the parent directory so the directory entry is durable.
-        parent_fd = os.open(os.path.dirname(SETUP_DONE_FLAG), os.O_RDONLY)
+    for flag_path in (SETUP_DONE_FLAG, SETUP_DONE_FLAG_ROOTFS):
         try:
-            os.fsync(parent_fd)
-        finally:
-            os.close(parent_fd)
-    except Exception as e:
-        msg = f"Failed to write setup flag: {e}"
-        errors.append(msg)
-        PROGRESS.add_error(msg)
+            os.makedirs(os.path.dirname(flag_path), exist_ok=True)
+            with open(flag_path, "w") as f:
+                f.write(f"{time.time()}\n")
+                f.flush()
+                os.fsync(f.fileno())
+            # Also fsync the parent directory so the directory entry is durable.
+            parent_fd = os.open(os.path.dirname(flag_path), os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
+            PROGRESS.log(f"Setup-complete flag written to {flag_path}")
+        except Exception as e:
+            msg = f"Failed to write setup flag {flag_path}: {e}"
+            errors.append(msg)
+            PROGRESS.add_error(msg)
 
     # Disable setup service if on IORA OS
     PROGRESS.set_phase("disable_setup")
@@ -1066,10 +1131,16 @@ def apply_config(config):
         try:
             subprocess.run(
                 ["systemctl", "disable", "iora-setup.service"],
-                check=False, capture_output=True
+                check=False, capture_output=True, text=True, timeout=30,
             )
-        except Exception:
-            pass
+            subprocess.run(
+                ["systemctl", "disable", "iora-setup-tui.service"],
+                check=False, capture_output=True, text=True, timeout=30,
+            )
+            PROGRESS.log("Disabled iora-setup.service + iora-setup-tui.service")
+        except Exception as e:
+            errors.append(f"Failed to disable setup service: {e}")
+            PROGRESS.add_error(f"Failed to disable setup service: {e}")
 
     # Start the user-app Docker stack (MQTT broker and optional adapters).
     # iora-stack.service manages user-app containers only — IORA system
@@ -2322,6 +2393,76 @@ loadSysInfo();
 </html>"""
 
 
+# ── "Setup Already Complete" info page ──────────────────────────────────────
+# Served instead of the wizard when .setup-complete flags exist. Prevents
+# users from seeing the full wizard when setup was already done but the
+# flag was temporarily invisible (e.g., LUKS not yet unlocked at boot).
+SETUP_ALREADY_COMPLETE_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="5;url=/">
+<title>IORA OS — Setup Complete</title>
+<style>
+:root { --bg: #0a0a0a; --surface: #161616; --border: #2a2a2a;
+        --primary: #2563eb; --success: #22c55e; --text: #e5e7eb;
+        --text2: #9ca3af; --radius: 12px; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+       background: var(--bg); color: var(--text); min-height: 100vh;
+       display: flex; align-items: center; justify-content: center; }
+.card { background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 40px; max-width: 520px;
+        text-align: center; margin: 20px; }
+.card .icon { font-size: 4rem; margin-bottom: 16px; }
+.card h1 { font-size: 1.5rem; margin-bottom: 8px; }
+.card h1 span { color: var(--primary); }
+.card p { color: var(--text2); font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px; }
+.card .url { display: inline-block; background: var(--bg);
+             border: 1px solid var(--primary); border-radius: 8px;
+             padding: 12px 24px; font-family: monospace; color: var(--primary);
+             font-size: 1.1rem; margin: 10px 0; }
+.card .info { font-size: 0.8rem; color: var(--text2); margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">&#x2705;</div>
+  <h1><span>IORA</span> OS Setup Complete</h1>
+  <p>The first-boot setup has already been completed for this device.</p>
+  <p>Your dashboard is available at:</p>
+  <div class="url" id="dashboardUrl">http://<device-ip>:8126</div>
+  <p class="info">
+    If the dashboard is not reachable, the system may still be starting up.
+    Wait 1–2 minutes and try again, or check the console for status messages.
+  </p>
+  <p class="info" style="margin-top:8px">
+    <small>To re-run setup: SSH in and remove<br>
+    <code>/etc/iora/.setup-complete</code> and/or<br>
+    <code>/mnt/data/iora/.setup-complete</code></small>
+  </p>
+</div>
+<script>
+// Try to resolve the device IP for the dashboard URL.
+(async function() {
+  try {
+    const r = await fetch('/api/sysinfo');
+    const info = await r.json();
+    if (info.interfaces) {
+      const active = info.interfaces.find(i => i.ipv4);
+      if (active) {
+        document.getElementById('dashboardUrl').textContent =
+          'http://' + active.ipv4 + ':8126';
+      }
+    }
+  } catch(_) {}
+})();
+</script>
+</body>
+</html>"""
+
+
 class SetupHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for the setup wizard."""
 
@@ -2347,11 +2488,16 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
 
         if path == "/" or path == "/setup":
+            # If setup is already complete, show a redirect page instead
+            # of the wizard — prevents confusing "start over" prompts.
+            if is_setup_complete():
+                self._send_html(SETUP_ALREADY_COMPLETE_HTML)
+                return
             self._send_html(SETUP_HTML)
         elif path == "/api/sysinfo":
             self._send_json(get_system_info())
         elif path == "/api/status":
-            done = os.path.exists(SETUP_DONE_FLAG)
+            done = is_setup_complete()
             self._send_json({"setup_complete": done})
         elif path == "/api/state":
             # Persistent apply-progress snapshot. The UI polls this every
@@ -2461,13 +2607,23 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Invalid JSON"}, 400)
                 return
 
-            # Idempotent: if a run is already in progress, just return the
-            # current state instead of kicking off a second concurrent apply.
+            # Guard: if setup is already complete, deny re-application.
+            if is_setup_complete():
+                self._send_json({"ok": False, "error": "Setup already completed. Remove .setup-complete flag files to re-run."}, 409)
+                return
+
+            # Idempotent: if a run is already in progress, check for staleness
+            # and either resume or restart.
             snap = PROGRESS.snapshot()
             if snap["status"] == "running":
-                self._send_json({"ok": True, "status": "running",
-                                 "state": snap})
-                return
+                updated_at = snap.get("updated_at")
+                if updated_at and (time.time() - float(updated_at)) < STALE_RUN_TIMEOUT_SECONDS:
+                    self._send_json({"ok": True, "status": "running",
+                                     "state": snap})
+                    return
+                else:
+                    # Stale run — reset and allow a fresh apply.
+                    PROGRESS.start()
             if snap["status"] == "done":
                 self._send_json({"ok": True, "status": "done",
                                  "state": snap})
@@ -2542,11 +2698,87 @@ def _schedule_shutdown(delay_sec: int) -> None:
     threading.Thread(target=shutdown_later, daemon=True).start()
 
 
+def is_setup_complete() -> bool:
+    """Check whether setup has already been completed.
+
+    Uses a dual-flag strategy:
+    1. Primary flag on the data partition (survives normal reboots).
+    2. Secondary flag on rootfs (survives data-partition mount failures).
+
+    On every successful setup completion, BOTH flags are written.
+    If EITHER flag exists, setup is considered complete — the data
+    partition flag may be temporarily invisible (LUKS not yet unlocked)
+    but the rootfs flag persists as long as the OS image is intact.
+
+    Also performs a heuristic check: if the DB password file exists
+    and the docker compose config was generated, the system was almost
+    certainly configured before — treat it as complete even if flags
+    are missing (e.g., after a manual reset).
+    """
+    if os.path.exists(SETUP_DONE_FLAG) or os.path.exists(SETUP_DONE_FLAG_ROOTFS):
+        return True
+    # Heuristic: if docker-compose.yml AND db.password both exist, the
+    # system was configured. This catches cases where a user manually
+    # deleted the flag files without re-flashing.
+    compose = os.path.join(DATA_DIR, "docker-compose.yml")
+    db_pass = "/etc/iora/db.password"
+    if os.path.exists(compose) and os.path.exists(db_pass):
+        # Re-create the flags so we don't keep doing this check.
+        for flag in (SETUP_DONE_FLAG, SETUP_DONE_FLAG_ROOTFS):
+            try:
+                os.makedirs(os.path.dirname(flag), exist_ok=True)
+                with open(flag, "w") as f:
+                    f.write("recovered\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+            except OSError:
+                pass
+        return True
+    return False
+
+
+def reset_stale_setup_state() -> bool:
+    """Check if the previous setup run is stale/crashed and reset it.
+
+    Returns True if the state was reset (stale run detected).
+    """
+    if not os.path.exists(SETUP_STATE_FILE):
+        return False
+    try:
+        with open(SETUP_STATE_FILE, "r") as f:
+            state = json.load(f)
+        if state.get("status") != "running":
+            return False
+        updated_at = state.get("updated_at")
+        if updated_at is None:
+            # No timestamp at all — definitely stale.
+            os.remove(SETUP_STATE_FILE)
+            print(f"Removed stale setup state (no timestamp) — resetting wizard")
+            return True
+        age = time.time() - float(updated_at)
+        if age > STALE_RUN_TIMEOUT_SECONDS:
+            os.remove(SETUP_STATE_FILE)
+            print(f"Removed stale setup state (last update {age:.0f}s ago) — resetting wizard")
+            return True
+    except (json.JSONDecodeError, OSError, ValueError):
+        # Corrupt state file — remove it.
+        try:
+            os.remove(SETUP_STATE_FILE)
+        except OSError:
+            pass
+        return True
+    return False
+
+
 def main():
-    # Check if setup is already complete
-    if os.path.exists(SETUP_DONE_FLAG):
-        print(f"Setup already completed. Remove {SETUP_DONE_FLAG} to re-run.")
+    # Check if setup is already complete (dual-flag strategy).
+    if is_setup_complete():
+        print(f"Setup already completed. Remove {SETUP_DONE_FLAG} or {SETUP_DONE_FLAG_ROOTFS} to re-run.")
         sys.exit(0)
+
+    # Detect and recover from stale/crashed previous runs so the wizard
+    # doesn't show a forever-spinning progress bar on reboot.
+    reset_stale_setup_state()
 
     # Ensure DATA_DIR exists. On a freshly-dd'd image or when the iora-data
     # partition could not be mounted, /mnt/data/iora may be missing; create

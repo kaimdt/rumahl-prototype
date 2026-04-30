@@ -77,6 +77,22 @@ impl HaConnectionManager {
         self.available.load(Ordering::Relaxed)
     }
 
+    /// Update the HA URL at runtime (after admin changes settings).
+    pub async fn update_url(&self, url: &str) {
+        if !url.is_empty() {
+            *self.ha_url.write().await = url.to_string();
+            info!("HA Connection: URL updated to {}", url);
+        }
+    }
+
+    /// Reset connection state to force reconnection with new credentials.
+    /// Call after updating HA credentials in the admin settings.
+    pub fn reset_for_reconnect(&self) {
+        self.available.store(false, Ordering::Relaxed);
+        self.failure_count.store(0, Ordering::Relaxed);
+        info!("HA Connection: state reset for reconnection");
+    }
+
     pub fn set_available(&self, val: bool) {
         let was = self.available.swap(val, Ordering::Relaxed);
         if was != val {

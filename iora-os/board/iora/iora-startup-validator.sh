@@ -73,7 +73,8 @@ validate() {
     log "=== IORA OS Startup Validation ==="
 
     # First-boot / fresh install: nothing to validate yet.
-    if [ ! -e /mnt/data/iora/.setup-complete ]; then
+    # Use dual-flag check: setup is complete if EITHER flag exists.
+    if [ ! -e /mnt/data/iora/.setup-complete ] && [ ! -e /etc/iora/.setup-complete ]; then
         log "setup not complete yet (missing .setup-complete) — skipping stack checks"
         return 0
     fi

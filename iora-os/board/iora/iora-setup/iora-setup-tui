@@ -28,10 +28,19 @@ import time
 
 STATE_FILE = "/mnt/data/iora/setup-state.json"
 SETUP_DONE_FLAG = "/mnt/data/iora/.setup-complete"
+SETUP_DONE_FLAG_ROOTFS = "/etc/iora/.setup-complete"
 SETUP_PORT = 8080
 
 # How many seconds without an IP before prompting the user about static config.
 NO_IP_PROMPT_AFTER = 30
+
+# Maximum time a setup run can be "running" without updates before we
+# consider it stale and warn the user.
+STALE_RUN_WARN_SECONDS = 300  # 5 minutes
+
+# How long the same percentage can be displayed before we warn the user
+# that the current phase may be stuck.
+STUCK_PERCENT_WARN_SECONDS = 180  # 3 minutes
 
 # ANSI — IORA Home palette (dark bg, blue accent)
 CLEAR = "\x1b[2J\x1b[H"
@@ -94,7 +103,8 @@ def bar(percent: int, width: int = 50) -> str:
     return f"[{'█' * filled}{'░' * (width - filled)}]"
 
 
-def render(ip: str, state: dict | None, no_ip_seconds: float = 0) -> None:
+def render(ip: str, state: dict | None, no_ip_seconds: float = 0,
+           stuck_warning: str = "", stale_warning: str = "") -> None:
     lines: list[str] = []
     lines.append(CLEAR)
     # IORA-style header bar
@@ -137,6 +147,19 @@ def render(ip: str, state: dict | None, no_ip_seconds: float = 0) -> None:
         lines.append(f"  {col}{bar(percent)}{RESET}  " +
                      BOLD + f"{percent:3d}%" + RESET)
         lines.append("")
+
+        # Show warnings for stale or stuck runs
+        if status == "running":
+            if stale_warning:
+                lines.append(FG_RED + BOLD + f"  ⚠ {stale_warning}" + RESET)
+                lines.append(FG_YELLOW + "  The setup server appears unresponsive." + RESET)
+                lines.append(FG_YELLOW + "  You can SSH in and run:" + RESET)
+                lines.append(DIM + "    rm -f /mnt/data/iora/setup-state.json" + RESET)
+                lines.append(DIM + "    systemctl restart iora-setup.service" + RESET)
+                lines.append("")
+            if stuck_warning:
+                lines.append(FG_YELLOW + f"  ⚠ {stuck_warning}" + RESET)
+                lines.append("")
 
         log = state.get("log") or []
         if log:
@@ -269,9 +292,15 @@ def main() -> int:
     last_ip_check = 0.0
     ip = ""
     no_ip_since: float | None = None  # timestamp when IP was first missing
+    # Track state staleness: how long has the status been "running" without
+    # an update, and at what percentage.
+    last_running_update = 0.0
+    last_percent = -1
+    last_percent_change = 0.0
     try:
         while True:
-            if os.path.exists(SETUP_DONE_FLAG):
+            # Dual-flag check: setup is done if EITHER flag exists.
+            if os.path.exists(SETUP_DONE_FLAG) or os.path.exists(SETUP_DONE_FLAG_ROOTFS):
                 # Setup finished — show a clear completion screen, then exit
                 # so ExecStopPost can hand tty1 back to getty.
                 sys.stdout.write(
@@ -308,8 +337,39 @@ def main() -> int:
             no_ip_secs = (now - no_ip_since) if (not ip and no_ip_since is not None) else 0.0
 
             state = load_state()
+
+            # Detect stale state: status is "running" but no update for too long.
+            stale_warning = ""
+            stuck_warning = ""
+            if state and state.get("status") == "running":
+                updated_at = state.get("updated_at")
+                if updated_at:
+                    if last_running_update == 0:
+                        last_running_update = float(updated_at)
+                    age = now - float(updated_at)
+                    if age > STALE_RUN_WARN_SECONDS:
+                        stale_warning = (
+                            f"Setup has been running for {int(age)}s without updates. "
+                            f"It may be stuck or have crashed."
+                        )
+                # Detect stuck percentage (no progress for too long).
+                pct = state.get("percent", -1)
+                if pct != last_percent:
+                    last_percent = pct
+                    last_percent_change = now
+                elif now - last_percent_change > STUCK_PERCENT_WARN_SECONDS and pct < 100:
+                    stuck_warning = (
+                        f"Progress stuck at {pct}% for "
+                        f"{int(now - last_percent_change)}s. "
+                        f"The current phase may be hanging."
+                    )
+            else:
+                last_running_update = 0.0
+                last_percent = -1
+                last_percent_change = 0.0
+
             try:
-                render(ip, state, no_ip_secs)
+                render(ip, state, no_ip_secs, stuck_warning, stale_warning)
             except Exception:
                 pass
 

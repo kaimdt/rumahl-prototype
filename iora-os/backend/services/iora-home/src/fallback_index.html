@@ -46,8 +46,9 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:ui
   <p class="lead">The IORA Home dashboard backend is up and serving its API. The web UI bundle is not deployed in this image &mdash; this fallback page confirms the service is healthy.</p>
 
   <div class="card">
-    <h2>Service</h2>
+    <h2>System Status</h2>
     <div class="row"><div class="row-label">iora-home</div><div><span class="badge badge-ok">Online</span></div></div>
+    <div class="row"><div class="row-label">First-boot setup</div><div id="setupStatus"><span class="badge badge-warn">Checking…</span></div></div>
     <div class="row"><div class="row-label">API base</div><div class="row-meta">/api/*</div></div>
     <div class="row"><div class="row-label">Health</div><div class="row-meta"><a href="/api/health">/api/health</a></div></div>
     <div class="row"><div class="row-label">Version</div><div class="row-meta"><a href="/api/version">/api/version</a></div></div>
@@ -73,6 +74,22 @@ code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:ui
 document.querySelectorAll('a').forEach(function(a){
   if(a.href.indexOf('_HOST_')>-1){a.href=a.href.replace('_HOST_',location.hostname);}
 });
+// Fetch setup completion status from health endpoint.
+(async function() {
+  try {
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    const el = document.getElementById('setupStatus');
+    if (d.setup_complete) {
+      el.innerHTML = '<span class="badge badge-ok">Complete</span>';
+    } else {
+      el.innerHTML = '<span class="badge badge-warn">Not complete — run setup wizard on :8080</span>';
+    }
+  } catch(_) {
+    document.getElementById('setupStatus').innerHTML =
+      '<span class="badge badge-warn">Unknown</span>';
+  }
+})();
 </script>
 </body>
 </html>

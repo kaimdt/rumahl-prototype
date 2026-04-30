@@ -494,6 +494,17 @@ async fn main() -> anyhow::Result<()> {
     let iora_env = iora_shared::env::IoraEnv::detect();
     info!("IORA environment: {}", iora_env);
 
+    // Check setup completion status for diagnostics
+    let setup_complete = iora_shared::env::IoraEnv::is_setup_complete();
+    info!("First-boot setup completed: {}", setup_complete);
+    if !setup_complete {
+        warn!(
+            "First-boot setup has NOT been completed. The setup wizard should be \
+             running on port 8080. iora-home is starting regardless to be ready \
+             when setup finishes."
+        );
+    }
+
     // Get database configuration
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://iora:iora_password@localhost:5432/iora_home".to_string());
@@ -1274,6 +1285,8 @@ async fn main() -> anyhow::Result<()> {
         // page or a "IORA Home not configured" placeholder. No auth needed
         // because the result reveals only a boolean, not the URL/token.
         .route("/api/integration/ha/configured", get(integration_ha_configured))
+        .route("/api/integration/ha/test", post(integration_ha_test_connection))
+        .route("/api/integration/ha/reconnect", post(integration_ha_reconnect))
         .route("/api/integration/command", post(integration_command))
         .route("/api/integration/settings", get(integration_get_settings))
         .route("/api/integration/settings", post(integration_set_settings))
@@ -1482,7 +1495,8 @@ async fn health_check(
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "uptime_info": {
             "started": true,
-        }
+        },
+        "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
     }))
 }
 
@@ -1935,6 +1949,122 @@ async fn integration_ha_configured(State(state): State<AppState>) -> impl IntoRe
         "configured": ha_config.is_configured(),
         "has_url": has_url,
         "has_token": has_token,
+    }))
+}
+
+/// POST /api/integration/ha/test — test HA connectivity with current credentials.
+/// Returns detailed diagnostics so the user knows WHY a 401 is happening.
+async fn integration_ha_test_connection(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let ha_config = load_ha_runtime_config(&state.config_repo).await;
+    if !ha_config.is_configured() {
+        return Json(json!({
+            "ok": false,
+            "error": "HA not configured — set URL and token in Admin Settings",
+            "configured": false,
+        }));
+    }
+
+    // Test connectivity with current credentials
+    let test_url = format!("{}/api/", ha_config.url.trim_end_matches('/'));
+    let start = std::time::Instant::now();
+    let result = state
+        .http_client
+        .get(&test_url)
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", ha_config.token),
+        )
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body_hint = resp.text().await.unwrap_or_default();
+            let body_preview: String = body_hint.chars().take(200).collect();
+            if status == 200 {
+                Json(json!({
+                    "ok": true,
+                    "status": status,
+                    "latency_ms": elapsed_ms,
+                    "message": "HA is reachable and credentials are valid",
+                    "configured": true,
+                }))
+            } else if status == 401 {
+                Json(json!({
+                    "ok": false,
+                    "status": status,
+                    "latency_ms": elapsed_ms,
+                    "error": format!(
+                        "Authentication failed (HTTP 401). The token is invalid or expired. \
+                         Generate a new Long-Lived Access Token in HA under \
+                         Settings → People → Long-Lived Access Tokens."
+                    ),
+                    "configured": true,
+                }))
+            } else {
+                Json(json!({
+                    "ok": false,
+                    "status": status,
+                    "latency_ms": elapsed_ms,
+                    "error": format!("HA returned HTTP {}: {}", status, body_preview),
+                    "configured": true,
+                }))
+            }
+        }
+        Err(e) => {
+            let hint = if e.is_timeout() {
+                format!(
+                    "Connection timed out after {}ms. Check that the URL is correct\
+                     and HA is running. Example: http://192.168.1.100:8123",
+                    elapsed_ms
+                )
+            } else if e.is_connect() {
+                format!(
+                    "Could not connect to {}. Verify the IP/port and that HA is running.",
+                    ha_config.url
+                )
+            } else {
+                format!("Connection error: {}", e)
+            };
+            Json(json!({
+                "ok": false,
+                "error": hint,
+                "latency_ms": elapsed_ms,
+                "configured": true,
+            }))
+        }
+    }
+}
+
+/// POST /api/integration/ha/reconnect — force HA client to reconnect with current settings.
+/// Use this after updating HA URL/token when you don't want to wait for the auto-retry.
+async fn integration_ha_reconnect(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let ha_config = load_ha_runtime_config(&state.config_repo).await;
+    if !ha_config.is_configured() {
+        return Json(json!({
+            "ok": false,
+            "error": "HA not configured — set URL and token first",
+        }));
+    }
+
+    // Update the live client credentials
+    state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
+    state.ha_connection.update_url(&ha_config.url).await;
+    state.ha_connection.reset_for_reconnect();
+
+    info!("HA reconnection triggered manually via API");
+
+    Json(json!({
+        "ok": true,
+        "message": "HA client reconnected with current settings",
+        "url": ha_config.url,
     }))
 }
 
@@ -3634,6 +3764,9 @@ struct SettingValueDto {
     value: serde_json::Value,
     /// True when an explicit value has been stored (false → using `default`).
     is_set: bool,
+    /// If the setting was applied live (no restart needed), this is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied_live: Option<String>,
 }
 
 async fn admin_settings_schema(
@@ -3909,15 +4042,38 @@ const RESTARTABLE_SERVICES: &[&str] = &[
 ];
 
 async fn admin_control_restart_service(
+    State(state): State<AppState>,
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    // Soft-restart: for iora-home itself, just reconnect HA as a lightweight
+    // alternative to a full systemctl restart (which would drop WebSocket clients).
+    if name == "iora-home-ha" {
+        let ha_config = load_ha_runtime_config(&state.config_repo).await;
+        if ha_config.is_configured() {
+            state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
+            state.ha_connection.update_url(&ha_config.url).await;
+            state.ha_connection.reset_for_reconnect();
+            return Ok(Json(json!({
+                "success": true,
+                "service": "iora-home-ha",
+                "message": "HA-Verbindung mit aktuellen Einstellungen neu initialisiert.",
+                "url": ha_config.url,
+            })));
+        } else {
+            return Err(ErrorResponse::bad_request(
+                "HA ist nicht konfiguriert. URL und Token in den Admin-Einstellungen setzen."
+            ));
+        }
+    }
+
     let safe_name = RESTARTABLE_SERVICES
         .iter()
         .find(|&&s| s == name)
         .ok_or_else(|| {
             ErrorResponse::bad_request(format!(
-                "Dienst '{}' ist nicht als neustartbar registriert.",
-                name
+                "Dienst '{}' ist nicht als neustartbar registriert. Verfügbare Dienste: {}",
+                name,
+                RESTARTABLE_SERVICES.join(", ")
             ))
         })?;
 
@@ -3935,12 +4091,23 @@ async fn admin_control_restart_service(
             "service": safe_name,
             "message": format!("{unit} neu gestartet."),
         }))),
-        Ok(out) => Err(ErrorResponse::internal(format!(
-            "systemctl restart {unit} fehlgeschlagen: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ))),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let hint = if stderr.contains("not found") || stderr.contains("No such") {
+                format!(
+                    "Systemdienst '{unit}' existiert nicht auf diesem System. \
+                     Auf Dev-Workstations ohne systemctl ist Service-Neustart nicht möglich."
+                )
+            } else if stderr.contains("permission denied") || stderr.contains("not permitted") {
+                "Keine Berechtigung zum Neustart des Dienstes. Als root ausführen.".to_string()
+            } else {
+                format!("systemctl restart {unit} fehlgeschlagen: {stderr}")
+            };
+            Err(ErrorResponse::internal(hint))
+        }
         Err(e) => Err(ErrorResponse::service_unavailable(format!(
-            "systemctl nicht verfügbar ({e}). Auf einer Dev-Workstation ist Service-Neustart per UI nicht möglich."
+            "systemctl nicht verfügbar ({e}). Auf einer Dev-Workstation ist Service-Neustart per UI nicht möglich. \
+             Nutze 'iora-home-ha' als Service-Namen für einen Soft-Neustart der HA-Verbindung."
         ))),
     }
 }
@@ -5459,6 +5626,7 @@ async fn admin_settings_list(
                 definition: def,
                 value,
                 is_set,
+                applied_live: None,
             }
         })
         .collect();
@@ -5494,6 +5662,7 @@ async fn admin_settings_get(
         definition: def,
         value,
         is_set,
+        applied_live: None,
     }))
 }
 
@@ -5554,6 +5723,25 @@ async fn admin_settings_put(
     // reachable without a manual SSH. Best-effort — if systemctl isn't on
     // PATH or the unit isn't installed (e.g. production image, container
     // build) we just log and move on.
+    // Side-effect hook: when HA URL or token changes, update the live client
+    // and trigger reconnection so the new credentials take effect immediately
+    // without a full service restart.
+    if key == "ha.url" || key == "ha.token" {
+        let ha_config = load_ha_runtime_config(&state.config_repo).await;
+        if ha_config.is_configured() {
+            // Update the REST client credentials in-place
+            state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
+            // Update connection manager URL
+            state.ha_connection.update_url(&ha_config.url).await;
+            // Reset failure counters so the next HA call tries with fresh creds
+            state.ha_connection.record_success();
+            info!(
+                "HA credentials updated live — REST client reconnected. URL={}",
+                ha_config.url
+            );
+        }
+    }
+
     if key == "developer.mode" {
         let enable = body.value.as_bool().unwrap_or(false);
 
@@ -5599,6 +5787,16 @@ async fn admin_settings_put(
         value: def.redact(&body.value),
         definition: def,
         is_set: true,
+        applied_live: if key == "ha.url" || key == "ha.token" {
+            let ha_config = load_ha_runtime_config(&state.config_repo).await;
+            if ha_config.is_configured() {
+                Some("HA-Verbindung live aktualisiert — kein Neustart nötig".to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        },
     }))
 }
 

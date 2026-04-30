@@ -510,8 +510,35 @@ function tabToAdminPath(tab: Tab): string {
 export function AdminPanel() {
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>(() => adminPathToTab(window.location.pathname))
-  const [expandedGroup, setExpandedGroup] = useState<string>('core')
+  // Persist expanded group across page reloads via localStorage
+  const [expandedGroup, setExpandedGroup] = useState<string>(() => {
+    try {
+      return localStorage.getItem('iora-admin-expanded-group') || 'core'
+    } catch { return 'core' }
+  })
   const [haEnabled, setHaEnabled] = useState<boolean>(true)
+  const sidebarRef = useCallback((node: HTMLDivElement | null) => {
+    // Scroll the active tab into view when sidebar mounts
+    if (node) {
+      const activeEl = node.querySelector('[data-tab-active="true"]') as HTMLElement | null
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  }, [])
+
+  // Persist expandedGroup to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('iora-admin-expanded-group', expandedGroup) } catch {}
+  }, [expandedGroup])
+
+  // Auto-expand the group that contains the active tab
+  useEffect(() => {
+    const group = tabGroups.find(g => g.items.includes(activeTab))
+    if (group && group.id !== expandedGroup) {
+      setExpandedGroup(group.id)
+    }
+  }, [activeTab])
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
@@ -550,7 +577,16 @@ export function AdminPanel() {
   return (
     <div className="pb-28">
       <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
-        <aside className={ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')}>
+        {/* ── Sticky Sidebar with custom scrollbar ────────────────────── */}
+        <aside className={`${ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')} sidebar-scroll`}>
+          <style>{`
+            .sidebar-scroll .overflow-y-auto::-webkit-scrollbar { width: 4px; }
+            .sidebar-scroll .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
+            .sidebar-scroll .overflow-y-auto::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+            .sidebar-scroll .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+            /* Firefox */
+            .sidebar-scroll .overflow-y-auto { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+          `}</style>
           <div className="flex items-center gap-3 mb-4 flex-shrink-0">
             <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center">
               <ShieldCheck size={20} weight="fill" className="text-accent" />
@@ -560,7 +596,7 @@ export function AdminPanel() {
               <p className="text-[10px] text-foreground/40">System & Apps verwalten</p>
             </div>
           </div>
-          <div className="space-y-3 overflow-y-auto flex-1">
+          <div ref={sidebarRef} className="space-y-3 overflow-y-auto flex-1 pr-1 -mr-1">
             {tabGroups.map(group => {
                 if (group.id === 'home' && !haEnabled) return null
               const GroupIcon = group.icon
@@ -570,15 +606,29 @@ export function AdminPanel() {
                   <button
                     type="button"
                     onClick={() => setExpandedGroup(isExpanded ? '' : group.id)}
-                    className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all duration-200 ${isExpanded ? 'border-accent/30 bg-accent/[0.06] text-accent' : 'border-foreground/[0.05] bg-foreground/[0.02] text-foreground/80 hover:border-foreground/[0.1] hover:bg-foreground/[0.05] hover:text-foreground'}`}
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all duration-200 ${isExpanded ? 'border-accent/30 bg-accent/[0.06] text-accent shadow-sm shadow-accent/5' : 'border-foreground/[0.05] bg-foreground/[0.02] text-foreground/80 hover:border-foreground/[0.1] hover:bg-foreground/[0.05] hover:text-foreground'}`}
                   >
                     <span className="flex items-center gap-2">
-                      <GroupIcon size={16} />
+                      <GroupIcon size={16} weight={isExpanded ? 'fill' : 'regular'} />
                       {group.title}
                     </span>
-                    <span className="text-[11px] text-foreground/50">{isExpanded ? 'Verstecken' : 'Anzeigen'}</span>
+                    <motion.span
+                      animate={{ rotate: isExpanded ? 180 : 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="text-[10px] text-foreground/40"
+                    >
+                      <CaretDown size={12} />
+                    </motion.span>
                   </button>
-                  <div className={`space-y-1 overflow-hidden transition-all ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <motion.div
+                    initial={false}
+                    animate={{
+                      height: isExpanded ? 'auto' : 0,
+                      opacity: isExpanded ? 1 : 0,
+                    }}
+                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    className="space-y-1 overflow-hidden"
+                  >
                     {group.items.map(tabId => {
                       const tab = tabs.find(t => t.id === tabId)
                       if (!tab) return null
@@ -588,10 +638,11 @@ export function AdminPanel() {
                         <Tip key={tab.id} content={tab.description}>
                           <button
                             type="button"
+                            data-tab-active={isActive ? 'true' : 'false'}
                             onClick={() => setActiveTab(tab.id)}
                             className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-all duration-200 ${
                               isActive
-                                ? 'bg-accent/15 text-accent font-semibold'
+                                ? 'bg-accent/15 text-accent font-semibold shadow-sm shadow-accent/10'
                                 : 'text-foreground/60 hover:text-foreground hover:bg-foreground/[0.04]'
                             }`}
                           >
@@ -601,7 +652,7 @@ export function AdminPanel() {
                         </Tip>
                       )
                     })}
-                  </div>
+                  </motion.div>
                 </div>
               )
             })}
@@ -609,13 +660,32 @@ export function AdminPanel() {
         </aside>
 
         <div className="space-y-3">
+          {/* ── Active Tab Header ─────────────────────────────────── */}
           <div className={ccCard()}>
             <div className="flex items-center gap-3">
-              {(() => { const t = tabs.find(t => t.id === activeTab); const Icon = t?.icon ?? Cpu; return <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center flex-shrink-0"><Icon size={18} className="text-accent" /></div> })()}
-              <div>
-                <p className="text-sm font-semibold text-foreground">{tabs.find(t => t.id === activeTab)?.label}</p>
-                <p className="text-[11px] text-foreground/40">{tabs.find(t => t.id === activeTab)?.description}</p>
-              </div>
+              {(() => {
+                const t = tabs.find(t => t.id === activeTab)
+                const Icon = t?.icon ?? Cpu
+                const group = tabGroups.find(g => g.items.includes(activeTab))
+                return (
+                  <>
+                    <div className="w-10 h-10 rounded-xl bg-accent/15 flex items-center justify-center flex-shrink-0 ring-1 ring-accent/10">
+                      <Icon size={20} weight="fill" className="text-accent" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-foreground truncate">{t?.label}</p>
+                        {group && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-foreground/[0.04] text-foreground/40 border border-foreground/[0.06] flex-shrink-0">
+                            {group.title}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-foreground/40 truncate">{t?.description}</p>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           </div>
 
@@ -1782,12 +1852,12 @@ export function AdminCard({ children, title, icon: Icon, className = '' }: {
   className?: string
 }) {
   return (
-    <div className={`rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-4 ${className}`}>
+    <div className={`rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-5 ${className}`}>
       {title && (
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-foreground/[0.04]">
           {Icon && (
-            <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center">
-              <Icon size={14} className="text-accent" />
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center ring-1 ring-accent/5">
+              <Icon size={16} weight="fill" className="text-accent" />
             </div>
           )}
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -4530,8 +4600,9 @@ function SystemNotificationsTab({ token }: { token: string }) {
 
 export function LoadingSpinner() {
   return (
-    <div className="glass-card rounded-2xl p-8 theme-transition flex items-center justify-center">
-      <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+    <div className="rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-12 flex flex-col items-center justify-center gap-3">
+      <div className="w-8 h-8 border-[3px] border-accent/20 border-t-accent rounded-full animate-spin" />
+      <p className="text-xs text-foreground/40">Lade…</p>
     </div>
   )
 }
@@ -4542,10 +4613,10 @@ export function InlineSpinner({ size = 14, className = '' }: { size?: number; cl
 
 export function ErrorMessage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="glass-card rounded-2xl p-4 theme-transition">
-      <div className="flex items-center gap-2 text-sm text-red-400">
-        <Warning size={16} className="flex-shrink-0" />
-        <span>{children}</span>
+    <div className="rounded-2xl border border-red-500/10 bg-red-500/[0.04] backdrop-blur-xl p-4">
+      <div className="flex items-start gap-3 text-sm text-red-400">
+        <Warning size={18} weight="fill" className="flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">{children}</div>
       </div>
     </div>
   )

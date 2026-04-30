@@ -1,5 +1,6 @@
 use reqwest::{Client, header};
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -41,9 +42,13 @@ pub struct ProxyGetResponse {
 ///
 /// Uses **two separate connection pools** so that long-running polling
 /// requests (`get_states` – 400+ kB) never starve quick command calls.
+///
+/// URL and token are stored behind an `Arc<RwLock<>>` so they can be
+/// updated at runtime when the admin changes HA credentials via the
+/// Control Center — no service restart required.
 pub struct HomeAssistantClient {
-    base_url: String,
-    token: String,
+    base_url: Arc<tokio::sync::RwLock<String>>,
+    token: Arc<tokio::sync::RwLock<String>>,
     /// Client for large / slow reads (get_states, get_history).
     /// Generous timeout, separate pool.
     poll_client: Client,
@@ -70,26 +75,67 @@ impl HomeAssistantClient {
             .expect("Failed to create cmd HTTP client");
 
         Self {
-            base_url,
-            token,
+            base_url: Arc::new(tokio::sync::RwLock::new(base_url)),
+            token: Arc::new(tokio::sync::RwLock::new(token)),
             poll_client,
             cmd_client,
         }
     }
 
+    /// Update HA credentials at runtime — no service restart required.
+    /// Called automatically when the admin changes `ha.url` / `ha.token`
+    /// settings in the Control Center.
+    pub async fn update_credentials(&self, url: &str, token: &str) {
+        if !url.is_empty() {
+            *self.base_url.write().await = url.to_string();
+        }
+        if !token.is_empty() {
+            *self.token.write().await = token.to_string();
+        }
+        tracing::info!(
+            "HA client credentials updated: url={}, token_len={}",
+            if url.is_empty() { "(unchanged)" } else { url },
+            token.len(),
+        );
+    }
+
+    /// Get the current base URL (for diagnostics)
+    pub async fn get_base_url(&self) -> String {
+        self.base_url.read().await.clone()
+    }
+
+    /// Quick connectivity test — returns true if HA is reachable with current creds.
+    pub async fn test_connection(&self) -> Result<bool> {
+        let url = format!("{}/api/", self.base_url.read().await);
+        let token = self.token.read().await.clone();
+        let response = self
+            .cmd_client
+            .get(&url)
+            .header(header::AUTHORIZATION, format!("Bearer {}", token))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await?;
+        Ok(response.status().is_success())
+    }
+
     /// Get authorization header
-    fn auth_header(&self) -> String {
-        format!("Bearer {}", self.token)
+    async fn auth_header(&self) -> String {
+        format!("Bearer {}", self.token.read().await)
+    }
+
+    /// Helper: build the full URL for a HA API call
+    async fn api_url(&self, path: &str) -> String {
+        format!("{}{}", self.base_url.read().await, path)
     }
 
     /// Get all entity states (uses poll_client — slow path)
     pub async fn get_states(&self) -> Result<Vec<EntityState>> {
-        let url = format!("{}/api/states", self.base_url);
+        let url = format!("{}/api/states", self.base_url.read().await);
 
         let response = self
             .poll_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
@@ -106,12 +152,12 @@ impl HomeAssistantClient {
 
     /// Get single entity state (uses cmd_client — fast path)
     pub async fn get_state(&self, entity_id: &str) -> Result<Option<EntityState>> {
-        let url = format!("{}/api/states/{}", self.base_url, entity_id);
+        let url = format!("{}/api/states/{}", self.base_url.read().await, entity_id);
 
         let response = self
             .cmd_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
@@ -139,15 +185,15 @@ impl HomeAssistantClient {
         query: &str,
     ) -> Result<Value> {
         let url = if query.is_empty() {
-            format!("{}/api/services/{}/{}", self.base_url, domain, service)
+            format!("{}/api/services/{}/{}", self.base_url.read().await, domain, service)
         } else {
-            format!("{}/api/services/{}/{}?{}", self.base_url, domain, service, query)
+            format!("{}/api/services/{}/{}?{}", self.base_url.read().await, domain, service, query)
         };
 
         let response = self
             .cmd_client
             .post(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .json(&data)
             .send()
@@ -173,12 +219,12 @@ impl HomeAssistantClient {
         service: &str,
         data: Value,
     ) -> Result<()> {
-        let url = format!("{}/api/services/{}/{}", self.base_url, domain, service);
+        let url = format!("{}/api/services/{}/{}", self.base_url.read().await, domain, service);
 
         let response = self
             .cmd_client
             .post(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .json(&data)
             .send()
@@ -202,13 +248,13 @@ impl HomeAssistantClient {
     ) -> Result<Value> {
         let url = format!(
             "{}/api/history/period/{}?{}",
-            self.base_url, start_time, query
+            self.base_url.read().await, start_time, query
         );
 
         let response = self
             .poll_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
@@ -229,7 +275,8 @@ impl HomeAssistantClient {
         query: &str,
         retry_without_auth: bool,
     ) -> Result<ProxyGetResponse> {
-        let base = self.base_url.trim_end_matches('/');
+        let base = self.base_url.read().await;
+        let base = base.trim_end_matches('/');
         let path = api_relative_path.trim_start_matches('/');
         let url = if query.is_empty() {
             format!("{}/api/{}", base, path)
@@ -237,10 +284,12 @@ impl HomeAssistantClient {
             format!("{}/api/{}?{}", base, path, query)
         };
 
+        let token = self.token.read().await.clone();
+        let auth_value = format!("Bearer {}", token);
         let response = self
             .cmd_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, &auth_value)
             .send()
             .await?;
 
@@ -293,11 +342,11 @@ impl HomeAssistantClient {
 
     /// Render a Jinja2 template in Home Assistant
     pub async fn render_template(&self, template: &str) -> Result<String> {
-        let url = format!("{}/api/template", self.base_url);
+        let url = format!("{}/api/template", self.base_url.read().await);
         let response = self
             .cmd_client
             .post(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .json(&serde_json::json!({ "template": template }))
             .send()
@@ -315,15 +364,15 @@ impl HomeAssistantClient {
     /// Get logbook entries for a time period
     pub async fn get_logbook(&self, start_time: &str, query: &str) -> Result<Value> {
         let url = if query.is_empty() {
-            format!("{}/api/logbook/{}", self.base_url, start_time)
+            format!("{}/api/logbook/{}", self.base_url.read().await, start_time)
         } else {
-            format!("{}/api/logbook/{}?{}", self.base_url, start_time, query)
+            format!("{}/api/logbook/{}?{}", self.base_url.read().await, start_time, query)
         };
 
         let response = self
             .poll_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .send()
             .await?;
 
@@ -338,11 +387,11 @@ impl HomeAssistantClient {
 
     /// Get available calendars
     pub async fn get_calendars(&self) -> Result<Value> {
-        let url = format!("{}/api/calendars", self.base_url);
+        let url = format!("{}/api/calendars", self.base_url.read().await);
         let response = self
             .cmd_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .send()
             .await?;
 
@@ -365,12 +414,12 @@ impl HomeAssistantClient {
         // HA calendar API requires URL-encoded ISO datetime params
         let url = format!(
             "{}/api/calendars/{}",
-            self.base_url, entity_id
+            self.base_url.read().await, entity_id
         );
         let response = self
             .cmd_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .query(&[("start", start), ("end", end)])
             .send()
             .await?;
@@ -386,11 +435,11 @@ impl HomeAssistantClient {
 
     /// Fire an event on Home Assistant
     pub async fn fire_event(&self, event_type: &str, data: Value) -> Result<Value> {
-        let url = format!("{}/api/events/{}", self.base_url, event_type);
+        let url = format!("{}/api/events/{}", self.base_url.read().await, event_type);
         let response = self
             .cmd_client
             .post(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .json(&data)
             .send()
@@ -407,11 +456,11 @@ impl HomeAssistantClient {
 
     /// Get HA error log as plain text
     pub async fn get_error_log(&self) -> Result<String> {
-        let url = format!("{}/api/error_log", self.base_url);
+        let url = format!("{}/api/error_log", self.base_url.read().await);
         let response = self
             .cmd_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .send()
             .await?;
 
@@ -426,11 +475,11 @@ impl HomeAssistantClient {
 
     /// Generic GET to any HA REST API path, returning JSON
     pub async fn api_get(&self, path: &str) -> Result<Value> {
-        let url = format!("{}{}", self.base_url, path);
+        let url = format!("{}{}", self.base_url.read().await, path);
         let response = self
             .cmd_client
             .get(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
@@ -447,11 +496,11 @@ impl HomeAssistantClient {
     /// Set entity state directly (POST /api/states/<entity_id>)
     /// Used by desktop client gateway to update sensor values
     pub async fn set_state(&self, entity_id: &str, state_data: Value) -> Result<()> {
-        let url = format!("{}/api/states/{}", self.base_url, entity_id);
+        let url = format!("{}/api/states/{}", self.base_url.read().await, entity_id);
         let response = self
             .cmd_client
             .post(&url)
-            .header(header::AUTHORIZATION, self.auth_header())
+            .header(header::AUTHORIZATION, self.auth_header().await)
             .header(header::CONTENT_TYPE, "application/json")
             .json(&state_data)
             .send()

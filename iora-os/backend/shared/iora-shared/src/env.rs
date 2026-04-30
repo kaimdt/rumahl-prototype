@@ -6,6 +6,12 @@
 //!
 //! On first production install the installer writes a marker file.  All services
 //! call [`IoraEnv::detect()`] at startup to determine the current mode.
+//!
+//! Setup completion is detected via a dual-flag strategy:
+//! - Primary flag on data partition: `/mnt/data/iora/.setup-complete`
+//! - Secondary flag on rootfs (survives data-partition mount failures):
+//!   `/etc/iora/.setup-complete`
+//! If EITHER flag exists, the system is considered set up.
 
 use std::path::{Path, PathBuf};
 
@@ -70,6 +76,21 @@ impl IoraEnv {
     /// Check whether the install marker exists.
     pub fn is_installed() -> bool {
         Self::marker_path().exists()
+    }
+
+    /// Check whether the first-boot setup has been completed.
+    ///
+    /// Uses a dual-flag strategy: if EITHER the data-partition flag
+    /// (`/mnt/data/iora/.setup-complete`) OR the rootfs flag
+    /// (`/etc/iora/.setup-complete`) exists, setup is considered complete.
+    /// This prevents the wizard from re-launching when the data partition
+    /// is temporarily unavailable (LUKS not yet unlocked at boot, etc.).
+    pub fn is_setup_complete() -> bool {
+        let flags = [
+            Path::new("/mnt/data/iora/.setup-complete"),
+            Path::new("/etc/iora/.setup-complete"),
+        ];
+        flags.iter().any(|p| p.exists())
     }
 
     /// Platform-dependent path for the marker file.
