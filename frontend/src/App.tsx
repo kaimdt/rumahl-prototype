@@ -543,15 +543,62 @@ function DashboardContent() {
             </div>
           </header>
 
-          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32">
+          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
           {(() => {
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
-            // If HA is disabled, not configured, or offline for a long time, we show the Simple Dashboard.
-            // AND we should show it instead of any custom or HA dashboard page!
-            const isDashboardPage = currentPageId !== 'settings' && currentPageId !== 'admin' && currentPageId !== 'docs' && currentPageId !== 'share' && currentPageId !== 'streaming'
-            // Show SimpleDashboard when HA is disabled, not configured, or we waited for
-            // HA status + entities but got nothing back (haConfigured stays null, loading finished).
-            // This prevents the loading skeleton from sticking forever on HA-less setups.
+            // Pages that NEVER depend on Home Assistant entities — render immediately
+            const nonHAPages = ['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent']
+            const isNonHAPage = nonHAPages.includes(currentPageId)
+
+            // ── Non-HA pages: render immediately, never blocked by loading ──
+            if (isNonHAPage) {
+              return (
+                <>
+                  {currentPageId === 'settings' && (
+                    <SettingsPage
+                      user={user}
+                      userName={userName}
+                      logout={logout}
+                      updateProfile={updateProfile}
+                      deviceLockMode={deviceLockMode}
+                      lockLoading={lockLoading}
+                      updateDeviceLockMode={updateDeviceLockMode}
+                      pinHash={pinHash}
+                      savePin={savePin}
+                      pinCode={pinCode}
+                      setPinCode={setPinCode}
+                      pinConfirm={pinConfirm}
+                      setPinConfirm={setPinConfirm}
+                      isSavingProfile={isSavingProfile}
+                      profileUsername={profileUsername}
+                      setProfileUsername={setProfileUsername}
+                      profileDisplayName={profileDisplayName}
+                      setProfileDisplayName={setProfileDisplayName}
+                      saveUserProfile={saveUserProfile}
+                      accentColorSettings={accentColorSettings}
+                      glassSettings={glassSettings}
+                      nightModeSettings={nightModeSettings}
+                      screensaverSettings={screensaverSettings}
+                      setShowPageDesigner={setShowPageDesigner}
+                      entities={entities}
+                      theme={theme}
+                    />
+                  )}
+                  {currentPageId === 'admin' && user?.isAdmin && <AdminPanel />}
+                  {currentPageId === 'docs' && <DocsPage />}
+                  {currentPageId === 'share' && <SharePage />}
+                  {currentPageId === 'streaming' && <StreamSender />}
+                  {currentPageId === 'ai-agent' && (
+                    <div className="pb-28">
+                      <AgentTab token={token || ''} />
+                    </div>
+                  )}
+                </>
+              )
+            }
+
+            // ── HA-dependent pages below ─────────────────────────
+            const isDashboardPage = !isNonHAPage
             const haNotAvailable = !haEnabled || haConfigured === false || (haConfigured === null && !loading) || isHAOfflineForLong
             const showSimpleDashboard = isDashboardPage && haNotAvailable
 
@@ -640,55 +687,29 @@ function DashboardContent() {
                 </div>
               )}
 
-              {currentPageId === 'settings' && (
-                <SettingsPage
-                  user={user}
-                  userName={userName}
-                  logout={logout}
-                  updateProfile={updateProfile}
-                  deviceLockMode={deviceLockMode}
-                  lockLoading={lockLoading}
-                  updateDeviceLockMode={updateDeviceLockMode}
-                  pinHash={pinHash}
-                  savePin={savePin}
-                  pinCode={pinCode}
-                  setPinCode={setPinCode}
-                  pinConfirm={pinConfirm}
-                  setPinConfirm={setPinConfirm}
-                  isSavingProfile={isSavingProfile}
-                  profileUsername={profileUsername}
-                  setProfileUsername={setProfileUsername}
-                  profileDisplayName={profileDisplayName}
-                  setProfileDisplayName={setProfileDisplayName}
-                  saveUserProfile={saveUserProfile}
-                  accentColorSettings={accentColorSettings}
-                  glassSettings={glassSettings}
-                  nightModeSettings={nightModeSettings}
-                  screensaverSettings={screensaverSettings}
-                  setShowPageDesigner={setShowPageDesigner}
-                  entities={entities}
-                  theme={theme}
-                />
-              )}
-              {currentPageId === 'admin' && user?.isAdmin && (
-                <AdminPanel />
-              )}
-              {currentPageId === 'docs' && (
-                <DocsPage />
-              )}
-              {currentPageId === 'share' && (
-                <SharePage />
-              )}
-              {currentPageId === 'streaming' && (
-                <StreamSender />
-              )}
-              {currentPageId === 'ai-agent' && (
-                <div className="pb-28">
-                  <AgentTab token={token || ''} />
+              {currentPageId === 'music' && !showSimpleDashboard && (
+                <div className="space-y-3 page-transition-enter">
+                  <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
+                  {mediaPlayerEntities.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
+                      {mediaPlayerEntities.map((player, i) => (
+                        <div key={player.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
+                          <MediaPlayerWidget
+                            entity={player}
+                            onUpdate={refresh}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4 sm:p-6 rounded-2xl glass-card text-center text-foreground/50 border border-foreground/10">
+                      Keine Medienplayer gefunden
+                    </div>
+                  )}
                 </div>
               )}
-              {/* TODO: Music Player Page */}
-              {currentPageId === 'music' && !showSimpleDashboard && (
+              {/* Custom/non-built-in pages (HA-dependent) */}
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming', 'share', 'ai-agent'].includes(currentPageId) && currentPage && !showSimpleDashboard && (
                 <div className="space-y-3 page-transition-enter">
                   <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
                   {mediaPlayerEntities.length > 0 ? (

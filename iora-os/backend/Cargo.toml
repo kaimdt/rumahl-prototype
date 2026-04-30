@@ -30,6 +30,7 @@ members = [
     "services/iora-network-monitor",
     "services/iora-domain-validator",
     "services/iora-resource-manager",
+    "services/iora-intelligence",
     "services/iora-updater",
     "services/iora-backup",
 

@@ -14,7 +14,7 @@ import {
   MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
   Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
-  Terminal
+  Terminal, List
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -61,7 +61,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
+type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -100,6 +100,7 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+  { id: 'health-intelligence', label: 'Health Intelligence', icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
   { id: 'global-config', label: 'Globale Konfiguration', icon: Gear, description: 'Zentrale IORA-OS Konfiguration mit Kategorien — spiegelt das .env-System wider, mit Beschreibungen und Validierung pro Eintrag' },
   { id: 'developer-mode', label: 'Developer Mode', icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
   { id: 'documentation', label: 'Dokumentation', icon: BookOpen, description: 'IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation' },
@@ -176,7 +177,7 @@ type TabGroup = {
 }
 
 const tabGroups: TabGroup[] = [
-  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
+  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'health-intelligence', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
   { id: 'ai', title: 'KI & Assistent', icon: Brain, items: ['ai-agent', 'ai-overview', 'ai-providers', 'ai-conversations', 'ai-tasks', 'ai-tools', 'ai-voice'] },
   { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
@@ -517,6 +518,8 @@ export function AdminPanel() {
     } catch { return 'core' }
   })
   const [haEnabled, setHaEnabled] = useState<boolean>(true)
+  // Mobile sidebar toggle
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const sidebarRef = useCallback((node: HTMLDivElement | null) => {
     // Scroll the active tab into view when sidebar mounts
     if (node) {
@@ -575,10 +578,39 @@ export function AdminPanel() {
   }, [activeTab, token])
 
   return (
-    <div className="pb-28">
+    <div className="pb-28 safe-bottom-nav">
+      {/* ── Mobile Hamburger Button ─────────────────────────────── */}
+      <div className="lg:hidden mb-3">
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className={ccBtnSecondary('w-full justify-between')}
+        >
+          <span className="flex items-center gap-2">
+            <List size={18} />
+            <span className="text-sm font-semibold">
+              {tabs.find(t => t.id === activeTab)?.label || 'Control Center'}
+            </span>
+          </span>
+          <span className="text-[10px] text-foreground/40">
+            {tabGroups.find(g => g.items.includes(activeTab))?.title || ''}
+          </span>
+        </button>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
-        {/* ── Sticky Sidebar with custom scrollbar ────────────────────── */}
-        <aside className={`${ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')} sidebar-scroll`}>
+        {/* ── Sidebar: Hidden on mobile, overlay when open ─────── */}
+        <aside className={`
+          ${ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')}
+          sidebar-scroll
+          ${sidebarOpen ? 'fixed inset-x-4 top-20 z-50 max-h-[calc(100vh-10rem)] shadow-2xl' : 'hidden lg:flex'}
+        `}>
+          {/* Close button for mobile overlay */}
+          <div className="lg:hidden flex items-center justify-between mb-3 flex-shrink-0">
+            <p className="text-sm font-semibold text-foreground">Control Center</p>
+            <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-foreground/5">
+              <X size={18} className="text-foreground/50" />
+            </button>
+          </div>
           <style>{`
             .sidebar-scroll .overflow-y-auto::-webkit-scrollbar { width: 4px; }
             .sidebar-scroll .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
@@ -639,7 +671,7 @@ export function AdminPanel() {
                           <button
                             type="button"
                             data-tab-active={isActive ? 'true' : 'false'}
-                            onClick={() => setActiveTab(tab.id)}
+                            onClick={() => { setActiveTab(tab.id); setSidebarOpen(false) }}
                             className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-all duration-200 ${
                               isActive
                                 ? 'bg-accent/15 text-accent font-semibold shadow-sm shadow-accent/10'
@@ -658,6 +690,14 @@ export function AdminPanel() {
             })}
           </div>
         </aside>
+
+        {/* ── Mobile Sidebar Backdrop ──────────────────────────── */}
+        {sidebarOpen && (
+          <div
+            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
 
         <div className="space-y-3">
           {/* ── Active Tab Header ─────────────────────────────────── */}
@@ -698,6 +738,7 @@ export function AdminPanel() {
               transition={{ duration: 0.15 }}
             >
               {activeTab === 'services' && <ServicesTab token={token} />}
+              {activeTab === 'health-intelligence' && <HealthIntelligenceTab token={token} />}
               {activeTab === 'global-config' && <GlobalConfigTab token={token} />}
               {activeTab === 'developer-mode' && <DeveloperModeTab token={token} />}
               {activeTab === 'documentation' && <DocumentationTab />}
@@ -9186,6 +9227,251 @@ function OsPowerTab({ token }: { token: string }) {
           </button>
         </div>
       </AdminCard>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Health Intelligence Tab — AI-powered system analysis & self-repair insights
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface IntelligenceData {
+  overall_score: number
+  overall_status: string
+  services: HealthScoreEntry[]
+  anomalies: AnomalyEntry[]
+  suggestions: SuggestionEntry[]
+  maintenance_tasks: MaintenanceTaskEntry[]
+  metrics: SystemMetricsData
+  timestamp: string
+}
+
+interface HealthScoreEntry {
+  service_name: string
+  score: number
+  trend: 'improving' | 'stable' | 'degrading' | 'critical'
+  status: string
+  uptime_percent: number
+  response_time_ms: number | null
+  consecutive_failures: number
+  predicted_failure_in: string | null
+  suggestions: string[]
+}
+
+interface AnomalyEntry {
+  anomaly_type: string
+  service_name: string
+  severity: string
+  description: string
+  current_value: string
+  baseline_value: string
+  detected_at: string
+}
+
+interface SuggestionEntry {
+  priority: number
+  category: string
+  title: string
+  description: string
+  action: string
+  auto_fixable: boolean
+  auto_fix_command: string | null
+}
+
+interface MaintenanceTaskEntry {
+  task_type: string
+  last_run: string | null
+  next_run: string
+  status: string
+  auto_enabled: boolean
+}
+
+interface SystemMetricsData {
+  cpu_percent: number
+  memory_used_mb: number
+  memory_total_mb: number
+  memory_percent: number
+  disk_used_gb: number
+  disk_total_gb: number
+  disk_percent: number
+  uptime_hours: number
+  service_count: number
+  healthy_count: number
+}
+
+function HealthIntelligenceTab({ token }: { token: string }) {
+  const [data, setData] = useState<IntelligenceData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [runningTask, setRunningTask] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const d = await adminFetch('/api/intelligence/overview', token) as IntelligenceData
+      setData(d)
+    } catch { setData(null) }
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  const runTask = async (taskType: string) => {
+    setRunningTask(taskType)
+    try {
+      await adminFetch(`/api/intelligence/maintenance/run/${taskType}`, token)
+      toast.success(`${taskType} ausgeführt`)
+      setTimeout(load, 1000)
+    } catch { toast.error(`${taskType} fehlgeschlagen`) }
+    setRunningTask(null)
+  }
+
+  const scoreColor = (s: number) => s >= 90 ? 'text-emerald-400' : s >= 75 ? 'text-green-400' : s >= 50 ? 'text-amber-400' : s >= 25 ? 'text-orange-400' : 'text-red-400'
+  const scoreBg = (s: number) => s >= 90 ? 'bg-emerald-500/15' : s >= 75 ? 'bg-green-500/15' : s >= 50 ? 'bg-amber-500/15' : s >= 25 ? 'bg-orange-500/15' : 'bg-red-500/15'
+  const trendIcon = (t: string) => t === 'improving' ? <TrendUp size={14} weight="fill" className="text-emerald-400" /> : t === 'degrading' ? <TrendUp size={14} weight="fill" className="text-amber-400 rotate-180" /> : t === 'critical' ? <TrendUp size={14} weight="fill" className="text-red-400 rotate-180" /> : <span className="text-foreground/30">—</span>
+  const prioBorder = (p: number) => p <= 2 ? 'border-red-500/20 bg-red-500/[0.04]' : p <= 3 ? 'border-amber-500/20 bg-amber-500/[0.04]' : 'border-foreground/[0.06] bg-foreground/[0.02]'
+
+  if (loading) return <LoadingSpinner />
+  if (!data) return (
+    <AdminCard title="Health Intelligence" icon={Heartbeat}>
+      <div className="text-center py-8 space-y-3">
+        <Heartbeat size={40} weight="duotone" className="mx-auto text-foreground/20" />
+        <p className="text-sm text-foreground/50">Intelligence Engine nicht verfügbar</p>
+        <p className="text-xs text-foreground/30">Starte <code className="px-1.5 py-0.5 rounded bg-foreground/[0.04] text-[11px]">iora-intelligence</code> für KI-gestützte Systemanalyse</p>
+      </div>
+    </AdminCard>
+  )
+
+  return (
+    <div className="space-y-3">
+      {/* Overall Score */}
+      <AdminCard>
+        <div className="flex items-center gap-4">
+          <div className={`w-16 h-16 rounded-2xl ${scoreBg(data.overall_score)} flex items-center justify-center`}>
+            <span className={`text-2xl font-bold ${scoreColor(data.overall_score)}`}>{data.overall_score}</span>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">System Health Score</p>
+            <p className={`text-xs font-medium ${scoreColor(data.overall_score)}`}>{data.overall_status}</p>
+            <p className="text-[10px] text-foreground/30 mt-0.5">{data.metrics.healthy_count}/{data.metrics.service_count} Dienste gesund</p>
+          </div>
+        </div>
+      </AdminCard>
+
+      {/* Metrics Bar */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: 'CPU', value: `${data.metrics.cpu_percent.toFixed(0)}%`, warn: data.metrics.cpu_percent > 80 },
+          { label: 'RAM', value: `${data.metrics.memory_percent.toFixed(0)}%`, warn: data.metrics.memory_percent > 85 },
+          { label: 'Disk', value: `${data.metrics.disk_percent.toFixed(0)}%`, warn: data.metrics.disk_percent > 85 },
+          { label: 'Uptime', value: `${data.metrics.uptime_hours.toFixed(0)}h`, warn: false },
+        ].map(m => (
+          <div key={m.label} className="text-center p-2 rounded-xl bg-foreground/[0.03]">
+            <p className="text-[10px] text-foreground/40">{m.label}</p>
+            <p className={`text-sm font-bold ${m.warn ? 'text-red-400' : 'text-foreground'}`}>{m.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Service Scores */}
+      <AdminCard title={`Service Scores (${data.services.length})`} icon={Heartbeat}>
+        <div className="space-y-1.5 max-h-80 overflow-y-auto">
+          {data.services.map(svc => (
+            <div key={svc.service_name} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-foreground/[0.02] transition-colors">
+              <div className={`w-10 h-10 rounded-xl ${scoreBg(svc.score)} flex items-center justify-center flex-shrink-0`}>
+                <span className={`text-sm font-bold ${scoreColor(svc.score)}`}>{svc.score}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-medium text-foreground truncate">{svc.service_name}</p>
+                  {trendIcon(svc.trend)}
+                </div>
+                <p className="text-[10px] text-foreground/40">
+                  {svc.status} · {svc.uptime_percent.toFixed(1)}% uptime{svc.response_time_ms ? ` · ${svc.response_time_ms}ms` : ''}
+                </p>
+              </div>
+              {svc.consecutive_failures > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-red-500/10 text-red-400 font-medium">{svc.consecutive_failures}× fail</span>
+              )}
+              {svc.predicted_failure_in && (
+                <Tip content={`Voraussichtlicher Ausfall in ${svc.predicted_failure_in}`}>
+                  <Warning size={14} className="text-amber-400 flex-shrink-0" />
+                </Tip>
+              )}
+            </div>
+          ))}
+        </div>
+      </AdminCard>
+
+      {/* Anomalies */}
+      {data.anomalies.length > 0 && (
+        <AdminCard title={`Anomalien (${data.anomalies.length})`} icon={ShieldWarning}>
+          <div className="space-y-2">
+            {data.anomalies.map((a, i) => (
+              <div key={i} className={`p-3 rounded-xl border ${a.severity === 'critical' ? 'border-red-500/20 bg-red-500/[0.04]' : 'border-amber-500/15 bg-amber-500/[0.03]'}`}>
+                <div className="flex items-start gap-2">
+                  <Warning size={14} weight="fill" className={`mt-0.5 flex-shrink-0 ${a.severity === 'critical' ? 'text-red-400' : 'text-amber-400'}`} />
+                  <div>
+                    <p className="text-xs font-medium text-foreground/80">{a.description}</p>
+                    <p className="text-[10px] text-foreground/30 mt-0.5">{a.service_name} · {a.current_value} (normal: {a.baseline_value})</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </AdminCard>
+      )}
+
+      {/* Smart Suggestions */}
+      {data.suggestions.length > 0 && (
+        <AdminCard title={`Smart Suggestions (${data.suggestions.length})`} icon={Sparkle}>
+          <div className="space-y-2">
+            {data.suggestions.map((s, i) => (
+              <div key={i} className={`p-3 rounded-xl border ${prioBorder(s.priority)}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-foreground/80">{s.title}</p>
+                    <p className="text-[10px] text-foreground/50 mt-0.5">{s.description}</p>
+                    <p className="text-[10px] text-foreground/30 mt-1 font-mono">{s.action}</p>
+                  </div>
+                  {s.auto_fixable && (
+                    <button onClick={() => runTask(s.category)} className="px-3 py-1.5 rounded-lg bg-accent/10 text-accent text-[10px] font-semibold hover:bg-accent/20 transition-colors flex-shrink-0">
+                      Auto-Fix
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </AdminCard>
+      )}
+
+      {/* Maintenance Tasks */}
+      <AdminCard title="Wartung" icon={Wrench}>
+        <div className="space-y-1.5">
+          {data.maintenance_tasks.map(task => (
+            <div key={task.task_type} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-foreground/[0.02]">
+              <div className={`w-2 h-2 rounded-full ${task.status === 'completed' ? 'bg-emerald-400' : task.status === 'running' ? 'bg-accent animate-pulse' : 'bg-foreground/20'}`} />
+              <div className="flex-1">
+                <p className="text-xs text-foreground/70 capitalize">{task.task_type.replace(/_/g, ' ')}</p>
+                <p className="text-[10px] text-foreground/30">
+                  {task.last_run ? `Letzte: ${new Date(task.last_run).toLocaleTimeString()}` : 'Nie'} · Nächste: {new Date(task.next_run).toLocaleTimeString()}
+                </p>
+              </div>
+              {task.auto_enabled && <span className="text-[9px] px-1.5 py-0.5 rounded bg-foreground/[0.04] text-foreground/30">AUTO</span>}
+              <button onClick={() => runTask(task.task_type)} disabled={runningTask === task.task_type}
+                className="px-2 py-1 rounded text-[10px] text-foreground/30 hover:text-foreground/60 transition-colors disabled:opacity-30">
+                {runningTask === task.task_type ? '…' : 'Jetzt'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </AdminCard>
+
+      <div className="flex justify-end">
+        <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground/80 hover:text-accent hover:bg-accent/10 transition-all">
+          <ArrowClockwise size={14} /> Aktualisieren
+        </button>
+      </div>
     </div>
   )
 }

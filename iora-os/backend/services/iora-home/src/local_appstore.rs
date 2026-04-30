@@ -319,46 +319,163 @@ impl LocalAppStore {
     /// the developer.mode flag changes.
     pub async fn set_developer_app(&self, present: bool) -> Result<()> {
         let id = "iora-developer-app";
+        self.set_system_app_inner(id, present, || InstalledApp {
+            id: id.to_string(),
+            name: "IORA Developer App".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            developer: "IORA Project".to_string(),
+            description:
+                "Stellt Plugin- und App-Entwicklern erweiterte APIs, einen Hot-Reload-Bridge \
+                 und Debugging-Tools bereit. Wird automatisch mit dem Developer-Modus aktiviert."
+                    .to_string(),
+            icon: None,
+            trust_level: "trusted".to_string(),
+            enabled: true,
+            status: "running".to_string(),
+            installed_at: now_iso(),
+            source: "system".to_string(),
+            kind: "system".to_string(),
+            system: true,
+            manifest: AppManifest {
+                id: id.to_string(),
+                name: "IORA Developer App".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                developer: "IORA Project".to_string(),
+                description: "System app — Developer Mode.".to_string(),
+                icon: None,
+                r#type: Some("system".to_string()),
+                permissions: vec!["dev-bridge".to_string(), "service-control".to_string()],
+                extra: serde_json::Value::Null,
+            },
+            custom_pages: Vec::new(),
+            docker_config: None,
+            ports: Vec::new(),
+            is_bundle: false,
+            bundle_config: None,
+        }).await
+    }
+
+    /// Register ORA Share as a built-in system app.
+    pub async fn set_share_app(&self, present: bool) -> Result<()> {
+        let id = "io.iora.share";
+        self.set_system_app_inner(id, present, || InstalledApp {
+            id: id.to_string(),
+            name: "ORA Share".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            developer: "IORA Project".to_string(),
+            description: "Teile Dateien & Links zwischen Geräten im lokalen Netzwerk — eigene Pairdrop-Implementation ohne externe Dienste.".to_string(),
+            icon: Some("share-network".to_string()),
+            trust_level: "trusted".to_string(),
+            enabled: true,
+            status: "running".to_string(),
+            installed_at: now_iso(),
+            source: "system".to_string(),
+            kind: "app".to_string(),
+            system: true,
+            manifest: AppManifest {
+                id: id.to_string(),
+                name: "ORA Share".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                developer: "IORA Project".to_string(),
+                description: "Lokales Datei-Sharing".to_string(),
+                icon: Some("share-network".to_string()),
+                r#type: Some("app".to_string()),
+                permissions: vec!["NetworkLocalAccess".to_string()],
+                extra: serde_json::json!({
+                    "custom_pages": [{
+                        "id": "share",
+                        "title": "ORA Share",
+                        "icon": "ShareNetwork",
+                        "url": "/share",
+                        "show_in_nav": true,
+                        "order": 500
+                    }]
+                }),
+            },
+            custom_pages: vec![CustomPageEntry {
+                id: "share".to_string(),
+                title: "ORA Share".to_string(),
+                icon: "ShareNetwork".to_string(),
+                url: "/share".to_string(),
+                show_in_nav: true,
+                order: 500,
+                parent_page_id: None,
+                iframe: false,
+                iframe_config: None,
+            }],
+            docker_config: None,
+            ports: Vec::new(),
+            is_bundle: false,
+            bundle_config: None,
+        }).await
+    }
+
+    /// Register ORA Streaming as a built-in system app.
+    pub async fn set_streaming_app(&self, present: bool) -> Result<()> {
+        let id = "io.iora.streaming";
+        self.set_system_app_inner(id, present, || InstalledApp {
+            id: id.to_string(),
+            name: "ORA Streaming".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            developer: "IORA Project".to_string(),
+            description: "Streame Kamera, Mikrofon oder Bildschirm live über IORA — niedrige Latenz, ideal für Überwachungskameras oder Präsentationen.".to_string(),
+            icon: Some("broadcast".to_string()),
+            trust_level: "trusted".to_string(),
+            enabled: true,
+            status: "running".to_string(),
+            installed_at: now_iso(),
+            source: "system".to_string(),
+            kind: "app".to_string(),
+            system: true,
+            manifest: AppManifest {
+                id: id.to_string(),
+                name: "ORA Streaming".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                developer: "IORA Project".to_string(),
+                description: "Live-Streaming von Kamera, Mikro und Bildschirm".to_string(),
+                icon: Some("broadcast".to_string()),
+                r#type: Some("app".to_string()),
+                permissions: vec!["NetworkLocalAccess".to_string(), "MediaCapture".to_string()],
+                extra: serde_json::json!({
+                    "custom_pages": [{
+                        "id": "streaming",
+                        "title": "ORA Streaming",
+                        "icon": "Broadcast",
+                        "url": "/streaming",
+                        "show_in_nav": true,
+                        "order": 510
+                    }]
+                }),
+            },
+            custom_pages: vec![CustomPageEntry {
+                id: "streaming".to_string(),
+                title: "ORA Streaming".to_string(),
+                icon: "Broadcast".to_string(),
+                url: "/streaming".to_string(),
+                show_in_nav: true,
+                order: 510,
+                parent_page_id: None,
+                iframe: false,
+                iframe_config: None,
+            }],
+            docker_config: None,
+            ports: Vec::new(),
+            is_bundle: false,
+            bundle_config: None,
+        }).await
+    }
+
+    /// Internal helper to add/remove a system app atomically.
+    async fn set_system_app_inner(
+        &self,
+        id: &str,
+        present: bool,
+        make_app: impl FnOnce() -> InstalledApp,
+    ) -> Result<()> {
         let mut inner = self.inner.write().await;
         let changed = if present {
             if !inner.apps.contains_key(id) {
-                inner.apps.insert(
-                    id.to_string(),
-                    InstalledApp {
-                        id: id.to_string(),
-                        name: "IORA Developer App".to_string(),
-                        version: env!("CARGO_PKG_VERSION").to_string(),
-                        developer: "IORA Project".to_string(),
-                        description:
-                            "Stellt Plugin- und App-Entwicklern erweiterte APIs, einen Hot-Reload-Bridge \
-                             und Debugging-Tools bereit. Wird automatisch mit dem Developer-Modus aktiviert."
-                                .to_string(),
-                        icon: None,
-                        trust_level: "trusted".to_string(),
-                        enabled: true,
-                        status: "running".to_string(),
-                        installed_at: now_iso(),
-                        source: "system".to_string(),
-                        kind: "system".to_string(),
-                        system: true,
-                        manifest: AppManifest {
-                            id: id.to_string(),
-                            name: "IORA Developer App".to_string(),
-                            version: env!("CARGO_PKG_VERSION").to_string(),
-                            developer: "IORA Project".to_string(),
-                            description: "System app — Developer Mode.".to_string(),
-                            icon: None,
-                            r#type: Some("system".to_string()),
-                            permissions: vec!["dev-bridge".to_string(), "service-control".to_string()],
-                            extra: serde_json::Value::Null,
-                        },
-                        custom_pages: Vec::new(),
-                        docker_config: None,
-                        ports: Vec::new(),
-                        is_bundle: false,
-                        bundle_config: None,
-                    },
-                );
+                inner.apps.insert(id.to_string(), make_app());
                 true
             } else {
                 false

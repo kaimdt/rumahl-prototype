@@ -744,6 +744,13 @@ async fn main() -> anyhow::Result<()> {
             if let Err(e) = store.set_developer_app(enabled).await {
                 warn!("dev-mode bootstrap: developer-app sync failed: {e:#}");
             }
+            // Register built-in system apps (always present)
+            if let Err(e) = store.set_share_app(true).await {
+                warn!("bootstrap: share-app registration failed: {e:#}");
+            }
+            if let Err(e) = store.set_streaming_app(true).await {
+                warn!("bootstrap: streaming-app registration failed: {e:#}");
+            }
         });
     }
 
@@ -1154,6 +1161,8 @@ async fn main() -> anyhow::Result<()> {
         // an empty state instead of 404'ing into the SPA fallback (which
         // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
         .route("/api/supervisor/system/info", get(stub_supervisor_system_info))
+        .route("/api/intelligence/overview", get(stub_intelligence_overview))
+        .route("/api/intelligence/maintenance/run/:task", get(stub_intelligence_maintenance_run))
         .route("/api/supervisor/apps", get(supervisor_apps_list))
         .route("/api/supervisor/apps/install", post(supervisor_apps_install))
         .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall).put(stub_supervisor_unavailable))
@@ -3811,6 +3820,19 @@ async fn stub_supervisor_system_info() -> Json<Value> {
         "uptime": 0,
         "note": "iora-supervisor ist auf diesem System nicht verfügbar.",
     }))
+}
+
+/// Stub for intelligence API — returns null so the frontend shows the
+/// graceful "not available" state instead of failing to parse.
+async fn stub_intelligence_overview() -> Json<Value> {
+    Json(json!(null))
+}
+
+/// Stub for intelligence maintenance tasks
+async fn stub_intelligence_maintenance_run(
+    axum::extract::Path(_task): axum::extract::Path<String>,
+) -> Json<Value> {
+    Json(json!({"error": "iora-intelligence service not running"}))
 }
 
 /// 503-style stub used for write/mutation endpoints whose backing service

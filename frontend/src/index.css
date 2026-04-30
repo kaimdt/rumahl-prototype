@@ -5,18 +5,33 @@
   * {
     @apply border-border;
   }
-  
+
+  /* ─── iPhone Safe Area Support ────────────────────────────── */
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+  }
+
   body {
     font-family: 'Inter', sans-serif;
     overflow-x: hidden;
     /* Prevent text size adjustment on orientation change */
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /* Safe area padding for notched iPhones */
+    padding-top: var(--sat);
+    padding-bottom: var(--sab);
+    padding-left: var(--sal);
+    padding-right: var(--sar);
   }
 
   /* Prevent pull-to-refresh and overscroll bounce on mobile */
   html {
     overscroll-behavior: none;
+    /* Smooth momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
   }
   
   .font-mono {
@@ -30,10 +45,17 @@
       box-shadow: none;
       border-color: unset;
     }
-    
-    /* Ensure tap targets are accessible */
-    button, a, [role="button"] {
-      min-height: 36px;
+
+    /* Ensure tap targets are at least 44px (Apple HIG) */
+    button, a, [role="button"], input[type="checkbox"], input[type="radio"],
+    input[type="range"], select {
+      min-height: 44px;
+    }
+
+    /* Smaller min-height for inline icon buttons */
+    button.icon-only, [role="button"].icon-only {
+      min-height: 44px;
+      min-width: 44px;
     }
 
     /* Smoother scrolling on touch */
@@ -42,9 +64,36 @@
     }
 
     /* Disable text selection on interactive elements */
-    button, [role="button"], nav {
+    button, [role="button"], nav, .widget-card {
       -webkit-user-select: none;
       user-select: none;
+    }
+
+    /* Prevent iOS zoom on input focus for font-size >= 16px */
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+
+    /* Active state feedback for touch */
+    button:active, [role="button"]:active, a:active {
+      opacity: 0.7;
+      transition: opacity 0.05s ease;
+    }
+  }
+
+  /* ─── Mobile-first responsive utilities ─── */
+  @media (max-width: 640px) {
+    /* Reduce motion for smoother scrolling on mobile */
+    .reduce-motion-mobile * {
+      animation-duration: 0.15s !important;
+      transition-duration: 0.15s !important;
+    }
+
+    /* Full-width cards on mobile */
+    .mobile-full {
+      width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
     }
   }
 
@@ -1354,4 +1403,82 @@ body {
 }
 .compact-widgets .glass-card-interactive {
   padding: 0.5rem !important;
+}
+
+/* ─── Mobile Layout Helpers ────────────────────────────────────── */
+/* Safe-area-aware bottom navigation spacer */
+.safe-bottom {
+  padding-bottom: calc(1rem + var(--sab));
+}
+.safe-bottom-nav {
+  padding-bottom: calc(5rem + var(--sab));
+}
+
+/* Prevent content from being hidden behind the bottom nav */
+.page-with-bottom-nav {
+  padding-bottom: calc(6rem + var(--sab));
+}
+
+/* Glass card with mobile-optimized touch target */
+.glass-card-touch {
+  min-height: 44px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.glass-card-touch:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+/* ─── iPhone-Specific Fixes ───────────────────────────────────── */
+/* Fix iOS momentum scrolling in fixed containers */
+@supports (-webkit-touch-callout: none) {
+  .ios-scroll {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: scroll;
+  }
+
+  /* Fix 100vh issue on iOS Safari (address bar changes height) */
+  .ios-full-height {
+    height: -webkit-fill-available;
+  }
+
+  /* Fix input zoom on iOS */
+  @media (max-width: 640px) {
+    input[type="text"],
+    input[type="password"],
+    input[type="email"],
+    input[type="search"],
+    input[type="number"],
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* ─── Responsive Typography ───────────────────────────────────── */
+@media (max-width: 640px) {
+  h1 { font-size: 1.5rem !important; }
+  h2 { font-size: 1.25rem !important; }
+  h3 { font-size: 1.1rem !important; }
+  .text-xl { font-size: 1.1rem !important; }
+  .text-lg { font-size: 1rem !important; }
+}
+
+/* ─── Mobile Grid Tweaks ──────────────────────────────────────── */
+@media (max-width: 640px) {
+  .grid-cols-2 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .sm\:grid-cols-2 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .sm\:grid-cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .sm\:grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .md\:grid-cols-2 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .md\:grid-cols-3 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .lg\:grid-cols-2 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .lg\:grid-cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .lg\:grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .xl\:grid-cols-3 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .xl\:grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .2xl\:grid-cols-4 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+  .2xl\:grid-cols-5 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 }
