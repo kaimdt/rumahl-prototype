@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
+import { getBackendUrl } from '@/lib/config'
 
 interface CloudSettings {
   connectorHost: string
@@ -391,7 +392,6 @@ function CloudSettingsTab({ token }: { token: string }) {
   )
 }
 
-import { getBackendUrl } from '@/lib/config'
 
 const API_BASE = getBackendUrl()
 

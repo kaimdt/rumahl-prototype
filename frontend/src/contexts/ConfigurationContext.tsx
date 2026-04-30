@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { getBackendUrl } from '@/lib/config'
 import type { DashboardPage } from '@/lib/types'
 
 // Types
@@ -125,7 +126,6 @@ interface ConfigurationContextType {
 
 const ConfigurationContext = createContext<ConfigurationContextType | undefined>(undefined)
 
-import { getBackendUrl } from '@/lib/config'
 const API_BASE_URL = getBackendUrl() || 'http://localhost:3001'
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {

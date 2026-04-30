@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState, useCallback } from 'react'
 import { VideoCamera, Play, Pause, Eye, WifiHigh, WifiSlash, ArrowsOut, ArrowsIn, SpeakerHigh, SpeakerSlash, SpeakerLow, FilmStrip, Circle, X, PictureInPicture } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Tip } from '@/components/ui/tip'
+import { getBackendUrl } from '@/lib/config'
 
 interface StreamWidgetProps {
   config?: Record<string, unknown>
@@ -42,7 +43,6 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
   const wsRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsRetryCountRef = useRef(0)
 
-import { getBackendUrl } from '@/lib/config'
   const API_BASE = getBackendUrl()
   const streamsJsonRef = useRef('')
 

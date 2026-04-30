@@ -21,8 +21,8 @@ import {
 import { usePageNavigation, type PageSettings } from '@/contexts/PageNavigationContext'
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS } from '@/lib/defaults'
 import { toast } from 'sonner'
-
 import { getBackendUrl } from '@/lib/config'
+
 const API_BASE = getBackendUrl()
 
 function getAuthToken(): string {

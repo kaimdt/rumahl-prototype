@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { authFetch } from '@/lib/authHelpers'
+import { getBackendUrl } from '@/lib/config'
 import {
   User,
   Palette,
@@ -60,7 +61,6 @@ import type { ThemeMode } from '@/lib/types'
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
 
-import { getBackendUrl } from '@/lib/config'
 const API_BASE = getBackendUrl()
 
 // ─── System stats types ──────────────────────────────────────────────

@@ -1,10 +1,9 @@
 /**
  * Shared authentication helpers.
- * Single source of truth for reading the stored JWT token
- * and building Authorization headers for backend API calls.
  */
 
 import { getBackendUrl } from '@/lib/config'
+
 const API_BASE = getBackendUrl()
 
 /** Parse a stored token string (may be JSON-wrapped or plain) */

@@ -47,8 +47,6 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const [navStyle] = useLocalStorage<'pill' | 'classic' | 'minimal'>('ha-nav-style', 'pill')
   const [haEnabled, setHaEnabled] = useState<boolean>(true)
 
-import { getBackendUrl } from '@/lib/config'
-
   useEffect(() => {
     fetch(`${getBackendUrl()}/api/integration/ha/configured`)
       .then(r => (r.ok ? r.json() : null))

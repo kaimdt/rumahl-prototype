@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
+import { getBackendUrl } from '@/lib/config'
 
 interface User {
   id: string
@@ -72,7 +73,6 @@ function writePersistedToken(token: string | null, rememberMe: boolean) {
   }
 }
 
-import { getBackendUrl } from '@/lib/config'
 const API_BASE = getBackendUrl()
 
 export function AuthProvider({ children }: { children: ReactNode }) {

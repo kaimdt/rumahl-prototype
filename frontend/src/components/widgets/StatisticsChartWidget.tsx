@@ -14,8 +14,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
-
 import { getBackendUrl } from '@/lib/config'
+
 const API_BASE = getBackendUrl()
 
 interface StatisticsChartWidgetProps {

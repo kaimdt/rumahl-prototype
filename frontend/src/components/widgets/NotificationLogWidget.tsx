@@ -1,5 +1,6 @@
 import { Bell, Info, Warning, WarningCircle } from '@phosphor-icons/react'
 import { useState, useEffect, useRef } from 'react'
+import { getBackendUrl } from '@/lib/config'
 
 interface Notification {
   id: string
@@ -30,8 +31,7 @@ export default function NotificationLogWidget({ config }: { config?: Record<stri
 
   useEffect(() => {
     // Listen for error messages from WebSocket
-    import { getBackendUrl } from '@/lib/config'
-const API_BASE = getBackendUrl()
+    const API_BASE = getBackendUrl()
     let wsHost: string
     if (API_BASE) {
       try { wsHost = new URL(API_BASE).host } catch { wsHost = `${window.location.hostname}:3001` }

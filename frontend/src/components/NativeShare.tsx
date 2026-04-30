@@ -8,6 +8,7 @@ import {
   Circle, Info
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { getBackendUrl } from '@/lib/config'
 import { Tip } from '@/components/ui/tip'
 
 interface SharedFile {
@@ -39,7 +40,6 @@ export function NativeShare() {
   const dragCounter = useRef(0)
   const uploadRef = useRef<HTMLInputElement>(null)
 
-import { getBackendUrl } from '@/lib/config'
   const API_BASE = getBackendUrl()
 
   // ── Peer Discovery ──────────────────────────────────────────────────

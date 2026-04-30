@@ -9,13 +9,13 @@ import {
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
+import { getBackendUrl } from '@/lib/config'
 
 type StreamMode = 'av' | 'video' | 'audio'
 type VideoSourceType = 'camera' | 'screen'
 type StreamState = 'idle' | 'connecting' | 'live' | 'error'
 
 export function StreamSender() {
-import { getBackendUrl } from '@/lib/config'
   const API_BASE = getBackendUrl()
   const [mode, setMode] = useState<StreamMode>('av')
   const [videoSource, setVideoSource] = useState<VideoSourceType>('camera')

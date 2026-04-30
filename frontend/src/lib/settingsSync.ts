@@ -8,8 +8,9 @@
  */
 
 import { getBackendUrl } from '@/lib/config'
-const API_BASE = getBackendUrl()
 import { authFetch } from '@/lib/authHelpers'
+
+const API_BASE = getBackendUrl()
 
 // Keys that should be synced to backend for cross-device use
 const SYNCED_KEYS = [
