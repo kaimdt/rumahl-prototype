@@ -13,6 +13,7 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sqlx::{PgPool, Row};
 use std::fs;
 use std::path::Path;
@@ -295,8 +296,7 @@ async fn main() -> Result<()> {
     // contain the `apps` / `port_assignments` tables (they are created
     // by iora-supervisor on demand). systemd Restart=on-failure used to
     // turn that into an infinite crash-loop spamming the journal.
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:CHANGEME@localhost:5432/iora_core".to_string());
+    let database_url = system_config::database_url();
 
     let pool = loop {
         match PgPool::connect(&database_url).await {

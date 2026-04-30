@@ -67,6 +67,7 @@ use lsp::LspManager;
 use acp::AcpRouter;
 use subagents::SubagentPool;
 use github::{GitHubAuth, GitHubClient, GitHubActionExecutor};
+use iora_shared::system_config;
 
 #[derive(Clone)]
 struct AppState {
@@ -2278,10 +2279,10 @@ async fn github_auth_set(
 ) -> impl IntoResponse {
     let mut auth = GitHubAuth {
         auth_type: req.auth_type.unwrap_or_else(|| "pat".to_string()),
-        pat: req.pat.or_else(|| std::env::var("GITHUB_TOKEN").ok()),
-        app_id: req.app_id.or_else(|| std::env::var("GITHUB_APP_ID").ok()),
-        installation_id: req.installation_id.or_else(|| std::env::var("GITHUB_INSTALLATION_ID").ok()),
-        private_key: req.private_key.or_else(|| std::env::var("GITHUB_PRIVATE_KEY").ok()),
+        pat: req.pat.or_else(|| system_config::github_token()),
+        app_id: req.app_id.or_else(|| system_config::github_app_id()),
+        installation_id: req.installation_id.or_else(|| system_config::github_installation_id()),
+        private_key: req.private_key.or_else(|| system_config::github_private_key()),
         is_configured: true,
         ..Default::default()
     };
@@ -2806,26 +2807,15 @@ async fn github_rate_limit(State(state): State<AppState>) -> impl IntoResponse {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn load_config_from_env() -> (ProviderType, ProviderConfig) {
-    let provider_type = std::env::var("ORA_AI_PROVIDER")
-        .or_else(|_| std::env::var("ASSIST_AI_PROVIDER"))
-        .unwrap_or_else(|_| "local".to_string())
-        .to_lowercase();
+    let provider_type = system_config::ai_provider();
 
     let provider = provider_type_from_str(&provider_type).unwrap_or(ProviderType::Local);
 
     let config = ProviderConfig {
-        api_key: std::env::var("ORA_AI_API_KEY")
-            .ok()
-            .or_else(|| std::env::var("ASSIST_AI_API_KEY").ok()),
-        base_url: std::env::var("ORA_AI_BASE_URL")
-            .ok()
-            .or_else(|| std::env::var("ASSIST_AI_BACKEND_URL").ok()),
-        model: std::env::var("ORA_AI_MODEL")
-            .ok()
-            .or_else(|| std::env::var("ASSIST_AI_MODEL").ok()),
-        api_version: std::env::var("ORA_AI_API_VERSION")
-            .ok()
-            .or_else(|| std::env::var("ASSIST_AI_API_VERSION").ok()),
+        api_key: system_config::ai_api_key(),
+        base_url: Some(system_config::ai_base_url()),
+        model: system_config::ai_model(),
+        api_version: system_config::ai_api_version(),
     };
 
     (provider, config)
@@ -3831,8 +3821,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize sandbox manager (works in memory – no DB needed)
-    let sandbox_dir = std::env::var("ORA_SANDBOX_DIR")
-        .unwrap_or_else(|_| "./sandbox_workspaces".to_string());
+    let sandbox_dir = system_config::sandbox_dir();
     let sandbox_manager = Arc::new(SandboxManager::new(std::path::PathBuf::from(&sandbox_dir)));
     
     let agent_task_executor = {
@@ -3859,8 +3848,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize Subagent Pool for hierarchical task delegation
     let default_provider = shared_provider.read().await.name().to_string();
-    let default_model = std::env::var("ORA_AI_MODEL")
-        .unwrap_or_else(|_| "gpt-4o-mini".to_string());
+    let default_model = system_config::ai_model()
+        .unwrap_or_else(|| "gpt-4o-mini".to_string());
     let subagent_pool = Arc::new(SubagentPool::new(&default_provider, &default_model));
     info!("Subagent pool initialized");
 
@@ -4051,9 +4040,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let port = std::env::var("PORT")
-        .unwrap_or_else(|_| "8092".to_string())
-        .parse::<u16>()?;
+    let port = system_config::service_port("iora-assist", 8092);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     info!("ORA AI (iora-assist) listening on {}", addr);

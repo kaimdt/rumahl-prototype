@@ -461,6 +461,156 @@ pub fn default_settings() -> Vec<SettingDefinition> {
             .default(serde_json::json!(false))
             .restart(&["iora-home.service"])
             .build(),
+        // ── Backend / Frontend URLs (auto-detected by system) ──────────
+        SettingBuilder::new("backend.url", "Backend API URL", System, Url)
+            .description("Base-URL des IORA Backends. Vom System automatisch erkannt.")
+            .default(serde_json::json!("http://localhost:3001"))
+            .required(true)
+            .restart(&["iora-home.service"])
+            .tags(&["network", "api", "auto"])
+            .build(),
+        SettingBuilder::new("backend.assist_url", "ORA Assist URL", System, Url)
+            .description("URL des ORA AI Assistant. Vom System automatisch erkannt.")
+            .default(serde_json::json!("http://localhost:8092"))
+            .restart(&["iora-home.service"])
+            .tags(&["ai", "api", "auto"])
+            .build(),
+        SettingBuilder::new("backend.supervisor_url", "Supervisor URL", System, Url)
+            .description("URL des Container-Supervisors. Vom System automatisch erkannt.")
+            .default(serde_json::json!("http://localhost:8097"))
+            .tags(&["docker", "auto"])
+            .build(),
+        SettingBuilder::new("backend.files_url", "Files Service URL", System, Url)
+            .description("URL des Datei-Sharing Dienstes. Vom System automatisch erkannt.")
+            .default(serde_json::json!("http://localhost:8100"))
+            .tags(&["files", "auto"])
+            .build(),
+        // ── Database (auto-detected) ────────────────────────────────────
+        SettingBuilder::new("database.url", "Database URL", System, String)
+            .description("Datenbank-Verbindungsstring. Vom System automatisch gesetzt.")
+            .default(serde_json::json!("sqlite:./data/iora.db?mode=rwc"))
+            .required(true)
+            .visibility(SettingVisibility::Hidden) // User never sees this
+            .restart(&["iora-home.service"])
+            .tags(&["database", "auto"])
+            .build(),
+        // ── SMTP / Email ──────────────────────────────────────────────────
+        SettingBuilder::new("smtp.server", "SMTP Server", System, String)
+            .description("SMTP-Server für E-Mail-Benachrichtigungen (z.B. smtp.gmail.com:587).")
+            .default(serde_json::json!(""))
+            .tags(&["email"])
+            .build(),
+        SettingBuilder::new("smtp.username", "SMTP Benutzername", System, String)
+            .default(serde_json::json!(""))
+            .tags(&["email"])
+            .build(),
+        SettingBuilder::new("smtp.password", "SMTP Passwort", System, Secret)
+            .default(serde_json::json!(""))
+            .tags(&["email"])
+            .build(),
+        // ── GitHub Integration ────────────────────────────────────────────
+        SettingBuilder::new("github.token", "GitHub Personal Access Token", Integrations, Secret)
+            .description("Token für GitHub-Integration (App Store, Backups, LSP).")
+            .default(serde_json::json!(""))
+            .tags(&["github"])
+            .build(),
+        SettingBuilder::new("github.app_id", "GitHub App ID", Integrations, String)
+            .description("GitHub App ID für OAuth App-Integration.")
+            .default(serde_json::json!(""))
+            .tags(&["github"])
+            .build(),
+        SettingBuilder::new("github.installation_id", "GitHub Installation ID", Integrations, String)
+            .description("Installation ID der GitHub App.")
+            .default(serde_json::json!(""))
+            .tags(&["github"])
+            .build(),
+        SettingBuilder::new("github.private_key", "GitHub Private Key", Integrations, Secret)
+            .description("Private Key für GitHub App-Authentifizierung (PEM-Format).")
+            .default(serde_json::json!(""))
+            .tags(&["github"])
+            .build(),
+        // ── AI Provider ───────────────────────────────────────────────────
+        SettingBuilder::new("ai.provider", "AI Provider", Integrations, Enum)
+            .description("KI-Backend für ORA Assist.")
+            .options(&["openai", "ollama", "lm_studio", "anthropic", "google", "deepseek", "custom"])
+            .default(serde_json::json!("ollama"))
+            .tags(&["ai"])
+            .build(),
+        SettingBuilder::new("ai.base_url", "AI Base URL", Integrations, Url)
+            .description("Basis-URL des KI-API-Endpunkts (z.B. http://localhost:1234/v1 für Ollama).")
+            .default(serde_json::json!("http://localhost:1234/v1"))
+            .tags(&["ai"])
+            .build(),
+        SettingBuilder::new("ai.api_key", "AI API Key", Integrations, Secret)
+            .description("API-Key für den KI-Provider (falls erforderlich, z.B. OpenAI).")
+            .default(serde_json::json!(""))
+            .tags(&["ai"])
+            .build(),
+        SettingBuilder::new("ai.model", "AI Model", Integrations, String)
+            .description("Modellname für KI-Anfragen (z.B. gpt-4o, llama3, mistral).")
+            .default(serde_json::json!(""))
+            .tags(&["ai"])
+            .build(),
+        SettingBuilder::new("ai.api_version", "AI API Version", Integrations, String)
+            .description("API-Version (z.B. für Azure OpenAI). Optional.")
+            .default(serde_json::json!(""))
+            .tags(&["ai"])
+            .build(),
+        SettingBuilder::new("ai.max_tokens", "Max Tokens", Integrations, Integer)
+            .description("Maximale Token-Anzahl pro KI-Anfrage.")
+            .default(serde_json::json!(4096))
+            .tags(&["ai"])
+            .build(),
+        SettingBuilder::new("ai.temperature", "Temperature", Integrations, Float)
+            .description("Kreativitätsparameter (0.0 = präzise, 1.0 = kreativ).")
+            .default(serde_json::json!(0.7))
+            .tags(&["ai"])
+            .build(),
+        // ── Gateway / Proxy ─────────────────────────────────────────────
+        SettingBuilder::new("gateway.max_request_size", "Max Request Size (Bytes)", System, Integer)
+            .description("Maximale Größe eingehender API-Requests.")
+            .default(serde_json::json!(10_485_760))
+            .tags(&["gateway"])
+            .build(),
+        SettingBuilder::new("gateway.request_timeout", "Request Timeout (s)", System, Integer)
+            .description("Timeout für API-Requests in Sekunden.")
+            .default(serde_json::json!(30))
+            .tags(&["gateway"])
+            .build(),
+        SettingBuilder::new("gateway.sandboxing", "Sandboxing aktiv", System, Bool)
+            .description("Aktiviert Request-Sandboxing für externe Anfragen.")
+            .default(serde_json::json!(true))
+            .tags(&["gateway", "security"])
+            .build(),
+        SettingBuilder::new("gateway.allowed_domains", "Erlaubte Domains", System, String)
+            .description("Komma-getrennte Liste erlaubter externer Domains.")
+            .default(serde_json::json!(""))
+            .tags(&["gateway", "security"])
+            .build(),
+        // ── Files Service ───────────────────────────────────────────────
+        SettingBuilder::new("files.max_size_mb", "Max. Dateigröße (MB)", System, Integer)
+            .description("Maximale Dateigröße für Uploads in MB.")
+            .default(serde_json::json!(100))
+            .tags(&["files"])
+            .build(),
+        SettingBuilder::new("files.default_quota_gb", "Standard-Quota (GB)", System, Integer)
+            .description("Standard-Speicherkontingent pro Benutzer in GB.")
+            .default(serde_json::json!(1))
+            .tags(&["files"])
+            .build(),
+        // ── Watchdog / Recovery ────────────────────────────────────────
+        SettingBuilder::new("watchdog.recovery_threshold", "Recovery Threshold", System, Integer)
+            .description("Anzahl Fehler bevor Recovery ausgelöst wird.")
+            .default(serde_json::json!(3))
+            .visibility(SettingVisibility::Hidden)
+            .tags(&["watchdog", "auto"])
+            .build(),
+        SettingBuilder::new("watchdog.recovery_cooldown", "Recovery Cooldown (s)", System, Integer)
+            .description("Mindestabstand zwischen Recovery-Versuchen in Sekunden.")
+            .default(serde_json::json!(300))
+            .visibility(SettingVisibility::Hidden)
+            .tags(&["watchdog", "auto"])
+            .build(),
     ]
 }
 

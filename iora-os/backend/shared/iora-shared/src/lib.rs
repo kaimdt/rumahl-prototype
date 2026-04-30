@@ -14,6 +14,7 @@ pub mod security_monitor;
 pub mod database_manager;
 pub mod permissions;
 pub mod settings;
+pub mod system_config;
 pub mod token_manager;
 pub mod integrity_monitor;
 pub mod app_storage;

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 interface ConnectionStatus {
   backend: 'connected' | 'disconnected' | 'error'

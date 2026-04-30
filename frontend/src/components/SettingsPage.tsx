@@ -60,7 +60,8 @@ import type { ThemeMode } from '@/lib/types'
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 // ─── System stats types ──────────────────────────────────────────────
 interface SystemStats {

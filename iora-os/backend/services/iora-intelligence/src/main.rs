@@ -18,6 +18,7 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -165,12 +166,11 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|_| "iora_intelligence=info".into()))
         .init();
 
-    let db_url = std::env::var("INTELLIGENCE_DB_URL")
-        .unwrap_or_else(|_| "sqlite:./data/intelligence.db?mode=rwc".into());
-    let watchdog_url = std::env::var("WATCHDOG_URL").unwrap_or_else(|_| "http://127.0.0.1:8094".into());
-    let core_url = std::env::var("CORE_URL").unwrap_or_else(|_| "http://127.0.0.1:8090".into());
-    let supervisor_url = std::env::var("SUPERVISOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8097".into());
-    let port: u16 = std::env::var("INTELLIGENCE_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8096);
+    let db_url = system_config::database_url_for("iora-intelligence");
+    let watchdog_url = system_config::service_url("iora-watchdog", 8094);
+    let core_url = system_config::service_url("iora-core", 8090);
+    let supervisor_url = system_config::supervisor_url();
+    let port: u16 = system_config::service_port("iora-intelligence", 8099);
 
     let db = SqlitePoolOptions::new().max_connections(5).connect(&db_url).await?;
     init_db(&db).await?;

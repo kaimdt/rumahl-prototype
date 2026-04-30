@@ -38,6 +38,36 @@ services:
       iora-core:
         condition: service_started
 
+  # IORA Intelligence - KI-gestützte Systemanalyse (IORA OS)
+  iora-intelligence:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: iora-intelligence
+    container_name: iora-intelligence
+    image: iora/intelligence:latest
+    ports:
+      - "${INTELLIGENCE_PORT:-8099}:8099"
+    volumes:
+      - intelligence_data:/var/lib/iora
+    networks:
+      - iora-network
+    restart: unless-stopped
+    environment:
+      - PORT=8099
+      - IORA_HOME_URL=http://iora-home:3001
+      - CORE_URL=http://iora-core:${CORE_PORT:-8090}
+      - RUST_LOG=${RUST_LOG:-info}
+      - IORA_OS=true
+    labels:
+      iora.managed: "true"
+      iora.service: "intelligence"
+      iora.critical: "false"
+      iora.os_only: "false"
+    depends_on:
+      iora-core:
+        condition: service_started
+
   # IORA Backup - Enhanced backup with full system access (IORA OS)
   # On IORA OS, backup service has full system access for complete backups
   iora-backup:
@@ -81,4 +111,6 @@ networks:
 
 volumes:
   supervisor_data:
+    driver: local
+  intelligence_data:
     driver: local

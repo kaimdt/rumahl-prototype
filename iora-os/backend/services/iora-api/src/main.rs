@@ -25,6 +25,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use iora_shared::system_config;
 
 mod auth;
 mod graphql;
@@ -61,8 +62,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let database_url = std::env::var("IORA_API_DB_URL")
-        .unwrap_or_else(|_| "sqlite:/var/lib/iora-api/api.db?mode=rwc".into());
+    let database_url = system_config::database_url_for("iora-api");
 
     // Ensure parent directory of the SQLite file exists. SQLx's
     // `mode=rwc` will create the file but not the directory tree, so on
@@ -85,20 +85,12 @@ async fn main() -> Result<()> {
             }
         }
     }
-    let jwt_secret = std::env::var("IORA_JWT_SECRET")
-        .unwrap_or_else(|_| "iora-api-dev-secret-change-me".into());
-    let port: u16 = std::env::var("IORA_API_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8099);
-    let iora_home_url = std::env::var("IORA_HOME_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".into());
-    let iora_files_url = std::env::var("IORA_FILES_URL")
-        .unwrap_or_else(|_| "http://localhost:8097".into());
-    let ha_url = std::env::var("HA_URL")
-        .unwrap_or_else(|_| "http://localhost:8123".into());
-    let ha_token = std::env::var("HA_TOKEN")
-        .unwrap_or_default();
+    let jwt_secret = system_config::jwt_secret();
+    let port: u16 = system_config::service_port("iora-api", 8101);
+    let iora_home_url = system_config::backend_url();
+    let iora_files_url = system_config::service_url("iora-files", 8100);
+    let ha_url = system_config::ha_url();
+    let ha_token = system_config::ha_token();
 
     let db = SqlitePoolOptions::new()
         .max_connections(10)

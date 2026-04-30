@@ -30,7 +30,8 @@ export default function NotificationLogWidget({ config }: { config?: Record<stri
 
   useEffect(() => {
     // Listen for error messages from WebSocket
-    const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+    import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
     let wsHost: string
     if (API_BASE) {
       try { wsHost = new URL(API_BASE).host } catch { wsHost = `${window.location.hostname}:3001` }

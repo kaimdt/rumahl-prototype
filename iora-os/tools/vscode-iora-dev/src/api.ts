@@ -42,6 +42,14 @@ export interface Connection {
     dev_mode?: boolean;
     capabilities?: string[];
     reachable?: boolean;
+    /** Whether the saved token is valid (verified on authenticated endpoint). */
+    token_ok?: boolean;
+    saved_host?: string;
+    suggested_host?: string;
+    suggested_hostname?: string;
+    suggested_build?: string;
+    discovered?: DeviceFound[];
+    hint?: string;
 }
 
 export interface Job {

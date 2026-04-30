@@ -18,6 +18,7 @@ use lettre::{
 use regex::Regex;
 use ring::digest::{Context as DigestContext, SHA256};
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sqlx::{Row, SqlitePool};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -848,36 +849,17 @@ async fn main() -> Result<()> {
 
     // Load configuration
     let config = GatewayConfig {
-        smtp_server: std::env::var("SMTP_SERVER").ok(),
-        smtp_username: std::env::var("SMTP_USERNAME").ok(),
-        smtp_password: std::env::var("SMTP_PASSWORD").ok(),
-        max_request_size: std::env::var("MAX_REQUEST_SIZE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1_048_576), // 1MB default
-        request_timeout_secs: std::env::var("REQUEST_TIMEOUT_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(30),
-        enable_sandboxing: std::env::var("ENABLE_SANDBOXING")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(true),
-        allowed_domains: std::env::var("ALLOWED_DOMAINS")
-            .ok()
-            .map(|s| s.split(',').map(|d| d.trim().to_string()).collect())
-            .unwrap_or_default(),
+        smtp_server: system_config::smtp_server(),
+        smtp_username: system_config::smtp_username(),
+        smtp_password: system_config::smtp_password(),
+        max_request_size: system_config::gateway_max_request_size(),
+        request_timeout_secs: system_config::gateway_request_timeout_secs(),
+        enable_sandboxing: system_config::gateway_enable_sandboxing(),
+        allowed_domains: system_config::gateway_allowed_domains(),
     };
 
     // Connect to database
-    let db_path = std::env::var("GATEWAY_DB_PATH")
-        .unwrap_or_else(|_| {
-            if cfg!(target_os = "windows") {
-                "./data/gateway.db".to_string()
-            } else {
-                "/var/lib/iora/gateway.db".to_string()
-            }
-        });
+    let db_path = system_config::gateway_db_path();
 
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(&db_path).parent() {
@@ -925,7 +907,7 @@ async fn main() -> Result<()> {
         ))
         .with_state(state);
 
-    let port = std::env::var("GATEWAY_PORT").unwrap_or_else(|_| "8096".to_string());
+    let port = system_config::service_port("iora-gateway", 8096).to_string();
     let addr = format!("0.0.0.0:{}", port);
 
     info!("🌐 iora-gateway starting on {}", addr);

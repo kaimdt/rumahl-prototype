@@ -8,6 +8,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
 import { toast } from 'sonner'
+import { getBackendUrl } from '@/lib/config'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
   useEffect(() => {
     if (!appId || activeTab !== 'logs') return
 
-    const baseUrl = import.meta.env.VITE_BACKEND_URL || ''
+    const baseUrl = getBackendUrl()
     const eventSource = new EventSource(`${baseUrl}/api/apps/${appId}/logs/stream`)
 
     eventSource.onmessage = (event) => {
@@ -167,7 +168,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
   const downloadCompose = () => {
     if (!appId) return
-    const baseUrl = import.meta.env.VITE_BACKEND_URL || ''
+    const baseUrl = getBackendUrl()
     window.open(`${baseUrl}/api/supervisor/apps/${appId}/compose`, '_blank')
   }
 

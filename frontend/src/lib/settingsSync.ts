@@ -7,7 +7,8 @@
  * the backend.
  */
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 import { authFetch } from '@/lib/authHelpers'
 
 // Keys that should be synced to backend for cross-device use

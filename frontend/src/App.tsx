@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { getBackendUrl } from '@/lib/config'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
@@ -30,6 +31,8 @@ import { AdminPanel } from '@/components/AdminPanel'
 import { AgentTab } from '@/components/AgentTab'
 import { DocsPage } from '@/components/DocsPageNew'
 import { StreamSender } from '@/components/StreamSender'
+import { AppSettingsPage } from '@/components/AppSettingsPage'
+import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -149,7 +152,7 @@ function DashboardContent() {
   useEffect(() => {
     let cancelled = false
     const refreshHaStatus = () => {
-      fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
+      fetch(`${getBackendUrl()}/api/integration/ha/configured`)
         .then(r => (r.ok ? r.json() : null))
         .then((data: { configured?: boolean; enabled?: boolean } | null) => {
           if (cancelled || !data) return
@@ -171,7 +174,7 @@ function DashboardContent() {
   useEffect(() => {
     let mounted = true
     // Initial fetch
-    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/maintenance/status`)
+    fetch(`${getBackendUrl()}/api/maintenance/status`)
       .then(r => r.json())
       .then((data: { active: boolean; message: string }) => {
         if (!mounted) return
@@ -545,6 +548,11 @@ function DashboardContent() {
 
           <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
           {(() => {
+            // App Settings standalone page (opened in new tab from AppStoreTab)
+            if (window.location.pathname.startsWith('/app-settings/')) {
+              return <AppSettingsPage />
+            }
+
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
             // Pages that NEVER depend on Home Assistant entities — render immediately
             const nonHAPages = ['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent']
@@ -861,6 +869,7 @@ function DashboardContent() {
 
 function App() {
   return (
+    <GlobalConfigProvider>
     <ConnectionProvider>
       <AuthProvider>
         <ThemeProvider>
@@ -879,6 +888,7 @@ function App() {
         </ThemeProvider>
       </AuthProvider>
     </ConnectionProvider>
+    </GlobalConfigProvider>
   )
 }
 

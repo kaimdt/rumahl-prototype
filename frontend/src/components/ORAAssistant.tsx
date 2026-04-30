@@ -43,7 +43,8 @@ interface PendingTaskAction {
 type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
 type DialogTab = 'chat' | 'tasks'
 
-const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
+import { getAssistUrl } from '@/lib/config'
+const ASSIST_URL = getAssistUrl()
 
 // ─── Instant Task type badge labels ──────────────────────────────────────────
 

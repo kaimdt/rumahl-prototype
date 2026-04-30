@@ -12,6 +12,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sysinfo::System;
 use tokio::sync::{broadcast, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
@@ -550,15 +551,9 @@ async fn main() -> anyhow::Result<()> {
 
     let (events_tx, _) = broadcast::channel(1000);
 
-    let recovery_threshold = std::env::var("IORA_RECOVERY_THRESHOLD")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_RECOVERY_THRESHOLD);
+    let recovery_threshold = system_config::recovery_threshold();
     let recovery_cooldown = Duration::from_secs(
-        std::env::var("IORA_RECOVERY_COOLDOWN_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_RECOVERY_COOLDOWN_SECS),
+        system_config::recovery_cooldown_secs(),
     );
     let recovery_mode = RecoveryMode::from_env();
     info!(
@@ -600,7 +595,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("WATCHDOG_PORT").unwrap_or_else(|_| "8094".to_string());
+    let port = system_config::service_port("iora-watchdog", 8094).to_string();
     let addr = format!("0.0.0.0:{}", port);
 
     info!("👁️  iora-watchdog starting on {}", addr);

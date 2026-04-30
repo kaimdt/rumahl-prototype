@@ -9,6 +9,7 @@ use bollard::service::{ContainerStateStatusEnum, ContainerSummary, HostConfig};
 use bollard::Docker;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
@@ -1629,10 +1630,7 @@ async fn main() -> std::io::Result<()> {
         environment,
     });
 
-    let port = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8097);
+    let port = system_config::service_port("iora-supervisor", 8097);
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 

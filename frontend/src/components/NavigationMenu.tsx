@@ -4,6 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { Moon, Sun, DotsThree, DotsNine, CaretUp, UserCircle, ShieldCheck, X, Warning, Siren, CloudWarning, Info, Bell } from '@phosphor-icons/react'
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { getBackendUrl } from '@/lib/config'
 import { UserSwitcher } from '@/components/UserSwitcher'
 import { NotificationBell } from '@/components/NotificationCenter'
 import { useNotifications } from '@/contexts/NotificationContext'
@@ -46,8 +47,10 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const [navStyle] = useLocalStorage<'pill' | 'classic' | 'minimal'>('ha-nav-style', 'pill')
   const [haEnabled, setHaEnabled] = useState<boolean>(true)
 
+import { getBackendUrl } from '@/lib/config'
+
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
+    fetch(`${getBackendUrl()}/api/integration/ha/configured`)
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data && data.enabled !== undefined) {

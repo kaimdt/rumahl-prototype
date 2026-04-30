@@ -22,6 +22,7 @@ use clap::Parser;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use futures_util::StreamExt;
 use serde::Deserialize;
+use iora_shared::system_config;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -365,15 +366,12 @@ fn validate_download_url(url: &str) -> Result<()> {
     if host.is_empty() {
         bail!("download URL missing host");
     }
-    let allow = std::env::var("IORA_DOWNLOAD_HOST_ALLOWLIST")
-        .unwrap_or_else(|_| "kaimdt.com".to_string());
+    let allow = system_config::download_host_allowlist();
     let ok = allow
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .any(|suffix| host == suffix || host.ends_with(&format!(".{suffix}")));
+        .iter()
+        .any(|suffix| host == suffix.as_str() || host.ends_with(&format!(".{suffix}")));
     if !ok {
-        bail!("download host `{host}` not in allowlist `{allow}`");
+        bail!("download host `{host}` not in allowlist `{:?}`", allow);
     }
     Ok(())
 }
@@ -404,8 +402,7 @@ async fn log(msg: &str) {
 /// Create a pre-update backup by calling the backup service
 async fn create_pre_update_backup() -> Result<()> {
     // Check if backup service is available
-    let backup_url = std::env::var("BACKUP_SERVICE_URL")
-        .unwrap_or_else(|_| "http://iora-backup:8100".to_string());
+    let backup_url = system_config::backup_service_url();
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600)) // 10 minutes for backup

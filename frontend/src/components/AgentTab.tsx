@@ -1,23 +1,21 @@
-// AgentTab – Vollständiger Agent-Arbeitsbereich mit Chat + Agent Tasks
-// GitHub-Agent-Tab-Stil: Chat-Modus und Agent-Task-Modus mit Live-Output,
-// parallelen Tasks, Workspace-Management und Git-Integration
+// AgentTab – GitHub Copilot-style Agent Workspace
+// Features: Chat, Workspace Management, Git Operations, GitHub Token Config
+// Design: Clean Copilot-inspired interface with glassmorphism
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChatCircle, BellRinging, Clock, Check, X, ArrowClockwise, Sparkle,
-  Brain, MagicWand, Robot, Hand, Microphone, SpeakerHigh, SpeakerSlash,
-  PaperPlaneRight, Globe, MagnifyingGlass, ListBullets, Trash, Plus,
-  Warning, Sidebar, CaretRight, Code, GitMerge, GitBranch, GitCommit,
-  ArrowUp, Copy, FolderOpen, FileCode, Play, Stop, DotsThree,
-  GithubLogo, GitFork, Eye, Terminal, Scroll, TreeStructure,
-  SquaresFour, Square, Cube, FileArrowDown, PencilSimple,
-  CloudArrowUp, GitPullRequest, GearSix, SelectionPlus, ArrowLeft,
+  ChatCircle, Sparkle, Brain, Robot, PaperPlaneRight, Microphone,
+  SpeakerHigh, SpeakerSlash, Plus, Trash, FolderOpen, Code,
+  GitBranch, GitCommit, GitPullRequest, ArrowUp, ArrowClockwise,
+  GithubLogo, Check, X, Stop, Play, Clock, GearSix,
+  Key, LinkSimple, MagnifyingGlass, Copy, BookOpen,
+  List, Sidebar, CaretRight, CaretDown, FileCode,
+  Terminal, Eye, CloudArrowUp, PencilSimple, Globe,
+  ArrowLeft, Warning, ShieldCheck, Info
 } from '@phosphor-icons/react'
-import { Button } from '@/components/ui/button'
 import { MessageContent } from '@/components/MessageContent'
 import { adminFetch } from '@/components/AdminPanel'
-import { ActiveTasksPanel } from '@/components/ActiveTasksPanel'
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
 
@@ -25,20 +23,10 @@ import { Tip } from '@/components/ui/tip'
 
 interface ChatMsg {
   id: string; role: string; content: string; timestamp: string
-  instantTaskId?: string; instantTaskType?: string
-  instantTaskStatus?: 'pending' | 'completed' | 'failed' | 'deferred'
-  instantTaskResult?: string
-}
-
-interface ChatResponse {
-  message: string; provider: string; message_id: string
-  model?: string; tokens_used?: number
-  instant_task_id?: string | null; instant_task_type?: string | null
 }
 
 interface ProviderInfo {
   name: string; id: string; available: boolean
-  capabilities?: Record<string, boolean>
   models?: { id: string; name: string }[]
   selected_model?: string
 }
@@ -60,39 +48,6 @@ interface FileDiff {
   hunks: { old_start: number; old_lines: number; new_start: number; new_lines: number; content: string }[]
 }
 
-interface TaskConfig {
-  thinking_enabled: boolean
-  temperature: number
-  context_level: string
-  auto_apply: boolean
-  confirm_each_file: boolean
-  max_context_files: number
-  mode: string
-  custom_instructions?: string
-  /// Pipeline mode: false = direct, true = two-stage (cloud planner → local executor)
-  pipeline_enabled?: boolean
-  pipeline_cloud_provider?: string
-  pipeline_cloud_model?: string
-  pipeline_executor_provider?: string
-  pipeline_executor_model?: string
-}
-
-const DEFAULT_TASK_CONFIG: TaskConfig = {
-  thinking_enabled: true,
-  temperature: 0.3,
-  context_level: 'changed',
-  auto_apply: false,
-  confirm_each_file: true,
-  max_context_files: 30,
-  mode: 'balanced',
-  custom_instructions: '',
-  pipeline_enabled: false,
-  pipeline_cloud_provider: 'anthropic',
-  pipeline_cloud_model: 'claude-sonnet-4-20250514',
-  pipeline_executor_provider: 'deepseek',
-  pipeline_executor_model: 'deepseek-coder',
-}
-
 interface AgentTask {
   id: string; workspace_id: string; name: string; description: string
   model: string; provider: string
@@ -100,18 +55,24 @@ interface AgentTask {
   output: TaskOutputLine[]; changes: FileDiff[]
   created_at: string; started_at?: string; completed_at?: string
   error?: string
-  config?: TaskConfig
 }
 
 interface TaskOutputLine {
   timestamp: string; level: string; message: string; stream?: string | null
 }
 
-type AgentMode = 'chat' | 'tasks'
-type RightPanel = 'tasks' | 'files' | 'none'
+interface GitHubAuthState {
+  is_configured: boolean
+  auth_type: string
+  username?: string
+  avatar_url?: string
+  rate_limit?: { remaining: number; limit: number; reset: string }
+}
 
-const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
-const WS_URL = ASSIST_URL.replace(/^http/, 'ws')
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+import { getAssistUrl } from '@/lib/config'
+const ASSIST_URL = getAssistUrl()
 
 function formatRelativeTime(ts: string): string {
   const d = new Date(ts); const now = new Date(); const diffMs = now.getTime() - d.getTime()
@@ -131,11 +92,175 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
 
-// ─── Main Agent Tab ───────────────────────────────────────────────────────────
+// ─── GitHub Token Config Component ────────────────────────────────────────────
+
+function GitHubTokenConfig({ token, onUpdate }: { token: string; onUpdate: () => void }) {
+  const [ghAuth, setGhAuth] = useState<GitHubAuthState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showTokenInput, setShowTokenInput] = useState(false)
+  const [patInput, setPatInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [rateLimit, setRateLimit] = useState<any>(null)
+
+  const loadGhStatus = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await adminFetch('/api/assist/github/auth', token)
+      setGhAuth(data as GitHubAuthState)
+    } catch { setGhAuth(null) }
+    setLoading(false)
+  }, [token])
+
+  useEffect(() => { loadGhStatus() }, [loadGhStatus])
+
+  const saveToken = async () => {
+    if (!patInput.trim()) { toast.error('Bitte Token eingeben'); return }
+    setSaving(true)
+    try {
+      await adminFetch('/api/assist/github/auth', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          auth_type: 'pat',
+          pat: patInput.trim(),
+        }),
+      })
+      toast.success('GitHub Token gespeichert!')
+      setShowTokenInput(false)
+      setPatInput('')
+      loadGhStatus()
+      onUpdate()
+    } catch (e) {
+      toast.error(`Fehler: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    setSaving(false)
+  }
+
+  const testConnection = async () => {
+    setTesting(true)
+    try {
+      const data = await adminFetch('/api/assist/github/ratelimit', token)
+      setRateLimit(data)
+      toast.success('GitHub Verbindung OK!')
+    } catch (e) {
+      toast.error(`GitHub nicht erreichbar: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    setTesting(false)
+  }
+
+  const disconnectGh = async () => {
+    if (!confirm('GitHub Verbindung wirklich trennen?')) return
+    try {
+      await adminFetch('/api/assist/github/auth', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          auth_type: 'pat',
+          pat: '',
+        }),
+      })
+      toast.success('GitHub Verbindung getrennt')
+      loadGhStatus()
+      onUpdate()
+    } catch (e) {
+      toast.error(`Fehler: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-xs text-foreground/40">
+        <ArrowClockwise size={12} className="animate-spin" /> Lade GitHub Status…
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Current Status */}
+      {ghAuth?.is_configured && ghAuth.username ? (
+        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-green-500/5 border border-green-500/15">
+          <div className="flex items-center gap-2">
+            <GithubLogo size={16} weight="fill" className="text-green-400" />
+            <div>
+              <p className="text-xs font-semibold text-green-300">Verbunden als</p>
+              <p className="text-[11px] text-foreground/60">{ghAuth.username}</p>
+            </div>
+            {rateLimit && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-foreground/10 text-foreground/40">
+                API: {rateLimit?.rate?.remaining ?? rateLimit?.remaining ?? '?'}/{rateLimit?.rate?.limit ?? rateLimit?.limit ?? '?'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={testConnection} disabled={testing}
+              className="p-1.5 rounded-lg text-foreground/40 hover:text-green-400 hover:bg-green-500/10"
+              title="Verbindung testen">
+              {testing ? <ArrowClockwise size={12} className="animate-spin" /> : <Check size={12} />}
+            </button>
+            <button onClick={disconnectGh}
+              className="p-1.5 rounded-lg text-foreground/40 hover:text-red-400 hover:bg-red-500/10"
+              title="Trennen">
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-foreground/[0.03] border border-foreground/10">
+            <GithubLogo size={16} weight="fill" className="text-foreground/40" />
+            <div>
+              <p className="text-xs text-foreground/60">GitHub nicht verbunden</p>
+              <p className="text-[10px] text-foreground/40">Token konfigurieren für Git-Operationen & Repository-Zugriff</p>
+            </div>
+          </div>
+
+          {!showTokenInput ? (
+            <button onClick={() => setShowTokenInput(true)}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-xs text-foreground/60 hover:text-foreground hover:bg-foreground/10 transition-all">
+              <Key size={12} /> GitHub Token konfigurieren
+            </button>
+          ) : (
+            <div className="space-y-2 p-3 rounded-xl bg-foreground/[0.03] border border-foreground/10">
+              <div className="flex items-center gap-2">
+                <Info size={12} className="text-blue-400" />
+                <p className="text-[10px] text-foreground/50">
+                  Erstelle einen{' '}
+                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 underline">Personal Access Token</a>
+                  {' '}mit <code className="text-[9px] bg-foreground/10 px-1 rounded">repo</code> und <code className="text-[9px] bg-foreground/10 px-1 rounded">workflow</code> Scopes.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={patInput}
+                  onChange={e => setPatInput(e.target.value)}
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  className="flex-1 px-3 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground font-mono placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+                  onKeyDown={e => { if (e.key === 'Enter') saveToken() }}
+                />
+                <button onClick={saveToken} disabled={saving || !patInput.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-green-500/15 text-green-300 text-xs font-semibold hover:bg-green-500/25 disabled:opacity-40 transition-all">
+                  {saving ? '…' : 'Speichern'}
+                </button>
+                <button onClick={() => { setShowTokenInput(false); setPatInput('') }}
+                  className="p-1.5 rounded-lg text-foreground/40 hover:text-foreground hover:bg-foreground/10">
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Agent Tab Component ─────────────────────────────────────────────────
 
 export function AgentTab({ token }: { token: string }) {
-  const [mode, setMode] = useState<AgentMode>('chat')
-  const [rightPanel, setRightPanel] = useState<RightPanel>('none')
+  const [activeView, setActiveView] = useState<'chat' | 'workspace'>('chat')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   // Chat state
   const [messages, setMessages] = useState<ChatMsg[]>([])
@@ -143,39 +268,28 @@ export function AgentTab({ token }: { token: string }) {
   const [chatState, setChatState] = useState<'idle' | 'thinking' | 'error'>('idle')
   const [chatError, setChatError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [ttsEnabled, setTtsEnabled] = useState(true)
-  const synthRef = useRef<SpeechSynthesis | null>(null)
-  const recognitionRef = useRef<any>(null)
-  const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [ttsEnabled, setTtsEnabled] = useState(false)
+  const [selectedModel, setSelectedModel] = useState('gpt-4o')
+  const [selectedProvider, setSelectedProvider] = useState('openai')
 
-  // Agent Tasks state
+  // Workspace state
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [tasks, setTasks] = useState<AgentTask[]>([])
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null)
-  const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([])
+  const [gitChanges, setGitChanges] = useState<FileDiff[]>([])
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
-  const [gitChanges, setGitChanges] = useState<FileDiff[]>([])
   const [loading, setLoading] = useState(false)
-  const eventSourceRef = useRef<EventSource | null>(null)
 
-  // Create workspace dialog
+  // Dialogs
   const [showCreateWs, setShowCreateWs] = useState(false)
+  const [showNewTask, setShowNewTask] = useState(false)
   const [newWsName, setNewWsName] = useState('')
-  const [newWsSource, setNewWsSource] = useState<'new' | 'clone' | 'import'>('new')
+  const [newWsSource, setNewWsSource] = useState<'new' | 'clone'>('new')
   const [newWsGitUrl, setNewWsGitUrl] = useState('')
-
-  // Steering config state
-  const [taskConfig, setTaskConfig] = useState<TaskConfig>(DEFAULT_TASK_CONFIG)
-  const [showSteering, setShowSteering] = useState(false)
-
-  // Create task dialog
-  const [showCreateTask, setShowCreateTask] = useState(false)
-  const [newTaskName, setNewTaskName] = useState('')
   const [newTaskDesc, setNewTaskDesc] = useState('')
-  const [newTaskModel, setNewTaskModel] = useState('gpt-4o')
-  const [newTaskProvider, setNewTaskProvider] = useState('openai')
 
   // Providers
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -183,9 +297,11 @@ export function AgentTab({ token }: { token: string }) {
 
   // ─── SSE for live tasks ──────────────────────────────────────────────────
   useEffect(() => {
-    // Subscribe to SSE for live task events
     const es = new EventSource(`${ASSIST_URL}/api/assist/agent/tasks/events`)
-    
+    const updateTask = (updater: (t: AgentTask) => AgentTask) => {
+      setTasks(prev => prev.map(t => t.id === (updater as any)._id ? updater(t) : t))
+    }
+
     es.addEventListener('agent_task_output', (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data)
@@ -194,7 +310,7 @@ export function AgentTab({ token }: { token: string }) {
             ? { ...t, output: [...t.output, data.line] }
             : t
         ))
-      } catch { /* ignore */ }
+      } catch {}
     })
 
     es.addEventListener('agent_task_progress', (e: MessageEvent) => {
@@ -203,7 +319,7 @@ export function AgentTab({ token }: { token: string }) {
         setTasks(prev => prev.map(t =>
           t.id === data.task_id ? { ...t, progress: data.progress } : t
         ))
-      } catch { /* ignore */ }
+      } catch {}
     })
 
     es.addEventListener('agent_task_status', (e: MessageEvent) => {
@@ -212,7 +328,7 @@ export function AgentTab({ token }: { token: string }) {
         setTasks(prev => prev.map(t =>
           t.id === data.task_id ? { ...t, status: data.status } : t
         ))
-      } catch { /* ignore */ }
+      } catch {}
     })
 
     es.addEventListener('agent_task_completed', (e: MessageEvent) => {
@@ -224,10 +340,7 @@ export function AgentTab({ token }: { token: string }) {
             : t
         ))
         toast.success('Agent Task abgeschlossen!')
-        // Refresh changes
-        const task = tasks.find(t => t.id === data.task_id)
-        if (task) loadGitChanges(task.workspace_id)
-      } catch { /* ignore */ }
+      } catch {}
     })
 
     es.addEventListener('agent_task_failed', (e: MessageEvent) => {
@@ -237,90 +350,83 @@ export function AgentTab({ token }: { token: string }) {
           t.id === data.task_id ? { ...t, status: 'failed', error: data.error } : t
         ))
         toast.error(`Task fehlgeschlagen: ${data.error}`)
-      } catch { /* ignore */ }
+      } catch {}
     })
 
-    es.onerror = () => { /* reconnect handled by browser */ }
-
-    eventSourceRef.current = es
+    es.onerror = () => {}
     return () => { es.close() }
   }, [])
 
   // ─── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if ('speechSynthesis' in window) synthRef.current = window.speechSynthesis
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    setIsSpeechSupported(!!SpeechRecognition)
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition()
-      recognitionRef.current.continuous = false
-      recognitionRef.current.interimResults = false
-      recognitionRef.current.lang = 'de-DE'
-    }
-    loadAll()
+    loadProviders()
+    loadWorkspaces()
   }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ─── Data Loading ──────────────────────────────────────────────────────────
-  const loadAll = useCallback(async () => {
-    setLoading(true)
+  const loadProviders = async () => {
     try {
-      const [wsData, tasksData, provData] = await Promise.all([
-        adminFetch('/api/assist/workspaces', token).catch(() => null),
-        adminFetch('/api/assist/agent/tasks', token).catch(() => null),
-        adminFetch('/api/assist/providers', token).catch(() => null),
-      ])
-      
-      if (wsData) setWorkspaces((wsData as any).workspaces || [])
-      if (tasksData) setTasks((tasksData as any).tasks || [])
-      
-      if (provData) {
-        const pd = provData as any
-        setActiveProvider(pd.current || null)
-        const avail = pd.available_providers || []
-        const configured = pd.configured_providers || []
-        const merged = [...avail]
-        for (const cfg of configured) {
-          if (!merged.find((m: any) => m.id === cfg.provider_id)) {
-            merged.push({
-              name: cfg.name || cfg.provider_type,
-              id: cfg.provider_id || cfg.provider_type,
-              available: cfg.available,
-              models: cfg.models,
-              selected_model: cfg.selected_model,
-            })
-          }
+      const data = await adminFetch('/api/assist/providers', token)
+      const pd = data as any
+      setActiveProvider(pd.current || null)
+      const avail = pd.available_providers || []
+      const configured = pd.configured_providers || []
+      const merged = [...avail]
+      for (const cfg of configured) {
+        if (!merged.find((m: any) => m.id === cfg.provider_id)) {
+          merged.push({
+            name: cfg.name || cfg.provider_type,
+            id: cfg.provider_id || cfg.provider_type,
+            available: cfg.available,
+            models: cfg.models,
+            selected_model: cfg.selected_model,
+          })
         }
-        setProviders(merged)
       }
-    } catch (e) { console.error('Load error:', e) }
-    setLoading(false)
-  }, [token])
+      setProviders(merged)
+    } catch { /* offline */ }
+  }
 
-  const loadGitChanges = useCallback(async (wsId: string) => {
+  const loadWorkspaces = async () => {
     try {
-      const data = await adminFetch(`/api/assist/workspaces/${wsId}/git/status`, token)
-      setGitChanges(data?.changes || [])
-    } catch { setGitChanges([]) }
-  }, [token])
+      const data = await adminFetch('/api/assist/workspaces', token)
+      const ws = (data as any).workspaces || []
+      setWorkspaces(ws)
+    } catch {}
+  }
 
-  const loadWorkspaceFiles = useCallback(async (wsId: string) => {
+  const loadWorkspaceFiles = async (wsId: string) => {
     try {
       const data = await adminFetch(`/api/assist/workspaces/${wsId}/files?path=`, token)
       setWorkspaceFiles(data?.files || [])
     } catch { setWorkspaceFiles([]) }
-  }, [token])
+  }
+
+  const loadGitChanges = async (wsId: string) => {
+    try {
+      const data = await adminFetch(`/api/assist/workspaces/${wsId}/git/status`, token)
+      setGitChanges(data?.changes || [])
+    } catch { setGitChanges([]) }
+  }
+
+  const loadTasks = async () => {
+    try {
+      const data = await adminFetch('/api/assist/agent/tasks', token)
+      setTasks((data as any).tasks || [])
+    } catch {}
+  }
 
   // ─── Chat ──────────────────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || chatState === 'thinking') return
+  const sendMessage = useCallback(async (text?: string) => {
+    const msg = text || input
+    if (!msg.trim() || chatState === 'thinking') return
 
     const userMsg: ChatMsg = {
       id: crypto.randomUUID(), role: 'user',
-      content: text, timestamp: new Date().toISOString(),
+      content: msg, timestamp: new Date().toISOString(),
     }
     setMessages(prev => [...prev, userMsg])
     setInput(''); setChatState('thinking'); setChatError(null)
@@ -328,157 +434,123 @@ export function AgentTab({ token }: { token: string }) {
     try {
       const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, context: {}, voice_mode: false }),
+        body: JSON.stringify({
+          message: msg,
+          provider: selectedProvider,
+          model: selectedModel,
+          context: {},
+          voice_mode: false,
+        }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const data: ChatResponse = await response.json()
+      const data = await response.json()
 
       const aiMsg: ChatMsg = {
         id: data.message_id ?? crypto.randomUUID(),
         role: 'assistant', content: data.message,
         timestamp: new Date().toISOString(),
-        ...(data.instant_task_id ? {
-          instantTaskId: data.instant_task_id,
-          instantTaskType: data.instant_task_type ?? 'search',
-          instantTaskStatus: 'pending' as const,
-        } : {}),
       }
       setMessages(prev => [...prev, aiMsg])
       setChatState('idle')
     } catch (e) {
       setChatError(e instanceof Error ? e.message : 'Fehler')
       setChatState('error')
-      setTimeout(() => { setChatState('idle'); setChatError(null) }, 3000)
     }
-  }, [chatState])
-
-  const handleVoiceInput = useCallback(() => {
-    if (!recognitionRef.current) { toast.error('Spracherkennung nicht unterstützt'); return }
-    recognitionRef.current.onresult = (event: any) => sendMessage(event.results[0][0].transcript)
-    recognitionRef.current.onerror = () => setChatState('idle')
-    try { recognitionRef.current.start() } catch {}
-  }, [sendMessage])
+  }, [input, chatState, selectedProvider, selectedModel])
 
   // ─── Workspace Operations ──────────────────────────────────────────────────
-  const createWorkspace = useCallback(async () => {
+  const selectWorkspace = async (id: string) => {
+    setSelectedWorkspace(id)
+    setSelectedFilePath(null)
+    setFileContent(null)
+    await Promise.all([
+      loadWorkspaceFiles(id),
+      loadGitChanges(id),
+      loadTasks(),
+    ])
+    setActiveView('workspace')
+  }
+
+  const createWorkspace = async () => {
     if (!newWsName.trim()) { toast.error('Bitte Namen eingeben'); return }
     try {
       const body: any = { name: newWsName, source: newWsSource }
       if (newWsSource === 'clone' && newWsGitUrl.trim()) body.git_url = newWsGitUrl
-      const data = await adminFetch('/api/assist/workspaces', token, {
+      await adminFetch('/api/assist/workspaces', token, {
         method: 'POST', body: JSON.stringify(body),
       })
       toast.success('Workspace erstellt!')
-      setWorkspaces(prev => [...prev, data.workspace])
       setShowCreateWs(false); setNewWsName(''); setNewWsGitUrl('')
+      loadWorkspaces()
     } catch (e) {
       toast.error(`Fehler: ${e instanceof Error ? e.message : String(e)}`)
     }
-  }, [newWsName, newWsSource, newWsGitUrl, token])
+  }
 
-  const deleteWorkspace = useCallback(async (id: string) => {
-    if (!confirm('Workspace wirklich löschen? Alle Dateien werden entfernt.')) return
+  const deleteWorkspace = async (id: string) => {
+    if (!confirm('Workspace wirklich löschen?')) return
     try {
       await adminFetch(`/api/assist/workspaces/${id}`, token, { method: 'DELETE' })
       setWorkspaces(prev => prev.filter(w => w.id !== id))
-      if (selectedWorkspace === id) { setSelectedWorkspace(null); setSelectedTask(null) }
+      if (selectedWorkspace === id) setSelectedWorkspace(null)
       toast.success('Workspace gelöscht')
     } catch (e) { toast.error(`Fehler: ${e}`) }
-  }, [token, selectedWorkspace])
+  }
 
   // ─── Task Operations ───────────────────────────────────────────────────────
-  const createTask = useCallback(async () => {
+  const createTask = async () => {
     if (!selectedWorkspace) { toast.error('Bitte Workspace wählen'); return }
     if (!newTaskDesc.trim()) { toast.error('Bitte Aufgabenbeschreibung eingeben'); return }
     try {
       const data = await adminFetch('/api/assist/agent/tasks', token, {
         method: 'POST', body: JSON.stringify({
           workspace_id: selectedWorkspace,
-          name: newTaskName || 'Agent Task',
+          name: 'Agent Task',
           description: newTaskDesc,
-          model: newTaskModel,
-          provider: newTaskProvider,
-          config: {
-            thinking_enabled: taskConfig.thinking_enabled,
-            temperature: taskConfig.temperature,
-            context_level: taskConfig.context_level,
-            auto_apply: taskConfig.auto_apply,
-            confirm_each_file: taskConfig.confirm_each_file,
-            max_context_files: taskConfig.max_context_files,
-            mode: taskConfig.mode,
-            custom_instructions: taskConfig.custom_instructions?.trim() || null,
-            pipeline_enabled: taskConfig.pipeline_enabled,
-            pipeline_cloud_provider: taskConfig.pipeline_cloud_provider,
-            pipeline_cloud_model: taskConfig.pipeline_cloud_model,
-            pipeline_executor_provider: taskConfig.pipeline_executor_provider,
-            pipeline_executor_model: taskConfig.pipeline_executor_model,
-          },
+          model: selectedModel,
+          provider: selectedProvider,
         }),
       })
-      toast.success(`Agent Task gestartet! (Modus: ${taskConfig.mode})`)
+      toast.success('Agent Task gestartet!')
       setTasks(prev => [...prev, data.task])
-      setShowCreateTask(false); setNewTaskName(''); setNewTaskDesc('')
-      setShowSteering(false)
+      setShowNewTask(false); setNewTaskDesc('')
     } catch (e) { toast.error(`Fehler: ${e}`) }
-  }, [selectedWorkspace, newTaskName, newTaskDesc, newTaskModel, newTaskProvider, taskConfig, token])
+  }
 
-  const cancelTask = useCallback(async (id: string) => {
+  const cancelTask = async (id: string) => {
     try {
       await adminFetch(`/api/assist/agent/tasks/${id}`, token, { method: 'DELETE' })
       setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'cancelled' } : t))
       toast.success('Task abgebrochen')
     } catch (e) { toast.error(`Fehler: ${e}`) }
-  }, [token])
-
-  // Select workspace and load its data
-  const selectWorkspace = useCallback(async (id: string) => {
-    setSelectedWorkspace(id)
-    setSelectedTask(null)
-    setFileContent(null)
-    setSelectedFilePath(null)
-    await Promise.all([
-      loadWorkspaceFiles(id),
-      loadGitChanges(id),
-    ])
-  }, [loadWorkspaceFiles, loadGitChanges])
+  }
 
   // ─── Git Operations ───────────────────────────────────────────────────────
-  const gitCommit = useCallback(async (message: string) => {
+  const gitCommit = async (message: string) => {
     if (!selectedWorkspace) return
     try {
-      const data = await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/commit`, token, {
+      await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/commit`, token, {
         method: 'POST', body: JSON.stringify({ message }),
       })
       toast.success('Committed!')
       loadGitChanges(selectedWorkspace)
     } catch (e) { toast.error(`Git commit fehlgeschlagen: ${e}`) }
-  }, [selectedWorkspace, token, loadGitChanges])
+  }
 
-  const gitPush = useCallback(async () => {
+  const gitPush = async () => {
     if (!selectedWorkspace) return
     const ws = workspaces.find(w => w.id === selectedWorkspace)
     try {
-      const data = await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/push`, token, {
+      await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/push`, token, {
         method: 'POST', body: JSON.stringify({
           remote: 'origin', branch: ws?.git_branch || 'main',
         }),
       })
       toast.success('Gepusht!')
     } catch (e) { toast.error(`Git push fehlgeschlagen: ${e}`) }
-  }, [selectedWorkspace, workspaces, token])
+  }
 
-  const createBranch = useCallback(async (name: string) => {
-    if (!selectedWorkspace || !name.trim()) return
-    try {
-      await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/branch`, token, {
-        method: 'POST', body: JSON.stringify({ name, base: 'main' }),
-      })
-      toast.success(`Branch '${name}' erstellt!`)
-      loadAll()
-    } catch (e) { toast.error(`Branch-Erstellung fehlgeschlagen: ${e}`) }
-  }, [selectedWorkspace, token, loadAll])
-
-  const createPR = useCallback(async () => {
+  const createPR = async () => {
     if (!selectedWorkspace) return
     const ws = workspaces.find(w => w.id === selectedWorkspace)
     const branch = ws?.git_branch || 'main'
@@ -486,542 +558,571 @@ export function AgentTab({ token }: { token: string }) {
     if (!prTitle) return
     const prBody = prompt('PR Beschreibung:', 'Automated changes by ORA Agent.')
     try {
-      const data = await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/pr`, token, {
+      await adminFetch(`/api/assist/workspaces/${selectedWorkspace}/git/pr`, token, {
         method: 'POST', body: JSON.stringify({
           title: prTitle, body: prBody || '', head: branch, base: 'main',
         }),
       })
       toast.success('Pull Request erstellt!')
     } catch (e) { toast.error(`PR fehlgeschlagen: ${e}`) }
-  }, [selectedWorkspace, workspaces, token])
+  }
 
-  // ─── Diff helper ───────────────────────────────────────────────────────────
-  const renderDiff = (change: FileDiff) => {
-    const lineClass = (line: string) => {
-      if (line.startsWith('+')) return 'text-green-300 bg-green-500/10'
-      if (line.startsWith('-')) return 'text-red-300 bg-red-500/10'
-      if (line.startsWith('@@')) return 'text-purple-300 bg-purple-500/10 font-bold'
-      return 'text-foreground/70'
-    }
-    return (
-      <div key={change.file_path} className="rounded-xl bg-foreground/[0.03] border border-foreground/10 overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2 bg-foreground/5 border-b border-foreground/10 text-xs font-mono">
-          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-            change.status === 'added' ? 'bg-green-500/15 text-green-300' :
-            change.status === 'deleted' ? 'bg-red-500/15 text-red-300' :
-            'bg-blue-500/15 text-blue-300'
-          }`}>{change.status}</span>
-          <span className="text-foreground/70">{change.file_path}</span>
-          <span className="ml-auto text-[9px] text-foreground/40">{change.hunks.length} Hunk(s)</span>
-        </div>
+  // ─── Diff Renderer ─────────────────────────────────────────────────────────
+  const renderDiff = (change: FileDiff) => (
+    <div key={change.file_path} className="rounded-lg bg-foreground/[0.03] border border-foreground/10 overflow-hidden mb-1.5">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-foreground/5 border-b border-foreground/10 text-xs font-mono">
+        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+          change.status === 'added' ? 'bg-green-500/15 text-green-300' :
+          change.status === 'deleted' ? 'bg-red-500/15 text-red-300' :
+          'bg-blue-500/15 text-blue-300'
+        }`}>{change.status}</span>
+        <span className="text-foreground/70">{change.file_path}</span>
+      </div>
+      <div className="font-mono text-[10px] leading-relaxed max-h-48 overflow-y-auto">
         {change.hunks.map((hunk, i) => (
-          <div key={i} className="font-mono text-[11px] leading-relaxed">
-            <div className="px-3 py-1 bg-purple-500/5 text-purple-300/60 text-[10px]">
+          <div key={i}>
+            <div className="px-3 py-0.5 bg-purple-500/5 text-purple-300/50 text-[9px]">
               @@ -{hunk.old_start},{hunk.old_lines} +{hunk.new_start},{hunk.new_lines} @@
             </div>
-            {hunk.content.split('\n').filter(l => l.trim()).map((line, j) => (
-              <div key={j} className={`px-3 py-0.5 ${lineClass(line)}`}>
-                <span className="inline-block w-4 text-[9px] text-foreground/30 select-none">
-                  {line.startsWith('+') ? '+' : line.startsWith('-') ? '-' : ' '}
-                </span>
-                {line.slice(1) || line}
-              </div>
-            ))}
+            {hunk.content.split('\n').filter(l => l.trim()).slice(0, 20).map((line, j) => {
+              const cls = line.startsWith('+') ? 'text-green-300 bg-green-500/10' :
+                line.startsWith('-') ? 'text-red-300 bg-red-500/10' : 'text-foreground/70'
+              return <div key={j} className={`px-3 py-0.5 ${cls}`}>{line}</div>
+            })}
           </div>
         ))}
       </div>
-    )
-  }
+    </div>
+  )
 
   const selectedWs = workspaces.find(w => w.id === selectedWorkspace)
   const workspaceTasks = tasks.filter(t => t.workspace_id === selectedWorkspace)
   const runningCount = tasks.filter(t => t.status === 'running').length
-  const queuedCount = tasks.filter(t => t.status === 'queued').length
+  const availableModels = activeProvider?.models || [
+    { id: 'gpt-4o', name: 'GPT-4o' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet' },
+  ]
 
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-[calc(100vh-200px)] min-h-[650px] gap-3">
+    <div className="flex h-[calc(100vh-200px)] min-h-[600px] gap-3">
       {/* ─── Left Sidebar ────────────────────────────────────────────────── */}
-      <div className="w-64 shrink-0 glass-card rounded-3xl border border-white/10 bg-white/10 p-4 shadow-xl shadow-black/5 backdrop-blur-xl flex flex-col gap-3 overflow-hidden">
-        {/* Mode Switcher */}
-        <div className="flex rounded-xl bg-foreground/5 p-0.5">
-          <button
-            onClick={() => setMode('chat')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-              mode === 'chat' ? 'bg-accent/20 text-accent' : 'text-foreground/50 hover:text-foreground'
-            }`}
-          >
-            <ChatCircle size={14} weight={mode === 'chat' ? 'fill' : 'regular'} />
-            Chat
-          </button>
-          <button
-            onClick={() => setMode('tasks')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-              mode === 'tasks' ? 'bg-accent/20 text-accent' : 'text-foreground/50 hover:text-foreground'
-            }`}
-          >
-            <Robot size={14} weight={mode === 'tasks' ? 'fill' : 'regular'} />
-            Tasks
-            {(runningCount > 0 || queuedCount > 0) && (
-              <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full">
-                {runningCount + queuedCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {mode === 'tasks' ? (
-          <>
-            {/* Workspace Selector */}
-            <div className="space-y-1.5 flex-1 overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-foreground/40 font-semibold">Workspaces</p>
-                <button onClick={() => setShowCreateWs(true)}
-                  className="p-1 rounded text-foreground/40 hover:text-foreground hover:bg-foreground/5">
-                  <Plus size={13} />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-1">
-                {workspaces.map(ws => (
-                  <button
-                    key={ws.id}
-                    onClick={() => selectWorkspace(ws.id)}
-                    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs transition-all text-left ${
-                      selectedWorkspace === ws.id
-                        ? 'bg-accent/20 text-accent border border-accent/20'
-                        : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5 border border-transparent'
-                    }`}
-                  >
-                    <FolderOpen size={14} weight={selectedWorkspace === ws.id ? 'fill' : 'regular'} />
-                    <div className="flex-1 min-w-0">
-                      <p className="truncate font-medium">{ws.name}</p>
-                      <p className="text-[9px] text-foreground/40">{ws.file_count} Dateien</p>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteWorkspace(ws.id) }}
-                      className="p-1 rounded text-foreground/30 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash size={10} />
-                    </button>
-                  </button>
-                ))}
-                {workspaces.length === 0 && (
-                  <p className="text-[11px] text-foreground/50 text-center py-4">Keine Workspaces</p>
-                )}
-              </div>
-            </div>
-
-            {/* Task Stats */}
-            <div className="grid grid-cols-3 gap-1 pt-2 border-t border-foreground/10">
-              <div className="text-center p-1.5 rounded-lg bg-foreground/[0.04]">
-                <p className="text-sm font-bold text-foreground">{runningCount}</p>
-                <p className="text-[8px] text-foreground/40 uppercase">Aktiv</p>
-              </div>
-              <div className="text-center p-1.5 rounded-lg bg-foreground/[0.04]">
-                <p className="text-sm font-bold text-foreground">{queuedCount}</p>
-                <p className="text-[8px] text-foreground/40 uppercase">Wartend</p>
-              </div>
-              <div className="text-center p-1.5 rounded-lg bg-foreground/[0.04]">
-                <p className="text-sm font-bold text-foreground">{tasks.filter(t => t.status === 'completed').length}</p>
-                <p className="text-[8px] text-foreground/40 uppercase">Fertig</p>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            <p className="text-[10px] uppercase tracking-wider text-foreground/40 font-semibold mb-2">Provider</p>
-            {providers.map(p => (
-              <button
-                key={p.id}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs mb-0.5 ${
-                  p.id === activeProvider?.id
-                    ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5'
-                } ${!p.available ? 'opacity-40' : ''}`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${p.available ? 'bg-green-400' : 'bg-red-400'}`} />
-                <span className="truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ─── Main Area ──────────────────────────────────────────────────── */}
-      <div className="flex-1 glass-card rounded-3xl border border-white/10 bg-white/10 shadow-xl shadow-black/5 backdrop-blur-xl flex flex-col overflow-hidden">
-        {mode === 'chat' ? (
-          <>
-            {/* Chat Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-foreground/10">
-              <div className="flex items-center gap-2">
-                <Sparkle size={16} weight="fill" className="text-accent" />
-                <h2 className="text-sm font-semibold text-foreground">Agent Chat</h2>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  chatState === 'thinking' ? 'bg-purple-500/15 text-purple-300 animate-pulse' : 'bg-foreground/10 text-foreground/50'
-                }`}>
-                  {chatState === 'thinking' ? 'Denkt…' : chatState === 'error' ? 'Fehler' : 'Bereit'}
-                </span>
-              </div>
-              <button
-                onClick={() => setTtsEnabled(!ttsEnabled)}
-                className={`p-2 rounded-lg text-xs ${ttsEnabled ? 'text-accent bg-accent/10' : 'text-foreground/40'}`}
-              >
-                {ttsEnabled ? <SpeakerHigh size={15} /> : <SpeakerSlash size={15} />}
-              </button>
-            </div>
-            {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-              {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                  <Brain size={40} weight="duotone" className="text-accent/50 mb-4" />
-                  <p className="text-sm font-semibold text-foreground mb-1">ORA Agent Chat</p>
-                  <p className="text-xs text-foreground/50 max-w-xs">Stelle eine Frage oder wechsle zu Tasks für KI-gestützte Code-Bearbeitung.</p>
-                </div>
-              ) : (
-                messages.map(msg => (
-                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${
-                      msg.role === 'user'
-                        ? 'bg-accent/20 border border-accent/20'
-                        : 'bg-foreground/5 border border-foreground/10'
-                    }`}>
-                      <MessageContent content={msg.content} role={msg.role} />
-                      <p className="text-[10px] text-foreground/40 mt-1">{formatRelativeTime(msg.timestamp)}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-            {/* Chat Input */}
-            <div className="px-5 py-4 border-t border-foreground/10 bg-background/50">
-              <div className="flex items-center gap-2">
-                <button onClick={handleVoiceInput}
-                  className="h-11 w-11 rounded-full bg-foreground/5 border border-foreground/10 flex items-center justify-center text-foreground/50 hover:text-foreground shrink-0">
-                  <Microphone size={18} />
-                </button>
-                <input value={input} onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input) } }}
-                  placeholder="Nachricht…"
-                  className="flex-1 px-4 py-2.5 rounded-2xl bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent"
-                />
-                <button onClick={() => sendMessage(input)} disabled={!input.trim() || chatState === 'thinking'}
-                  className="h-11 w-11 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50">
-                  <PaperPlaneRight size={18} weight="fill" />
-                </button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Agent Tasks View */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-foreground/10">
-              <div className="flex items-center gap-2">
-                <Robot size={16} weight="fill" className="text-accent" />
-                <h2 className="text-sm font-semibold text-foreground">
-                  {selectedWs ? selectedWs.name : 'Agent Tasks'}
-                </h2>
-                {selectedWs?.git_remote && (
-                  <a href={selectedWs.git_remote} target="_blank" rel="noopener noreferrer"
-                    className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                    <GithubLogo size={10} /> {selectedWs.git_branch || 'main'}
-                  </a>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Tip content="Git Changes Panel">
-                  <button onClick={() => setRightPanel(rightPanel === 'files' ? 'none' : 'files')}
-                    className={`p-2 rounded-lg ${rightPanel === 'files' ? 'text-accent bg-accent/10' : 'text-foreground/40 hover:text-foreground'}`}>
-                    <Code size={15} />
-                  </button>
-                </Tip>
-                <button onClick={() => setShowCreateTask(true)} disabled={!selectedWorkspace}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
-                  <Plus size={12} /> Task
-                </button>
-              </div>
-            </div>
-
-            {/* Task + Output Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {!selectedWorkspace ? (
-                <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                  <FolderOpen size={40} weight="duotone" className="text-foreground/20 mb-4" />
-                  <p className="text-sm text-foreground/60 mb-2">Wähle ein Workspace aus</p>
-                  <button onClick={() => setShowCreateWs(true)}
-                    className="px-4 py-2 rounded-xl bg-accent/20 text-accent text-xs font-semibold hover:bg-accent/30">
-                    Workspace erstellen
-                  </button>
-                </div>
-              ) : workspaceTasks.length === 0 ? (
-                <div className="text-center py-12">
-                  <Robot size={32} weight="duotone" className="mx-auto text-foreground/20 mb-3" />
-                  <p className="text-sm text-foreground/60 mb-2">Keine Tasks in diesem Workspace</p>
-                  <button onClick={() => setShowCreateTask(true)}
-                    className="px-4 py-2 rounded-xl bg-accent/20 text-accent text-xs font-semibold hover:bg-accent/30">
-                    Ersten Task starten
-                  </button>
-                </div>
-              ) : (
-                workspaceTasks.map(task => (
-                  <div key={task.id} className="rounded-2xl bg-foreground/[0.03] border border-foreground/10 overflow-hidden">
-                    {/* Task Header */}
-                    <div className="flex items-center gap-2 px-4 py-3 bg-foreground/5 border-b border-foreground/10">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        task.status === 'running' ? 'bg-purple-500/15 animate-pulse' :
-                        task.status === 'completed' ? 'bg-green-500/15' :
-                        task.status === 'failed' ? 'bg-red-500/15' :
-                        task.status === 'cancelled' ? 'bg-foreground/10' :
-                        'bg-amber-500/15'
-                      }`}>
-                        {task.status === 'running' ? <Play size={14} weight="fill" className="text-purple-400" /> :
-                         task.status === 'completed' ? <Check size={14} weight="bold" className="text-green-400" /> :
-                         task.status === 'failed' ? <X size={14} weight="bold" className="text-red-400" /> :
-                         task.status === 'cancelled' ? <Stop size={14} className="text-foreground/40" /> :
-                         <Clock size={14} className="text-amber-400" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-foreground truncate">{task.name}</p>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                            task.status === 'running' ? 'bg-purple-500/15 text-purple-300' :
-                            task.status === 'completed' ? 'bg-green-500/15 text-green-300' :
-                            task.status === 'failed' ? 'bg-red-500/15 text-red-300' :
-                            task.status === 'cancelled' ? 'bg-foreground/10 text-foreground/40' :
-                            'bg-amber-500/15 text-amber-300'
-                          }`}>{task.status}</span>
-                        </div>
-                        <p className="text-[10px] text-foreground/50 flex items-center gap-2">
-                          <span>{task.provider} / {task.model}</span>
-                          {task.started_at && <span>· {formatRelativeTime(task.started_at)}</span>}
-                        </p>
-                      </div>
-                      {(task.status === 'running' || task.status === 'queued') && (
-                        <button onClick={() => cancelTask(task.id)}
-                          className="p-1.5 rounded-lg text-foreground/40 hover:text-red-400 hover:bg-red-500/10">
-                          <Stop size={14} />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Progress Bar */}
-                    {task.status === 'running' && (
-                      <div className="h-1 bg-foreground/5">
-                        <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
-                          style={{ width: `${Math.max(5, task.progress * 100)}%` }} />
-                      </div>
-                    )}
-
-                    {/* Task Output */}
-                    <div className="px-4 py-3 space-y-1 max-h-60 overflow-y-auto bg-black/20 font-mono text-[11px]">
-                      {task.output.length === 0 ? (
-                        <p className="text-foreground/40 italic">Warte auf Ausgabe…</p>
-                      ) : task.output.map((line, i) => (
-                        <div key={i} className={`flex items-start gap-2 ${
-                          line.level === 'error' ? 'text-red-300' :
-                          line.level === 'warn' ? 'text-amber-300' :
-                          line.level === 'success' ? 'text-green-300' :
-                          line.level === 'system' ? 'text-purple-300' :
-                          'text-foreground/70'
-                        }`}>
-                          <span className="text-[9px] text-foreground/30 shrink-0 w-16">
-                            {new Date(line.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </span>
-                          <span className="break-words whitespace-pre-wrap">{line.message}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Changes */}
-                    {task.changes.length > 0 && (
-                      <div className="border-t border-foreground/10 px-4 py-3 space-y-2">
-                        <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <GitBranch size={12} /> {task.changes.length} Änderung(en)
-                        </p>
-                        <div className="space-y-1.5 max-h-72 overflow-y-auto">
-                          {task.changes.map(c => renderDiff(c))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Error */}
-                    {task.error && (
-                      <div className="px-4 py-2 bg-red-500/5 border-t border-red-500/10 text-xs text-red-300">
-                        ❌ {task.error}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ─── Right Panel: Git Changes / Files ─────────────────────────────── */}
       <AnimatePresence>
-        {rightPanel === 'files' && selectedWorkspace && (
+        {sidebarOpen && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 380, opacity: 1 }}
+            animate={{ width: 280, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="overflow-hidden shrink-0"
+            className="shrink-0 overflow-hidden"
           >
-            <div className="w-[380px] h-full glass-card rounded-3xl border border-white/10 bg-white/10 shadow-xl shadow-black/5 backdrop-blur-xl flex flex-col overflow-hidden">
-              {/* Panel Header with tabs */}
+            <div className="w-[280px] h-full glass-card rounded-2xl border border-white/10 bg-white/10 shadow-xl shadow-black/5 backdrop-blur-xl flex flex-col overflow-hidden">
+              {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-foreground/10">
-                <div className="flex gap-1">
-                  {(['files', 'changes'] as const).map(tab => (
-                    <button key={tab}
-                      onClick={() => setRightPanel(tab === 'files' ? 'files' : 'files')}
-                      className={`px-3 py-1 rounded-lg text-[10px] font-semibold ${
-                        true ? 'bg-accent/20 text-accent' : 'text-foreground/40'
-                      }`}
-                    >
-                      {tab === 'files' ? 'Dateien' : 'Änderungen'}
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                    <Sparkle size={14} weight="fill" className="text-white" />
+                  </div>
+                  <span className="text-sm font-semibold text-foreground">ORA Agent</span>
+                </div>
+                <button onClick={() => setSidebarOpen(false)}
+                  className="p-1 rounded-lg text-foreground/40 hover:text-foreground hover:bg-foreground/10">
+                  <Sidebar size={14} />
+                </button>
+              </div>
+
+              {/* Mode Switcher */}
+              <div className="px-3 py-2">
+                <div className="flex rounded-lg bg-foreground/5 p-0.5">
+                  <button onClick={() => setActiveView('chat')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-semibold transition-all ${
+                      activeView === 'chat' ? 'bg-white/10 text-foreground' : 'text-foreground/50 hover:text-foreground'
+                    }`}>
+                    <ChatCircle size={13} weight={activeView === 'chat' ? 'fill' : 'regular'} />
+                    Chat
+                  </button>
+                  <button onClick={() => setActiveView('workspace')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-semibold transition-all ${
+                      activeView === 'workspace' ? 'bg-white/10 text-foreground' : 'text-foreground/50 hover:text-foreground'
+                    }`}>
+                    <FolderOpen size={13} weight={activeView === 'workspace' ? 'fill' : 'regular'} />
+                    Workspace
+                  </button>
+                </div>
+              </div>
+
+              {/* Model Selector */}
+              <div className="px-3 pb-2">
+                <p className="text-[9px] uppercase tracking-wider text-foreground/40 font-semibold mb-1.5 px-1">Model</p>
+                <select value={selectedModel}
+                  onChange={e => setSelectedModel(e.target.value)}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground focus:outline-none focus:border-accent/50">
+                  {availableModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* GitHub Token Config */}
+              <div className="px-3 pb-2">
+                <p className="text-[9px] uppercase tracking-wider text-foreground/40 font-semibold mb-1.5 px-1">GitHub</p>
+                <GitHubTokenConfig token={token} onUpdate={loadWorkspaces} />
+              </div>
+
+              {/* Workspace List */}
+              <div className="flex-1 overflow-hidden flex flex-col px-3">
+                <div className="flex items-center justify-between mb-1.5 px-1">
+                  <p className="text-[9px] uppercase tracking-wider text-foreground/40 font-semibold">
+                    Workspaces ({workspaces.length})
+                  </p>
+                  <button onClick={() => setShowCreateWs(true)}
+                    className="p-1 rounded text-foreground/40 hover:text-foreground hover:bg-foreground/5">
+                    <Plus size={12} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-0.5">
+                  {workspaces.map(ws => (
+                    <button key={ws.id}
+                      onClick={() => selectWorkspace(ws.id)}
+                      className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-all text-left group ${
+                        selectedWorkspace === ws.id
+                          ? 'bg-white/10 text-foreground border border-white/10'
+                          : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5 border border-transparent'
+                      }`}>
+                      <FolderOpen size={13} weight={selectedWorkspace === ws.id ? 'fill' : 'regular'} />
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate font-medium">{ws.name}</p>
+                        <div className="flex items-center gap-2 text-[9px] text-foreground/40">
+                          <span>{ws.file_count} Dateien</span>
+                          {ws.git_branch && <span>· {ws.git_branch}</span>}
+                        </div>
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); deleteWorkspace(ws.id) }}
+                        className="p-1 rounded text-foreground/30 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Trash size={10} />
+                      </button>
                     </button>
                   ))}
-                </div>
-                <button onClick={() => setRightPanel('none')}
-                  className="p-1 rounded text-foreground/40 hover:text-foreground">
-                  <X size={14} />
-                </button>
-              </div>
-
-              {/* Git Operations Bar */}
-              <div className="px-4 py-2 border-b border-foreground/10 flex flex-wrap gap-1">
-                <button onClick={() => gitCommit('ORA Agent: automatische Änderungen')}
-                  disabled={gitChanges.length === 0}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-green-500/15 text-green-300 hover:bg-green-500/25 disabled:opacity-30">
-                  <GitCommit size={10} className="inline mr-0.5" /> Commit
-                </button>
-                <button onClick={gitPush}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25">
-                  <ArrowUp size={10} className="inline mr-0.5" /> Push
-                </button>
-                <button onClick={createPR}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-purple-500/15 text-purple-300 hover:bg-purple-500/25">
-                  <GitPullRequest size={10} className="inline mr-0.5" /> PR
-                </button>
-                <button onClick={() => {
-                  const msg = prompt('Stash message (optional):')
-                  fetch(`${ASSIST_URL}/api/assist/workspaces/${selectedWorkspace}/git/stash`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ message: msg || null })
-                  }).then(r => r.json()).then(d => {
-                    if (d.success) { toast.success('Gestasht!'); loadGitChanges(selectedWorkspace) }
-                    else toast.error(d.error)
-                  }).catch(() => toast.error('Stash fehlgeschlagen'))
-                }}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-amber-500/15 text-amber-300 hover:bg-amber-500/25">
-                  📦 Stash
-                </button>
-                <button onClick={() => {
-                  const target = prompt('Reset target (z.B. HEAD~1):', 'HEAD')
-                  if (!target) return
-                  const mode = confirm('Hard reset? OK = hard, Abbrechen = soft') ? 'hard' : 'soft'
-                  fetch(`${ASSIST_URL}/api/assist/workspaces/${selectedWorkspace}/git/reset`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ mode, target })
-                  }).then(r => r.json()).then(d => {
-                    if (d.success) { toast.success(`Reset (${mode}) durchgeführt!`); loadGitChanges(selectedWorkspace) }
-                    else toast.error(d.error)
-                  }).catch(() => toast.error('Reset fehlgeschlagen'))
-                }}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-red-500/15 text-red-300 hover:bg-red-500/25">
-                  ↩️ Reset
-                </button>
-                <button onClick={() => {
-                  fetch(`${ASSIST_URL}/api/assist/workspaces/${selectedWorkspace}/git/fetch`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ remote: 'origin' })
-                  }).then(r => r.json()).then(d => {
-                    if (d.success) toast.success('Fetch erfolgreich!')
-                    else toast.error(d.error)
-                  }).catch(() => toast.error('Fetch fehlgeschlagen'))
-                }}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25">
-                  🔄 Fetch
-                </button>
-                <button onClick={() => loadGitChanges(selectedWorkspace)}
-                  className="px-2 py-1 rounded text-[9px] font-semibold bg-foreground/10 text-foreground/40 hover:text-foreground">
-                  <ArrowClockwise size={10} />
-                </button>
-              </div>
-
-              {/* Git Changes Section */}
-              <div className="px-4 py-2 border-b border-foreground/10">
-                <p className="text-[10px] font-semibold text-foreground/60 mb-1.5 flex items-center gap-1">
-                  <Code size={11} /> {gitChanges.length} Änderung(en)
-                  {gitChanges.length > 0 && (
-                    <span className="text-[8px] text-foreground/40 ml-auto">
-                      +{gitChanges.filter(c => c.status === 'added').length} ~{gitChanges.filter(c => c.status === 'modified').length} -{gitChanges.filter(c => c.status === 'deleted').length}
-                    </span>
-                  )}
-                </p>
-                <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                  {gitChanges.length === 0 ? (
-                    <p className="text-[9px] text-foreground/30 text-center py-2">Keine Änderungen</p>
-                  ) : gitChanges.map(c => (
-                    <div key={c.file_path} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-foreground/5 text-[10px]">
-                      <span className={`w-1 h-1 rounded-full ${
-                        c.status === 'added' ? 'bg-green-400' :
-                        c.status === 'deleted' ? 'bg-red-400' : 'bg-blue-400'
-                      }`} />
-                      <span className="text-foreground/60 truncate flex-1">{c.file_path}</span>
-                      <span className="text-[8px] text-foreground/30">{c.hunks.length} Blöcke</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Files Section */}
-              <div className="flex-1 overflow-y-auto px-4 py-3">
-                <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                  <FolderOpen size={12} /> Dateien ({workspaceFiles.length})
-                </p>
-                <div className="space-y-0.5">
-                  {workspaceFiles.filter(f => !f.is_dir).map(f => (
-                    <button key={f.path}
-                      onClick={() => {
-                        setSelectedFilePath(f.path)
-                        fetch(`${ASSIST_URL}/api/assist/workspaces/${selectedWorkspace}/files/${f.path}`, {
-                          headers: { Authorization: `Bearer ${token}` }
-                        })
-                          .then(r => r.ok ? r.json() : null)
-                          .then(d => setFileContent(d?.content || '// Kein Inhalt'))
-                          .catch(() => setFileContent('// Fehler beim Laden'))
-                      }}
-                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] transition-all ${
-                        selectedFilePath === f.path
-                          ? 'bg-accent/15 text-accent'
-                          : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5'
-                      }`}
-                    >
-                      <FileCode size={13} />
-                      <span className="truncate">{f.name}</span>
-                      <span className="ml-auto text-[9px] text-foreground/30">{formatBytes(f.size_bytes)}</span>
-                    </button>
-                  ))}
-                </div>
-                {fileContent && selectedFilePath && (
-                  <div className="mt-3 rounded-xl bg-black/30 border border-foreground/10 overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-1.5 bg-foreground/5 border-b border-foreground/10">
-                      <span className="text-[10px] font-mono text-foreground/50">{selectedFilePath}</span>
-                      <button onClick={() => setFileContent(null)}
-                        className="p-0.5 rounded text-foreground/30 hover:text-foreground">
-                        <X size={10} />
+                  {workspaces.length === 0 && (
+                    <div className="text-center py-6">
+                      <FolderOpen size={24} weight="duotone" className="mx-auto text-foreground/20 mb-2" />
+                      <p className="text-[11px] text-foreground/40">Keine Workspaces</p>
+                      <button onClick={() => setShowCreateWs(true)}
+                        className="mt-2 px-3 py-1 rounded-lg bg-white/5 text-[10px] text-foreground/60 hover:text-foreground hover:bg-white/10">
+                        + Erstellen
                       </button>
                     </div>
-                    <pre className="p-3 text-[11px] font-mono text-foreground/80 max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-                      {fileContent}
-                    </pre>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              {/* Task Stats */}
+              {(runningCount > 0 || tasks.filter(t => t.status === 'queued').length > 0) && (
+                <div className="px-3 py-2 border-t border-foreground/10">
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                    <span className="text-purple-300">{runningCount} aktiv</span>
+                    {tasks.filter(t => t.status === 'queued').length > 0 && (
+                      <span className="text-foreground/40">· {tasks.filter(t => t.status === 'queued').length} wartend</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ─── Sidebar Toggle Button (collapsed) ──────────────────────────── */}
+      {!sidebarOpen && (
+        <button onClick={() => setSidebarOpen(true)}
+          className="shrink-0 mt-2 p-2 rounded-xl glass-card border border-white/10 bg-white/10 text-foreground/40 hover:text-foreground">
+          <Sidebar size={16} />
+        </button>
+      )}
+
+      {/* ─── Main Content ───────────────────────────────────────────────── */}
+      <div className="flex-1 glass-card rounded-2xl border border-white/10 bg-white/10 shadow-xl shadow-black/5 backdrop-blur-xl flex flex-col overflow-hidden">
+        {activeView === 'chat' ? (
+          <>
+            {/* Chat Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-foreground/10 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <Brain size={16} weight="fill" className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Agent Chat</h2>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      chatState === 'thinking' ? 'bg-purple-400 animate-pulse' :
+                      chatState === 'error' ? 'bg-red-400' : 'bg-green-400'
+                    }`} />
+                    <span className="text-[10px] text-foreground/40">
+                      {activeProvider?.name || 'OpenAI'} · {selectedModel}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <Tip content={ttsEnabled ? 'Sprachausgabe deaktivieren' : 'Sprachausgabe aktivieren'}>
+                  <button onClick={() => setTtsEnabled(!ttsEnabled)}
+                    className={`p-2 rounded-lg text-xs ${ttsEnabled ? 'text-accent bg-accent/10' : 'text-foreground/40 hover:text-foreground'}`}>
+                    {ttsEnabled ? <SpeakerHigh size={14} /> : <SpeakerSlash size={14} />}
+                  </button>
+                </Tip>
+              </div>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                  <motion.div
+                    animate={{ scale: [1, 1.05, 1] }}
+                    transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                    className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center mb-5 border border-purple-500/20"
+                  >
+                    <Sparkle size={28} weight="fill" className="text-purple-400" />
+                  </motion.div>
+                  <h3 className="text-base font-semibold text-foreground mb-1">Wie kann ich helfen?</h3>
+                  <p className="text-xs text-foreground/40 max-w-md mb-5">
+                    Stelle eine Frage, bitte um Code-Erklärungen oder starte einen Agent-Task für automatisierte Code-Bearbeitung.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 max-w-sm">
+                    {[
+                      { icon: Code, text: 'Erkläre diesen Code', prompt: 'Erkläre den folgenden Code und schlage Verbesserungen vor:' },
+                      { icon: MagnifyingGlass, text: 'Finde Bugs', prompt: 'Analysiere den Code auf potenzielle Bugs und Sicherheitslücken:' },
+                      { icon: PencilSimple, text: 'Refactoriere', prompt: 'Refactoriere den folgenden Code für bessere Lesbarkeit und Performance:' },
+                      { icon: FileCode, text: 'Schreibe Tests', prompt: 'Schreibe Unit-Tests für den folgenden Code:' },
+                    ].map((suggestion, i) => (
+                      <button key={i}
+                        onClick={() => sendMessage(suggestion.prompt)}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-foreground/[0.03] border border-foreground/10 text-xs text-foreground/60 hover:text-foreground hover:border-foreground/20 hover:bg-foreground/[0.06] transition-all text-left">
+                        <suggestion.icon size={14} className="text-purple-400 shrink-0" />
+                        <span className="truncate">{suggestion.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {messages.map(msg => (
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                        msg.role === 'user'
+                          ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/20'
+                          : 'bg-foreground/[0.04] border border-foreground/10'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-semibold text-foreground/60">
+                            {msg.role === 'user' ? 'Du' : 'ORA Agent'}
+                          </span>
+                          <span className="text-[9px] text-foreground/30">
+                            {formatRelativeTime(msg.timestamp)}
+                          </span>
+                        </div>
+                        <div className="text-sm text-foreground/85 leading-relaxed">
+                          <MessageContent content={msg.content} role={msg.role} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {chatState === 'thinking' && (
+                    <div className="flex justify-start">
+                      <div className="bg-foreground/[0.04] border border-foreground/10 rounded-2xl px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {chatError && (
+                    <div className="flex justify-center">
+                      <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2 text-xs text-red-300 flex items-center gap-2">
+                        <Warning size={12} /> {chatError}
+                        <button onClick={() => { setChatState('idle'); setChatError(null) }}
+                          className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-[10px]">
+                          Neu versuchen
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Chat Input */}
+            <div className="px-5 py-4 border-t border-foreground/10 bg-background/50 shrink-0">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      sendMessage()
+                    }
+                  }}
+                  placeholder="Frage etwas oder beschreibe eine Aufgabe…"
+                  className="flex-1 px-4 py-3 rounded-2xl bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-purple-500/50 focus:bg-foreground/[0.08] transition-all"
+                  disabled={chatState === 'thinking'}
+                />
+                <button
+                  onClick={() => sendMessage()}
+                  disabled={!input.trim() || chatState === 'thinking'}
+                  className="h-11 w-11 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-purple-500/25 transition-all active:scale-95">
+                  <PaperPlaneRight size={18} weight="fill" />
+                </button>
+              </div>
+              <p className="text-[9px] text-foreground/30 mt-2 text-center">
+                ORA Agent kann Fehler machen. Überprüfe wichtige Informationen.
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Workspace View */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-foreground/10 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                {selectedWs ? (
+                  <>
+                    <FolderOpen size={16} weight="fill" className="text-accent shrink-0" />
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-semibold text-foreground truncate">{selectedWs.name}</h2>
+                      <div className="flex items-center gap-2 text-[10px] text-foreground/40">
+                        {selectedWs.git_remote ? (
+                          <span className="flex items-center gap-1">
+                            <GithubLogo size={10} />
+                            <span className="truncate">{selectedWs.git_remote}</span>
+                          </span>
+                        ) : (
+                          <span>Lokales Workspace</span>
+                        )}
+                        {selectedWs.git_branch && (
+                          <span className="flex items-center gap-1">
+                            <GitBranch size={10} /> {selectedWs.git_branch}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <FolderOpen size={16} weight="fill" className="text-foreground/30" />
+                    <span className="text-sm text-foreground/50">Kein Workspace ausgewählt</span>
+                  </>
+                )}
+              </div>
+              {selectedWorkspace && (
+                <div className="flex items-center gap-1.5">
+                  {gitChanges.length > 0 && (
+                    <>
+                      <button onClick={() => gitCommit('ORA Agent: Änderungen')}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-green-500/10 text-green-300 hover:bg-green-500/20 transition-colors">
+                        <GitCommit size={11} /> {gitChanges.length} Änderungen committen
+                      </button>
+                      <button onClick={gitPush}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors">
+                        <ArrowUp size={11} /> Push
+                      </button>
+                      <button onClick={createPR}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 transition-colors">
+                        <GitPullRequest size={11} /> PR
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => setShowNewTask(true)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/20 transition-all">
+                    <Plus size={12} /> Neuer Task
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Workspace Content */}
+            <div className="flex-1 overflow-hidden flex">
+              {/* File Explorer */}
+              {selectedWorkspace && (
+                <div className="w-56 shrink-0 border-r border-foreground/10 overflow-y-auto p-3">
+                  <p className="text-[9px] uppercase tracking-wider text-foreground/40 font-semibold mb-2">
+                    Dateien ({workspaceFiles.length})
+                  </p>
+                  <div className="space-y-0.5">
+                    {workspaceFiles.filter(f => !f.is_dir).map(f => (
+                      <button key={f.path}
+                        onClick={() => {
+                          setSelectedFilePath(f.path)
+                          fetch(`${ASSIST_URL}/api/assist/workspaces/${selectedWorkspace}/files/${f.path}`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          })
+                            .then(r => r.ok ? r.json() : null)
+                            .then(d => setFileContent(d?.content || '// Kein Inhalt'))
+                            .catch(() => setFileContent('// Fehler beim Laden'))
+                        }}
+                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] transition-all ${
+                          selectedFilePath === f.path
+                            ? 'bg-white/10 text-foreground'
+                            : 'text-foreground/50 hover:text-foreground hover:bg-foreground/5'
+                        }`}>
+                        <FileCode size={11} className="shrink-0" />
+                        <span className="truncate">{f.name}</span>
+                      </button>
+                    ))}
+                    {workspaceFiles.length === 0 && (
+                      <p className="text-[10px] text-foreground/30 text-center py-4">Keine Dateien</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Main Content Area */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {!selectedWorkspace ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                    <FolderOpen size={48} weight="duotone" className="text-foreground/15 mb-4" />
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Kein Workspace ausgewählt</h3>
+                    <p className="text-xs text-foreground/50 max-w-sm mb-4">
+                      Wähle ein Workspace aus der Seitenleiste oder erstelle ein neues, um Agent Tasks zu starten.
+                    </p>
+                    <button onClick={() => setShowCreateWs(true)}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 text-xs font-semibold hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/20 transition-all">
+                      <Plus size={12} className="inline mr-1" /> Workspace erstellen
+                    </button>
+                  </div>
+                ) : fileContent && selectedFilePath ? (
+                  /* File Content Viewer */
+                  <div className="rounded-xl bg-black/30 border border-foreground/10 overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-foreground/5 border-b border-foreground/10">
+                      <div className="flex items-center gap-2">
+                        <FileCode size={12} className="text-foreground/40" />
+                        <span className="text-[11px] font-mono text-foreground/50">{selectedFilePath}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => navigator.clipboard.writeText(fileContent)}
+                          className="p-1 rounded text-foreground/30 hover:text-foreground">
+                          <Copy size={11} />
+                        </button>
+                        <button onClick={() => { setFileContent(null); setSelectedFilePath(null) }}
+                          className="p-1 rounded text-foreground/30 hover:text-foreground">
+                          <X size={11} />
+                        </button>
+                      </div>
+                    </div>
+                    <pre className="p-4 text-[11px] font-mono text-foreground/70 max-h-[calc(100vh-350px)] overflow-y-auto whitespace-pre-wrap break-all">
+                      {fileContent}
+                    </pre>
+                  </div>
+                ) : workspaceTasks.length > 0 ? (
+                  /* Task List */
+                  <div className="space-y-3">
+                    {workspaceTasks.map(task => (
+                      <div key={task.id} className="rounded-xl bg-foreground/[0.03] border border-foreground/10 overflow-hidden">
+                        {/* Task Header */}
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            task.status === 'running' ? 'bg-purple-500/15 animate-pulse' :
+                            task.status === 'completed' ? 'bg-green-500/15' :
+                            task.status === 'failed' ? 'bg-red-500/15' :
+                            task.status === 'cancelled' ? 'bg-foreground/10' : 'bg-amber-500/15'
+                          }`}>
+                            {task.status === 'running' ? <Play size={14} weight="fill" className="text-purple-400" /> :
+                             task.status === 'completed' ? <Check size={14} weight="bold" className="text-green-400" /> :
+                             task.status === 'failed' ? <X size={14} weight="bold" className="text-red-400" /> :
+                             task.status === 'cancelled' ? <Stop size={14} className="text-foreground/40" /> :
+                             <Clock size={14} className="text-amber-400" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-semibold text-foreground truncate">{task.name}</p>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                                task.status === 'running' ? 'bg-purple-500/15 text-purple-300' :
+                                task.status === 'completed' ? 'bg-green-500/15 text-green-300' :
+                                task.status === 'failed' ? 'bg-red-500/15 text-red-300' :
+                                'bg-foreground/10 text-foreground/40'
+                              }`}>{task.status}</span>
+                            </div>
+                            <p className="text-[10px] text-foreground/40">{task.provider} / {task.model}</p>
+                          </div>
+                          {(task.status === 'running' || task.status === 'queued') && (
+                            <button onClick={() => cancelTask(task.id)}
+                              className="p-1.5 rounded-lg text-foreground/40 hover:text-red-400 hover:bg-red-500/10">
+                              <Stop size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Progress */}
+                        {task.status === 'running' && (
+                          <div className="h-0.5 bg-foreground/5">
+                            <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
+                              style={{ width: `${Math.max(5, task.progress * 100)}%` }} />
+                          </div>
+                        )}
+
+                        {/* Output */}
+                        {task.output.length > 0 && (
+                          <div className="px-4 py-2 space-y-0.5 bg-black/20 font-mono text-[10px] max-h-44 overflow-y-auto">
+                            {task.output.map((line, i) => (
+                              <div key={i} className="flex gap-2">
+                                <span className="text-foreground/20 shrink-0 w-14 text-right">
+                                  {new Date(line.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                </span>
+                                <span className={`${
+                                  line.level === 'error' ? 'text-red-300' :
+                                  line.level === 'warn' ? 'text-amber-300' :
+                                  line.level === 'success' ? 'text-green-300' :
+                                  line.level === 'system' ? 'text-purple-300' : 'text-foreground/60'
+                                } break-words whitespace-pre-wrap`}>{line.message}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Changes */}
+                        {task.changes.length > 0 && (
+                          <div className="border-t border-foreground/10 px-4 py-3">
+                            <p className="text-[10px] font-semibold text-foreground/60 mb-2">
+                              {task.changes.length} Änderung(en)
+                            </p>
+                            <div className="space-y-1">{task.changes.map(c => renderDiff(c))}</div>
+                          </div>
+                        )}
+
+                        {/* Error */}
+                        {task.error && (
+                          <div className="px-4 py-2 bg-red-500/5 border-t border-red-500/10 text-[10px] text-red-300">
+                            {task.error}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* Empty Workspace */
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                    <Robot size={40} weight="duotone" className="text-foreground/15 mb-4" />
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Bereit für Aufgaben</h3>
+                    <p className="text-xs text-foreground/50 max-w-sm mb-4">
+                      Starte einen Agent Task, um Code zu schreiben, zu refaktorieren oder zu analysieren.
+                    </p>
+                    <button onClick={() => setShowNewTask(true)}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 text-xs font-semibold hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/20 transition-all">
+                      <Plus size={12} className="inline mr-1" /> Task starten
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ─── Create Workspace Dialog ────────────────────────────────────── */}
       <AnimatePresence>
@@ -1029,50 +1130,68 @@ export function AgentTab({ token }: { token: string }) {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center"
             onClick={() => setShowCreateWs(false)}>
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
               onClick={e => e.stopPropagation()}
-              className="w-full max-w-md glass-card rounded-3xl border border-white/10 bg-card/95 p-6 space-y-4 backdrop-blur-2xl">
-              <h3 className="text-sm font-semibold text-foreground">Neues Workspace</h3>
-
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground/40">Name</label>
-                <input value={newWsName} onChange={e => setNewWsName(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground" />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground/40">Quelle</label>
-                <div className="flex gap-2 mt-1">
-                  {(['new', 'clone', 'import'] as const).map(s => (
-                    <button key={s} onClick={() => setNewWsSource(s)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-semibold ${
-                        newWsSource === s
-                          ? 'bg-accent/20 text-accent border border-accent/20'
-                          : 'bg-foreground/5 text-foreground/60 border border-transparent'
-                      }`}>
-                      {s === 'new' ? 'Neu' : s === 'clone' ? 'Clone' : 'Import'}
-                    </button>
-                  ))}
+              className="w-full max-w-md glass-card rounded-2xl border border-white/10 bg-card/95 p-6 space-y-4 backdrop-blur-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <FolderOpen size={16} weight="fill" className="text-white" />
                 </div>
+                <h3 className="text-sm font-semibold text-foreground">Neues Workspace</h3>
               </div>
 
-              {newWsSource === 'clone' && (
+              <div className="space-y-3">
                 <div>
-                  <label className="text-[10px] uppercase tracking-wider text-foreground/40">Git URL</label>
-                  <input value={newWsGitUrl} onChange={e => setNewWsGitUrl(e.target.value)}
-                    placeholder="https://github.com/..."
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground" />
+                  <label className="text-[10px] uppercase tracking-wider text-foreground/40 block mb-1">Name</label>
+                  <input value={newWsName} onChange={e => setNewWsName(e.target.value)}
+                    placeholder="Mein Projekt"
+                    className="w-full px-3 py-2.5 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+                    onKeyDown={e => { if (e.key === 'Enter') createWorkspace() }}
+                    autoFocus
+                  />
                 </div>
-              )}
+
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-foreground/40 block mb-1">Quelle</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setNewWsSource('new')}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                        newWsSource === 'new'
+                          ? 'bg-white/10 text-foreground border border-white/10'
+                          : 'bg-foreground/5 text-foreground/50 border border-transparent hover:border-foreground/10'
+                      }`}>
+                      ✨ Neu (leer)
+                    </button>
+                    <button onClick={() => setNewWsSource('clone')}
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                        newWsSource === 'clone'
+                          ? 'bg-white/10 text-foreground border border-white/10'
+                          : 'bg-foreground/5 text-foreground/50 border border-transparent hover:border-foreground/10'
+                      }`}>
+                      <GithubLogo size={14} /> Git Clone
+                    </button>
+                  </div>
+                </div>
+
+                {newWsSource === 'clone' && (
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-foreground/40 block mb-1">Git URL</label>
+                    <input value={newWsGitUrl} onChange={e => setNewWsGitUrl(e.target.value)}
+                      placeholder="https://github.com/user/repo.git"
+                      className="w-full px-3 py-2.5 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 font-mono focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                )}
+              </div>
 
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setShowCreateWs(false)}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold bg-foreground/5 text-foreground/60 hover:bg-foreground/10">
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-foreground/5 text-foreground/60 hover:bg-foreground/10 transition-colors">
                   Abbrechen
                 </button>
-                <button onClick={createWorkspace}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold bg-accent/20 text-accent hover:bg-accent/30">
-                  Erstellen
+                <button onClick={createWorkspace} disabled={!newWsName.trim()}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/20 disabled:opacity-40 transition-all">
+                  Workspace erstellen
                 </button>
               </div>
             </motion.div>
@@ -1080,297 +1199,51 @@ export function AgentTab({ token }: { token: string }) {
         )}
       </AnimatePresence>
 
-      {/* ─── Create Task Dialog (mit Steering-Controls & Providern) ────── */}
+      {/* ─── New Task Dialog ────────────────────────────────────────────── */}
       <AnimatePresence>
-        {showCreateTask && (
+        {showNewTask && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center"
-            onClick={() => setShowCreateTask(false)}>
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            onClick={() => setShowNewTask(false)}>
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
               onClick={e => e.stopPropagation()}
-              className="w-full max-w-lg max-h-[90vh] overflow-y-auto glass-card rounded-3xl border border-white/10 bg-card/95 p-6 space-y-4 backdrop-blur-2xl">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">Neuen Agent Task starten</h3>
-                <button onClick={() => setShowSteering(!showSteering)}
-                  className={`p-1.5 rounded-lg text-xs transition-colors ${showSteering ? 'text-accent bg-accent/10' : 'text-foreground/40 hover:text-foreground'}`}>
-                  <GearSix size={15} />
-                </button>
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground/40">Task Name</label>
-                <input value={newTaskName} onChange={e => setNewTaskName(e.target.value)}
-                  placeholder="Feature: Dark Mode"
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground" />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground/40">Beschreibung</label>
-                <textarea value={newTaskDesc} onChange={e => setNewTaskDesc(e.target.value)}
-                  rows={3} placeholder="Was soll der Agent tun?"
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground" />
-              </div>
-
-              {/* Provider & Model */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-foreground/40">Provider</label>
-                  <select value={newTaskProvider} onChange={e => setNewTaskProvider(e.target.value)}
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground">
-                    <optgroup label="☁️ Cloud">
-                      <option value="openai">OpenAI</option>
-                      <option value="anthropic">Anthropic</option>
-                      <option value="google">Google Gemini</option>
-                      <option value="azure">Azure OpenAI</option>
-                    </optgroup>
-                    <optgroup label="🔧 Desktop / Local">
-                      <option value="desktop">IORA Desktop (LM Studio)</option>
-                      <option value="lmstudio">LM Studio (OpenAI-API)</option>
-                      <option value="pidev">pi.dev</option>
-                      <option value="local">Local (Ollama)</option>
-                    </optgroup>
-                    <optgroup label="⏳ Lokal (Momentan nicht verfügbar)">
-                      <option value="llamacpp" disabled>llama.cpp</option>
-                      <option value="gpt4all" disabled>GPT4All</option>
-                      <option value="whisper" disabled>Whisper.cpp</option>
-                    </optgroup>
-                    {providers.filter(p => p.available && !['openai','anthropic','desktop','local','pidev','google','azure','lmstudio','llamacpp','gpt4all'].includes(p.id)).map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+              className="w-full max-w-lg glass-card rounded-2xl border border-white/10 bg-card/95 p-6 space-y-4 backdrop-blur-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <Robot size={16} weight="fill" className="text-white" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-wider text-foreground/40">Model</label>
-                  <select value={newTaskModel} onChange={e => setNewTaskModel(e.target.value)}
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground">
-                    <optgroup label="OpenAI">
-                      <option value="gpt-4o">GPT-4o</option>
-                      <option value="gpt-4o-mini">GPT-4o Mini</option>
-                      <option value="o3-mini">o3-mini</option>
-                    </optgroup>
-                    <optgroup label="Anthropic">
-                      <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                      <option value="claude-3-5-haiku">Claude 3.5 Haiku</option>
-                    </optgroup>
-                    <optgroup label="pi.dev">
-                      <option value="pi-dev">pi.dev Agent</option>
-                      <option value="pi-dev-code">pi.dev Code</option>
-                    </optgroup>
-                    <optgroup label="LM Studio / Local">
-                      <option value="llama3.1-8b">Llama 3.1 8B</option>
-                      <option value="llama3.1-70b">Llama 3.1 70B</option>
-                      <option value="codellama-34b">CodeLlama 34B</option>
-                      <option value="deepseek-coder">DeepSeek Coder</option>
-                      <option value="qwen2.5-coder">Qwen 2.5 Coder</option>
-                      <option value="mistral">Mistral</option>
-                    </optgroup>
-                  </select>
+                  <h3 className="text-sm font-semibold text-foreground">Neuen Agent Task starten</h3>
+                  <p className="text-[10px] text-foreground/40">
+                    {selectedWs?.name || 'Kein Workspace'} · {selectedProvider} / {selectedModel}
+                  </p>
                 </div>
               </div>
 
-              {/* ─── Steering Panel ────────────────────────────────────── */}
-              <AnimatePresence>
-                {showSteering && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }} className="overflow-hidden rounded-xl bg-foreground/[0.03] border border-foreground/10">
-                    <div className="p-4 space-y-4">
-                      <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <GearSix size={13} /> Steering & Konfiguration
-                      </p>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-foreground/40 block mb-1">
+                  Was soll der Agent tun?
+                </label>
+                <textarea
+                  value={newTaskDesc}
+                  onChange={e => setNewTaskDesc(e.target.value)}
+                  rows={4}
+                  placeholder="Beschreibe die Aufgabe im Detail, z.B.:&#10;&#10;Füge eine Dark-Mode-Unterstützung zum Dashboard hinzu. Erstelle die CSS-Variablen, eine Theme-Toggle-Komponente und aktualisiere alle bestehenden Komponenten."
+                  className="w-full px-3 py-2.5 rounded-xl bg-foreground/5 border border-foreground/10 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent resize-none"
+                  autoFocus
+                />
+              </div>
 
-                      {/* Mode Selector */}
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider text-foreground/40">Modus</label>
-                        <div className="grid grid-cols-4 gap-1.5 mt-1">
-                          {['fast','balanced','detailed','creative'].map(m => (
-                            <button key={m} onClick={() => setTaskConfig(prev => ({ ...prev, mode: m }))}
-                              className={`py-2 rounded-lg text-[10px] font-semibold transition-all capitalize ${
-                                taskConfig.mode === m
-                                  ? 'bg-accent/20 text-accent border border-accent/20'
-                                  : 'bg-foreground/5 text-foreground/50 border border-transparent hover:border-foreground/20'
-                              }`}>
-                              {m === 'fast' ? '⚡ Schnell' : m === 'balanced' ? '⚖️ Ausgewogen' : m === 'detailed' ? '🔍 Detail' : '🎨 Kreativ'}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Thinking Toggle */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-medium text-foreground">🧠 Thinking</p>
-                          <p className="text-[10px] text-foreground/50">Chain-of-Thought Reasoning</p>
-                        </div>
-                        <button onClick={() => setTaskConfig(prev => ({ ...prev, thinking_enabled: !prev.thinking_enabled }))}
-                          className={`w-10 h-5 rounded-full transition-colors relative ${taskConfig.thinking_enabled ? 'bg-accent' : 'bg-foreground/20'}`}>
-                          <div className={`w-3.5 h-3.5 rounded-full bg-white absolute top-0.5 transition-all ${taskConfig.thinking_enabled ? 'left-5.5' : 'left-0.5'}`} />
-                        </button>
-                      </div>
-
-                      {/* Temperature */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs font-medium text-foreground">🌡️ Temperature</p>
-                          <span className="text-[10px] text-foreground/50">{taskConfig.temperature.toFixed(1)}</span>
-                        </div>
-                        <input type="range" min="0" max="1" step="0.1" value={taskConfig.temperature}
-                          onChange={e => setTaskConfig(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
-                          className="w-full accent-accent" />
-                        <div className="flex justify-between text-[9px] text-foreground/30 mt-0.5">
-                          <span>Präzise</span><span>Kreativ</span>
-                        </div>
-                      </div>
-
-                      {/* Context Level */}
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider text-foreground/40">Code-Kontext</label>
-                        <div className="grid grid-cols-3 gap-1.5 mt-1">
-                          {[
-                            { id: 'none', label: 'Keiner' },
-                            { id: 'changed', label: 'Geändert' },
-                            { id: 'all', label: 'Gesamtes Projekt' },
-                          ].map(c => (
-                            <button key={c.id} onClick={() => setTaskConfig(prev => ({ ...prev, context_level: c.id }))}
-                              className={`py-2 rounded-lg text-[10px] font-semibold transition-all ${
-                                taskConfig.context_level === c.id
-                                  ? 'bg-accent/20 text-accent border border-accent/20'
-                                  : 'bg-foreground/5 text-foreground/50 border border-transparent'
-                              }`}>
-                              {c.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* ─── Pipeline Mode ───────────────────────────────── */}
-                      <div className="rounded-xl bg-blue-500/5 border border-blue-500/20 p-3 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                              🔄 Pipeline-Modus
-                              <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300">Für Monorepos</span>
-                            </p>
-                            <p className="text-[10px] text-foreground/50">Cloud AI plant → Lokaler Agent führt aus → Zusammenführen</p>
-                          </div>
-                          <button onClick={() => setTaskConfig(prev => ({ ...prev, pipeline_enabled: !prev.pipeline_enabled }))}
-                            className={`w-10 h-5 rounded-full transition-colors relative ${taskConfig.pipeline_enabled ? 'bg-purple-500' : 'bg-foreground/20'}`}>
-                            <div className={`w-3.5 h-3.5 rounded-full bg-white absolute top-0.5 transition-all ${taskConfig.pipeline_enabled ? 'left-5.5' : 'left-0.5'}`} />
-                          </button>
-                        </div>
-
-                        <AnimatePresence>
-                          {taskConfig.pipeline_enabled && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }} className="overflow-hidden space-y-3">
-                              
-                              {/* Cloud Planner */}
-                              <div>
-                                <label className="text-[9px] uppercase tracking-wider text-foreground/40 mb-1 block">☁️ Cloud Planner AI</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <select value={taskConfig.pipeline_cloud_provider}
-                                    onChange={e => setTaskConfig(prev => ({ ...prev, pipeline_cloud_provider: e.target.value }))}
-                                    className="px-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground">
-                                    <option value="anthropic">Anthropic Claude</option>
-                                    <option value="openai">OpenAI</option>
-                                    <option value="deepseek">DeepSeek</option>
-                                    <option value="google">Google Gemini</option>
-                                  </select>
-                                  <select value={taskConfig.pipeline_cloud_model}
-                                    onChange={e => setTaskConfig(prev => ({ ...prev, pipeline_cloud_model: e.target.value }))}
-                                    className="px-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground">
-                                    <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                                    <option value="gpt-4o">GPT-4o</option>
-                                    <option value="deepseek-chat">DeepSeek Chat</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              {/* Local Executor */}
-                              <div>
-                                <label className="text-[9px] uppercase tracking-wider text-foreground/40 mb-1 block">⚙️ Executor AI (lokal/Desktop)</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <select value={taskConfig.pipeline_executor_provider}
-                                    onChange={e => setTaskConfig(prev => ({ ...prev, pipeline_executor_provider: e.target.value }))}
-                                    className="px-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground">
-                                    <option value="deepseek">DeepSeek</option>
-                                    <option value="desktop">IORA Desktop</option>
-                                    <option value="local">Ollama</option>
-                                    <option value="pidev">pi.dev</option>
-                                    <option value="lmstudio">LM Studio</option>
-                                  </select>
-                                  <select value={taskConfig.pipeline_executor_model}
-                                    onChange={e => setTaskConfig(prev => ({ ...prev, pipeline_executor_model: e.target.value }))}
-                                    className="px-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground">
-                                    <option value="deepseek-coder">DeepSeek Coder</option>
-                                    <option value="deepseek-chat">DeepSeek Chat</option>
-                                    <option value="codellama-34b">CodeLlama 34B</option>
-                                    <option value="qwen2.5-coder">Qwen 2.5 Coder</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <p className="text-[9px] text-foreground/40 leading-relaxed">
-                                🔄 Der Cloud AI erstellt einen Plan und ein Skeleton. Der Executor führt die Änderungen aus.
-                                Danach werden die Änderungen zurückgespielt und validiert.
-                              </p>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-
-                      {/* Auto-Apply Toggle */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-medium text-foreground">⚡ Auto-Apply</p>
-                          <p className="text-[10px] text-foreground/50">Änderungen automatisch anwenden</p>
-                        </div>
-                        <button onClick={() => setTaskConfig(prev => ({ ...prev, auto_apply: !prev.auto_apply }))}
-                          className={`w-10 h-5 rounded-full transition-colors relative ${taskConfig.auto_apply ? 'bg-accent' : 'bg-foreground/20'}`}>
-                          <div className={`w-3.5 h-3.5 rounded-full bg-white absolute top-0.5 transition-all ${taskConfig.auto_apply ? 'left-5.5' : 'left-0.5'}`} />
-                        </button>
-                      </div>
-
-                      {/* Max Context Files */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs font-medium text-foreground">📄 Max Dateien im Kontext</p>
-                          <span className="text-[10px] text-foreground/50">{taskConfig.max_context_files}</span>
-                        </div>
-                        <input type="range" min="5" max="100" step="5" value={taskConfig.max_context_files}
-                          onChange={e => setTaskConfig(prev => ({ ...prev, max_context_files: parseInt(e.target.value) }))}
-                          className="w-full accent-accent" />
-                      </div>
-
-                      {/* Custom Instructions */}
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider text-foreground/40">Custom Instructions</label>
-                        <textarea value={taskConfig.custom_instructions} onChange={e => setTaskConfig(prev => ({ ...prev, custom_instructions: e.target.value }))}
-                          rows={2} placeholder="Z.B.: Nutze TypeScript, füge JSDoc-Kommentare hinzu"
-                          className="w-full mt-1 px-3 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-xs text-foreground" />
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <div className="flex gap-2 pt-2">
-                <button onClick={() => setShowCreateTask(false)}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold bg-foreground/5 text-foreground/60 hover:bg-foreground/10">
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowNewTask(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-foreground/5 text-foreground/60 hover:bg-foreground/10 transition-colors">
                   Abbrechen
                 </button>
-                <button onClick={createTask}
-                  disabled={!newTaskDesc.trim()}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
-                  🚀 Task mit {taskConfig.mode === 'fast' ? '⚡' : taskConfig.mode === 'detailed' ? '🔍' : taskConfig.mode === 'creative' ? '🎨' : '⚖️'} {taskConfig.mode} starten
+                <button onClick={createTask} disabled={!newTaskDesc.trim()}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:shadow-lg hover:shadow-purple-500/25 disabled:opacity-40 transition-all">
+                  🚀 Task starten
                 </button>
               </div>
-
-              <p className="text-[10px] text-foreground/40 text-center">
-                Workspace: <strong>{selectedWs?.name || '–'}</strong>
-                {selectedWs?.git_remote && ` · ${selectedWs.git_branch || 'main'}`}
-              </p>
             </motion.div>
           </motion.div>
         )}

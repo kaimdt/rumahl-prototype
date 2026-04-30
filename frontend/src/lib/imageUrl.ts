@@ -1,4 +1,5 @@
-const API_BASE = (import.meta.env.VITE_BACKEND_URL || window.location.origin).replace(/\/$/, '')
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = (getBackendUrl() || window.location.origin).replace(/\/$/, '')
 
 export function toBackendImageUrl(raw: string | undefined | null): string | null {
   if (!raw) return null

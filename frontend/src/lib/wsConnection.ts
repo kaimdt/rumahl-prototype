@@ -4,7 +4,8 @@
 // IMMEDIATELY at module load time so commands can flow as soon as
 // the user interacts — no waiting for React to mount.
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 let wsInstance: WebSocket | null = null
 let reconnectTimeout: number | undefined

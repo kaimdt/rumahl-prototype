@@ -22,6 +22,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
@@ -228,25 +229,16 @@ async fn main() -> Result<()> {
         .init();
 
     let database_url =
-        std::env::var("IORA_FILES_DB_URL").unwrap_or_else(|_| "sqlite:./data/files.db?mode=rwc".into());
+        system_config::database_url_for("iora-files");
     let storage_root =
-        PathBuf::from(std::env::var("IORA_FILES_STORAGE").unwrap_or_else(|_| "./data/file_storage".into()));
+        PathBuf::from(system_config::files_storage_dir());
     let jwt_secret =
-        std::env::var("IORA_JWT_SECRET").unwrap_or_else(|_| "iora-files-dev-secret-change-me".into());
-    let port: u16 = std::env::var("IORA_FILES_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8097);
-    let max_file_size: usize = std::env::var("IORA_FILES_MAX_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(512 * 1024 * 1024); // 512 MB default
-    let default_quota: i64 = std::env::var("IORA_FILES_DEFAULT_QUOTA")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1073741824); // 1 GB
+        system_config::jwt_secret();
+    let port: u16 = system_config::service_port("iora-files", 8100);
+    let max_file_size: usize = system_config::files_max_size_bytes();
+    let default_quota: i64 = system_config::files_default_quota();
     let base_url =
-        std::env::var("IORA_FILES_BASE_URL").unwrap_or_else(|_| format!("http://localhost:{}", port));
+        system_config::files_base_url(port);
 
     // Ensure storage directory exists
     fs::create_dir_all(&storage_root).await?;

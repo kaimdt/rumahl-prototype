@@ -7,7 +7,8 @@
  * 3. Subscribe to AI events and responses
  */
 
-const ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
+import { getAssistUrl } from '@/lib/config'
+const ASSIST_URL = getAssistUrl()
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types

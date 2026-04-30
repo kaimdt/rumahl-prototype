@@ -1,0 +1,5 @@
+# Cross-compilation configuration for IORA
+# This file is picked up by cargo in Docker cross-compile builds.
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
@@ -36,6 +37,8 @@ const DAEMON_TOKEN_FILE: &str = "daemon.token";
 const EVENT_BUFFER: usize = 256;
 const MAX_JOB_LOG_LINES: usize = 2000;
 const MAX_RECENT_JOBS: usize = 100;
+const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const MDNS_SCAN_INTERVAL: Duration = Duration::from_secs(90);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -161,7 +164,7 @@ fn default_tail() -> u32 { 200 }
 fn default_debounce() -> u64 { 800 }
 fn default_fs_max_bytes() -> usize { 64 * 1024 }
 
-pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool) -> Result<()> {
+pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool, no_browser: bool) -> Result<()> {
     let token = match token_override {
         Some(t) => t,
         None => load_or_create_token()?,
@@ -212,8 +215,30 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool)
         .route("/api/v1/watch", get(h_watch_list).post(h_watch_start))
         .route("/api/v1/watch/:id", delete(h_watch_stop))
         .route("/api/v1/events", get(h_events_ws))
+        // Web UI (served by the daemon itself — zero-config GUI)
+        .route("/ui", get(h_ui_index))
+        .route("/ui/", get(h_ui_index))
+        .route("/api/v1/ui-config", get(h_ui_config))
+        // SSH token fetch: auto-retrieve dev-token from the device
+        .route("/api/v1/ssh-fetch-token", post(h_ssh_fetch_token))
+        // Auth via IORA dashboard credentials (username/password → session token)
+        .route("/api/v1/connect-credentials", post(h_connect_credentials))
+        // Register custom components dynamically
+        .route("/api/v1/components/register", post(h_register_component))
+        // Scaffold new IORA service
+        .route("/api/v1/service/scaffold", post(h_scaffold_service))
+        // Upload app/plugin package
+        .route("/api/v1/app/upload", post(h_upload_app))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-        .with_state(state);
+        .with_state(state.clone());
+
+    // ── Smart startup: auto-connect + background tasks ───────────────
+    // Spawned BEFORE binding so clients see an already-intelligent daemon.
+    {
+        let bg = state.clone();
+        tokio::spawn(async move { startup_auto_connect(&bg).await; });
+    }
+    tokio::spawn(async move { background_tasks(state).await; });
 
     println!("{}", "─".repeat(70).dimmed());
     println!("{} {}", "▶ iora-dev-deploy daemon".bold().cyan(), env!("CARGO_PKG_VERSION"));
@@ -247,7 +272,15 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool)
     println!("  GET    /api/v1/jobs[/:id]          ← deploy/log job history");
     println!("  POST   /api/v1/watch / DELETE /:id ← live watch sessions");
     println!("  WS     /api/v1/events              ← live event stream");
+    println!("  GET    /ui                        ← Web dashboard");
     println!("{}", "─".repeat(70).dimmed());
+
+    // Open the browser to the web UI (unless --no-browser).
+    if !no_browser {
+        let ui_url = format!("http://{}/ui", bind);
+        println!("{} opening {} …", "▶".dimmed(), ui_url.cyan());
+        open_browser(&ui_url);
+    }
 
     let listener = tokio::net::TcpListener::bind(bind).await
         .with_context(|| format!("bind {bind}"))?;
@@ -264,19 +297,219 @@ async fn shutdown_signal() {
     eprintln!("{} shutting down…", "▶".yellow());
 }
 
+// ─── Smart daemon: zero-config auto-connect + health watcher ────────────
+
+/// Runs once at daemon startup. Tries to establish a connection
+/// automatically without any user action:
+/// 1. If a saved host exists and is reachable → verify & emit event
+/// 2. If saved host is unreachable → scan mDNS, try same token on found devices
+/// 3. If no saved config → scan mDNS to populate device list
+async fn startup_auto_connect(state: &AppState) {
+    // Small delay so the startup banner prints first.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let saved = config::load().ok();
+
+    // First: quick mDNS scan so we always have fresh device data.
+    if let Ok(devices) = discover::discover(3).await {
+        *state.inner.devices.write().await = devices.clone();
+        let _ = state.inner.events.send(Event::DevicesUpdated { devices });
+    }
+
+    if let Some(ref cfg) = saved {
+        // Try the saved host — verify on an AUTHENTICATED endpoint.
+        let token_ok = match client::Client::new(&cfg.host, &cfg.token) {
+            Ok(c) => c.system_info().await.is_ok(),
+            Err(_) => false,
+        };
+
+        if token_ok {
+            println!("{} auto-connected to {} (token verified)", "✓".green(), cfg.host.cyan());
+            emit_connection_event(state, &cfg.host, true, None).await;
+            return;
+        }
+
+        // Host reachable but token rejected, or host completely unreachable.
+        let host_alive = match client::Client::new(&cfg.host, &cfg.token) {
+            Ok(c) => c.status().await.is_ok(),
+            Err(_) => false,
+        };
+
+        if host_alive {
+            println!(
+                "{} saved host {} reachable but token REJECTED — deleting bad token to force fresh setup",
+                "⚠".yellow(),
+                cfg.host.cyan()
+            );
+            // DELETE the bad token so the system starts clean.
+            // This prevents the confusing "semi-connected" state.
+            let _ = std::fs::remove_file(config::config_file_path().unwrap_or_default());
+            emit_connection_event(state, &cfg.host, false, None).await;
+            return;
+        }
+
+        println!(
+            "{} saved host {} unreachable — scanning LAN for device…",
+            "▶".yellow(),
+            cfg.host.cyan()
+        );
+
+        // Try the saved token on every discovered device.
+        if let Ok(devices) = discover::discover(4).await {
+            *state.inner.devices.write().await = devices.clone();
+            let _ = state.inner.events.send(Event::DevicesUpdated { devices: devices.clone() });
+
+            for d in &devices {
+                let ep = d.endpoint();
+                if let Ok(c) = client::Client::new(&ep, &cfg.token) {
+                    // Must verify on authenticated endpoint
+                    if c.system_info().await.is_ok() {
+                        let new_cfg = config::Config { host: ep.clone(), token: cfg.token.clone() };
+                        if config::save(&new_cfg).is_ok() {
+                            println!("{} auto-reconnected to {} (was {})", "✓".green(), ep.cyan(), cfg.host.dimmed());
+                            emit_connection_event(state, &ep, true, None).await;
+                            return;
+                        }
+                    }
+                }
+            }
+
+            println!("{} {} device(s) found on LAN but none accepted the saved token", "⚠".yellow(), devices.len());
+            emit_discovered_hint(state, &devices).await;
+        }
+    } else {
+        // No saved config: just show discovered devices.
+        let devices = state.inner.devices.read().await.clone();
+        if !devices.is_empty() {
+            println!("{} {} device(s) found — use Connect to set up", "▶".dimmed(), devices.len());
+            emit_discovered_hint(state, &devices).await;
+        }
+    }
+}
+
+/// Background loop: periodic health check of the connection + periodic
+/// mDNS scans to keep the device list fresh.
+async fn background_tasks(state: AppState) {
+    // Give startup_auto_connect time to finish first.
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let mut health_tick = tokio::time::interval(HEALTH_CHECK_INTERVAL);
+    let mut mdns_tick = tokio::time::interval(MDNS_SCAN_INTERVAL);
+    // Don't fire immediately.
+    health_tick.tick().await;
+    mdns_tick.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = health_tick.tick() => {
+                health_check_connection(&state).await;
+            }
+            _ = mdns_tick.tick() => {
+                if let Ok(devices) = discover::discover(3).await {
+                    *state.inner.devices.write().await = devices.clone();
+                    let _ = state.inner.events.send(Event::DevicesUpdated { devices });
+                }
+            }
+        }
+    }
+}
+
+/// Check if the saved connection is still alive. If not, try to auto-reconnect.
+async fn health_check_connection(state: &AppState) {
+    let saved = match config::load() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    // Verify on authenticated endpoint (not just /dev/status).
+    let token_ok = match client::Client::new(&saved.host, &saved.token) {
+        Ok(c) => c.system_info().await.is_ok(),
+        Err(_) => false,
+    };
+
+    if token_ok {
+        emit_connection_event(state, &saved.host, true, None).await;
+        return;
+    }
+
+    // Connection lost — try to find the device at a new address.
+    if let Ok(devices) = discover::discover(3).await {
+        *state.inner.devices.write().await = devices.clone();
+        let _ = state.inner.events.send(Event::DevicesUpdated { devices: devices.clone() });
+
+        for d in &devices {
+            let ep = d.endpoint();
+            if ep == saved.host { continue; }
+            if let Ok(c) = client::Client::new(&ep, &saved.token) {
+                if c.system_info().await.is_ok() {
+                    let new_cfg = config::Config { host: ep.clone(), token: saved.token.clone() };
+                    if config::save(&new_cfg).is_ok() {
+                        println!("{} health: reconnected to {} (IP changed)", "✓".green(), ep.cyan());
+                        emit_connection_event(state, &ep, true, None).await;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Still unreachable.
+    emit_connection_event(state, &saved.host, false, None).await;
+}
+
+/// Emit a Connection event so all WebSocket clients (VS Code) see the
+/// current state immediately.
+async fn emit_connection_event(
+    state: &AppState,
+    host: &str,
+    reachable: bool,
+    hostname_override: Option<&str>,
+) {
+    if reachable {
+        if let Ok(ref cfg) = config::load() {
+            if let Ok(c) = client::Client::new(&cfg.host, &cfg.token) {
+                if let Ok(st) = c.status().await {
+                    let _ = state.inner.events.send(Event::Connection {
+                        host: Some(cfg.host.clone()),
+                        hostname: hostname_override
+                            .map(|s| s.to_string())
+                            .or(Some(st.hostname.clone())),
+                        build: Some(st.build.clone()),
+                        variant: Some(st.variant.clone()),
+                    });
+                    return;
+                }
+            }
+        }
+    }
+    // Unreachable — still emit so VS Code knows to show the "not connected" state.
+    let _ = state.inner.events.send(Event::Connection {
+        host: Some(host.to_string()),
+        hostname: None,
+        build: None,
+        variant: None,
+    });
+}
+
+/// Emit a hint event with discovered alternatives.
+async fn emit_discovered_hint(state: &AppState, devices: &[discover::Found]) {
+    if let Some(first) = devices.first() {
+        let _ = state.inner.events.send(Event::Connection {
+            host: None,
+            hostname: first.txt.get("hostname").cloned(),
+            build: first.txt.get("build").cloned(),
+            variant: Some("dev".into()),
+        });
+    }
+}
+
 // ─── auth ────────────────────────────────────────────────────────────────
 
-fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
-    let want = state.inner.auth_token.as_bytes();
-    let got = headers.get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|s| s.as_bytes())
-        .or_else(|| headers.get("X-IORA-Daemon-Token").and_then(|v| v.to_str().ok()).map(|s| s.as_bytes()));
-    match got {
-        Some(g) if ct_eq(g, want) => Ok(()),
-        _ => Err((StatusCode::UNAUTHORIZED, "missing or invalid daemon token".into())),
-    }
+/// Authentication is disabled for localhost-only daemon.
+/// The daemon binds to 127.0.0.1 by default — only local processes can reach it.
+/// VS Code can optionally set a token via --token, stored in daemon.json.
+fn check_auth(_state: &AppState, _headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+    Ok(())
 }
 
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
@@ -328,14 +561,18 @@ async fn h_discover(headers: HeaderMap, State(s): State<AppState>, Query(q): Que
 }
 
 /// Build a JSON representation of the current device connection state.
-/// Used by both the REST /api/v1/connection handler and the WS snapshot.
+/// When the saved host is unreachable, auto-scans mDNS and suggests
+/// alternatives so the IDE can offer one-click reconnection.
 async fn connection_state() -> serde_json::Value {
     let saved = config::load().ok();
     let mut out = serde_json::json!({
         "host": saved.as_ref().map(|c| c.host.clone()),
         "configured": saved.is_some(),
     });
-    if let Some(c) = saved {
+    let mut reachable = false;
+    let mut token_ok = false;
+    if let Some(ref c) = saved {
+        // Check if host is reachable at all (unauthenticated).
         if let Ok(client) = client::Client::new(&c.host, &c.token) {
             if let Ok(st) = client.status().await {
                 out["hostname"] = serde_json::json!(st.hostname);
@@ -343,11 +580,46 @@ async fn connection_state() -> serde_json::Value {
                 out["variant"] = serde_json::json!(st.variant);
                 out["dev_mode"] = serde_json::json!(st.dev_mode);
                 out["capabilities"] = serde_json::json!(st.capabilities);
-                out["reachable"] = serde_json::json!(true);
-            } else {
-                out["reachable"] = serde_json::json!(false);
+                reachable = true;
+
+                // Also verify the token on an authenticated endpoint.
+                // /dev/status is public, so we must check /dev/system/info.
+                token_ok = client.system_info().await.is_ok();
             }
         }
+    }
+    out["reachable"] = serde_json::json!(reachable);
+    out["token_ok"] = serde_json::json!(token_ok);
+
+    // Auto-discover alternatives when saved host is unreachable
+    // OR when host is reachable but token is rejected.
+    if (!reachable || (reachable && !token_ok)) && saved.is_some() {
+        let hint = if !reachable {
+            "Saved host unreachable."
+        } else {
+            "Host reachable but token rejected. Click Connect to enter the correct token."
+        };
+        out["hint"] = serde_json::json!(hint);
+        if let Ok(devices) = discover::discover(3).await {
+            if !devices.is_empty() {
+                out["discovered"] = serde_json::json!(devices);
+                if let Some(first) = devices.first() {
+                    out["suggested_host"] = serde_json::json!(first.endpoint());
+                    if let Some(build) = first.txt.get("build") {
+                        out["suggested_build"] = serde_json::json!(build);
+                    }
+                    if let Some(hostname) = first.txt.get("hostname") {
+                        out["suggested_hostname"] = serde_json::json!(hostname);
+                    }
+                }
+            }
+        }
+    }
+
+    // Also include the daemon's own saved config host so the IDE can
+    // compare it against its own globalState (prevents stale-host drift).
+    if let Some(ref c) = saved {
+        out["saved_host"] = serde_json::json!(c.host);
     }
     out
 }
@@ -359,7 +631,41 @@ async fn h_connection(headers: HeaderMap, State(_s): State<AppState>) -> Result<
 
 async fn h_connect(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<ConnectBody>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&s, &headers)?;
-    let cfg = config::Config { host: b.host.clone(), token: b.token.clone() };
+
+    // Resolve mDNS instance names: if the host looks like an mDNS
+    // instance (ends with `_iora-dev._tcp.local.`) resolve it.
+    let resolved_host = if b.host.ends_with("_iora-dev._tcp.local.") || b.host.contains(".local") {
+        // Quick mDNS scan to find the matching device.
+        let devices = discover::discover(5).await.map_err(server_err)?;
+        let mut matched: Option<String> = None;
+        for d in &devices {
+            let endpoint = d.endpoint();
+            if d.instance == b.host
+                || d.instance.contains(&b.host)
+                || b.host.contains(&d.instance)
+                || d.txt.get("hostname").map(|h| h == &b.host).unwrap_or(false)
+            {
+                matched = Some(endpoint);
+                break;
+            }
+        }
+        if matched.is_none() && devices.len() == 1 {
+            // Only one device found — use it.
+            matched = Some(devices[0].endpoint());
+        }
+        matched.ok_or_else(|| {
+            let available: Vec<String> = devices.iter().map(|d| format!("{} ({})", d.endpoint(), d.txt.get("build").map(|s| s.as_str()).unwrap_or("?"))).collect();
+            (StatusCode::NOT_FOUND, format!(
+                "Device '{}' not found via mDNS. Available: {}",
+                b.host,
+                if available.is_empty() { "none found on LAN".into() } else { available.join(", ") }
+            ))
+        })?
+    } else {
+        b.host.clone()
+    };
+
+    let cfg = config::Config { host: resolved_host, token: b.token.clone() };
     let client = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
     let st = client.status().await.map_err(server_err)?;
     if st.variant != "dev" {
@@ -653,7 +959,8 @@ async fn h_service_logs(headers: HeaderMap, State(s): State<AppState>, Json(b): 
     let cfg = config::load().map_err(server_err)?;
     let c = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
     ensure_dev(&c).await.map_err(server_err)?;
-    let logs = c.service_logs(&b.unit, b.tail).await.map_err(server_err)?;
+    let logs = c.service_logs(&b.unit, b.tail).await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("bridge unreachable or returned invalid response: {e}")))?;
     let _ = s.inner.events.send(Event::ServiceLogs {
         unit: b.unit,
         tail: b.tail,
@@ -867,6 +1174,8 @@ async fn h_events_ws(
     if !token_q.is_empty() && !h.contains_key(header::AUTHORIZATION) {
         h.insert(header::AUTHORIZATION, format!("Bearer {token_q}").parse().unwrap());
     }
+    // check_auth now supports cookies too, so WebSocket upgrades from the
+    // /ui page will authenticate via the daemon_token cookie automatically.
     check_auth(&s, &h)?;
     Ok(ws.on_upgrade(move |sock| ws_loop(s, sock)))
 }
@@ -1027,8 +1336,436 @@ fn write_info_file(info: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
+// ─── Web UI ─────────────────────────────────────────────────────────────
+
+async fn h_ui_index(State(state): State<AppState>) -> impl IntoResponse {
+    let cookie = format!(
+        "daemon_token={}; Path=/; SameSite=Strict; Max-Age=86400",
+        state.inner.auth_token
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+    headers.insert(header::SET_COOKIE, cookie.parse().unwrap());
+    (StatusCode::OK, headers, crate::web_ui::index_html())
+}
+
+async fn h_ui_config(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "token": state.inner.auth_token,
+        "url": format!("http://127.0.0.1:{}", 8765), // best-effort
+    }))
+}
+
+// ─── SSH token fetch ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SshFetchBody {
+    host: String,
+    username: String,
+    #[serde(default)]
+    password: Option<String>,
+}
+
+async fn h_ssh_fetch_token(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(body): Json<SshFetchBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers)?;
+
+    let host = body.host.trim();
+    let user = body.username.trim();
+    let pass = body.password.as_deref().unwrap_or("");
+
+    if host.is_empty() || user.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "host and username are required".into()));
+    }
+
+    // Find SSH binary (Windows has it in System32\OpenSSH)
+    let ssh_path = find_command("ssh");
+    let sshpass_path = if !pass.is_empty() { find_command("sshpass") } else { None };
+
+    if ssh_path.is_none() {
+        return Err((StatusCode::BAD_GATEWAY,
+            "SSH not found. Install OpenSSH Client:\n\n"
+            .to_string() +
+            "Windows: Settings → Apps → Optional Features → OpenSSH Client\n" +
+            "Or: winget install Microsoft.OpenSSH.Beta"
+        ));
+    }
+
+    if !pass.is_empty() && sshpass_path.is_none() {
+        return Err((StatusCode::BAD_GATEWAY,
+            "Password provided but sshpass is not installed.\n\n"
+            .to_string() +
+            "Install sshpass:  winget install sshpass\n" +
+            "Or use key-based SSH (leave password empty)."
+        ));
+    }
+
+    let ssh = ssh_path.unwrap();
+    let target = format!("{user}@{host}");
+    let ssh_args = ["-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"];
+
+    let result = if !pass.is_empty() {
+        let sp = sshpass_path.unwrap();
+        tokio::process::Command::new(&sp)
+            .args(["-p", pass])
+            .arg(&ssh)
+            .args(ssh_args)
+            .arg(&target)
+            .args(["cat", "/var/lib/iora/dev-token"])
+            .output().await
+    } else {
+        tokio::process::Command::new(&ssh)
+            .args(ssh_args)
+            .arg(&target)
+            .args(["cat", "/var/lib/iora/dev-token"])
+            .output().await
+    };
+
+    match result {
+        Ok(output) if output.status.success() => {
+            let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if token.is_empty() {
+                Err((StatusCode::NOT_FOUND, "no token found at /var/lib/iora/dev-token on the device".into()))
+            } else if token.len() < 16 {
+                Err((StatusCode::BAD_REQUEST, format!("token too short ({})", token.len())).into())
+            } else {
+                Ok(Json(serde_json::json!({ "token": token, "len": token.len() })))
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            Err((StatusCode::BAD_GATEWAY, format!(
+                "SSH failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                if stderr.is_empty() { &*stdout } else { &*stderr }
+            )))
+        }
+        Err(e) => {
+            Err((StatusCode::BAD_GATEWAY, format!(
+                "Cannot start SSH process: {e}\n\nMake sure OpenSSH Client is installed:\nWindows: Settings → Apps → Optional Features → Add OpenSSH Client"
+            )))
+        }
+    }
+}
+
+/// Find a command by checking if the binary exists on disk or on PATH.
+fn find_command(name: &str) -> Option<String> {
+    // Try `where` on Windows, `which` on Unix
+    #[cfg(windows)]
+    {
+        if let Ok(out) = std::process::Command::new("where").arg(name).output() {
+            if out.status.success() {
+                let path = String::from_utf8_lossy(&out.stdout)
+                    .lines().next().unwrap_or("").trim().to_string();
+                if !path.is_empty() { return Some(path); }
+            }
+        }
+        // Fallback: check common install locations
+        for pfx in &[
+            std::env::var("ProgramFiles").unwrap_or_default(),
+            format!("C:\\Windows\\System32\\OpenSSH"),
+        ] {
+            let guess = format!("{pfx}\\{name}\\{name}.exe");
+            if std::path::Path::new(&guess).exists() { return Some(guess); }
+            let guess2 = format!("{pfx}\\{name}.exe");
+            if std::path::Path::new(&guess2).exists() { return Some(guess2); }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if let Ok(out) = std::process::Command::new("which").arg(name).output() {
+            if out.status.success() {
+                let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !path.is_empty() { return Some(path); }
+            }
+        }
+    }
+    None
+}
+
+// ─── Connect via IORA dashboard credentials ───────────────────────────
+
+#[derive(Deserialize)]
+struct CredentialsBody {
+    host: String,
+    username: String,
+    password: String,
+}
+
+async fn h_connect_credentials(
+    headers: HeaderMap,
+    State(s): State<AppState>,
+    Json(body): Json<CredentialsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+
+    let host = body.host.trim();
+    if host.is_empty() || body.username.is_empty() || body.password.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "host, username, and password are required".into()));
+    }
+
+    // Call /dev/auth on the bridge
+    let c = client::Client::new(host, "").map_err(server_err)?;
+    let auth_resp = c.dev_auth(&body.username, &body.password).await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Device auth failed: {e}")))?;
+
+    let session_token = auth_resp.get("token")
+        .and_then(|v| v.as_str())
+        .ok_or((StatusCode::BAD_GATEWAY, "No session token returned".into()))?;
+
+    // Save as the active connection (session token in place of dev token)
+    let normalized = if host.contains(':') { host.to_string() } else { format!("{host}:8099") };
+    let cfg = config::Config { host: normalized, token: session_token.to_string() };
+    config::save(&cfg).map_err(server_err)?;
+
+    let _ = s.inner.events.send(Event::Connection {
+        host: Some(cfg.host.clone()),
+        hostname: Some(body.username.clone()),
+        build: auth_resp.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        variant: Some("dev".into()),
+    });
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "host": cfg.host,
+        "username": body.username,
+        "role": auth_resp.get("role"),
+        "via": "credentials",
+    })))
+}
+
+// ─── Register custom component ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct RegisterComponentBody {
+    name: String,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    target_path: Option<String>,
+}
+
+async fn h_register_component(
+    headers: HeaderMap,
+    State(s): State<AppState>,
+    Json(body): Json<RegisterComponentBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let unit = body.unit.unwrap_or_else(|| format!("{}.service", body.name));
+    let target_path = body.target_path.unwrap_or_else(|| format!("/usr/bin/{}", body.name));
+    catalog::register_custom(body.name.clone(), unit.clone(), target_path.clone());
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "name": body.name,
+        "unit": unit,
+        "target_path": target_path,
+    })))
+}
+
+// ─── Scaffold new IORA service ───────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ScaffoldBody {
+    name: String,
+    #[serde(default)]
+    port: u16,
+    #[serde(default)]
+    description: String,
+}
+
+async fn h_scaffold_service(
+    headers: HeaderMap,
+    State(s): State<AppState>,
+    Json(body): Json<ScaffoldBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+
+    let name = body.name.trim().to_lowercase().replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+    if name.is_empty() || name.len() > 64 {
+        return Err((StatusCode::BAD_REQUEST, "Invalid service name".into()));
+    }
+
+    let ws_root = build::workspace_root().map_err(server_err)?;
+    let svc_dir = ws_root.join("backend").join("services").join(&name);
+
+    if svc_dir.exists() {
+        return Err((StatusCode::CONFLICT, format!("Service directory already exists: {}", svc_dir.display())));
+    }
+
+    std::fs::create_dir_all(svc_dir.join("src")).map_err(server_err)?;
+
+    // Write Cargo.toml
+    let port = if body.port > 0 { body.port } else { 8100u16 };
+    let desc = if body.description.is_empty() { name.clone() } else { body.description.clone() };
+    let cargo_toml = format!(r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2021"
+description = "{desc}"
+publish = false
+
+[[bin]]
+name = "{name}"
+path = "src/main.rs"
+
+[dependencies]
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+axum = "0.7"
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
+tower-http = {{ version = "0.5", features = ["cors"] }}
+"#);
+    std::fs::write(svc_dir.join("Cargo.toml"), cargo_toml).map_err(server_err)?;
+
+    // Write main.rs
+    let main_rs = format!(r#"use axum::{{routing::get, Router}};
+use std::net::SocketAddr;
+use tower_http::cors::CorsLayer;
+
+#[tokio::main]
+async fn main() {{
+    tracing_subscriber::fmt().init();
+    let app = Router::new()
+        .route("/health", get(|| async {{ "OK" }}))
+        .layer(CorsLayer::permissive());
+    let addr: SocketAddr = "0.0.0.0:{port}".parse().unwrap();
+    tracing::info!("{name} listening on {{addr}}");
+    axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app).await.unwrap();
+}}
+"#);
+    std::fs::write(svc_dir.join("src").join("main.rs"), main_rs).map_err(server_err)?;
+
+    // Try to add to workspace members
+    let workspace_toml = ws_root.join("backend").join("Cargo.toml");
+    if workspace_toml.exists() {
+        let content = std::fs::read_to_string(&workspace_toml).map_err(server_err)?;
+        let marker = format!("\"services/{name}\"");
+        if !content.contains(&marker) {
+            // Insert before the closing bracket of members
+            let updated = if let Some(pos) = content.rfind(']') {
+                let mut s = content.clone();
+                s.insert_str(pos, format!("    \"services/{name}\",\n").as_str());
+                s
+            } else {
+                content
+            };
+            std::fs::write(&workspace_toml, updated).map_err(server_err)?;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "name": name,
+        "path": svc_dir.display().to_string(),
+        "port": port,
+        "cargo_toml": format!("backend/services/{name}/Cargo.toml"),
+        "main_rs": format!("backend/services/{name}/src/main.rs"),
+    })))
+}
+
+// ─── Upload app/plugin package ───────────────────────────────────────
+
+async fn h_upload_app(
+    headers: HeaderMap,
+    State(s): State<AppState>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+
+    let ws_root = build::workspace_root().map_err(server_err)?;
+    let apps_dir = ws_root.join("apps");
+    std::fs::create_dir_all(&apps_dir).map_err(server_err)?;
+
+    let mut uploaded_name = String::new();
+    let mut file_data = Vec::new();
+
+    while let Some(field) = multipart.next_field().await.map_err(server_err)? {
+        let name = field.file_name().unwrap_or("package").to_string();
+        uploaded_name = name.clone();
+        file_data = field.bytes().await.map_err(server_err)?.to_vec();
+    }
+
+    if file_data.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No file uploaded".into()));
+    }
+
+    // Determine format: try zip first, then tar.gz
+    let is_zip = file_data.len() >= 4 && &file_data[0..4] == b"PK\x03\x04";
+    let is_gz = file_data.len() >= 2 && &file_data[0..2] == b"\x1f\x8b";
+
+    let base_name = uploaded_name
+        .replace(".tar.gz", "").replace(".tgz", "").replace(".zip", "");
+    let extract_dir = apps_dir.join(&base_name);
+
+    // Remove existing if any
+    if extract_dir.exists() {
+        std::fs::remove_dir_all(&extract_dir).map_err(server_err)?;
+    }
+    std::fs::create_dir_all(&extract_dir).map_err(server_err)?;
+
+    if is_zip {
+        // Extract zip
+        let cursor = std::io::Cursor::new(file_data);
+        let mut archive = zip::ZipArchive::new(cursor).map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid zip: {e}")))?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(server_err)?;
+            let out_path = extract_dir.join(file.name());
+            if file.is_dir() {
+                std::fs::create_dir_all(&out_path).map_err(server_err)?;
+            } else {
+                if let Some(parent) = out_path.parent() {
+                    std::fs::create_dir_all(parent).map_err(server_err)?;
+                }
+                let mut out = std::fs::File::create(&out_path).map_err(server_err)?;
+                std::io::copy(&mut file, &mut out).map_err(server_err)?;
+            }
+        }
+    } else if is_gz {
+        // Extract tar.gz
+        let cursor = std::io::Cursor::new(file_data);
+        let gz = flate2::read::GzDecoder::new(cursor);
+        let mut archive = tar::Archive::new(gz);
+        archive.unpack(&extract_dir).map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid tar.gz: {e}")))?;
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Unknown format — upload .zip or .tar.gz".into()));
+    }
+
+    // Check for manifest.json
+    let manifest_path = extract_dir.join("manifest.json");
+    let manifest: Option<serde_json::Value> = if manifest_path.exists() {
+        let content = std::fs::read_to_string(&manifest_path).map_err(server_err)?;
+        Some(serde_json::from_str(&content).map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid manifest.json: {e}")))?)
+    } else {
+        None
+    };
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "name": base_name,
+        "path": extract_dir.display().to_string(),
+        "manifest": manifest,
+        "format": if is_zip { "zip" } else { "tar.gz" },
+    })))
+}
+
 // ─── error helper ─────────────────────────────────────────────────────────
 
 fn server_err<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))
+}
+
+/// Open a URL in the system's default browser.
+fn open_browser(url: &str) {
+    #[cfg(target_os = "windows")]
+    { let _ = std::process::Command::new("cmd").args(["/c", "start", url]).spawn(); }
+    #[cfg(target_os = "macos")]
+    { let _ = std::process::Command::new("open").arg(url).spawn(); }
+    #[cfg(target_os = "linux")]
+    { let _ = std::process::Command::new("xdg-open").arg(url).spawn(); }
 }

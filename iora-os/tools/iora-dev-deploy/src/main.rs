@@ -31,6 +31,7 @@ mod config;
 mod daemon;
 mod discover;
 mod watch;
+mod web_ui;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -145,6 +146,9 @@ enum Cmd {
         /// Print the full token to stdout instead of just a fingerprint.
         #[arg(long)]
         show_token: bool,
+        /// Don't open the browser on startup.
+        #[arg(long)]
+        no_browser: bool,
     },
 }
 
@@ -153,7 +157,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "iora_dev_deploy=info,warn".into()),
+                .unwrap_or_else(|_| "iora_dev_deploy=info,mdns_sd=off,warn".into()),
         )
         .with_target(false)
         .init();
@@ -254,8 +258,8 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&r)?);
             Ok(())
         }
-        Cmd::Daemon { bind, token, show_token } => {
-            daemon::run(bind, token, show_token).await
+        Cmd::Daemon { bind, token, show_token, no_browser } => {
+            daemon::run(bind, token, show_token, no_browser).await
         }
     }
 }

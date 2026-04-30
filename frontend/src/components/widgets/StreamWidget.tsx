@@ -42,7 +42,8 @@ export const StreamWidget = memo(function StreamWidget({ config, widgetSize }: S
   const wsRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsRetryCountRef = useRef(0)
 
-  const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+  const API_BASE = getBackendUrl()
   const streamsJsonRef = useRef('')
 
   // Fetch available streams (only update state when data actually changes)

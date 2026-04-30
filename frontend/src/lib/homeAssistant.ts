@@ -1,7 +1,8 @@
 import type { EntityState } from '@/lib/types'
 import { wsSend } from '@/lib/wsConnection'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 class HomeAssistantService {
   private generateIntent(): string {

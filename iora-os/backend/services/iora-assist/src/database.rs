@@ -6,10 +6,11 @@ use uuid::Uuid;
 
 pub type DbPool = PgPool;
 
+use iora_shared::system_config;
+
 /// Initialize database connection pool
 pub async fn init_database() -> Result<DbPool, sqlx::Error> {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora_password@localhost:5432/iora_assist".to_string());
+    let database_url = system_config::database_url_for("iora-assist");
 
     let pool = PgPoolOptions::new()
         .max_connections(10)

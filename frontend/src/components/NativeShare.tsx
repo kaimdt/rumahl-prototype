@@ -18,6 +18,7 @@ interface SharedFile {
   progress: number
   status: 'pending' | 'uploading' | 'ready' | 'downloading' | 'done' | 'error'
   shareToken?: string
+  file?: File
 }
 
 interface PeerDevice {
@@ -35,9 +36,11 @@ export function NativeShare() {
   const [incomingShares, setIncomingShares] = useState<SharedFile[]>([])
   const [mode, setMode] = useState<'send' | 'receive'>('send')
   const [dragOver, setDragOver] = useState(false)
+  const dragCounter = useRef(0)
   const uploadRef = useRef<HTMLInputElement>(null)
 
-  const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+  const API_BASE = getBackendUrl()
 
   // ── Peer Discovery ──────────────────────────────────────────────────
   const scanNetwork = useCallback(async () => {
@@ -76,6 +79,7 @@ export function NativeShare() {
       type: f.type || 'application/octet-stream',
       progress: 0,
       status: 'pending' as const,
+      file: f as File,
     }))
     setFiles(prev => [...prev, ...newFiles])
     toast.success(`${newFiles.length} Datei(en) hinzugefügt`)
@@ -107,7 +111,7 @@ export function NativeShare() {
 
       try {
         const formData = new FormData()
-        const blob = new Blob([], { type: file.type }) // placeholder — real file from FileList
+        const blob = file.file || new Blob([], { type: file.type })
         formData.append('file', blob, file.name)
         formData.append('token', token)
 
@@ -210,10 +214,13 @@ export function NativeShare() {
           <motion.div key="send" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="space-y-4">
             {/* Drop Zone */}
             <div
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
+              onDragEnter={e => { e.preventDefault(); e.stopPropagation(); dragCounter.current++; setDragOver(true) }}
+              onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+              onDragLeave={e => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current <= 0) { dragCounter.current = 0; setDragOver(false) } }}
               onDrop={e => {
                 e.preventDefault()
+                e.stopPropagation()
+                dragCounter.current = 0
                 setDragOver(false)
                 if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files)
               }}

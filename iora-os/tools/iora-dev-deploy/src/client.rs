@@ -116,7 +116,20 @@ impl Client {
             .header("X-IORA-Dev-Token", &self.token)
             .json(&serde_json::json!({ "tail": tail }))
             .send().await?;
-        Ok(r.json().await?)
+        let status = r.status();
+        let body_text = r.text().await.unwrap_or_default();
+        // Bridge may return empty body on timeout or restart — return a
+        // best-effort result instead of failing JSON parse.
+        if body_text.trim().is_empty() {
+            return Ok(CmdResult {
+                ok: status.is_success(),
+                code: status.as_u16() as i32,
+                stdout: String::new(),
+                stderr: format!("empty response from bridge (HTTP {})", status.as_u16()),
+            });
+        }
+        serde_json::from_str(&body_text)
+            .with_context(|| format!("parse service_logs response: {}", &body_text[..body_text.len().min(200)]))
     }
 
     /// Aggregated live service status from the bridge (which proxies it
@@ -172,6 +185,23 @@ impl Client {
 
     pub fn base(&self) -> &str { &self.base }
     pub fn token(&self) -> &str { &self.token }
+
+    /// Authenticate with IORA dashboard credentials (username/password).
+    /// Returns a session token that can be used for subsequent API calls.
+    /// Requires iora-dev-bridge v0.2+ with /dev/auth endpoint.
+    pub async fn dev_auth(&self, username: &str, password: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/dev/auth", self.base);
+        let r = self.http.post(&url)
+            .json(&serde_json::json!({"username": username, "password": password}))
+            .send().await
+            .with_context(|| format!("POST {url}"))?;
+        if !r.status().is_success() {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            return Err(anyhow!("Auth failed ({}): {}", status, body));
+        }
+        Ok(r.json().await?)
+    }
 
     pub async fn fs_list(&self, path: &str) -> Result<FsListResult> {
         let url = format!("{}/dev/fs/list", self.base);
@@ -280,6 +310,21 @@ impl Client {
     }
 }
 
+/// Windows reserved filenames that cannot be used as regular files.
+/// See: https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+#[cfg(windows)]
+fn is_windows_reserved(name: &str) -> bool {
+    let upper = name.to_uppercase();
+    // Strip extension for comparison (NUL, NUL.txt, etc.)
+    let stem = upper.split('.').next().unwrap_or(&upper);
+    matches!(stem, "NUL" | "CON" | "AUX" | "PRN")
+        || (stem.len() == 4 && &stem[..3] == "COM" && stem[3..].parse::<u8>().is_ok())
+        || (stem.len() == 4 && &stem[..3] == "LPT" && stem[3..].parse::<u8>().is_ok())
+}
+
+#[cfg(not(windows))]
+fn is_windows_reserved(_name: &str) -> bool { false }
+
 fn create_backend_bundle() -> Result<NamedTempFile> {
     let root = build::workspace_root()?;
     let backend = root.join("backend");
@@ -293,7 +338,10 @@ fn create_backend_bundle() -> Result<NamedTempFile> {
 
     let walker = WalkDir::new(&backend).into_iter().filter_entry(|entry| {
         let name = entry.file_name().to_string_lossy();
-        name != "target" && name != ".git"
+        // Skip build artifacts, .git, and Windows reserved filenames.
+        name != "target"
+            && name != ".git"
+            && !is_windows_reserved(&name)
     });
 
     for entry in walker {

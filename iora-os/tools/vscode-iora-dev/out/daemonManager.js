@@ -94,7 +94,7 @@ class DaemonManager {
                             : this.cliPath();
             return {
                 command: binary,
-                args: ['daemon', '--bind', this.bind()],
+                args: ['daemon', '--bind', this.bind(), '--no-browser'],
                 cwd: root,
             };
         }
@@ -102,7 +102,7 @@ class DaemonManager {
         if (manifest) {
             return {
                 command: 'cargo',
-                args: ['run', '--manifest-path', manifest, '--', 'daemon', '--bind', this.bind()],
+                args: ['run', '--manifest-path', manifest, '--', 'daemon', '--bind', this.bind(), '--no-browser'],
                 cwd: this.workspaceRoot(),
             };
         }

@@ -15,7 +15,8 @@ type VideoSourceType = 'camera' | 'screen'
 type StreamState = 'idle' | 'connecting' | 'live' | 'error'
 
 export function StreamSender() {
-  const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+  const API_BASE = getBackendUrl()
   const [mode, setMode] = useState<StreamMode>('av')
   const [videoSource, setVideoSource] = useState<VideoSourceType>('camera')
   const [useMicAudio, setUseMicAudio] = useState(false)
@@ -143,12 +144,12 @@ export function StreamSender() {
         updateAudioLevel()
       }
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'NotAllowedError') {
-        setError(videoSource === 'screen' ? 'Bildschirmfreigabe abgelehnt' : 'Kamera-/Mikrofon-Zugriff verweigert')
-      } else {
-        setError('Medienquelle nicht verfügbar')
-      }
+      const msg = e instanceof DOMException && e.name === 'NotAllowedError'
+        ? (videoSource === 'screen' ? 'Bildschirmfreigabe abgelehnt' : 'Kamera-/Mikrofon-Zugriff verweigert')
+        : 'Medienquelle nicht verfügbar'
+      setError(msg)
       setHasPreview(false)
+      if (stateRef.current !== 'live') setState('error')
     }
   }, [mode, videoSource, useMicAudio, selectedVideo, selectedAudio, quality, fps])
 
@@ -500,12 +501,18 @@ export function StreamSender() {
       </div>
 
       {/* ── Error Display ──────────────────────────────────────────── */}
-      {error && state === 'error' && (
+      {error && (state === 'error' || state === 'idle') && (
         <div className="p-4 rounded-2xl bg-red-500/[0.05] border border-red-500/15 flex items-start gap-3">
           <Warning size={18} weight="fill" className="text-red-400 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-medium text-red-400">Stream-Fehler</p>
             <p className="text-xs text-red-400/70 mt-0.5">{error}</p>
+            <button
+              onClick={() => { setError(null); setState('idle'); }}
+              className="mt-2 text-xs text-red-400/50 hover:text-red-400 underline transition-colors"
+            >
+              Fehler zurücksetzen
+            </button>
           </div>
         </div>
       )}

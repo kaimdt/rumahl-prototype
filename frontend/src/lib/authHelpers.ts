@@ -4,7 +4,8 @@
  * and building Authorization headers for backend API calls.
  */
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 /** Parse a stored token string (may be JSON-wrapped or plain) */
 export function parseStoredToken(raw: string | null): string | null {

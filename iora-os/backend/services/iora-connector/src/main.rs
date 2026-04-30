@@ -43,6 +43,7 @@ use axum::{
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
 use std::{
@@ -236,16 +237,11 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let database_url = std::env::var("IORA_CONNECTOR_DB_URL")
-        .unwrap_or_else(|_| "sqlite:./data/connector.db?mode=rwc".into());
-    let jwt_secret = std::env::var("IORA_CONNECTOR_JWT_SECRET")
-        .unwrap_or_else(|_| "iora-connector-dev-secret-change-me".into());
-    let http_port: u16 = std::env::var("IORA_CONNECTOR_HTTP_PORT")
-        .ok().and_then(|p| p.parse().ok()).unwrap_or(8098);
-    let relay_port: u16 = std::env::var("IORA_CONNECTOR_RELAY_PORT")
-        .ok().and_then(|p| p.parse().ok()).unwrap_or(8099);
-    let public_domain = std::env::var("IORA_CONNECTOR_DOMAIN")
-        .unwrap_or_else(|_| "iora.cloud".into());
+    let database_url = system_config::database_url_for("iora-connector");
+    let jwt_secret = system_config::jwt_secret();
+    let http_port: u16 = system_config::service_port("iora-connector", 8102);
+    let relay_port: u16 = system_config::connector_relay_port();
+    let public_domain = system_config::connector_domain();
     let domain_for_log = public_domain.clone();
 
     let db = SqlitePoolOptions::new().max_connections(10).connect(&database_url).await?;

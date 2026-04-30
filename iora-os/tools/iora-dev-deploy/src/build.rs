@@ -136,6 +136,9 @@ pub fn resolve_strategy(component: &Component, target: &str, requested_mode: &st
         "device" => BuildStrategy::Device,
         "host"   => {
             if host_can_cross_compile(target) { BuildStrategy::Cargo }
+            // On non-Linux hosts, Docker cross-compile of ARM Linux binaries
+            // is fragile; prefer keeping the real build on the device.
+            else if !cfg!(target_os = "linux") { BuildStrategy::Device }
             else if command_exists("docker") && docker_daemon_running() { BuildStrategy::Docker }
             else { BuildStrategy::Device }
         }
@@ -144,14 +147,25 @@ pub fn resolve_strategy(component: &Component, target: &str, requested_mode: &st
             if docker_daemon_running() { BuildStrategy::Docker }
             else { BuildStrategy::Device }
         },
-        // Default "auto": prefer native cargo when realistic, else docker,
-        // else device build. This is what we recommend for Windows users
-        // because the cargo path is impossible there for ARM Linux
-        // targets and we don't want to waste 30 s probing it first.
+        // Default "auto": prefer native cargo when realistic, then device-build
+        // (most reliable — the device does the build), falling back to docker.
+        // On Windows and macOS, Docker cross-compilation of ARM Linux binaries
+        // is fragile (OpenSSL multiarch, cross-linker, filesystem permission
+        // issues). Device-build is the fastest and most reliable path for
+        // non-Linux hosts because the bridge on the device has a persistent
+        // incremental workspace at /var/lib/iora-dev/builds/<component>.
         _ => {
-            if host_can_cross_compile(target) { BuildStrategy::Cargo }
-            else if command_exists("docker") && docker_daemon_running() { BuildStrategy::Docker }
-            else { BuildStrategy::Device }
+            if host_can_cross_compile(target) {
+                BuildStrategy::Cargo
+            } else if !cfg!(target_os = "linux") {
+                // Non-Linux hosts: prefer device-build over Docker (Docker
+                // cross-compile on Windows/macOS is unreliable for ARM targets).
+                BuildStrategy::Device
+            } else if command_exists("docker") && docker_daemon_running() {
+                BuildStrategy::Docker
+            } else {
+                BuildStrategy::Device
+            }
         }
     }
 }
@@ -245,7 +259,7 @@ pub fn watch_dirs(c: &Component) -> Result<Vec<PathBuf>> {
     }
     let backend = root.join("backend");
     Ok(vec![
-        backend.join(c.name).join("src"),
+        backend.join(&c.name).join("src"),
         backend.join("iora-shared").join("src"),
     ])
 }
@@ -255,7 +269,7 @@ pub fn existing_binary(c: &Component, target: &str) -> Result<PathBuf> {
     let p = component_target_dir(&root, c)
         .join(target)
         .join("release")
-        .join(c.name);
+        .join(&c.name);
     if !p.is_file() {
         bail!(
             "no built binary at {} — run without --no-build, or `cargo build --release -p {} --target {target}`",
@@ -364,26 +378,22 @@ async fn docker_release(c: &Component, target: &str) -> Result<PathBuf> {
             "export DEBIAN_FRONTEND=noninteractive; set -e; \
              dpkg --add-architecture arm64 && \
              apt-get update -qq && \
-             apt-get install -y -qq --no-install-recommends \
+             # Install cross-compile toolchain AND aarch64 OpenSSL via multiarch\n             # (much faster and more reliable than compiling OpenSSL from source)\n             apt-get install -y -qq --no-install-recommends \
                gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
                libc6-dev-arm64-cross linux-libc-dev-arm64-cross \
-               libssl-dev:arm64 \
-               build-essential pkg-config libssl-dev \
-               git curl ca-certificates >/dev/null 2>&1 && \
-             # Ensure the cross-compiler search path includes ARM headers
-             export PKG_CONFIG_ALLOW_CROSS=1 && \
+               libssl-dev:arm64 pkg-config \
+               build-essential git curl ca-certificates perl make >/dev/null 2>&1 && \
+             # Also try libpq for aarch64 if postgres feature is needed\n             apt-get install -y -qq libpq-dev:arm64 >/dev/null 2>&1 || true && \
+             # Set env for cargo to find the cross-compiled OpenSSL from multiarch\n             export PKG_CONFIG_ALLOW_CROSS=1 && \
              export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig && \
+             export OPENSSL_DIR=/usr && \
+             export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu && \
+             export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu && \
              export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc && \
              export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc && \
              export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ && \
-             export OPENSSL_DIR=/usr/aarch64-linux-gnu && \
-             export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu && \
-             export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu && \
-             export BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu=\"--sysroot=/usr/aarch64-linux-gnu \" && \
              . /usr/local/cargo/env && \
              rustup target add {target_arg} && \
-             # Regenerate lockfile in the Linux container to avoid
-             # resolver differences between Windows-host and Linux.
              rm -f Cargo.lock && cargo generate-lockfile && \
              cargo {build_cmd_text}",
         ))

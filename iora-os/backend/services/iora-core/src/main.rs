@@ -17,6 +17,7 @@ use iora_shared::{
     api_gateway::ApiGateway,
     widget_registry::WidgetRegistry,
     heartbeat::ServiceHeartbeat,
+    system_config,
 };
 use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
@@ -919,10 +920,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(poll_service_health(state.clone()));
     tokio::spawn(watch_heartbeat_freshness(state.clone()));
 
-    let port: u16 = std::env::var("CORE_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8090);
+    let port: u16 = system_config::service_port("iora-core", 8090);
 
     let app = Router::new()
         .route("/health", get(health))

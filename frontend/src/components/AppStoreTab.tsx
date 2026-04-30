@@ -85,15 +85,27 @@ export function AppStoreTab({ token }: { token: string }) {
   // On OS-dev images the Developer App may replace/delete *any* app,
   // including system apps. We probe the dev-image marker once on mount.
   const [isOsDev, setIsOsDev] = useState(false)
+  const [devMode, setDevMode] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const info = await adminFetch('/api/admin/dev-image', token) as { is_os_dev?: boolean }
-        if (!cancelled) setIsOsDev(Boolean(info?.is_os_dev))
+        const [info, devInfo] = await Promise.all([
+          adminFetch('/api/admin/dev-image', token).catch(() => null),
+          adminFetch('/api/admin/settings/developer.mode', token).catch(() => null),
+        ])
+        if (!cancelled) {
+          const osDev = Boolean((info as any)?.is_os_dev)
+          setIsOsDev(osDev)
+          // Dev mode from global config – also check localStorage as fallback
+          const fromApi = (devInfo as any)?.value === true
+          const fromLocal = localStorage.getItem('iora-developer-mode') === 'true'
+          setDevMode(osDev || fromApi || fromLocal)
+        }
       } catch {
         /* not on a dev image — leave isOsDev=false */
+        if (!cancelled) setDevMode(localStorage.getItem('iora-developer-mode') === 'true')
       }
     })()
     return () => { cancelled = true }
@@ -126,7 +138,30 @@ export function AppStoreTab({ token }: { token: string }) {
           })
         }
       } catch { /* ignore */ }
-      setApps(data.apps || [])
+      let appList = data.apps || []
+
+      // Ensure the IORA Developer App appears when developer mode is active,
+      // even if the backend hasn't registered it properly (frontend fallback).
+      if (devMode && !appList.some(a => a.id === 'iora-developer-app')) {
+        appList = [...appList, {
+          id: 'iora-developer-app',
+          name: 'IORA Developer App',
+          version: 'dev',
+          developer: 'IORA Project',
+          description: 'Stellt Plugin- und App-Entwicklern erweiterte APIs, einen Hot-Reload-Bridge und Debugging-Tools bereit.',
+          icon: undefined,
+          trust_level: 'trusted' as const,
+          enabled: true,
+          status: 'running',
+          installed_at: new Date().toISOString(),
+          source: 'system',
+          kind: 'system' as const,
+          system: true,
+          ports: [{ internal: 8177, external: 8177, protocol: 'tcp' }],
+        }]
+      }
+
+      setApps(appList)
     } catch (e) {
       setError((e as Error).message)
     }

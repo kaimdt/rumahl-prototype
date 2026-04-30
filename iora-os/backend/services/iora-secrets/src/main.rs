@@ -15,6 +15,7 @@ use axum::{
 use chrono::Utc;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sqlx::{PgPool, Row};
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
@@ -481,7 +482,7 @@ async fn main() -> Result<()> {
     // the env file. Subsequent restarts re-use the same key so encrypted
     // values stay decryptable across reboots.
     const KEY_FILE: &str = "/etc/iora/secrets-master.key";
-    let env_value = std::env::var("SECRETS_MASTER_KEY").ok();
+    let env_value = system_config::secrets_master_key();
     let env_usable = env_value
         .as_deref()
         .map(|v| !v.is_empty() && v != "CHANGEME" && v != "changeme")
@@ -532,8 +533,7 @@ async fn main() -> Result<()> {
     master_key.copy_from_slice(&master_key_bytes);
 
     // Connect to database
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora_password@localhost:5432/iora_secrets".to_string());
+    let database_url = system_config::database_url();
 
     info!("Connecting to database...");
     let db = PgPool::connect(&database_url)
@@ -563,7 +563,7 @@ async fn main() -> Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("SECRETS_PORT").unwrap_or_else(|_| "8093".to_string());
+    let port = system_config::service_port("iora-secrets", 8093).to_string();
     let addr = format!("0.0.0.0:{}", port);
 
     info!("🔐 iora-secrets starting on {}", addr);

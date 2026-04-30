@@ -391,7 +391,9 @@ function CloudSettingsTab({ token }: { token: string }) {
   )
 }
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+
+const API_BASE = getBackendUrl()
 
 export async function adminFetch(path: string, token: string, options?: RequestInit) {
   const url = `${API_BASE}${path}`
@@ -544,7 +546,7 @@ export function AdminPanel() {
   }, [activeTab])
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/api/integration/ha/configured`)
+    fetch(`${getBackendUrl()}/api/integration/ha/configured`)
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data && data.enabled !== undefined) {

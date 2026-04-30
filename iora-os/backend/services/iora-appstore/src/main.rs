@@ -8,6 +8,7 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use iora_shared::system_config;
 
 /// IORA App Store Service
 ///
@@ -608,8 +609,7 @@ async fn main() -> std::io::Result<()> {
     info!("Starting IORA App Store v{}", env!("CARGO_PKG_VERSION"));
 
     // Connect to database
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://iora:iora@postgres:5432/iora".to_string());
+    let database_url = system_config::database_url_for("iora-appstore");
 
     let db = PgPoolOptions::new()
         .max_connections(5)
@@ -649,8 +649,7 @@ async fn main() -> std::io::Result<()> {
         info!("Loaded {} port assignments", port_manager.get_all_assignments().await.len());
     }
 
-    let supervisor_url = std::env::var("SUPERVISOR_URL")
-        .unwrap_or_else(|_| "http://iora-supervisor:8097".to_string());
+    let supervisor_url = system_config::supervisor_url();
 
     let app_state = web::Data::new(AppState {
         db,
@@ -658,10 +657,7 @@ async fn main() -> std::io::Result<()> {
         supervisor_url,
     });
 
-    let port = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8098);
+    let port = system_config::service_port("iora-appstore", 8098);
 
     info!("Starting HTTP server on 0.0.0.0:{}", port);
 

@@ -10,6 +10,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::json;
+use iora_shared::system_config;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
@@ -71,10 +72,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8101);
+    let port: u16 = system_config::service_port("iora-resource-manager", 8105);
 
     let state = Arc::new(AppState {
         started_at: Utc::now(),

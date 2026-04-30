@@ -65,6 +65,7 @@ use homekit_client::HomekitClient;
 use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
 use iora_shared::settings::{SettingsRegistry, SettingDefinition};
+use iora_shared::system_config;
 
 /// Per-entity service call buffer that coalesces rapid-fire requests.
 ///
@@ -235,18 +236,14 @@ fn apply_legacy_ha_config(raw: &str, current: &mut HaRuntimeConfig) {
 }
 
 pub(crate) async fn load_ha_runtime_config(config_repo: &ConfigRepository) -> HaRuntimeConfig {
-    let ha_url_raw = std::env::var("HA_URL").unwrap_or_default();
+    let ha_url_raw = system_config::ha_url();
     let mut config = HaRuntimeConfig {
         url: if ha_url_raw.trim().is_empty() {
             String::new()
         } else {
             ha_url_raw.trim().to_string()
         },
-        token: std::env::var("HA_TOKEN")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_default(),
+        token: system_config::ha_token(),
     };
 
     if let Ok(Some(pref)) = config_repo.get_system_preference("ha.url").await {
@@ -506,8 +503,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Get database configuration
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora_password@localhost:5432/iora_home".to_string());
+    let database_url = system_config::database_url();
 
     info!("Starting Home Assistant Dashboard Backend");
     info!("Database URL: {}", database_url);
@@ -519,10 +515,7 @@ async fn main() -> anyhow::Result<()> {
     // setup wizard's :8126 health-check times out.
     let db_pool = {
         let mut attempt: u32 = 0;
-        let max_attempts: u32 = std::env::var("IORA_HOME_DB_MAX_ATTEMPTS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(60); // ~5 min @ 5s
+        let max_attempts: u32 = system_config::db_max_attempts();
         loop {
             attempt += 1;
             match init_db(&database_url).await {
@@ -1161,8 +1154,8 @@ async fn main() -> anyhow::Result<()> {
         // an empty state instead of 404'ing into the SPA fallback (which
         // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
         .route("/api/supervisor/system/info", get(stub_supervisor_system_info))
-        .route("/api/intelligence/overview", get(stub_intelligence_overview))
-        .route("/api/intelligence/maintenance/run/:task", get(stub_intelligence_maintenance_run))
+        .route("/api/intelligence/overview", get(proxy_intelligence_overview))
+        .route("/api/intelligence/maintenance/run/:task", get(proxy_intelligence_maintenance_run))
         .route("/api/supervisor/apps", get(supervisor_apps_list))
         .route("/api/supervisor/apps/install", post(supervisor_apps_install))
         .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall).put(stub_supervisor_unavailable))
@@ -1259,7 +1252,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
         // Redirect /docs to /api/docs for convenience
         .route("/docs", get(|| async {
-            axum::response::Redirect::permanent("/api/docs")
+            axum::response::Redirect::temporary("/api/docs")
         }))
         // Health check (public)
         .route("/health", get(health_check))
@@ -1399,11 +1392,7 @@ async fn main() -> anyhow::Result<()> {
     // Start server.  Port is configurable via the PORT or IORA_HOME_PORT env
     // var (set in /etc/iora/iora-home.env on IORA OS to 8126).  Defaults to
     // 3001 to preserve the legacy dev behaviour when run from `cargo run`.
-    let port: u16 = std::env::var("IORA_HOME_PORT")
-        .or_else(|_| std::env::var("PORT"))
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3001);
+    let port: u16 = system_config::service_port("iora-home", 3001);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Backend server listening on {}", addr);
     let _hb = iora_shared::heartbeat::spawn_default(
@@ -1461,7 +1450,7 @@ fn compute_dist_hash() -> String {
     let mut hasher = DefaultHasher::new();
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
 
-    let dist_dir = std::env::var("DIST_DIR").unwrap_or_else(|_| "../dist".to_string());
+    let dist_dir = system_config::dist_dir();
     if let Ok(entries) = std::fs::read_dir(&dist_dir) {
         let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).collect();
         paths.sort_by_key(|e| e.path());
@@ -1589,8 +1578,8 @@ async fn bootstrap_admin_user(
 
     // Env-var fallback — explicit logging so the operator can see at a
     // glance whether systemd is actually delivering the wizard values.
-    let env_user = std::env::var("IORA_BOOTSTRAP_ADMIN_USER").ok();
-    let env_pass = std::env::var("IORA_BOOTSTRAP_ADMIN_PASSWORD").ok();
+    let env_user = system_config::bootstrap_admin_user();
+    let env_pass = system_config::bootstrap_admin_password();
     info!(
         "Bootstrap: env IORA_BOOTSTRAP_ADMIN_USER {} ({}), IORA_BOOTSTRAP_ADMIN_PASSWORD {} ({} bytes)",
         if env_user.is_some() { "set" } else { "UNSET" },
@@ -3822,6 +3811,60 @@ async fn stub_supervisor_system_info() -> Json<Value> {
     }))
 }
 
+/// Proxy to iora-intelligence for health overview.
+/// Falls back to null if intelligence service is not reachable.
+async fn proxy_intelligence_overview(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let intel_url = std::env::var("INTELLIGENCE_URL")
+        .unwrap_or_else(|_| format!("http://localhost:{}",
+            std::env::var("INTELLIGENCE_PORT").unwrap_or_else(|_| "8099".to_string())));
+
+    match state.http_client
+        .get(&format!("{}/api/intelligence/overview", intel_url))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<Value>().await {
+                Ok(data) => Json(data),
+                Err(_) => Json(json!(null)),
+            }
+        }
+        _ => Json(json!(null)),
+    }
+}
+
+/// Proxy to iora-intelligence for maintenance tasks.
+async fn proxy_intelligence_maintenance_run(
+    State(state): State<AppState>,
+    axum::extract::Path(task): axum::extract::Path<String>,
+) -> Json<Value> {
+    let intel_url = std::env::var("INTELLIGENCE_URL")
+        .unwrap_or_else(|_| format!("http://localhost:{}",
+            std::env::var("INTELLIGENCE_PORT").unwrap_or_else(|_| "8099".to_string())));
+
+    match state.http_client
+        .get(&format!("{}/api/intelligence/maintenance/run/{}", intel_url, task))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<Value>().await {
+                Ok(data) => Json(data),
+                Err(e) => Json(json!({"error": format!("Failed to parse response: {}", e)})),
+            }
+        }
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            Json(json!({"error": format!("Intelligence service returned HTTP {}", status)}))
+        }
+        Err(e) => Json(json!({"error": format!("iora-intelligence service not reachable: {}", e)})),
+    }
+}
+
 /// Stub for intelligence API — returns null so the frontend shows the
 /// graceful "not available" state instead of failing to parse.
 async fn stub_intelligence_overview() -> Json<Value> {
@@ -4061,6 +4104,7 @@ const RESTARTABLE_SERVICES: &[&str] = &[
     "iora-updater",
     "iora-developer-app",
     "iora-dev-bridge",
+    "iora-intelligence",
 ];
 
 async fn admin_control_restart_service(
@@ -9326,7 +9370,7 @@ async fn admin_system_logs() -> Result<Json<Value>, ErrorResponse> {
     // Read from tracing subscriber's output file if available,
     // otherwise return info about the logging setup
     Ok(Json(serde_json::json!({
-        "log_level": std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+        "log_level": system_config::rust_log(),
         "note": "Backend logs are written to stdout/stderr. Use 'docker logs' or journal to view them.",
         "tip": "Set RUST_LOG=debug for more detailed logging.",
     })))
@@ -9398,7 +9442,7 @@ async fn admin_database_info(
     }).collect();
 
     // Connection string info (redacted)
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+    let db_url = system_config::database_url();
     let db_host = db_url.split('@').last().and_then(|s| s.split('/').next()).unwrap_or("localhost").to_string();
 
     Ok(Json(json!({
@@ -10964,13 +11008,14 @@ async fn admin_control_services(
     let client = &state.http_client;
     let services = vec![
         ("iora-home", "http://localhost:3001".to_string(), "Dashboard Backend, API, Auth, Streaming"),
-        ("iora-core", format!("http://localhost:{}", std::env::var("CORE_PORT").unwrap_or_else(|_| "8090".to_string())), "Service Registry, Tasks, Plugins"),
+        ("iora-core", system_config::service_url("iora-core", 8090), "Service Registry, Tasks, Plugins"),
         ("iora-control", "http://localhost:8091".to_string(), "Dashboard Aggregation, System Monitor"),
         ("iora-assist", "http://localhost:8092".to_string(), "AI Chat, Automation Suggestions"),
-        ("iora-secrets", format!("http://localhost:{}", std::env::var("SECRETS_PORT").unwrap_or_else(|_| "8093".to_string())), "Secret & Credential Management"),
-        ("iora-watchdog", format!("http://localhost:{}", std::env::var("WATCHDOG_PORT").unwrap_or_else(|_| "8094".to_string())), "Service Monitoring & Alerting"),
-        ("iora-security", format!("http://localhost:{}", std::env::var("SECURITY_PORT").unwrap_or_else(|_| "8095".to_string())), "Security Monitoring, Audit Logging"),
-        ("iora-gateway", format!("http://localhost:{}", std::env::var("GATEWAY_PORT").unwrap_or_else(|_| "8096".to_string())), "API Gateway, External Integrations"),
+        ("iora-secrets", system_config::service_url("iora-secrets", 8093), "Secret & Credential Management"),
+        ("iora-watchdog", system_config::service_url("iora-watchdog", 8094), "Service Monitoring & Alerting"),
+        ("iora-security", system_config::service_url("iora-security", 8095), "Security Monitoring, Audit Logging"),
+        ("iora-gateway", system_config::service_url("iora-gateway", 8096), "API Gateway, External Integrations"),
+        ("iora-intelligence", system_config::service_url("iora-intelligence", 8099), "KI-gestützte Systemanalyse & Health Intelligence"),
     ];
 
     let mut results = Vec::new();
@@ -11162,7 +11207,7 @@ async fn admin_iora_control_proxy(
     raw_query: RawQuery,
     body: axum::body::Bytes,
 ) -> Response {
-    let port = std::env::var("CONTROL_PORT").unwrap_or_else(|_| "8091".to_string());
+    let port = system_config::service_port("iora-control", 8091).to_string();
     let qs = raw_query.0.as_deref().map(|q| format!("?{}", q)).unwrap_or_default();
     let url = format!("http://localhost:{}/api/control/{}{}", port, path, qs);
 

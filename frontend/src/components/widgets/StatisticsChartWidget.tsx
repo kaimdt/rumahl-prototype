@@ -15,7 +15,8 @@ import {
   Tooltip,
 } from 'recharts'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 interface StatisticsChartWidgetProps {
   entityId?: string

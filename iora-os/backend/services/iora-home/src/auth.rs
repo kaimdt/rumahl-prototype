@@ -3,6 +3,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use std::env;
 use rand::Rng;
+use iora_shared::system_config;
 
 const JWT_SECRET_ENV: &str = "JWT_SECRET";
 const DEFAULT_JWT_SECRET: &str = "your-secret-key-change-in-production";
@@ -27,10 +28,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::Bcryp
 
 /// Generate a JWT token for a user
 pub fn generate_token(user_id: &str, username: &str, is_admin: bool, expiration_days: i64) -> Result<String, jsonwebtoken::errors::Error> {
-    let secret = env::var(JWT_SECRET_ENV).unwrap_or_else(|_| {
-        tracing::warn!("JWT_SECRET not set, using default (INSECURE for production!)");
-        DEFAULT_JWT_SECRET.to_string()
-    });
+    let secret = system_config::jwt_secret();
 
     let expiration = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::days(expiration_days.clamp(1, 90)))
@@ -53,10 +51,7 @@ pub fn generate_token(user_id: &str, username: &str, is_admin: bool, expiration_
 
 /// Verify a JWT token and extract claims
 pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-    let secret = env::var(JWT_SECRET_ENV).unwrap_or_else(|_| {
-        tracing::warn!("JWT_SECRET not set, using default (INSECURE for production!)");
-        DEFAULT_JWT_SECRET.to_string()
-    });
+    let secret = system_config::jwt_secret();
 
     let token_data = decode::<Claims>(
         token,

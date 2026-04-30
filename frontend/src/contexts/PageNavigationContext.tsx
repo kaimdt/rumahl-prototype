@@ -302,7 +302,8 @@ function extractDocPath(path: string): string | null {
 
 // ── Backend sync helpers ──────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 interface BackendPageWidget {
   id: string

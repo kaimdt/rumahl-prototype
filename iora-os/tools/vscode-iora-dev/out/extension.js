@@ -153,16 +153,15 @@ async function connectDaemon() {
     statusItem.text = '$(broadcast) IORA Dev: starting daemon…';
     client = await manager.ensureClient();
     output.appendLine('daemon: connected');
+    // The daemon auto-connects to devices on startup (mDNS scan +
+    // token reuse). We just read whatever state the daemon has
+    // already established — no separate VS Code auto-connect needed.
     await refreshAll();
     openEvents();
-    // If we have saved credentials, auto-connect to the device bridge
-    const savedHost = extensionContext.globalState.get(STATE_HOST_KEY);
-    if (savedHost) {
-        output.appendLine(`auto-connect: found saved host "${savedHost}"`);
-        await tryAutoConnect(savedHost);
-    }
 }
-/** Try to authenticate with a previously saved host+token. Silent on failure. */
+/** Try to authenticate with a previously saved host+token. Silent on failure.
+ * When the saved host is unreachable, the extension checks the daemon's
+ * connection state for discovered alternatives and offers one-click reconnect. */
 async function tryAutoConnect(host) {
     if (!client)
         return;
@@ -170,6 +169,21 @@ async function tryAutoConnect(host) {
     if (!token) {
         output.appendLine('auto-connect: no saved token found');
         return;
+    }
+    // First, check what the daemon actually has in its config.toml.
+    // VS Code globalState can drift (e.g. if the user re-connects via CLI).
+    try {
+        const conn = await client.connection();
+        const daemonHost = conn.saved_host;
+        if (daemonHost && daemonHost !== host) {
+            output.appendLine(`auto-connect: VS Code saved "${host}" but daemon has "${daemonHost}" — using daemon's config`);
+            host = daemonHost;
+            // Persist the daemon's host so we don't drift again.
+            await extensionContext.globalState.update(STATE_HOST_KEY, daemonHost);
+        }
+    }
+    catch {
+        // Daemon may not be fully ready yet; proceed with what we have.
     }
     try {
         const r = await client.connect(host, token);
@@ -179,6 +193,45 @@ async function tryAutoConnect(host) {
     catch (e) {
         const msg = e?.message ?? String(e);
         output.appendLine(`auto-connect failed: ${msg}`);
+        // Check if the daemon found alternative devices on the LAN
+        try {
+            const conn = await client.connection();
+            const discovered = conn.discovered;
+            const suggestedHost = conn.suggested_host;
+            if (discovered && discovered.length > 0 && suggestedHost && token) {
+                // Device IP likely changed — offer one-click reconnect.
+                const suggestedName = conn.suggested_hostname
+                    ?? suggestedHost.split(':')[0];
+                const label = discovered.length === 1
+                    ? `Reconnect to ${suggestedName} (${suggestedHost})`
+                    : `Reconnect to ${suggestedName} (${suggestedHost}) — ${discovered.length} device(s) found`;
+                output.appendLine(`auto-connect: found ${discovered.length} alternative device(s) on LAN, suggesting ${suggestedHost}`);
+                vscode.window.showWarningMessage(`IORA Dev: Saved host ${host} is unreachable. ${discovered.length === 1 ? 'One device' : `${discovered.length} devices`} found on LAN.`, 'Reconnect Now', 'Show All Devices').then(async (choice) => {
+                    if (choice === 'Reconnect Now') {
+                        try {
+                            const r = await client.connect(suggestedHost, token);
+                            await extensionContext.secrets.store(SECRET_TOKEN_KEY, token);
+                            await extensionContext.globalState.update(STATE_HOST_KEY, suggestedHost);
+                            await extensionContext.globalState.update(STATE_HOSTNAME_KEY, r.hostname ?? null);
+                            output.appendLine(`reconnected to ${r.host} (${r.hostname})`);
+                            await refreshAll();
+                        }
+                        catch (e2) {
+                            output.appendLine(`reconnect failed: ${e2?.message ?? e2}`);
+                            cmdConnect(suggestedHost);
+                        }
+                    }
+                    else if (choice === 'Show All Devices') {
+                        // Let user pick from all discovered devices
+                        cmdConnect();
+                    }
+                });
+                return;
+            }
+        }
+        catch {
+            // Couldn't get connection state; fall through to error handling.
+        }
         // If 401, clear the stored credentials so user knows to re-connect
         if (msg.includes('401') || msg.includes('Unauthorized')) {
             output.appendLine('auto-connect: token rejected, clearing saved credentials');
@@ -262,6 +315,15 @@ function onEvent(e) {
                     reachable: c.reachable !== false && !!c.host,
                 };
                 dashboard.setConnection(currentConnection);
+                // Keep VS Code globalState in sync with the daemon.
+                // When the daemon auto-connects/reconnects, the IDE knows
+                // about it without a separate credential store.
+                if (c.host) {
+                    extensionContext.globalState.update(STATE_HOST_KEY, c.host);
+                    if (c.hostname) {
+                        extensionContext.globalState.update(STATE_HOSTNAME_KEY, c.hostname);
+                    }
+                }
             }
             syncConnectionView();
             break;
@@ -479,14 +541,57 @@ async function cmdDiscover() {
 }
 async function cmdConnect(prefilled) {
     const c = await ensureClient();
-    const host = await vscode.window.showInputBox({
-        prompt: 'IORA OS Dev device host[:port]',
-        value: prefilled,
-        ignoreFocusOut: true,
-        placeHolder: 'e.g. 192.168.1.42:8099',
-    });
-    if (!host)
-        return;
+    // If we have discovered devices (e.g. from a failed auto-connect),
+    // offer them as quick-pick options alongside manual entry.
+    let discovered = [];
+    try {
+        const conn = await c.connection();
+        discovered = conn.discovered ?? [];
+    }
+    catch { /* ignore */ }
+    let host = prefilled;
+    if (discovered.length > 0 && !host) {
+        // Let user pick from discovered devices or enter manually
+        const items = discovered.map(d => {
+            const endpoint = `${d.addrs?.[0] ?? d.host}:${d.port}`;
+            const hostname = d.txt?.hostname ?? d.instance;
+            const build = d.txt?.build ?? '?';
+            return {
+                label: `$(device-desktop) ${hostname}`,
+                description: endpoint,
+                detail: `build: ${build}`,
+            };
+        });
+        items.push({ label: '$(edit) Enter host manually…', description: '', detail: 'Type IP or hostname:port' });
+        const pick = await vscode.window.showQuickPick(items, {
+            title: 'Connect to IORA OS Dev device',
+            placeHolder: 'Pick a device or enter manually',
+            ignoreFocusOut: true,
+        });
+        if (!pick)
+            return;
+        if (pick.label.includes('Enter host manually')) {
+            host = await vscode.window.showInputBox({
+                prompt: 'IORA OS Dev device host[:port]',
+                ignoreFocusOut: true,
+                placeHolder: 'e.g. 192.168.1.42:8099',
+            });
+            if (!host)
+                return;
+        }
+        else {
+            host = pick.description;
+        }
+    }
+    else if (!host) {
+        host = await vscode.window.showInputBox({
+            prompt: 'IORA OS Dev device host[:port]',
+            ignoreFocusOut: true,
+            placeHolder: 'e.g. 192.168.1.42:8099',
+        });
+        if (!host)
+            return;
+    }
     // Check if we have a saved token we can reuse
     let token = await extensionContext.secrets.get(SECRET_TOKEN_KEY);
     if (!token) {
@@ -585,7 +690,7 @@ async function cmdDeploy(prefilled) {
     if (!comps || comps.length === 0)
         return;
     const target = vscode.workspace.getConfiguration('ioraDev').get('target') ?? 'aarch64-unknown-linux-gnu';
-    const buildMode = vscode.workspace.getConfiguration('ioraDev').get('buildMode') ?? 'device';
+    const buildMode = vscode.workspace.getConfiguration('ioraDev').get('buildMode') ?? 'auto';
     const r = await c.deploy({ components: comps, target, build_mode: buildMode });
     vscode.window.showInformationMessage(`IORA Dev: deploy started (${r.job_id.slice(0, 8)}).`);
 }
@@ -620,7 +725,7 @@ async function cmdWatchStart(prefilled) {
     if (!automatic && (!comps || comps.length === 0))
         return;
     const target = vscode.workspace.getConfiguration('ioraDev').get('target') ?? 'aarch64-unknown-linux-gnu';
-    const buildMode = vscode.workspace.getConfiguration('ioraDev').get('buildMode') ?? 'device';
+    const buildMode = vscode.workspace.getConfiguration('ioraDev').get('buildMode') ?? 'auto';
     const debounce = vscode.workspace.getConfiguration('ioraDev').get('watchDebounceMs') ?? 800;
     const w = await c.startWatch({ components: comps ?? [], target, build_mode: buildMode, automatic, debounce_ms: debounce });
     const label = w.automatic ? 'automatic workspace mode' : w.components.join(', ');

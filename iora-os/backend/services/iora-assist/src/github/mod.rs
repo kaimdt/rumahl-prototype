@@ -42,14 +42,16 @@ pub struct GitHubAuth {
     pub username: Option<String>,
 }
 
+use iora_shared::system_config;
+
 impl Default for GitHubAuth {
     fn default() -> Self {
         Self {
             auth_type: "pat".into(),
-            pat: std::env::var("GITHUB_TOKEN").ok(),
-            app_id: std::env::var("GITHUB_APP_ID").ok(),
-            installation_id: std::env::var("GITHUB_INSTALLATION_ID").ok(),
-            private_key: std::env::var("GITHUB_PRIVATE_KEY").ok(),
+            pat: system_config::github_token(),
+            app_id: system_config::github_app_id(),
+            installation_id: system_config::github_installation_id(),
+            private_key: system_config::github_private_key(),
             oauth_token: None,
             api_base_url: Some("https://api.github.com".into()),
             is_configured: false,

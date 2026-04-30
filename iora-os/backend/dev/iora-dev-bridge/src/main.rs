@@ -1,30 +1,34 @@
-// iora-dev-bridge — local hot-reload endpoint.
+// iora-dev-bridge — IORA OS Dev hot-reload bridge. ROOT ONLY. NO SECURITY.
 //
-// This binary is ONLY shipped on images built with `IORA_OS_DEV=1`
-// (i.e. `iora-os/build.sh --dev`).  On a production image the file at
-// `/usr/bin/iora-dev-bridge` does not exist, the systemd unit is not
-// installed, and `/etc/iora/dev-mode` is absent — so the Developer App
-// cannot obtain any elevated hot-reload capability at runtime.
+// ⚠️  THIS BINARY MUST RUN AS ROOT ON DEV IMAGES ONLY.
+// ⚠️  It can replace any binary, restart any service, access any file.
+// ⚠️  By design: dev mode has zero security restrictions.
 //
-// The bridge binds by default to 0.0.0.0:8099 — the whole point of an
-// OS-dev image is that the IDE on the developer workstation can reach
-// the bridge over the LAN. Override via `--listen` or env `IORA_DEV_BIND`
-// (e.g. `127.0.0.1:8099`) to lock it down again. The bridge requires a
-// token from `/var/lib/iora/dev-token` (writable; preferred) or the
-// legacy `/etc/iora/dev-token` path.
+// This binary ONLY ships on images built with `IORA_OS_DEV=1`.
+// On production builds: /usr/bin/iora-dev-bridge does NOT exist,
+// the systemd unit is NOT installed, /etc/iora/os-dev-mode is ABSENT.
 //
-// Endpoints (all JSON):
-//   GET  /dev/status                 → build/version + capabilities
-//   POST /dev/service/{name}/restart → systemctl restart
-//   POST /dev/service/{name}/reload  → systemctl try-reload-or-restart
-//   POST /dev/compose/{svc}/reload   → docker compose up -d --force-recreate
-//   POST /dev/compose/{svc}/logs     → tail compose logs
-//   POST /dev/service/{name}/logs    → tail journalctl logs for a unit
-//   POST /dev/fs/list                → list files/directories on the device
-//   POST /dev/fs/read                → read a file preview from the device
-//   POST /dev/replace-binary         → multipart upload, atomic swap + restart
+// Auth: IORA dashboard credentials (username/password → validated
+// against iora-home /api/auth/login, admin role required). Falls back
+// to static token file at /var/lib/iora/dev-token for legacy compat.
 //
-// None of these work on a production image because the binary isn't there.
+// Endpoints:
+//   POST /dev/auth         — Login with {username,password}, get session token
+//   GET  /dev/status        — Build info + capabilities (public)
+//   GET  /dev/health        — Liveness probe (public)
+//   POST /dev/service/{n}/restart  — systemctl restart (auth)
+//   POST /dev/service/{n}/reload   — systemctl try-reload-or-restart (auth)
+//   POST /dev/service/{n}/logs     — journalctl tail (auth)
+//   GET  /dev/service/{n}/logs/stream — journalctl -f SSE (auth)
+//   POST /dev/compose/{s}/reload   — docker compose up -d (auth)
+//   POST /dev/compose/{s}/logs     — compose logs tail (auth)
+//   POST /dev/fs/list       — Browse filesystem (auth)
+//   POST /dev/fs/read       — Read file contents (auth)
+//   POST /dev/replace-binary — Upload + replace binary + restart (auth)
+//   POST /dev/build-replace  — Upload workspace + build + replace (auth)
+//   GET  /dev/system/info   — System info (auth)
+//   POST /dev/system/reboot — Reboot device (auth)
+//   GET  /dev/system/journal — Journal tail (auth)
 
 use anyhow::{Context, Result};
 use axum::{
@@ -41,9 +45,12 @@ use futures_util::stream::Stream;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::time::SystemTime;
+use uuid::Uuid;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
@@ -103,6 +110,14 @@ struct AppState {
     core_url:     Arc<String>,
     http:         reqwest::Client,
     started_at:   Arc<std::time::Instant>,
+    sessions:     Arc<RwLock<HashMap<String, DevSession>>>,
+}
+
+#[derive(Clone, Serialize)]
+struct DevSession {
+    username: String,
+    role: String,
+    created: u64,
 }
 
 #[cfg(unix)]
@@ -182,6 +197,28 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "info".into()),
         )
         .init();
+
+    // ═══════════════════════════════════════════════════════════
+    // ROOT CHECK: The bridge needs root for binary replacement,
+    // systemd unit restarts, and docker access.
+    // ═══════════════════════════════════════════════════════════
+    #[cfg(unix)]
+    {
+        let uid = std::process::Command::new("id").arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .unwrap_or(9999);
+        if uid != 0 {
+            tracing::error!(
+                "iora-dev-bridge MUST run as root (current uid={uid}). \
+                 Set User=root in the systemd unit."
+            );
+            anyhow::bail!("iora-dev-bridge requires root (uid=0), got uid={uid}");
+        }
+        tracing::info!("Running as root — full dev mode capabilities enabled.");
+    }
 
     // Refuse to start on anything that isn't a dev image.  This is a
     // defence-in-depth check; the real guarantee is that the binary only
@@ -277,6 +314,7 @@ async fn main() -> Result<()> {
         core_url:   Arc::new(core_url),
         http,
         started_at: Arc::new(std::time::Instant::now()),
+        sessions:   Arc::new(RwLock::new(HashMap::new())),
     };
 
     let cli = Cli::parse();
@@ -288,10 +326,12 @@ async fn main() -> Result<()> {
         .context("invalid --listen address")?;
 
     let app = Router::new()
-        // Unauthenticated liveness probe so VS Code / scripts can detect
-        // the bridge without juggling tokens.
+        // Unauthenticated liveness probe
         .route("/dev/health", get(dev_health))
         .route("/dev/status", get(status))
+        // Auth via IORA dashboard credentials (username/password)
+        .route("/dev/auth", post(dev_auth))
+        // All other endpoints require auth (static token OR session Bearer)
         .route("/dev/services", get(dev_services))
         .route("/dev/service/:name/restart", post(service_restart))
         .route("/dev/service/:name/reload", post(service_reload))
@@ -368,17 +408,27 @@ fn start_mdns_advertiser(port: u16, build_id: &str) -> Result<mdns_sd::ServiceDa
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
 fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
-    let got = headers
-        .get("x-iora-dev-token")
+    // 1. Static dev token (legacy, still works)
+    if let Some(tok) = headers.get("x-iora-dev-token")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if got.is_empty() || !ct_eq(got.as_bytes(), state.token.as_bytes()) {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            "missing or invalid X-IORA-Dev-Token".into(),
-        ));
+    {
+        if ct_eq(tok.as_bytes(), state.token.as_bytes()) {
+            return Ok(());
+        }
     }
-    Ok(())
+
+    // 2. Bearer token (session from POST /dev/auth via iora-home login)
+    if let Some(auth) = headers.get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+    {
+        let sessions = state.sessions.read().unwrap();
+        if sessions.contains_key(auth) {
+            return Ok(());
+        }
+    }
+
+    Err((StatusCode::UNAUTHORIZED, "missing or invalid auth. Use POST /dev/auth with iora username/password".into()))
 }
 
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
@@ -431,9 +481,86 @@ async fn status(State(s): State<AppState>) -> impl IntoResponse {
     })
 }
 
-/// Public liveness endpoint. Returns immediately and never blocks on
-/// disk or network. The bridge being reachable here is what the VS Code
-/// extension uses to decide whether to retry an event subscription.
+// ─── /dev/auth — IORA dashboard credentials → dev session token ──────
+
+#[derive(Deserialize)]
+struct AuthRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Serialize)]
+struct AuthResponse {
+    token: String,
+    username: String,
+    role: String,
+    expires_in_secs: u64,
+}
+
+async fn dev_auth(
+    State(state): State<AppState>,
+    Json(body): Json<AuthRequest>,
+) -> impl IntoResponse {
+    // Call iora-home login
+    let login_url = "http://127.0.0.1:3001/api/auth/login";
+    let Ok(login_resp) = state.http
+        .post(login_url)
+        .json(&serde_json::json!({"username": &body.username, "password": &body.password}))
+        .send().await
+    else {
+        return (StatusCode::BAD_GATEWAY, "Cannot reach iora-home").into_response();
+    };
+
+    if !login_resp.status().is_success() {
+        let body = login_resp.text().await.unwrap_or_default();
+        return (StatusCode::UNAUTHORIZED, format!("Invalid credentials: {body}")).into_response();
+    }
+
+    let Ok(login_json) = login_resp.json::<serde_json::Value>().await else {
+        return (StatusCode::BAD_GATEWAY, "Invalid response").into_response();
+    };
+
+    let Some(jwt) = login_json.get("token").and_then(|v| v.as_str()) else {
+        return (StatusCode::UNAUTHORIZED, "No token in response").into_response();
+    };
+
+    // Verify token + get role
+    let Ok(verify_resp) = state.http
+        .get("http://127.0.0.1:3001/api/auth/verify")
+        .header("Authorization", format!("Bearer {jwt}"))
+        .send().await
+    else {
+        return (StatusCode::BAD_GATEWAY, "Cannot verify token").into_response();
+    };
+
+    let user_info = verify_resp.json::<serde_json::Value>().await.unwrap_or_default();
+    let role = user_info.get("role").and_then(|v| v.as_str()).unwrap_or("user");
+
+    if role != "admin" {
+        return (StatusCode::FORBIDDEN, "Dev access requires admin role").into_response();
+    }
+
+    // Create session
+    let session_token = Uuid::new_v4().to_string();
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    state.sessions.write().unwrap().insert(session_token.clone(), DevSession {
+        username: body.username.clone(),
+        role: role.to_string(),
+        created: now,
+    });
+
+    // GC old sessions
+    state.sessions.write().unwrap().retain(|_, s| now - s.created < 86400);
+
+    (StatusCode::OK, Json(AuthResponse {
+        token: session_token,
+        username: body.username,
+        role: role.to_string(),
+        expires_in_secs: 86400,
+    })).into_response()
+}
+
+/// Public liveness endpoint. Returns immediately and never blocks.
 async fn dev_health(State(s): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true,

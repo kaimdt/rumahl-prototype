@@ -22,6 +22,7 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use iora_shared::system_config;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -639,8 +640,7 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
 
     // Database connection
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora".to_string());
+    let database_url = system_config::database_url();
 
     let pool = PgPool::connect(&database_url)
         .await

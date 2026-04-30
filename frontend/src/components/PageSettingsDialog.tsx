@@ -22,7 +22,8 @@ import { usePageNavigation, type PageSettings } from '@/contexts/PageNavigationC
 import { CARD_STYLE_PRESETS, DEFAULT_BACKGROUND_PRESETS } from '@/lib/defaults'
 import { toast } from 'sonner'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+import { getBackendUrl } from '@/lib/config'
+const API_BASE = getBackendUrl()
 
 function getAuthToken(): string {
   const raw = localStorage.getItem('ha-auth-token') ?? sessionStorage.getItem('ha-auth-token')

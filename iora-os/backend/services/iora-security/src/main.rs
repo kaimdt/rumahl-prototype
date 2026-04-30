@@ -15,6 +15,7 @@ use axum::{
 use chrono::Utc;
 use ipnetwork::IpNetwork;
 use iora_shared::env::IoraEnv;
+use iora_shared::system_config;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -920,8 +921,10 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // Load encryption key for SQLite
-    let encryption_key_hex = std::env::var("SECURITY_DB_KEY")
-        .context("SECURITY_DB_KEY environment variable must be set")?;
+    let encryption_key_hex = system_config::security_db_key();
+    if encryption_key_hex.is_empty() {
+        anyhow::bail!("SECURITY_DB_KEY must be set");
+    }
     let key_bytes = hex::decode(&encryption_key_hex)
         .context("SECURITY_DB_KEY must be a valid hex string")?;
     if key_bytes.len() != 32 {
@@ -931,14 +934,7 @@ async fn main() -> Result<()> {
     encryption_key.copy_from_slice(&key_bytes);
 
     // Connect to encrypted SQLite database
-    let db_path = std::env::var("SECURITY_DB_PATH")
-        .unwrap_or_else(|_| {
-            if cfg!(target_os = "windows") {
-                "./data/security.db".to_string()
-            } else {
-                "/var/lib/iora/security.db".to_string()
-            }
-        });
+    let db_path = system_config::security_db_path();
 
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(&db_path).parent() {
@@ -963,9 +959,11 @@ async fn main() -> Result<()> {
     // Connect to PostgreSQL using the shared DATABASE_URL.
     // In production the iora user already has the required privileges.
     // POSTGRES_ADMIN_URL is accepted as an optional override.
-    let postgres_url = std::env::var("POSTGRES_ADMIN_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .context("DATABASE_URL environment variable must be set")?;
+    let postgres_url = system_config::postgres_admin_url()
+        .unwrap_or_else(|| system_config::database_url());
+    if postgres_url.is_empty() {
+        anyhow::bail!("DATABASE_URL must be set");
+    }
 
     let postgres_admin = match Pool::<Postgres>::connect(&postgres_url).await {
         Ok(pool) => {
@@ -1055,7 +1053,7 @@ async fn main() -> Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("SECURITY_PORT").unwrap_or_else(|_| "8095".to_string());
+    let port = system_config::service_port("iora-security", 8095).to_string();
     let addr = format!("0.0.0.0:{}", port);
 
     info!("🔒 iora-security starting on {} ({})", addr, iora_env);

@@ -125,7 +125,8 @@ interface ConfigurationContextType {
 
 const ConfigurationContext = createContext<ConfigurationContextType | undefined>(undefined)
 
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+import { getBackendUrl } from '@/lib/config'
+const API_BASE_URL = getBackendUrl() || 'http://localhost:3001'
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth()
