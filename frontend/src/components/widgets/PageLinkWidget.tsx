@@ -200,7 +200,9 @@ export default function PageLinkWidget({ config, widgetSize }: PageLinkWidgetPro
               onClick={(e) => handleSubPageClick(sub, e)}
               className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-foreground/5 transition-colors text-left cursor-pointer"
             >
-              <SubIcon size={14} weight="regular" className="flex-shrink-0" style={{ color: accentColor }} />
+              <span className="flex-shrink-0" style={{ color: accentColor }}>
+                <SubIcon size={14} weight="regular" />
+              </span>
               <span className="text-[11px] text-foreground/70 truncate">{sub.name}</span>
             </button>
           )
@@ -288,7 +290,9 @@ export default function PageLinkWidget({ config, widgetSize }: PageLinkWidgetPro
                     onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${rawColor}12` }}
                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
                   >
-                    <SubIcon size={14} weight="regular" className="flex-shrink-0" />
+                    <span className="flex-shrink-0">
+                      <SubIcon size={14} weight="regular" />
+                    </span>
                     <span className="text-[11px] truncate" style={{ opacity: 0.7 }}>{sub.name}</span>
                   </button>
                 )
@@ -368,7 +372,9 @@ export default function PageLinkWidget({ config, widgetSize }: PageLinkWidgetPro
                       onClick={(e) => handleSubPageClick(sub, e)}
                       className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-foreground/5 transition-colors text-left cursor-pointer"
                     >
-                      <SubIcon size={14} weight="regular" className="flex-shrink-0" style={{ color: accentColor }} />
+                      <span className="flex-shrink-0" style={{ color: accentColor }}>
+                        <SubIcon size={14} weight="regular" />
+                      </span>
                       <span className="text-[11px] text-foreground/70 truncate">{sub.name}</span>
                     </button>
                   )

@@ -682,7 +682,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
           }
 
           skipNextSaveRef.current = true
-          setLocalPages(migrated)
+          setLocalPages(migrated as DashboardPage[])
           console.log('[PageSync] Loaded', migrated.length, 'pages from backend')
 
           // Also load synced settings (theme, overview, etc.) from backend
@@ -709,15 +709,15 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
                       size: { w: w.width || 6, h: w.height || 6 },
                       config: w.config || undefined,
                     }))
-                    setLocalPages(prev => [...prev, {
+                    setLocalPages([...pages, {
                       id: p.page_id,
                       name: p.name,
                       icon: p.icon,
                       widgets,
                       showInNav: p.show_in_nav !== false,
                       order: p.position || 500,
-                      displayMode: (p.display_mode as 'page' | 'modal') || 'page',
-                    }])
+                      displayMode: (p.display_mode as DashboardPage['displayMode']) || 'page',
+                    }] as DashboardPage[])
                     existingIds.add(p.page_id)
                   }
                 }
@@ -747,7 +747,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     const homePage = pages.find(p => p.id === 'home')
     if (homePage && homePage.widgets.length === 0) {
-      setLocalPages(pages.map(p => p.id === 'home' ? { ...p, widgets: DEFAULT_HOME_WIDGETS } : p))
+      setLocalPages(pages.map(p => p.id === 'home' ? { ...p, widgets: DEFAULT_HOME_WIDGETS } : p) as DashboardPage[])
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
 

@@ -14,7 +14,7 @@ import {
   MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
   Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
-  Terminal, List
+  Terminal, List, Sparkle
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -416,11 +416,16 @@ export async function adminFetch(path: string, token: string, options?: RequestI
     const trimmed = text.trimStart()
     if (looksLikeHtml || trimmed.startsWith('<')) {
       message = 'Dieser Bereich ist auf diesem System (noch) nicht verfügbar.'
+      if (res.status === 200) {
+        message = 'Dieser Bereich ist auf diesem System (noch) nicht verfügbar. Der Endpunkt existiert nicht oder wird von einem anderen IORA-Microservice bereitgestellt.'
+      }
     } else {
       try {
         const json = JSON.parse(text)
         if (json?.error) message = json.error
         else if (json?.message) message = json.message
+        // If the backend returned a hint, append it
+        if (json?.hint) message += ` — ${json.hint}`
       } catch {
         if (text) message = text
       }
@@ -435,7 +440,7 @@ export async function adminFetch(path: string, token: string, options?: RequestI
     // 200 OK but HTML body — almost certainly the SPA fallback. Treat as
     // missing endpoint so the calling tab can show an empty/disabled state
     // instead of crashing on JSON.parse.
-    throw new Error('Dieser Bereich ist auf diesem System (noch) nicht verfügbar. (200)')
+    throw new Error('Dieser Bereich ist auf diesem System (noch) nicht verfügbar — der Endpunkt existiert nicht oder wird von einem anderen Microservice bereitgestellt.')
   }
   return res.json()
 }
@@ -6880,7 +6885,7 @@ function GlobalAlertTab({ token }: { token: string }) {
               <div className="text-xs mt-1 opacity-90">{String(current.message ?? '')}</div>
               <div className="text-[10px] opacity-60 mt-2">
                 Level: <span className="font-mono">{String(current.level ?? '')}</span>
-                {current.created_at && <> · {String(current.created_at)}</>}
+                {current.created_at != null && current.created_at !== '' && <> · {String(current.created_at)}</>}
               </div>
             </div>
             <button onClick={dismiss} disabled={busy}

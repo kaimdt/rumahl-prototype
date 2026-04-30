@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Link } from '@phosphor-icons/react'
 
 interface MessageContentProps {
@@ -9,7 +9,7 @@ interface MessageContentProps {
 export function MessageContent({ content, role }: MessageContentProps) {
   // Parse and render rich content
   const renderedContent = useMemo(() => {
-    const elements: JSX.Element[] = []
+    const elements: ReactNode[] = []
     const lines = content.split('\n')
 
     lines.forEach((line, lineIndex) => {
@@ -40,7 +40,7 @@ export function MessageContent({ content, role }: MessageContentProps) {
       const links = Array.from(line.matchAll(linkRegex))
 
       if (links.length > 0) {
-        const parts: (string | JSX.Element)[] = []
+        const parts: (string | ReactNode)[] = []
         let lastIndex = 0
 
         links.forEach((match, linkIndex) => {
@@ -88,7 +88,7 @@ export function MessageContent({ content, role }: MessageContentProps) {
       const bolds = Array.from(line.matchAll(boldRegex))
 
       if (bolds.length > 0) {
-        const parts: (string | JSX.Element)[] = []
+        const parts: (string | ReactNode)[] = []
         let lastIndex = 0
 
         bolds.forEach((match, boldIndex) => {
@@ -132,7 +132,7 @@ export function MessageContent({ content, role }: MessageContentProps) {
       const codes = Array.from(line.matchAll(codeRegex))
 
       if (codes.length > 0) {
-        const parts: (string | JSX.Element)[] = []
+        const parts: (string | ReactNode)[] = []
         let lastIndex = 0
 
         codes.forEach((match, codeIndex) => {

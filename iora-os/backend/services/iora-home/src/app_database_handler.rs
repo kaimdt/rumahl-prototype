@@ -4,6 +4,7 @@
 //!   POST   /api/apps/:app_id/database/provision – Provision a new SQLite database
 //!   DELETE /api/apps/:app_id/database           – Drop the database
 //!   GET    /api/apps/:app_id/database/status    – Get database status
+//!   GET    /api/apps/:app_id/database/tables    – List tables
 //!   POST   /api/apps/:app_id/database/execute   – Execute SQL
 //!   POST   /api/apps/:app_id/database/backup    – Trigger a backup
 //!   GET    /api/apps/:app_id/database/backups   – List backups
@@ -256,6 +257,45 @@ pub async fn database_status(
         last_backup: latest_backup,
         error: None,
     }))
+}
+
+/// List all tables in the app's SQLite database.
+/// Returns `{ "tables": ["table1", "table2", ...] }`.
+pub async fn list_tables(
+    State(state): State<Arc<AppDatabaseState>>,
+    AxumPath(app_id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let db_path = state.db_path(&app_id);
+
+    if !db_path.exists() {
+        return Ok(Json(serde_json::json!({
+            "tables": [],
+            "message": "No database provisioned for this app"
+        })));
+    }
+
+    let options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .read_only(true)
+        .create_if_missing(false);
+    let mut conn = options.connect().await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to open database: {}", e))
+    })?;
+
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    )
+        .fetch_all(&mut conn)
+        .await
+        .map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to query tables: {}", e))
+        })?;
+
+    let tables: Vec<String> = rows.into_iter().map(|(name,)| name).collect();
+
+    Ok(Json(serde_json::json!({
+        "tables": tables
+    })))
 }
 
 /// Execute SQL on the app's database

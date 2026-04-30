@@ -287,7 +287,7 @@ function InstalledAppsView({
   apps: AppInfo[]
   token: string
   onReload: () => void
-  getTrustBadge: (level: string) => JSX.Element
+  getTrustBadge: (level: string) => React.ReactNode
   isOsDev: boolean
   onAppClick: (appId: string) => void
 }) {

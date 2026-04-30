@@ -226,3 +226,21 @@ EXPOSE 8099
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8099/health || exit 1
 CMD ["/app/iora-developer-app"]
+
+# ═══════════════════════════════════════════════════════════════════
+# iora-dev-bridge — DEV IMAGES ONLY — ROOT — NO SECURITY
+# ═══════════════════════════════════════════════════════════════════
+# This container MUST run as root with:
+#   - Docker socket mounted (/var/run/docker.sock)
+#   - Host PID namespace (pid: host) for systemctl access
+#   - Privileged mode or SYS_ADMIN, NET_ADMIN capabilities
+#   - Host network or port 8099 exposed
+FROM runtime-base AS iora-dev-bridge
+COPY --from=builder /out/iora-dev-bridge /app/iora-dev-bridge
+# Root required for: binary replacement, systemctl, docker compose
+USER root
+EXPOSE 8099
+# No healthcheck — the bridge health endpoint is /dev/health (public)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=2s --retries=3 \
+    CMD curl -f http://localhost:8099/dev/health || exit 1
+CMD ["/app/iora-dev-bridge", "--listen", "0.0.0.0:8099"]

@@ -1060,6 +1060,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/apps/:app_id/database/provision", post(app_database_handler::provision_database))
         .route("/api/apps/:app_id/database", delete(app_database_handler::drop_database))
         .route("/api/apps/:app_id/database/status", get(app_database_handler::database_status))
+        .route("/api/apps/:app_id/database/tables", get(app_database_handler::list_tables))
         .route("/api/apps/:app_id/database/execute", post(app_database_handler::execute_sql))
         .route("/api/apps/:app_id/database/backup", post(app_database_handler::backup_database))
         .route("/api/apps/:app_id/database/backups", get(app_database_handler::list_backups))
@@ -1082,6 +1083,9 @@ async fn main() -> anyhow::Result<()> {
 
     let messaging_router = Router::<Arc<app_messaging_handler::AppMessagingState>>::new()
         .route("/api/apps/messaging/channels", get(app_messaging_handler::list_channels).post(app_messaging_handler::register_channel))
+        // Per-app messaging channels alias (same global list, but the frontend
+        // AppSettingsPage calls it with app_id).
+        .route("/api/apps/:app_id/messaging/channels", get(app_messaging_handler::list_channels))
         .route("/api/apps/messaging/publish", post(app_messaging_handler::publish_message))
         .route("/api/apps/messaging/events", get(app_messaging_handler::message_stream))
         .route("/api/apps/:app_id/messaging/subscribe", post(app_messaging_handler::subscribe))
@@ -1190,6 +1194,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/appstore/apps/:app_id/settings", get(stub_appstore_unavailable).post(stub_appstore_unavailable))
         .route("/api/appstore/permissions/grant", post(stub_appstore_unavailable))
         .route("/api/appstore/settings", post(stub_appstore_unavailable))
+        // Local-store registration — lets the frontend register system apps
+        // (like the Developer App) on demand when developer mode is toggled.
+        .route("/api/local-store/register", post(local_store_register))
         // App custom pages — returns all custom_pages from installed and running apps.
         .route("/api/apps/pages", get(app_pages_list))
         // App content proxy — forwards requests to installed app containers.
@@ -1828,7 +1835,26 @@ fn resolve_dist_dir() -> Option<std::path::PathBuf> {
 
 /// SPA fallback – serves index.html for any route not matched by API or static files.
 /// This enables client-side routing in the React frontend.
-async fn spa_fallback(_uri: Uri) -> impl IntoResponse {
+async fn spa_fallback(uri: Uri) -> impl IntoResponse {
+    // API paths that don't match any route should return JSON, not HTML.
+    // This prevents the frontend's adminFetch from receiving an HTML SPA
+    // fallback page when a microservice endpoint doesn't exist on this image.
+    let path = uri.path();
+    if path.starts_with("/api/") || path.starts_with("/ws/") {
+        return (
+            StatusCode::NOT_FOUND,
+            [
+                (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+            ],
+            serde_json::json!({
+                "error": "Endpunkt nicht gefunden",
+                "path": path,
+                "available": false,
+                "hint": "Dieser Endpunkt wird von einem anderen IORA-Microservice bereitgestellt, der auf diesem System nicht läuft."
+            }).to_string(),
+        ).into_response();
+    }
+
     if let Some(dist) = resolve_dist_dir() {
         if let Ok(html) = tokio::fs::read_to_string(dist.join("index.html")).await {
             return (
@@ -4082,6 +4108,42 @@ async fn local_appstore_jobs_stream(
     Sse::new(combined).keep_alive(KeepAlive::default())
 }
 
+/// Register a system app via the local app-store.
+///
+/// The frontend calls this when developer mode is toggled, so the Developer App
+/// (and other built-in system apps) appear immediately in the installed apps list
+/// without waiting for the next bootstrap cycle.
+///
+/// Request body: `{ "app_id": "iora-developer-app" }`
+/// Supported app_ids:
+///   - `iora-developer-app` — The IORA Developer App (dev tools, bridge, debug APIs)
+///
+async fn local_store_register(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let app_id = body.get("app_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ErrorResponse::bad_request("Feld 'app_id' fehlt"))?;
+
+    match app_id {
+        "iora-developer-app" => {
+            state.local_appstore.set_developer_app(true).await
+                .map_err(|e| ErrorResponse::internal(format!(
+                    "Developer-App-Registrierung fehlgeschlagen: {}", e
+                )))?;
+            Ok(Json(json!({
+                "success": true,
+                "app_id": app_id,
+                "message": "Developer App registriert"
+            })))
+        }
+        _ => Err(ErrorResponse::not_found(format!(
+            "Unbekannte System-App: '{}'", app_id
+        )))
+    }
+}
+
 // ── Control Center: restart a known iora-* service ──────────────────────────
 
 const RESTARTABLE_SERVICES: &[&str] = &[
@@ -4186,7 +4248,7 @@ async fn supervisor_apps_list(State(state): State<AppState>) -> Json<Value> {
     let installed = state.local_appstore.list().await;
     let apps: Vec<Value> = installed
         .into_iter()
-        .filter(|a| a.kind != "plugin" && a.kind != "system")
+        .filter(|a| a.kind != "plugin")
         .map(|a| {
             let custom_pages = &a.custom_pages;
             let open_url = custom_pages
@@ -4289,16 +4351,36 @@ async fn supervisor_apps_start(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let _app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
     let app = state
         .local_appstore
         .start(&app_id)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+
+    // Try to start Docker container for apps with docker_config
+    let docker_result = if app.docker_config.is_some() || app.bundle_config.is_some() {
+        try_docker_compose_up(&app_id, &app, state.local_appstore.base_dir()).await
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "success": true,
         "app_id": app.id,
         "status": "running",
+        "docker": docker_result,
         "message": format!("App '{}' gestartet.", app.name),
+        "hint": if docker_result.is_none() && (app.docker_config.is_some() || app.bundle_config.is_some()) {
+            "Docker ist nicht verfügbar – App läuft im lokalen Modus. Installiere Docker für Container-Betrieb."
+        } else {
+            ""
+        },
     })))
 }
 
@@ -4311,10 +4393,15 @@ async fn supervisor_apps_stop(
         .stop(&app_id)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+
+    // Try to stop Docker container
+    let docker_result = try_docker_compose_down(&app_id).await;
+
     Ok(Json(json!({
         "success": true,
         "app_id": app.id,
         "status": "stopped",
+        "docker": docker_result,
         "message": format!("App '{}' gestoppt.", app.name),
     })))
 }
@@ -4662,26 +4749,103 @@ async fn supervisor_bundle_status(
     })))
 }
 
-/// Try running docker-compose up for a bundle app.
+/// Generate a docker-compose.yml from an app's `docker_config` (single-container).
+fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String {
+    let image = docker.get("base_image").and_then(|v| v.as_str()).unwrap_or("alpine:latest");
+    let working_dir = docker.get("working_dir").and_then(|v| v.as_str()).unwrap_or("/app");
+    let start_cmd = docker.get("start_cmd").and_then(|v| v.as_str()).unwrap_or("");
+    let install_cmd = docker.get("install_cmd").and_then(|v| v.as_str());
+    let auto_build = docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false);
+    let mut yaml = String::new();
+
+    yaml.push_str(&format!("services:\n  {}:\n", app_id));
+    yaml.push_str(&format!("    image: {}\n", image));
+
+    if auto_build {
+        let context = docker.get("build_context").and_then(|v| v.as_str()).unwrap_or(".");
+        let dockerfile = docker.get("dockerfile").and_then(|v| v.as_str()).unwrap_or("Dockerfile");
+        yaml.push_str(&format!("    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"));
+    }
+
+    if let Some(cmd) = install_cmd {
+        yaml.push_str(&format!("    command: sh -c \"{cmd} && {start_cmd}\"\n"));
+    } else if !start_cmd.is_empty() {
+        yaml.push_str(&format!("    command: {start_cmd}\n"));
+    }
+
+    yaml.push_str(&format!("    working_dir: {working_dir}\n"));
+
+    // Ports
+    if let Some(ports) = docker.get("internal_ports").and_then(|v| v.as_array()) {
+        for port in ports {
+            let internal = port.get("port").and_then(|v| v.as_u64()).unwrap_or(3000);
+            yaml.push_str(&format!("    ports:\n      - \"{}:{}\"\n", internal, internal));
+        }
+    }
+
+    // Environment
+    if let Some(env) = docker.get("environment").and_then(|v| v.as_object()) {
+        yaml.push_str("    environment:\n");
+        for (key, val) in env {
+            let v = val.as_str().unwrap_or("");
+            yaml.push_str(&format!("      {}: {}\n", key, v));
+        }
+    }
+
+    // Volumes
+    if let Some(volumes) = docker.get("volumes").and_then(|v| v.as_array()) {
+        for vol in volumes {
+            if let Some(v) = vol.as_str() {
+                yaml.push_str(&format!("    volumes:\n      - {}\n", v));
+            }
+        }
+    }
+
+    // Restart policy
+    yaml.push_str("    restart: unless-stopped\n");
+
+    // Health check
+    if let Some(hc) = docker.get("health_check") {
+        let endpoint = hc.get("endpoint").and_then(|v| v.as_str()).unwrap_or("/health");
+        let interval = hc.get("interval").and_then(|v| v.as_u64()).unwrap_or(30);
+        let timeout = hc.get("timeout").and_then(|v| v.as_u64()).unwrap_or(10);
+        let retries = hc.get("retries").and_then(|v| v.as_u64()).unwrap_or(3);
+        yaml.push_str(&format!(
+            "    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:{}{}\"]\n      interval: {}s\n      timeout: {}s\n      retries: {}\n",
+            docker.get("internal_ports").and_then(|p| p.as_array()).and_then(|a| a.first()).and_then(|p| p.get("port").and_then(|v| v.as_u64())).unwrap_or(3000),
+            endpoint,
+            interval, timeout, retries
+        ));
+    }
+
+    yaml.push_str("\nnetworks:\n  default:\n    driver: bridge\n");
+    yaml
+}
+
+/// Try running docker-compose up for an app (single-container or bundle).
 async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<String> {
     use tokio::process::Command;
 
-    let compose_content = match &app.bundle_config {
-        Some(bundle) => generate_compose_yaml(app_id, bundle),
-        None => return None,
+    let compose_content = if let Some(bundle) = &app.bundle_config {
+        generate_compose_yaml(app_id, bundle)
+    } else if let Some(docker) = &app.docker_config {
+        generate_app_compose_yaml(app_id, docker)
+    } else {
+        return None;
     };
 
     let compose_dir = base_dir.join(app_id);
     let compose_path = compose_dir.join("docker-compose.yml");
 
-    // Write compose file
+    // Create dir & write compose file
+    tokio::fs::create_dir_all(&compose_dir).await.ok();
     if let Err(e) = tokio::fs::write(&compose_path, &compose_content).await {
         return Some(format!("Kann docker-compose.yml nicht schreiben: {e}"));
     }
 
     // Try docker compose up
     let result = Command::new("docker")
-        .args(["compose", "-p", &format!("iora-bundle-{}", app_id), "up", "-d"])
+        .args(["compose", "-p", &format!("iora-app-{}", app_id), "up", "-d"])
         .current_dir(&compose_dir)
         .output()
         .await;
@@ -4701,20 +4865,24 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
     }
 }
 
-/// Try running docker-compose down for a bundle app.
+/// Try running docker-compose down for an app.
 async fn try_docker_compose_down(app_id: &str) -> Option<String> {
     use tokio::process::Command;
 
-    let result = Command::new("docker")
-        .args(["compose", "-p", &format!("iora-bundle-{}", app_id), "down"])
-        .output()
-        .await;
-
-    match result {
-        Ok(output) if output.status.success() => Some("docker compose down erfolgreich".to_string()),
-        Ok(output) => Some(format!("docker compose down: {}", String::from_utf8_lossy(&output.stderr).trim())),
-        Err(_) => None, // Docker not available – expected in dev mode
+    // Try both project prefixes for compatibility
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let result = Command::new("docker")
+            .args(["compose", "-p", &format!("{}{}", prefix, app_id), "down"])
+            .output()
+            .await;
+        match result {
+            Ok(output) if output.status.success() => {
+                return Some("docker compose down erfolgreich".to_string());
+            }
+            _ => continue,
+        }
     }
+    None // Docker not available – expected in dev mode
 }
 
 /// Returns all custom pages from installed apps that are running.

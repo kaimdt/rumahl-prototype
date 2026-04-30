@@ -3856,7 +3856,10 @@ write_iora_service "iora-api"               "8099" "iora" "iora-core.service ior
 write_iora_service "iora-appstore"          "8098" "iora" "iora-core.service iora-supervisor.service" "App Store"
 write_iora_service "iora-backup"            "8100" "iora" "iora-core.service" "Backup & Restore"
 write_iora_service "iora-connector"         "8088" "iora" "iora-core.service" "Datacenter Connector (WireGuard)"
-write_iora_service "iora-dev-bridge"        "8101" "iora" "iora-core.service iora-supervisor.service" "Developer Bridge"
+# Dev bridge is handled separately above with root + full capabilities
+if [ "${IORA_OS_DEV:-0}" != "1" ]; then
+    write_iora_service "iora-dev-bridge"        "8101" "root" "iora-core.service iora-supervisor.service" "Developer Bridge"
+fi
 write_iora_service "iora-domain-validator"  "8102" "iora" "iora-core.service" "Domain Validator (ACME/DNS)"
 write_iora_service "iora-files"             "8103" "iora" "iora-core.service" "File Service"
 write_iora_service "iora-network-monitor"   "8104" "iora" "iora-core.service" "Network Monitor"

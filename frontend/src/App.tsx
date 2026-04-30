@@ -716,29 +716,9 @@ function DashboardContent() {
                   )}
                 </div>
               )}
-              {/* Custom/non-built-in pages (HA-dependent) */}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming', 'share', 'ai-agent'].includes(currentPageId) && currentPage && !showSimpleDashboard && (
-                <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
-                  {mediaPlayerEntities.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
-                      {mediaPlayerEntities.map((player, i) => (
-                        <div key={player.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
-                          <MediaPlayerWidget
-                            entity={player}
-                            onUpdate={refresh}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-4 sm:p-6 rounded-2xl glass-card text-center text-foreground/50 border border-foreground/10">
-                      Keine Medienplayer gefunden
-                    </div>
-                  )}
-                </div>
-              )}
-              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming', 'share'].includes(currentPageId) && currentPage && !showSimpleDashboard && (
+              {/* Custom app pages — render even when HA is unavailable so app pages
+                  (e.g. iframe-based apps, settings, streaming) work without HA. */}
+              {!['home', 'lights', 'climate', 'switches', 'sensors', 'music', 'settings', 'admin', 'docs', 'streaming', 'share', 'ai-agent'].includes(currentPageId) && currentPage && (
                 <CustomPageRenderer
                   page={currentPage}
                   entities={entities}

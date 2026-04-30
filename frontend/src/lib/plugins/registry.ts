@@ -308,6 +308,15 @@ export function createPluginContext(services: {
   storage: PluginContext['storage']
   notify: PluginContext['notify']
   subscribe: PluginContext['subscribe']
+  ai?: PluginContext['ai']
 }): PluginContext {
-  return services
+  return {
+    ...services,
+    ai: services.ai ?? ({
+      chat: async () => ({ success: false, message: 'AI not available' }),
+      streamChat: async function*() {},
+      registerTool: () => {},
+      unregisterTool: () => {},
+    } as unknown as PluginContext['ai']),
+  }
 }
