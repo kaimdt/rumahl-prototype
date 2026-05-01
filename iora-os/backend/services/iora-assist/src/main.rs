@@ -988,20 +988,65 @@ async fn chat_stream(
     let history = state.history.clone();
     let _ = history.write().await;
 
-    // For now, send the complete response as a stream
-    // In future, this could be enhanced to stream tokens
     let message = req.message.clone();
     let provider_name = provider.name().to_string();
+
+    // Build the full message vector for the provider, including any prior
+    // history if available.
+    let mut messages_payload: Vec<crate::providers::ChatMessage> = Vec::new();
+    messages_payload.push(crate::providers::ChatMessage {
+        role: "user".to_string(),
+        content: message.clone(),
+    });
+    let sys = system_prompt.clone();
+
+    // Execute the provider call up-front so that we get a real response, then
+    // chunk it into small pieces and deliver them as SSE `message` events.
+    // This gives the client a true incremental rendering experience without
+    // requiring every provider to implement low-level token streaming.
+    let chat_result = provider.chat(messages_payload, sys).await;
 
     drop(provider); // Release the lock
 
     let stream = async_stream::stream! {
         yield Ok(Event::default().data(format!(r#"{{"type":"start","provider":"{}"}}"#, provider_name)));
 
-        // Simulate streaming (in production, this would stream actual AI tokens)
-        yield Ok(Event::default().data(format!(r#"{{"type":"message","content":"Processing your request: {}"}}"#, message)));
+        match chat_result {
+            Ok(response) => {
+                // Chunk on word boundaries (~6 words per chunk) so the UI sees
+                // a steady flow rather than a single dump.
+                let words: Vec<&str> = response.message.split_whitespace().collect();
+                let mut buf = String::new();
+                for (i, w) in words.iter().enumerate() {
+                    if !buf.is_empty() { buf.push(' '); }
+                    buf.push_str(w);
+                    if (i + 1) % 6 == 0 || i + 1 == words.len() {
+                        let payload = serde_json::json!({
+                            "type": "message",
+                            "delta": buf,
+                        });
+                        yield Ok(Event::default().data(payload.to_string()));
+                        buf.clear();
+                        tokio::time::sleep(tokio::time::Duration::from_millis(40)).await;
+                    }
+                }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                let final_payload = serde_json::json!({
+                    "type": "complete",
+                    "message": response.message,
+                    "model": response.model,
+                    "tokens_used": response.tokens_used,
+                });
+                yield Ok(Event::default().data(final_payload.to_string()));
+            }
+            Err(e) => {
+                let err_payload = serde_json::json!({
+                    "type": "error",
+                    "error": e.to_string(),
+                });
+                yield Ok(Event::default().data(err_payload.to_string()));
+            }
+        }
 
         yield Ok(Event::default().data(r#"{"type":"end"}"#));
     };

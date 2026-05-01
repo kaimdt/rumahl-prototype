@@ -39,20 +39,63 @@ function WeatherWidget({ entity, config, onUpdate }: WidgetPluginProps) {
     setLoading(true)
     try {
       if (useExternalAPI) {
-        // Example: Fetch from external API
-        // In production, you'd use a real weather API
-        const mockData: WeatherData = {
-          temperature: 22,
-          condition: 'sunny',
-          humidity: 65,
-          windSpeed: 12,
-          forecast: [
-            { day: 'Mon', high: 24, low: 18, condition: 'sunny' },
-            { day: 'Tue', high: 22, low: 16, condition: 'cloudy' },
-            { day: 'Wed', high: 20, low: 15, condition: 'rainy' },
-          ],
+        // Use Open-Meteo (no API key required, free for non-commercial use).
+        // The plugin config can override the endpoint or supply lat/lon
+        // directly; otherwise we resolve the configured `location` string
+        // via Open-Meteo's geocoding API.
+        const apiBase = (config?.weatherApiBase as string) || 'https://api.open-meteo.com/v1'
+        const geoBase = (config?.geocodingApiBase as string) || 'https://geocoding-api.open-meteo.com/v1'
+
+        let lat = config?.latitude as number | undefined
+        let lon = config?.longitude as number | undefined
+
+        if (lat == null || lon == null) {
+          const geoResp = await fetch(`${geoBase}/search?name=${encodeURIComponent(location)}&count=1`)
+          if (!geoResp.ok) throw new Error(`geocoding failed: HTTP ${geoResp.status}`)
+          const geo = await geoResp.json()
+          const first = geo?.results?.[0]
+          if (!first) throw new Error(`No geocoding result for "${location}"`)
+          lat = first.latitude
+          lon = first.longitude
         }
-        setWeatherData(mockData)
+
+        const url =
+          `${apiBase}/forecast?latitude=${lat}&longitude=${lon}` +
+          `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code` +
+          `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+          `&timezone=auto&forecast_days=3`
+
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error(`weather api failed: HTTP ${resp.status}`)
+        const data = await resp.json()
+
+        // Map WMO weather codes (https://open-meteo.com/en/docs) to our
+        // internal condition vocabulary.
+        const mapCondition = (code: number): string => {
+          if (code === 0) return 'sunny'
+          if (code <= 3) return 'cloudy'
+          if (code >= 51 && code <= 67) return 'rainy'
+          if (code >= 71 && code <= 77) return 'snowy'
+          if (code >= 80 && code <= 82) return 'rainy'
+          if (code >= 95) return 'rainy'
+          return 'cloudy'
+        }
+
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        const forecast = (data.daily?.time ?? []).map((iso: string, i: number) => ({
+          day: dayLabels[new Date(iso).getDay()],
+          high: Math.round(data.daily.temperature_2m_max[i]),
+          low: Math.round(data.daily.temperature_2m_min[i]),
+          condition: mapCondition(data.daily.weather_code[i]),
+        }))
+
+        setWeatherData({
+          temperature: Math.round(data.current?.temperature_2m ?? 0),
+          condition: mapCondition(data.current?.weather_code ?? 0),
+          humidity: Math.round(data.current?.relative_humidity_2m ?? 0),
+          windSpeed: Math.round(data.current?.wind_speed_10m ?? 0),
+          forecast,
+        })
       } else {
         // Use Home Assistant entity data
         const temp = entity.attributes.temperature as number || 0

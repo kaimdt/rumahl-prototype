@@ -1415,6 +1415,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
         .route("/api/auth/verify", get(auth_verify))
+        .route("/api/auth/validate", get(auth_validate_credentials))
         .route("/api/auth/pin-login", post(auth_pin_login))
         .route("/api/auth/users", get(list_all_users))
         .route("/api/auth/pin", post(set_user_pin))
@@ -7749,6 +7750,42 @@ async fn upload_background_image(
     }
 
     Err(ErrorResponse::bad_request("No file field named 'file' provided"))
+}
+
+/// Validate API key or JWT presented in Authorization/X-API-Key headers.
+///
+/// Returns 200 + identity summary on success, 401 otherwise. Used by other
+/// IORA microservices (e.g. iora-developer-app) to delegate auth to iora-home.
+async fn auth_validate_credentials(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let identity = middleware::try_authenticate(
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        headers
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string()),
+        uri.query().map(|s| s.to_string()),
+        &state,
+    )
+    .await;
+
+    match identity {
+        Some(id) => Ok(Json(serde_json::json!({
+            "valid": true,
+            "kind": match &id {
+                middleware::AuthIdentity::Jwt(_) => "jwt",
+                middleware::AuthIdentity::ApiKey { .. } => "api_key",
+            },
+            "is_admin": id.is_admin(),
+        }))),
+        None => Err(ErrorResponse::unauthorized("Invalid or missing credentials")),
+    }
 }
 
 /// Verify a JWT token

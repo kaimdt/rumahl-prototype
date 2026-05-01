@@ -103,8 +103,8 @@ pub async fn mqtt_subscribe_ws(
                                 let _ = socket.send(Message::Text(ack.to_string().into())).await;
                                 info!("MQTT WS client subscribed to: {}", topic);
 
-                                // In production: connect to MQTT broker and relay messages
-                                // For now: subscribe via iora-home MQTT endpoint
+                                // Subscribe via iora-home, which holds the persistent MQTT
+                                // broker connection on behalf of all microservices.
                                 let sub_url = format!(
                                     "{}/api/admin/mqtt/subscribe",
                                     state.iora_home_url

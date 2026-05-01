@@ -203,7 +203,7 @@ pub struct HaEntity {
     )
 )]
 pub async fn register_desktop(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(identity): Extension<AuthIdentity>,
     Json(req): Json<DesktopRegistration>,
 ) -> Result<Json<DesktopRegistrationResponse>, StatusCode> {
@@ -214,8 +214,30 @@ pub async fn register_desktop(
         req.device_id, req.device_name, req.os, user_id
     );
 
-    // Store registration in database (future: track desktop clients)
-    // For now, just acknowledge registration
+    // Persist registration so administrators can see connected desktop clients
+    // and so we can track last_seen for stale-client detection.
+    let upsert = sqlx::query(
+        r#"
+        INSERT INTO desktop_clients (device_id, user_id, device_name, os, registered_at, last_seen_at)
+        VALUES ($1, $2, $3, $4, NOW(), NOW())
+        ON CONFLICT (device_id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            device_name = EXCLUDED.device_name,
+            os = EXCLUDED.os,
+            last_seen_at = NOW()
+        "#,
+    )
+    .bind(&req.device_id)
+    .bind(&user_id)
+    .bind(&req.device_name)
+    .bind(&req.os)
+    .execute(&state.db_pool)
+    .await;
+
+    if let Err(e) = upsert {
+        warn!("Failed to persist desktop registration for {}: {}", req.device_id, e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
 
     Ok(Json(DesktopRegistrationResponse {
         device_id: req.device_id,

@@ -83,6 +83,9 @@ struct MonitoringData {
     file_accesses: Vec<FileAccess>,
     loaded_modules: Vec<String>,
     last_check: i64,
+    /// Hosts the manifest explicitly allows. Wildcards `*.example.com` are
+    /// supported. An empty list means "no external network access permitted".
+    allowed_hosts: Vec<String>,
 }
 
 #[allow(dead_code)]
@@ -134,9 +137,21 @@ impl IntegrityMonitor {
             file_accesses: Vec::new(),
             loaded_modules: Vec::new(),
             last_check: chrono::Utc::now().timestamp(),
+            allowed_hosts: Vec::new(),
         };
 
         monitored.insert(app_id, data);
+        Ok(())
+    }
+
+    /// Configure the manifest-declared allowed network hosts for an app.
+    /// Should be called immediately after `register_app` if the manifest
+    /// declares external endpoints.
+    pub async fn set_allowed_hosts(&self, app_id: &str, hosts: Vec<String>) -> Result<()> {
+        let mut monitored = self.monitored.write().await;
+        if let Some(data) = monitored.get_mut(app_id) {
+            data.allowed_hosts = hosts;
+        }
         Ok(())
     }
 
@@ -176,6 +191,7 @@ impl IntegrityMonitor {
     pub async fn record_network_connection(&self, app_id: &str, destination: &str, port: u16) -> Result<()> {
         let mut monitored = self.monitored.write().await;
 
+        let mut violation_to_record: Option<IntegrityViolation> = None;
         if let Some(data) = monitored.get_mut(app_id) {
             data.network_connections.push(NetworkConnection {
                 destination: destination.to_string(),
@@ -183,13 +199,42 @@ impl IntegrityMonitor {
                 timestamp: chrono::Utc::now().timestamp(),
             });
 
-            // Check if connection is declared in manifest (simplified check)
-            // In production, this would check against manifest declarations
-            if destination.starts_with("http://") || destination.starts_with("https://") {
-                // External connection - check if it's in manifest
-                // For now, we'll log this as potentially suspicious
-                tracing::warn!("External network connection from {}: {} (port {})", app_id, destination, port);
+            // Validate the connection against the manifest-declared hosts.
+            // Internal/loopback addresses are always permitted.
+            let host = extract_host(destination);
+            let is_internal = is_internal_host(&host);
+
+            if !is_internal {
+                let allowed = data
+                    .allowed_hosts
+                    .iter()
+                    .any(|pattern| host_matches(pattern, &host));
+                if !allowed {
+                    tracing::warn!(
+                        app = %app_id,
+                        host = %host,
+                        port = port,
+                        "Blocked network connection: host not declared in manifest"
+                    );
+                    violation_to_record = Some(IntegrityViolation::UnauthorizedNetwork {
+                        app_id: app_id.to_string(),
+                        destination: destination.to_string(),
+                        port,
+                    });
+                }
             }
+        }
+
+        // Persist the violation outside the monitored lock to avoid deadlocks
+        // when the violations writer is held in the same critical section
+        // elsewhere.
+        drop(monitored);
+        if let Some(v) = violation_to_record {
+            let mut violations = self.violations.write().await;
+            violations
+                .entry(app_id.to_string())
+                .or_insert_with(Vec::new)
+                .push(v);
         }
 
         Ok(())
@@ -339,6 +384,67 @@ impl Default for IntegrityMonitor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Extract the host portion of a destination string. Accepts URLs
+/// (`https://example.com:8080/foo`), `host:port` pairs and bare hosts.
+fn extract_host(destination: &str) -> String {
+    let s = destination
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("ws://")
+        .trim_start_matches("wss://");
+    let s = s.split('/').next().unwrap_or(s);
+    let s = s.split('?').next().unwrap_or(s);
+    // Strip port if present (but preserve IPv6 brackets).
+    if let Some(stripped) = s.strip_prefix('[') {
+        if let Some(end) = stripped.find(']') {
+            return stripped[..end].to_string();
+        }
+    }
+    if let Some(idx) = s.rfind(':') {
+        // If it parses as a port, treat the part before `:` as the host.
+        if s[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
+            return s[..idx].to_string();
+        }
+    }
+    s.to_string()
+}
+
+fn is_internal_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || host.starts_with("172.16.")
+        || host.starts_with("172.17.")
+        || host.starts_with("172.18.")
+        || host.starts_with("172.19.")
+        || host.starts_with("172.20.")
+        || host.starts_with("172.21.")
+        || host.starts_with("172.22.")
+        || host.starts_with("172.23.")
+        || host.starts_with("172.24.")
+        || host.starts_with("172.25.")
+        || host.starts_with("172.26.")
+        || host.starts_with("172.27.")
+        || host.starts_with("172.28.")
+        || host.starts_with("172.29.")
+        || host.starts_with("172.30.")
+        || host.starts_with("172.31.")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+}
+
+/// Match a host against a manifest pattern. Supports a leading `*.` wildcard
+/// (`*.example.com` matches any subdomain) and exact matches.
+fn host_matches(pattern: &str, host: &str) -> bool {
+    let pattern = pattern.trim().to_ascii_lowercase();
+    let host = host.trim().to_ascii_lowercase();
+    if pattern == host { return true; }
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        return host == suffix || host.ends_with(&format!(".{}", suffix));
+    }
+    false
 }
 
 #[cfg(test)]

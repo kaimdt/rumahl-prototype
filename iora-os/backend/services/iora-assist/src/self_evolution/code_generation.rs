@@ -702,30 +702,34 @@ impl CodeGenerationEngine {
         let mut query = "SELECT id, title, description, rationale, file_path, change_type, \
              old_code, new_code, expected_impact, risk_level, status, review_notes, \
              applied_at, created_at FROM code_change_proposals WHERE 1=1".to_string();
-        
-        let mut params: Vec<String> = Vec::new();
+
         let mut bind_count = 1;
 
-        if let Some(s) = status {
+        if status.is_some() {
             query.push_str(" AND status = $");
             query.push_str(&bind_count.to_string());
-            params.push(s.to_string());
             bind_count += 1;
         }
 
-        if let Some(r) = risk_level {
+        if risk_level.is_some() {
             query.push_str(" AND risk_level = $");
             query.push_str(&bind_count.to_string());
-            params.push(r.to_string());
             bind_count += 1;
         }
 
         query.push_str(" ORDER BY created_at DESC LIMIT $");
         query.push_str(&bind_count.to_string());
-        params.push(limit.to_string());
 
-        // Execute with dynamic parameters (simplified - in production use sqlx::query_with)
-        let rows = sqlx::query(&query)
+        // Bind dynamic parameters in order: optional status, optional risk_level, then limit.
+        let mut q = sqlx::query(&query);
+        if let Some(s) = status {
+            q = q.bind(s);
+        }
+        if let Some(r) = risk_level {
+            q = q.bind(r);
+        }
+        q = q.bind(limit);
+        let rows = q
             .fetch_all(&self.db_pool)
             .await
             .map_err(|e| format!("Database error: {}", e))?;

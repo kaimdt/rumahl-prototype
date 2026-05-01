@@ -499,8 +499,34 @@ async fn handle_app(base_url: &str, cmd: AppCommands) -> Result<()> {
         AppCommands::Logs { name, lines, follow } => {
             if follow {
                 println!("{} (press Ctrl+C to stop)", "Following logs...".bright_cyan());
-                // For follow, would need to implement streaming
-                eprintln!("{}", "Follow mode not yet implemented".yellow());
+                // Poll for new log lines every second.
+                let url = format!("{}:8097/api/supervisor/containers/{}/logs", base_url, name);
+                let mut last_seen: Option<String> = None;
+                loop {
+                    let resp = client.get(&url).send().await?;
+                    let data: Value = resp.json().await?;
+                    if let Some(logs) = data.get("logs").and_then(|v| v.as_str()) {
+                        let lines_vec: Vec<&str> = logs.lines().collect();
+                        let new_lines: Vec<&str> = if let Some(last) = &last_seen {
+                            if let Some(idx) = lines_vec.iter().rposition(|l| *l == last.as_str()) {
+                                lines_vec[idx + 1..].to_vec()
+                            } else {
+                                let start = lines_vec.len().saturating_sub(lines);
+                                lines_vec[start..].to_vec()
+                            }
+                        } else {
+                            let start = lines_vec.len().saturating_sub(lines);
+                            lines_vec[start..].to_vec()
+                        };
+                        for line in &new_lines {
+                            println!("{}", line);
+                        }
+                        if let Some(last) = lines_vec.last() {
+                            last_seen = Some((*last).to_string());
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
             } else {
                 let url = format!("{}:8097/api/supervisor/containers/{}/logs", base_url, name);
                 let resp = client.get(&url).send().await?;
@@ -515,8 +541,38 @@ async fn handle_app(base_url: &str, cmd: AppCommands) -> Result<()> {
                 }
             }
         }
-        AppCommands::Stats { name: _ } => {
-            println!("{}", "App stats not yet implemented".yellow());
+        AppCommands::Stats { name } => {
+            let target = match name {
+                Some(n) => n,
+                None => {
+                    eprintln!("{}", "Container name required (e.g. `ora app stats <name>`)".yellow());
+                    return Ok(());
+                }
+            };
+            let url = format!("{}:8097/api/supervisor/containers/{}/stats", base_url, target);
+            let resp = client.get(&url).send().await?;
+            if !resp.status().is_success() {
+                eprintln!("{} status {}", "Stats request failed".red(), resp.status());
+            } else {
+                let data: Value = resp.json().await?;
+                println!("{}", format!("Stats: {}", target).bright_blue().bold());
+                if let Some(cpu) = data.get("cpu_percent").and_then(|v| v.as_f64()) {
+                    println!("  CPU:    {:.2}%", cpu);
+                }
+                if let Some(mem) = data.get("memory_usage").and_then(|v| v.as_u64()) {
+                    println!("  Memory: {} bytes", mem);
+                }
+                if let Some(mem_pct) = data.get("memory_percent").and_then(|v| v.as_f64()) {
+                    println!("  Memory: {:.2}%", mem_pct);
+                }
+                if let Some(net_rx) = data.get("network_rx").and_then(|v| v.as_u64()) {
+                    println!("  Net RX: {} bytes", net_rx);
+                }
+                if let Some(net_tx) = data.get("network_tx").and_then(|v| v.as_u64()) {
+                    println!("  Net TX: {} bytes", net_tx);
+                }
+                println!("  Raw:    {}", data);
+            }
         }
     }
     Ok(())
@@ -543,7 +599,17 @@ async fn handle_plugin(base_url: &str, cmd: PluginCommands) -> Result<()> {
         }
         PluginCommands::Install { plugin } => {
             println!("{} {}", "Installing plugin".bright_cyan(), plugin.bright_white());
-            println!("{}", "Plugin installation not yet fully implemented".yellow());
+            let url = format!("{}:8090/api/core/plugins", base_url);
+            let resp = client
+                .post(&url)
+                .json(&serde_json::json!({ "source": plugin }))
+                .send()
+                .await?;
+            if resp.status().is_success() {
+                println!("{}", "\u{2713} Plugin installed".green());
+            } else {
+                eprintln!("{} status {}", "Plugin install failed".red(), resp.status());
+            }
         }
         PluginCommands::Remove { name } => {
             println!("{} {}", "Removing plugin".bright_cyan(), name.bright_white());
@@ -561,8 +627,23 @@ async fn handle_plugin(base_url: &str, cmd: PluginCommands) -> Result<()> {
             println!("  Type: {}", plugin["type"].as_str().unwrap_or("unknown"));
             println!("  Enabled: {}", plugin["enabled"].as_bool().unwrap_or(false));
         }
-        PluginCommands::Enable { name } | PluginCommands::Disable { name } => {
-            println!("{}", format!("Plugin enable/disable for {} not yet implemented", name).yellow());
+        PluginCommands::Enable { name } => {
+            let url = format!("{}:8090/api/core/plugins/{}/enable", base_url, name);
+            let resp = client.post(&url).send().await?;
+            if resp.status().is_success() {
+                println!("{} {}", "\u{2713} Plugin enabled:".green(), name);
+            } else {
+                eprintln!("{} status {}", "Plugin enable failed".red(), resp.status());
+            }
+        }
+        PluginCommands::Disable { name } => {
+            let url = format!("{}:8090/api/core/plugins/{}/disable", base_url, name);
+            let resp = client.post(&url).send().await?;
+            if resp.status().is_success() {
+                println!("{} {}", "\u{2713} Plugin disabled:".green(), name);
+            } else {
+                eprintln!("{} status {}", "Plugin disable failed".red(), resp.status());
+            }
         }
     }
     Ok(())

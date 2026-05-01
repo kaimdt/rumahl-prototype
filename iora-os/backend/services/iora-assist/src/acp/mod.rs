@@ -462,8 +462,57 @@ impl AcpRouter {
             ));
         }
 
-        // Pick the best agent (first capable for now, could use scoring)
-        let target = capable[0];
+        // Score each capable agent and pick the highest-ranked one.
+        // Score = base 100
+        //   + 50 if agent_type == "primary" / "tool"
+        //   + 5 per matched capability beyond the required set (specialization bonus)
+        //   - penalty depending on status (Busy=30, Idle=10, Offline=disqualified)
+        //   - heartbeat staleness (1 point per minute since last heartbeat, capped at 60)
+        let now = Utc::now();
+        let mut scored: Vec<(i64, &&AgentInfo)> = capable
+            .iter()
+            .filter(|a| !matches!(a.status, AgentStatus::Offline))
+            .map(|a| {
+                let mut score: i64 = 100;
+                match a.agent_type.as_str() {
+                    "primary" => score += 50,
+                    "tool" => score += 30,
+                    "subagent" => score += 20,
+                    _ => {}
+                }
+                let extra_caps = a
+                    .capabilities
+                    .iter()
+                    .filter(|c| !required_capabilities.iter().any(|rc| rc == &c.name))
+                    .count() as i64;
+                score += extra_caps.min(20) * 5;
+
+                match &a.status {
+                    AgentStatus::Online => {}
+                    AgentStatus::Idle => score -= 10,
+                    AgentStatus::Busy => score -= 30,
+                    AgentStatus::Error(_) => score -= 80,
+                    AgentStatus::Offline => score -= 1000,
+                }
+
+                let staleness = (now - a.last_heartbeat).num_minutes().max(0).min(60);
+                score -= staleness;
+
+                (score, a)
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+
+        let target = match scored.first() {
+            Some((_, a)) => *a,
+            None => {
+                return Err(format!(
+                    "No reachable agent with required capabilities: {:?}",
+                    required_capabilities
+                ));
+            }
+        };
         let task_id = Uuid::new_v4().to_string();
         let msg_id = self.next_id().await;
 

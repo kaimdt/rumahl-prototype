@@ -29,6 +29,7 @@ async-graphql-axum = "7"
 # WebSocket for MQTT bridging
 tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
 futures-util = "0.3"
+async-stream = "0.3"
 
 # XML for WebDAV/CalDAV/CardDAV responses
 quick-xml = { version = "0.36", features = ["serialize"] }

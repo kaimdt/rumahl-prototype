@@ -565,16 +565,40 @@ fn collect_health() -> Vec<(String, bool, String)> {
 fn update(version: Option<String>) -> Result<()> {
     println!("{}", "🔄 IORA Update".bright_blue().bold());
 
-    if let Some(v) = version {
-        println!("Updating to version {}", v);
-    } else {
-        println!("Updating to latest version");
+    let url = std::env::var("IORA_UPDATER_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8101".to_string());
+    let endpoint = format!("{}/api/updates/install", url.trim_end_matches('/'));
+    let body = match version {
+        Some(v) => {
+            println!("  Requesting update to version {}", v);
+            serde_json::json!({ "version": v })
+        }
+        None => {
+            println!("  Requesting update to latest version");
+            serde_json::json!({})
+        }
+    };
+
+    let resp = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(900))
+        .build()?
+        .post(&endpoint)
+        .json(&body)
+        .send();
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            let body: serde_json::Value = r.json().unwrap_or_default();
+            println!("  ✓ Update initiated: {}", body);
+            Ok(())
+        }
+        Ok(r) => anyhow::bail!("update request failed with status {}", r.status()),
+        Err(e) => {
+            println!("  ⚠ iora-updater is not reachable ({}). Falling back to manual instructions.", e);
+            println!("  ℹ️  Pull the latest images and run `systemctl restart iora-*` manually.");
+            Ok(())
+        }
     }
-
-    println!("  ℹ️  Update functionality not yet implemented");
-    println!("  ℹ️  For now, manually rebuild and restart services");
-
-    Ok(())
 }
 
 // ─── Other Commands ──────────────────────────────────────────────────────────
@@ -610,9 +634,23 @@ fn rollback() -> Result<()> {
 
 fn config() -> Result<()> {
     println!("{}", "⚙️  IORA Configuration".bright_blue().bold());
-    println!("  ℹ️  Interactive configuration not yet implemented");
-    println!("  ℹ️  Edit files in /etc/iora/ manually");
-    Ok(())
+    let config_path = std::env::var("IORA_CONFIG_FILE")
+        .unwrap_or_else(|_| "/etc/iora/iora.toml".to_string());
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+
+    if !Path::new(&config_path).exists() {
+        std::fs::create_dir_all(Path::new(&config_path).parent().unwrap_or(Path::new("/etc/iora")))?;
+        std::fs::write(&config_path, "# IORA configuration\n")?;
+        println!("  Created new config at {}", config_path);
+    }
+
+    println!("  Opening {} in {}", config_path, editor);
+    let status = Command::new(&editor).arg(&config_path).status();
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => anyhow::bail!("editor exited with status {}", s),
+        Err(e) => anyhow::bail!("failed to launch editor '{}': {}", editor, e),
+    }
 }
 
 fn status() -> Result<()> {
@@ -649,20 +687,57 @@ fn status() -> Result<()> {
 
 fn backup(_output: Option<String>) -> Result<()> {
     println!("{}", "💾 IORA Backup".bright_blue().bold());
-    println!("  ℹ️  Backup functionality not yet implemented");
-    Ok(())
+    let url = std::env::var("IORA_BACKUP_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8084".to_string());
+    let endpoint = format!("{}/api/backup/create", url.trim_end_matches('/'));
+    let resp = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()?
+        .post(&endpoint)
+        .json(&serde_json::json!({}))
+        .send()?;
+    if resp.status().is_success() {
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        println!("  ✓ Backup created: {}", body);
+        Ok(())
+    } else {
+        anyhow::bail!("backup request failed with status {}", resp.status());
+    }
 }
 
-fn restore(_backup_file: String) -> Result<()> {
+fn restore(backup_file: String) -> Result<()> {
     println!("{}", "📦 IORA Restore".bright_yellow().bold());
-    println!("  ℹ️  Restore functionality not yet implemented");
-    Ok(())
+    let url = std::env::var("IORA_BACKUP_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8084".to_string());
+    let endpoint = format!("{}/api/backup/restore", url.trim_end_matches('/'));
+    let resp = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build()?
+        .post(&endpoint)
+        .json(&serde_json::json!({ "backup_file": backup_file }))
+        .send()?;
+    if resp.status().is_success() {
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        println!("  ✓ Restore initiated: {}", body);
+        Ok(())
+    } else {
+        anyhow::bail!("restore request failed with status {}", resp.status());
+    }
 }
 
 fn migrate() -> Result<()> {
     println!("{}", "🗄️  Database Migration".bright_blue().bold());
-    println!("  ℹ️  Migration functionality not yet implemented");
-    println!("  ℹ️  Migrations run automatically when services start");
+    println!("  ℹ️  Migrations run automatically on service start.");
+    println!("  Triggering reload of all managed services to force a fresh migration pass...");
+
+    for (name, _port) in MANAGED_SERVICES.iter() {
+        let status = Command::new("systemctl").args(["restart", name]).status();
+        match status {
+            Ok(s) if s.success() => println!("  ✓ {} restarted", name),
+            Ok(s) => println!("  ⚠ {} restart returned status {}", name, s),
+            Err(e) => println!("  ✗ failed to restart {}: {}", name, e),
+        }
+    }
     Ok(())
 }
 
@@ -671,7 +746,20 @@ fn validate(enforce: bool) -> Result<()> {
     if enforce {
         validate_installation()
     } else {
-        println!("  ℹ️  Validation functionality not yet implemented");
+        // Run lightweight validation: ensure each managed service is reachable.
+        let health = collect_health();
+        let mut bad = 0;
+        for ((name, _port), (_, healthy, detail)) in MANAGED_SERVICES.iter().zip(health.iter()) {
+            if *healthy {
+                println!("  ✓ {} {}", name, "healthy".green());
+            } else {
+                println!("  ✗ {} {} ({})", name, "unhealthy".red(), detail);
+                bad += 1;
+            }
+        }
+        if bad > 0 {
+            anyhow::bail!("{} services are unhealthy", bad);
+        }
         Ok(())
     }
 }

@@ -84,23 +84,60 @@ impl ConversationManager {
         tracing::info!("Conversation manager stop requested");
     }
 
-    /// Deliver pending notifications
+    /// Deliver pending notifications by forwarding them to iora-home's notification
+    /// dispatcher (POST /api/notifications/send), which fans them out to all
+    /// enabled channels (WebSocket subscribers, HA service calls, push, etc.).
     async fn deliver_pending_notifications(
         db: &DbPool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let notifications = db_notifications::get_pending_notifications(db, 10).await?;
+        if notifications.is_empty() {
+            return Ok(());
+        }
+
+        let home_url = std::env::var("IORA_HOME_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8126".to_string());
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
 
         for notification in notifications {
             tracing::info!("Delivering notification: {}", notification.message);
 
-            // Mark as delivered
-            if let Err(e) = db_notifications::mark_delivered(db, notification.id).await {
-                tracing::error!("Failed to mark notification as delivered: {}", e);
-            }
+            let payload = serde_json::json!({
+                "title": "ORA Assistant",
+                "message": notification.message,
+                "level": match notification.priority {
+                    p if p >= 8 => "critical",
+                    p if p >= 5 => "warning",
+                    _ => "info",
+                },
+                "source": "iora-assist",
+                "extra_data": {
+                    "notification_type": notification.notification_type,
+                    "user_id": notification.user_id,
+                    "metadata": notification.metadata,
+                },
+            });
 
-            // In production, this would send the notification via WebSocket/SSE
-            // For now, we just log it
-            tracing::info!("Notification delivered: {}", notification.message);
+            let url = format!("{}/api/notifications/send", home_url.trim_end_matches('/'));
+            match client.post(&url).json(&payload).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Err(e) = db_notifications::mark_delivered(db, notification.id).await {
+                        tracing::error!("Failed to mark notification as delivered: {}", e);
+                    }
+                }
+                Ok(resp) => {
+                    tracing::warn!(
+                        "iora-home notification dispatch returned {} for notification {}",
+                        resp.status(),
+                        notification.id
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Failed to forward notification {} to iora-home: {}", notification.id, e);
+                }
+            }
         }
 
         Ok(())

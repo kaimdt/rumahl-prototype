@@ -139,13 +139,67 @@ async fn list_services(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn aggregate_logs() -> Json<serde_json::Value> {
-    // Placeholder – in production this would collect logs from all services
-    Json(serde_json::json!({
+    // Aggregate logs from each known service via its standard `/logs` endpoint.
+    // If a remote LOG_AGGREGATOR_URL is configured, also forward the merged
+    // payload there so external aggregators can ingest it.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok();
+
+    let services: Vec<(&str, String)> = vec![
+        ("iora-home", std::env::var("IORA_HOME_URL").unwrap_or_else(|_| IORA_HOME_URL.to_string())),
+        ("iora-core", std::env::var("IORA_CORE_URL").unwrap_or_else(|_| IORA_CORE_URL.to_string())),
+        ("iora-control", "http://localhost:8123".to_string()),
+        ("iora-assist", std::env::var("IORA_ASSIST_URL").unwrap_or_else(|_| "http://localhost:8129".to_string())),
+        ("iora-supervisor", "http://localhost:8097".to_string()),
+        ("iora-watchdog", "http://localhost:8095".to_string()),
+    ];
+
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    if let Some(client) = client.as_ref() {
+        for (name, base) in &services {
+            // Try `/logs?lines=200` then `/api/<name>/logs?lines=200` as fallbacks.
+            let candidates = [
+                format!("{}/logs?lines=200", base.trim_end_matches('/')),
+                format!("{}/api/{}/logs?lines=200", base.trim_end_matches('/'), name.trim_start_matches("iora-")),
+            ];
+            let mut got = false;
+            for url in &candidates {
+                match client.get(url).send().await {
+                    Ok(r) if r.status().is_success() => {
+                        let body: serde_json::Value = r.json().await.unwrap_or(serde_json::Value::Null);
+                        entries.push(serde_json::json!({
+                            "service": name,
+                            "source": url,
+                            "logs": body,
+                        }));
+                        got = true;
+                        break;
+                    }
+                    _ => continue,
+                }
+            }
+            if !got {
+                entries.push(serde_json::json!({
+                    "service": name,
+                    "error": "service unreachable or no /logs endpoint",
+                }));
+            }
+        }
+    }
+
+    let aggregated = serde_json::json!({
         "timestamp": Utc::now().to_rfc3339(),
-        "message": "Log aggregation not yet implemented. Configure a log forwarder to aggregate logs from all IORA services.",
-        "services": ["iora-home", "iora-core", "iora-control", "iora-assist"],
-        "hint": "Set LOG_AGGREGATOR_URL in your environment to enable log forwarding.",
-    }))
+        "entries": entries,
+    });
+
+    // Optional forward to external aggregator (Loki, Elasticsearch, etc.).
+    if let (Some(client), Ok(forward_url)) = (client.as_ref(), std::env::var("LOG_AGGREGATOR_URL")) {
+        let _ = client.post(&forward_url).json(&aggregated).send().await;
+    }
+
+    Json(aggregated)
 }
 
 async fn list_plugins(State(state): State<AppState>) -> impl IntoResponse {

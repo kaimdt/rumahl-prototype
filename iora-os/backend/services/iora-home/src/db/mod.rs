@@ -54,6 +54,7 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("022_app_extended_capabilities", include_str!("../../migrations/022_app_extended_capabilities.sql")),
         ("023_core_registrations_and_updates", include_str!("../../migrations/023_core_registrations_and_updates.sql")),
         ("024_home_state", include_str!("../../migrations/024_home_state.sql")),
+        ("025_desktop_clients", include_str!("../../migrations/025_desktop_clients.sql")),
     ];
 
     // Apply each migration if not already applied

@@ -81,6 +81,7 @@ impl TaskResolver {
         let mut out = String::from("### Aktive Aufgaben des Nutzers\n");
         for t in tasks {
             let recur = match t.recurrence_type.as_str() {
+                "hourly"   => "stündlich".to_string(),
                 "weekdays" => "Mo–Fr".to_string(),
                 "daily"    => "täglich".to_string(),
                 "weekly"   => format!("wöchentlich (Tage: {:?})", t.recurrence_days),

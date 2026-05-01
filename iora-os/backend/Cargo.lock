@@ -2961,6 +2961,7 @@ dependencies = [
  "anyhow",
  "async-graphql",
  "async-graphql-axum",
+ "async-stream",
  "axum 0.7.9",
  "chrono",
  "dotenv",
@@ -3016,6 +3017,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.21.7",
  "chrono",
+ "cron",
  "diffy",
  "dotenv",
  "futures-util",
@@ -3150,6 +3152,7 @@ name = "iora-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.7.9",
  "chrono",
  "dotenv",
@@ -3203,6 +3206,7 @@ dependencies = [
  "chrono",
  "flate2",
  "futures-util",
+ "rand 0.8.6",
  "reqwest 0.11.27",
  "serde",
  "serde_json",

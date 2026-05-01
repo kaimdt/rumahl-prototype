@@ -547,7 +547,8 @@ impl SandboxManager {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut entries = Vec::new();
-        let mut current_entry: Option<(String, String, String, String, String)> = None;
+        // (hash, author, email, message, timestamp, files_changed, insertions, deletions)
+        let mut current_entry: Option<(String, String, String, String, String, u32, u32, u32)> = None;
 
         for line in stdout.lines() {
             if line.contains('|') && line.chars().filter(|&c| c == '|').count() >= 4 {
@@ -556,7 +557,7 @@ impl SandboxManager {
                     entries.push(GitCommitEntry {
                         hash: entry.0, author: entry.1, email: entry.2,
                         message: entry.3, timestamp: entry.4,
-                        files_changed: 0, insertions: 0, deletions: 0,
+                        files_changed: entry.5, insertions: entry.6, deletions: entry.7,
                     });
                 }
                 let parts: Vec<&str> = line.split('|').collect();
@@ -565,22 +566,25 @@ impl SandboxManager {
                         parts[0].to_string(), parts[1].to_string(),
                         parts[2].to_string(), parts[3].to_string(),
                         parts[4].to_string(),
+                        0, 0, 0,
                     ));
                 }
             } else if line.contains("changed") {
                 if let Some(ref mut entry) = current_entry {
-                    if let Some(files) = line.split_whitespace().find(|w| w.parse::<u32>().is_ok()) {
-                        entry.0.clone_into(&mut String::new()); // placeholder
-                    }
                     // Parse: "X files changed, Y insertions(+), Z deletions(-)"
                     for part in line.split(',') {
                         let part = part.trim();
-                        if part.contains("changed") {
-                            if let Some(_n) = part.split_whitespace().next().and_then(|s| s.parse::<u32>().ok()) {
-                                if let Some(ref mut e) = current_entry {
-                                    // can't directly modify entry, so we'll do it below
-                                }
-                            }
+                        let n: u32 = part
+                            .split_whitespace()
+                            .next()
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        if part.contains("file") && part.contains("changed") {
+                            entry.5 = n;
+                        } else if part.contains("insertion") {
+                            entry.6 = n;
+                        } else if part.contains("deletion") {
+                            entry.7 = n;
                         }
                     }
                 }
@@ -591,7 +595,7 @@ impl SandboxManager {
             entries.push(GitCommitEntry {
                 hash: entry.0, author: entry.1, email: entry.2,
                 message: entry.3, timestamp: entry.4,
-                files_changed: 0, insertions: 0, deletions: 0,
+                files_changed: entry.5, insertions: entry.6, deletions: entry.7,
             });
         }
 

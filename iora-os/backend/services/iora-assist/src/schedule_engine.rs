@@ -19,6 +19,8 @@ use uuid::Uuid;
 pub enum RecurrenceType {
     /// Single one-time trigger
     Once,
+    /// Every hour (top of the hour by default, or at `time_of_day`'s minute)
+    Hourly,
     /// Every day
     Daily,
     /// Monday – Friday only
@@ -33,6 +35,8 @@ impl RecurrenceType {
     pub fn as_str(&self) -> &'static str {
         match self {
             RecurrenceType::Once => "once",
+            RecurrenceType::Hourly => "hourly",
+            RecurrenceType::Daily => "daily",
             RecurrenceType::Daily => "daily",
             RecurrenceType::Weekdays => "weekdays",
             RecurrenceType::Weekly => "weekly",
@@ -48,7 +52,12 @@ pub struct ParsedSchedule {
     pub name: String,
     /// The original user text kept as description
     pub description: String,
-    /// What the task should do (always "reminder" for now)
+    /// What the task should do. One of:
+    ///   - "reminder"     – default: notify the user at the trigger time
+    ///   - "alarm"        – like reminder but high priority / loud channel
+    ///   - "wakeup"       – morning alarm semantics
+    ///   - "automation"   – fire a Home Assistant / iora-home automation
+    ///   - "notification" – plain user notification
     pub task_type: String,
     /// How this task recurs
     pub recurrence_type: RecurrenceType,
@@ -119,11 +128,12 @@ impl ScheduleEngine {
         let is_recurring = recurrence_type != RecurrenceType::Once;
 
         let name = truncate_name(original, 100);
+        let task_type = detect_task_type(&lower).to_string();
 
         Some(ParsedSchedule {
             name,
             description: original.to_string(),
-            task_type: "reminder".to_string(),
+            task_type,
             recurrence_type,
             days_of_week,
             time_of_day,
@@ -147,6 +157,11 @@ impl ScheduleEngine {
             return None; // one-shot tasks don't repeat
         }
 
+        // Hourly: next firing is exactly +1 hour (preserving minute alignment).
+        if schedule.recurrence_type == RecurrenceType::Hourly {
+            return Some(after + chrono::Duration::hours(1));
+        }
+
         let time = schedule.time_of_day?;
 
         match schedule.recurrence_type {
@@ -165,12 +180,30 @@ impl ScheduleEngine {
             RecurrenceType::Weekly | RecurrenceType::Custom => {
                 next_day_of_week_occurrence(after, time, &schedule.days_of_week)
             }
-            RecurrenceType::Once => None,
+            RecurrenceType::Hourly | RecurrenceType::Once => None,
         }
     }
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/// Classify the user request into a coarse task type. The default is
+/// "reminder" if no more specific intent is detected.
+fn detect_task_type(lower: &str) -> &'static str {
+    let wakeup = ["wake me", "wecke mich", "wake-up", "morgen weck", "morning alarm"];
+    let alarm = ["alarm", "wecker", "wakeup", "loud"];
+    let automation = [
+        "automation", "automatisierung", "schalte", "schalt ", "turn on",
+        "turn off", "einschalten", "ausschalten", "starte", "stoppe", "trigger",
+    ];
+    let notification = ["benachrichtigung", "notification", "notify", "push", "message", "nachricht"];
+
+    if wakeup.iter().any(|w| lower.contains(w)) { return "wakeup"; }
+    if automation.iter().any(|w| lower.contains(w)) { return "automation"; }
+    if alarm.iter().any(|w| lower.contains(w)) { return "alarm"; }
+    if notification.iter().any(|w| lower.contains(w)) { return "notification"; }
+    "reminder"
+}
 
 /// Returns true if the text contains at least one task-trigger keyword.
 fn has_trigger_word(lower: &str) -> bool {
@@ -344,6 +377,18 @@ fn detect_recurrence(lower: &str) -> (RecurrenceType, Vec<u8>) {
         return (RecurrenceType::Custom, days);
     }
 
+    // ── Hourly ───────────────────────────────────────────────────────────────
+    let hourly_phrases = [
+        "jede stunde",
+        "stündlich",
+        "every hour",
+        "hourly",
+        "each hour",
+    ];
+    if hourly_phrases.iter().any(|p| lower.contains(p)) {
+        return (RecurrenceType::Hourly, vec![]);
+    }
+
     // ── Daily ────────────────────────────────────────────────────────────────
     let daily_phrases = [
         "täglich",
@@ -352,8 +397,6 @@ fn detect_recurrence(lower: &str) -> (RecurrenceType, Vec<u8>) {
         "daily",
         "every day",
         "each day",
-        "jede stunde",    // hourly - treat as daily for now
-        "every hour",
     ];
     if daily_phrases.iter().any(|p| lower.contains(p)) {
         return (RecurrenceType::Daily, vec![]);

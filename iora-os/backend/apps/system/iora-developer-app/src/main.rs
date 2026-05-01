@@ -16,8 +16,43 @@ use utoipa_swagger_ui::SwaggerUi;
 /// and development workflow features. This app has exclusive access
 /// to hot-reload APIs and other development features.
 
-// Security token for Developer App - injected at build time
-const DEVELOPER_APP_TOKEN: &str = match option_env!("IORA_DEVELOPER_APP_TOKEN") { Some(v) => v, None => "dev-token-placeholder" };
+// Security token for Developer App - injected at build time. Falls back to a
+// runtime-generated random token if the build-time variable was not set; this
+// keeps the binary functional in dev environments while preventing the
+// previously-used `dev-token-placeholder` constant from acting as an
+// authentication backdoor in production.
+const DEVELOPER_APP_TOKEN_BUILDTIME: Option<&str> = option_env!("IORA_DEVELOPER_APP_TOKEN");
+
+fn developer_app_token() -> &'static str {
+    use std::sync::OnceLock;
+    static TOKEN: OnceLock<String> = OnceLock::new();
+    TOKEN
+        .get_or_init(|| {
+            if let Some(t) = DEVELOPER_APP_TOKEN_BUILDTIME {
+                if !t.is_empty() && t != "dev-token-placeholder" {
+                    return t.to_string();
+                }
+            }
+            if let Ok(t) = std::env::var("IORA_DEVELOPER_APP_TOKEN") {
+                if !t.is_empty() {
+                    return t;
+                }
+            }
+            // Last resort: ephemeral token, logged once at boot.
+            let token: String = (0..48)
+                .map(|_| {
+                    let n: u8 = rand::random::<u8>() % 36;
+                    if n < 10 { (b'0' + n) as char } else { (b'a' + n - 10) as char }
+                })
+                .collect();
+            warn!(
+                "IORA_DEVELOPER_APP_TOKEN not configured; generated ephemeral token: {}",
+                token
+            );
+            token
+        })
+        .as_str()
+}
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -89,20 +124,39 @@ async fn check_developer_mode(
         if let Ok(auth_str) = auth_header.to_str() {
             if auth_str.starts_with("Bearer ") {
                 let token = &auth_str[7..];
-                if token == DEVELOPER_APP_TOKEN {
+                if !token.is_empty() && token == developer_app_token() {
                     return Ok(());
                 }
             }
         }
     }
 
-    // Check for API key in header (for other apps)
+    // Validate API key by forwarding to iora-api: a 200 response indicates a
+    // currently-valid key recognised by the central authentication subsystem.
     if let Some(api_key) = req.headers().get("X-API-Key") {
         if let Ok(key_str) = api_key.to_str() {
-            // TODO: Validate API key against IORA API
-            // For now, accept any key if Developer Mode is enabled
-            info!("API key authentication: {}", key_str);
-            return Ok(());
+            if !key_str.is_empty() {
+                let validate_url = format!(
+                    "{}/api/auth/validate",
+                    data.iora_api_url.trim_end_matches('/')
+                );
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build();
+                if let Ok(client) = client {
+                    if let Ok(resp) = client
+                        .get(&validate_url)
+                        .header("X-API-Key", key_str)
+                        .send()
+                        .await
+                    {
+                        if resp.status().is_success() {
+                            return Ok(());
+                        }
+                    }
+                }
+                warn!("API key authentication rejected for key prefix {}", &key_str.chars().take(8).collect::<String>());
+            }
         }
     }
 
@@ -870,7 +924,7 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     info!("Starting IORA Developer App v{}", env!("CARGO_PKG_VERSION"));
-    info!("Developer App Token: {}", if DEVELOPER_APP_TOKEN != "dev-token-placeholder" { "***configured***" } else { "PLACEHOLDER - UPDATE IN PRODUCTION" });
+    info!("Developer App Token: {}", if DEVELOPER_APP_TOKEN_BUILDTIME.map(|t| t != "dev-token-placeholder" && !t.is_empty()).unwrap_or(false) { "***configured at build time***" } else if std::env::var("IORA_DEVELOPER_APP_TOKEN").map(|t| !t.is_empty()).unwrap_or(false) { "***configured via environment***" } else { "***ephemeral (logged once)***" });
 
     let supervisor_url = std::env::var("SUPERVISOR_URL")
         .unwrap_or_else(|_| "http://iora-supervisor:8097".to_string());

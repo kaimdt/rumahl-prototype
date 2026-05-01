@@ -319,14 +319,106 @@ pub struct SubscriptionRoot;
 #[Subscription]
 impl SubscriptionRoot {
     /// Subscribe to entity state changes.
+    ///
+    /// Polls iora-home `/api/states` periodically and emits an `Entity` whenever
+    /// the state or last_changed timestamp differs from the previously observed
+    /// value. Optionally filters by exact entity_id or domain prefix.
     async fn entity_changed(
         &self,
+        ctx: &Context<'_>,
         entity_id: Option<String>,
         domain: Option<String>,
     ) -> impl futures_util::Stream<Item = Entity> {
-        // Placeholder: In production, this would connect to the IORA Home WebSocket
-        // and relay state_changed events as a GraphQL subscription stream.
-        futures_util::stream::empty()
+        let gql_ctx = ctx
+            .data::<GraphQLContext>()
+            .map(|c| c.clone())
+            .ok();
+
+        async_stream::stream! {
+            let Some(gql_ctx) = gql_ctx else { return; };
+            let mut last_seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+                let resp = match gql_ctx
+                    .http_client
+                    .get(&format!("{}/api/states", gql_ctx.iora_home_url))
+                    .send()
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                let states: Vec<serde_json::Value> = match resp.json().await {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+
+                for state in states {
+                    let eid = match state.get("entity_id").and_then(|v| v.as_str()) {
+                        Some(s) => s.to_string(),
+                        None => continue,
+                    };
+                    if let Some(filter) = &entity_id {
+                        if &eid != filter { continue; }
+                    }
+                    let dom = eid.split('.').next().unwrap_or("").to_string();
+                    if let Some(filter) = &domain {
+                        if &dom != filter { continue; }
+                    }
+                    let s = state
+                        .get("state")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let last_changed = state
+                        .get("last_changed")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let signature = format!(
+                        "{}|{}",
+                        s,
+                        last_changed.clone().unwrap_or_default()
+                    );
+                    let prev = last_seen.get(&eid).cloned();
+                    if prev.as_deref() == Some(signature.as_str()) {
+                        continue;
+                    }
+                    last_seen.insert(eid.clone(), signature);
+
+                    // Skip first observation (initial baseline) so we only emit deltas
+                    if prev.is_none() {
+                        continue;
+                    }
+
+                    let attributes = state
+                        .get("attributes")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let friendly_name = state
+                        .get("attributes")
+                        .and_then(|a| a.get("friendly_name"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let last_updated = state
+                        .get("last_updated")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    yield Entity {
+                        entity_id: eid,
+                        state: s,
+                        attributes,
+                        last_changed,
+                        last_updated,
+                        domain: dom,
+                        friendly_name,
+                    };
+                }
+            }
+        }
     }
 }
 

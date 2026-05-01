@@ -220,14 +220,56 @@ async fn install_plugin(
 ) -> Result<(StatusCode, Json<serde_json::Value>), Response> {
     let id = req.metadata.id.clone();
 
-    struct StubPlugin(iora_shared::plugin::PluginMetadata);
-    impl iora_shared::plugin::IPlugin for StubPlugin {
+    // Metadata-only plugin registration. Actual plugin runtimes live in the
+    // supervisor (Docker apps) or in the iora-home plugin host (sandboxed JS
+    // plugins) – this entry just makes the plugin discoverable through the
+    // service registry. Execution of `run_sandboxed` therefore explicitly
+    // routes the call back to whichever runtime owns the plugin.
+    struct RegisteredPlugin(iora_shared::plugin::PluginMetadata);
+    #[async_trait::async_trait]
+    impl iora_shared::plugin::IPlugin for RegisteredPlugin {
         fn metadata(&self) -> &iora_shared::plugin::PluginMetadata {
             &self.0
         }
+
+        async fn on_load(&self) -> anyhow::Result<()> {
+            tracing::info!(
+                plugin_id = %self.0.id,
+                version = %self.0.version,
+                "plugin metadata registered with iora-core"
+            );
+            Ok(())
+        }
+
+        async fn on_unload(&self) -> anyhow::Result<()> {
+            tracing::info!(plugin_id = %self.0.id, "plugin metadata unregistered");
+            Ok(())
+        }
+
+        async fn run_sandboxed(
+            &self,
+            _input: serde_json::Value,
+        ) -> anyhow::Result<serde_json::Value> {
+            // iora-core only stores metadata. The actual execution path is
+            // supervisor (for container apps) or iora-home (for sandboxed
+            // JS plugins). Surface this so callers do not silently no-op.
+            anyhow::bail!(
+                "plugin '{}' has no inline executor in iora-core; \
+                 invoke it via the supervisor or iora-home plugin host",
+                self.0.id
+            )
+        }
     }
 
-    let plugin = Arc::new(StubPlugin(req.metadata)) as Arc<dyn iora_shared::plugin::IPlugin>;
+    let plugin = Arc::new(RegisteredPlugin(req.metadata)) as Arc<dyn iora_shared::plugin::IPlugin>;
+    // Explicitly drive the lifecycle hook so subscribers get a load notification.
+    if let Err(e) = plugin.on_load().await {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("on_load failed: {}", e) })),
+        )
+            .into_response());
+    }
     state.plugins.register(plugin).await.map_err(|e| {
         (
             StatusCode::CONFLICT,

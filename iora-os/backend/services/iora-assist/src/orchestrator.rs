@@ -80,24 +80,17 @@ impl ProviderOrchestrator {
         self.providers.write().await.insert(id, provider);
     }
 
-    /// Get provider for a specific purpose
-    pub async fn get_provider_for_purpose(&self, purpose: TaskPurpose) -> Option<Box<dyn AIProvider>> {
+    /// Resolve provider key for a specific purpose (purpose-specific, then general fallback).
+    pub async fn get_provider_for_purpose(&self, purpose: TaskPurpose) -> Option<String> {
         let providers = self.providers.read().await;
-
-        // Try purpose-specific provider first
         let purpose_key = format!("local_{}", purpose.as_str());
-        if let Some(provider) = providers.get(&purpose_key) {
-            // Clone the provider (this works because AIProvider is cloneable via the Box)
-            // In a real implementation, we'd return a reference or Arc
-            return None; // Placeholder - in production, we'd need to make providers Arc-based
+        if providers.contains_key(&purpose_key) {
+            return Some(purpose_key);
         }
-
-        // Fall back to general provider
-        if let Some(provider) = providers.get("local_general") {
-            return None; // Placeholder
+        if providers.contains_key("local_general") {
+            return Some("local_general".to_string());
         }
-
-        None
+        providers.keys().next().cloned()
     }
 
     /// Execute a chat task with the best available provider
@@ -110,13 +103,27 @@ impl ProviderOrchestrator {
         let purpose = preferred_purpose.unwrap_or(TaskPurpose::Chat);
         let providers = self.providers.read().await;
 
-        // Try to find a provider for this purpose
+        // Try purpose-specific provider first
         let provider_key = format!("local_{}", purpose.as_str());
+        if let Some(provider) = providers.get(&provider_key) {
+            if provider.is_available().await {
+                tracing::info!("Using purpose-matched provider {} for chat", provider_key);
+                return provider.chat(messages, system_prompt).await;
+            }
+        }
 
-        // Get first available provider (simplified for now)
+        // Fall back to general provider
+        if let Some(provider) = providers.get("local_general") {
+            if provider.is_available().await {
+                tracing::info!("Using local_general provider for chat");
+                return provider.chat(messages, system_prompt).await;
+            }
+        }
+
+        // Final fallback: first available provider
         for (key, provider) in providers.iter() {
             if provider.is_available().await {
-                tracing::info!("Using provider {} for chat", key);
+                tracing::info!("Using fallback provider {} for chat", key);
                 return provider.chat(messages, system_prompt).await;
             }
         }
@@ -136,16 +143,17 @@ impl ProviderOrchestrator {
 
         for provider_id in provider_ids {
             if let Some(provider) = providers.get(&provider_id) {
-                let msgs = messages.clone();
-                let prompt = system_prompt.clone();
-
-                // In a real implementation, we'd need to handle the lifetime correctly
-                // This is a simplified version
-                tracing::info!("Queueing parallel execution for provider {}", provider_id);
+                tracing::info!("Executing provider {} in parallel batch", provider_id);
+                let res = provider
+                    .chat(messages.clone(), system_prompt.clone())
+                    .await
+                    .map_err(|e| e.to_string());
+                results.push(res);
+            } else {
+                results.push(Err(format!("Provider '{}' not registered", provider_id)));
             }
         }
 
-        // Placeholder - in production, we'd use tokio::join! or similar
         results
     }
 

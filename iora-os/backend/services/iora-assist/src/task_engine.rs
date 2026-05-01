@@ -425,35 +425,27 @@ impl TaskEngine {
 pub struct ScheduleCalculator;
 
 impl ScheduleCalculator {
-    /// Calculate next execution time from a cron expression
-    /// Simplified implementation - in production, use a cron library
+    /// Calculate next execution time from a cron expression.
+    ///
+    /// Accepts both 5-field (minute hour dom month dow) and 6/7-field cron
+    /// expressions. The `cron` crate requires a 6/7-field format internally,
+    /// so 5-field expressions are normalised by prepending `0` for seconds.
     pub fn next_execution(cron_expr: &str, from: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        // Parse simple cron expressions like "*/15 * * * *" (every 15 minutes)
-        // For now, we'll implement basic patterns
+        use std::str::FromStr;
 
-        let parts: Vec<&str> = cron_expr.split_whitespace().collect();
-        if parts.len() != 5 {
+        let trimmed = cron_expr.trim();
+        if trimmed.is_empty() {
             return None;
         }
 
-        // Simplified: handle only minute intervals for now
-        if parts[0].starts_with("*/") {
-            if let Ok(minutes) = parts[0].trim_start_matches("*/").parse::<i64>() {
-                return Some(from + chrono::Duration::minutes(minutes));
-            }
-        }
+        let normalised = match trimmed.split_whitespace().count() {
+            5 => format!("0 {}", trimmed),
+            6 | 7 => trimmed.to_string(),
+            _ => return None,
+        };
 
-        // Handle hourly patterns like "0 * * * *"
-        if parts[0] == "0" && parts[1] == "*" {
-            return Some(from + chrono::Duration::hours(1));
-        }
-
-        // Handle daily patterns like "0 0 * * *"
-        if parts[0] == "0" && parts[1] == "0" {
-            return Some(from + chrono::Duration::days(1));
-        }
-
-        None
+        let schedule = cron::Schedule::from_str(&normalised).ok()?;
+        schedule.after(&from).next()
     }
 }
 
@@ -468,6 +460,7 @@ fn compute_next_trigger_for_task(
 ) -> Option<DateTime<Utc>> {
     // Build a minimal ParsedSchedule from the task DB row
     let recurrence_type = match task.recurrence_type.as_str() {
+        "hourly"   => RecurrenceType::Hourly,
         "daily"    => RecurrenceType::Daily,
         "weekdays" => RecurrenceType::Weekdays,
         "weekly"   => RecurrenceType::Weekly,

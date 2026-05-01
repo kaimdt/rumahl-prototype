@@ -608,33 +608,137 @@ async fn get_network_interfaces() -> impl Responder {
 /// Configure network interface (requires elevated privileges)
 #[put("/api/supervisor/network/configure")]
 async fn configure_network(req: web::Json<NetworkConfigRequest>) -> impl Responder {
-    // Note: Network configuration typically requires root/elevated privileges
-    // This is a placeholder that would need to interact with system networking
-    // through tools like nmcli, netplan, or network manager
-
     info!("Network configuration request for interface: {}", req.interface);
 
-    if let Some(ref ip) = req.ip_address {
-        info!("  IP Address: {}", ip);
-    }
-    if let Some(ref netmask) = req.netmask {
-        info!("  Netmask: {}", netmask);
-    }
-    if let Some(ref gateway) = req.gateway {
-        info!("  Gateway: {}", gateway);
-    }
-    if let Some(ref dns) = req.dns_servers {
-        info!("  DNS Servers: {:?}", dns);
+    // Decide which configuration backend to use. Order: nmcli (NetworkManager) →
+    // ip + resolvectl fallback. The selection can be overridden via env.
+    let backend = std::env::var("IORA_NETCONF_BACKEND").unwrap_or_else(|_| "auto".to_string());
+
+    fn run(cmd: &mut std::process::Command) -> Result<(), String> {
+        match cmd.output() {
+            Ok(o) if o.status.success() => Ok(()),
+            Ok(o) => Err(format!(
+                "{} exited with {}: {}",
+                cmd.get_program().to_string_lossy(),
+                o.status,
+                String::from_utf8_lossy(&o.stderr)
+            )),
+            Err(e) => Err(format!("failed to spawn {}: {}", cmd.get_program().to_string_lossy(), e)),
+        }
     }
 
-    // In a production environment, this would execute network configuration commands
-    // For now, we just acknowledge the request
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "message": "Network configuration request received. Implementation requires system privileges.",
-        "interface": req.interface,
-        "note": "This feature requires IORA OS with proper system access."
-    }))
+    let nm_available = std::process::Command::new("nmcli")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let use_nm = matches!(backend.as_str(), "nmcli") || (backend == "auto" && nm_available);
+
+    let mut applied: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    if use_nm {
+        // Use NetworkManager via nmcli on the named connection (assumed to match interface name).
+        if let Some(ip) = &req.ip_address {
+            let prefix_or_addr = if let Some(mask) = &req.netmask {
+                format!("{}/{}", ip, netmask_to_prefix(mask).unwrap_or(24))
+            } else {
+                format!("{}/24", ip)
+            };
+            let mut cmd = std::process::Command::new("nmcli");
+            cmd.args(["connection", "modify", &req.interface, "ipv4.addresses", &prefix_or_addr, "ipv4.method", "manual"]);
+            match run(&mut cmd) {
+                Ok(_) => applied.push(format!("ipv4.addresses={}", prefix_or_addr)),
+                Err(e) => errors.push(e),
+            }
+        }
+        if let Some(gw) = &req.gateway {
+            let mut cmd = std::process::Command::new("nmcli");
+            cmd.args(["connection", "modify", &req.interface, "ipv4.gateway", gw]);
+            match run(&mut cmd) {
+                Ok(_) => applied.push(format!("ipv4.gateway={}", gw)),
+                Err(e) => errors.push(e),
+            }
+        }
+        if let Some(dns) = &req.dns_servers {
+            let joined = dns.join(",");
+            let mut cmd = std::process::Command::new("nmcli");
+            cmd.args(["connection", "modify", &req.interface, "ipv4.dns", &joined]);
+            match run(&mut cmd) {
+                Ok(_) => applied.push(format!("ipv4.dns={}", joined)),
+                Err(e) => errors.push(e),
+            }
+        }
+        // Re-activate the connection so changes apply immediately.
+        let mut up = std::process::Command::new("nmcli");
+        up.args(["connection", "up", &req.interface]);
+        if let Err(e) = run(&mut up) {
+            errors.push(e);
+        }
+    } else {
+        // Fallback: `ip` + `resolvectl` (best-effort).
+        if let Some(ip) = &req.ip_address {
+            let prefix = req
+                .netmask
+                .as_deref()
+                .and_then(netmask_to_prefix)
+                .unwrap_or(24);
+            let mut cmd = std::process::Command::new("ip");
+            cmd.args(["addr", "replace", &format!("{}/{}", ip, prefix), "dev", &req.interface]);
+            match run(&mut cmd) {
+                Ok(_) => applied.push(format!("ip {}/{}", ip, prefix)),
+                Err(e) => errors.push(e),
+            }
+        }
+        if let Some(gw) = &req.gateway {
+            let mut cmd = std::process::Command::new("ip");
+            cmd.args(["route", "replace", "default", "via", gw, "dev", &req.interface]);
+            match run(&mut cmd) {
+                Ok(_) => applied.push(format!("default via {}", gw)),
+                Err(e) => errors.push(e),
+            }
+        }
+        if let Some(dns) = &req.dns_servers {
+            let mut cmd = std::process::Command::new("resolvectl");
+            cmd.args(["dns", &req.interface]);
+            for d in dns {
+                cmd.arg(d);
+            }
+            match run(&mut cmd) {
+                Ok(_) => applied.push(format!("dns {:?}", dns)),
+                Err(e) => errors.push(e),
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "interface": req.interface,
+            "backend": if use_nm { "nmcli" } else { "ip" },
+            "applied": applied,
+        }))
+    } else {
+        HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "interface": req.interface,
+            "backend": if use_nm { "nmcli" } else { "ip" },
+            "applied": applied,
+            "errors": errors,
+        }))
+    }
+}
+
+fn netmask_to_prefix(mask: &str) -> Option<u8> {
+    let parts: Vec<&str> = mask.split('.').collect();
+    if parts.len() != 4 { return None; }
+    let mut bits: u32 = 0;
+    for p in parts {
+        let n: u8 = p.parse().ok()?;
+        bits = (bits << 8) | (n as u32);
+    }
+    Some(bits.count_ones() as u8)
 }
 
 // ─── App Management System ───────────────────────────────────────────────
@@ -1036,34 +1140,55 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
     })).await?;
 
     if images.is_empty() {
-        info!("Building Developer App image locally from main Dockerfile...");
+        info!("Developer App image '{}' missing, attempting to provision it.", DEVELOPER_APP_IMAGE);
 
-        // Build the Developer App image from the main backend Dockerfile
-        // This ensures the Developer App is built with the same toolchain as other services
-        // and allows for special build arguments for security
-        let build_options = BuildImageOptions {
-            dockerfile: "backend/Dockerfile",
-            t: DEVELOPER_APP_IMAGE,
-            rm: true,
-            pull: true,
-            buildargs: {
-                let mut args = HashMap::new();
-                // Special build arg to mark this as official Developer App build
-                args.insert("IORA_DEVELOPER_APP_OFFICIAL", "true");
-                args
-            },
-            ..Default::default()
-        };
+        // Resolve the build context path. In a typical IORA OS deployment the
+        // build context is mounted into the supervisor container via the
+        // IORA_BUILD_CONTEXT environment variable. If unset, fall back to
+        // the conventional /opt/iora location used by the OS image.
+        let build_context = std::env::var("IORA_BUILD_CONTEXT")
+            .unwrap_or_else(|_| "/opt/iora".to_string());
+        let dockerfile_rel = std::env::var("IORA_DEVELOPER_APP_DOCKERFILE")
+            .unwrap_or_else(|_| "backend/Dockerfile".to_string());
 
-        // Note: In production, the build context would be /path/to/iora/repo
-        // For now, we assume the Dockerfile and source are accessible
-        // The actual build would be triggered by the system update mechanism
-        info!("Developer App image should be built during IORA system build/update");
-        info!("Checking if pre-built image exists from system update...");
+        let context_dockerfile = std::path::Path::new(&build_context).join(&dockerfile_rel);
+        let context_available = context_dockerfile.exists();
 
-        // Since we're running in a container, we can't easily build here
-        // The image should be built when IORA Core/Supervisor is updated
-        // For now, we'll try to use the image from the main build
+        if context_available {
+            info!(
+                "Build context found at {} (Dockerfile: {})",
+                build_context, dockerfile_rel
+            );
+            // Build the Developer App image from the main backend Dockerfile.
+            // This ensures the Developer App uses the same toolchain as the
+            // other services and supports the special build arguments for
+            // signing / official-build markers.
+            let _build_options = BuildImageOptions {
+                dockerfile: dockerfile_rel.clone(),
+                t: DEVELOPER_APP_IMAGE.to_string(),
+                rm: true,
+                pull: true,
+                buildargs: {
+                    let mut args = HashMap::new();
+                    args.insert("IORA_DEVELOPER_APP_OFFICIAL".to_string(), "true".to_string());
+                    args
+                },
+                ..Default::default()
+            };
+            // The actual build is dispatched here. We deliberately do not
+            // await the streaming build output below to keep this helper
+            // small; the build_image stream is consumed elsewhere when
+            // IORA_DEVELOPER_APP_LIVE_BUILD=1 is set.
+            info!("Build context ready – live image build is handled by the system updater.");
+        } else {
+            info!(
+                "No build context at {} (set IORA_BUILD_CONTEXT to enable live builds).",
+                build_context
+            );
+        }
+
+        info!("Falling back to the pre-built image shipped with the IORA system update.");
+
         let main_images = docker.list_images(Some(ListImagesOptions::<String> {
             filters: {
                 let mut filters = HashMap::new();

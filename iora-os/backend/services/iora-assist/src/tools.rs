@@ -202,14 +202,13 @@ impl ToolExecutor {
             .map(|el| el.inner_html())
             .unwrap_or_else(|| "Untitled".to_string());
 
-        // Extract main content (simplified)
-        let mut content = String::new();
-        if let Ok(selector) = Selector::parse("p, h1, h2, h3, article") {
-            for element in document.select(&selector) {
-                content.push_str(&element.text().collect::<Vec<_>>().join(" "));
-                content.push('\n');
-            }
-        }
+        // Extract readable text content. Strategy:
+        //  1. Strip well-known boilerplate elements (script/style/nav/header/footer/aside/form/iframe).
+        //  2. Prefer the first <article> / <main> if present (these usually contain the
+        //     primary content on modern sites).
+        //  3. Fall back to a body-wide selection of headings, paragraphs and list items.
+        //  4. Drop blank lines and lines shorter than 2 chars.
+        let content = extract_readable_text(&document);
 
         Ok(WebPage {
             url: url.to_string(),
@@ -249,15 +248,9 @@ impl ToolExecutor {
                 .get_content()
                 .map_err(|e| e.to_string())?;
 
-            // Parse HTML to extract text content
+            // Parse HTML to extract text content using the same readability heuristic.
             let document = Html::parse_document(&content);
-            let mut text_content = String::new();
-            if let Ok(selector) = Selector::parse("p, h1, h2, h3, article") {
-                for element in document.select(&selector) {
-                    text_content.push_str(&element.text().collect::<Vec<_>>().join(" "));
-                    text_content.push('\n');
-                }
-            }
+            let text_content = extract_readable_text(&document);
 
             let screenshot = if include_screenshot {
                 tab.capture_screenshot(
@@ -369,4 +362,72 @@ impl Default for ToolExecutor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Extract readable text from a parsed HTML document, stripping boilerplate
+/// (scripts, navigation, footers, etc.) and preferring `<article>` / `<main>`
+/// when present. This is a lightweight, dependency-free implementation of the
+/// readability pattern: it does not score nodes by content-density, but it
+/// reliably removes the most common boilerplate and works well for most blog
+/// posts, news articles and documentation pages.
+fn extract_readable_text(document: &Html) -> String {
+    use std::collections::HashSet;
+
+    // Tags whose textual content should always be discarded.
+    let blacklist: HashSet<&str> = [
+        "script", "style", "noscript", "template", "iframe", "form", "svg",
+        "header", "footer", "nav", "aside",
+    ]
+    .into_iter()
+    .collect();
+
+    // Try to find the primary content container first.
+    let primary_selectors = [
+        "article", "main", "[role=main]", "[itemprop=articleBody]",
+    ];
+    let mut root_html: Option<String> = None;
+    for sel in &primary_selectors {
+        if let Ok(selector) = Selector::parse(sel) {
+            if let Some(el) = document.select(&selector).next() {
+                root_html = Some(el.html());
+                break;
+            }
+        }
+    }
+
+    let scope_doc = root_html
+        .as_deref()
+        .map(Html::parse_fragment)
+        .unwrap_or_else(|| Html::parse_document(&document.root_element().html()));
+
+    // Within the chosen scope, iterate over content-bearing elements while
+    // filtering out anything inside a blacklisted ancestor.
+    let content_selector = match Selector::parse("h1, h2, h3, h4, p, li, blockquote, pre") {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+
+    let mut buf = String::new();
+    for el in scope_doc.select(&content_selector) {
+        // Skip if any ancestor is blacklisted.
+        let mut skip = false;
+        for ancestor in el.ancestors().filter_map(scraper::ElementRef::wrap) {
+            let name = ancestor.value().name();
+            if blacklist.contains(name) {
+                skip = true;
+                break;
+            }
+        }
+        if skip { continue; }
+
+        let text: String = el.text().collect::<Vec<_>>().join(" ");
+        let trimmed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if trimmed.len() < 2 {
+            continue;
+        }
+        buf.push_str(&trimmed);
+        buf.push('\n');
+    }
+
+    buf.trim().to_string()
 }

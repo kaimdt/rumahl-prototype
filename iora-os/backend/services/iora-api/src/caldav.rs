@@ -43,7 +43,7 @@ async fn handle_caldav(
     method: &Method,
     path: &str,
     headers: &HeaderMap,
-    _body: Body,
+    body: Body,
 ) -> Response {
     let token = match extract_token(headers) {
         Some(t) => t,
@@ -59,7 +59,13 @@ async fn handle_caldav(
     match method.as_str() {
         "OPTIONS" => caldav_options().await,
         "PROPFIND" => caldav_propfind(state, path, &token, headers).await,
-        "REPORT" => caldav_report(state, path, &token, headers).await,
+        "REPORT" => {
+            let body_bytes = match axum::body::to_bytes(body, 1024 * 1024).await {
+                Ok(b) => b.to_vec(),
+                Err(_) => Vec::new(),
+            };
+            caldav_report(state, path, &token, headers, &body_bytes).await
+        }
         "GET" => caldav_get(state, path, &token).await,
         _ => Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -196,10 +202,142 @@ async fn caldav_report(
     path: &str,
     token: &str,
     _headers: &HeaderMap,
+    body: &[u8],
 ) -> Response {
-    // CalDAV REPORT: typically calendar-multiget or calendar-query
-    // For now, return the same as PROPFIND with events
-    caldav_propfind(state, path, token, _headers).await
+    // CalDAV REPORT: parse calendar-query (time-range, comp-filter) and
+    // calendar-multiget (list of <D:href>) requests.
+    let body_str = std::str::from_utf8(body).unwrap_or("");
+
+    // Extract optional time-range filter: <C:time-range start="..." end="..."/>
+    let (range_start, range_end) = parse_time_range(body_str);
+
+    // Extract requested hrefs for calendar-multiget
+    let requested_hrefs: Vec<String> = parse_hrefs(body_str);
+    let is_multiget = body_str.contains("calendar-multiget") && !requested_hrefs.is_empty();
+
+    let cal_path = path.trim_matches('/');
+    if cal_path.is_empty() {
+        return caldav_propfind(state, path, token, _headers).await;
+    }
+    let entity_id = cal_path.replacen('_', ".", 1);
+
+    // Default time window: ±30/90 days; override from request if provided.
+    let now = Utc::now();
+    let default_start = now - chrono::Duration::days(30);
+    let default_end = now + chrono::Duration::days(90);
+    let start_dt = range_start.unwrap_or(default_start);
+    let end_dt = range_end.unwrap_or(default_end);
+
+    let events_resp = state
+        .http_client
+        .get(&format!(
+            "{}/api/calendars/{}/events?start={}&end={}",
+            state.iora_home_url,
+            entity_id,
+            start_dt.format("%Y-%m-%dT%H:%M:%S"),
+            end_dt.format("%Y-%m-%dT%H:%M:%S")
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await;
+    let events: Vec<serde_json::Value> = match events_resp {
+        Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+        _ => vec![],
+    };
+
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n");
+    xml.push_str("<D:multistatus xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\">\n");
+
+    for (idx, event) in events.iter().enumerate() {
+        let uid = format!("{}-{}", cal_path, idx);
+        let href = format!("/caldav/{}/{}.ics", cal_path, uid);
+
+        if is_multiget && !requested_hrefs.iter().any(|h| h.ends_with(&format!("{}.ics", uid))) {
+            continue;
+        }
+
+        let summary = event["summary"].as_str().unwrap_or("Event");
+        let dtstart = event["start"].as_str().or_else(|| event["dtstart"].as_str()).unwrap_or("");
+        let dtend = event["end"].as_str().or_else(|| event["dtend"].as_str()).unwrap_or("");
+
+        let ics = format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//IORA//CalDAV//EN\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nSUMMARY:{summary}\r\nDTSTART:{dtstart}\r\nDTEND:{dtend}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+            uid = uid,
+            summary = xml_escape(summary),
+            dtstart = ics_format_time(dtstart),
+            dtend = ics_format_time(dtend),
+        );
+
+        xml.push_str("  <D:response>\n");
+        xml.push_str(&format!("    <D:href>{}</D:href>\n", href));
+        xml.push_str("    <D:propstat>\n      <D:prop>\n");
+        xml.push_str("        <D:getcontenttype>text/calendar; charset=utf-8; component=VEVENT</D:getcontenttype>\n");
+        xml.push_str(&format!("        <C:calendar-data>{}</C:calendar-data>\n", xml_escape(&ics)));
+        xml.push_str("      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n");
+        xml.push_str("  </D:response>\n");
+    }
+
+    xml.push_str("</D:multistatus>\n");
+
+    Response::builder()
+        .status(StatusCode::MULTI_STATUS)
+        .header(header::CONTENT_TYPE, "application/xml; charset=utf-8")
+        .body(Body::from(xml))
+        .unwrap()
+}
+
+/// Best-effort extraction of the first `<C:time-range start="..." end="..."/>` element.
+fn parse_time_range(xml: &str) -> (Option<chrono::DateTime<Utc>>, Option<chrono::DateTime<Utc>>) {
+    let lower = xml.to_lowercase();
+    let Some(idx) = lower.find("time-range") else {
+        return (None, None);
+    };
+    let segment = &xml[idx..(idx + 256).min(xml.len())];
+    let extract = |attr: &str| -> Option<chrono::DateTime<Utc>> {
+        let pat = format!("{}=\"", attr);
+        let pos = segment.find(&pat)?;
+        let rest = &segment[pos + pat.len()..];
+        let end = rest.find('"')?;
+        let value = &rest[..end];
+        chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%SZ")
+            .or_else(|_| chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%SZ"))
+            .ok()
+            .map(|n| n.and_utc())
+    };
+    (extract("start"), extract("end"))
+}
+
+fn parse_hrefs(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cursor = 0;
+    while let Some(start) = xml[cursor..].find("<D:href>").or_else(|| xml[cursor..].find("<href>")) {
+        let abs = cursor + start;
+        let after = abs + xml[abs..].find('>').map(|p| p + 1).unwrap_or(0);
+        if let Some(end_rel) = xml[after..].find("</") {
+            out.push(xml[after..after + end_rel].trim().to_string());
+            cursor = after + end_rel;
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn ics_format_time(s: &str) -> String {
+    if s.is_empty() {
+        return String::from("19700101T000000Z");
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return dt.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ").to_string();
+    }
+    s.replace(['-', ':'], "")
 }
 
 async fn caldav_get(state: &crate::AppState, path: &str, token: &str) -> Response {

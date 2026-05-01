@@ -23,6 +23,7 @@ async-stream = "0.3"
 tar = "0.4"
 flate2 = "1.0"
 sha2 = "0.10"
+rand = "0.8"
 
 # API documentation
 # NOTE: actix_extras removed — workspace-wide feature unification with iora-home (axum_extras)
