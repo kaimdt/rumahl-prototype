@@ -5630,9 +5630,16 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
         return Some(Err(format!("Kann docker-compose.yml nicht schreiben: {e}")));
     }
 
-    // Try docker compose up
+    let project_name = format!("iora-app-{}", app_id);
+    if let Some(result) = supervisor_compose_up(app_id, &project_name, &compose_content, &compose_dir).await {
+        return Some(result);
+    }
+
+    // Local development fallback only. On IORA OS, iora-home intentionally
+    // has no Docker socket permission; the privileged iora-supervisor path
+    // above is the supported runtime path.
     let result = Command::new("docker")
-        .args(["compose", "-p", &format!("iora-app-{}", app_id), "up", "-d"])
+        .args(["compose", "-p", &project_name, "up", "-d"])
         .current_dir(&compose_dir)
         .output()
         .await;
@@ -5653,6 +5660,59 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
     }
 }
 
+async fn supervisor_compose_up(
+    app_id: &str,
+    project_name: &str,
+    compose_content: &str,
+    compose_dir: &std::path::Path,
+) -> Option<Result<String, String>> {
+    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let url = format!("{}/api/supervisor/compose/up", base.trim_end_matches('/'));
+    let body = json!({
+        "app_id": app_id,
+        "project_name": project_name,
+        "compose_content": compose_content,
+        "compose_dir": compose_dir.display().to_string(),
+    });
+
+    let response = match reqwest::Client::new().post(url).json(&body).send().await {
+        Ok(response) => response,
+        Err(_) => return None,
+    };
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    if status.is_success() {
+        Some(Ok(format!("iora-supervisor compose up erfolgreich: {text}")))
+    } else {
+        Some(Err(format!(
+            "iora-supervisor compose up fehlgeschlagen ({status}): {text}"
+        )))
+    }
+}
+
+async fn supervisor_compose_down(app_id: &str, project_name: &str) -> Option<Result<String, String>> {
+    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let url = format!("{}/api/supervisor/compose/down", base.trim_end_matches('/'));
+    let body = json!({
+        "app_id": app_id,
+        "project_name": project_name,
+    });
+
+    let response = match reqwest::Client::new().post(url).json(&body).send().await {
+        Ok(response) => response,
+        Err(_) => return None,
+    };
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    if status.is_success() {
+        Some(Ok(format!("iora-supervisor compose down erfolgreich: {text}")))
+    } else {
+        Some(Err(format!(
+            "iora-supervisor compose down fehlgeschlagen ({status}): {text}"
+        )))
+    }
+}
+
 /// Try running docker-compose down for an app.
 /// Probiert BEIDE Project-Prefixes (`iora-app-`, `iora-bundle-`) und sammelt
 /// die Ergebnisse, damit auch teilweise hängende Container sauber abgeräumt
@@ -5665,11 +5725,30 @@ async fn try_docker_compose_down(app_id: &str) -> Option<String> {
     let mut docker_present = false;
 
     for prefix in ["iora-app-", "iora-bundle-"] {
+        let project_name = format!("{}{}", prefix, app_id);
+        if let Some(result) = supervisor_compose_down(app_id, &project_name).await {
+            match result {
+                Ok(msg) => {
+                    docker_present = true;
+                    any_success = true;
+                    if !msg.trim().is_empty() {
+                        errors.push(msg);
+                    }
+                    continue;
+                }
+                Err(msg) => {
+                    docker_present = true;
+                    errors.push(msg);
+                    continue;
+                }
+            }
+        }
+
         let result = Command::new("docker")
             .args([
                 "compose",
                 "-p",
-                &format!("{}{}", prefix, app_id),
+                &project_name,
                 "down",
                 "--remove-orphans",
             ])

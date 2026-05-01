@@ -19,7 +19,7 @@
 // as the backend, so relative URLs work and these will be empty strings.
 
 const DEV_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ''
-const DEV_ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || 'http://localhost:8092'
+const DEV_ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || ''
 
 let _backendUrl = DEV_BACKEND_URL
 let _assistUrl = DEV_ASSIST_URL

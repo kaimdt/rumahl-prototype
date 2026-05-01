@@ -1637,10 +1637,11 @@ cat > "${TARGET_DIR}/etc/apparmor.d/iora-supervisor" <<'EOF'
   # Binary execution
   /opt/iora/build/iora-supervisor/bin/iora-supervisor r,
 
-  # Docker CLI and compose (called as subprocesses to drive user-app containers)
-  /usr/bin/docker   rix,
-  /usr/bin/docker-compose rix,
-  /usr/libexec/docker/** rix,
+    # Docker CLI and compose (called as subprocesses to drive user-app containers)
+    /usr/bin/docker rix,
+    /usr/bin/docker-compose rix,
+    /usr/lib/docker/** rix,
+    /usr/libexec/docker/** rix,
 
   # Guard + manifest helper scripts
   /usr/lib/iora/iora-docker-guard              rix,
@@ -2786,6 +2787,13 @@ fi
 if [ "${IORA_OS_DEV:-0}" = "1" ]; then
     echo "IORA OS: Installing OS dev bridge..."
     mkdir -p "${TARGET_DIR}/etc/iora"
+    mkdir -p "${TARGET_DIR}/usr/bin"
+
+    # Native Rust daemons live under /opt/iora/build/<svc>/bin/<svc>. Keep a
+    # compatibility symlink at /usr/bin/iora-dev-bridge because older tools,
+    # docs and status checks still probe that path.
+    ln -sf /opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge \
+        "${TARGET_DIR}/usr/bin/iora-dev-bridge"
 
     # NOTE: this marker is specifically for the *OS*-level dev mode (the
     # one that lets the Developer App swap binaries and restart services).
@@ -2875,7 +2883,7 @@ Description=IORA Developer Bridge (OS dev images only)
 After=network.target docker.service iora-init-data.service
 Wants=network.target
 ConditionPathExists=/etc/iora/os-dev-mode
-ConditionPathExists=/usr/bin/iora-dev-bridge
+ConditionPathExists=/opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge
 
 [Service]
 Type=simple
@@ -2895,7 +2903,7 @@ EnvironmentFile=-/etc/iora/dev-bridge.env
 # perms, and poke firewall holes for 8101. The script tolerates every
 # error and never blocks startup.
 ExecStartPre=/usr/lib/iora/iora-dev-bridge-prepare.sh
-ExecStart=/usr/bin/iora-dev-bridge
+ExecStart=/opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge
 Restart=on-failure
 RestartSec=2
 # Dev mode is INTENTIONALLY unrestricted: the bridge must be able to

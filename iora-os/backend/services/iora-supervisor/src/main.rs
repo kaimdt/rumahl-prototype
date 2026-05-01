@@ -77,6 +77,36 @@ struct UpdateRequest {
     image_tag: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ComposeProjectRequest {
+    app_id: String,
+    project_name: String,
+    #[serde(default)]
+    compose_content: Option<String>,
+    #[serde(default)]
+    compose_dir: Option<String>,
+}
+
+#[derive(Debug, Serialize, Default)]
+struct ComposeProjectStatus {
+    project: String,
+    total: usize,
+    running: usize,
+    exited: usize,
+    unhealthy: usize,
+    services: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ComposePsRow {
+    #[serde(default, alias = "Service", alias = "service")]
+    service: String,
+    #[serde(default, alias = "State", alias = "state")]
+    state: String,
+    #[serde(default, alias = "Health", alias = "health")]
+    health: String,
+}
+
 struct AppState {
     docker: Docker,
     start_time: DateTime<Utc>,
@@ -1011,6 +1041,243 @@ async fn get_app_details(
     }
 }
 
+fn safe_compose_token(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        .collect::<String>()
+}
+
+fn compose_project_dir(req: &ComposeProjectRequest) -> std::path::PathBuf {
+    if let Some(dir) = req.compose_dir.as_deref().filter(|d| !d.trim().is_empty()) {
+        return std::path::PathBuf::from(dir);
+    }
+    let app_id = safe_compose_token(&req.app_id);
+    std::env::var("IORA_LOCAL_APPS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"))
+        .join(app_id)
+}
+
+fn docker_cli_path() -> String {
+    std::env::var("DOCKER_CLI").unwrap_or_else(|_| "/usr/bin/docker".to_string())
+}
+
+async fn compose_status_for_project(
+    app_id: &str,
+    project_name: &str,
+) -> Result<Option<ComposeProjectStatus>, String> {
+    use tokio::process::Command;
+
+    let req = ComposeProjectRequest {
+        app_id: app_id.to_string(),
+        project_name: project_name.to_string(),
+        compose_content: None,
+        compose_dir: None,
+    };
+    let compose_dir = compose_project_dir(&req);
+    let output = Command::new(docker_cli_path())
+        .args([
+            "compose",
+            "-p",
+            project_name,
+            "ps",
+            "--all",
+            "--format",
+            "json",
+        ])
+        .current_dir(&compose_dir)
+        .output()
+        .await;
+
+    let output = match output {
+        Ok(output) => output,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err("docker CLI is not installed".to_string());
+        }
+        Err(e) => return Err(format!("docker compose invocation failed: {e}")),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.contains("no configuration file provided") || stderr.contains("not found") {
+            return Ok(None);
+        }
+        return Err(stderr);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let rows: Vec<ComposePsRow> = if trimmed.starts_with('[') {
+        serde_json::from_str(trimmed).unwrap_or_default()
+    } else {
+        trimmed
+            .lines()
+            .filter_map(|line| serde_json::from_str::<ComposePsRow>(line.trim()).ok())
+            .collect()
+    };
+
+    if rows.is_empty() {
+        return Ok(None);
+    }
+
+    let mut status = ComposeProjectStatus {
+        project: project_name.to_string(),
+        total: rows.len(),
+        ..Default::default()
+    };
+    for row in rows {
+        let state = row.state.to_lowercase();
+        let health_state = row.health.to_lowercase();
+        if state == "running" || state == "started" {
+            if health_state == "unhealthy" {
+                status.unhealthy += 1;
+            } else {
+                status.running += 1;
+            }
+        } else if state == "exited" || state == "dead" || state == "removing" {
+            status.exited += 1;
+        }
+        status.services.insert(row.service, row.state);
+    }
+
+    Ok(Some(status))
+}
+
+#[get("/api/supervisor/compose/status/{app_id}")]
+async fn compose_status(path: web::Path<String>) -> impl Responder {
+    let app_id = path.into_inner();
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project_name = format!("{}{}", prefix, safe_compose_token(&app_id));
+        match compose_status_for_project(&app_id, &project_name).await {
+            Ok(Some(status)) => {
+                return HttpResponse::Ok().json(status);
+            }
+            Ok(None) => continue,
+            Err(err) => {
+                return HttpResponse::BadGateway().json(serde_json::json!({
+                    "success": false,
+                    "error": err,
+                }));
+            }
+        }
+    }
+
+    HttpResponse::Ok().json(ComposeProjectStatus::default())
+}
+
+#[post("/api/supervisor/compose/up")]
+async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
+    use tokio::process::Command;
+
+    let project_name = safe_compose_token(&req.project_name);
+    if req.app_id.trim().is_empty() || project_name.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "app_id and project_name are required"
+        }));
+    }
+
+    let compose_dir = compose_project_dir(&req);
+    if let Err(e) = tokio::fs::create_dir_all(&compose_dir).await {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("compose directory could not be created: {e}")
+        }));
+    }
+
+    if let Some(content) = req.compose_content.as_deref() {
+        if let Err(e) = tokio::fs::write(compose_dir.join("docker-compose.yml"), content).await {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("docker-compose.yml could not be written: {e}")
+            }));
+        }
+    }
+
+    let result = Command::new(docker_cli_path())
+        .args(["compose", "-p", &project_name, "up", "-d"])
+        .current_dir(&compose_dir)
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "project": project_name,
+            "compose_dir": compose_dir.display().to_string(),
+            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim()
+        })),
+        Ok(output) => HttpResponse::BadGateway().json(serde_json::json!({
+            "success": false,
+            "project": project_name,
+            "compose_dir": compose_dir.display().to_string(),
+            "status": output.status.code(),
+            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim()
+        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "success": false,
+            "error": "docker CLI is not installed"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("docker compose invocation failed: {e}")
+        })),
+    }
+}
+
+#[post("/api/supervisor/compose/down")]
+async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
+    use tokio::process::Command;
+
+    let project_name = safe_compose_token(&req.project_name);
+    if req.app_id.trim().is_empty() || project_name.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "app_id and project_name are required"
+        }));
+    }
+
+    let compose_dir = compose_project_dir(&req);
+    let result = Command::new(docker_cli_path())
+        .args(["compose", "-p", &project_name, "down", "--remove-orphans"])
+        .current_dir(&compose_dir)
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "project": project_name,
+            "compose_dir": compose_dir.display().to_string(),
+            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim()
+        })),
+        Ok(output) => HttpResponse::BadGateway().json(serde_json::json!({
+            "success": false,
+            "project": project_name,
+            "compose_dir": compose_dir.display().to_string(),
+            "status": output.status.code(),
+            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim()
+        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "success": false,
+            "error": "docker CLI is not installed"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("docker compose invocation failed: {e}")
+        })),
+    }
+}
+
 // ─── Developer Mode APIs ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]
@@ -1783,6 +2050,9 @@ async fn main() -> std::io::Result<()> {
             .service(install_app)
             .service(uninstall_app)
             .service(get_app_details)
+            .service(compose_up)
+            .service(compose_down)
+            .service(compose_status)
             // Developer Mode endpoints
             .service(get_developer_mode_status)
             .service(toggle_developer_mode)

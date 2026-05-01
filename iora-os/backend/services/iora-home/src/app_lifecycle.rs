@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use crate::local_appstore::{self, InstalledApp, LocalAppStore, LogEntry};
 
 /// Tatsächlicher Zustand der Container einer App (aus `docker compose ps`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct AppDockerStatus {
     /// Anzahl der Services laut compose.
     pub total: usize,
@@ -61,6 +61,10 @@ struct ComposePsRow {
 ///
 /// Liefert `None`, wenn Docker nicht installiert ist.
 pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
+    if let Some(status) = supervisor_compose_status(app_id).await {
+        return Some(status);
+    }
+
     for prefix in ["iora-app-", "iora-bundle-"] {
         let project = format!("{prefix}{app_id}");
         let out = Command::new("docker")
@@ -126,6 +130,40 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
     }
     // Docker existiert, aber kein Projekt für diese App vorhanden
     Some(AppDockerStatus::default())
+}
+
+async fn supervisor_compose_status(app_id: &str) -> Option<AppDockerStatus> {
+    let base = std::env::var("IORA_SUPERVISOR_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8097".to_string());
+    let url = format!(
+        "{}/api/supervisor/compose/status/{}",
+        base.trim_end_matches('/'),
+        app_id
+    );
+
+    let response = match reqwest::Client::new().get(url).send().await {
+        Ok(response) => response,
+        Err(_) => return None,
+    };
+
+    if response.status().is_success() {
+        return response.json::<AppDockerStatus>().await.ok();
+    }
+
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let mut services = HashMap::new();
+    services.insert(
+        "iora-supervisor".to_string(),
+        format!("status endpoint failed ({status}): {text}"),
+    );
+    Some(AppDockerStatus {
+        total: 1,
+        running: 0,
+        exited: 1,
+        unhealthy: 0,
+        services,
+    })
 }
 
 /// Wartet nach einem Start aktiv darauf, dass alle Services tatsächlich laufen.

@@ -72,7 +72,8 @@ interface GitHubAuthState {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 import { getAssistUrl } from '@/lib/config'
-const ASSIST_URL = getAssistUrl()
+
+const assistBase = () => getAssistUrl() || ''
 
 function formatRelativeTime(ts: string): string {
   const d = new Date(ts); const now = new Date(); const diffMs = now.getTime() - d.getTime()
@@ -311,7 +312,7 @@ export function AgentTab({ token }: { token: string }) {
 
   // ─── SSE for live tasks ──────────────────────────────────────────────────
   useEffect(() => {
-    const es = new EventSource(`${ASSIST_URL}/api/assist/agent/tasks/events`)
+    const es = new EventSource(`${assistBase()}/api/assist/agent/tasks/events`)
     const updateTask = (updater: (t: AgentTask) => AgentTask) => {
       setTasks(prev => prev.map(t => t.id === (updater as any)._id ? updater(t) : t))
     }
@@ -469,7 +470,7 @@ export function AgentTab({ token }: { token: string }) {
     setInput(''); setChatState('thinking'); setChatError(null)
 
     try {
-      const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
+      const response = await fetch(`${assistBase()}/api/assist/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: msg,
@@ -1042,7 +1043,7 @@ export function AgentTab({ token }: { token: string }) {
                       <button key={f.path}
                         onClick={() => {
                           setSelectedFilePath(f.path)
-                          fetch(`${ASSIST_URL}/api/assist/workspaces/${selectedWorkspace}/files/${f.path}`, {
+                          fetch(`${assistBase()}/api/assist/workspaces/${selectedWorkspace}/files/${f.path}`, {
                             headers: { Authorization: `Bearer ${token}` }
                           })
                             .then(r => r.ok ? r.json() : null)

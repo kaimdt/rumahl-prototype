@@ -8,7 +8,8 @@
  */
 
 import { getAssistUrl } from '@/lib/config'
-const ASSIST_URL = getAssistUrl()
+
+const assistBase = () => getAssistUrl() || ''
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -65,7 +66,7 @@ export class PluginAIClient {
    * Call ORA AI with a custom prompt
    */
   async chat(options: AICallOptions): Promise<AIResponse> {
-    const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
+    const response = await fetch(`${assistBase()}/api/assist/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -93,7 +94,7 @@ export class PluginAIClient {
    * Stream AI responses for real-time updates
    */
   async *chatStream(options: AICallOptions): AsyncGenerator<string, void, unknown> {
-    const response = await fetch(`${ASSIST_URL}/api/assist/chat/stream`, {
+    const response = await fetch(`${assistBase()}/api/assist/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -152,7 +153,7 @@ export class PluginAIClient {
     this.registeredTools.set(tool.name, tool)
 
     // Register with backend
-    const response = await fetch(`${ASSIST_URL}/api/assist/tools/register`, {
+    const response = await fetch(`${assistBase()}/api/assist/tools/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -177,7 +178,7 @@ export class PluginAIClient {
   async unregisterTool(toolName: string): Promise<void> {
     this.registeredTools.delete(toolName)
 
-    await fetch(`${ASSIST_URL}/api/assist/tools/${toolName}`, {
+    await fetch(`${assistBase()}/api/assist/tools/${toolName}`, {
       method: 'DELETE',
       headers: {
         'X-Plugin-ID': this.pluginId,
@@ -201,7 +202,7 @@ export class PluginAIClient {
    * Search the internet using ORA AI's search capability
    */
   async searchInternet(query: string, maxResults: number = 5): Promise<any> {
-    const response = await fetch(`${ASSIST_URL}/api/assist/tools/search`, {
+    const response = await fetch(`${assistBase()}/api/assist/tools/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -224,7 +225,7 @@ export class PluginAIClient {
    * Analyze an image using vision capabilities
    */
   async analyzeImage(imageUrl: string, prompt?: string): Promise<AIResponse> {
-    const response = await fetch(`${ASSIST_URL}/api/assist/vision`, {
+    const response = await fetch(`${assistBase()}/api/assist/vision`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -252,7 +253,7 @@ export class PluginAIClient {
    */
   async getHistory(limit: number = 50): Promise<any[]> {
     const response = await fetch(
-      `${ASSIST_URL}/api/assist/history?limit=${limit}&plugin_id=${this.pluginId}`
+      `${assistBase()}/api/assist/history?limit=${limit}&plugin_id=${this.pluginId}`
     )
 
     if (!response.ok) {
@@ -266,7 +267,7 @@ export class PluginAIClient {
    * Clear conversation history
    */
   async clearHistory(): Promise<void> {
-    await fetch(`${ASSIST_URL}/api/assist/history`, {
+    await fetch(`${assistBase()}/api/assist/history`, {
       method: 'DELETE',
       headers: {
         'X-Plugin-ID': this.pluginId,

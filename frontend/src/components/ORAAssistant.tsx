@@ -44,7 +44,8 @@ type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
 type DialogTab = 'chat' | 'tasks'
 
 import { getAssistUrl } from '@/lib/config'
-const ASSIST_URL = getAssistUrl()
+
+const assistBase = () => getAssistUrl() || ''
 
 // ─── Instant Task type badge labels ──────────────────────────────────────────
 
@@ -192,7 +193,7 @@ export function ORAAssistant() {
   const subscribeToInstantTask = useCallback((taskId: string, msgTimestamp: string) => {
     if (instantTaskSources.current.has(taskId)) return
 
-    const url = `${ASSIST_URL}/api/assist/tasks/instant/${taskId}/stream`
+    const url = `${assistBase()}/api/assist/tasks/instant/${taskId}/stream`
     const es = new EventSource(url)
 
     es.addEventListener('instant_task_result', (e: MessageEvent) => {
@@ -337,7 +338,7 @@ export function ORAAssistant() {
         return
       }
       // Poll the REST endpoint for the task result
-      fetch(`${ASSIST_URL}/api/assist/tasks/instant/${saved.taskId}`)
+      fetch(`${assistBase()}/api/assist/tasks/instant/${saved.taskId}`)
         .then(r => r.ok ? r.json() : null)
         .then((task: { status?: string; result_text?: string; error_message?: string } | null) => {
           if (!task) return
@@ -403,7 +404,7 @@ export function ORAAssistant() {
     setPendingTaskAction(null)
 
     try {
-      const response = await fetch(`${ASSIST_URL}/api/assist/chat`, {
+      const response = await fetch(`${assistBase()}/api/assist/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, context: null, voice_mode: fromVoice }),
@@ -482,7 +483,7 @@ export function ORAAssistant() {
       } else if (!data.instant_task_id) {
         // Fall back to multi-message task detection for new task creation
         const payload = updatedMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
-        fetch(`${ASSIST_URL}/api/assist/tasks/detect`, {
+        fetch(`${assistBase()}/api/assist/tasks/detect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: payload, input_mode: 'conversation' }),
@@ -516,7 +517,7 @@ export function ORAAssistant() {
     setPendingTaskAction(null)
 
     try {
-      const res = await fetch(`${ASSIST_URL}/api/assist/tasks/confirm`, {
+      const res = await fetch(`${assistBase()}/api/assist/tasks/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmed, action, task_id, resume_at }),
@@ -583,7 +584,7 @@ export function ORAAssistant() {
   const handleSearchInternet = async (query: string) => {
     try {
       setState('thinking')
-      const response = await fetch(`${ASSIST_URL}/api/assist/tools/search`, {
+      const response = await fetch(`${assistBase()}/api/assist/tools/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, max_results: 5 }),

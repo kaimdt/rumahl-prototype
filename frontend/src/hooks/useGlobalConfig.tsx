@@ -75,11 +75,7 @@ export function GlobalConfigProvider({ children }: { children: ReactNode }) {
   })()
 
   const loadConfig = useCallback(async () => {
-    const base = getBackendUrl()
-    if (!base) {
-      setLoaded(true)
-      return
-    }
+    const base = getBackendUrl() || ''
     try {
       const res = await fetch(`${base}/api/admin/settings`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},

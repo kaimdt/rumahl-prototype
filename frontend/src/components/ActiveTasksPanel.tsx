@@ -20,7 +20,8 @@ import {
 import { Button } from '@/components/ui/button'
 
 import { getAssistUrl } from '@/lib/config'
-const ASSIST_URL = getAssistUrl()
+
+const assistBase = () => getAssistUrl() || ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -309,7 +310,7 @@ export function ActiveTasksPanel({ isVisible = true }: ActiveTasksPanelProps) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${ASSIST_URL}/api/assist/tasks/active`)
+      const res = await fetch(`${assistBase()}/api/assist/tasks/active`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setTasks(data.tasks ?? [])
@@ -336,7 +337,7 @@ export function ActiveTasksPanel({ isVisible = true }: ActiveTasksPanelProps) {
 
   const handleToggle = async (id: string, enabled: boolean) => {
     try {
-      await fetch(`${ASSIST_URL}/api/assist/tasks/active/${id}`, {
+      await fetch(`${assistBase()}/api/assist/tasks/active/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -351,7 +352,7 @@ export function ActiveTasksPanel({ isVisible = true }: ActiveTasksPanelProps) {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`${ASSIST_URL}/api/assist/tasks/active/${id}`, { method: 'DELETE' })
+      await fetch(`${assistBase()}/api/assist/tasks/active/${id}`, { method: 'DELETE' })
       setTasks((prev) => prev.filter((t) => t.id !== id))
     } catch (e) {
       console.error('Failed to delete task:', e)
@@ -359,7 +360,7 @@ export function ActiveTasksPanel({ isVisible = true }: ActiveTasksPanelProps) {
   }
 
   const handleSaveEdit = async (id: string, name: string, description: string) => {
-    await fetch(`${ASSIST_URL}/api/assist/tasks/active/${id}`, {
+    await fetch(`${assistBase()}/api/assist/tasks/active/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description }),
