@@ -636,9 +636,13 @@ async fn dev_auth(
         }
     };
 
-    let role = user_info.get("role").and_then(|v| v.as_str()).unwrap_or("user");
+    let is_admin = user_info
+        .get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| user_info.get("role").and_then(|v| v.as_str()) == Some("admin"));
+    let role = if is_admin { "admin" } else { "user" };
 
-    if role != "admin" {
+    if !is_admin {
         return (StatusCode::FORBIDDEN, "Dev access requires admin role").into_response();
     }
 
