@@ -184,13 +184,18 @@ struct Inner {
     jobs: HashMap<Uuid, InstallJob>,
     /// FIFO of recent job ids so we can prune.
     job_order: Vec<Uuid>,
-    /// Per-app log ring buffers.
-    app_logs: HashMap<String, Vec<LogEntry>>,
 }
 
 pub struct LocalAppStore {
     base_dir: PathBuf,
     inner: RwLock<Inner>,
+    /// Per-app log ring buffers. Stored in a sync mutex (separate from
+    /// the async `Inner` lock) so that `append_log` can be safely called
+    /// from synchronous contexts without panicking — `tokio::sync::
+    /// RwLock::blocking_write` panics when invoked inside the runtime,
+    /// which previously caused HTTP handlers to abort with
+    /// ERR_EMPTY_RESPONSE.
+    app_logs: std::sync::Mutex<HashMap<String, Vec<LogEntry>>>,
     events: broadcast::Sender<InstallEvent>,
 }
 
@@ -217,6 +222,7 @@ impl LocalAppStore {
         let store = Arc::new(Self {
             base_dir: base,
             inner: RwLock::new(Inner::default()),
+            app_logs: std::sync::Mutex::new(HashMap::new()),
             events: tx,
         });
         store.reload_index().await?;
@@ -816,14 +822,15 @@ impl LocalAppStore {
 
     /// Append a log entry for a specific app.
     pub fn append_log(&self, app_id: &str, entry: LogEntry) {
-        let mut inner = self.inner.blocking_write();
-        let logs = inner.app_logs.entry(app_id.to_string()).or_default();
-        logs.push(entry.clone());
-        if logs.len() > MAX_APP_LOG_LINES {
-            let drop_n = logs.len() - MAX_APP_LOG_LINES;
-            logs.drain(0..drop_n);
+        {
+            let mut logs_map = self.app_logs.lock().expect("app_logs mutex poisoned");
+            let logs = logs_map.entry(app_id.to_string()).or_default();
+            logs.push(entry.clone());
+            if logs.len() > MAX_APP_LOG_LINES {
+                let drop_n = logs.len() - MAX_APP_LOG_LINES;
+                logs.drain(0..drop_n);
+            }
         }
-        drop(inner);
         let _ = self.events.send(InstallEvent::LogEntry {
             app_id: app_id.to_string(),
             entry,
@@ -832,18 +839,14 @@ impl LocalAppStore {
 
     /// Get all log entries for a specific app.
     pub async fn get_logs(&self, app_id: &str) -> Vec<LogEntry> {
-        let inner = self.inner.read().await;
-        inner
-            .app_logs
-            .get(app_id)
-            .cloned()
-            .unwrap_or_default()
+        let logs_map = self.app_logs.lock().expect("app_logs mutex poisoned");
+        logs_map.get(app_id).cloned().unwrap_or_default()
     }
 
     /// Get all log entries across all apps.
     pub async fn get_all_logs(&self) -> HashMap<String, Vec<LogEntry>> {
-        let inner = self.inner.read().await;
-        inner.app_logs.clone()
+        let logs_map = self.app_logs.lock().expect("app_logs mutex poisoned");
+        logs_map.clone()
     }
 }
 

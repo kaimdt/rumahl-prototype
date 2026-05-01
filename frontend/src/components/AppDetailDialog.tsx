@@ -103,7 +103,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     if (!appId || activeTab !== 'logs') return
 
     const baseUrl = getBackendUrl()
-    const eventSource = new EventSource(`${baseUrl}/api/apps/${appId}/logs/stream`)
+    // EventSource cannot send custom Authorization headers, so we pass
+    // the JWT via the `?token=` query param (the auth middleware accepts it).
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ''
+    const eventSource = new EventSource(`${baseUrl}/api/apps/${appId}/logs/stream${tokenQuery}`)
 
     eventSource.onmessage = (event) => {
       try {

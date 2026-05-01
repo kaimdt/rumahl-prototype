@@ -1468,7 +1468,7 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 export TERM=linux
 export NCURSES_NO_UTF8_ACS=1
 
-# ── Mount virtual filesystems ──────────────────────────────────────
+# -- Mount virtual filesystems --------------------------------------
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
@@ -1483,7 +1483,7 @@ fi
 
 mkdir -p /mnt/iso /mnt/target /tmp /run
 
-# Load modules — include both VirtIO (Proxmox/KVM) and VMware SCSI drivers.
+# Load modules -- include both VirtIO (Proxmox/KVM) and VMware SCSI drivers.
 # VMware Workstation/ESXi uses LSI Logic Parallel SCSI (mptspi) by default
 # for virtual disks and CD-ROMs.  Without mptspi the SCSI CD-ROM never appears
 # as /dev/sr0 and the installer silently fails to find the payload.
@@ -1510,7 +1510,7 @@ if command -v mdev >/dev/null 2>&1; then
     mdev -s 2>/dev/null || true
 fi
 
-# ── Configuration ──────────────────────────────────────────────────
+# -- Configuration --------------------------------------------------
 ISO_MOUNT="/mnt/iso"
 ISO_IMAGE="iora-os.img.xz"
 PAYLOAD_MODE="unknown"
@@ -1519,7 +1519,7 @@ PAYLOAD_LAYOUT="unknown"
 PAYLOAD_BOOT_MODE="unknown"
 MIN_DISK_GB=8
 if [ -f /etc/iora/os-dev-mode ]; then
-    BACKTITLE="IORA OS Installer  *** DEV BUILD — INTERNAL USE ONLY ***"
+    BACKTITLE="IORA OS Installer  *** DEV BUILD -- INTERNAL USE ONLY ***"
 else
     BACKTITLE="IORA OS Installer  |  Use Tab/Arrow keys to navigate, Enter to confirm"
 fi
@@ -1541,10 +1541,10 @@ IORA_VIRT_LABEL="Bare metal"
 # Silence kernel log output that would pollute the UI
 dmesg -n 1 2>/dev/null || echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
 
-# ── Dialog color theme (Ubuntu/Debian terminal-installer style) ──
+# -- Dialog color theme (Ubuntu/Debian terminal-installer style) --
 setup_dialog_theme() {
     cat > /tmp/.dialogrc <<'DLGRC'
-# IORA OS installer — clean Debian-installer style (red/white/blue)
+# IORA OS installer -- clean Debian-installer style (red/white/blue)
 aspect = 0
 separate_widget = ""
 tab_len = 4
@@ -1590,7 +1590,7 @@ DLGRC
     export DIALOGRC=/tmp/.dialogrc
 }
 
-# ── Dialog helpers ─────────────────────────────────────────────────
+# -- Dialog helpers -------------------------------------------------
 DIALOG_BIN=""
 if command -v dialog >/dev/null 2>&1; then
     DIALOG_BIN="dialog"
@@ -1703,7 +1703,7 @@ valid_prefix_length() {
     [ "$1" -ge 1 ] && [ "$1" -le 32 ]
 }
 
-# ── System info helpers ────────────────────────────────────────────
+# -- System info helpers --------------------------------------------
 get_cpu_info() {
     local model count
     model=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')
@@ -1725,7 +1725,7 @@ get_boot_mode() {
     fi
 }
 
-# ── Virtualization / container detection ───────────────────────────
+# -- Virtualization / container detection ---------------------------
 # Detects hypervisor, VM platform, or container runtime without relying on
 # systemd-detect-virt (which isn't present in the live installer initramfs).
 # Sets global vars:
@@ -1740,7 +1740,7 @@ detect_virtualization() {
     IORA_VIRT_CONTAINER="none"
     IORA_VIRT_LABEL="Bare metal"
 
-    # ── Container detection first (containers can't run as VMs) ──
+    # -- Container detection first (containers can't run as VMs) --
     if [ -f /.dockerenv ] || grep -qa 'docker\|containerd' /proc/1/cgroup 2>/dev/null; then
         IORA_VIRT_CONTAINER="docker"
     elif [ -n "${container:-}" ]; then
@@ -1759,7 +1759,7 @@ detect_virtualization() {
         IORA_VIRT_CONTAINER="wsl"
     fi
 
-    # ── Hypervisor detection via DMI (most reliable for x86 VMs) ──
+    # -- Hypervisor detection via DMI (most reliable for x86 VMs) --
     local vendor="" product="" sys_vendor=""
     [ -r /sys/class/dmi/id/sys_vendor ]    && sys_vendor=$(tr -d '\0' < /sys/class/dmi/id/sys_vendor 2>/dev/null)
     [ -r /sys/class/dmi/id/product_name ]  && product=$(tr -d '\0' < /sys/class/dmi/id/product_name 2>/dev/null)
@@ -1799,13 +1799,13 @@ detect_virtualization() {
         fi
     fi
 
-    # ── Fallback: hypervisor CPUID flag in /proc/cpuinfo ──
+    # -- Fallback: hypervisor CPUID flag in /proc/cpuinfo --
     if [ "$IORA_VIRT_TYPE" = "none" ] && grep -qa '^flags.*\bhypervisor\b' /proc/cpuinfo 2>/dev/null; then
         IORA_VIRT_TYPE="kvm"  # best-effort default when no DMI info is present
         IORA_VIRT_VENDOR="Unknown hypervisor (CPUID hypervisor flag set)"
     fi
 
-    # ── Xen-specific: /sys/hypervisor/type ──
+    # -- Xen-specific: /sys/hypervisor/type --
     if [ -r /sys/hypervisor/type ]; then
         local hv; hv=$(tr -d '\0' < /sys/hypervisor/type 2>/dev/null)
         case "$hv" in
@@ -1813,7 +1813,7 @@ detect_virtualization() {
         esac
     fi
 
-    # ── Build label ──
+    # -- Build label --
     if [ "$IORA_VIRT_CONTAINER" != "none" ]; then
         IORA_VIRT_LABEL="Container: ${IORA_VIRT_CONTAINER}"
     elif [ "$IORA_VIRT_TYPE" != "none" ]; then
@@ -1837,7 +1837,7 @@ get_network_interfaces() {
     echo "${ifaces:-  No network interfaces found}"
 }
 
-# ── Mount the installation media ───────────────────────────────────
+# -- Mount the installation media -----------------------------------
 mount_iso() {
     for dev in /dev/sr0 /dev/sr1 /dev/cdrom; do
         [ -b "$dev" ] || continue
@@ -1889,7 +1889,7 @@ get_iso_parent_disk() {
     echo "$iso_dev" | sed 's/[0-9]*$//' | sed 's/p[0-9]*$//'
 }
 
-# ── Disk helpers ───────────────────────────────────────────────────
+# -- Disk helpers ---------------------------------------------------
 get_disks() {
     local iso_parent
     iso_parent=$(get_iso_parent_disk)
@@ -2034,7 +2034,7 @@ detect_target_root_partition() {
     return 1
 }
 
-# ── Disk repair & bootloader auto-repair ───────────────────────────────────
+# -- Disk repair & bootloader auto-repair -----------------------------------
 # Called unconditionally after every dd-write.
 # Mirrors what Ubuntu/Debian installers do post-write:
 #   1. GPT header repair (sgdisk -e / gdisk / parted fix)
@@ -2054,7 +2054,7 @@ repair_disk_and_bootloader() {
     log_r "=== IORA Boot Repair ==="
     log_r "Target: /dev/${disk}"
 
-    # ── Step 1: GPT header repair ───────────────────────────────────
+    # -- Step 1: GPT header repair -----------------------------------
     # When an 8 GB image is written to a larger disk the GPT backup
     # header is at the wrong offset. sgdisk -e relocates it to the
     # real disk end. Fall back to gdisk 'v' + 'w' if sgdisk missing.
@@ -2079,7 +2079,7 @@ repair_disk_and_bootloader() {
         log_r "WARN: sgdisk not available; GPT backup-header may still be wrong"
     fi
 
-    # ── Step 2: Re-read partition table ────────────────────────────
+    # -- Step 2: Re-read partition table ----------------------------
     echo "  [2/7] Refresh partition table..." >> "$logfile"
     sync
     blockdev --rereadpt "/dev/${disk}" >> "$logfile" 2>&1 || true
@@ -2094,7 +2094,7 @@ repair_disk_and_bootloader() {
     done
     log_r "Partition nodes present: $(ls /dev/${disk}* 2>/dev/null | tr '\n' ' ')"
 
-    # ── Step 3: EFI filesystem repair ──────────────────────────────
+    # -- Step 3: EFI filesystem repair ------------------------------
     local efi_part; efi_part=$(disk_part_name "$disk" 2)
     echo "  [3/7] EFI partition fsck..." >> "$logfile"
     if [ -b "$efi_part" ]; then
@@ -2107,13 +2107,13 @@ repair_disk_and_bootloader() {
                 && log_r "fsck.vfat OK" \
                 || log_r "fsck.vfat: errors found (attempted auto-fix)"
         else
-            log_r "No vfat fsck available – skipping"
+            log_r "No vfat fsck available - skipping"
         fi
     else
-        log_r "EFI partition ${efi_part} not found – skipping"
+        log_r "EFI partition ${efi_part} not found - skipping"
     fi
 
-    # ── Step 4: Mount EFI + root ────────────────────────────────────
+    # -- Step 4: Mount EFI + root ------------------------------------
     echo "  [4/7] Mounting partitions..." >> "$logfile"
     local target="/mnt/repair-target"
     local efi_mounted=false
@@ -2134,12 +2134,12 @@ repair_disk_and_bootloader() {
         log_r "ERROR: cannot mount root partition ${root_part}"
         return 1
     fi
-    log_r "Root mounted: ${root_part} → ${target}"
+    log_r "Root mounted: ${root_part} -> ${target}"
 
     mkdir -p "${target}/boot/efi" 2>/dev/null || true
 
     if [ -b "$efi_part" ]; then
-        # Load vfat driver – may be a module or built-in
+        # Load vfat driver - may be a module or built-in
         modprobe vfat      2>/dev/null || true
         modprobe fat       2>/dev/null || true
         modprobe nls_cp437 2>/dev/null || true
@@ -2148,9 +2148,9 @@ repair_disk_and_bootloader() {
         if mount -t vfat "$efi_part" "${target}/boot/efi" 2>>"$logfile" || \
            mount          "$efi_part" "${target}/boot/efi" 2>>"$logfile"; then
             efi_mounted=true
-            log_r "EFI mounted: ${efi_part} → ${target}/boot/efi"
+            log_r "EFI mounted: ${efi_part} -> ${target}/boot/efi"
         else
-            log_r "WARN: vfat mount failed – reformatting EFI partition to fix corrupted/unreadable filesystem"
+            log_r "WARN: vfat mount failed - reformatting EFI partition to fix corrupted/unreadable filesystem"
             # If the vfat FS is unreadable (e.g. wrong offsets after image resize),
             # re-create it and reinstall GRUB from scratch.
             if command -v mkfs.vfat >/dev/null 2>&1 || command -v mkdosfs >/dev/null 2>&1; then
@@ -2162,19 +2162,19 @@ repair_disk_and_bootloader() {
                         efi_mounted=true
                         log_r "EFI mounted after reformat"
                     else
-                        log_r "WARN: EFI mount still failing after reformat – UEFI boot may not work"
+                        log_r "WARN: EFI mount still failing after reformat - UEFI boot may not work"
                     fi
                 else
-                    log_r "WARN: mkfs.vfat failed – EFI partition not accessible"
+                    log_r "WARN: mkfs.vfat failed - EFI partition not accessible"
                 fi
             else
-                log_r "WARN: mkfs.vfat not available – cannot repair EFI partition"
+                log_r "WARN: mkfs.vfat not available - cannot repair EFI partition"
                 log_r "      Install dosfstools in the installer initramfs"
             fi
         fi
     fi
 
-    # ── Step 5: Rewrite grub.cfg with real UUIDs ────────────────────
+    # -- Step 5: Rewrite grub.cfg with real UUIDs --------------------
     echo "  [5/7] grub.cfg with real UUIDs..." >> "$logfile"
     local puuid_a="" puuid_b="" fsuuid_a="" fsuuid_b=""
     local pa pb
@@ -2209,8 +2209,8 @@ repair_disk_and_bootloader() {
     # the GRUB menu titles so a quick reboot shows it loud and clear.
     local _menu_suffix=""
     if [ -f "${target}/etc/iora/os-dev-mode" ]; then
-        _menu_suffix=" — DEV BUILD (INTERNAL)"
-        log_r "DEV build detected — GRUB titles will be marked"
+        _menu_suffix=" -- DEV BUILD (INTERNAL)"
+        log_r "DEV build detected -- GRUB titles will be marked"
     fi
 
     # NOTE: grub.cfg is NOT shell. GRUB's `search` command does NOT
@@ -2269,7 +2269,7 @@ GRUBCFG
     log_r "grub.cfg written"
 
     # Mirror grub.cfg + kernel to the ESP. The originally-shipped core.img
-    # (from post-image.sh) has its prefix pointing at (,gpt2)/boot/grub — if
+    # (from post-image.sh) has its prefix pointing at (,gpt2)/boot/grub -- if
     # the ESP was reformatted in Step 3 we must restore a working config
     # there, otherwise BIOS boot drops to a bare `grub>` prompt.
     if [ "$efi_mounted" = true ]; then
@@ -2292,7 +2292,7 @@ EFIREDIR
         log_r "grub.cfg + vmlinuz mirrored to ESP"
     fi
 
-    # ── Step 6: bind-mount proc/dev/sys and (re)install GRUB ───────
+    # -- Step 6: bind-mount proc/dev/sys and (re)install GRUB -------
     echo "  [6/7] GRUB reinstall..." >> "$logfile"
     local did_bind=false
     local bios_ok=false uefi_ok=false
@@ -2348,7 +2348,7 @@ EFIREDIR
             fi
         fi
     else
-        log_r "WARN: grub-install not found in target or installer – using pre-written grub.cfg only"
+        log_r "WARN: grub-install not found in target or installer - using pre-written grub.cfg only"
 
         # Last-resort fallback: grub-bios-setup + grub-mkimage from modules.
         # This can rebuild BIOS boot (MBR stage1 + BIOS boot partition core.img)
@@ -2398,7 +2398,7 @@ EFIREDIR
         fi
     fi
 
-    # ── Step 7: UEFI fallback loader ────────────────────────────────
+    # -- Step 7: UEFI fallback loader --------------------------------
     echo "  [7/7] UEFI fallback loader..." >> "$logfile"
     if [ "$efi_mounted" = true ]; then
         mkdir -p "${target}/boot/efi/EFI/BOOT" 2>/dev/null || true
@@ -2439,7 +2439,7 @@ EFIREDIR
         fi
     fi
 
-    # ── Cleanup ─────────────────────────────────────────────────────
+    # -- Cleanup -----------------------------------------------------
     [ "$efi_mounted" = true ] && umount "${target}/boot/efi" 2>/dev/null || true
     if [ "$did_bind" = true ]; then
         umount "${target}/run"  2>/dev/null || true
@@ -2467,7 +2467,7 @@ EFIREDIR
             || log_r "Final GPT verify: issues remain (check log)"
     fi
 
-    # ── Final bootability assessment ─────────────────────────────────────
+    # -- Final bootability assessment -------------------------------------
     # Our base image is built with working MBR + BIOS core.img + UEFI
     # BOOTX64.EFI at post-image time. After dd these remain bootable as long
     # as the GPT header and the MBR boot code are intact.
@@ -2578,7 +2578,7 @@ install_bootloader_fallback() {
         mount          "$efi_part" "${target}/boot/efi" 2>/dev/null && efi_mounted=true || true
     fi
 
-    # ── Tier 1: target has grub-install (preferred, uses target's modules) ──
+    # -- Tier 1: target has grub-install (preferred, uses target's modules) --
     if chroot "$target" /bin/sh -c "command -v grub-install >/dev/null 2>&1" >/dev/null 2>&1; then
         target_has_grub_install=true
 
@@ -2605,7 +2605,7 @@ install_bootloader_fallback() {
             >/dev/null 2>&1 || true
     fi
 
-    # ── Tier 2: installer-bundled grub-install (from HOST_DIR) ──
+    # -- Tier 2: installer-bundled grub-install (from HOST_DIR) --
     if [ "$target_has_grub_install" = false ] && [ -n "$installer_grub_install" ]; then
         if "$installer_grub_install" --target=i386-pc --boot-directory="${target}/boot" \
              --recheck --no-floppy "/dev/${disk}" >/dev/null 2>&1; then
@@ -2620,7 +2620,7 @@ install_bootloader_fallback() {
         fi
     fi
 
-    # ── Tier 3: grub-mkimage + grub-bios-setup fallback (no grub-install) ──
+    # -- Tier 3: grub-mkimage + grub-bios-setup fallback (no grub-install) --
     if [ "$bios_install_ok" = false ] \
        && command -v grub-mkimage >/dev/null 2>&1 \
        && command -v grub-bios-setup >/dev/null 2>&1 \
@@ -2642,7 +2642,7 @@ install_bootloader_fallback() {
         fi
     fi
 
-    # ── Tier 4: grub-mkimage UEFI BOOTX64.EFI fallback ──
+    # -- Tier 4: grub-mkimage UEFI BOOTX64.EFI fallback --
     if [ "$uefi_install_ok" = false ] && [ "$efi_mounted" = true ] \
        && command -v grub-mkimage >/dev/null 2>&1 \
        && [ -d /usr/lib/grub/x86_64-efi ]; then
@@ -2703,7 +2703,7 @@ install_bootloader_fallback() {
         fi
     fi
 
-    # ── ALWAYS (re-)generate grub.cfg on the root partition and mirror it to
+    # -- ALWAYS (re-)generate grub.cfg on the root partition and mirror it to
     # the ESP.  This is critical because:
     #   - post-image.sh originally wrote grub.cfg only on the ESP at
     #     /boot/grub/grub.cfg, expecting core.img's prefix to point there.
@@ -2734,7 +2734,7 @@ install_bootloader_fallback() {
     # Mirror the DEV-build suffix from the primary grub.cfg writer above.
     local _menu_suffix2=""
     if [ -f "${target}/etc/iora/os-dev-mode" ]; then
-        _menu_suffix2=" — DEV BUILD (INTERNAL)"
+        _menu_suffix2=" -- DEV BUILD (INTERNAL)"
     fi
 
     # Respect any LUKS-specific grub.cfg the encryption path already wrote.
@@ -2828,7 +2828,7 @@ EFIREDIR
     return "$boot_ok"
 }
 
-# ── Password hashing helper ────────────────────────────────────────
+# -- Password hashing helper ----------------------------------------
 # Set $user's password in $target/etc/shadow using the first hashing
 # backend that works in the current installer environment. Tries, in
 # order: mkpasswd, openssl passwd, python3 crypt, busybox cryptpw,
@@ -2901,9 +2901,9 @@ iora_set_account_password() {
         ' "$shadow" > "$tmp" 2>/dev/null && mv "$tmp" "$shadow" 2>/dev/null
         chmod 0640 "$shadow" 2>/dev/null || true
         if grep -q "^${user}:\$" "$shadow" 2>/dev/null; then
-            : # empty password still — fall through to chroot attempt
+            : # empty password still -- fall through to chroot attempt
         elif grep -q "^${user}:[!*]" "$shadow" 2>/dev/null; then
-            : # locked — fall through
+            : # locked -- fall through
         else
             # Verify the hash is actually there.
             if grep -q "^${user}:[^:]\{8,\}:" "$shadow" 2>/dev/null; then
@@ -2932,7 +2932,7 @@ iora_set_account_password() {
     return 1
 }
 
-# ── Post-install configuration ─────────────────────────────────────
+# -- Post-install configuration -------------------------------------
 apply_post_install_config() {
     local disk="$1"
     local target="/mnt/target"
@@ -2971,7 +2971,7 @@ apply_post_install_config() {
     # Set root password if changed.
     # openssl may be missing in minimal installer environments and
     # `sed -i` can silently fail if /etc/shadow has unusual line
-    # endings → account would stay with empty/locked password and
+    # endings -> account would stay with empty/locked password and
     # the user's chosen password wouldn't work at login. Use the
     # robust helper which tries mkpasswd / openssl / python3 / busybox
     # cryptpw / chroot+chpasswd and verifies the shadow update.
@@ -3129,7 +3129,7 @@ KBDCONF
     return 0
 }
 
-# ── Wizard screens ─────────────────────────────────────────────────
+# -- Wizard screens -------------------------------------------------
 
 INSTALLER_MODE="install"   # install | rescue | shell
 
@@ -3143,12 +3143,15 @@ is_iora_dev_iso() {
 screen_welcome() {
     local _dev_warn=""
     if is_iora_dev_iso; then
+        # Pure 7-bit ASCII -- the kernel framebuffer console with the
+        # default 8x16 VGA font cannot render UTF-8 box-drawing or em
+        # dashes (they showed up as "~U~T~U~P" / "~@~T" mojibake).
         _dev_warn=$(cat <<'DEVWARN'
- ╔══════════════════════════════════════════════════════════════════╗
- ║   *** IORA OS DEV BUILD — INTERNAL USE ONLY ***                  ║
- ║   This installer image is NOT for production use.                ║
- ║   Installed systems will run the OS-dev hot-reload bridge.       ║
- ╚══════════════════════════════════════════════════════════════════╝
+ +------------------------------------------------------------------+
+ |   *** IORA OS DEV BUILD -- INTERNAL USE ONLY ***                 |
+ |   This installer image is NOT for production use.                |
+ |   Installed systems will run the OS-dev hot-reload bridge.       |
+ +------------------------------------------------------------------+
 
 DEVWARN
 )
@@ -3220,7 +3223,7 @@ ${_dev_warn} Welcome to IORA OS.\n\n\
         clear 2>/dev/null || true
         echo ""
         if is_iora_dev_iso; then
-            echo "  *** IORA OS DEV BUILD — INTERNAL USE ONLY ***"
+            echo "  *** IORA OS DEV BUILD -- INTERNAL USE ONLY ***"
             echo "  ============================================"
             echo "  Not for production use."
             echo ""
@@ -3242,7 +3245,7 @@ ${_dev_warn} Welcome to IORA OS.\n\n\
     fi
 }
 
-# ── Rescue mode ─────────────────────────────────────────────────────────
+# -- Rescue mode ---------------------------------------------------------
 # Finds an existing IORA installation, re-runs repair_disk_and_bootloader
 # on it, optionally resets the root password, and dumps diagnostics.
 run_rescue_mode() {
@@ -3909,14 +3912,14 @@ screen_select_disk() {
     return 0
 }
 
-# ── Partitioning screen ─────────────────────────────────────────────────
+# -- Partitioning screen -------------------------------------------------
 # Modes (similar to Calamares/Ubiquity/Anaconda):
-#   auto      – Erase entire selected disk and lay out A/B + ESP + data
+#   auto      - Erase entire selected disk and lay out A/B + ESP + data
 #               (classic IORA image via dd, this is the default)
-#   keep      – Keep existing partition table; reuse existing ESP and install
+#   keep      - Keep existing partition table; reuse existing ESP and install
 #               rootfs into a user-picked free partition. Advanced/multi-boot.
-#   manual    – Drop to cfdisk/parted for hand partitioning before continuing.
-#   encrypted – Same as "auto" but LUKS-encrypts root partitions before copy.
+#   manual    - Drop to cfdisk/parted for hand partitioning before continuing.
+#   encrypted - Same as "auto" but LUKS-encrypts root partitions before copy.
 PARTITION_MODE="auto"
 KEEP_TARGET_ROOT=""
 KEEP_TARGET_ESP=""
@@ -4057,7 +4060,7 @@ screen_partitioning() {
             blockdev --rereadpt "/dev/${SEL_DISK}" 2>/dev/null || true
             sleep 2
 
-            # After manual editing, user still needs to pick root/ESP → treat as 'keep'.
+            # After manual editing, user still needs to pick root/ESP -> treat as 'keep'.
             PARTITION_MODE="keep"
             # Re-run the keep branch to pick root+ESP.
             if ! screen_partitioning; then
@@ -4144,7 +4147,7 @@ screen_confirm() {
     return 0
 }
 
-# ── LUKS initramfs builder ──────────────────────────────────────────────
+# -- LUKS initramfs builder ----------------------------------------------
 # Creates a minimal initramfs (cpio.gz) that:
 #   1. Mounts /proc /sys /dev
 #   2. Loads crypto + dm-crypt kernel modules
@@ -4169,7 +4172,7 @@ build_luks_initramfs() {
     # Directory skeleton
     mkdir -p "$work_dir"/{bin,sbin,usr/bin,usr/sbin,etc,proc,sys,dev,run,tmp,mnt/root,lib,lib64,usr/lib,usr/lib64}
 
-    # ── Copy binary + its shared libraries ──────────────────────────
+    # -- Copy binary + its shared libraries --------------------------
     _copy_with_deps() {
         local bin="$1"
         local dst_bin
@@ -4178,7 +4181,7 @@ build_luks_initramfs() {
         mkdir -p "$(dirname "$dst_bin")"
         cp -f "$bin" "$dst_bin" 2>/dev/null || return 1
 
-        # ldd → copy every resolved shared-object path
+        # ldd -> copy every resolved shared-object path
         if command -v ldd >/dev/null 2>&1; then
             ldd "$bin" 2>/dev/null | awk '
                 /=>/   { print $3 }
@@ -4245,7 +4248,7 @@ build_luks_initramfs() {
         fi
     done
 
-    # ── Kernel modules needed for LUKS ──────────────────────────────
+    # -- Kernel modules needed for LUKS ------------------------------
     local kver
     kver=$(uname -r 2>/dev/null || true)
     if [ -n "$kver" ] && [ -d "/lib/modules/$kver" ]; then
@@ -4273,7 +4276,7 @@ build_luks_initramfs() {
         done
     fi
 
-    # ── /etc/iora-crypt.conf inside initramfs ───────────────────────
+    # -- /etc/iora-crypt.conf inside initramfs -----------------------
     cat > "$work_dir/etc/iora-crypt.conf" <<CONF
 LUKS_ROOT_A_UUID=${uuid_a}
 LUKS_ROOT_B_UUID=${uuid_b}
@@ -4281,7 +4284,7 @@ LUKS_ROOT_A_NAME=iora_root_a
 LUKS_ROOT_B_NAME=iora_root_b
 CONF
 
-    # ── /init script ────────────────────────────────────────────────
+    # -- /init script ------------------------------------------------
     cat > "$work_dir/init" <<'LUKSINIT'
 #!/bin/sh
 # IORA LUKS initramfs
@@ -4379,7 +4382,7 @@ exec sh
 LUKSINIT
     chmod 755 "$work_dir/init"
 
-    # ── Package into cpio.gz ────────────────────────────────────────
+    # -- Package into cpio.gz ----------------------------------------
     (
         cd "$work_dir" || exit 1
         find . | cpio -H newc -o 2>/dev/null | gzip -9
@@ -4396,7 +4399,7 @@ LUKSINIT
     return 0
 }
 
-# ── LUKS root encryption (in-place) ─────────────────────────────────────
+# -- LUKS root encryption (in-place) -------------------------------------
 # Encrypts both A and B root partitions using cryptsetup reencrypt --encrypt.
 # The original rootfs stays intact; a LUKS2 header is added at the start of
 # the partition, shifting data by the header size (default 16 MiB). After
@@ -4546,7 +4549,7 @@ LUKSGRUB
     return 0
 }
 
-# ── Keep-mode installer ─────────────────────────────────────────────────
+# -- Keep-mode installer -------------------------------------------------
 # Installs IORA OS into an existing partition without touching other
 # partitions on the disk. The user has already picked KEEP_TARGET_ROOT
 # (always reformatted) and optionally KEEP_TARGET_ESP.
@@ -4752,7 +4755,7 @@ screen_install() {
         [ -b "$part" ] && umount "$part" 2>/dev/null || true
     done
 
-    # ── Keep mode: install into an existing partition instead of dd-ing ─────
+    # -- Keep mode: install into an existing partition instead of dd-ing -----
     # This preserves other operating systems on the disk. The selected root
     # partition is reformatted, the rootfs is unpacked into it, and the
     # existing ESP (if any) gets grub + grub.cfg + kernel.
@@ -4839,7 +4842,7 @@ screen_install() {
             echo "  Repairing GPT partition header..."
             echo "  (required when image is smaller than target disk)"
             echo "XXX"
-            # ── GPT backup-header repair ──────────────────────────────────
+            # -- GPT backup-header repair ----------------------------------
             # After dd-writing an 8 GB image onto a larger disk the GPT
             # secondary header sits at the wrong offset. Move it.
             if command -v sgdisk >/dev/null 2>&1; then
@@ -4873,7 +4876,7 @@ screen_install() {
                 echo "  This may take a few minutes."
                 echo "XXX"
                 encrypt_root_partitions "${disk}" >/tmp/luks.log 2>&1 || {
-                    echo "  LUKS encryption failed — see /tmp/luks.log" >> /tmp/luks.log
+                    echo "  LUKS encryption failed -- see /tmp/luks.log" >> /tmp/luks.log
                 }
             fi
 
@@ -4964,9 +4967,9 @@ screen_complete() {
         done
         if [ -z "$iora_ip" ]; then
             iora_ip="${IORA_HOSTNAME}.local"
-            ip_note="  (IP not yet known — check MOTD after login)"
+            ip_note="  (IP not yet known -- check MOTD after login)"
         else
-            ip_note="  (DHCP — may differ after reboot)"
+            ip_note="  (DHCP -- may differ after reboot)"
         fi
     fi
 
@@ -5010,7 +5013,7 @@ ${ip_note}
     fi
 }
 
-# ── Cancel / Interrupt handler ─────────────────────────────────────
+# -- Cancel / Interrupt handler -------------------------------------
 # Called whenever a wizard step returns non-zero (user pressed Cancel or
 # Esc). Instead of aborting the installer straight away, show a menu:
 #   - Retry current step
@@ -5035,7 +5038,7 @@ wizard_cancel_menu() {
         return 0
     fi
 
-    choice=$(dlg --title " Cancelled — what next? " \
+    choice=$(dlg --title " Cancelled -- what next? " \
         --cancel-label "Back" \
         --menu "\n You cancelled '${current_name}'.\n\n What would you like to do?\n" \
         20 72 10 \
@@ -5152,7 +5155,7 @@ wizard_step() {
     return 1
 }
 
-# ── Main wizard flow ───────────────────────────────────────────────
+# -- Main wizard flow -----------------------------------------------
 run_wizard() {
     # Detect virtualization/container environment early so every screen
     # (welcome, sysinfo, summary) can display it.
@@ -5185,7 +5188,7 @@ run_wizard() {
         for _d in /dev/sr0 /dev/sr1 /dev/cdrom /dev/sd[a-z] /dev/vd[a-z] /dev/nvme0n1; do
             [ -b "$_d" ] && _blkdevs="${_blkdevs} $_d"
         done
-        [ -z "$_blkdevs" ] && _blkdevs=" (none detected — VMware SCSI driver may be missing)"
+        [ -z "$_blkdevs" ] && _blkdevs=" (none detected -- VMware SCSI driver may be missing)"
         dlg_msg " Error " "\
  Could not find the IORA OS image.\n\n\
  Make sure the installer ISO or USB\n\
@@ -5238,7 +5241,7 @@ run_wizard() {
         fi
     fi
 
-    # ── State-machine step dispatch ────────────────────────────────
+    # -- State-machine step dispatch --------------------------------
     # Each cancellable step is wrapped so that pressing Cancel opens the
     # cancel menu (retry / back / jump / restart / shell / reboot /
     # poweroff / abort) instead of aborting immediately.
@@ -5270,7 +5273,7 @@ run_wizard() {
         step="$WIZARD_NEXT_STEP"
     done
 
-    # Step 13: Install (not cancellable from here on — actual write).
+    # Step 13: Install (not cancellable from here on -- actual write).
     if ! screen_install; then
         return 1
     fi
@@ -5279,7 +5282,7 @@ run_wizard() {
     screen_complete
 }
 
-# Helper for the "final confirmation" step — combines the existing
+# Helper for the "final confirmation" step -- combines the existing
 # post-partitioning safety prompts and screen_confirm into a single
 # cancellable unit so the cancel menu can treat it as step 12.
 _wizard_final_confirm() {
@@ -5306,7 +5309,7 @@ _wizard_final_confirm() {
     screen_confirm
 }
 
-# ── Entry point ────────────────────────────────────────────────────
+# -- Entry point ----------------------------------------------------
 
 # Helper commands for the recovery shell
 cat > /bin/install <<'SHEOF'

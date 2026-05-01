@@ -28,7 +28,23 @@ use uuid::Uuid;
 
 const NGINX_CONFIG_DIR: &str = "/etc/nginx";
 const NGINX_CONFIG_FILE: &str = "/etc/nginx/nginx.conf";
-const NGINX_TEMPLATE_PATH: &str = "./nginx-config/nginx.conf.template";
+/// Default template location used when neither `$NGINX_TEMPLATE_PATH`
+/// nor a co-located `./nginx-config/nginx.conf.template` exists. On
+/// IORA OS the template is shipped under `/usr/share/iora/iora-nginx/`.
+const NGINX_TEMPLATE_DEFAULT: &str = "./nginx-config/nginx.conf.template";
+const NGINX_TEMPLATE_FALLBACK: &str = "/usr/share/iora/iora-nginx/nginx.conf.template";
+
+fn nginx_template_path() -> String {
+    if let Ok(p) = std::env::var("NGINX_TEMPLATE_PATH") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
+    if std::path::Path::new(NGINX_TEMPLATE_DEFAULT).exists() {
+        return NGINX_TEMPLATE_DEFAULT.to_string();
+    }
+    NGINX_TEMPLATE_FALLBACK.to_string()
+}
 const DEFAULT_PORT: u16 = 80;
 const CONFIG_RELOAD_INTERVAL_SECS: u64 = 30;
 
@@ -54,8 +70,9 @@ fn generate_nginx_config(apps: Vec<AppRoute>) -> Result<String> {
     let mut tera = Tera::default();
 
     // Load template
-    let template_content = fs::read_to_string(NGINX_TEMPLATE_PATH)
-        .context("Failed to read NGINX template")?;
+    let template_path = nginx_template_path();
+    let template_content = fs::read_to_string(&template_path)
+        .with_context(|| format!("Failed to read NGINX template at {template_path}"))?;
 
     tera.add_raw_template("nginx.conf", &template_content)
         .context("Failed to parse NGINX template")?;

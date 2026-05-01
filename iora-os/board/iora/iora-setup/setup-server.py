@@ -871,6 +871,11 @@ def apply_config(config):
               "/etc/iora/iora-assist.env":   "iora_assist",
                 "/etc/iora/iora-secrets.env":  "iora_secrets",
                 "/etc/iora/iora-security.env": "iora_security",
+                # Reuse iora_core for services that don't have their own DB.
+                "/etc/iora/iora-network-monitor.env": "iora_core",
+                "/etc/iora/iora-nginx.env":           "iora_core",
+                "/etc/iora/iora-resource-manager.env": "iora_core",
+                "/etc/iora/iora-dev-bridge.env":      "iora_core",
             }
             for env_file, db_name in db_envs.items():
                 if not os.path.exists(env_file):
@@ -890,6 +895,62 @@ def apply_config(config):
                 # Owner-read-only: these files contain the DB password.
                 os.chmod(env_file, 0o600)
             PROGRESS.log("Updated DATABASE_URL in all IORA service env files")
+
+            # ── Generate per-service secrets (idempotent) ───────────────
+            # Each entry: (env_file, var_name, generator). Stored in
+            # /etc/iora/secrets/<var>.key once so a second setup run keeps
+            # the same value (rotating these would invalidate JWT tokens
+            # already issued and corrupt encrypted-at-rest columns).
+            SECRETS_DIR = "/etc/iora/secrets"
+            os.makedirs(SECRETS_DIR, exist_ok=True)
+            os.chmod(SECRETS_DIR, 0o700)
+
+            def _persisted_secret(name: str, generator):
+                p = os.path.join(SECRETS_DIR, f"{name}.key")
+                if os.path.exists(p):
+                    with open(p) as f:
+                        v = f.read().strip()
+                    if v:
+                        return v
+                v = generator()
+                with open(p, "w") as f:
+                    f.write(v)
+                os.chmod(p, 0o600)
+                return v
+
+            secret_targets = [
+                # 32-byte hex (AES-256-GCM key) — iora-security
+                ("/etc/iora/iora-security.env", "SECURITY_DB_KEY",
+                    lambda: secrets.token_hex(32)),
+                # Strong random — iora-home JWT signing
+                ("/etc/iora/iora-home.env", "JWT_SECRET",
+                    lambda: secrets.token_urlsafe(48)),
+                # 32-byte hex — iora-secrets master key
+                ("/etc/iora/iora-secrets.env", "SECRETS_MASTER_KEY",
+                    lambda: secrets.token_hex(32)),
+            ]
+            for env_file, var, gen in secret_targets:
+                if not os.path.exists(env_file):
+                    continue
+                value = _persisted_secret(var, gen)
+                lines = []
+                replaced = False
+                with open(env_file) as f:
+                    for line in f:
+                        if line.startswith(f"{var}="):
+                            lines.append(f"{var}={value}\n")
+                            replaced = True
+                        else:
+                            lines.append(line)
+                if not replaced:
+                    # Append if the placeholder wasn't there.
+                    if lines and not lines[-1].endswith("\n"):
+                        lines.append("\n")
+                    lines.append(f"{var}={value}\n")
+                with open(env_file, "w") as f:
+                    f.writelines(lines)
+                os.chmod(env_file, 0o600)
+            PROGRESS.log("Generated/refreshed service secrets (JWT, SECURITY_DB_KEY, SECRETS_MASTER_KEY)")
 
             # Delete the iora-db-init sentinel so the service re-runs and
             # applies/verifies the role password on the next service start.

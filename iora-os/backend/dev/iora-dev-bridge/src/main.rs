@@ -54,6 +54,9 @@ use uuid::Uuid;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+mod config;
+mod db;
+
 const DEV_MODE_FILE: &str = "/etc/iora/os-dev-mode";
 /// Persistent build workspace. We keep one directory per component so
 /// cargo's `target/` cache survives across uploads — a `iora-watchdog`
@@ -105,7 +108,7 @@ struct Cli {
 }
 
 #[derive(Clone)]
-struct AppState {
+pub(crate) struct AppState {
     token:        Arc<String>,
     build_id:     Arc<String>,
     core_url:     Arc<String>,
@@ -347,6 +350,18 @@ async fn main() -> Result<()> {
         .route("/dev/system/info", get(system_info))
         .route("/dev/system/reboot", post(system_reboot))
         .route("/dev/system/journal", get(journal_recent))
+        // Global Config (system_preferences in iora_home)
+        .route("/dev/config", get(config::config_list))
+        .route("/dev/config/:key", get(config::config_get)
+            .put(config::config_put)
+            .delete(config::config_delete))
+        // Full PostgreSQL access (all IORA databases)
+        .route("/dev/db/databases", get(db::list_databases))
+        .route("/dev/db/:database/tables", get(db::list_tables))
+        .route("/dev/db/:database/tables/:table", get(db::describe_table))
+        .route("/dev/db/:database/query", post(db::run_query))
+        .route("/dev/db/:database/exec", post(db::run_exec))
+        .route("/dev/db/:database/explain", post(db::run_explain))
         .layer(DefaultBodyLimit::max(512 * 1024 * 1024))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state.clone());
@@ -408,7 +423,7 @@ fn start_mdns_advertiser(port: u16, build_id: &str) -> Result<mdns_sd::ServiceDa
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
-fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
     // 1. Static dev token (legacy, still works)
     if let Some(tok) = headers.get("x-iora-dev-token")
         .and_then(|v| v.to_str().ok())
@@ -478,6 +493,8 @@ async fn status(State(s): State<AppState>) -> impl IntoResponse {
             "system.reboot",
             "system.journal",
             "health.public",
+            "config.global",
+            "db.full",
         ],
     })
 }

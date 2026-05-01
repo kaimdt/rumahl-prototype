@@ -126,7 +126,13 @@ interface ConfigurationContextType {
 
 const ConfigurationContext = createContext<ConfigurationContextType | undefined>(undefined)
 
-const API_BASE_URL = getBackendUrl() || 'http://localhost:3001'
+// Resolve the backend URL on every call, not once at module load. The
+// GlobalConfigProvider patches the value asynchronously, and in the
+// production IORA OS bundle the frontend is served from the same origin
+// as the backend — so an empty string (= relative URL) is the correct
+// default. NEVER fall back to `http://localhost:3001`: that file path
+// is broken on every device the dashboard is opened from.
+const apiBase = () => getBackendUrl() || ''
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth()
@@ -167,7 +173,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
       if (deviceId) {
         // Try to get existing device
-        const response = await fetch(`${API_BASE_URL}/api/config/devices/${deviceId}`)
+        const response = await fetch(`${apiBase()}/api/config/devices/${deviceId}`)
         if (response.ok) {
           storedDevice = await response.json()
           setDevice(storedDevice)
@@ -176,7 +182,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
       // If no device found, register new one
       if (!storedDevice) {
-        const response = await fetch(`${API_BASE_URL}/api/config/devices`, {
+        const response = await fetch(`${apiBase()}/api/config/devices`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -208,7 +214,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
   const getOrCreateUser = async (username: string) => {
     try {
-      let response = await fetch(`${API_BASE_URL}/api/config/users/${username}`)
+      let response = await fetch(`${apiBase()}/api/config/users/${username}`)
 
       if (response.ok) {
         const existingUser = await response.json()
@@ -216,7 +222,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('ha-username', username)
       } else {
         // Create new user
-        response = await fetch(`${API_BASE_URL}/api/config/users`, {
+        response = await fetch(`${apiBase()}/api/config/users`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -246,7 +252,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
       // Try to get existing profile
       // This is a simplified approach - in production you'd have a specific endpoint
-      const response = await fetch(`${API_BASE_URL}/api/config/profiles`, {
+      const response = await fetch(`${apiBase()}/api/config/profiles`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
@@ -273,7 +279,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
     try {
       setIsLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}`, {
+      const response = await fetch(`${apiBase()}/api/config/profiles/${profile.id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
@@ -327,7 +333,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
         })),
       }))
 
-      const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}/pages`, {
+      const response = await fetch(`${apiBase()}/api/config/profiles/${profile.id}/pages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(pagesPayload),
@@ -348,7 +354,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!profile) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}/theme`, {
+      const response = await fetch(`${apiBase()}/api/config/profiles/${profile.id}/theme`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(themeData),
@@ -372,7 +378,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!profile) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/config/profiles/${profile.id}/background`, {
+      const response = await fetch(`${apiBase()}/api/config/profiles/${profile.id}/background`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(backgroundData),
@@ -394,7 +400,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!user) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/config/preferences/${user.id}`, {
+      const response = await fetch(`${apiBase()}/api/config/preferences/${user.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
@@ -416,7 +422,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
     if (!user) return null
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/config/preferences/${user.id}`, {
+      const response = await fetch(`${apiBase()}/api/config/preferences/${user.id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
@@ -437,7 +443,7 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
 
     const interval = setInterval(async () => {
       try {
-        await fetch(`${API_BASE_URL}/api/config/devices/${device.id}/heartbeat`, {
+        await fetch(`${apiBase()}/api/config/devices/${device.id}/heartbeat`, {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })

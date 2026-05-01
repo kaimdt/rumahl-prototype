@@ -1269,6 +1269,7 @@ async fn main() -> anyhow::Result<()> {
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
         .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
+        .route("/api/apps/:app_id/icon", get(app_icon_get))
         // App detail with full info.
         .route("/api/apps/:app_id/detail", get(app_detail_get))
         // App configuration (per-app settings using settings_schema from manifest)
@@ -6143,6 +6144,103 @@ async fn app_logs_get(
         "logs": logs,
         "count": logs.len(),
     }))
+}
+
+/// Serve an app's icon.
+///
+/// Lookup order:
+///   1. The literal `icon` from the manifest if it points to a real file
+///      under the install dir (`/var/lib/iora/local-apps/<id>/<icon>`).
+///   2. Common conventional names (`icon.png`, `icon.svg`, `icon.jpg`,
+///      `assets/icon.png`).
+///   3. If the manifest's `icon` is an absolute URL or starts with `data:`,
+///      the frontend never hits this endpoint — but if it does, we fall
+///      through to the placeholder below.
+///
+/// On miss we return a 1x1 transparent PNG with `Cache-Control: no-store`
+/// (instead of 404) so the browser doesn't show a broken-image icon and
+/// log noise stops. Callers that want the real 404 can pass `?strict=1`.
+async fn app_icon_get(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
+) -> axum::response::Response {
+    use axum::body::Body;
+    let strict = q.get("strict").map(|v| v == "1" || v == "true").unwrap_or(false);
+
+    let app = state
+        .local_appstore
+        .list()
+        .await
+        .into_iter()
+        .find(|a| a.id == app_id);
+    let app_dir = state.local_appstore.base_dir().join(&app_id);
+
+    // Build candidate file list.
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(ref a) = app {
+        if let Some(ref icon) = a.icon {
+            // Skip URLs and data: — those are served by the browser, not us.
+            if !icon.starts_with("http://")
+                && !icon.starts_with("https://")
+                && !icon.starts_with("data:")
+                && !icon.starts_with("/api/")
+            {
+                let rel = icon.trim_start_matches('/');
+                candidates.push(app_dir.join(rel));
+            }
+        }
+    }
+    for name in [
+        "icon.png", "icon.svg", "icon.jpg", "icon.jpeg", "icon.webp",
+        "assets/icon.png", "assets/icon.svg",
+    ] {
+        candidates.push(app_dir.join(name));
+    }
+
+    for path in &candidates {
+        if let Ok(bytes) = tokio::fs::read(path).await {
+            let ct = match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
+                "svg" => "image/svg+xml",
+                "jpg" | "jpeg" => "image/jpeg",
+                "webp" => "image/webp",
+                "gif" => "image/gif",
+                _ => "image/png",
+            };
+            return axum::response::Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", ct)
+                .header("cache-control", "public, max-age=300")
+                .body(Body::from(bytes))
+                .unwrap();
+        }
+    }
+
+    if strict {
+        return axum::response::Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({"error": "icon not found", "app_id": app_id}))
+                    .unwrap_or_default(),
+            ))
+            .unwrap();
+    }
+
+    // 1x1 transparent PNG fallback so the <img> tag stays quiet.
+    static TRANSPARENT_PNG: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+        0x42, 0x60, 0x82,
+    ];
+    axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "image/png")
+        .header("cache-control", "no-store")
+        .body(Body::from(TRANSPARENT_PNG))
+        .unwrap()
 }
 
 /// SSE stream of logs for a specific app.

@@ -1232,8 +1232,12 @@ END\$\$;
 ALTER ROLE iora PASSWORD '$(printf '%s' "$DB_PASS" | sed "s/'/''/g")';
 SQLEOF
 
-# 2. Create the four IORA databases (owned by iora).
-for db in iora_core iora_home iora_secrets iora_security; do
+# 2. Create the IORA databases (owned by iora). iora_core is the
+#    central one; the rest are per-service. iora_assist is referenced by
+#    iora-api (Assist sidecar) so it must exist even if iora-assist
+#    itself isn't enabled — without it iora-api crash-loops on startup
+#    with "database iora_assist does not exist".
+for db in iora_core iora_home iora_secrets iora_security iora_assist; do
     if ! psql_iora "SELECT 1 FROM pg_database WHERE datname='${db}'" | grep -q 1; then
         su -s /bin/sh postgres -c "createdb -O iora ${db}" || \
             die "Failed to create database ${db}"
@@ -1739,6 +1743,21 @@ mkdir -p "${SETUP_DST}"
 if [ -d "${SETUP_SRC}" ]; then
     cp "${SETUP_SRC}/setup-server.py" "${SETUP_DST}/setup-server.py"
     chmod 755 "${SETUP_DST}/setup-server.py"
+fi
+
+# Install iora-nginx Tera template at a stable path. The binary defaults
+# to `./nginx-config/nginx.conf.template` which only resolves when run
+# from the source tree; on IORA OS the systemd unit's WorkingDirectory
+# is `/var/lib/iora/iora-nginx`, so we ship the template under
+# /usr/share/iora and point NGINX_TEMPLATE_PATH at it (see iora-nginx.env).
+NGINX_TPL_SRC="${BR2_EXTERNAL_IORA_PATH}/backend/services/iora-nginx/nginx-config/nginx.conf.template"
+NGINX_TPL_DST_DIR="${TARGET_DIR}/usr/share/iora/iora-nginx"
+if [ -f "${NGINX_TPL_SRC}" ]; then
+    mkdir -p "${NGINX_TPL_DST_DIR}"
+    install -m 0644 "${NGINX_TPL_SRC}" "${NGINX_TPL_DST_DIR}/nginx.conf.template"
+    echo "IORA OS: Installed nginx template -> ${NGINX_TPL_DST_DIR}/nginx.conf.template"
+else
+    echo "IORA OS: WARN: nginx template not found at ${NGINX_TPL_SRC}"
 fi
 
 # Create iora-setup.service (first-boot setup wizard)
@@ -2870,6 +2889,7 @@ Group=root
 # down again.
 Environment=IORA_DEV_BIND=0.0.0.0:8101
 Environment=IORA_DEV_TOKEN_FILE=/var/lib/iora/dev-token
+EnvironmentFile=-/etc/iora/iora-dev-bridge.env
 EnvironmentFile=-/etc/iora/dev-bridge.env
 # Self-heal: copy/regenerate the dev-token onto a writable path, fix
 # perms, and poke firewall holes for 8101. The script tolerates every
@@ -3520,6 +3540,11 @@ cat > "${TARGET_DIR}/etc/iora/iora-security.env" <<'ENVEOF'
 PORT=8095
 RUST_LOG=info
 DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_security
+# 64-hex-char (32-byte) AES-256-GCM key used to encrypt fields in
+# iora-security's audit/event tables. Setup wizard fills this in on
+# first boot; the placeholder makes the binary fail loudly if it's
+# ever started before setup ran.
+SECURITY_DB_KEY=CHANGEME
 AUTO_LOCKDOWN_ENABLED=true
 THREAT_LEVEL_THRESHOLD=7
 ENVEOF
@@ -3562,9 +3587,12 @@ ORA_AI_PROVIDER=desktop
 ORA_AI_BASE_URL=
 ORA_AI_API_KEY=
 ORA_AI_MODEL=
-# SQLite file lives under /var/lib so it survives factory resets of /etc.
-# iora-api auto-creates the parent directory on first start.
-IORA_API_DB_URL=sqlite:/var/lib/iora-api/api.db?mode=rwc
+# SQLite file lives inside the per-service StateDirectory
+# (/var/lib/iora/iora-api). systemd creates that dir for us before the
+# unit starts, and ProtectSystem=strict + ReadWritePaths in the unit
+# whitelist exactly that path. iora-api still mkdir -p's the parent on
+# first start as a belt-and-braces measure.
+IORA_API_DB_URL=sqlite:/var/lib/iora/iora-api/api.db?mode=rwc
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-appstore.env" <<'ENVEOF'
@@ -3591,6 +3619,16 @@ cat > "${TARGET_DIR}/etc/iora/iora-dev-bridge.env" <<'ENVEOF'
 PORT=8101
 RUST_LOG=info
 IORA_CORE_URL=http://localhost:8090
+# /dev/config/* targets system_preferences in iora-home (REST not used —
+# the bridge talks PostgreSQL directly so it works even when iora-home
+# itself is the service being restarted/rebuilt).
+IORA_HOME_URL=http://localhost:8126
+# /dev/db/* and /dev/config/* connect to PostgreSQL using the password
+# in /etc/iora/db.password (mode 0640, group iora). The dev-bridge runs
+# as root and reads it directly. Set IORA_DB_PASSWORD to override.
+IORA_DB_HOST=127.0.0.1
+IORA_DB_PORT=5432
+IORA_DB_USER=iora
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-domain-validator.env" <<'ENVEOF'
@@ -3608,12 +3646,21 @@ ENVEOF
 cat > "${TARGET_DIR}/etc/iora/iora-network-monitor.env" <<'ENVEOF'
 PORT=8104
 RUST_LOG=info
+# Reuse the iora_core database; the network-monitor creates its own
+# tables on first start. Without this it falls back to the compiled-in
+# default `sqlite:./data/iora.db?mode=rwc`, which has no writable CWD
+# under the systemd unit and crashes at startup.
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-nginx.env" <<'ENVEOF'
 PORT=8089
 RUST_LOG=info
 NGINX_CONF_DIR=/etc/nginx
+# The Tera template is shipped read-only under /usr/share. The legacy
+# default `./nginx-config/nginx.conf.template` only works when the
+# binary is run from its source tree.
+NGINX_TEMPLATE_PATH=/usr/share/iora/iora-nginx/nginx.conf.template
 # Reuse the iora_core database for app/route metadata. The actual
 # password is injected by the setup wizard once the iora role exists.
 DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
@@ -3622,6 +3669,11 @@ ENVEOF
 cat > "${TARGET_DIR}/etc/iora/iora-resource-manager.env" <<'ENVEOF'
 PORT=8105
 RUST_LOG=info
+# Reuse the iora_core database; the resource-manager creates its own
+# tables on first start. The default fallback compiled into the binary
+# is `postgres://iora:iora@localhost/iora`, but the `iora` database does
+# NOT exist in IORA OS (only iora_core/iora_home/iora_secrets/iora_security).
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_core
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-updater.env" <<'ENVEOF'

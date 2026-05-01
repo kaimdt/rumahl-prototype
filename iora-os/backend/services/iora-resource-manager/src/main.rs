@@ -655,9 +655,14 @@ async fn main() -> Result<()> {
     // Load environment
     dotenv::dotenv().ok();
 
-    // Database connection
+    // Database connection. The fallback database is `iora_core`, which
+    // is the central PG database created by the IORA OS first-boot
+    // script (see board/iora/post-build.sh). The legacy default
+    // `postgres://iora:iora@localhost/iora` pointed at a DB that does
+    // NOT exist on a real install and produced an endless restart loop
+    // with "database 'iora' does not exist".
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora".to_string());
+        .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora_core".to_string());
 
     let pool = PgPool::connect(&database_url)
         .await

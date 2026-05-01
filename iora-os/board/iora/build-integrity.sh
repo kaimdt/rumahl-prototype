@@ -83,6 +83,17 @@ fi
 install_target_bin() {
     local name="$1"
     local target_path="${BACKEND_DIR}/target/${RUST_TRIPLE}/release/${name}"
+
+    # First: check if build-all-images.sh already placed the binary into the
+    # rootfs overlay via Docker recovery (common when host glibc > 2.38).
+    # build-all-images.sh extracts to: board/iora/rootfs-overlay/opt/iora/build/<svc>/bin/<svc>
+    local overlay_path="${SCRIPT_DIR}/rootfs-overlay/opt/iora/build/${name}/bin/${name}"
+    if [ -f "${overlay_path}" ] && [ -x "${overlay_path}" ]; then
+        install -Dm0755 "${overlay_path}" "${TARGET_DIR}/usr/bin/${name}"
+        log "installed /usr/bin/${name} (from rootfs overlay — Docker-built)"
+        return 0
+    fi
+
     if [ ! -f "${target_path}" ]; then
         if ! command -v cargo >/dev/null 2>&1; then
             log "WARNING: cargo not found — cannot build ${name} for ${RUST_TRIPLE}"
@@ -118,7 +129,23 @@ install_target_bin iora-updater || log "WARNING: iora-updater not installed"
 # that toggling /etc/iora/dev-mode at runtime has no effect — the binary
 # is simply not there.
 if [ "${IORA_OS_DEV:-0}" = "1" ]; then
-    install_target_bin iora-dev-bridge || log "WARNING: iora-dev-bridge not installed"
+    if ! install_target_bin iora-dev-bridge; then
+        # On a dev image the bridge is mandatory: post-build.sh enables
+        # the systemd unit unconditionally, and silently shipping an
+        # image without the binary leaves the unit stuck in
+        # "ConditionPathExists=/usr/bin/iora-dev-bridge" failure forever
+        # (which is exactly what the developer sees as
+        # "Device auth failed. Tried bridge ports 8101, 8099").
+        # Fail the integrity step loudly so the operator notices.
+        log "FATAL: iora-dev-bridge could not be built/installed."
+        log "       Check earlier 'cargo build' output. Common causes:"
+        log "         * cross-compile target ${RUST_TRIPLE} not installed"
+        log "         * musl-tools / linker missing on the build host"
+        log "         * iora-dev-bridge crate failed to compile"
+        log "       Re-run \`cargo build --release -p iora-dev-bridge\`"
+        log "       in iora-os/backend/ to see the real error."
+        exit 1
+    fi
 else
     rm -f "${TARGET_DIR}/usr/bin/iora-dev-bridge" 2>/dev/null || true
 fi
