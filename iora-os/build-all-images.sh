@@ -3028,9 +3028,37 @@ apply_post_install_config() {
         fi
     fi
 
-    # Configure network (IPv4 + IPv6). Use 10-static so it wins over the
-    # build-in 90-iora-wired-default.network fallback.
-    if [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
+    # Configure network (IPv4 + IPv6). Use 10-* so it wins over the
+    # built-in 90-iora-wired-default.network fallback.
+    if [ "$IORA_NETWORK" = "dhcp" ]; then
+        mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
+        rm -f "${target}/etc/systemd/network/eth0.network" 2>/dev/null || true
+        {
+            echo "[Match]"
+            echo "Name=eth* en* eno* ens* enp* enx*"
+            echo "Type=ether"
+            echo ""
+            echo "[Network]"
+            echo "DHCP=yes"
+            echo "IPv6AcceptRA=yes"
+            echo "LLMNR=no"
+            echo "MulticastDNS=no"
+            echo ""
+            echo "[DHCPv4]"
+            echo "ClientIdentifier=mac"
+            echo "UseDNS=yes"
+            echo "UseNTP=yes"
+            echo "UseHostname=no"
+            echo "RouteMetric=100"
+            echo ""
+            echo "[DHCPv6]"
+            echo "UseDNS=yes"
+            echo "UseNTP=yes"
+            echo ""
+            echo "[Link]"
+            echo "RequiredForOnline=degraded"
+        } > "${target}/etc/systemd/network/10-dhcp.network"
+    elif [ "$IORA_NETWORK" = "static" ] && [ -n "$IORA_IP" ]; then
         mkdir -p "${target}/etc/systemd/network" 2>/dev/null || true
         rm -f "${target}/etc/systemd/network/eth0.network" 2>/dev/null || true
         {
@@ -3677,14 +3705,15 @@ screen_network() {
                 [ -n "$dhcp_ip" ] && break
             fi
         done
-        if [ -n "$dhcp_ip" ]; then
+                if [ -n "$dhcp_ip" ]; then
             dlg_msg " Network - DHCP " "\
- A DHCP lease was obtained in the installer environment.\n\n\
- Current IP:  ${dhcp_ip}\n\n\
- After installation and reboot the setup wizard will be at:\n\
-   http://${dhcp_ip}:8080\n\n\
- The IP is also shown at the login prompt (MOTD).\n\
- Note: DHCP may assign a different IP after reboot."
+ A temporary DHCP lease was obtained in the installer environment.\n\n\
+ Installer IP now:  ${dhcp_ip}\n\n\
+ IORA OS will request DHCP again after installation. It now uses a\n\
+ MAC-based client identifier to improve lease stability, but the DHCP\n\
+ server may still choose a different address after reboot.\n\n\
+ After first boot, verify the final URL in the MOTD/login prompt:\n\
+     http://<shown-ip>:8080"
         else
             dlg_msg " Network - DHCP " "\
  DHCP will be configured automatically on first boot.\n\n\

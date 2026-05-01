@@ -124,6 +124,7 @@ LLMNR=no
 MulticastDNS=no
 
 [DHCPv4]
+ClientIdentifier=mac
 UseDNS=yes
 UseNTP=yes
 UseHostname=no
@@ -283,6 +284,7 @@ def cfg_to_ini(cfg):
             lines.append(f"DNS={s}")
         lines += [
             "", "[DHCPv4]",
+            "ClientIdentifier=mac",
             f"UseDNS={'false' if dns else 'true'}",
             "UseNTP=true",
             "UseHostname=no",
@@ -511,6 +513,79 @@ ln -sf /usr/lib/systemd/system/systemd-networkd.socket \
     "${TARGET_DIR}/etc/systemd/system/sockets.target.wants/systemd-networkd.socket" 2>/dev/null || true
 ln -sf /usr/lib/systemd/system/systemd-networkd-wait-online.service \
     "${TARGET_DIR}/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service" 2>/dev/null || true
+
+cat > "${TARGET_DIR}/usr/lib/iora/iora-dhcp-conflict-guard.sh" <<'EOF'
+#!/bin/sh
+set -eu
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+LOG_TAG="iora-dhcp-conflict-guard"
+RETRIES=3
+
+log() {
+    logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*"
+}
+
+renew_iface() {
+    iface="$1"
+    networkctl renew "$iface" >/dev/null 2>&1 \
+        || networkctl reconfigure "$iface" >/dev/null 2>&1 \
+        || systemctl try-restart systemd-networkd.service >/dev/null 2>&1 \
+        || true
+}
+
+for iface_path in /sys/class/net/*; do
+    iface=$(basename "$iface_path")
+    [ "$iface" = "lo" ] && continue
+    [ -d "/sys/class/net/$iface/device" ] || continue
+
+    ifindex=$(cat "/sys/class/net/$iface/ifindex" 2>/dev/null || echo "")
+    [ -n "$ifindex" ] || continue
+    [ -f "/run/systemd/netif/leases/$ifindex" ] || continue
+
+    attempt=1
+    while [ "$attempt" -le "$RETRIES" ]; do
+        addr=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+        [ -n "$addr" ] || break
+
+        if arping -D -q -c 2 -w 3 -I "$iface" "$addr" >/dev/null 2>&1; then
+            break
+        fi
+
+        log "Duplicate DHCP IPv4 $addr detected on $iface (attempt $attempt/$RETRIES); requesting a new lease"
+        ip addr flush dev "$iface" scope global >/dev/null 2>&1 || true
+        renew_iface "$iface"
+        sleep 3
+        attempt=$((attempt + 1))
+    done
+
+    final_addr=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    if [ -n "$final_addr" ]; then
+        log "DHCP lease on $iface validated at $final_addr"
+    fi
+done
+
+exit 0
+EOF
+chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-dhcp-conflict-guard.sh"
+
+cat > "${TARGET_DIR}/etc/systemd/system/iora-dhcp-conflict-guard.service" <<'EOF'
+[Unit]
+Description=Validate DHCP lease and re-request on IPv4 conflict
+After=systemd-networkd.service systemd-networkd-wait-online.service
+Wants=systemd-networkd.service systemd-networkd-wait-online.service
+ConditionPathExists=/usr/lib/iora/iora-dhcp-conflict-guard.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/iora/iora-dhcp-conflict-guard.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sf /etc/systemd/system/iora-dhcp-conflict-guard.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-dhcp-conflict-guard.service" 2>/dev/null || true
 
 # Cap networkd-wait-online so a missing cable never blocks the boot for
 # 2 minutes: "any" means as soon as ONE interface is online we're done,
