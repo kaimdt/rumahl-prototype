@@ -4,6 +4,11 @@ export TERM=linux
 export NCURSES_NO_UTF8_ACS=1
 
 # ── Boot Splash Screen ─────────────────────────────────────────────
+# NOTE: the kernel framebuffer console with the default 8x16 VGA font
+# does NOT render UTF-8 box-drawing or Braille glyphs. Using them here
+# produced visible mojibake like "~U~T~U~P". We therefore stick to
+# pure 7-bit ASCII for the splash. All UI dialogs use the dialog(1)
+# program which has its own ACS handling.
 show_boot_splash() {
     # Clear screen and hide cursor
     clear 2>/dev/null || true
@@ -15,16 +20,15 @@ show_boot_splash() {
     local BLUE='\033[0;34m'
     local RESET='\033[0m'
 
-    # Display IORA logo and loading message
+    # Display IORA logo and loading message (pure ASCII)
     cat <<'SPLASH'
 
 
-          ██╗ ██████╗ ██████╗  █████╗
-          ██║██╔═══██╗██╔══██╗██╔══██╗
-          ██║██║   ██║██████╔╝███████║
-          ██║██║   ██║██╔══██╗██╔══██║
-          ██║╚██████╔╝██║  ██║██║  ██║
-          ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+           ___    ___    _____      _
+          |_ _|  / _ \  |  __ \    / \
+           | |  | | | | | |__) |  / _ \
+           | |  | | | | |  _  /  / ___ \
+          |___|  \___/  |_| \_\ /_/   \_\
 
        Interface for Optimized Residential Autonomy
 
@@ -34,20 +38,20 @@ SPLASH
     printf "\n          ${CYAN}Starting IORA OS Installer...${RESET}\n"
     printf "          "
 
-    # Show animated loading spinner
-    local spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    # Show animated loading spinner (ASCII only)
+    local spinner='|/-\'
     local i=0
     local delay=0.1
 
     # Run spinner for ~2 seconds while system initializes
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-        local char="${spinner:i:1}"
+        local char=$(printf '%s' "$spinner" | cut -c$((i + 1)))
         printf "\r          ${BLUE}${char}${RESET} Loading system components..."
-        i=$(( (i + 1) % 10 ))
+        i=$(( (i + 1) % 4 ))
         sleep "$delay" 2>/dev/null || sleep 1
     done
 
-    printf "\r          ${CYAN}✓${RESET} System ready                    \n\n"
+    printf "\r          ${CYAN}[OK]${RESET} System ready                    \n\n"
     sleep 0.5
 
     # Show cursor again
@@ -333,35 +337,44 @@ get_dhcp_ip() {
     return 1
 }
 
-# Request DHCP address
+# Request DHCP address on every available interface (not just the
+# first one), because virtualised hosts often expose multiple NICs
+# and only one of them is wired to a network with a DHCP server.
 request_dhcp() {
-    local interface=""
+    local got_ip=1
+    local name
 
-    # Find first network interface
     for iface in /sys/class/net/*; do
-        local name=$(basename "$iface")
+        name=$(basename "$iface")
         [ "$name" = "lo" ] && continue
-        interface="$name"
-        break
+        # Skip virtual-only interfaces
+        case "$name" in
+            docker*|veth*|br-*|virbr*|tailscale*|wg*|tun*|tap*) continue ;;
+        esac
+
+        # Bring interface up
+        ip link set "$name" up 2>/dev/null || true
+        # Wait for link state to settle (busybox sleep accepts integer seconds)
+        sleep 2
+
+        # Try udhcpc (busybox DHCP client)
+        if command -v udhcpc >/dev/null 2>&1; then
+            if udhcpc -i "$name" -n -q -t 5 -T 2 2>/dev/null; then
+                got_ip=0
+                break
+            fi
+        fi
+
+        # Try dhclient
+        if command -v dhclient >/dev/null 2>&1; then
+            if dhclient -1 "$name" 2>/dev/null; then
+                got_ip=0
+                break
+            fi
+        fi
     done
 
-    [ -z "$interface" ] && return 1
-
-    # Bring interface up
-    ip link set "$interface" up 2>/dev/null || true
-    sleep 1
-
-    # Try udhcpc (busybox DHCP client)
-    if command -v udhcpc >/dev/null 2>&1; then
-        udhcpc -i "$interface" -n -q -t 5 2>/dev/null && return 0
-    fi
-
-    # Try dhclient
-    if command -v dhclient >/dev/null 2>&1; then
-        dhclient -1 "$interface" 2>/dev/null && return 0
-    fi
-
-    return 1
+    return $got_ip
 }
 
 # Check for missing drivers/firmware

@@ -93,12 +93,19 @@ install_target_bin() {
             rustup target add "${RUST_TRIPLE}" >/dev/null 2>&1 || true
         fi
         log "building ${name} for ${RUST_TRIPLE}"
-        ( cd "${BACKEND_DIR}" && cargo build --release --target "${RUST_TRIPLE}" --bin "${name}" -q ) || {
+        if ! ( cd "${BACKEND_DIR}" && cargo build --release --target "${RUST_TRIPLE}" --bin "${name}" -q ); then
             log "WARNING: cross-compile of ${name} for ${RUST_TRIPLE} failed (missing linker?)"
             log "         Falling back to host-native binary — image will only work on the build host arch."
-            ( cd "${BACKEND_DIR}" && cargo build --release --bin "${name}" -q )
+            if ! ( cd "${BACKEND_DIR}" && cargo build --release --bin "${name}" -q ); then
+                log "ERROR: host-native build of ${name} failed too — see cargo output above"
+                return 1
+            fi
             target_path="${BACKEND_DIR}/target/release/${name}"
-        }
+        fi
+    fi
+    if [ ! -f "${target_path}" ]; then
+        log "ERROR: expected binary ${target_path} does not exist after build"
+        return 1
     fi
     install -Dm0755 "${target_path}" "${TARGET_DIR}/usr/bin/${name}"
     log "installed /usr/bin/${name}"

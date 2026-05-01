@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS service_registrations (
 CREATE INDEX IF NOT EXISTS idx_service_registrations_status
     ON service_registrations(status);
 
--- OS update history. New entries are inserted by the updates/install /
--- updates/rollback handlers; the iora-updater binary is invoked
--- separately, this table is the audit trail surfaced to the admin UI.
+-- OS update history. New entries are inserted by the updates/install
+-- and updates/rollback handlers (the iora-updater binary is invoked
+-- separately). This table is the audit trail surfaced to the admin UI.
 CREATE TABLE IF NOT EXISTS update_history (
     id TEXT PRIMARY KEY,
     provider_id TEXT NOT NULL,

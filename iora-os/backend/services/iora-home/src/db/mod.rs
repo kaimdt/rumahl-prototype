@@ -68,22 +68,48 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
 
         if result.is_none() {
             tracing::info!("Applying migration: {}", name);
+
+            // Strip `--` line comments BEFORE splitting on `;`, otherwise a
+            // semicolon inside a comment (e.g. "handlers; the iora-updater")
+            // breaks the split and produces invalid SQL fragments.
+            let mut cleaned = String::with_capacity(sql.len());
+            for line in sql.lines() {
+                // Find an unquoted "--" and trim from there. We do not need
+                // to support escaped/quoted "--" because none of our
+                // migration files use string literals containing it.
+                let mut in_squote = false;
+                let mut in_dquote = false;
+                let mut idx = line.len();
+                let bytes = line.as_bytes();
+                let mut i = 0;
+                while i < bytes.len() {
+                    let c = bytes[i] as char;
+                    match c {
+                        '\'' if !in_dquote => in_squote = !in_squote,
+                        '"' if !in_squote => in_dquote = !in_dquote,
+                        '-' if !in_squote && !in_dquote
+                            && i + 1 < bytes.len()
+                            && bytes[i + 1] == b'-' =>
+                        {
+                            idx = i;
+                            break;
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                cleaned.push_str(line[..idx].trim_end());
+                cleaned.push('\n');
+            }
+
             // Split by semicolons and execute each statement individually
-            // because prepared statements cannot contain multiple commands
-            for statement in sql.split(';') {
-                // Strip comment-only lines and whitespace to find actual SQL
-                let trimmed: String = statement
-                    .lines()
-                    .filter(|line| {
-                        let t = line.trim();
-                        !t.is_empty() && !t.starts_with("--")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+            // because prepared statements cannot contain multiple commands.
+            for statement in cleaned.split(';') {
+                let trimmed = statement.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
-                sqlx::query(&trimmed).execute(pool).await?;
+                sqlx::query(trimmed).execute(pool).await?;
             }
             sqlx::query("INSERT INTO _migrations (name) VALUES ($1)")
                 .bind(name)
