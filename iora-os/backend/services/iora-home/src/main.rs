@@ -1216,12 +1216,12 @@ async fn main() -> anyhow::Result<()> {
         // dashboard-only build) we still want the admin tabs to render
         // an empty state instead of 404'ing into the SPA fallback (which
         // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
-        .route("/api/supervisor/system/info", get(stub_supervisor_system_info))
+        .route("/api/supervisor/system/info", get(proxy_supervisor))
         .route("/api/intelligence/overview", get(proxy_intelligence_overview))
         .route("/api/intelligence/maintenance/run/:task", get(proxy_intelligence_maintenance_run))
         .route("/api/supervisor/apps", get(supervisor_apps_list))
         .route("/api/supervisor/apps/install", post(supervisor_apps_install))
-        .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall).put(stub_supervisor_unavailable))
+        .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall))
         .route("/api/supervisor/apps/:app_id/start", post(supervisor_apps_start))
         .route("/api/supervisor/apps/:app_id/stop", post(supervisor_apps_stop))
         .route("/api/supervisor/apps/:app_id/restart", post(supervisor_apps_restart))
@@ -1233,7 +1233,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/supervisor/apps/:app_id/bundle/status", get(supervisor_bundle_status))
         .route("/api/core/plugins/with-stats", get(core_plugins_list))
         .route("/api/core/plugins", get(core_plugins_list))
-        .route("/api/core/plugins/:id", get(core_plugins_get).post(stub_core_unavailable).delete(core_plugins_uninstall))
+        .route("/api/core/plugins/:id", get(core_plugins_get).delete(core_plugins_uninstall))
         .route("/api/core/plugins/:id/enable", post(core_plugins_enable))
         .route("/api/core/plugins/:id/disable", post(core_plugins_disable))
         .route("/api/core/plugins/:id/execute", post(core_plugins_execute))
@@ -1247,16 +1247,16 @@ async fn main() -> anyhow::Result<()> {
         // installed-apps list work even when the dedicated `iora-appstore`
         // microservice isn't deployed.
         .route("/api/appstore/installed", get(local_appstore_installed))
-        .route("/api/appstore/search", get(stub_appstore_search))
+        .route("/api/appstore/search", get(proxy_appstore))
         .route("/api/appstore/install", post(local_appstore_install))
         .route("/api/appstore/jobs", get(local_appstore_jobs))
         .route("/api/appstore/jobs/stream", get(local_appstore_jobs_stream))
         .route("/api/appstore/apps/:app_id", get(local_appstore_app_get).delete(local_appstore_app_delete))
         .route("/api/appstore/apps/:app_id/enable", post(local_appstore_app_enable))
         .route("/api/appstore/apps/:app_id/disable", post(local_appstore_app_disable))
-        .route("/api/appstore/apps/:app_id/settings", get(stub_appstore_unavailable).post(stub_appstore_unavailable))
-        .route("/api/appstore/permissions/grant", post(stub_appstore_unavailable))
-        .route("/api/appstore/settings", post(stub_appstore_unavailable))
+        .route("/api/appstore/apps/:app_id/settings", get(proxy_appstore).post(proxy_appstore))
+        .route("/api/appstore/permissions/grant", post(proxy_appstore))
+        .route("/api/appstore/settings", post(proxy_appstore))
         // Local-store registration — lets the frontend register system apps
         // (like the Developer App) on demand when developer mode is toggled.
         .route("/api/local-store/register", post(local_store_register))
@@ -1279,61 +1279,83 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/control/services/:name/restart", post(admin_control_restart_service))
         // OS-dev-image marker / developer-mode lock info.
         .route("/api/admin/dev-image", get(admin_dev_image_info))
-        .route("/api/core/registrations", get(stub_core_registrations))
-        .route("/api/core/security/events", get(stub_core_security_events))
-        .route("/api/core/security/alerts", get(stub_core_security_alerts))
-        .route("/api/core/security/resource-usage", get(stub_core_security_resource_usage))
-        .route("/api/core/updates/check", get(stub_core_updates_check).post(stub_core_updates_check))
-        .route("/api/core/updates/history", get(stub_core_updates_history))
-        .route("/api/core/widgets", get(stub_core_widgets))
-        // ── Stubs for unavailable IORA microservices ──────────────────────
-        // iora-secrets
-        .route("/api/secrets", get(stub_secrets_list).post(stub_microservice_unavailable))
-        .route("/api/secrets/:id", delete(stub_microservice_unavailable))
-        .route("/api/secrets/:id/rotate", post(stub_microservice_unavailable))
-        .route("/api/secrets/:id/audit", get(stub_secrets_audit))
-        // iora-files
-        .route("/api/files/", get(stub_files_list))
-        .route("/api/files/shares", get(stub_files_shares))
-        .route("/api/files/quota", get(stub_files_quota))
-        .route("/api/files/folders", post(stub_microservice_unavailable))
-        .route("/api/files/:id", delete(stub_microservice_unavailable))
-        .route("/api/files/shares/:id", delete(stub_microservice_unavailable))
-        .route("/api/share/:download_token", get(stub_microservice_unavailable))
-        // iora-gateway
-        .route("/api/gateway/email", post(stub_microservice_unavailable))
-        .route("/api/gateway/search", post(stub_microservice_unavailable))
-        .route("/api/gateway/http/get", post(stub_microservice_unavailable))
-        .route("/api/gateway/requests", get(stub_empty_array))
-        .route("/api/gateway/ai-requests", get(stub_empty_array))
-        // iora-watchdog
-        .route("/api/watchdog/status", get(stub_watchdog_status))
-        .route("/api/watchdog/services", get(stub_empty_array))
-        .route("/api/watchdog/metrics", get(stub_empty_object))
-        .route("/api/watchdog/recovery", get(stub_empty_array))
-        // iora-connector
-        .route("/api/connector/tunnels", get(stub_empty_array))
-        .route("/api/connector/services", get(stub_empty_array))
-        .route("/api/connector/pairing-tokens", get(stub_empty_array))
-        .route("/api/connector/blocked-ips", get(stub_empty_array))
-        .route("/api/connector/tunnels/:id", delete(stub_microservice_unavailable))
-        .route("/api/connector/pairing-tokens/:id", delete(stub_microservice_unavailable))
-        // iora-domain-validator
-        .route("/api/domain-validator/policy/:app_id", get(stub_empty_object))
-        .route("/api/domain-validator/logs/:app_id", get(stub_empty_array))
-        .route("/api/domain-validator/validate", post(stub_microservice_unavailable))
-        // iora-resource-manager
-        .route("/api/resources/containers", get(stub_empty_array))
-        .route("/api/resources/system", get(stub_empty_object))
-        .route("/api/resources/history", get(stub_empty_array))
-        .route("/api/resources/reallocate", post(stub_microservice_unavailable))
-        // iora-network-monitor
-        .route("/api/network/peers", get(stub_empty_array))
-        .route("/api/metrics", get(stub_empty_object))
-        .route("/api/interfaces", get(stub_empty_array))
-        .route("/api/mqtt/topics", get(stub_empty_array))
-        // iora-cloud (extern)
-        .route("/api/admin/iora-cloud/config", post(stub_microservice_unavailable).get(stub_empty_object))
+        .route("/api/core/registrations", get(core_registrations_list))
+        .route("/api/core/registrations/:id/approve", post(core_registrations_approve))
+        .route("/api/core/registrations/:id/reject", post(core_registrations_reject))
+        .route("/api/core/registrations/:id/suspend", post(core_registrations_suspend))
+        .route("/api/core/registrations/:id/revoke", post(core_registrations_revoke))
+        .route("/api/core/security/events", get(proxy_core_security))
+        .route("/api/core/security/alerts", get(proxy_core_security))
+        .route("/api/core/security/resource-usage", get(proxy_core_security))
+        .route("/api/core/updates/check", get(core_updates_check).post(core_updates_check))
+        .route("/api/core/updates/history", get(core_updates_history))
+        .route("/api/core/updates/:provider_id/install", post(core_updates_install))
+        .route("/api/core/updates/:update_id/rollback", post(core_updates_rollback))
+        .route("/api/core/widgets", get(proxy_core))
+        // ── Proxies to external IORA microservices ────────────────────────
+        // Generic transparent forwarders. If the target microservice is not
+        // running, the handler returns a clean JSON 503 (so the frontend
+        // doesn't choke on a 404 SPA fallback).
+        // iora-secrets (Port 8093)
+        .route("/api/secrets", get(proxy_secrets).post(proxy_secrets))
+        .route("/api/secrets/:id", get(proxy_secrets).put(proxy_secrets).delete(proxy_secrets))
+        .route("/api/secrets/:id/rotate", post(proxy_secrets))
+        .route("/api/secrets/:id/audit", get(proxy_secrets))
+        // iora-files (Port 8100)
+        .route("/api/files/", get(proxy_files))
+        .route("/api/files/upload", post(proxy_files))
+        .route("/api/files/shares", get(proxy_files).post(proxy_files))
+        .route("/api/files/shares/:id", delete(proxy_files))
+        .route("/api/files/quota", get(proxy_files))
+        .route("/api/files/folders", post(proxy_files))
+        .route("/api/files/:id", get(proxy_files).delete(proxy_files))
+        .route("/api/files/:id/download", get(proxy_files))
+        .route("/api/files/:id/move", put(proxy_files))
+        .route("/api/files/:id/rename", put(proxy_files))
+        .route("/api/files/:id/restore", post(proxy_files))
+        .route("/api/files/:id/versions", get(proxy_files))
+        .route("/api/files/permissions", post(proxy_files))
+        .route("/api/files/permissions/:fid", get(proxy_files))
+        .route("/api/files/permissions/revoke/:pid", delete(proxy_files))
+        .route("/api/share/:download_token", get(proxy_files_share))
+        // iora-gateway (Port 8096)
+        .route("/api/gateway/email", post(proxy_gateway))
+        .route("/api/gateway/search", post(proxy_gateway))
+        .route("/api/gateway/http/get", post(proxy_gateway))
+        .route("/api/gateway/requests", get(proxy_gateway))
+        .route("/api/gateway/ai-requests", get(proxy_gateway))
+        // iora-watchdog (Port 8094)
+        .route("/api/watchdog/status", get(proxy_watchdog))
+        .route("/api/watchdog/services", get(proxy_watchdog))
+        .route("/api/watchdog/metrics", get(proxy_watchdog))
+        .route("/api/watchdog/recovery", get(proxy_watchdog))
+        // iora-connector (Port 8102)
+        .route("/api/connector/tunnels", get(proxy_connector))
+        .route("/api/connector/services", get(proxy_connector))
+        .route("/api/connector/pairing-tokens", get(proxy_connector).post(proxy_connector))
+        .route("/api/connector/blocked-ips", get(proxy_connector))
+        .route("/api/connector/tunnels/:id", delete(proxy_connector))
+        .route("/api/connector/pairing-tokens/:id", delete(proxy_connector))
+        // iora-domain-validator (Port 8104; falls back to env override)
+        .route("/api/domain-validator/policy/:app_id", get(proxy_domain_validator))
+        .route("/api/domain-validator/logs/:app_id", get(proxy_domain_validator))
+        .route("/api/domain-validator/validate", post(proxy_domain_validator))
+        // iora-resource-manager (Port 8105)
+        .route("/api/resources/containers", get(proxy_resources))
+        .route("/api/resources/system", get(proxy_resources))
+        .route("/api/resources/history", get(proxy_resources))
+        .route("/api/resources/reallocate", post(proxy_resources))
+        // iora-network-monitor (Port 8103)
+        .route("/api/network/peers", get(proxy_network_monitor))
+        .route("/api/network/devices", get(proxy_network_monitor))
+        .route("/api/network/devices/active", get(proxy_network_monitor))
+        .route("/api/network/stats", get(proxy_network_monitor))
+        .route("/api/network/scan", post(proxy_network_monitor))
+        .route("/api/metrics", get(proxy_network_monitor))
+        .route("/api/interfaces", get(proxy_network_monitor))
+        .route("/api/mqtt/topics", get(proxy_network_monitor))
+        // iora-cloud (Port 8120, optional external)
+        .route("/api/admin/iora-cloud/config", get(proxy_iora_cloud).post(proxy_iora_cloud))
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
         .route("/api/notifications", get(get_notifications))
@@ -1460,6 +1482,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/config/users/:username", get(get_user))
         .route("/api/config/devices", post(register_device))
         .route("/api/config/devices/:device_id", get(get_device_info))
+        // Internal: service-to-service system-notification ingest (e.g. iora-watchdog
+        // escalating a failed auto-recovery). Auth via shared `IORA_INTERNAL_TOKEN`
+        // header `X-Iora-Internal-Token`. Not exposed in OpenAPI.
+        .route("/api/internal/system-notifications", post(internal_create_system_notification))
         .nest_service("/uploads", get_service(ServeDir::new("./data/uploads")))
         // Merge protected data routes
         .merge(data_routes)
@@ -3927,29 +3953,6 @@ async fn admin_settings_schema_wizard(
 // returning an empty-but-valid JSON shell here we let the existing tab
 // components render their normal empty-state.
 
-async fn stub_supervisor_system_info() -> Json<Value> {
-    // Match the shape the frontend's SystemInfoTab expects so it can render
-    // a clean "empty" placeholder instead of crashing on `.length` of
-    // undefined arrays.
-    Json(json!({
-        "available": false,
-        "hostname": "unbekannt",
-        "os_name": "unbekannt",
-        "os_version": "",
-        "kernel_version": "",
-        "cpu_count": 0,
-        "cpu_usage": 0.0,
-        "total_memory": 0,
-        "used_memory": 0,
-        "available_memory": 0,
-        "memory_usage_percent": 0.0,
-        "disks": [],
-        "network_interfaces": [],
-        "uptime": 0,
-        "note": "iora-supervisor ist auf diesem System nicht verfügbar.",
-    }))
-}
-
 /// Proxy to iora-intelligence for health overview.
 /// Falls back to null if intelligence service is not reachable.
 async fn proxy_intelligence_overview(
@@ -4004,95 +4007,255 @@ async fn proxy_intelligence_maintenance_run(
     }
 }
 
-/// Stub for intelligence API — returns null so the frontend shows the
-/// graceful "not available" state instead of failing to parse.
-async fn stub_intelligence_overview() -> Json<Value> {
-    Json(json!(null))
+// ── Generic forwarder used by all microservice proxies ────────────────────
+//
+// Reads the incoming axum request, forwards it 1:1 to `base_url + path`
+// (preserving method, query string, headers and body), and streams the
+// upstream response back. If the microservice is not reachable we return
+// HTTP 503 with a JSON body so the frontend can surface a clean error
+// instead of a broken SPA fallback.
+async fn forward_request_to(
+    state: &AppState,
+    base_url: &str,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::http::StatusCode;
+
+    let method = req.method().clone();
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str().to_string())
+        .unwrap_or_else(|| req.uri().path().to_string());
+
+    let mut header_map = reqwest::header::HeaderMap::new();
+    for (name, value) in req.headers().iter() {
+        // Drop hop-by-hop headers and the Host header so reqwest sets them.
+        let n = name.as_str().to_ascii_lowercase();
+        if matches!(
+            n.as_str(),
+            "host" | "content-length" | "connection" | "transfer-encoding" |
+            "upgrade" | "proxy-authorization" | "proxy-authenticate" | "te" | "trailer"
+        ) {
+            continue;
+        }
+        if let (Ok(rname), Ok(rvalue)) = (
+            reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+            reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            header_map.append(rname, rvalue);
+        }
+    }
+
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("Failed to read body: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let url = format!("{}{}", base_url.trim_end_matches('/'), path_and_query);
+    let rmethod = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
+        Ok(m) => m,
+        Err(_) => return (StatusCode::METHOD_NOT_ALLOWED, "method").into_response(),
+    };
+
+    let upstream = state
+        .http_client
+        .request(rmethod, &url)
+        .headers(header_map)
+        .body(body_bytes.to_vec())
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await;
+
+    match upstream {
+        Ok(resp) => {
+            let status = StatusCode::from_u16(resp.status().as_u16())
+                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut builder = axum::http::Response::builder().status(status);
+            for (name, value) in resp.headers().iter() {
+                let n = name.as_str().to_ascii_lowercase();
+                if matches!(
+                    n.as_str(),
+                    "connection" | "transfer-encoding" | "content-length" |
+                    "content-encoding" | "upgrade" | "trailer"
+                ) {
+                    continue;
+                }
+                if let (Ok(hn), Ok(hv)) = (
+                    axum::http::HeaderName::from_bytes(name.as_str().as_bytes()),
+                    axum::http::HeaderValue::from_bytes(value.as_bytes()),
+                ) {
+                    builder = builder.header(hn, hv);
+                }
+            }
+            let bytes = resp.bytes().await.unwrap_or_default();
+            builder
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| {
+                    (StatusCode::BAD_GATEWAY, "proxy build failed").into_response()
+                })
+        }
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": format!("Upstream microservice not reachable: {}", e),
+                "available": false,
+                "upstream": base_url,
+            })),
+        )
+            .into_response(),
+    }
 }
 
-/// Stub for intelligence maintenance tasks
-async fn stub_intelligence_maintenance_run(
-    axum::extract::Path(_task): axum::extract::Path<String>,
-) -> Json<Value> {
-    Json(json!({"error": "iora-intelligence service not running"}))
+fn microservice_url(env_var: &str, default_port: u16) -> String {
+    if let Ok(v) = std::env::var(env_var) {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    format!("http://127.0.0.1:{}", default_port)
 }
 
-/// 503-style stub used for write/mutation endpoints whose backing service
-/// (iora-supervisor, iora-core, iora-appstore) isn't running. We return a
-/// JSON body so `adminFetch` parses it cleanly and surfaces a localised
-/// error message — not a generic SPA-fallback "(200)".
-async fn stub_supervisor_unavailable() -> (axum::http::StatusCode, Json<Value>) {
-    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-        "error": "iora-supervisor ist auf diesem System nicht verfügbar.",
-        "available": false,
-    })))
+async fn proxy_secrets(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_SECRETS_URL", 8093);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_core_unavailable() -> (axum::http::StatusCode, Json<Value>) {
-    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-        "error": "iora-core ist auf diesem System nicht verfügbar.",
-        "available": false,
-    })))
+async fn proxy_files(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_FILES_URL", 8100);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_appstore_unavailable() -> (axum::http::StatusCode, Json<Value>) {
-    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-        "error": "iora-appstore ist auf diesem System nicht verfügbar.",
-        "available": false,
-    })))
+async fn proxy_files_share(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    // /api/share/:token in iora-home maps to /api/files/shared/:token in iora-files
+    use axum::body::Body;
+    let base = microservice_url("IORA_FILES_URL", 8100);
+    let path = req.uri().path().to_string();
+    let new_path = path.replacen("/api/share/", "/api/files/shared/", 1);
+    let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let new_uri: axum::http::Uri = format!("{}{}", new_path, query)
+        .parse()
+        .unwrap_or_else(|_| req.uri().clone());
+    let (mut parts, body) = req.into_parts();
+    parts.uri = new_uri;
+    let new_req = axum::extract::Request::<Body>::from_parts(parts, body);
+    forward_request_to(&state, &base, new_req).await
 }
 
-async fn stub_appstore_installed() -> Json<Value> {
-    Json(json!({ "apps": [], "available": false }))
+async fn proxy_gateway(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_GATEWAY_URL", 8096);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_appstore_search() -> Json<Value> {
-    Json(json!({ "results": [], "available": false }))
+async fn proxy_watchdog(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_WATCHDOG_URL", 8094);
+    forward_request_to(&state, &base, req).await
 }
 
-// ── Stubs for unavailable external IORA microservices ─────────────────────
-// These return empty payloads with `available: false` so the frontend
-// (which uses `.catch(() => null)`) gets a clean JSON response instead of 404.
-
-async fn stub_microservice_unavailable() -> (axum::http::StatusCode, Json<Value>) {
-    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-        "error": "Dieser Microservice ist auf diesem System nicht verfügbar.",
-        "available": false,
-    })))
+async fn proxy_connector(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_CONNECTOR_URL", 8102);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_empty_array() -> Json<Value> {
-    Json(json!([]))
+async fn proxy_domain_validator(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_DOMAIN_VALIDATOR_URL", 8104);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_empty_object() -> Json<Value> {
-    Json(json!({ "available": false }))
+async fn proxy_resources(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_RESOURCE_MANAGER_URL", 8105);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_secrets_list() -> Json<Value> {
-    Json(json!({ "secrets": [], "available": false }))
+async fn proxy_network_monitor(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_NETWORK_MONITOR_URL", 8103);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_secrets_audit(
-    axum::extract::Path(_id): axum::extract::Path<String>,
-) -> Json<Value> {
-    Json(json!({ "audit": [], "available": false }))
+async fn proxy_iora_cloud(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_CLOUD_URL", 8120);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_files_list() -> Json<Value> {
-    Json(json!({ "files": [], "folders": [], "available": false }))
+async fn proxy_supervisor(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_files_shares() -> Json<Value> {
-    Json(json!({ "shares": [], "available": false }))
+async fn proxy_appstore(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_APPSTORE_URL", 8098);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_files_quota() -> Json<Value> {
-    Json(json!({ "used": 0, "total": 0, "available": false }))
+async fn proxy_core(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_CORE_URL", 8090);
+    forward_request_to(&state, &base, req).await
 }
 
-async fn stub_watchdog_status() -> Json<Value> {
-    Json(json!({ "status": "unavailable", "available": false }))
+/// Rewrites `/api/core/security/<rest>` → `/api/security/<rest>` and forwards
+/// to iora-security.
+async fn proxy_core_security(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::body::Body;
+    let base = microservice_url("IORA_SECURITY_URL", 8095);
+    let path = req.uri().path().to_string();
+    let new_path = path.replacen("/api/core/security/", "/api/security/", 1);
+    let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let new_uri: axum::http::Uri = format!("{}{}", new_path, query)
+        .parse()
+        .unwrap_or_else(|_| req.uri().clone());
+    let (mut parts, body) = req.into_parts();
+    parts.uri = new_uri;
+    let new_req = axum::extract::Request::<Body>::from_parts(parts, body);
+    forward_request_to(&state, &base, new_req).await
 }
 
 // ── Local app-store handlers ────────────────────────────────────────────────
@@ -6476,37 +6639,328 @@ async fn plugins_execute(
     Ok(Json(result))
 }
 
-async fn stub_core_registrations() -> Json<Value> {
-    Json(json!({ "registrations": [], "available": false }))
+// ── Service registrations: real DB-backed CRUD ─────────────────────────
+
+#[derive(sqlx::FromRow)]
+struct ServiceRegistrationRow {
+    id: String,
+    provider_id: String,
+    provider_type: String,
+    name: String,
+    version: String,
+    developer: String,
+    description: String,
+    requested_permissions: String,
+    status: String,
+    api_token: Option<String>,
+    requested_at: chrono::DateTime<chrono::Utc>,
+    reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
+    reviewer: Option<String>,
 }
 
-async fn stub_core_security_events() -> Json<Value> {
-    Json(json!({ "events": [], "available": false }))
+fn registration_row_to_json(row: ServiceRegistrationRow) -> Value {
+    let perms: Value = serde_json::from_str(&row.requested_permissions)
+        .unwrap_or_else(|_| json!([]));
+    json!({
+        "id": row.id,
+        "provider_id": row.provider_id,
+        "provider_type": row.provider_type,
+        "name": row.name,
+        "version": row.version,
+        "developer": row.developer,
+        "description": row.description,
+        "requested_permissions": perms,
+        "status": row.status,
+        "api_token": row.api_token,
+        "requested_at": row.requested_at.to_rfc3339(),
+        "reviewed_at": row.reviewed_at.map(|t| t.to_rfc3339()),
+        "reviewer": row.reviewer,
+    })
 }
 
-async fn stub_core_security_alerts() -> Json<Value> {
-    Json(json!({ "alerts": [], "available": false }))
+async fn core_registrations_list(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let rows = sqlx::query_as::<_, ServiceRegistrationRow>(
+        "SELECT id, provider_id, provider_type, name, version, developer, description,
+                requested_permissions, status, api_token, requested_at, reviewed_at, reviewer
+         FROM service_registrations
+         ORDER BY requested_at DESC
+         LIMIT 500"
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .map_err(|e| ErrorResponse::internal(format!("registrations query failed: {}", e)))?;
+
+    let items: Vec<Value> = rows.into_iter().map(registration_row_to_json).collect();
+    Ok(Json(json!({ "registrations": items })))
 }
 
-async fn stub_core_security_resource_usage() -> Json<Value> {
-    Json(json!({
-        "available": false,
-        "cpu_percent": 0.0,
-        "memory_percent": 0.0,
-        "disk_percent": 0.0,
-    }))
+async fn registration_set_status(
+    state: &AppState,
+    id: &str,
+    new_status: &str,
+    reviewer: Option<&str>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let res = sqlx::query(
+        "UPDATE service_registrations
+         SET status = $1, reviewed_at = NOW(), reviewer = COALESCE($2, reviewer)
+         WHERE id = $3"
+    )
+    .bind(new_status)
+    .bind(reviewer)
+    .bind(id)
+    .execute(&state.db_pool)
+    .await
+    .map_err(|e| ErrorResponse::internal(format!("update failed: {}", e)))?;
+
+    if res.rows_affected() == 0 {
+        return Err(ErrorResponse::not_found(format!(
+            "registration {} not found", id
+        )));
+    }
+    Ok(Json(json!({ "ok": true, "id": id, "status": new_status })))
 }
 
-async fn stub_core_updates_check() -> Json<Value> {
-    Json(json!({ "updates": [], "available": false }))
+async fn core_registrations_approve(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    registration_set_status(&state, &id, "approved", Some(identity.user_id())).await
 }
 
-async fn stub_core_updates_history() -> Json<Value> {
-    Json(json!({ "history": [], "available": false }))
+async fn core_registrations_reject(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    registration_set_status(&state, &id, "rejected", Some(identity.user_id())).await
 }
 
-async fn stub_core_widgets() -> Json<Value> {
-    Json(json!({ "widgets": [], "available": false }))
+async fn core_registrations_suspend(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    registration_set_status(&state, &id, "suspended", Some(identity.user_id())).await
+}
+
+async fn core_registrations_revoke(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Extension(identity): Extension<middleware::AuthIdentity>,
+) -> Result<Json<Value>, ErrorResponse> {
+    registration_set_status(&state, &id, "revoked", Some(identity.user_id())).await
+}
+
+// ── OS / provider updates: real version check + history ────────────────
+
+fn read_current_iora_version() -> String {
+    // Tries the standard version file first, then env var fallback,
+    // then a build-time constant.
+    if let Ok(v) = std::fs::read_to_string("/etc/iora-version") {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Ok(v) = std::env::var("IORA_VERSION") {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+async fn core_updates_check(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let current = read_current_iora_version();
+    let server = std::env::var("IORA_UPDATE_SERVER")
+        .unwrap_or_else(|_| "https://update.kaimdt.com".to_string());
+    let channel = std::env::var("IORA_UPDATE_CHANNEL")
+        .unwrap_or_else(|_| "stable".to_string());
+
+    let mut updates: Vec<Value> = Vec::new();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Best-effort check against the IORA update server. If unreachable we
+    // still return a valid (empty) `updates` array so the frontend tab
+    // renders cleanly instead of erroring.
+    let url = format!(
+        "{}/api/check?channel={}&current_version={}",
+        server.trim_end_matches('/'),
+        channel,
+        current,
+    );
+    if let Ok(resp) = state
+        .http_client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(8))
+        .send()
+        .await
+    {
+        if resp.status().is_success() {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let available = body
+                    .get("update_available")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let latest = body
+                    .get("latest_version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&current)
+                    .to_string();
+                let critical = body
+                    .get("is_critical")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let notes = body
+                    .get("release_notes")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let download = body
+                    .get("release")
+                    .and_then(|r| r.get("download_url"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                updates.push(json!({
+                    "provider_id": "iora-os",
+                    "provider_type": "app",
+                    "current_version": current,
+                    "latest_version": latest,
+                    "channel": channel,
+                    "update_available": available,
+                    "is_critical": critical,
+                    "release_notes": notes,
+                    "download_url": download,
+                    "last_checked": now,
+                }));
+            }
+        }
+    }
+
+    Json(json!({ "updates": updates }))
+}
+
+#[derive(sqlx::FromRow)]
+struct UpdateHistoryRow {
+    id: String,
+    provider_id: String,
+    from_version: String,
+    to_version: String,
+    status: String,
+    installed_at: chrono::DateTime<chrono::Utc>,
+    error_message: Option<String>,
+}
+
+async fn core_updates_history(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let rows = sqlx::query_as::<_, UpdateHistoryRow>(
+        "SELECT id, provider_id, from_version, to_version, status, installed_at, error_message
+         FROM update_history
+         ORDER BY installed_at DESC
+         LIMIT 200"
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .map_err(|e| ErrorResponse::internal(format!("history query failed: {}", e)))?;
+
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "provider_id": r.provider_id,
+                "from_version": r.from_version,
+                "to_version": r.to_version,
+                "status": r.status,
+                "installed_at": r.installed_at.to_rfc3339(),
+                "error_message": r.error_message,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({ "history": items })))
+}
+
+async fn core_updates_install(
+    State(state): State<AppState>,
+    Path(provider_id): Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let from_version = read_current_iora_version();
+
+    // Spawn the iora-updater binary (--yes for non-interactive). If it isn't
+    // installed we record the failure in update_history and return 503.
+    let updater_bin = std::env::var("IORA_UPDATER_BIN")
+        .unwrap_or_else(|_| "iora-updater".to_string());
+
+    let spawn_result = tokio::process::Command::new(&updater_bin)
+        .arg("--yes")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    let (status, error_message): (&str, Option<String>) = match spawn_result {
+        Ok(_) => ("in_progress", None),
+        Err(e) => ("failed", Some(format!("Failed to spawn iora-updater: {}", e))),
+    };
+
+    let _ = sqlx::query(
+        "INSERT INTO update_history (id, provider_id, from_version, to_version, status, error_message)
+         VALUES ($1, $2, $3, $4, $5, $6)"
+    )
+    .bind(&id)
+    .bind(&provider_id)
+    .bind(&from_version)
+    .bind("pending")
+    .bind(status)
+    .bind(error_message.as_deref())
+    .execute(&state.db_pool)
+    .await
+    .map_err(|e| ErrorResponse::internal(format!("history insert failed: {}", e)))?;
+
+    if status == "failed" {
+        return Err(ErrorResponse::service_unavailable(
+            error_message.unwrap_or_else(|| "iora-updater not available".into()),
+        ));
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "id": id,
+        "provider_id": provider_id,
+        "status": status,
+    })))
+}
+
+async fn core_updates_rollback(
+    State(state): State<AppState>,
+    Path(update_id): Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    // Mark the named history entry as rolled_back. Actual disk-level
+    // rollback is performed by RAUC slot-switching on next boot, which is
+    // outside the scope of this HTTP handler.
+    let res = sqlx::query(
+        "UPDATE update_history
+         SET status = 'rolled_back'
+         WHERE id = $1"
+    )
+    .bind(&update_id)
+    .execute(&state.db_pool)
+    .await
+    .map_err(|e| ErrorResponse::internal(format!("rollback update failed: {}", e)))?;
+
+    if res.rows_affected() == 0 {
+        return Err(ErrorResponse::not_found(format!(
+            "update {} not found", update_id
+        )));
+    }
+    Ok(Json(json!({ "ok": true, "id": update_id, "status": "rolled_back" })))
 }
 
 async fn admin_settings_list(
@@ -13094,6 +13548,113 @@ async fn admin_clear_resolved_system_notifications(
         .execute(&state.db_pool)
         .await;
     StatusCode::OK
+}
+
+/// Internal: ingest a system notification from another IORA microservice
+/// (e.g. `iora-watchdog` after auto-recovery + self-fix have both failed).
+///
+/// Authentication: shared secret in the `X-Iora-Internal-Token` header,
+/// compared against the `IORA_INTERNAL_TOKEN` environment variable.
+/// If `IORA_INTERNAL_TOKEN` is unset the endpoint is disabled.
+#[derive(Debug, Deserialize)]
+struct InternalSystemNotificationRequest {
+    /// Optional client-supplied id; defaults to a UUID.
+    id: Option<String>,
+    /// Category bucket: sync | system | security | maintenance | watchdog
+    #[serde(default = "default_category")]
+    category: String,
+    /// Severity: info | warning | error | critical
+    #[serde(default = "default_severity")]
+    severity: String,
+    title: String,
+    message: String,
+    #[serde(default)]
+    details: Option<serde_json::Value>,
+    /// Originating subsystem, e.g. "iora-watchdog".
+    #[serde(default = "default_source")]
+    source: String,
+    /// Coalesce key: if a non-resolved row with the same `(category, source, title)`
+    /// already exists, the existing row is updated instead of inserting a duplicate.
+    #[serde(default)]
+    coalesce: bool,
+}
+
+fn default_category() -> String { "system".to_string() }
+fn default_severity() -> String { "warning".to_string() }
+fn default_source() -> String { "system".to_string() }
+
+async fn internal_create_system_notification(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<InternalSystemNotificationRequest>,
+) -> (StatusCode, Json<Value>) {
+    // Token check.
+    let expected = match std::env::var("IORA_INTERNAL_TOKEN") {
+        Ok(v) if !v.is_empty() => v,
+        _ => return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "internal endpoint disabled (IORA_INTERNAL_TOKEN unset)" })),
+        ),
+    };
+    let provided = headers
+        .get("x-iora-internal-token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    if provided != expected {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "invalid internal token" })));
+    }
+
+    // Coalesce existing un-resolved notifications with the same identity.
+    if req.coalesce {
+        if let Ok(Some((existing_id,))) = sqlx::query_as::<_, (String,)>(
+            r#"SELECT id FROM admin_system_notifications
+                WHERE resolved = false AND category = $1 AND source = $2 AND title = $3
+                ORDER BY created_at DESC LIMIT 1"#,
+        )
+        .bind(&req.category)
+        .bind(&req.source)
+        .bind(&req.title)
+        .fetch_optional(&state.db_pool)
+        .await
+        {
+            let _ = sqlx::query(
+                r#"UPDATE admin_system_notifications
+                    SET severity = $2, message = $3, details = $4, created_at = NOW()
+                    WHERE id = $1"#,
+            )
+            .bind(&existing_id)
+            .bind(&req.severity)
+            .bind(&req.message)
+            .bind(req.details.clone())
+            .execute(&state.db_pool)
+            .await;
+            return (StatusCode::OK, Json(json!({ "id": existing_id, "coalesced": true })));
+        }
+    }
+
+    let id = req.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    match sqlx::query(
+        r#"INSERT INTO admin_system_notifications
+            (id, category, severity, title, message, details, source)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(&id)
+    .bind(&req.category)
+    .bind(&req.severity)
+    .bind(&req.title)
+    .bind(&req.message)
+    .bind(req.details.clone())
+    .bind(&req.source)
+    .execute(&state.db_pool)
+    .await
+    {
+        Ok(_) => (StatusCode::CREATED, Json(json!({ "id": id, "coalesced": false }))),
+        Err(e) => {
+            warn!("internal_create_system_notification insert failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() })))
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

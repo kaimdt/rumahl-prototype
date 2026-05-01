@@ -687,6 +687,86 @@ async fn get_status(State(state): State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
+/// Lightweight resource snapshot read directly from /proc on Linux.
+/// On non-Linux hosts (development workstations) we return zeros with
+/// `available: false` so the admin UI renders a clean placeholder.
+async fn get_resource_usage() -> Json<serde_json::Value> {
+    #[cfg(target_os = "linux")]
+    {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        let mut total_kb: u64 = 0;
+        let mut avail_kb: u64 = 0;
+        for line in meminfo.lines() {
+            if let Some(rest) = line.strip_prefix("MemTotal:") {
+                total_kb = rest.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                avail_kb = rest.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            }
+        }
+        let mem_pct = if total_kb > 0 {
+            ((total_kb - avail_kb) as f64 / total_kb as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        let loadavg = std::fs::read_to_string("/proc/loadavg").unwrap_or_default();
+        let load1: f64 = loadavg
+            .split_whitespace()
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
+
+        let cpu_count = std::thread::available_parallelism()
+            .map(|n| n.get() as f64)
+            .unwrap_or(1.0);
+        let cpu_pct = ((load1 / cpu_count) * 100.0).min(100.0);
+
+        // Disk (root mount). Best-effort via `statvfs` would need a crate;
+        // approximate with /proc/mounts + std::fs::metadata.
+        let disk_pct = read_root_disk_percent().unwrap_or(0.0);
+
+        return Json(serde_json::json!({
+            "available": true,
+            "cpu_percent": cpu_pct,
+            "memory_percent": mem_pct,
+            "disk_percent": disk_pct,
+            "memory_total_kb": total_kb,
+            "memory_available_kb": avail_kb,
+            "load_avg_1m": load1,
+            "cpu_count": cpu_count,
+        }));
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Json(serde_json::json!({
+            "available": false,
+            "cpu_percent": 0.0,
+            "memory_percent": 0.0,
+            "disk_percent": 0.0,
+            "note": "resource-usage is only available on Linux",
+        }))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_root_disk_percent() -> Option<f64> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::ffi::CString;
+    let path = CString::new(std::path::Path::new("/").as_os_str().as_bytes()).ok()?;
+    unsafe {
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(path.as_ptr(), &mut stat) != 0 {
+            return None;
+        }
+        let total = stat.f_blocks as f64 * stat.f_frsize as f64;
+        let avail = stat.f_bavail as f64 * stat.f_frsize as f64;
+        if total <= 0.0 {
+            return None;
+        }
+        Some(((total - avail) / total) * 100.0)
+    }
+}
+
 async fn get_connections(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let rows = sqlx::query(
         "SELECT * FROM database_connections ORDER BY timestamp DESC LIMIT 100"
@@ -1044,6 +1124,7 @@ async fn main() -> Result<()> {
         .route("/api/security/events", get(get_events))
         .route("/api/security/threats", get(get_threats))
         .route("/api/security/alerts", get(get_alerts))
+        .route("/api/security/resource-usage", get(get_resource_usage))
         .route("/api/security/whitelist", post(add_whitelist))
         .route("/api/security/block/:ip", post(block_ip))
         .route("/api/security/lockdown", post(manual_lockdown))
