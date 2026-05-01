@@ -665,28 +665,64 @@ async fn h_connect(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<
         b.host.clone()
     };
 
-    let cfg = config::Config { host: resolved_host, token: b.token.clone() };
-    let client = client::Client::new(&cfg.host, &cfg.token).map_err(server_err)?;
-    let st = client.status().await.map_err(server_err)?;
-    if st.variant != "dev" {
-        return Err((StatusCode::CONFLICT, format!("device variant `{}` ≠ `dev` — refusing", st.variant)));
-    }
-    // Verify that the token actually works by calling an authenticated
-    // endpoint. /dev/status is unauthenticated, so a wrong token would
-    // still get `connected` and then fail on every other call with 401.
-    client.system_info().await.map_err(|e| {
-        let msg = format!("{e}");
-        if msg.contains("401") || msg.contains("Unauthorized") {
-            (StatusCode::UNAUTHORIZED,
-             "The dev-token you entered was rejected by the device bridge.\n\n"
-             .to_string() +
-             "1. SSH into the device and check: cat /var/lib/iora/dev-token\n" +
-             "2. Or regenerate: sudo rm -f /var/lib/iora/dev-token && sudo systemctl restart iora-dev-bridge\n" +
-             "3. Then copy the token shown in the bridge logs (journalctl -u iora-dev-bridge -n 20 --no-pager)")
-        } else {
-            server_err(e)
+    let mut selected_host: Option<String> = None;
+    let mut selected_status: Option<client::Status> = None;
+    let mut last_error: Option<String> = None;
+
+    for candidate in bridge_host_candidates(&resolved_host) {
+        let cfg_try = config::Config { host: candidate.clone(), token: b.token.clone() };
+        let cli = match client::Client::new(&cfg_try.host, &cfg_try.token) {
+            Ok(c) => c,
+            Err(e) => {
+                last_error = Some(format!("{candidate}: {e}"));
+                continue;
+            }
+        };
+
+        let st = match cli.status().await {
+            Ok(s) => s,
+            Err(e) => {
+                last_error = Some(format!("{candidate}: {e}"));
+                continue;
+            }
+        };
+
+        if st.variant != "dev" {
+            last_error = Some(format!("{candidate}: device variant '{}' != dev", st.variant));
+            continue;
         }
+
+        // Verify token via authenticated endpoint.
+        if let Err(e) = cli.system_info().await {
+            let msg = format!("{e}");
+            if msg.contains("401") || msg.contains("Unauthorized") {
+                return Err((StatusCode::UNAUTHORIZED,
+                    "The dev-token you entered was rejected by the device bridge.\n\n"
+                    .to_string() +
+                    "1. SSH into the device and check: cat /var/lib/iora/dev-token\n" +
+                    "2. Or regenerate: sudo rm -f /var/lib/iora/dev-token && sudo systemctl restart iora-dev-bridge\n" +
+                    "3. Then copy the token shown in the bridge logs (journalctl -u iora-dev-bridge -n 20 --no-pager)"
+                ));
+            }
+            last_error = Some(format!("{candidate}: {e}"));
+            continue;
+        }
+
+        selected_host = Some(candidate);
+        selected_status = Some(st);
+        break;
+    }
+
+    let chosen_host = selected_host.ok_or_else(|| {
+        (StatusCode::BAD_GATEWAY, format!(
+            "Could not connect to Developer Bridge at '{}'. Tried default ports 8101 and 8099. Last error: {}",
+            resolved_host,
+            last_error.unwrap_or_else(|| "unknown error".to_string())
+        ))
     })?;
+    let st = selected_status.ok_or_else(|| (StatusCode::BAD_GATEWAY, "Bridge status unavailable".to_string()))?;
+
+    let cfg = config::Config { host: chosen_host, token: b.token.clone() };
     let path = config::save(&cfg).map_err(server_err)?;
     let _ = s.inner.events.send(Event::Connection {
         host: Some(cfg.host.clone()),
@@ -1508,17 +1544,58 @@ async fn h_connect_credentials(
         return Err((StatusCode::BAD_REQUEST, "host, username, and password are required".into()));
     }
 
-    // Call /dev/auth on the bridge
-    let c = client::Client::new(host, "").map_err(server_err)?;
-    let auth_resp = c.dev_auth(&body.username, &body.password).await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Device auth failed: {e}")))?;
+    // Call /dev/auth on the bridge (try default bridge ports if no port provided).
+    let mut auth_resp: Option<serde_json::Value> = None;
+    let mut selected_host: Option<String> = None;
+    let mut attempts: Vec<String> = Vec::new();
+
+    let candidates = bridge_host_candidates(host);
+    if candidates.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, format!("Invalid host: {host}")));
+    }
+
+    for candidate in &candidates {
+        let c = match client::Client::new(candidate, "") {
+            Ok(c) => c,
+            Err(e) => {
+                attempts.push(format!("  - {candidate}: client init failed: {e}"));
+                continue;
+            }
+        };
+        match c.dev_auth(&body.username, &body.password).await {
+            Ok(resp) => {
+                auth_resp = Some(resp);
+                selected_host = Some(candidate.clone());
+                break;
+            }
+            Err(e) => {
+                attempts.push(format!("  - POST http://{candidate}/dev/auth -> {e}"));
+            }
+        }
+    }
+
+    let auth_resp = auth_resp.ok_or_else(|| {
+        let tried_ports: Vec<String> = candidates
+            .iter()
+            .filter_map(|c| c.rsplit_once(':').map(|(_, p)| p.to_string()))
+            .collect();
+        let ports_str = if tried_ports.is_empty() {
+            "default".to_string()
+        } else {
+            tried_ports.join(", ")
+        };
+        (StatusCode::BAD_GATEWAY, format!(
+            "Device auth failed. Tried bridge ports {ports_str}.\n{}\n\nHints:\n  - Make sure iora-dev-bridge is running on the device (systemctl status iora-dev-bridge)\n  - Confirm the device IP and that the IDE machine can reach it\n  - Verify the IORA dashboard username/password",
+            attempts.join("\n")
+        ))
+    })?;
 
     let session_token = auth_resp.get("token")
         .and_then(|v| v.as_str())
         .ok_or((StatusCode::BAD_GATEWAY, "No session token returned".into()))?;
 
     // Save as the active connection (session token in place of dev token)
-    let normalized = if host.contains(':') { host.to_string() } else { format!("{host}:8099") };
+    let normalized = selected_host.unwrap_or_else(|| host.to_string());
     let cfg = config::Config { host: normalized, token: session_token.to_string() };
     config::save(&cfg).map_err(server_err)?;
 
@@ -1536,6 +1613,47 @@ async fn h_connect_credentials(
         "role": auth_resp.get("role"),
         "via": "credentials",
     })))
+}
+
+fn bridge_host_candidates(host: &str) -> Vec<String> {
+    let trimmed = host.trim().trim_end_matches('/');
+    let no_scheme = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+        .unwrap_or(trimmed);
+
+    if no_scheme.is_empty() {
+        return Vec::new();
+    }
+
+    // Standard dev-bridge ports, in priority order. 8101 is the current
+    // default; 8099 is the legacy default kept as fallback for older
+    // images. Both are tried whether or not the user supplied a port,
+    // so a user that copy-pasted `host:8099` from old docs still works
+    // against a bridge that has migrated to 8101 (and vice versa).
+    const DEFAULT_PORTS: &[u16] = &[8101, 8099];
+
+    let mut candidates: Vec<String> = Vec::new();
+    let mut push_unique = |c: String, list: &mut Vec<String>| {
+        if !list.iter().any(|existing| existing == &c) {
+            list.push(c);
+        }
+    };
+
+    if let Some((host_only, _port)) = no_scheme.rsplit_once(':') {
+        // User-supplied port goes first.
+        push_unique(no_scheme.to_string(), &mut candidates);
+        // Then the standard fallbacks on the same host.
+        for p in DEFAULT_PORTS {
+            push_unique(format!("{host_only}:{p}"), &mut candidates);
+        }
+    } else {
+        for p in DEFAULT_PORTS {
+            push_unique(format!("{no_scheme}:{p}"), &mut candidates);
+        }
+    }
+
+    candidates
 }
 
 // ─── Register custom component ─────────────────────────────────────────

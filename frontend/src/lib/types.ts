@@ -147,6 +147,13 @@ export interface DashboardPage {
   name: string
   icon: string
   widgets: DashboardWidget[]
+  // Logical page classification used for routing/render behavior.
+  pageType?: 'dashboard' | 'app' | 'system' | 'custom'
+  // Optional source metadata (e.g. app-id for app pages).
+  pageSource?: {
+    kind: 'app' | 'iora' | 'user' | 'external'
+    id?: string
+  }
   showInNav?: boolean // Whether to show in navigation bar
   order?: number // Display order in navigation
   displayMode?: 'page' | 'modal' // full page or modal overlay

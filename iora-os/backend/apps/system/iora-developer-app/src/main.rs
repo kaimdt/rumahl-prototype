@@ -191,7 +191,7 @@ async fn public_developer_status(data: web::Data<AppState>) -> impl Responder {
 
 /// Returns whether the underlying IORA OS image was built with
 /// `build.sh --dev` and, if so, the capabilities exposed by
-/// `iora-dev-bridge` on 127.0.0.1:8099.  On a production image this
+/// `iora-dev-bridge` on 127.0.0.1:8101.  On a production image this
 /// always reports `{ "enabled": false }`.  Because the bridge binary is
 /// only present on dev images, there is no way for the Developer App to
 /// fake elevated capabilities on a stock system.
@@ -208,7 +208,7 @@ async fn detect_os_dev_mode() -> serde_json::Value {
         Err(_) => return serde_json::json!({ "enabled": true, "bridge": "unavailable" }),
     };
     match client
-        .get("http://127.0.0.1:8099/dev/status")
+        .get("http://127.0.0.1:8101/dev/status")
         .send()
         .await
     {

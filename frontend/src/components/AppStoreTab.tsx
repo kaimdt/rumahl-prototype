@@ -463,7 +463,7 @@ function InstalledAppsView({
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                 {/* Open button - for apps with custom pages */}
                 {(app.custom_pages?.length ?? 0) > 0 && (
                   <button

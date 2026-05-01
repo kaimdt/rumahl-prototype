@@ -2837,13 +2837,13 @@ fi
 # happens to be active. Failures are non-fatal — most dev images don't
 # run a firewall at all.
 if command -v iptables >/dev/null 2>&1; then
-    iptables -C INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null \
-        || iptables -I INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null \
+    iptables -C INPUT -p tcp --dport 8101 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -p tcp --dport 8101 -j ACCEPT 2>/dev/null \
         || true
 fi
 if command -v nft >/dev/null 2>&1; then
-    nft list chain inet filter input 2>/dev/null | grep -q 'tcp dport 8099 accept' \
-        || nft add rule inet filter input tcp dport 8099 accept 2>/dev/null \
+    nft list chain inet filter input 2>/dev/null | grep -q 'tcp dport 8101 accept' \
+        || nft add rule inet filter input tcp dport 8101 accept 2>/dev/null \
         || true
 fi
 exit 0
@@ -2868,11 +2868,11 @@ Group=root
 # that the IDE on the developer's workstation can reach the bridge over
 # the LAN. Override with /etc/iora/dev-bridge.env if you want to lock it
 # down again.
-Environment=IORA_DEV_BIND=0.0.0.0:8099
+Environment=IORA_DEV_BIND=0.0.0.0:8101
 Environment=IORA_DEV_TOKEN_FILE=/var/lib/iora/dev-token
 EnvironmentFile=-/etc/iora/dev-bridge.env
 # Self-heal: copy/regenerate the dev-token onto a writable path, fix
-# perms, and poke firewall holes for 8099. The script tolerates every
+# perms, and poke firewall holes for 8101. The script tolerates every
 # error and never blocks startup.
 ExecStartPre=/usr/lib/iora/iora-dev-bridge-prepare.sh
 ExecStart=/usr/bin/iora-dev-bridge

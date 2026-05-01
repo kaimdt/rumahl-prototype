@@ -34,6 +34,8 @@ mod matter_client;
 mod local_appstore;
 mod dev_image;
 mod ha_connection;
+mod app_lifecycle;
+mod plugin_sandbox;
 mod zigbee_client;
 mod zwave_client;
 mod ble_client;
@@ -169,6 +171,9 @@ pub struct AppState {
     /// Snapshot of `/etc/iora/os-dev-mode` markers — drives the
     /// "Developer Mode is locked on" UX on dev builds.
     pub dev_image: Arc<dev_image::DevImageInfo>,
+    /// Shared plugin sandbox (one Docker container, lazy-created). Hosts all
+    /// installed plugins so they are jederzeit ausführbar.
+    pub plugin_sandbox: Arc<plugin_sandbox::PluginSandbox>,
 
     // --- New v2.1: Extended App Capabilities ---
 
@@ -311,6 +316,9 @@ impl ErrorResponse {
     }
     pub fn service_unavailable(error: impl Into<String>) -> Self {
         Self { error: error.into(), status: StatusCode::SERVICE_UNAVAILABLE }
+    }
+    pub fn bad_gateway(error: impl Into<String>) -> Self {
+        Self { error: error.into(), status: StatusCode::BAD_GATEWAY }
     }
 }
 
@@ -680,6 +688,24 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         dev_image: Arc::new(dev_image::DevImageInfo::detect()),
+        plugin_sandbox: {
+            // Sandbox-Manager teilt sich das gleiche Base-Dir wie der App-Store,
+            // damit Plugin-Code persistent neben App-Daten liegt. ensure_running()
+            // wird lazy aufgerufen – hier nur das Verzeichnis vorbereiten.
+            let base = std::env::var("IORA_LOCAL_APPS_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"));
+            match plugin_sandbox::PluginSandbox::new(&base).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("plugin sandbox init failed: {e:#}");
+                    // Fallback: tmpdir – Sandbox kann später re-init werden
+                    plugin_sandbox::PluginSandbox::new(&std::env::temp_dir().join("iora-plugin-sandbox"))
+                        .await
+                        .expect("plugin-sandbox tmp init")
+                }
+            }
+        },
 
         // New v2.1: Extended App Capabilities
         app_storage: Arc::new(app_storage_handler::AppStorageState::new()),
@@ -744,6 +770,39 @@ async fn main() -> anyhow::Result<()> {
             if let Err(e) = store.set_streaming_app(true).await {
                 warn!("bootstrap: streaming-app registration failed: {e:#}");
             }
+        });
+    }
+
+    // ── App-Lifecycle: Reconciliation + Background-Monitor ──────────
+    // Sorgt dafür, dass:
+    //  (a) der persistierte Status nach einem Crash von iora-home mit der
+    //      Docker-Realität abgeglichen wird,
+    //  (b) abgestürzte Apps automatisch mit exponentiellem Backoff neu gestartet
+    //      werden, damit der User nie eine "running"-Lüge sieht.
+    {
+        let store = state.local_appstore.clone();
+        let base_dir = store.base_dir().to_path_buf();
+        tokio::spawn(async move {
+            app_lifecycle::reconcile_on_startup(store.clone()).await;
+            app_lifecycle::spawn_health_monitor(store, base_dir).await;
+        });
+    }
+
+    // ── Plugin-Sandbox: lazy starten + am Leben halten ──────────────
+    // Ein einziger gemeinsamer Container (`iora-plugin-sandbox`) hostet alle
+    // installierten Plugins. Existiert er nicht, wird er beim ersten Aufruf
+    // erstellt; ist er gestoppt, wird er hochgefahren; ist er bereits da,
+    // bleibt er. Der Health-Loop erkennt Crashes und bringt ihn wieder hoch.
+    {
+        let sandbox = state.plugin_sandbox.clone();
+        tokio::spawn(async move {
+            // Erst-Initialisierung im Hintergrund (Image-Build kann dauern)
+            if let Err(e) = sandbox.ensure_running().await {
+                warn!("plugin-sandbox initial start failed: {e:#}");
+            } else {
+                info!("plugin-sandbox is up and serving plugins");
+            }
+            plugin_sandbox::spawn_health_loop(sandbox).await;
         });
     }
 
@@ -1180,6 +1239,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/plugins/:id/execute", post(core_plugins_execute))
         .route("/api/core/plugins/:id/logs", get(core_plugins_logs))
         .route("/api/core/sandbox/status", get(core_sandbox_status))
+        // Plugin-Sandbox: gemeinsamer Docker-Container für alle Plugins.
+        .route("/api/plugins", get(plugins_list).post(plugins_register))
+        .route("/api/plugins/:plugin_id", delete(plugins_unregister))
+        .route("/api/plugins/:plugin_id/execute", post(plugins_execute))
         // App-Store: served locally by iora-home so ZIP installs and the
         // installed-apps list work even when the dedicated `iora-appstore`
         // microservice isn't deployed.
@@ -1199,6 +1262,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/local-store/register", post(local_store_register))
         // App custom pages — returns all custom_pages from installed and running apps.
         .route("/api/apps/pages", get(app_pages_list))
+        // Live App-Status (Docker-realer Container-State) als SSE-Stream.
+        .route("/api/apps/status/stream", get(apps_status_stream))
         // App content proxy — forwards requests to installed app containers.
         .route("/api/apps/:app_id/proxy/*path", get(app_proxy_handler))
         // App logs — per-app log retrieval and live streaming.
@@ -4078,6 +4143,54 @@ async fn local_appstore_jobs(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// SSE stream der Docker-realen App-Status. Pollt alle 10 s `docker compose ps`
+/// für jede installierte App und sendet die Aggregation. So kann die UI ohne
+/// Polling die echte Container-Realität anzeigen (anstatt nur den persistierten
+/// Status, der bei Crashes lügen kann).
+async fn apps_status_stream(
+    State(state): State<AppState>,
+) -> axum::response::Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use tokio_stream::StreamExt as _;
+
+    let stream = futures_util::stream::unfold(state, |state| async move {
+        let apps = state.local_appstore.list().await;
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+        for app in &apps {
+            let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+            let mut docker_status: Option<serde_json::Value> = None;
+            if needs_docker {
+                if let Some(s) = app_lifecycle::docker_compose_status(&app.id).await {
+                    docker_status = Some(json!({
+                        "total": s.total,
+                        "running": s.running,
+                        "exited": s.exited,
+                        "unhealthy": s.unhealthy,
+                        "all_running": s.all_running(),
+                        "services": s.services,
+                    }));
+                }
+            }
+            entries.push(json!({
+                "app_id": app.id,
+                "persisted_status": app.status,
+                "needs_docker": needs_docker,
+                "docker": docker_status,
+            }));
+        }
+        let payload = json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "apps": entries,
+        });
+        let event = Event::default()
+            .data(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()));
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        Some((Ok::<_, Infallible>(event), state))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 /// SSE stream of install-job + app-list updates. Sends a snapshot first
 /// so the UI can render immediately on connect.
 async fn local_appstore_jobs_stream(
@@ -4173,25 +4286,27 @@ async fn admin_control_restart_service(
     State(state): State<AppState>,
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    // Soft-restart: for iora-home itself, just reconnect HA as a lightweight
-    // alternative to a full systemctl restart (which would drop WebSocket clients).
-    if name == "iora-home-ha" {
+    let soft_restart_home = || async {
         let ha_config = load_ha_runtime_config(&state.config_repo).await;
         if ha_config.is_configured() {
             state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
             state.ha_connection.update_url(&ha_config.url).await;
             state.ha_connection.reset_for_reconnect();
-            return Ok(Json(json!({
-                "success": true,
-                "service": "iora-home-ha",
-                "message": "HA-Verbindung mit aktuellen Einstellungen neu initialisiert.",
-                "url": ha_config.url,
-            })));
-        } else {
-            return Err(ErrorResponse::bad_request(
-                "HA ist nicht konfiguriert. URL und Token in den Admin-Einstellungen setzen."
-            ));
         }
+        Ok::<Json<Value>, ErrorResponse>(Json(json!({
+            "success": true,
+            "service": "iora-home",
+            "soft_restart": true,
+            "message": "iora-home Soft-Restart ausgeführt (HA-Verbindung neu initialisiert, Prozess bleibt online).",
+            "ha_configured": ha_config.is_configured(),
+            "url": if ha_config.is_configured() { ha_config.url } else { String::new() },
+        })))
+    };
+
+    // Soft-restart: for iora-home itself, just reconnect HA as a lightweight
+    // alternative to a full systemctl restart (which would drop WebSocket clients).
+    if name == "iora-home-ha" || name == "iora-home" {
+        return soft_restart_home().await;
     }
 
     let safe_name = RESTARTABLE_SERVICES
@@ -4227,11 +4342,14 @@ async fn admin_control_restart_service(
                      Auf Dev-Workstations ohne systemctl ist Service-Neustart nicht möglich."
                 )
             } else if stderr.contains("permission denied") || stderr.contains("not permitted") {
-                "Keine Berechtigung zum Neustart des Dienstes. Als root ausführen.".to_string()
+                format!(
+                    "Keine Berechtigung zum Neustart von '{unit}'. Der Dienst läuft vermutlich ohne root/systemd-Rechte. \
+                     Nutze bei iora-home den Soft-Restart (Service 'iora-home')."
+                )
             } else {
                 format!("systemctl restart {unit} fehlgeschlagen: {stderr}")
             };
-            Err(ErrorResponse::internal(hint))
+            Err(ErrorResponse::service_unavailable(hint))
         }
         Err(e) => Err(ErrorResponse::service_unavailable(format!(
             "systemctl nicht verfügbar ({e}). Auf einer Dev-Workstation ist Service-Neustart per UI nicht möglich. \
@@ -4352,10 +4470,101 @@ async fn supervisor_apps_start(
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let installed = state.local_appstore.list().await;
-    let _app = installed
+    let app_meta = installed
         .iter()
         .find(|a| a.id == app_id)
+        .cloned()
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app_meta.docker_config.is_some() || app_meta.bundle_config.is_some();
+    let mut docker_result: Option<String> = None;
+
+    if needs_docker {
+        match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+            Some(Ok(msg)) => {
+                docker_result = Some(msg.clone());
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "INFO".to_string(),
+                        message: format!("Docker-Start erfolgreich: {msg}"),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+
+                // Aktiv verifizieren, dass die Container wirklich laufen.
+                // `docker compose up -d` returned ja sofort – wir prüfen 15s lang
+                // den realen Container-Status.
+                match app_lifecycle::wait_until_running(&app_id, 15).await {
+                    Ok(s) if s.total > 0 => {
+                        state.local_appstore.append_log(
+                            &app_id,
+                            local_appstore::LogEntry {
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                level: "INFO".to_string(),
+                                message: format!(
+                                    "Verifiziert: {}/{} Services laufen.",
+                                    s.running, s.total
+                                ),
+                                source: "app-runtime".to_string(),
+                            },
+                        );
+                    }
+                    Ok(_) => {
+                        // Docker n/a oder Projekt leer – im lokalen Modus ok
+                    }
+                    Err(verify_err) => {
+                        // Container starten gefailed → wieder runter und Fehler melden
+                        let _ = try_docker_compose_down(&app_id).await;
+                        state.local_appstore.append_log(
+                            &app_id,
+                            local_appstore::LogEntry {
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                level: "ERROR".to_string(),
+                                message: format!(
+                                    "Container-Verifizierung fehlgeschlagen: {verify_err}"
+                                ),
+                                source: "app-runtime".to_string(),
+                            },
+                        );
+                        return Err(ErrorResponse::bad_gateway(format!(
+                            "App '{}' wurde gestartet, aber die Container sind nicht gesund: {verify_err}",
+                            app_meta.name
+                        )));
+                    }
+                }
+            }
+            Some(Err(err_msg)) => {
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "ERROR".to_string(),
+                        message: format!("Docker-Start fehlgeschlagen: {err_msg}"),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+                return Err(ErrorResponse::bad_request(format!(
+                    "App '{}' konnte nicht gestartet werden: {err_msg}",
+                    app_meta.name
+                )));
+            }
+            None => {
+                let hint = "Docker CLI ist nicht verfügbar. Diese App benötigt Docker und kann ohne Container nicht gestartet werden.";
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "ERROR".to_string(),
+                        message: hint.to_string(),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+                return Err(ErrorResponse::service_unavailable(hint.to_string()));
+            }
+        }
+    }
 
     let app = state
         .local_appstore
@@ -4363,12 +4572,17 @@ async fn supervisor_apps_start(
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
 
-    // Try to start Docker container for apps with docker_config
-    let docker_result = if app.docker_config.is_some() || app.bundle_config.is_some() {
-        try_docker_compose_up(&app_id, &app, state.local_appstore.base_dir()).await
-    } else {
-        None
-    };
+    if !needs_docker {
+        state.local_appstore.append_log(
+            &app_id,
+            local_appstore::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                level: "INFO".to_string(),
+                message: "App im lokalen Modus gestartet (ohne Docker).".to_string(),
+                source: "app-runtime".to_string(),
+            },
+        );
+    }
 
     Ok(Json(json!({
         "success": true,
@@ -4388,6 +4602,13 @@ async fn supervisor_apps_stop(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let needs_docker = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .map(|a| a.docker_config.is_some() || a.bundle_config.is_some())
+        .unwrap_or(false);
+
     let app = state
         .local_appstore
         .stop(&app_id)
@@ -4395,7 +4616,25 @@ async fn supervisor_apps_stop(
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
 
     // Try to stop Docker container
-    let docker_result = try_docker_compose_down(&app_id).await;
+    let docker_result = if needs_docker {
+        try_docker_compose_down(&app_id).await
+    } else {
+        None
+    };
+
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: match &docker_result {
+                Some(msg) => format!("App gestoppt. {msg}"),
+                None if needs_docker => "App gestoppt. Docker-Down konnte nicht bestaetigt werden.".to_string(),
+                None => "App gestoppt (lokaler Modus).".to_string(),
+            },
+            source: "app-runtime".to_string(),
+        },
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -4410,12 +4649,88 @@ async fn supervisor_apps_restart(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app_meta = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .cloned()
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app_meta.docker_config.is_some() || app_meta.bundle_config.is_some();
+
     let _ = state.local_appstore.stop(&app_id).await;
+
+    if needs_docker {
+        let _ = try_docker_compose_down(&app_id).await;
+        match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+            Some(Ok(msg)) => {
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "INFO".to_string(),
+                        message: format!("Docker-Neustart erfolgreich: {msg}"),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+                if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 15).await {
+                    let _ = try_docker_compose_down(&app_id).await;
+                    state.local_appstore.append_log(
+                        &app_id,
+                        local_appstore::LogEntry {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            level: "ERROR".to_string(),
+                            message: format!("Restart-Verifizierung fehlgeschlagen: {verify_err}"),
+                            source: "app-runtime".to_string(),
+                        },
+                    );
+                    return Err(ErrorResponse::bad_gateway(format!(
+                        "App '{}' Container nach Neustart nicht gesund: {verify_err}",
+                        app_meta.name
+                    )));
+                }
+            }
+            Some(Err(err_msg)) => {
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "ERROR".to_string(),
+                        message: format!("Docker-Neustart fehlgeschlagen: {err_msg}"),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+                return Err(ErrorResponse::bad_request(format!(
+                    "App '{}' konnte nicht neu gestartet werden: {err_msg}",
+                    app_meta.name
+                )));
+            }
+            None => {
+                return Err(ErrorResponse::service_unavailable(
+                    "Docker CLI ist nicht verfügbar. Neustart dieser App ist nicht möglich.".to_string(),
+                ));
+            }
+        }
+    }
+
     let app = state
         .local_appstore
         .start(&app_id)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+
+    if !needs_docker {
+        state.local_appstore.append_log(
+            &app_id,
+            local_appstore::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                level: "INFO".to_string(),
+                message: "App lokal neu gestartet (ohne Docker).".to_string(),
+                source: "app-runtime".to_string(),
+            },
+        );
+    }
+
     Ok(Json(json!({
         "success": true,
         "app_id": app.id,
@@ -4649,20 +4964,67 @@ async fn supervisor_bundle_start(
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let installed = state.local_appstore.list().await;
-    let _app = installed
+    let app_meta = installed
         .iter()
         .find(|a| a.id == app_id)
+        .cloned()
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
 
-    // Start the app using local appstore
+    // Bundle apps require docker-compose.
+    let docker_result = match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+        Some(Ok(msg)) => msg,
+        Some(Err(err_msg)) => {
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "ERROR".to_string(),
+                    message: format!("Bundle-Start fehlgeschlagen: {err_msg}"),
+                    source: "app-runtime".to_string(),
+                },
+            );
+            return Err(ErrorResponse::bad_request(format!("Bundle konnte nicht gestartet werden: {err_msg}")));
+        }
+        None => {
+            return Err(ErrorResponse::service_unavailable(
+                "Docker CLI ist nicht verfügbar. Bundle-Start ist nicht möglich.".to_string(),
+            ));
+        }
+    };
+
+    // Verifizieren, dass alle Bundle-Services laufen.
+    if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 20).await {
+        let _ = try_docker_compose_down(&app_id).await;
+        state.local_appstore.append_log(
+            &app_id,
+            local_appstore::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                level: "ERROR".to_string(),
+                message: format!("Bundle-Verifizierung fehlgeschlagen: {verify_err}"),
+                source: "app-runtime".to_string(),
+            },
+        );
+        return Err(ErrorResponse::bad_gateway(format!(
+            "Bundle '{}' Container nicht gesund: {verify_err}",
+            app_meta.name
+        )));
+    }
+
     let app = state
         .local_appstore
         .start(&app_id)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
 
-    // Try docker-compose up if Docker is available
-    let docker_result = try_docker_compose_up(&app_id, &app, state.local_appstore.base_dir()).await;
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: format!("Bundle gestartet: {docker_result}"),
+            source: "app-runtime".to_string(),
+        },
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -4670,7 +5032,6 @@ async fn supervisor_bundle_start(
         "status": "running",
         "docker_compose": docker_result,
         "message": format!("Bundle '{}' gestartet.", app.name),
-        "hint": if docker_result.is_none() { "Docker ist nicht verfügbar – Bundle läuft im lokalen Modus. Services sind über docker-compose.yaml abrufbar." } else { "" },
     })))
 }
 
@@ -4700,20 +5061,76 @@ async fn supervisor_bundle_restart(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app_meta = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .cloned()
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
     let _ = state.local_appstore.stop(&app_id).await;
     let _ = try_docker_compose_down(&app_id).await;
+
+    let docker_result = match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+        Some(Ok(msg)) => msg,
+        Some(Err(err_msg)) => {
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "ERROR".to_string(),
+                    message: format!("Bundle-Neustart fehlgeschlagen: {err_msg}"),
+                    source: "app-runtime".to_string(),
+                },
+            );
+            return Err(ErrorResponse::bad_request(format!("Bundle konnte nicht neu gestartet werden: {err_msg}")));
+        }
+        None => {
+            return Err(ErrorResponse::service_unavailable(
+                "Docker CLI ist nicht verfügbar. Bundle-Neustart ist nicht möglich.".to_string(),
+            ));
+        }
+    };
+
+    if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 20).await {
+        let _ = try_docker_compose_down(&app_id).await;
+        state.local_appstore.append_log(
+            &app_id,
+            local_appstore::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                level: "ERROR".to_string(),
+                message: format!("Bundle-Restart-Verifizierung fehlgeschlagen: {verify_err}"),
+                source: "app-runtime".to_string(),
+            },
+        );
+        return Err(ErrorResponse::bad_gateway(format!(
+            "Bundle '{}' Container nach Neustart nicht gesund: {verify_err}",
+            app_meta.name
+        )));
+    }
+
     let app = state
         .local_appstore
         .start(&app_id)
         .await
         .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
-    let _ = try_docker_compose_up(&app_id, &app, state.local_appstore.base_dir()).await;
+
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: format!("Bundle neu gestartet: {docker_result}"),
+            source: "app-runtime".to_string(),
+        },
+    );
 
     Ok(Json(json!({
         "success": true,
         "app_id": app_id,
         "status": "running",
         "message": format!("Bundle '{}' neu gestartet.", app.name),
+        "docker_compose": docker_result,
     })))
 }
 
@@ -4823,7 +5240,7 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
 }
 
 /// Try running docker-compose up for an app (single-container or bundle).
-async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<String> {
+async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<Result<String, String>> {
     use tokio::process::Command;
 
     let compose_content = if let Some(bundle) = &app.bundle_config {
@@ -4840,7 +5257,7 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
     // Create dir & write compose file
     tokio::fs::create_dir_all(&compose_dir).await.ok();
     if let Err(e) = tokio::fs::write(&compose_path, &compose_content).await {
-        return Some(format!("Kann docker-compose.yml nicht schreiben: {e}"));
+        return Some(Err(format!("Kann docker-compose.yml nicht schreiben: {e}")));
     }
 
     // Try docker compose up
@@ -4852,37 +5269,76 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
 
     match result {
         Ok(output) if output.status.success() => {
-            Some(format!(
+            Some(Ok(format!(
                 "docker compose up erfolgreich. stdout: {}",
                 String::from_utf8_lossy(&output.stdout).trim()
-            ))
+            )))
         }
-        Ok(output) => Some(format!(
+        Ok(output) => Some(Err(format!(
             "docker compose fehlgeschlagen: {}",
             String::from_utf8_lossy(&output.stderr).trim()
-        )),
-        Err(e) => Some(format!("Docker nicht verfügbar: {e}")),
+        ))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(Err(format!("Docker-Aufruf fehlgeschlagen: {e}"))),
     }
 }
 
 /// Try running docker-compose down for an app.
+/// Probiert BEIDE Project-Prefixes (`iora-app-`, `iora-bundle-`) und sammelt
+/// die Ergebnisse, damit auch teilweise hängende Container sauber abgeräumt
+/// werden, wenn sich der Prefix zwischen Versionen geändert hat.
 async fn try_docker_compose_down(app_id: &str) -> Option<String> {
     use tokio::process::Command;
 
-    // Try both project prefixes for compatibility
+    let mut any_success = false;
+    let mut errors: Vec<String> = Vec::new();
+    let mut docker_present = false;
+
     for prefix in ["iora-app-", "iora-bundle-"] {
         let result = Command::new("docker")
-            .args(["compose", "-p", &format!("{}{}", prefix, app_id), "down"])
+            .args([
+                "compose",
+                "-p",
+                &format!("{}{}", prefix, app_id),
+                "down",
+                "--remove-orphans",
+            ])
             .output()
             .await;
         match result {
             Ok(output) if output.status.success() => {
-                return Some("docker compose down erfolgreich".to_string());
+                docker_present = true;
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.trim().is_empty() && stderr.contains("Removed") {
+                    any_success = true;
+                }
+                // success ohne "Removed" bedeutet: Project gab es nicht (no-op)
+                any_success = true;
             }
-            _ => continue,
+            Ok(output) => {
+                docker_present = true;
+                errors.push(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return None; // Docker nicht installiert
+            }
+            Err(e) => {
+                errors.push(format!("docker call failed: {e}"));
+            }
         }
     }
-    None // Docker not available – expected in dev mode
+
+    if !docker_present {
+        return None;
+    }
+    if any_success {
+        Some("docker compose down erfolgreich".to_string())
+    } else {
+        Some(format!(
+            "docker compose down meldete Probleme: {}",
+            errors.join("; ")
+        ))
+    }
 }
 
 /// Returns all custom pages from installed apps that are running.
@@ -4919,6 +5375,9 @@ async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
                     "name": p.title,
                     "icon": p.icon,
                     "url": p.url,
+                    "page_type": "app",
+                    "page_source_kind": "app",
+                    "page_source_id": a.id,
                     "show_in_nav": p.show_in_nav,
                     "order": p.order,
                     "app_id": a.id,
@@ -5786,16 +6245,139 @@ async fn core_plugins_logs(
     }))
 }
 
-/// Get sandbox status.
-async fn core_sandbox_status() -> Json<Value> {
+/// Get sandbox status — reflects the real Docker-backed plugin sandbox.
+async fn core_sandbox_status(State(state): State<AppState>) -> Json<Value> {
+    let healthy = state.plugin_sandbox.health_check().await;
+    let plugins = state.plugin_sandbox.list().await;
     Json(json!({
         "available": true,
-        "runtimes": ["nodejs", "python3"],
-        "version": "2.2.0",
-        "mode": "subprocess",
-        "restrictions": ["no_shell", "no_network", "no_package_install", "restricted_fs"],
-        "description": "Plugin-Sandbox-Umgebung. Plugins werden als eingeschränkte Subprozesse ausgeführt, ohne Shell-Zugriff, ohne Paketinstallation und ohne (optional) Netzwerkzugriff.",
+        "healthy": healthy,
+        "runtimes": ["nodejs"],
+        "version": "2.3.0",
+        "mode": "shared-docker-sandbox",
+        "container": "iora-plugin-sandbox",
+        "url": state.plugin_sandbox.host_url(),
+        "plugins": plugins,
+        "plugin_count": plugins.len(),
+        "restrictions": [
+            "memory:512m",
+            "cpus:1.0",
+            "no_capabilities",
+            "no_new_privileges",
+            "read_only_root_fs",
+            "loopback_only",
+        ],
+        "description": "Gemeinsamer Docker-Sandbox-Container für alle Plugins. Wird lazy gestartet, automatisch wiederbelebt und teilt ein read-only Volume mit dem Plugin-Code.",
     }))
+}
+
+/// Liste aller registrierten Plugins.
+async fn plugins_list(State(state): State<AppState>) -> Json<Value> {
+    let plugins = state.plugin_sandbox.list().await;
+    let healthy = state.plugin_sandbox.health_check().await;
+    Json(json!({
+        "plugins": plugins,
+        "count": plugins.len(),
+        "sandbox_healthy": healthy,
+    }))
+}
+
+/// Plugin registrieren — erwartet Body `{ "plugin_id": "...", "manifest": {...}, "source": "<JS-Code>" }`.
+async fn plugins_register(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let plugin_id = body
+        .get("plugin_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ErrorResponse::bad_request("Feld 'plugin_id' fehlt"))?
+        .to_string();
+    if !plugin_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        || plugin_id.is_empty()
+    {
+        return Err(ErrorResponse::bad_request(
+            "plugin_id darf nur Buchstaben, Zahlen, '-', '_' und '.' enthalten",
+        ));
+    }
+    let manifest = body
+        .get("manifest")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let source = body
+        .get("source")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ErrorResponse::bad_request("Feld 'source' fehlt (JS-Code als String)"))?;
+
+    // Sandbox sicherstellen, sonst geht das register sinnlos in den Wind.
+    if let Err(e) = state.plugin_sandbox.ensure_running().await {
+        return Err(ErrorResponse::service_unavailable(format!(
+            "Plugin-Sandbox konnte nicht gestartet werden: {e:#}"
+        )));
+    }
+
+    // Source temporär in eine Datei schreiben — register_plugin kopiert sie ins Volume.
+    let tmp = std::env::temp_dir().join(format!("iora-plugin-{plugin_id}.js"));
+    if let Err(e) = tokio::fs::write(&tmp, source).await {
+        return Err(ErrorResponse::internal(format!(
+            "kann Plugin-Source nicht schreiben: {e}"
+        )));
+    }
+
+    let reg = plugin_sandbox::PluginRegistration {
+        plugin_id: plugin_id.clone(),
+        manifest,
+        source_path: tmp.clone(),
+    };
+    let result = state.plugin_sandbox.register_plugin(reg).await;
+    let _ = tokio::fs::remove_file(&tmp).await;
+    result.map_err(|e| ErrorResponse::internal(format!("register fehlgeschlagen: {e:#}")))?;
+
+    Ok(Json(json!({
+        "success": true,
+        "plugin_id": plugin_id,
+        "message": "Plugin registriert und in Sandbox geladen",
+    })))
+}
+
+/// Plugin entfernen.
+async fn plugins_unregister(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    state
+        .plugin_sandbox
+        .unregister_plugin(&plugin_id)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("unregister fehlgeschlagen: {e:#}")))?;
+    Ok(Json(json!({
+        "success": true,
+        "plugin_id": plugin_id,
+    })))
+}
+
+/// Plugin in der Sandbox ausführen — Body wird als Input weitergereicht.
+/// Optional Query-Param `?timeout_ms=5000`.
+async fn plugins_execute(
+    State(state): State<AppState>,
+    axum::extract::Path(plugin_id): axum::extract::Path<String>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let timeout_ms: u64 = q
+        .get("timeout_ms")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5000)
+        .min(30_000); // max 30s
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+
+    let result = state
+        .plugin_sandbox
+        .execute(&plugin_id, input, timeout)
+        .await
+        .map_err(|e| ErrorResponse::bad_gateway(format!("execute fehlgeschlagen: {e:#}")))?;
+    Ok(Json(result))
 }
 
 async fn stub_core_registrations() -> Json<Value> {

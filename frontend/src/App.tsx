@@ -554,6 +554,29 @@ function DashboardContent() {
             }
 
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
+            const systemPageIds = ['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent']
+
+            const resolvePageType = (): 'dashboard' | 'app' | 'system' | 'custom' => {
+              if (currentPage?.pageType) return currentPage.pageType
+              if (currentPage?.pageSource?.kind === 'app') return 'app'
+              if (currentPage?.pageSource?.kind === 'iora') return 'system'
+              if (systemPageIds.includes(currentPageId)) return 'system'
+
+              // Backward compatibility for already persisted app pages without metadata.
+              const isLegacyAppPage = Boolean(
+                currentPage?.widgets?.some((widget) => {
+                  if (widget.type !== 'iframe') return false
+                  const cfg = widget.config as Record<string, unknown> | undefined
+                  return typeof cfg?.appId === 'string' && cfg.appId.length > 0
+                })
+              )
+              if (isLegacyAppPage) return 'app'
+
+              // Pages without any metadata are user/custom pages, NOT dashboard pages.
+              return 'custom'
+            }
+
+            const currentPageType = resolvePageType()
             // Pages that NEVER depend on Home Assistant entities — render immediately
             const nonHAPages = ['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent']
             const isNonHAPage = nonHAPages.includes(currentPageId)
@@ -605,8 +628,23 @@ function DashboardContent() {
               )
             }
 
+            // ── 404 for pages that nobody owns ──────────────────────
+            // Built-in HA entity pages always exist; everything else needs a page record.
+            const builtinPageIds = ['home', 'lights', 'climate', 'switches', 'sensors', 'music']
+            if (!currentPage && !builtinPageIds.includes(currentPageId)) {
+              return (
+                <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-foreground/60">
+                  <span className="text-7xl font-bold text-foreground/10">404</span>
+                  <p className="text-lg font-medium">Seite nicht gefunden</p>
+                  <p className="text-sm">
+                    Die Seite <code className="px-1.5 py-0.5 rounded bg-foreground/10">{currentPageId}</code> existiert nicht.
+                  </p>
+                </div>
+              )
+            }
+
             // ── HA-dependent pages below ─────────────────────────
-            const isDashboardPage = !isNonHAPage
+            const isDashboardPage = currentPageType === 'dashboard'
             const haNotAvailable = !haEnabled || haConfigured === false || (haConfigured === null && !loading) || isHAOfflineForLong
             const showSimpleDashboard = isDashboardPage && haNotAvailable
 

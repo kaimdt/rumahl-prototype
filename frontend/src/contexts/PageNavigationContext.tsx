@@ -139,6 +139,8 @@ const defaultPages: DashboardPage[] = [
     id: 'home',
     name: 'Übersicht',
     icon: 'House',
+    pageType: 'dashboard',
+    pageSource: { kind: 'iora', id: 'home' },
     widgets: [],
     showInNav: true,
     order: 0,
@@ -147,6 +149,8 @@ const defaultPages: DashboardPage[] = [
     id: 'settings',
     name: 'Einstellungen',
     icon: 'Gear',
+    pageType: 'system',
+    pageSource: { kind: 'iora', id: 'settings' },
     widgets: [],
     showInNav: true,
     order: 999,
@@ -155,6 +159,8 @@ const defaultPages: DashboardPage[] = [
     id: 'docs',
     name: 'Dokumentation',
     icon: 'BookOpen',
+    pageType: 'system',
+    pageSource: { kind: 'iora', id: 'docs' },
     widgets: [],
     showInNav: true,
     order: 998,
@@ -163,6 +169,8 @@ const defaultPages: DashboardPage[] = [
     id: 'streaming',
     name: 'Streaming',
     icon: 'VideoCamera',
+    pageType: 'system',
+    pageSource: { kind: 'iora', id: 'streaming' },
     widgets: [],
     showInNav: true,
     order: 997,
@@ -171,6 +179,8 @@ const defaultPages: DashboardPage[] = [
     id: 'share',
     name: 'Share',
     icon: 'ShareNetwork',
+    pageType: 'system',
+    pageSource: { kind: 'iora', id: 'share' },
     widgets: [],
     showInNav: true,
     order: 996,
@@ -179,6 +189,8 @@ const defaultPages: DashboardPage[] = [
     id: 'ai-agent',
     name: 'Agent',
     icon: 'Robot',
+    pageType: 'system',
+    pageSource: { kind: 'iora', id: 'ai-agent' },
     widgets: [],
     showInNav: true,
     order: 995,
@@ -322,6 +334,9 @@ interface BackendPageWithWidgets {
     name: string
     icon: string
     position: number
+    page_type?: 'dashboard' | 'app' | 'system' | 'custom'
+    page_source_kind?: 'app' | 'iora' | 'user' | 'external'
+    page_source_id?: string | null
     show_in_nav?: boolean | number
     display_mode?: string
     parent_page_id?: string | null
@@ -336,6 +351,13 @@ function backendToFrontend(backendPages: BackendPageWithWidgets[]): DashboardPag
     id: p.page.page_id,
     name: p.page.name,
     icon: p.page.icon,
+    pageType: p.page.page_type,
+    pageSource: p.page.page_source_kind
+      ? {
+          kind: p.page.page_source_kind,
+          id: p.page.page_source_id || undefined,
+        }
+      : undefined,
     showInNav: p.page.show_in_nav == null ? true : !!p.page.show_in_nav,
     order: p.page.position,
     displayMode: (p.page.display_mode as 'page' | 'modal') || 'page',
@@ -648,7 +670,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
           try {
             const appPagesRes = await authFetch('/api/apps/pages')
             if (appPagesRes.ok) {
-              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string }> }
+              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string; page_type?: 'dashboard' | 'app' | 'system' | 'custom'; page_source_kind?: 'app' | 'iora' | 'user' | 'external'; page_source_id?: string | null; app_id?: string }> }
               if (appPagesData.pages && appPagesData.pages.length > 0) {
                 const existingIds = new Set(migrated.map(p => p.id))
                 for (const p of appPagesData.pages) {
@@ -666,6 +688,11 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
                       id: p.page_id,
                       name: p.name,
                       icon: p.icon,
+                      pageType: p.page_type || 'app',
+                      pageSource: {
+                        kind: p.page_source_kind || 'app',
+                        id: p.page_source_id || p.app_id || undefined,
+                      },
                       widgets,
                       showInNav: p.show_in_nav !== false,
                       order: p.position || 500,
@@ -696,7 +723,7 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
           try {
             const appPagesRes = await authFetch('/api/apps/pages')
             if (appPagesRes.ok) {
-              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string }> }
+              const appPagesData = await appPagesRes.json() as { pages: Array<{ page_id: string; name: string; icon: string; show_in_nav: boolean; position: number; widgets: any[]; display_mode?: string; page_type?: 'dashboard' | 'app' | 'system' | 'custom'; page_source_kind?: 'app' | 'iora' | 'user' | 'external'; page_source_id?: string | null; app_id?: string }> }
               if (appPagesData.pages && appPagesData.pages.length > 0) {
                 const existingIds = new Set(pages.map(p => p.id))
                 for (const p of appPagesData.pages) {
@@ -713,6 +740,11 @@ export function PageNavigationProvider({ children }: { children: React.ReactNode
                       id: p.page_id,
                       name: p.name,
                       icon: p.icon,
+                      pageType: p.page_type || 'app',
+                      pageSource: {
+                        kind: p.page_source_kind || 'app',
+                        id: p.page_source_id || p.app_id || undefined,
+                      },
                       widgets,
                       showInNav: p.show_in_nav !== false,
                       order: p.position || 500,

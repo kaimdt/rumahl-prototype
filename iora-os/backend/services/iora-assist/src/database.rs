@@ -50,6 +50,16 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    // 007 (self_evolution) is loaded by self_evolution::init at runtime; safe to also try here
+    // because all CREATE TABLE statements use IF NOT EXISTS. Skip silently if missing.
+    let _ = sqlx::query(include_str!("../migrations/007_self_evolution.sql"))
+        .execute(pool)
+        .await;
+
+    sqlx::query(include_str!("../migrations/008_provider_models_and_secrets.sql"))
+        .execute(pool)
+        .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
@@ -426,6 +436,14 @@ pub mod providers {
         pub enabled: bool,
         pub created_at: DateTime<Utc>,
         pub updated_at: DateTime<Utc>,
+        // Added by migration 008 — present in DB once the migration runs.
+        // Optional so legacy rows without values still deserialize cleanly.
+        #[serde(default)]
+        pub last_model_fetch_at: Option<DateTime<Utc>>,
+        #[serde(default)]
+        pub last_model_fetch_error: Option<String>,
+        #[serde(default)]
+        pub model_count: Option<i32>,
     }
 
     pub async fn get_providers_for_purpose(
@@ -478,6 +496,60 @@ pub mod providers {
         .fetch_one(pool)
         .await?;
 
+        Ok(provider)
+    }
+
+    pub async fn update_provider(
+        pool: &DbPool,
+        id: Uuid,
+        provider_type: Option<&str>,
+        purpose: Option<&str>,
+        config: Option<serde_json::Value>,
+        priority: Option<i32>,
+        enabled: Option<bool>,
+    ) -> Result<Option<ProviderConfig>, sqlx::Error> {
+        let provider = sqlx::query_as::<_, ProviderConfig>(
+            r#"
+            UPDATE provider_configs
+            SET provider_type = COALESCE($2, provider_type),
+                purpose = COALESCE($3, purpose),
+                config = COALESCE($4, config),
+                priority = COALESCE($5, priority),
+                enabled = COALESCE($6, enabled),
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(provider_type)
+        .bind(purpose)
+        .bind(config)
+        .bind(priority)
+        .bind(enabled)
+        .fetch_optional(pool)
+        .await?;
+        Ok(provider)
+    }
+
+    pub async fn delete_provider(pool: &DbPool, id: Uuid) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM provider_configs WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn get_provider(
+        pool: &DbPool,
+        id: Uuid,
+    ) -> Result<Option<ProviderConfig>, sqlx::Error> {
+        let provider = sqlx::query_as::<_, ProviderConfig>(
+            "SELECT * FROM provider_configs WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
         Ok(provider)
     }
 }
@@ -752,6 +824,148 @@ pub mod instant_tasks {
         .bind(task_id)
         .execute(pool)
         .await?;
+        Ok(())
+    }
+}
+
+
+// ─── Provider models registry & secrets store ──────────────────────────────
+
+pub mod models_registry {
+    use super::*;
+    use chrono::{DateTime, Utc};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+    pub struct ProviderModelRow {
+        pub id: Uuid,
+        pub provider_config_id: Uuid,
+        pub model_id: String,
+        pub model_name: String,
+        pub capabilities: serde_json::Value,
+        pub last_seen: DateTime<Utc>,
+        pub is_live: bool,
+        pub created_at: DateTime<Utc>,
+    }
+
+    /// Replace the cached models for a provider with a freshly fetched list.
+    pub async fn replace_models(
+        pool: &DbPool,
+        provider_config_id: Uuid,
+        models: &[(String, String)],
+        is_live: bool,
+    ) -> Result<u64, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        sqlx::query("DELETE FROM provider_models WHERE provider_config_id = $1")
+            .bind(provider_config_id)
+            .execute(&mut *tx)
+            .await?;
+        let mut inserted = 0u64;
+        for (model_id, model_name) in models {
+            sqlx::query(
+                r#"
+                INSERT INTO provider_models (provider_config_id, model_id, model_name, is_live)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (provider_config_id, model_id) DO UPDATE
+                  SET model_name = EXCLUDED.model_name,
+                      last_seen = NOW(),
+                      is_live = EXCLUDED.is_live
+                "#,
+            )
+            .bind(provider_config_id)
+            .bind(model_id)
+            .bind(model_name)
+            .bind(is_live)
+            .execute(&mut *tx)
+            .await?;
+            inserted += 1;
+        }
+        sqlx::query(
+            r#"UPDATE provider_configs
+               SET model_count = $1, last_model_fetch_at = NOW(), last_model_fetch_error = NULL
+               WHERE id = $2"#,
+        )
+        .bind(inserted as i32)
+        .bind(provider_config_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(inserted)
+    }
+
+    /// Mark a fetch as failed without wiping previously-known models.
+    pub async fn record_fetch_error(
+        pool: &DbPool,
+        provider_config_id: Uuid,
+        error: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE provider_configs
+               SET last_model_fetch_at = NOW(), last_model_fetch_error = $1
+               WHERE id = $2"#,
+        )
+        .bind(error)
+        .bind(provider_config_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_for_provider(
+        pool: &DbPool,
+        provider_config_id: Uuid,
+    ) -> Result<Vec<ProviderModelRow>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, ProviderModelRow>(
+            "SELECT * FROM provider_models WHERE provider_config_id = $1 ORDER BY model_name",
+        )
+        .bind(provider_config_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn list_all(pool: &DbPool) -> Result<Vec<ProviderModelRow>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, ProviderModelRow>(
+            "SELECT * FROM provider_models ORDER BY provider_config_id, model_name",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
+pub mod secrets {
+    use super::*;
+
+    pub async fn put(pool: &DbPool, key: &str, value: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO persisted_secrets (key, value, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (key) DO UPDATE
+              SET value = EXCLUDED.value, updated_at = NOW()
+            "#,
+        )
+        .bind(key)
+        .bind(value)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get(pool: &DbPool, key: &str) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM persisted_secrets WHERE key = $1")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
+        Ok(row.map(|(v,)| v))
+    }
+
+    pub async fn delete(pool: &DbPool, key: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM persisted_secrets WHERE key = $1")
+            .bind(key)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 }

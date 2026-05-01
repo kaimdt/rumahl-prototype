@@ -98,7 +98,8 @@ fn resolve_dev_token_path() -> String {
 #[derive(Parser, Debug)]
 #[command(name = "iora-dev-bridge")]
 struct Cli {
-    /// Address to bind (default 0.0.0.0:8099 or $IORA_DEV_BIND).
+    /// Address to bind (default 0.0.0.0:8101 or $IORA_DEV_BIND).
+    /// Note: 8099 is reserved for iora-api; the dev bridge uses 8101.
     #[arg(long, env = "IORA_DEV_BIND")]
     listen: Option<String>,
 }
@@ -321,7 +322,7 @@ async fn main() -> Result<()> {
     let addr: SocketAddr = cli
         .listen
         .as_deref()
-        .unwrap_or("0.0.0.0:8099")
+        .unwrap_or("0.0.0.0:8101")
         .parse()
         .context("invalid --listen address")?;
 

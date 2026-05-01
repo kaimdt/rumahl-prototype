@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChatCircle, Sparkle, Brain, Robot, PaperPlaneRight, Microphone,
   SpeakerHigh, SpeakerSlash, Plus, Trash, FolderOpen, Code,
-  GitBranch, GitCommit, GitPullRequest, ArrowUp, ArrowClockwise,
+  GitBranch, GitCommit, GitPullRequest, ArrowUp, ArrowClockwise, ArrowsClockwise,
   GithubLogo, Check, X, Stop, Play, Clock, GearSix,
   Key, LinkSimple, MagnifyingGlass, Copy, BookOpen,
   List, Sidebar, CaretRight, CaretDown, FileCode,
@@ -295,6 +295,20 @@ export function AgentTab({ token }: { token: string }) {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [activeProvider, setActiveProvider] = useState<ProviderInfo | null>(null)
 
+  // Global model catalog (cached + auto-refreshed for local/desktop providers).
+  // Loaded from /api/assist/models — replaces the per-provider model lookup
+  // so the UI shows a single Copilot-style grouped picker.
+  type GlobalModelGroup = {
+    provider_id: string
+    provider_type: string
+    purpose: string
+    is_live: boolean
+    model_count: number
+    models: Array<{ id: string; name: string; last_seen?: string; is_live?: boolean }>
+  }
+  const [globalModels, setGlobalModels] = useState<GlobalModelGroup[]>([])
+  const [globalModelsLoading, setGlobalModelsLoading] = useState(false)
+
   // ─── SSE for live tasks ──────────────────────────────────────────────────
   useEffect(() => {
     const es = new EventSource(`${ASSIST_URL}/api/assist/agent/tasks/events`)
@@ -361,6 +375,11 @@ export function AgentTab({ token }: { token: string }) {
   useEffect(() => {
     loadProviders()
     loadWorkspaces()
+    loadGlobalModels()
+    // Refresh global models every 30 s — fast for local/desktop, cheap for cloud
+    // (backend just hits its cache).
+    const t = setInterval(() => { loadGlobalModels(true) }, 30_000)
+    return () => clearInterval(t)
   }, [])
 
   useEffect(() => {
@@ -388,6 +407,24 @@ export function AgentTab({ token }: { token: string }) {
       }
       setProviders(merged)
     } catch { /* offline */ }
+  }
+
+  /**
+   * Load the global model catalog from /api/assist/models.
+   * Backend caches all known models per provider in the DB and refreshes
+   * local/desktop providers on every call. `silent=true` skips the loading
+   * indicator (used by the periodic timer).
+   */
+  const loadGlobalModels = async (silent = false) => {
+    try {
+      if (!silent) setGlobalModelsLoading(true)
+      const data: any = await adminFetch('/api/assist/models', token)
+      if (Array.isArray(data?.providers)) {
+        setGlobalModels(data.providers)
+      }
+    } catch { /* offline / no DB */ } finally {
+      if (!silent) setGlobalModelsLoading(false)
+    }
   }
 
   const loadWorkspaces = async () => {
@@ -653,15 +690,55 @@ export function AgentTab({ token }: { token: string }) {
                 </div>
               </div>
 
-              {/* Model Selector */}
+              {/* Model Selector — Copilot-style global picker (grouped by provider) */}
               <div className="px-3 pb-2">
-                <p className="text-[9px] uppercase tracking-wider text-foreground/40 font-semibold mb-1.5 px-1">Model</p>
-                <select value={selectedModel}
-                  onChange={e => setSelectedModel(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground focus:outline-none focus:border-accent/50">
-                  {availableModels.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
+                <div className="flex items-center justify-between mb-1.5 px-1">
+                  <p className="text-[9px] uppercase tracking-wider text-foreground/40 font-semibold">
+                    Model {globalModels.length > 0 && (
+                      <span className="text-foreground/30 normal-case">
+                        · {globalModels.reduce((a, g) => a + g.model_count, 0)} verfügbar
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    onClick={() => loadGlobalModels()}
+                    title="Modelle aktualisieren"
+                    className="p-0.5 rounded text-foreground/40 hover:text-foreground hover:bg-foreground/5"
+                    disabled={globalModelsLoading}
+                  >
+                    <ArrowsClockwise size={11} className={globalModelsLoading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+                <select
+                  value={`${selectedProvider}::${selectedModel}`}
+                  onChange={e => {
+                    const [p, m] = e.target.value.split('::')
+                    setSelectedProvider(p)
+                    setSelectedModel(m)
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground focus:outline-none focus:border-accent/50"
+                >
+                  {globalModels.length === 0 ? (
+                    // Fallback when registry is empty (no DB / no providers configured yet)
+                    availableModels.map(m => (
+                      <option key={m.id} value={`${selectedProvider}::${m.id}`}>{m.name}</option>
+                    ))
+                  ) : (
+                    globalModels.map(group => (
+                      <optgroup
+                        key={group.provider_id}
+                        label={`${group.provider_type.toUpperCase()}${group.is_live ? ' (live)' : ''} — ${group.purpose}`}
+                      >
+                        {group.models.length === 0 ? (
+                          <option disabled value="">— keine Modelle —</option>
+                        ) : group.models.map(m => (
+                          <option key={`${group.provider_id}-${m.id}`} value={`${group.provider_type}::${m.id}`}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))
+                  )}
                 </select>
               </div>
 

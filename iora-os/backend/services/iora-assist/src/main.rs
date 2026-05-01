@@ -39,6 +39,7 @@ mod lsp;
 mod acp;
 mod subagents;
 mod github;
+mod models_registry;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
@@ -92,6 +93,7 @@ struct AppState {
     subagent_pool: Arc<SubagentPool>,
     github_client: Arc<GitHubClient>,
     github_actions: Arc<GitHubActionExecutor>,
+    models_registry: Option<Arc<models_registry::ModelsRegistry>>,
 }
 
 /// Default system prompt injected when no custom prompt is provided.
@@ -2277,32 +2279,78 @@ async fn github_auth_set(
     State(state): State<AppState>,
     Json(req): Json<GitHubAuthRequest>,
 ) -> impl IntoResponse {
-    let mut auth = GitHubAuth {
-        auth_type: req.auth_type.unwrap_or_else(|| "pat".to_string()),
-        pat: req.pat.or_else(|| system_config::github_token()),
-        app_id: req.app_id.or_else(|| system_config::github_app_id()),
-        installation_id: req.installation_id.or_else(|| system_config::github_installation_id()),
-        private_key: req.private_key.or_else(|| system_config::github_private_key()),
+    let auth = GitHubAuth {
+        auth_type: req.auth_type.clone().unwrap_or_else(|| "pat".to_string()),
+        pat: req.pat.clone().or_else(|| system_config::github_token()),
+        app_id: req.app_id.clone().or_else(|| system_config::github_app_id()),
+        installation_id: req
+            .installation_id
+            .clone()
+            .or_else(|| system_config::github_installation_id()),
+        private_key: req
+            .private_key
+            .clone()
+            .or_else(|| system_config::github_private_key()),
         is_configured: true,
         ..Default::default()
     };
 
     state.github_client.update_auth(auth.clone()).await;
 
+    // Persist to DB so the PAT survives restarts.
+    if let Some(ref pool) = state.db {
+        let _ = database::secrets::put(pool, "github.auth_type", &auth.auth_type).await;
+        if let Some(ref v) = auth.pat {
+            let _ = database::secrets::put(pool, "github.pat", v).await;
+        } else {
+            let _ = database::secrets::delete(pool, "github.pat").await;
+        }
+        if let Some(ref v) = auth.app_id {
+            let _ = database::secrets::put(pool, "github.app_id", v).await;
+        }
+        if let Some(ref v) = auth.installation_id {
+            let _ = database::secrets::put(pool, "github.installation_id", v).await;
+        }
+        if let Some(ref v) = auth.private_key {
+            let _ = database::secrets::put(pool, "github.private_key", v).await;
+        }
+    }
+
     // Verify in background
     let gc = state.github_client.clone();
-    let result = tokio::spawn(async move { gc.verify_auth().await }).await.unwrap_or_else(|e| Err(e.to_string()));
+    let result = tokio::spawn(async move { gc.verify_auth().await })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
 
     match result {
-        Ok(user) => (StatusCode::OK, Json(serde_json::json!({
-            "success": true,
-            "username": user.login,
-            "message": "Authenticated successfully",
-        }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": format!("Authentication failed: {}", e),
-        }))),
+        Ok(user) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "username": user.login,
+                "message": "Authenticated successfully",
+            })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Authentication failed: {}", e),
+            })),
+        ),
     }
+}
+
+async fn github_auth_delete(State(state): State<AppState>) -> impl IntoResponse {
+    let auth = GitHubAuth::default();
+    state.github_client.update_auth(auth).await;
+    if let Some(ref pool) = state.db {
+        let _ = database::secrets::delete(pool, "github.pat").await;
+        let _ = database::secrets::delete(pool, "github.app_id").await;
+        let _ = database::secrets::delete(pool, "github.installation_id").await;
+        let _ = database::secrets::delete(pool, "github.private_key").await;
+        let _ = database::secrets::delete(pool, "github.auth_type").await;
+    }
+    (StatusCode::OK, Json(serde_json::json!({"success": true})))
 }
 
 async fn github_list_repos(
@@ -2943,13 +2991,35 @@ async fn create_provider_config(
     )
     .await
     {
-        Ok(provider) => (
-            StatusCode::CREATED,
-            Json(serde_json::json!({
-                "success": true,
-                "provider": provider,
-            })),
-        ),
+        Ok(provider) => {
+            // Trigger immediate model fetch for the new provider, then schedule global refresh.
+            if let Some(ref reg) = state.models_registry {
+                let reg_for_task = reg.clone();
+                let provider_clone = provider.clone();
+                tokio::spawn(async move {
+                    match reg_for_task.refresh_one(&provider_clone).await {
+                        Ok((n, _)) => tracing::info!(
+                            "Auto-discovered {} models for new provider {}",
+                            n,
+                            provider_clone.id
+                        ),
+                        Err(e) => tracing::warn!(
+                            "Model auto-discovery failed for {}: {}",
+                            provider_clone.id,
+                            e
+                        ),
+                    }
+                });
+                reg.schedule_refresh();
+            }
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "success": true,
+                    "provider": provider,
+                })),
+            )
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -2958,6 +3028,206 @@ async fn create_provider_config(
             })),
         ),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateProviderRequest {
+    provider_type: Option<String>,
+    purpose: Option<String>,
+    config: Option<serde_json::Value>,
+    priority: Option<i32>,
+    enabled: Option<bool>,
+}
+
+async fn update_provider_config(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    Json(req): Json<UpdateProviderRequest>,
+) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+    match database::providers::update_provider(
+        db,
+        id,
+        req.provider_type.as_deref(),
+        req.purpose.as_deref(),
+        req.config,
+        req.priority,
+        req.enabled,
+    )
+    .await
+    {
+        Ok(Some(provider)) => {
+            if let Some(ref reg) = state.models_registry {
+                let reg = reg.clone();
+                let provider_clone = provider.clone();
+                tokio::spawn(async move {
+                    let _ = reg.refresh_one(&provider_clone).await;
+                });
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"success": true, "provider": provider})),
+            )
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Provider not found"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+async fn delete_provider_config(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+    match database::providers::delete_provider(db, id).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "deleted": true})),
+        ),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Provider not found"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+async fn refresh_provider_models(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+    let Some(reg) = state.models_registry.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Models registry not available"})),
+        );
+    };
+    match database::providers::get_provider(db, id).await {
+        Ok(Some(provider)) => match reg.refresh_one(&provider).await {
+            Ok((count, is_live)) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "model_count": count,
+                    "is_live": is_live,
+                })),
+            ),
+            Err(e) => (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": format!("Refresh failed: {}", e)})),
+            ),
+        },
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Provider not found"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+/// Global model catalog. Returns all known models across every configured
+/// provider, grouped by provider, with refresh metadata. The Agent UI and
+/// ORA AI both consume this single endpoint.
+async fn list_global_models(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(db) = state.db.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        );
+    };
+
+    // Force a quick refresh of live (local/desktop) providers so the list
+    // reflects models the user just loaded into LM Studio / Ollama.
+    if let Some(ref reg) = state.models_registry {
+        let _ = reg.refresh_all(true).await;
+    }
+
+    let providers = match database::providers::get_all_enabled_providers(db).await {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            );
+        }
+    };
+
+    let mut groups = Vec::new();
+    let mut total_models = 0usize;
+    for p in &providers {
+        let models = database::models_registry::list_for_provider(db, p.id)
+            .await
+            .unwrap_or_default();
+        total_models += models.len();
+        let is_live = matches!(p.provider_type.as_str(), "local" | "desktop");
+        groups.push(serde_json::json!({
+            "provider_id": p.id,
+            "provider_type": p.provider_type,
+            "purpose": p.purpose,
+            "priority": p.priority,
+            "enabled": p.enabled,
+            "is_live": is_live,
+            "model_count": models.len(),
+            "models": models.into_iter().map(|m| serde_json::json!({
+                "id": m.model_id,
+                "name": m.model_name,
+                "last_seen": m.last_seen,
+                "is_live": m.is_live,
+            })).collect::<Vec<_>>(),
+        }));
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "total_models": total_models,
+            "total_providers": providers.len(),
+            "providers": groups,
+        })),
+    )
+}
+
+async fn refresh_all_models(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(reg) = state.models_registry.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Models registry not available"})),
+        );
+    };
+    let n = reg.refresh_all(false).await;
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"success": true, "total_models": n})),
+    )
 }
 
 // Conversation Thread Management
@@ -3853,8 +4123,28 @@ async fn main() -> anyhow::Result<()> {
     let subagent_pool = Arc::new(SubagentPool::new(&default_provider, &default_model));
     info!("Subagent pool initialized");
 
-    // Initialize GitHub integration
-    let github_auth = GitHubAuth::default();
+    // Initialize GitHub integration — load persisted PAT from DB if no env var present.
+    let mut github_auth = GitHubAuth::default();
+    if github_auth.pat.is_none() {
+        if let Some(ref pool) = db {
+            if let Ok(Some(pat)) = database::secrets::get(pool, "github.pat").await {
+                github_auth.pat = Some(pat);
+                github_auth.is_configured = true;
+            }
+            if let Ok(Some(app_id)) = database::secrets::get(pool, "github.app_id").await {
+                github_auth.app_id = Some(app_id);
+            }
+            if let Ok(Some(inst)) = database::secrets::get(pool, "github.installation_id").await {
+                github_auth.installation_id = Some(inst);
+            }
+            if let Ok(Some(pk)) = database::secrets::get(pool, "github.private_key").await {
+                github_auth.private_key = Some(pk);
+            }
+            if let Ok(Some(t)) = database::secrets::get(pool, "github.auth_type").await {
+                github_auth.auth_type = t;
+            }
+        }
+    }
     let github_client = Arc::new(GitHubClient::new(github_auth));
     let github_actions = Arc::new(GitHubActionExecutor::new(github_client.clone()));
     // Async verify in background
@@ -3866,6 +4156,16 @@ async fn main() -> anyhow::Result<()> {
         }
     });
     info!("GitHub integration initialized");
+
+    // Initialize the models registry (cached + periodic refresh) — only when DB available.
+    let models_registry = if let Some(ref pool) = db {
+        let reg = Arc::new(models_registry::ModelsRegistry::new(pool.clone()));
+        models_registry::spawn_refresh_loop((*reg).clone());
+        info!("Models registry initialized (auto-refresh active)");
+        Some(reg)
+    } else {
+        None
+    };
 
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
@@ -3889,6 +4189,7 @@ async fn main() -> anyhow::Result<()> {
         subagent_pool,
         github_client,
         github_actions,
+        models_registry,
     };
 
     let app = Router::new()
@@ -3913,6 +4214,17 @@ async fn main() -> anyhow::Result<()> {
         // Control Center API (Phase 5)
         .route("/api/assist/config/providers", get(list_provider_configs))
         .route("/api/assist/config/providers", post(create_provider_config))
+        .route(
+            "/api/assist/config/providers/:id",
+            axum::routing::patch(update_provider_config).delete(delete_provider_config),
+        )
+        .route(
+            "/api/assist/config/providers/:id/refresh-models",
+            post(refresh_provider_models),
+        )
+        // Global model catalog (cached + on-demand live refresh for local/desktop providers).
+        .route("/api/assist/models", get(list_global_models))
+        .route("/api/assist/models/refresh", post(refresh_all_models))
         .route("/api/assist/config/threads", get(list_conversation_threads))
         .route("/api/assist/config/threads", post(create_conversation_thread))
         .route("/api/assist/config/tasks", get(list_autonomous_tasks))
@@ -4008,7 +4320,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/subagents/terminate-all", post(subagent_terminate_all))
         .route("/api/assist/subagents/events", get(subagent_pool_event_stream))
         // ─── GitHub Integration API ───────────────────────────────────
-        .route("/api/assist/github/auth", get(github_auth_status).post(github_auth_set))
+        .route("/api/assist/github/auth", get(github_auth_status).post(github_auth_set).delete(github_auth_delete))
         .route("/api/assist/github/repos", get(github_list_repos))
         .route("/api/assist/github/repos/suggest", get(github_suggest_targets))
         .route("/api/assist/github/repos/search", get(github_search_repos))

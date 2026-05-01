@@ -167,7 +167,7 @@ export IORA_OS_DEV
 if [ "${IORA_OS_DEV}" = "1" ]; then
     echo "[IORA] ***** DEV BUILD *****"
     echo "[IORA] Integrity verification will be installed but NOT enabled."
-    echo "[IORA] iora-dev-bridge will be installed and listens on 0.0.0.0:8099 (LAN-reachable)."
+    echo "[IORA] iora-dev-bridge will be installed and listens on 0.0.0.0:8101 (LAN-reachable)."
     echo "[IORA] Do not distribute this image."
 fi
 

@@ -65,6 +65,24 @@ interface MessageChannel {
   description?: string
 }
 
+interface AppConfigField {
+  key: string
+  label?: string
+  type?: string
+  description?: string
+  default?: unknown
+  required?: boolean
+  options?: string[]
+  min?: number
+  max?: number
+}
+
+interface AppConfigSchema {
+  title?: string
+  description?: string
+  fields?: AppConfigField[]
+}
+
 // ── Settings Sections ─────────────────────────────────────────────────
 
 function SettingsSection({
@@ -138,7 +156,7 @@ export function AppSettingsPage() {
   const [app, setApp] = useState<AppInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'storage' | 'database' | 'schedules' | 'webhooks' | 'messaging' | 'environment'>('storage')
+  const [activeTab, setActiveTab] = useState<'settings' | 'storage' | 'database' | 'schedules' | 'webhooks' | 'messaging' | 'environment'>('settings')
 
   // Load app info
   useEffect(() => {
@@ -209,6 +227,7 @@ export function AppSettingsPage() {
       {/* Tab Navigation */}
       <div className="flex flex-wrap gap-2 p-1 rounded-xl bg-foreground/[0.04] border border-foreground/[0.06]">
         {([
+          { id: 'settings' as const, icon: Gear, label: 'Einstellungen', has: true },
           { id: 'storage' as const, icon: HardDrives, label: 'Storage', has: hasPermission('AppStorage') },
           { id: 'database' as const, icon: Database, label: 'Datenbank', has: hasPermission('AppDatabase') },
           { id: 'schedules' as const, icon: Clock, label: 'Zeitpläne', has: hasPermission('AppSchedule') },
@@ -238,6 +257,7 @@ export function AppSettingsPage() {
       {/* Tab Content */}
       <AnimatePresence mode="wait">
         <motion.div key={activeTab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+          {activeTab === 'settings' && <AppConfigSettings appId={appId} token={token} />}
           {activeTab === 'storage' && <StorageSettings appId={appId} token={token} />}
           {activeTab === 'database' && <DatabaseSettings appId={appId} token={token} />}
           {activeTab === 'schedules' && <SchedulesSettings appId={appId} token={token} />}
@@ -246,6 +266,218 @@ export function AppSettingsPage() {
           {activeTab === 'environment' && <EnvironmentSettings app={app} token={token} />}
         </motion.div>
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ── App Config Settings ───────────────────────────────────────────────
+
+function AppConfigSettings({ appId, token }: { appId: string; token: string }) {
+  const [schema, setSchema] = useState<AppConfigSchema | null>(null)
+  const [values, setValues] = useState<Record<string, unknown>>({})
+  const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({})
+  const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [resettingKey, setResettingKey] = useState<string | null>(null)
+
+  const loadConfig = useCallback(async () => {
+    const [schemaData, valueData] = await Promise.all([
+      adminFetch(`/api/apps/${appId}/config/schema`, token) as Promise<AppConfigSchema>,
+      adminFetch(`/api/apps/${appId}/config`, token) as Promise<Record<string, unknown>>,
+    ])
+    setSchema(schemaData)
+    setValues(valueData || {})
+
+    const drafts: Record<string, string> = {}
+    for (const field of schemaData?.fields || []) {
+      const fieldType = (field.type || 'string').toLowerCase()
+      if (fieldType === 'json') {
+        const raw = valueData?.[field.key] ?? field.default ?? {}
+        drafts[field.key] = JSON.stringify(raw, null, 2)
+      }
+    }
+    setJsonDrafts(drafts)
+    setJsonErrors({})
+  }, [appId, token])
+
+  useEffect(() => {
+    setLoading(true)
+    loadConfig()
+      .catch((e) => toast.error((e as Error).message))
+      .finally(() => setLoading(false))
+  }, [loadConfig])
+
+  const setFieldValue = (key: string, value: unknown) => {
+    setValues((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateJsonDraft = (key: string, text: string) => {
+    setJsonDrafts((prev) => ({ ...prev, [key]: text }))
+    try {
+      const parsed = text.trim() ? JSON.parse(text) : {}
+      setFieldValue(key, parsed)
+      setJsonErrors((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    } catch (e) {
+      setJsonErrors((prev) => ({ ...prev, [key]: (e as Error).message }))
+    }
+  }
+
+  const saveConfig = async () => {
+    const parseErrors = Object.keys(jsonErrors)
+    if (parseErrors.length > 0) {
+      toast.error(`JSON-Fehler in ${parseErrors.length} Feld(ern). Bitte korrigieren.`)
+      return
+    }
+    setSaving(true)
+    try {
+      await adminFetch(`/api/apps/${appId}/config`, token, {
+        method: 'PUT',
+        body: JSON.stringify(values),
+      })
+      toast.success('App-Einstellungen gespeichert')
+      await loadConfig()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resetKey = async (key: string) => {
+    setResettingKey(key)
+    try {
+      await adminFetch(`/api/apps/${appId}/config/${encodeURIComponent(key)}`, token, { method: 'DELETE' })
+      toast.success(`Feld '${key}' zurückgesetzt`)
+      await loadConfig()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setResettingKey(null)
+    }
+  }
+
+  if (loading) return <LoadingSpinner />
+
+  const fields = schema?.fields || []
+  if (fields.length === 0) {
+    return (
+      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Gear size={16} className="text-accent" />
+          <span className="text-xs font-semibold text-foreground">App-Einstellungen</span>
+        </div>
+        <p className="text-xs text-foreground/50">Diese App hat kein settings_schema und daher keine konfigurierbaren Felder.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="glass-card rounded-2xl border border-foreground/[0.06] p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Gear size={16} className="text-accent" />
+              <span className="text-xs font-semibold text-foreground">{schema?.title || 'App-Einstellungen'}</span>
+            </div>
+            {schema?.description && <p className="text-[11px] text-foreground/45 mt-1">{schema.description}</p>}
+          </div>
+          <button
+            onClick={saveConfig}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-xs font-semibold hover:bg-accent/25 transition-colors disabled:opacity-50"
+          >
+            {saving ? <InlineSpinner size={12} /> : <Check size={12} weight="bold" />} Speichern
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {fields.map((field) => {
+            const fieldType = (field.type || 'string').toLowerCase()
+            const fieldValue = values[field.key] ?? field.default
+
+            return (
+              <div key={field.key} className="p-3 rounded-xl bg-foreground/[0.02] border border-foreground/[0.06]">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground/75">
+                      {field.label || field.key}
+                      {field.required && <span className="text-red-400 ml-1">*</span>}
+                    </div>
+                    <div className="text-[10px] text-foreground/40 font-mono">{field.key}</div>
+                    {field.description && <p className="text-[11px] text-foreground/45 mt-1">{field.description}</p>}
+                  </div>
+                  <button
+                    onClick={() => resetKey(field.key)}
+                    disabled={resettingKey === field.key}
+                    className="flex items-center gap-1 px-2 py-1 rounded bg-foreground/[0.04] text-foreground/50 text-[10px] hover:bg-foreground/[0.08] transition-colors disabled:opacity-50"
+                  >
+                    {resettingKey === field.key ? <InlineSpinner size={10} /> : <TrashSimple size={10} />} Reset
+                  </button>
+                </div>
+
+                {fieldType === 'bool' || fieldType === 'boolean' ? (
+                  <label className="inline-flex items-center gap-2 text-xs text-foreground/70">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(fieldValue)}
+                      onChange={(e) => setFieldValue(field.key, e.target.checked)}
+                    />
+                    Aktiv
+                  </label>
+                ) : fieldType === 'enum' && Array.isArray(field.options) ? (
+                  <select
+                    value={String(fieldValue ?? '')}
+                    onChange={(e) => setFieldValue(field.key, e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] text-xs text-foreground"
+                  >
+                    {field.options.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : fieldType === 'integer' || fieldType === 'float' || fieldType === 'number' ? (
+                  <input
+                    type="number"
+                    min={field.min}
+                    max={field.max}
+                    step={fieldType === 'integer' ? 1 : 'any'}
+                    value={Number(fieldValue ?? 0)}
+                    onChange={(e) => {
+                      const n = e.target.value === '' ? null : Number(e.target.value)
+                      setFieldValue(field.key, n)
+                    }}
+                    className="w-full px-2.5 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] text-xs text-foreground"
+                  />
+                ) : fieldType === 'json' ? (
+                  <div className="space-y-1">
+                    <textarea
+                      value={jsonDrafts[field.key] ?? JSON.stringify(fieldValue ?? {}, null, 2)}
+                      onChange={(e) => updateJsonDraft(field.key, e.target.value)}
+                      rows={6}
+                      className="w-full px-2.5 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] text-xs text-foreground font-mono"
+                    />
+                    {jsonErrors[field.key] && (
+                      <p className="text-[10px] text-red-400">JSON ungültig: {jsonErrors[field.key]}</p>
+                    )}
+                  </div>
+                ) : (
+                  <input
+                    type={fieldType === 'secret' ? 'password' : 'text'}
+                    value={String(fieldValue ?? '')}
+                    onChange={(e) => setFieldValue(field.key, e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] text-xs text-foreground"
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

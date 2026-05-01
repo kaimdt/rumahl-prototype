@@ -2,7 +2,8 @@
 #
 # ⚠️  DEV IMAGES ONLY — never shipped on production.
 # ⚠️  Runs as ROOT: needs full filesystem access, systemctl, docker.
-# ⚠️  Binds to 0.0.0.0:8099 — reachable from developer workstation.
+# ⚠️  Binds to 0.0.0.0:8101 — reachable from developer workstation.
+#     (8099 is reserved for iora-api.)
 #
 # The bridge authenticates via:
 #   1. IORA dashboard credentials (POST /dev/auth → iora-home login)
@@ -24,11 +25,11 @@ Type=simple
 # ⚠️  MUST run as root for binary replacement and systemctl access
 User=root
 Group=root
-ExecStart=/usr/bin/iora-dev-bridge --listen 0.0.0.0:8099
+ExecStart=/usr/bin/iora-dev-bridge --listen 0.0.0.0:8101
 Restart=always
 RestartSec=5
 # Environment overrides:
-#   IORA_DEV_BIND=127.0.0.1:8099        (bind to localhost only)
+#   IORA_DEV_BIND=127.0.0.1:8101        (bind to localhost only)
 #   IORA_DEV_TOKEN_FILE=/custom/path    (static token file location)
 Environment=RUST_LOG=info
 # Give iora-home time to start before we try credential auth

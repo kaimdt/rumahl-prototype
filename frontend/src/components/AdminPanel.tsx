@@ -7194,13 +7194,29 @@ interface AiProviderConfig {
   config?: Record<string, unknown>
   priority?: number
   enabled?: boolean
+  // Set by 008 migration; backend returns these via SELECT *
+  model_count?: number
+  last_model_fetch_at?: string | null
+  last_model_fetch_error?: string | null
+}
+
+// Mirrors the response of `GET /api/assist/models`
+interface GlobalModelsGroup {
+  provider_id: string
+  provider_type: string
+  purpose: string
+  is_live: boolean
+  model_count: number
+  models: Array<{ id: string; name: string; last_seen?: string; is_live?: boolean }>
 }
 
 function AiProvidersTab({ token }: { token: string }) {
   const [active, setActive] = useState<Record<string, unknown> | null>(null)
   const [list, setList] = useState<AiProviderConfig[]>([])
+  const [globalModels, setGlobalModels] = useState<GlobalModelsGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
 
   const [showForm, setShowForm] = useState(false)
   const [providerType, setProviderType] = useState('openai')
@@ -7215,13 +7231,16 @@ function AiProvidersTab({ token }: { token: string }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [a, l] = await Promise.all([
+      const [a, l, m] = await Promise.all([
         adminFetch('/api/assist/providers', token).catch(() => null),
         adminFetch('/api/assist/config/providers', token).catch(() => null),
+        adminFetch('/api/assist/models', token).catch(() => null),
       ])
       setActive(a as Record<string, unknown> | null)
       const arr = (l as Record<string, unknown> | null)?.providers
       setList(Array.isArray(arr) ? (arr as AiProviderConfig[]) : [])
+      const groups = (m as Record<string, unknown> | null)?.providers
+      setGlobalModels(Array.isArray(groups) ? (groups as GlobalModelsGroup[]) : [])
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -7243,13 +7262,44 @@ function AiProvidersTab({ token }: { token: string }) {
         method: 'POST',
         body: JSON.stringify({ provider_type: providerType, purpose, priority, config: cfg }),
       })
-      toast.success('Provider gespeichert')
+      toast.success('Provider gespeichert — Modelle werden im Hintergrund geladen')
       setShowForm(false)
-      await load()
+      // Give the backend a moment to fetch models, then reload.
+      setTimeout(load, 1500)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const refreshModels = async (providerId: string) => {
+    setRefreshingId(providerId); setError(null)
+    try {
+      const res: any = await adminFetch(
+        `/api/assist/config/providers/${providerId}/refresh-models`,
+        token,
+        { method: 'POST' },
+      )
+      toast.success(`${res?.model_count ?? 0} Modelle aktualisiert`)
+      await load()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Refresh fehlgeschlagen: ${msg}`)
+      toast.error(`Refresh fehlgeschlagen: ${msg}`)
+    } finally {
+      setRefreshingId(null)
+    }
+  }
+
+  const deleteProvider = async (providerId: string) => {
+    if (!confirm('Provider löschen? Verknüpfte Modelle werden ebenfalls entfernt.')) return
+    try {
+      await adminFetch(`/api/assist/config/providers/${providerId}`, token, { method: 'DELETE' })
+      toast.success('Provider gelöscht')
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -7268,6 +7318,45 @@ function AiProvidersTab({ token }: { token: string }) {
     } finally {
       setSwitching(false)
     }
+  }
+
+  const totalModels = globalModels.reduce((sum, g) => sum + g.model_count, 0)
+
+  // Pre-fill helpful config templates when the user picks a provider type.
+  const configTemplate = (t: string): string => {
+    switch (t) {
+      case 'openai':
+        return '{\n  "api_key": "sk-...",\n  "model": "gpt-4o-mini",\n  "base_url": "https://api.openai.com/v1"\n}'
+      case 'anthropic':
+        return '{\n  "api_key": "sk-ant-...",\n  "model": "claude-3-5-sonnet-latest",\n  "base_url": "https://api.anthropic.com"\n}'
+      case 'local':
+        return '{\n  "base_url": "http://localhost:11434",\n  "model": "llama3.2"\n}'
+      case 'desktop':
+        return '{\n  "base_url": "http://host.docker.internal:1234/v1",\n  "api_key": "lm-studio",\n  "model": "auto"\n}'
+      case 'deepseek':
+        return '{\n  "api_key": "sk-...",\n  "model": "deepseek-chat",\n  "base_url": "https://api.deepseek.com"\n}'
+      case 'grok':
+        return '{\n  "api_key": "xai-...",\n  "model": "grok-2-latest",\n  "base_url": "https://api.x.ai/v1"\n}'
+      case 'mistral':
+        return '{\n  "api_key": "...",\n  "model": "mistral-large-latest",\n  "base_url": "https://api.mistral.ai/v1"\n}'
+      case 'cohere':
+        return '{\n  "api_key": "...",\n  "model": "command-r-plus",\n  "base_url": "https://api.cohere.com"\n}'
+      case 'together':
+        return '{\n  "api_key": "...",\n  "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",\n  "base_url": "https://api.together.xyz/v1"\n}'
+      case 'fireworks':
+        return '{\n  "api_key": "...",\n  "model": "accounts/fireworks/models/llama-v3p1-70b-instruct",\n  "base_url": "https://api.fireworks.ai/inference/v1"\n}'
+      case 'perplexity':
+        return '{\n  "api_key": "pplx-...",\n  "model": "llama-3.1-sonar-large-128k-online",\n  "base_url": "https://api.perplexity.ai"\n}'
+      case 'compatible':
+        return '{\n  "api_key": "",\n  "base_url": "https://your-host/v1",\n  "model": "your-model"\n}'
+      default:
+        return '{}'
+    }
+  }
+
+  const formatTime = (iso?: string | null) => {
+    if (!iso) return 'nie'
+    try { return new Date(iso).toLocaleString() } catch { return iso }
   }
 
   return (
@@ -7291,6 +7380,24 @@ function AiProvidersTab({ token }: { token: string }) {
         )}
       </AdminCard>
 
+      <AdminCard title={`Globaler Model-Katalog (${totalModels} Modelle)`} icon={Brain}>
+        <p className="text-[11px] text-foreground/50 mb-2">
+          Modelle werden beim Anlegen eines Providers automatisch geladen, alle 30&nbsp;Min. für Cloud-Provider
+          und alle 60&nbsp;Sek. für lokale/Desktop-Provider aktualisiert. Sie stehen global für ORA AI
+          und das Agent-System zur Verfügung.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try { await adminFetch('/api/assist/models/refresh', token, { method: 'POST' }); toast.success('Refresh angestoßen'); await load() } catch (e) { toast.error(e instanceof Error ? e.message : String(e)) }
+            }}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30"
+          >
+            Alle Modelle jetzt aktualisieren
+          </button>
+        </div>
+      </AdminCard>
+
       <AdminCard title="Konfigurierte Provider" icon={Database}>
         <div className="flex items-center gap-2 mb-3">
           <button onClick={() => setShowForm((s) => !s)}
@@ -7308,12 +7415,21 @@ function AiProvidersTab({ token }: { token: string }) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-foreground/40">Typ</label>
-                <select value={providerType} onChange={(e) => setProviderType(e.target.value)}
+                <select value={providerType}
+                  onChange={(e) => { setProviderType(e.target.value); setConfigJson(configTemplate(e.target.value)) }}
                   className="w-full mt-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground">
-                  <option value="openai">openai</option>
-                  <option value="anthropic">anthropic</option>
-                  <option value="local">local (Ollama / llama.cpp)</option>
-                  <option value="desktop">desktop (IORA Desktop bridge)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="grok">xAI (Grok)</option>
+                  <option value="mistral">Mistral</option>
+                  <option value="cohere">Cohere</option>
+                  <option value="together">Together AI</option>
+                  <option value="fireworks">Fireworks AI</option>
+                  <option value="perplexity">Perplexity</option>
+                  <option value="local">Local (Ollama / llama.cpp)</option>
+                  <option value="desktop">Desktop (IORA Desktop bridge / LM Studio)</option>
+                  <option value="compatible">OpenAI-Compatible (custom)</option>
                 </select>
               </div>
               <div>
@@ -7321,6 +7437,8 @@ function AiProvidersTab({ token }: { token: string }) {
                 <select value={purpose} onChange={(e) => setPurpose(e.target.value)}
                   className="w-full mt-1 text-xs bg-foreground/5 border border-foreground/10 rounded-lg px-3 py-2 text-foreground">
                   <option value="chat">chat</option>
+                  <option value="general">general</option>
+                  <option value="agent">agent (Code-Aufgaben)</option>
                   <option value="voice_stt">voice_stt</option>
                   <option value="voice_tts">voice_tts</option>
                   <option value="embeddings">embeddings</option>
@@ -7337,10 +7455,13 @@ function AiProvidersTab({ token }: { token: string }) {
               <label className="text-[10px] uppercase tracking-wide text-foreground/40">Konfiguration (JSON)</label>
               <textarea value={configJson} onChange={(e) => setConfigJson(e.target.value)} rows={6} spellCheck={false}
                 className="w-full mt-1 font-mono text-xs bg-foreground/5 border border-foreground/10 rounded-lg p-3 text-foreground" />
+              <p className="text-[10px] text-foreground/40 mt-1">
+                Beim Speichern werden verfügbare Modelle automatisch beim Provider abgerufen und gespeichert.
+              </p>
             </div>
             <button onClick={create} disabled={saving}
               className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40">
-              {saving ? 'Speichere…' : 'Provider anlegen'}
+              {saving ? 'Speichere…' : 'Provider anlegen + Modelle laden'}
             </button>
           </div>
         )}
@@ -7351,18 +7472,67 @@ function AiProvidersTab({ token }: { token: string }) {
           <p className="text-xs text-foreground/50">Keine konfigurierten Provider in der Datenbank.</p>
         ) : (
           <div className="space-y-2">
-            {list.map((p, i) => (
-              <div key={p.id ?? i} className="rounded-xl bg-foreground/5 border border-foreground/10 p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold text-foreground">{p.provider_type}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono">{p.purpose}</span>
-                  <span className="ml-auto text-[10px] text-foreground/40">prio: {p.priority ?? 0}</span>
+            {list.map((p, i) => {
+              const group = globalModels.find((g) => g.provider_id === p.id)
+              return (
+                <div key={p.id ?? i} className="rounded-xl bg-foreground/5 border border-foreground/10 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold text-foreground">{p.provider_type}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/60 font-mono">{p.purpose}</span>
+                    {group?.is_live && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">live</span>
+                    )}
+                    <span className="ml-auto text-[10px] text-foreground/40">prio: {p.priority ?? 0}</span>
+                    {p.id && (
+                      <>
+                        <button
+                          onClick={() => refreshModels(p.id!)}
+                          disabled={refreshingId === p.id}
+                          title="Modelle für diesen Provider neu laden"
+                          className="px-2 py-0.5 text-[10px] rounded bg-foreground/10 text-foreground/70 hover:bg-foreground/20 disabled:opacity-40"
+                        >
+                          {refreshingId === p.id ? 'Lade…' : 'Refresh'}
+                        </button>
+                        <button
+                          onClick={() => deleteProvider(p.id!)}
+                          title="Provider löschen"
+                          className="px-2 py-0.5 text-[10px] rounded bg-red-500/15 text-red-300 hover:bg-red-500/30"
+                        >
+                          Löschen
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] text-foreground/50 mb-2">
+                    <span>Modelle: <span className="text-foreground/80 font-mono">{p.model_count ?? group?.model_count ?? 0}</span></span>
+                    <span>Letztes Update: <span className="font-mono">{formatTime(p.last_model_fetch_at)}</span></span>
+                  </div>
+                  {p.last_model_fetch_error && (
+                    <p className="text-[10px] text-red-300 mb-2 font-mono">⚠ {p.last_model_fetch_error}</p>
+                  )}
+                  {group && group.models.length > 0 && (
+                    <details className="mb-2">
+                      <summary className="text-[10px] text-foreground/50 cursor-pointer hover:text-foreground/80">
+                        Modelle anzeigen ({group.models.length})
+                      </summary>
+                      <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                        {group.models.map((m) => (
+                          <span key={m.id} className="text-[10px] font-mono px-2 py-1 rounded bg-foreground/5 text-foreground/70 truncate">
+                            {m.name}
+                          </span>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {p.config && (
+                    <details>
+                      <summary className="text-[10px] text-foreground/40 cursor-pointer hover:text-foreground/70">Konfiguration</summary>
+                      <pre className="mt-1 text-[10px] font-mono whitespace-pre-wrap break-words bg-foreground/5 rounded p-2 text-foreground/70 max-h-32 overflow-auto">{JSON.stringify(p.config, null, 2)}</pre>
+                    </details>
+                  )}
                 </div>
-                {p.config && (
-                  <pre className="text-[10px] font-mono whitespace-pre-wrap break-words bg-foreground/5 rounded p-2 text-foreground/70 max-h-32 overflow-auto">{JSON.stringify(p.config, null, 2)}</pre>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </AdminCard>
