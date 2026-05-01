@@ -67,6 +67,15 @@ impl Client {
         Ok(Self { base, token: token.to_string(), http })
     }
 
+    fn with_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if self.token.is_empty() {
+            return request;
+        }
+        request
+            .header("X-IORA-Dev-Token", &self.token)
+            .bearer_auth(&self.token)
+    }
+
     pub async fn status(&self) -> Result<Status> {
         let url = format!("{}/dev/status", self.base);
         let r = self.http.get(&url).send().await
@@ -79,32 +88,28 @@ impl Client {
 
     pub async fn restart_unit(&self, unit: &str) -> Result<CmdResult> {
         let url = format!("{}/dev/service/{}/restart", self.base, unit);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .send().await?;
         Ok(r.json().await?)
     }
 
     pub async fn reload_unit(&self, unit: &str) -> Result<CmdResult> {
         let url = format!("{}/dev/service/{}/reload", self.base, unit);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .send().await?;
         Ok(r.json().await?)
     }
 
     pub async fn reload_compose(&self, svc: &str) -> Result<CmdResult> {
         let url = format!("{}/dev/compose/{}/reload", self.base, svc);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .send().await?;
         Ok(r.json().await?)
     }
 
     pub async fn compose_logs(&self, svc: &str, tail: u32) -> Result<CmdResult> {
         let url = format!("{}/dev/compose/{}/logs", self.base, svc);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .json(&serde_json::json!({ "tail": tail }))
             .send().await?;
         Ok(r.json().await?)
@@ -112,8 +117,7 @@ impl Client {
 
     pub async fn service_logs(&self, unit: &str, tail: u32) -> Result<CmdResult> {
         let url = format!("{}/dev/service/{}/logs", self.base, unit);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .json(&serde_json::json!({ "tail": tail }))
             .send().await?;
         let status = r.status();
@@ -137,8 +141,7 @@ impl Client {
     /// don't have to redefine every field on the daemon side.
     pub async fn services(&self) -> Result<serde_json::Value> {
         let url = format!("{}/dev/services", self.base);
-        let r = self.http.get(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.get(&url))
             .send().await?;
         if !r.status().is_success() {
             return Err(anyhow!("services {} from {url}", r.status()));
@@ -148,8 +151,7 @@ impl Client {
 
     pub async fn system_info(&self) -> Result<serde_json::Value> {
         let url = format!("{}/dev/system/info", self.base);
-        let r = self.http.get(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.get(&url))
             .send().await?;
         if !r.status().is_success() {
             return Err(anyhow!("system/info {} from {url}", r.status()));
@@ -159,8 +161,7 @@ impl Client {
 
     pub async fn system_reboot(&self) -> Result<serde_json::Value> {
         let url = format!("{}/dev/system/reboot", self.base);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .send().await?;
         if !r.status().is_success() {
             return Err(anyhow!("system/reboot {} from {url}", r.status()));
@@ -205,8 +206,7 @@ impl Client {
 
     pub async fn fs_list(&self, path: &str) -> Result<FsListResult> {
         let url = format!("{}/dev/fs/list", self.base);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .json(&serde_json::json!({ "path": path }))
             .send().await?;
         Ok(r.json().await?)
@@ -214,8 +214,7 @@ impl Client {
 
     pub async fn fs_read(&self, path: &str, max_bytes: usize) -> Result<FsReadResult> {
         let url = format!("{}/dev/fs/read", self.base);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .json(&serde_json::json!({ "path": path, "max_bytes": max_bytes }))
             .send().await?;
         Ok(r.json().await?)
@@ -245,8 +244,7 @@ impl Client {
         }
 
         let url = format!("{}/dev/replace-binary", self.base);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .multipart(form)
             .send().await?;
         let status = r.status();
@@ -290,8 +288,7 @@ impl Client {
         }
 
         let url = format!("{}/dev/build-replace", self.base);
-        let r = self.http.post(&url)
-            .header("X-IORA-Dev-Token", &self.token)
+        let r = self.with_auth(self.http.post(&url))
             .multipart(form)
             .send().await?;
         let status = r.status();

@@ -392,8 +392,7 @@ function CloudSettingsTab({ token }: { token: string }) {
   )
 }
 
-
-const API_BASE = getBackendUrl()
+const backendBase = () => getBackendUrl() || ''
 
 /**
  * Returns the correct base URL for `path`. Calls under `/api/assist/` are
@@ -404,9 +403,9 @@ const API_BASE = getBackendUrl()
  */
 function baseUrlFor(path: string): string {
   if (path.startsWith('/api/assist/') || path === '/api/assist') {
-    return getAssistUrl() || API_BASE
+    return getAssistUrl() || backendBase()
   }
-  return API_BASE
+  return backendBase()
 }
 
 export async function adminFetch(path: string, token: string, options?: RequestInit) {
@@ -3960,7 +3959,7 @@ function LogsTab({ token }: { token: string }) {
   // Live SSE mode
   useEffect(() => {
     if (!liveMode || activeView !== 'iora') return
-    const es = new EventSource(`${API_BASE}/api/admin/logs/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+    const es = new EventSource(`${backendBase()}/api/admin/logs/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     es.addEventListener('log', (e) => {
       try {
         const entry = JSON.parse((e as MessageEvent).data) as IoraLogEntry
@@ -5367,7 +5366,7 @@ function RealtimeTab({ token }: { token: string }) {
   // ── Metrics: live SSE stream ──
   useEffect(() => {
     if (!metricsLive) return
-    const es = new EventSource(`${API_BASE}/api/admin/metrics/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+    const es = new EventSource(`${backendBase()}/api/admin/metrics/live${token ? `?token=${encodeURIComponent(token)}` : ''}`)
     es.addEventListener('metrics', (e) => {
       try {
         const snapshot = JSON.parse((e as MessageEvent).data) as MetricsSnapshot
@@ -5391,7 +5390,7 @@ function RealtimeTab({ token }: { token: string }) {
       return
     }
     const params = sseFilter.trim() ? `?domains=${encodeURIComponent(sseFilter.trim())}` : ''
-    const es = new EventSource(`${API_BASE}/api/events/stream${params}`)
+    const es = new EventSource(`${backendBase()}/api/events/stream${params}`)
     es.addEventListener('connected', (e) => {
       setSseConnected(true)
       setSseEvents(prev => [{ id: nextId(), type: 'connected', data: (e as MessageEvent).data, time: new Date().toLocaleTimeString('de-DE') }, ...prev].slice(0, 100))
@@ -5418,8 +5417,8 @@ function RealtimeTab({ token }: { token: string }) {
       return
     }
     let wsHost: string
-    if (API_BASE) {
-      try { wsHost = new URL(API_BASE).host } catch { wsHost = window.location.host }
+    if (backendBase()) {
+      try { wsHost = new URL(backendBase()).host } catch { wsHost = window.location.host }
     } else {
       wsHost = window.location.host
     }
@@ -7921,7 +7920,7 @@ function AiVoiceTab({ token }: { token: string }) {
   const synthesize = async () => {
     setBusy(true); setError(null); setAudioUrl(null)
     try {
-      const r = await fetch(`${API_BASE}/api/assist/voice/synthesize`, {
+      const r = await fetch(`${baseUrlFor('/api/assist/voice/synthesize')}/api/assist/voice/synthesize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ text, voice }),
@@ -7949,7 +7948,7 @@ function AiVoiceTab({ token }: { token: string }) {
         const fd = new FormData()
         fd.append('audio', blob, 'recording.webm')
         try {
-          const r = await fetch(`${API_BASE}/api/assist/voice/transcribe`, {
+          const r = await fetch(`${baseUrlFor('/api/assist/voice/transcribe')}/api/assist/voice/transcribe`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
             body: fd,
@@ -9002,7 +9001,7 @@ function ApiBridgeTab({ token }: { token: string }) {
   }, [token])
   useEffect(() => { load() }, [load])
 
-  const apiBase = API_BASE || window.location.origin
+  const apiBase = backendBase() || window.location.origin
   const endpoints: { label: string; path: string; description: string }[] = [
     { label: 'GraphQL', path: '/graphql', description: 'GraphQL-Playground für Entities, Services, Areas' },
     { label: 'GraphQL WS', path: '/graphql/ws', description: 'Subscriptions über WebSocket' },

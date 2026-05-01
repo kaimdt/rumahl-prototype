@@ -1599,11 +1599,16 @@ async fn h_connect_credentials(
     let cfg = config::Config { host: normalized, token: session_token.to_string() };
     config::save(&cfg).map_err(server_err)?;
 
+    let status_snapshot = match client::Client::new(&cfg.host, &cfg.token) {
+        Ok(client) => client.status().await.ok(),
+        Err(_) => None,
+    };
+
     let _ = s.inner.events.send(Event::Connection {
         host: Some(cfg.host.clone()),
-        hostname: Some(body.username.clone()),
-        build: auth_resp.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        variant: Some("dev".into()),
+        hostname: status_snapshot.as_ref().map(|status| status.hostname.clone()),
+        build: status_snapshot.as_ref().map(|status| status.build.clone()),
+        variant: status_snapshot.as_ref().map(|status| status.variant.clone()).or(Some("dev".into())),
     });
 
     Ok(Json(serde_json::json!({
