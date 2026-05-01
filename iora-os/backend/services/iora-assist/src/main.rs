@@ -577,12 +577,22 @@ async fn suggestions(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
 
-    // TODO: Implement automation suggestions based on entity history
+    // Real implementation: pull current entity context, run heuristic
+    // automation analysis (motion+light pairing, climate-by-time, etc.) via
+    // the ContextBuilder, and surface them. The list will be empty if no
+    // suggestable patterns are detected.
+    let suggestions = match state.context_builder.fetch_context().await {
+        Ok(ctx) => state.context_builder.suggest_automations(&ctx).await,
+        Err(e) => {
+            tracing::warn!("suggestions: fetch_context failed: {e}");
+            Vec::new()
+        }
+    };
     (
         StatusCode::OK,
         Json(serde_json::json!({
-            "suggestions": [],
-            "message": "Automation suggestion analysis coming soon",
+            "suggestions": suggestions,
+            "count": suggestions.len(),
         })),
     )
 }
@@ -603,15 +613,41 @@ async fn create_automation(
         );
     }
 
-    // TODO: Implement natural language automation creation
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "message": "Natural language automation creation coming soon",
-            "your_description": req.description,
-            "entities_mentioned": req.entities,
-        })),
-    )
+    // Real implementation: ask the active provider to translate the natural
+    // language description into a Home Assistant automation YAML payload
+    // (using a strict system prompt so the response is parseable).
+    let entity_hint = if req.entities.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nRelevant entity_ids: {}", req.entities.join(", "))
+    };
+    let system_prompt = "You are an automation generator for Home Assistant. \
+        Given a user description, output ONLY valid YAML for a single \
+        Home Assistant automation (alias, trigger, condition, action). \
+        No prose, no markdown fences, no comments.";
+    let user_prompt = format!("Description: {}{}", req.description, entity_hint);
+    let messages = vec![
+        crate::providers::ChatMessage { role: "system".into(), content: system_prompt.into() },
+        crate::providers::ChatMessage { role: "user".into(), content: user_prompt },
+    ];
+    match provider.chat(messages, None).await {
+        Ok(resp) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "automation_yaml": resp.message,
+                "description": req.description,
+                "entities": req.entities,
+                "model": resp.model,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": "automation_generation_failed",
+                "detail": e.to_string(),
+            })),
+        ),
+    }
 }
 
 async fn insights(State(state): State<AppState>) -> impl IntoResponse {
@@ -627,14 +663,45 @@ async fn insights(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
 
-    // TODO: Implement AI-generated insights
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "insights": [],
-            "message": "AI insights analysis coming soon",
-        })),
-    )
+    // Real implementation: snapshot the smart-home context, then ask the
+    // provider for 3-5 short, actionable insights as a JSON array of strings.
+    let ctx = state.context_builder.fetch_context().await.ok();
+    let summary = ctx
+        .as_ref()
+        .map(|c| {
+            format!(
+                "{} entities across {} rooms; {} active scenes; {} recent state changes.",
+                c.entities.len(),
+                c.rooms.len(),
+                c.active_scenes.len(),
+                c.recent_activity.len()
+            )
+        })
+        .unwrap_or_else(|| "No live context available.".to_string());
+    let messages = vec![
+        crate::providers::ChatMessage {
+            role: "system".into(),
+            content: "You are IORA Assist. Output JSON: {\"insights\":[string,...]} (3-5 entries, each <=120 chars). No prose.".into(),
+        },
+        crate::providers::ChatMessage {
+            role: "user".into(),
+            content: format!("Generate insights from: {summary}"),
+        },
+    ];
+    match provider.chat(messages, None).await {
+        Ok(resp) => {
+            let parsed: serde_json::Value = serde_json::from_str(&resp.message)
+                .unwrap_or_else(|_| serde_json::json!({ "insights": [resp.message] }));
+            (StatusCode::OK, Json(parsed))
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": "insights_generation_failed",
+                "detail": e.to_string(),
+            })),
+        ),
+    }
 }
 
 async fn get_providers(State(state): State<AppState>) -> Json<serde_json::Value> {

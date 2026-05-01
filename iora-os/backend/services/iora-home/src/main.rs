@@ -1535,6 +1535,25 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Background task: persist in-memory home state every 5s to survive restarts.
+    {
+        let pool = db_pool.clone();
+        tokio::spawn(async move {
+            // Initial load
+            if let Err(e) = load_home_state_from_db(&pool).await {
+                warn!("home_state initial load failed: {e}");
+            }
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                if let Err(e) = persist_home_state_to_db(&pool).await {
+                    warn!("home_state snapshot failed: {e}");
+                }
+            }
+        });
+    }
+
     // Start server.  Port is configurable via the PORT or IORA_HOME_PORT env
     // var (set in /etc/iora/iora-home.env on IORA OS to 8126).  Defaults to
     // 3001 to preserve the legacy dev behaviour when run from `cargo run`.
@@ -2081,6 +2100,96 @@ static ENTITY_WATCHDOGS: std::sync::LazyLock<tokio::sync::RwLock<serde_json::Map
 ///   "source", "color", "icon", "created_at" }
 static ACTIVE_EMERGENCY: std::sync::LazyLock<tokio::sync::RwLock<Option<Value>>> =
     std::sync::LazyLock::new(|| tokio::sync::RwLock::new(None));
+
+/// Load the persisted home_state rows from Postgres into the static maps above.
+/// Called once on startup; missing rows are silently ignored (fresh install).
+async fn load_home_state_from_db(pool: &DbPool) -> anyhow::Result<()> {
+    let rows: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT scope, data FROM home_state")
+            .fetch_all(pool)
+            .await?;
+    for (scope, data) in rows {
+        match scope.as_str() {
+            "dashboard_settings" => {
+                if let Value::Object(m) = data {
+                    *DASHBOARD_SETTINGS.write().await = m;
+                }
+            }
+            "composite_sensors" => {
+                if let Value::Object(m) = data {
+                    *COMPOSITE_SENSORS.write().await = m;
+                }
+            }
+            "smart_scenes" => {
+                if let Value::Object(m) = data {
+                    *SMART_SCENES.write().await = m;
+                }
+            }
+            "scheduled_actions" => {
+                if let Value::Object(m) = data {
+                    *SCHEDULED_ACTIONS.write().await = m;
+                }
+            }
+            "entity_watchdogs" => {
+                if let Value::Object(m) = data {
+                    *ENTITY_WATCHDOGS.write().await = m;
+                }
+            }
+            "active_emergency" => {
+                *ACTIVE_EMERGENCY.write().await =
+                    if data.is_null() { None } else { Some(data) };
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Snapshot all 6 maps to the home_state table. Cheap (single transaction,
+/// JSONB upserts) and runs every 5s — sufficient durability for soft state.
+async fn persist_home_state_to_db(pool: &DbPool) -> anyhow::Result<()> {
+    let snapshots: [(&str, Value); 6] = [
+        (
+            "dashboard_settings",
+            Value::Object(DASHBOARD_SETTINGS.read().await.clone()),
+        ),
+        (
+            "composite_sensors",
+            Value::Object(COMPOSITE_SENSORS.read().await.clone()),
+        ),
+        (
+            "smart_scenes",
+            Value::Object(SMART_SCENES.read().await.clone()),
+        ),
+        (
+            "scheduled_actions",
+            Value::Object(SCHEDULED_ACTIONS.read().await.clone()),
+        ),
+        (
+            "entity_watchdogs",
+            Value::Object(ENTITY_WATCHDOGS.read().await.clone()),
+        ),
+        (
+            "active_emergency",
+            ACTIVE_EMERGENCY
+                .read()
+                .await
+                .clone()
+                .unwrap_or(Value::Null),
+        ),
+    ];
+    for (scope, data) in snapshots {
+        sqlx::query(
+            "INSERT INTO home_state (scope, data, updated_at) VALUES ($1, $2, NOW())
+             ON CONFLICT (scope) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()",
+        )
+        .bind(scope)
+        .bind(&data)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
 
 /// Cached NINA warnings — refreshed by the background poller.
 /// Structure: Vec<{ "id", "version", "headline", "description", "severity",

@@ -354,20 +354,150 @@ async fn send_email_internal(
 // ─── Web Search Functions ────────────────────────────────────────────────────
 
 async fn web_search_internal(
-    _client: &reqwest::Client,
+    client: &reqwest::Client,
     query: &str,
     max_results: usize,
 ) -> Result<Vec<serde_json::Value>> {
-    // Note: This is a placeholder. In production, integrate with actual search APIs
-    // like DuckDuckGo, Google Custom Search, or SearX
+    // Provider selection via env vars (any one of these enables real search):
+    //   SEARCH_PROVIDER=brave  + BRAVE_SEARCH_API_KEY=<key>
+    //   SEARCH_PROVIDER=searxng + SEARXNG_URL=https://...
+    //   (default) DuckDuckGo Instant Answer (no key, but limited).
+    let provider = std::env::var("SEARCH_PROVIDER")
+        .unwrap_or_else(|_| "duckduckgo".to_string())
+        .to_lowercase();
 
-    warn!("Web search requested but no search provider configured: {}", query);
+    match provider.as_str() {
+        "brave" => brave_search(client, query, max_results).await,
+        "searxng" => searxng_search(client, query, max_results).await,
+        "duckduckgo" | "ddg" | _ => duckduckgo_search(client, query, max_results).await,
+    }
+}
 
-    Ok(vec![serde_json::json!({
-        "message": "Search functionality requires external API integration",
-        "query": query,
-        "max_results": max_results,
-    })])
+async fn brave_search(
+    client: &reqwest::Client,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<serde_json::Value>> {
+    let api_key = std::env::var("BRAVE_SEARCH_API_KEY")
+        .map_err(|_| anyhow::anyhow!("BRAVE_SEARCH_API_KEY not set"))?;
+    let url = format!(
+        "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+        urlencoding::encode(query),
+        max_results.min(20)
+    );
+    let resp = client
+        .get(&url)
+        .header("X-Subscription-Token", api_key)
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("brave search returned {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json().await?;
+    let results = body
+        .pointer("/web/results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(results
+        .into_iter()
+        .take(max_results)
+        .map(|r| {
+            serde_json::json!({
+                "title": r.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                "url": r.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                "snippet": r.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+                "provider": "brave",
+            })
+        })
+        .collect())
+}
+
+async fn searxng_search(
+    client: &reqwest::Client,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<serde_json::Value>> {
+    let base = std::env::var("SEARXNG_URL")
+        .map_err(|_| anyhow::anyhow!("SEARXNG_URL not set"))?;
+    let url = format!(
+        "{}/search?q={}&format=json",
+        base.trim_end_matches('/'),
+        urlencoding::encode(query)
+    );
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("searxng returned {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json().await?;
+    let results = body
+        .get("results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(results
+        .into_iter()
+        .take(max_results)
+        .map(|r| {
+            serde_json::json!({
+                "title": r.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                "url": r.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                "snippet": r.get("content").and_then(|v| v.as_str()).unwrap_or(""),
+                "provider": "searxng",
+            })
+        })
+        .collect())
+}
+
+async fn duckduckgo_search(
+    client: &reqwest::Client,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<serde_json::Value>> {
+    // DDG Instant Answer (no API key, but only returns abstract+related topics —
+    // not full web results). Sufficient for fact lookups; anything that needs
+    // ranked web results should use Brave or SearXNG instead.
+    let url = format!(
+        "https://api.duckduckgo.com/?q={}&format=json&no_redirect=1&no_html=1",
+        urlencoding::encode(query)
+    );
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "iora-gateway/1.0")
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("duckduckgo returned {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json().await?;
+    let mut out = Vec::new();
+    if let Some(abs) = body.get("AbstractText").and_then(|v| v.as_str()) {
+        if !abs.is_empty() {
+            out.push(serde_json::json!({
+                "title": body.get("Heading").and_then(|v| v.as_str()).unwrap_or(query),
+                "url": body.get("AbstractURL").and_then(|v| v.as_str()).unwrap_or(""),
+                "snippet": abs,
+                "provider": "duckduckgo",
+            }));
+        }
+    }
+    if let Some(topics) = body.get("RelatedTopics").and_then(|v| v.as_array()) {
+        for t in topics {
+            if out.len() >= max_results {
+                break;
+            }
+            if let Some(text) = t.get("Text").and_then(|v| v.as_str()) {
+                out.push(serde_json::json!({
+                    "title": text.split(" - ").next().unwrap_or(text),
+                    "url": t.get("FirstURL").and_then(|v| v.as_str()).unwrap_or(""),
+                    "snippet": text,
+                    "provider": "duckduckgo",
+                }));
+            }
+        }
+    }
+    Ok(out)
 }
 
 // ─── HTTP Request Functions ──────────────────────────────────────────────────

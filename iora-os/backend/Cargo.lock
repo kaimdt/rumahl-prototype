@@ -3048,13 +3048,20 @@ name = "iora-backup"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "anyhow",
  "chrono",
+ "cron",
+ "dotenv",
+ "flate2",
  "iora-shared",
  "serde",
  "serde_json",
+ "sqlx",
+ "tar",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -3290,6 +3297,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "urlencoding",
  "uuid",
 ]
 
@@ -3440,13 +3448,20 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
+ "bollard",
  "chrono",
+ "dotenv",
+ "futures",
  "iora-shared",
  "serde",
  "serde_json",
+ "sqlx",
+ "sysinfo 0.30.13",
  "tokio",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

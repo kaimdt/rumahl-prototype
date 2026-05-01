@@ -5,10 +5,17 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "sync", "time"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+flate2 = "1.0"
+tar = "0.4"
+cron = "0.12"
+dotenv = "0.15"
+anyhow = "1.0"
 iora-shared = { path = "../../shared/iora-shared" }

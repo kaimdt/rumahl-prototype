@@ -33,6 +33,7 @@ regex = "1.10"
 url = "2.5"
 html5ever = "0.27"
 ammonia = "4.0"  # HTML sanitization
+urlencoding = "2.1"
 
 # Cryptographic verification
 sha2 = "0.10"

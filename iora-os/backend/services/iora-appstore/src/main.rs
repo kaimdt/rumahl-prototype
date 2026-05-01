@@ -19,6 +19,8 @@ struct AppState {
     db: PgPool,
     port_manager: Arc<PortManager>,
     supervisor_url: String,
+    http_client: reqwest::Client,
+    appstore_url: String,
 }
 
 // ─── Database Models ────────────────────────────────────────────────────────
@@ -271,12 +273,37 @@ async fn install_app(
     let manifest = if let Some(ref manifest) = req.manifest {
         manifest.clone()
     } else if let Some(ref app_id) = req.app_id {
-        // Fetch from app store
-        info!("Fetching app {} from store", app_id);
-        // TODO: Implement actual app store fetch
-        return HttpResponse::NotImplemented().json(serde_json::json!({
-            "error": "App store fetching not yet implemented"
-        }));
+        // Fetch manifest from remote app store
+        info!("Fetching app {} from store {}", app_id, data.appstore_url);
+        let url = format!("{}/api/apps/{}/manifest", data.appstore_url.trim_end_matches('/'), app_id);
+        match data.http_client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<AppManifest>().await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("Invalid manifest from store for {}: {}", app_id, e);
+                        return HttpResponse::BadGateway().json(serde_json::json!({
+                            "error": format!("Invalid manifest from store: {}", e)
+                        }));
+                    }
+                }
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                warn!("App store returned {} for {}: {}", status, app_id, body);
+                return HttpResponse::BadGateway().json(serde_json::json!({
+                    "error": format!("App store responded with {}", status),
+                    "detail": body,
+                }));
+            }
+            Err(e) => {
+                error!("Failed to reach app store {}: {}", url, e);
+                return HttpResponse::BadGateway().json(serde_json::json!({
+                    "error": format!("Failed to reach app store: {}", e)
+                }));
+            }
+        }
     } else {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Either app_id or manifest must be provided"
@@ -650,11 +677,20 @@ async fn main() -> std::io::Result<()> {
     }
 
     let supervisor_url = system_config::supervisor_url();
+    let appstore_url = std::env::var("IORA_APPSTORE_REMOTE_URL")
+        .unwrap_or_else(|_| "https://appstore.kaimdt.com".to_string());
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(concat!("iora-appstore/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .expect("Failed to build reqwest client");
 
     let app_state = web::Data::new(AppState {
         db,
         port_manager,
         supervisor_url,
+        http_client,
+        appstore_url,
     });
 
     let port = system_config::service_port("iora-appstore", 8098);

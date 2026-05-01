@@ -252,9 +252,14 @@ impl ConversationManager {
 
     /// Check if a thread is active
     pub async fn is_thread_active(&self, thread_id: Uuid) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Get thread from database and check if active
-        // This is a placeholder - in production, we'd query the thread
-        Ok(true)
+        // Query the thread row; consider it active iff `active = true`.
+        let row: Option<(bool,)> = sqlx::query_as(
+            "SELECT active FROM conversation_threads WHERE id = $1",
+        )
+        .bind(thread_id)
+        .fetch_optional(&self.db)
+        .await?;
+        Ok(row.map(|r| r.0).unwrap_or(false))
     }
 
     /// Archive a conversation thread

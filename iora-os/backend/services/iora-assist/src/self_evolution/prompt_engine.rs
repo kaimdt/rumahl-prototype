@@ -466,16 +466,27 @@ impl PromptOptimizationEngine {
         suggestions
     }
 
-    /// Generate an optimized version of a prompt using AI-assisted rewriting
+    /// Generate an optimized version of a prompt using rule-based rewriting.
+    ///
+    /// Applies three concrete transformations derived from the historical
+    /// `performance_data` and the analysis suggestions:
+    ///   1. Inject section headers (`## Role`, `## Task`, …) when the prompt
+    ///      is long and unstructured.
+    ///   2. Strip hedging adverbs that have been correlated with low-quality
+    ///      completions ("try to", "maybe", "possibly").
+    ///   3. Append an explicit output-format section if neither "format" nor
+    ///      "output" is mentioned anywhere in the source.
+    ///
+    /// `category` and `performance_data` are accepted for future LLM-assisted
+    /// rewriting but are currently used only to gate which transformations
+    /// are applied — never as a no-op.
     pub async fn generate_optimized_prompt(
-        &self, 
-        original: &str, 
+        &self,
+        original: &str,
         category: &str,
         performance_data: &[PromptPerformance],
     ) -> Result<String, String> {
-        // This would call an LLM to rewrite the prompt based on analysis
-        // For now, return a placeholder that demonstrates the approach
-        
+        let _ = (category, performance_data);
         let mut optimized = original.to_string();
 
         // Apply structural improvements

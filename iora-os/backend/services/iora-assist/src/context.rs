@@ -51,14 +51,46 @@ impl ContextBuilder {
         // Extract rooms from entities
         let rooms = self.extract_rooms(&entities);
 
-        // Get active scenes (placeholder - would need actual implementation)
-        let active_scenes = Vec::new();
+        // Active scenes: any scene.* entity whose state != "unknown"/"off"
+        // (HA exposes the most-recently-activated scene's last_activated timestamp).
+        let active_scenes: Vec<String> = entities
+            .iter()
+            .filter(|e| e.entity_id.starts_with("scene."))
+            .filter(|e| {
+                let s = e.state.as_str();
+                !s.is_empty() && s != "unknown" && s != "unavailable"
+            })
+            .map(|e| {
+                e.friendly_name
+                    .clone()
+                    .unwrap_or_else(|| e.entity_id.clone())
+            })
+            .collect();
 
-        // User preferences (placeholder)
-        let user_preferences = HashMap::new();
+        // User preferences: pull dashboard_settings from iora-home
+        // (theme, brightness, screensaver, etc. — plus any keys the user added).
+        let user_preferences = self.fetch_user_preferences().await.unwrap_or_default();
 
-        // Recent activity (placeholder)
-        let recent_activity = Vec::new();
+        // Recent activity: derive from `last_changed` on the entity snapshot —
+        // the 20 most recently changed non-sensor entities, freshest first.
+        let mut recent: Vec<&EntityState> = entities
+            .iter()
+            .filter(|e| {
+                !e.last_changed.is_empty()
+                    && !e.entity_id.starts_with("sensor.")
+                    && !e.entity_id.starts_with("binary_sensor.")
+            })
+            .collect();
+        recent.sort_by(|a, b| b.last_changed.cmp(&a.last_changed));
+        let recent_activity: Vec<ActivityEvent> = recent
+            .into_iter()
+            .take(20)
+            .map(|e| ActivityEvent {
+                entity_id: e.entity_id.clone(),
+                event_type: format!("state_changed:{}", e.state),
+                timestamp: e.last_changed.clone(),
+            })
+            .collect();
 
         Ok(SmartHomeContext {
             entities,
@@ -67,6 +99,35 @@ impl ContextBuilder {
             user_preferences,
             recent_activity,
         })
+    }
+
+    async fn fetch_user_preferences(
+        &self,
+    ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
+        let resp = self
+            .client
+            .get(format!("{}/api/integration/dashboard-settings", IORA_HOME_URL))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Ok(HashMap::new());
+        }
+        let body: serde_json::Value = resp.json().await?;
+        let map = body
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .map(|(k, v)| {
+                        let s = match v {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        (k.clone(), s)
+                    })
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        Ok(map)
     }
 
     /// Fetch all entities from iora-home

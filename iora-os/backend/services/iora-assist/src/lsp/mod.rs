@@ -14,7 +14,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -226,6 +227,9 @@ pub struct LspClient {
     pub language: String,
     pub workspace_path: PathBuf,
     child: Option<Child>,
+    /// Live stdin handle to the LSP server. Used by send_request/send_notification
+    /// to write framed LSP messages.
+    stdin: Option<std::sync::Arc<TokioMutex<ChildStdin>>>,
     next_id: u64,
     /// Pending requests awaiting response
     pending: HashMap<u64, tokio::sync::oneshot::Sender<JsonRpcResponse>>,
@@ -244,6 +248,7 @@ impl LspClient {
             language: language.to_string(),
             workspace_path,
             child: None,
+            stdin: None,
             next_id: 1,
             pending: HashMap::new(),
             diagnostics: HashMap::new(),
@@ -303,6 +308,7 @@ impl LspClient {
             .ok_or_else(|| "No stdin for LSP child".to_string())?;
 
         self.child = Some(child);
+        self.stdin = Some(std::sync::Arc::new(TokioMutex::new(stdin)));
 
         // Spawn reader task
         let id = self.id.clone();
@@ -604,15 +610,55 @@ impl LspClient {
     }
 
     async fn send_request(&self, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
-        // In a real implementation, we'd need to use a channel to send to the writer task
-        // For now, return an error indicating the async nature
-        Err(format!("LSP send_request is async – use the event-driven reader: {}", method))
+        // Build a JSON-RPC request and write it to the LSP server's stdin
+        // using the standard `Content-Length: N\r\n\r\n<json>` framing.
+        let stdin = self
+            .stdin
+            .as_ref()
+            .ok_or_else(|| "LSP server not started".to_string())?
+            .clone();
+        let id = self.next_id;
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params.unwrap_or(serde_json::Value::Null),
+        });
+        let body = payload.to_string();
+        let frame = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+        let mut guard = stdin.lock().await;
+        guard
+            .write_all(frame.as_bytes())
+            .await
+            .map_err(|e| format!("LSP write failed: {e}"))?;
+        guard.flush().await.map_err(|e| format!("LSP flush failed: {e}"))?;
+        // Note: the response is consumed by the reader task and surfaced via
+        // the diagnostics map / pending oneshots; for fire-and-forget calls
+        // we return Null. Callers expecting a value should use the pending
+        // oneshot mechanism (see `read_responses`).
+        Ok(serde_json::Value::Null)
     }
 
     async fn send_notification(&self, method: &str, params: Option<serde_json::Value>) -> Result<(), String> {
-        // In a real implementation, we'd send via channel to writer
-        // For now, this is a placeholder
-        tracing::debug!("LSP notification: {} ({:?})", method, params);
+        let stdin = self
+            .stdin
+            .as_ref()
+            .ok_or_else(|| "LSP server not started".to_string())?
+            .clone();
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params.unwrap_or(serde_json::Value::Null),
+        });
+        let body = payload.to_string();
+        let frame = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+        let mut guard = stdin.lock().await;
+        guard
+            .write_all(frame.as_bytes())
+            .await
+            .map_err(|e| format!("LSP write failed: {e}"))?;
+        guard.flush().await.map_err(|e| format!("LSP flush failed: {e}"))?;
+        tracing::debug!("LSP notification sent: {}", method);
         Ok(())
     }
 

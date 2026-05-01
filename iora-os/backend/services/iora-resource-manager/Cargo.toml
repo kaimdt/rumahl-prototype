@@ -2,7 +2,7 @@
 name = "iora-resource-manager"
 version = "0.1.0"
 edition = "2021"
-description = "IORA Resource Manager (currently a compiling stub)"
+description = "IORA Resource Manager - intelligent Docker resource reallocation"
 
 [[bin]]
 name = "iora-resource-manager"
@@ -10,11 +10,18 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
+bollard = "0.16"
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+sysinfo = "0.30"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+tower-http = { version = "0.5", features = ["cors"] }
+dotenv = "0.15"
+futures = "0.3"
 iora-shared = { path = "../../shared/iora-shared" }

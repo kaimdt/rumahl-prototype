@@ -109,13 +109,71 @@ impl CodeWriteTool {
     }
 
     pub async fn apply_diff(&self, file_path: &str, diff_text: &str) -> Result<String, String> {
-        // Apply unified diff to a file (simplified implementation)
+        // Apply a unified diff to `file_path` by parsing each `@@ ... @@` hunk
+        // and rewriting the surviving lines. This is a deliberately small
+        // implementation (no rename / no binary diff support) but it does
+        // actually mutate the file rather than just reporting metadata.
         let original = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Cannot read {}: {}", file_path, e))?;
+        let mut out: Vec<String> =
+            original.lines().map(|s| s.to_string()).collect();
 
-        // For proper diff application, we'd use a library like `diffy` or call `patch` command
-        // This is a placeholder that returns the original content with diff info
-        Ok(format!("Diff applied to {} ({} lines in diff)", file_path, diff_text.lines().count()))
+        // Parse hunks
+        let mut hunks: Vec<(usize, Vec<&str>)> = Vec::new();
+        let mut iter = diff_text.lines().peekable();
+        while let Some(line) = iter.next() {
+            if line.starts_with("@@") {
+                // @@ -orig_start,orig_count +new_start,new_count @@
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let orig = parts.get(1).copied().unwrap_or("");
+                let orig_start: usize = orig
+                    .trim_start_matches('-')
+                    .split(',')
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(1);
+                let mut body: Vec<&str> = Vec::new();
+                while let Some(next) = iter.peek() {
+                    if next.starts_with("@@") || next.starts_with("--- ") || next.starts_with("+++ ") {
+                        break;
+                    }
+                    body.push(iter.next().unwrap());
+                }
+                hunks.push((orig_start.saturating_sub(1), body));
+            }
+        }
+
+        // Apply hunks in reverse to keep indices valid.
+        let mut applied = 0usize;
+        for (start, body) in hunks.iter().rev() {
+            let mut idx = *start;
+            for entry in body {
+                if let Some(rest) = entry.strip_prefix('+') {
+                    out.insert(idx, rest.to_string());
+                    idx += 1;
+                    applied += 1;
+                } else if entry.starts_with('-') {
+                    if idx < out.len() {
+                        out.remove(idx);
+                        applied += 1;
+                    }
+                } else {
+                    // Context line
+                    idx += 1;
+                }
+            }
+        }
+
+        let new_text = out.join("\n") + "\n";
+        std::fs::write(file_path, &new_text)
+            .map_err(|e| format!("Cannot write {}: {}", file_path, e))?;
+
+        Ok(format!(
+            "Diff applied to {} ({} hunks, {} ops)",
+            file_path,
+            hunks.len(),
+            applied
+        ))
     }
 }
 
