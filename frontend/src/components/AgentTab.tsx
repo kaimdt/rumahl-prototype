@@ -635,12 +635,10 @@ export function AgentTab({ token }: { token: string }) {
   const selectedWs = workspaces.find(w => w.id === selectedWorkspace)
   const workspaceTasks = tasks.filter(t => t.workspace_id === selectedWorkspace)
   const runningCount = tasks.filter(t => t.status === 'running').length
-  const availableModels = activeProvider?.models || [
-    { id: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-    { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet' },
-  ]
+  // No hardcoded fallback list — only show models that the iora-assist
+  // registry actually discovered from configured providers. Otherwise the UI
+  // claims to support models that don't exist in the user's setup.
+  const availableModels = activeProvider?.models || []
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -717,9 +715,12 @@ export function AgentTab({ token }: { token: string }) {
                     setSelectedModel(m)
                   }}
                   className="w-full px-2.5 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground focus:outline-none focus:border-accent/50"
+                  disabled={globalModels.length === 0 && availableModels.length === 0}
                 >
-                  {globalModels.length === 0 ? (
-                    // Fallback when registry is empty (no DB / no providers configured yet)
+                  {globalModels.length === 0 && availableModels.length === 0 ? (
+                    <option value="">— Keine Modelle konfiguriert —</option>
+                  ) : globalModels.length === 0 ? (
+                    // Active provider returned models but registry is empty
                     availableModels.map(m => (
                       <option key={m.id} value={`${selectedProvider}::${m.id}`}>{m.name}</option>
                     ))
@@ -740,6 +741,11 @@ export function AgentTab({ token }: { token: string }) {
                     ))
                   )}
                 </select>
+                {globalModels.length === 0 && availableModels.length === 0 && (
+                  <p className="text-[10px] text-foreground/40 mt-1.5 px-1">
+                    Konfiguriere einen AI-Provider im Control Center, damit Modelle hier erscheinen.
+                  </p>
+                )}
               </div>
 
               {/* GitHub Token Config */}

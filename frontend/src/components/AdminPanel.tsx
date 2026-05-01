@@ -21,7 +21,7 @@ import { toast } from 'sonner'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
-import { getBackendUrl } from '@/lib/config'
+import { getBackendUrl, getAssistUrl } from '@/lib/config'
 
 interface CloudSettings {
   connectorHost: string
@@ -395,8 +395,22 @@ function CloudSettingsTab({ token }: { token: string }) {
 
 const API_BASE = getBackendUrl()
 
+/**
+ * Returns the correct base URL for `path`. Calls under `/api/assist/` are
+ * served by the iora-assist microservice (port 8092 by default), everything
+ * else goes through iora-home. Without this routing, requests to
+ * /api/assist/* hit iora-home and trip its SPA fallback → 404 "Endpunkt
+ * nicht gefunden", which made the AI/Provider tabs look completely broken.
+ */
+function baseUrlFor(path: string): string {
+  if (path.startsWith('/api/assist/') || path === '/api/assist') {
+    return getAssistUrl() || API_BASE
+  }
+  return API_BASE
+}
+
 export async function adminFetch(path: string, token: string, options?: RequestInit) {
-  const url = `${API_BASE}${path}`
+  const url = `${baseUrlFor(path)}${path}`
   const res = await fetch(url, {
     ...options,
     headers: {

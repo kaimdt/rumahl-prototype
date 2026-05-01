@@ -3,7 +3,7 @@ import {
   Cube, Play, Pause, TrashSimple, ShieldCheck, Gear,
   Terminal, Warning, X, Clock, ArrowClockwise,
   Code, PlugsConnected, Globe, Star, Info, CaretDown, CaretUp,
-  Stack, CubeFocus, DownloadSimple
+  Stack, CubeFocus, DownloadSimple, ArrowSquareOut
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
@@ -414,12 +414,23 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {/* Settings Tab */}
               {activeTab === 'settings' && (
                 <div className="space-y-3">
-                  <div className="p-4 rounded-lg bg-foreground/3 text-center">
-                    <Gear size={24} className="mx-auto mb-2 text-foreground/30" />
-                    <p className="text-xs text-foreground/50">App-Einstellungen</p>
-                    <p className="text-[10px] text-foreground/30 mt-1">
-                      Einstellungen für diese App können in Kürze hier konfiguriert werden.
-                    </p>
+                  <div className="p-4 rounded-lg bg-foreground/3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center flex-shrink-0">
+                      <Gear size={20} className="text-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground">App-Einstellungen</p>
+                      <p className="text-[10px] text-foreground/50 mt-0.5">
+                        Konfiguration, Storage, Datenbank, Schedules, Webhooks &amp; Messaging dieser App.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { window.location.href = `/app-settings/${appId}` }}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 flex items-center gap-1.5 flex-shrink-0"
+                    >
+                      Öffnen
+                      <ArrowSquareOut size={12} />
+                    </button>
                   </div>
                 </div>
               )}

@@ -1286,6 +1286,54 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/updates/check", get(stub_core_updates_check).post(stub_core_updates_check))
         .route("/api/core/updates/history", get(stub_core_updates_history))
         .route("/api/core/widgets", get(stub_core_widgets))
+        // ── Stubs for unavailable IORA microservices ──────────────────────
+        // iora-secrets
+        .route("/api/secrets", get(stub_secrets_list).post(stub_microservice_unavailable))
+        .route("/api/secrets/:id", delete(stub_microservice_unavailable))
+        .route("/api/secrets/:id/rotate", post(stub_microservice_unavailable))
+        .route("/api/secrets/:id/audit", get(stub_secrets_audit))
+        // iora-files
+        .route("/api/files/", get(stub_files_list))
+        .route("/api/files/shares", get(stub_files_shares))
+        .route("/api/files/quota", get(stub_files_quota))
+        .route("/api/files/folders", post(stub_microservice_unavailable))
+        .route("/api/files/:id", delete(stub_microservice_unavailable))
+        .route("/api/files/shares/:id", delete(stub_microservice_unavailable))
+        .route("/api/share/:download_token", get(stub_microservice_unavailable))
+        // iora-gateway
+        .route("/api/gateway/email", post(stub_microservice_unavailable))
+        .route("/api/gateway/search", post(stub_microservice_unavailable))
+        .route("/api/gateway/http/get", post(stub_microservice_unavailable))
+        .route("/api/gateway/requests", get(stub_empty_array))
+        .route("/api/gateway/ai-requests", get(stub_empty_array))
+        // iora-watchdog
+        .route("/api/watchdog/status", get(stub_watchdog_status))
+        .route("/api/watchdog/services", get(stub_empty_array))
+        .route("/api/watchdog/metrics", get(stub_empty_object))
+        .route("/api/watchdog/recovery", get(stub_empty_array))
+        // iora-connector
+        .route("/api/connector/tunnels", get(stub_empty_array))
+        .route("/api/connector/services", get(stub_empty_array))
+        .route("/api/connector/pairing-tokens", get(stub_empty_array))
+        .route("/api/connector/blocked-ips", get(stub_empty_array))
+        .route("/api/connector/tunnels/:id", delete(stub_microservice_unavailable))
+        .route("/api/connector/pairing-tokens/:id", delete(stub_microservice_unavailable))
+        // iora-domain-validator
+        .route("/api/domain-validator/policy/:app_id", get(stub_empty_object))
+        .route("/api/domain-validator/logs/:app_id", get(stub_empty_array))
+        .route("/api/domain-validator/validate", post(stub_microservice_unavailable))
+        // iora-resource-manager
+        .route("/api/resources/containers", get(stub_empty_array))
+        .route("/api/resources/system", get(stub_empty_object))
+        .route("/api/resources/history", get(stub_empty_array))
+        .route("/api/resources/reallocate", post(stub_microservice_unavailable))
+        // iora-network-monitor
+        .route("/api/network/peers", get(stub_empty_array))
+        .route("/api/metrics", get(stub_empty_object))
+        .route("/api/interfaces", get(stub_empty_array))
+        .route("/api/mqtt/topics", get(stub_empty_array))
+        // iora-cloud (extern)
+        .route("/api/admin/iora-cloud/config", post(stub_microservice_unavailable).get(stub_empty_object))
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
         .route("/api/notifications", get(get_notifications))
@@ -4002,6 +4050,51 @@ async fn stub_appstore_search() -> Json<Value> {
     Json(json!({ "results": [], "available": false }))
 }
 
+// ── Stubs for unavailable external IORA microservices ─────────────────────
+// These return empty payloads with `available: false` so the frontend
+// (which uses `.catch(() => null)`) gets a clean JSON response instead of 404.
+
+async fn stub_microservice_unavailable() -> (axum::http::StatusCode, Json<Value>) {
+    (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({
+        "error": "Dieser Microservice ist auf diesem System nicht verfügbar.",
+        "available": false,
+    })))
+}
+
+async fn stub_empty_array() -> Json<Value> {
+    Json(json!([]))
+}
+
+async fn stub_empty_object() -> Json<Value> {
+    Json(json!({ "available": false }))
+}
+
+async fn stub_secrets_list() -> Json<Value> {
+    Json(json!({ "secrets": [], "available": false }))
+}
+
+async fn stub_secrets_audit(
+    axum::extract::Path(_id): axum::extract::Path<String>,
+) -> Json<Value> {
+    Json(json!({ "audit": [], "available": false }))
+}
+
+async fn stub_files_list() -> Json<Value> {
+    Json(json!({ "files": [], "folders": [], "available": false }))
+}
+
+async fn stub_files_shares() -> Json<Value> {
+    Json(json!({ "shares": [], "available": false }))
+}
+
+async fn stub_files_quota() -> Json<Value> {
+    Json(json!({ "used": 0, "total": 0, "available": false }))
+}
+
+async fn stub_watchdog_status() -> Json<Value> {
+    Json(json!({ "status": "unavailable", "available": false }))
+}
+
 // ── Local app-store handlers ────────────────────────────────────────────────
 
 async fn local_appstore_installed(State(state): State<AppState>) -> Json<Value> {
@@ -4477,14 +4570,52 @@ async fn supervisor_apps_start(
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
 
     let needs_docker = app_meta.docker_config.is_some() || app_meta.bundle_config.is_some();
-    let mut docker_result: Option<String> = None;
 
-    if needs_docker {
-        match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+    // Mark as starting immediately so the UI shows status without waiting
+    // for the (potentially long-running) docker compose pull/up.
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: if needs_docker {
+                "Starte App… Docker-Container werden im Hintergrund hochgefahren (image pull kann mehrere Minuten dauern).".to_string()
+            } else {
+                "Starte App im lokalen Modus (ohne Docker).".to_string()
+            },
+            source: "app-runtime".to_string(),
+        },
+    );
+
+    if !needs_docker {
+        // No docker → synchronous flip is cheap
+        let app = state
+            .local_appstore
+            .start(&app_id)
+            .await
+            .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+        return Ok(Json(json!({
+            "success": true,
+            "app_id": app.id,
+            "status": "running",
+            "docker": serde_json::Value::Null,
+            "message": format!("App '{}' gestartet.", app.name),
+        })));
+    }
+
+    // Spawn the heavy docker work in the background so the HTTP request
+    // returns quickly and the browser doesn't run into ERR_EMPTY_RESPONSE
+    // (idle timeouts) during long image pulls. Progress is reported via the
+    // existing log stream and the `/apps/:id/detail` status endpoint.
+    let appstore = state.local_appstore.clone();
+    let app_id_bg = app_id.clone();
+    let app_meta_bg = app_meta.clone();
+    let base_dir_bg = state.local_appstore.base_dir().to_path_buf();
+    tokio::spawn(async move {
+        match try_docker_compose_up(&app_id_bg, &app_meta_bg, &base_dir_bg).await {
             Some(Ok(msg)) => {
-                docker_result = Some(msg.clone());
-                state.local_appstore.append_log(
-                    &app_id,
+                appstore.append_log(
+                    &app_id_bg,
                     local_appstore::LogEntry {
                         timestamp: chrono::Utc::now().to_rfc3339(),
                         level: "INFO".to_string(),
@@ -4493,13 +4624,10 @@ async fn supervisor_apps_start(
                     },
                 );
 
-                // Aktiv verifizieren, dass die Container wirklich laufen.
-                // `docker compose up -d` returned ja sofort – wir prüfen 15s lang
-                // den realen Container-Status.
-                match app_lifecycle::wait_until_running(&app_id, 15).await {
+                match app_lifecycle::wait_until_running(&app_id_bg, 60).await {
                     Ok(s) if s.total > 0 => {
-                        state.local_appstore.append_log(
-                            &app_id,
+                        appstore.append_log(
+                            &app_id_bg,
                             local_appstore::LogEntry {
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                                 level: "INFO".to_string(),
@@ -4510,15 +4638,16 @@ async fn supervisor_apps_start(
                                 source: "app-runtime".to_string(),
                             },
                         );
+                        let _ = appstore.start(&app_id_bg).await;
                     }
                     Ok(_) => {
-                        // Docker n/a oder Projekt leer – im lokalen Modus ok
+                        // Empty project — leave as is
+                        let _ = appstore.start(&app_id_bg).await;
                     }
                     Err(verify_err) => {
-                        // Container starten gefailed → wieder runter und Fehler melden
-                        let _ = try_docker_compose_down(&app_id).await;
-                        state.local_appstore.append_log(
-                            &app_id,
+                        let _ = try_docker_compose_down(&app_id_bg).await;
+                        appstore.append_log(
+                            &app_id_bg,
                             local_appstore::LogEntry {
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                                 level: "ERROR".to_string(),
@@ -4528,16 +4657,12 @@ async fn supervisor_apps_start(
                                 source: "app-runtime".to_string(),
                             },
                         );
-                        return Err(ErrorResponse::bad_gateway(format!(
-                            "App '{}' wurde gestartet, aber die Container sind nicht gesund: {verify_err}",
-                            app_meta.name
-                        )));
                     }
                 }
             }
             Some(Err(err_msg)) => {
-                state.local_appstore.append_log(
-                    &app_id,
+                appstore.append_log(
+                    &app_id_bg,
                     local_appstore::LogEntry {
                         timestamp: chrono::Utc::now().to_rfc3339(),
                         level: "ERROR".to_string(),
@@ -4545,56 +4670,27 @@ async fn supervisor_apps_start(
                         source: "app-runtime".to_string(),
                     },
                 );
-                return Err(ErrorResponse::bad_request(format!(
-                    "App '{}' konnte nicht gestartet werden: {err_msg}",
-                    app_meta.name
-                )));
             }
             None => {
-                let hint = "Docker CLI ist nicht verfügbar. Diese App benötigt Docker und kann ohne Container nicht gestartet werden.";
-                state.local_appstore.append_log(
-                    &app_id,
+                appstore.append_log(
+                    &app_id_bg,
                     local_appstore::LogEntry {
                         timestamp: chrono::Utc::now().to_rfc3339(),
                         level: "ERROR".to_string(),
-                        message: hint.to_string(),
+                        message: "Docker CLI ist nicht verfügbar. Diese App benötigt Docker."
+                            .to_string(),
                         source: "app-runtime".to_string(),
                     },
                 );
-                return Err(ErrorResponse::service_unavailable(hint.to_string()));
             }
         }
-    }
-
-    let app = state
-        .local_appstore
-        .start(&app_id)
-        .await
-        .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
-
-    if !needs_docker {
-        state.local_appstore.append_log(
-            &app_id,
-            local_appstore::LogEntry {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                level: "INFO".to_string(),
-                message: "App im lokalen Modus gestartet (ohne Docker).".to_string(),
-                source: "app-runtime".to_string(),
-            },
-        );
-    }
+    });
 
     Ok(Json(json!({
         "success": true,
-        "app_id": app.id,
-        "status": "running",
-        "docker": docker_result,
-        "message": format!("App '{}' gestartet.", app.name),
-        "hint": if docker_result.is_none() && (app.docker_config.is_some() || app.bundle_config.is_some()) {
-            "Docker ist nicht verfügbar – App läuft im lokalen Modus. Installiere Docker für Container-Betrieb."
-        } else {
-            ""
-        },
+        "app_id": app_id,
+        "status": "starting",
+        "message": format!("App '{}' wird im Hintergrund gestartet. Logs zeigen den Fortschritt.", app_meta.name),
     })))
 }
 
