@@ -90,7 +90,7 @@ pub async fn run(timeout_secs: u64) -> Result<()> {
     }
     println!();
     println!(
-        "Connect with:  iora-dev-deploy connect <ADDRESS>:<PORT> --token <hex from /etc/iora/dev-token>"
+        "Connect with:  iora-dev-deploy connect <ADDRESS> (Port 8101 wird automatisch verwendet) --token <hex from /etc/iora/dev-token>"
     );
     Ok(())
 }

@@ -368,6 +368,8 @@ fn normalize_base(host: &str) -> String {
     if h.starts_with("http://") || h.starts_with("https://") {
         return h.to_string();
     }
-    let with_port = if h.contains(':') { h.to_string() } else { format!("{h}:8099") };
+    // Default to port 8101 (iora-dev-bridge). If the user only enters an IP
+    // or hostname without a port, we assume they want the dev bridge.
+    let with_port = if h.contains(':') { h.to_string() } else { format!("{h}:8101") };
     format!("http://{with_port}")
 }

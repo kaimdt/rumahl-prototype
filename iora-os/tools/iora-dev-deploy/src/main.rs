@@ -40,7 +40,8 @@ mod web_ui;
     about = "Discover IORA OS Dev devices and hot-deploy IORA components"
 )]
 struct Cli {
-    /// Override target device address (e.g. 192.168.1.42:8099 or my-dev.local:8099).
+    /// Override target device address (e.g. 192.168.1.42 or my-dev.local).
+    /// Default port 8101 (iora-dev-bridge) is used if no port is specified.
     #[arg(long, env = "IORA_DEV_HOST", global = true)]
     host: Option<String>,
 
@@ -62,8 +63,10 @@ enum Cmd {
     },
 
     /// Save a target device + dev token as the default.
+    /// The dev bridge port (8101) is used automatically if no port is given.
     Connect {
         /// `host[:port]`, IP, or mDNS instance from `discover`.
+        /// Port defaults to 8101 (iora-dev-bridge) if omitted.
         host: String,
         /// Hex token printed by the device builder (or read from /etc/iora/dev-token).
         #[arg(long)]

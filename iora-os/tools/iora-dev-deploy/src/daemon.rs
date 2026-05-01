@@ -715,7 +715,7 @@ async fn h_connect(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<
 
     let chosen_host = selected_host.ok_or_else(|| {
         (StatusCode::BAD_GATEWAY, format!(
-            "Could not connect to Developer Bridge at '{}'. Tried default ports 8101 and 8099. Last error: {}",
+            "Could not connect to Developer Bridge at '{}'. Tried default ports 8101 and legacy 8099. Last error: {}",
             resolved_host,
             last_error.unwrap_or_else(|| "unknown error".to_string())
         ))
