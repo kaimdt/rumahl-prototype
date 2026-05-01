@@ -527,8 +527,7 @@ impl LocalAppStore {
         Ok(updated)
     }
 
-    /// Start the app (mark as running and optionally assign ports).
-    pub async fn start(&self, app_id: &str) -> Result<InstalledApp> {
+    pub async fn set_status(&self, app_id: &str, status: &str) -> Result<InstalledApp> {
         let mut inner = self.inner.write().await;
         let app = inner
             .apps
@@ -540,8 +539,10 @@ impl LocalAppStore {
                 app_id
             ));
         }
-        app.status = "running".to_string();
-        app.enabled = true;
+        app.status = status.to_string();
+        if matches!(status, "running" | "starting") {
+            app.enabled = true;
+        }
         let updated = app.clone();
         drop(inner);
         self.persist_index().await?;
@@ -551,27 +552,14 @@ impl LocalAppStore {
         Ok(updated)
     }
 
+    /// Start the app (mark as running and optionally assign ports).
+    pub async fn start(&self, app_id: &str) -> Result<InstalledApp> {
+        self.set_status(app_id, "running").await
+    }
+
     /// Stop the app (mark as stopped).
     pub async fn stop(&self, app_id: &str) -> Result<InstalledApp> {
-        let mut inner = self.inner.write().await;
-        let app = inner
-            .apps
-            .get_mut(app_id)
-            .ok_or_else(|| anyhow!("app '{}' not installed", app_id))?;
-        if app.system {
-            return Err(anyhow!(
-                "system app '{}' wird automatisch verwaltet",
-                app_id
-            ));
-        }
-        app.status = "stopped".to_string();
-        let updated = app.clone();
-        drop(inner);
-        self.persist_index().await?;
-        let _ = self.events.send(InstallEvent::AppsChanged {
-            installed: self.list().await,
-        });
-        Ok(updated)
+        self.set_status(app_id, "stopped").await
     }
 
     pub async fn uninstall(&self, app_id: &str) -> Result<()> {
@@ -773,6 +761,8 @@ impl LocalAppStore {
         let is_bundle = manifest.extra.get("bundle").is_some();
         let bundle_config = manifest.extra.get("bundle").cloned();
 
+        let needs_runtime_prep = docker_config.is_some() || bundle_config.is_some();
+
         let app = InstalledApp {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
@@ -782,7 +772,11 @@ impl LocalAppStore {
             icon: manifest.icon.clone(),
             trust_level: "untrusted".to_string(),
             enabled: false,
-            status: "stopped".to_string(),
+            status: if needs_runtime_prep {
+                "installing".to_string()
+            } else {
+                "stopped".to_string()
+            },
             installed_at: now_iso(),
             source: "zip".to_string(),
             kind: manifest

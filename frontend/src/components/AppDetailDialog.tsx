@@ -139,7 +139,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     try {
       await adminFetch(`/api/supervisor/apps/${appId}/start`, token, { method: 'POST' })
       toast.success('App gestartet')
-      setDetail(prev => prev ? { ...prev, status: 'running', enabled: true } : prev)
+      setDetail(prev => prev ? { ...prev, status: 'starting', enabled: true } : prev)
       onReload()
     } catch (e) {
       toast.error((e as Error).message)
@@ -212,6 +212,9 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
   const getStatusIndicator = (status: string) => {
     switch (status) {
       case 'running': return <span className="flex items-center gap-1.5 text-green-400"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /> Läuft</span>
+      case 'starting': return <span className="flex items-center gap-1.5 text-amber-300"><span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse" /> Startet</span>
+      case 'installing': return <span className="flex items-center gap-1.5 text-blue-300"><span className="w-2 h-2 rounded-full bg-blue-300 animate-pulse" /> Verarbeitet</span>
+      case 'error': return <span className="flex items-center gap-1.5 text-red-300"><span className="w-2 h-2 rounded-full bg-red-300" /> Fehler</span>
       case 'stopped': return <span className="flex items-center gap-1.5 text-foreground/50"><span className="w-2 h-2 rounded-full bg-foreground/30" /> Gestoppt</span>
       default: return <span className="flex items-center gap-1.5 text-foreground/40"><span className="w-2 h-2 rounded-full bg-foreground/20" /> {status}</span>
     }
@@ -247,6 +250,11 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   <button onClick={stopApp} disabled={actionLoading === 'stop'}
                     className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40">
                     {actionLoading === 'stop' ? <InlineSpinner size={12} /> : <Pause size={12} />} Stoppen
+                  </button>
+                ) : detail.status === 'starting' || detail.status === 'installing' ? (
+                  <button disabled
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-semibold opacity-80 cursor-default">
+                    <InlineSpinner size={12} /> {detail.status === 'installing' ? 'Verarbeitet…' : 'Startet…'}
                   </button>
                 ) : (
                   <button onClick={startApp} disabled={actionLoading === 'start'}
@@ -500,6 +508,11 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                         className="flex items-center gap-1 px-3 py-2 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40">
                         {actionLoading === 'bundle-stop' ? <InlineSpinner size={12} /> : <Pause size={12} />}
                         Bundle stoppen
+                      </button>
+                    ) : detail.status === 'starting' || detail.status === 'installing' ? (
+                      <button disabled
+                        className="flex items-center gap-1 px-3 py-2 bg-amber-500/10 text-amber-300 rounded text-[10px] font-semibold opacity-80 cursor-default">
+                        <InlineSpinner size={12} /> {detail.status === 'installing' ? 'Verarbeitet…' : 'Startet…'}
                       </button>
                     ) : (
                       <button onClick={bundleStart} disabled={actionLoading === 'bundle-start'}

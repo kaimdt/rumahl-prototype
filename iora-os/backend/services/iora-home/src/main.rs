@@ -4484,6 +4484,7 @@ async fn local_appstore_install(
         .unwrap_or_else(|| "upload.zip".to_string());
 
     let install_id = state.local_appstore.start_install(file_name, bytes);
+    spawn_post_install_runtime_prepare(state.clone(), install_id);
     Ok(Json(json!({
         "success": true,
         "install_id": install_id,
@@ -4823,6 +4824,7 @@ async fn supervisor_apps_install(
             .unwrap_or("upload.zip")
             .to_string();
         let install_id = state.local_appstore.start_install(file_name, bytes);
+        spawn_post_install_runtime_prepare(state.clone(), install_id);
         return Ok(Json(json!({
             "success": true,
             "install_id": install_id,
@@ -4844,6 +4846,8 @@ async fn supervisor_apps_start(
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
 
     let needs_docker = app_meta.docker_config.is_some() || app_meta.bundle_config.is_some();
+
+    let _ = state.local_appstore.set_status(&app_id, "starting").await;
 
     // Mark as starting immediately so the UI shows status without waiting
     // for the (potentially long-running) docker compose pull/up.
@@ -4920,6 +4924,7 @@ async fn supervisor_apps_start(
                     }
                     Err(verify_err) => {
                         let _ = try_docker_compose_down(&app_id_bg).await;
+                        let _ = appstore.set_status(&app_id_bg, "error").await;
                         appstore.append_log(
                             &app_id_bg,
                             local_appstore::LogEntry {
@@ -4935,6 +4940,7 @@ async fn supervisor_apps_start(
                 }
             }
             Some(Err(err_msg)) => {
+                let _ = appstore.set_status(&app_id_bg, "error").await;
                 appstore.append_log(
                     &app_id_bg,
                     local_appstore::LogEntry {
@@ -4946,6 +4952,7 @@ async fn supervisor_apps_start(
                 );
             }
             None => {
+                let _ = appstore.set_status(&app_id_bg, "error").await;
                 appstore.append_log(
                     &app_id_bg,
                     local_appstore::LogEntry {
@@ -5543,18 +5550,32 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
     let start_cmd = docker.get("start_cmd").and_then(|v| v.as_str()).unwrap_or("");
     let install_cmd = docker.get("install_cmd").and_then(|v| v.as_str());
     let auto_build = docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false);
+    let explicit_dockerfile = docker.get("dockerfile").and_then(|v| v.as_str());
+    let image_tag = if auto_build {
+        docker
+            .get("image")
+            .and_then(|v| v.as_str())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| format!("iora-app-{}:local", app_id))
+    } else {
+        image.to_string()
+    };
     let mut yaml = String::new();
 
     yaml.push_str(&format!("services:\n  {}:\n", app_id));
-    yaml.push_str(&format!("    image: {}\n", image));
+    yaml.push_str(&format!("    image: {}\n", image_tag));
 
     if auto_build {
         let context = docker.get("build_context").and_then(|v| v.as_str()).unwrap_or(".");
-        let dockerfile = docker.get("dockerfile").and_then(|v| v.as_str()).unwrap_or("Dockerfile");
+        let dockerfile = explicit_dockerfile.unwrap_or(".iora-generated.Dockerfile");
         yaml.push_str(&format!("    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"));
     }
 
-    if let Some(cmd) = install_cmd {
+    if auto_build {
+        if !start_cmd.is_empty() {
+            yaml.push_str(&format!("    command: {start_cmd}\n"));
+        }
+    } else if let Some(cmd) = install_cmd {
         yaml.push_str(&format!("    command: sh -c \"{cmd} && {start_cmd}\"\n"));
     } else if !start_cmd.is_empty() {
         yaml.push_str(&format!("    command: {start_cmd}\n"));
@@ -5588,6 +5609,36 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
         }
     }
 
+    if docker.get("privileged").and_then(|v| v.as_bool()).unwrap_or(false) {
+        yaml.push_str("    privileged: true\n");
+    }
+
+    if let Some(network_mode) = docker.get("network_mode").and_then(|v| v.as_str()) {
+        yaml.push_str(&format!("    network_mode: {}\n", network_mode));
+    }
+
+    if let Some(cap_add) = docker.get("cap_add").and_then(|v| v.as_array()) {
+        if !cap_add.is_empty() {
+            yaml.push_str("    cap_add:\n");
+            for capability in cap_add {
+                if let Some(capability) = capability.as_str() {
+                    yaml.push_str(&format!("      - {}\n", capability));
+                }
+            }
+        }
+    }
+
+    if let Some(security_opt) = docker.get("security_opt").and_then(|v| v.as_array()) {
+        if !security_opt.is_empty() {
+            yaml.push_str("    security_opt:\n");
+            for option in security_opt {
+                if let Some(option) = option.as_str() {
+                    yaml.push_str(&format!("      - {}\n", option));
+                }
+            }
+        }
+    }
+
     // Restart policy
     yaml.push_str("    restart: unless-stopped\n");
 
@@ -5609,6 +5660,46 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
     yaml
 }
 
+fn generated_auto_build_dockerfile(docker: &serde_json::Value) -> String {
+    let base_image = docker.get("base_image").and_then(|v| v.as_str()).unwrap_or("alpine:latest");
+    let working_dir = docker.get("working_dir").and_then(|v| v.as_str()).unwrap_or("/app");
+    let install_cmd = docker.get("install_cmd").and_then(|v| v.as_str()).unwrap_or(":");
+    format!(
+        "FROM {base_image}\nWORKDIR {working_dir}\nCOPY . .\nRUN {install_cmd}\n"
+    )
+}
+
+async fn write_compose_support_files(
+    app: &local_appstore::InstalledApp,
+    compose_dir: &std::path::Path,
+) -> Result<(), String> {
+    if let Some(docker) = &app.docker_config {
+        let auto_build = docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dockerfile = docker.get("dockerfile").and_then(|v| v.as_str());
+        if auto_build && dockerfile.is_none() {
+            tokio::fs::write(
+                compose_dir.join(".iora-generated.Dockerfile"),
+                generated_auto_build_dockerfile(docker),
+            )
+            .await
+            .map_err(|e| format!("Kann generiertes Dockerfile nicht schreiben: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+fn docker_prepare_mode(app: &local_appstore::InstalledApp) -> &'static str {
+    if let Some(docker) = &app.docker_config {
+        if docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return "build";
+        }
+    }
+    if app.docker_config.is_some() || app.bundle_config.is_some() {
+        return "pull";
+    }
+    "none"
+}
+
 /// Try running docker-compose up for an app (single-container or bundle).
 async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<Result<String, String>> {
     use tokio::process::Command;
@@ -5626,6 +5717,9 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
 
     // Create dir & write compose file
     tokio::fs::create_dir_all(&compose_dir).await.ok();
+    if let Err(err) = write_compose_support_files(app, &compose_dir).await {
+        return Some(Err(err));
+    }
     if let Err(e) = tokio::fs::write(&compose_path, &compose_content).await {
         return Some(Err(format!("Kann docker-compose.yml nicht schreiben: {e}")));
     }
@@ -5653,6 +5747,59 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
         }
         Ok(output) => Some(Err(format!(
             "docker compose fehlgeschlagen: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(Err(format!("Docker-Aufruf fehlgeschlagen: {e}"))),
+    }
+}
+
+async fn try_docker_compose_prepare(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<Result<String, String>> {
+    use tokio::process::Command;
+
+    let prepare_mode = docker_prepare_mode(app);
+    if prepare_mode == "none" {
+        return Some(Ok("keine Docker-Vorbereitung nötig".to_string()));
+    }
+
+    let compose_content = if let Some(bundle) = &app.bundle_config {
+        generate_compose_yaml(app_id, bundle)
+    } else if let Some(docker) = &app.docker_config {
+        generate_app_compose_yaml(app_id, docker)
+    } else {
+        return None;
+    };
+
+    let compose_dir = base_dir.join(app_id);
+    tokio::fs::create_dir_all(&compose_dir).await.ok();
+    if let Err(err) = write_compose_support_files(app, &compose_dir).await {
+        return Some(Err(err));
+    }
+    if let Err(e) = tokio::fs::write(compose_dir.join("docker-compose.yml"), &compose_content).await {
+        return Some(Err(format!("Kann docker-compose.yml nicht schreiben: {e}")));
+    }
+
+    let project_name = format!("iora-app-{}", app_id);
+    if let Some(result) = supervisor_compose_prepare(app_id, &project_name, &compose_content, &compose_dir, prepare_mode).await {
+        return Some(result);
+    }
+
+    let args = if prepare_mode == "build" {
+        vec!["compose", "-p", &project_name, "build"]
+    } else {
+        vec!["compose", "-p", &project_name, "pull"]
+    };
+    let result = Command::new("docker")
+        .args(args)
+        .current_dir(&compose_dir)
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => Some(Ok(format!("docker compose {} erfolgreich", prepare_mode))),
+        Ok(output) => Some(Err(format!(
+            "docker compose {} fehlgeschlagen: {}",
+            prepare_mode,
             String::from_utf8_lossy(&output.stderr).trim()
         ))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -5688,6 +5835,119 @@ async fn supervisor_compose_up(
             "iora-supervisor compose up fehlgeschlagen ({status}): {text}"
         )))
     }
+}
+
+async fn supervisor_compose_prepare(
+    app_id: &str,
+    project_name: &str,
+    compose_content: &str,
+    compose_dir: &std::path::Path,
+    prepare_mode: &str,
+) -> Option<Result<String, String>> {
+    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let url = format!("{}/api/supervisor/compose/prepare", base.trim_end_matches('/'));
+    let body = json!({
+        "app_id": app_id,
+        "project_name": project_name,
+        "compose_content": compose_content,
+        "compose_dir": compose_dir.display().to_string(),
+        "prepare_mode": prepare_mode,
+    });
+
+    let response = match reqwest::Client::new().post(url).json(&body).send().await {
+        Ok(response) => response,
+        Err(_) => return None,
+    };
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    if status.is_success() {
+        Some(Ok(format!("iora-supervisor compose {} erfolgreich: {text}", prepare_mode)))
+    } else {
+        Some(Err(format!(
+            "iora-supervisor compose {} fehlgeschlagen ({status}): {text}",
+            prepare_mode
+        )))
+    }
+}
+
+fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
+    tokio::spawn(async move {
+        for _ in 0..300 {
+            let jobs = state.local_appstore.jobs().await;
+            let Some(job) = jobs.into_iter().find(|job| job.id == install_id) else {
+                return;
+            };
+
+            match job.status {
+                local_appstore::InstallStatus::Succeeded => {
+                    let Some(app_id) = job.app_id.clone() else {
+                        return;
+                    };
+                    let installed = state.local_appstore.list().await;
+                    let Some(app) = installed.into_iter().find(|app| app.id == app_id) else {
+                        return;
+                    };
+                    if app.docker_config.is_none() && app.bundle_config.is_none() {
+                        let _ = state.local_appstore.set_status(&app_id, "stopped").await;
+                        return;
+                    }
+
+                    let _ = state.local_appstore.set_status(&app_id, "installing").await;
+                    state.local_appstore.append_log(
+                        &app_id,
+                        local_appstore::LogEntry {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            level: "INFO".to_string(),
+                            message: "Bereite Docker-Image bereits bei der Installation vor…".to_string(),
+                            source: "app-install".to_string(),
+                        },
+                    );
+
+                    match try_docker_compose_prepare(&app_id, &app, state.local_appstore.base_dir()).await {
+                        Some(Ok(msg)) => {
+                            let _ = state.local_appstore.set_status(&app_id, "stopped").await;
+                            state.local_appstore.append_log(
+                                &app_id,
+                                local_appstore::LogEntry {
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    level: "INFO".to_string(),
+                                    message: format!("Docker-Vorbereitung abgeschlossen: {msg}"),
+                                    source: "app-install".to_string(),
+                                },
+                            );
+                        }
+                        Some(Err(err)) => {
+                            let _ = state.local_appstore.set_status(&app_id, "error").await;
+                            state.local_appstore.append_log(
+                                &app_id,
+                                local_appstore::LogEntry {
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    level: "ERROR".to_string(),
+                                    message: format!("Docker-Vorbereitung fehlgeschlagen: {err}"),
+                                    source: "app-install".to_string(),
+                                },
+                            );
+                        }
+                        None => {
+                            let _ = state.local_appstore.set_status(&app_id, "error").await;
+                            state.local_appstore.append_log(
+                                &app_id,
+                                local_appstore::LogEntry {
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    level: "ERROR".to_string(),
+                                    message: "Docker ist nicht verfügbar; App kann nicht vorbereitet werden.".to_string(),
+                                    source: "app-install".to_string(),
+                                },
+                            );
+                        }
+                    }
+                    return;
+                }
+                local_appstore::InstallStatus::Failed | local_appstore::InstallStatus::Canceled => return,
+                _ => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
+            }
+        }
+    });
 }
 
 async fn supervisor_compose_down(app_id: &str, project_name: &str) -> Option<Result<String, String>> {

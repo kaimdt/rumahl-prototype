@@ -21,6 +21,8 @@
     "working_dir": "/app",
     "install_cmd": "cargo build --release",
     "start_cmd": "./target/release/network-scanner-app",
+    "privileged": true,
+    "cap_add": ["NET_ADMIN", "NET_RAW"],
     "internal_ports": [
       {
         "port": 3000,

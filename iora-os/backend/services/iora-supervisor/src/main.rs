@@ -85,6 +85,8 @@ struct ComposeProjectRequest {
     compose_content: Option<String>,
     #[serde(default)]
     compose_dir: Option<String>,
+    #[serde(default)]
+    prepare_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -1074,6 +1076,7 @@ async fn compose_status_for_project(
         project_name: project_name.to_string(),
         compose_content: None,
         compose_dir: None,
+        prepare_mode: None,
     };
     let compose_dir = compose_project_dir(&req);
     let output = Command::new(docker_cli_path())
@@ -1265,6 +1268,74 @@ async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
             "compose_dir": compose_dir.display().to_string(),
             "status": output.status.code(),
             "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim()
+        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "success": false,
+            "error": "docker CLI is not installed"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("docker compose invocation failed: {e}")
+        })),
+    }
+}
+
+#[post("/api/supervisor/compose/prepare")]
+async fn compose_prepare(req: web::Json<ComposeProjectRequest>) -> impl Responder {
+    use tokio::process::Command;
+
+    let project_name = safe_compose_token(&req.project_name);
+    let prepare_mode = req.prepare_mode.as_deref().unwrap_or("pull");
+    if req.app_id.trim().is_empty() || project_name.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "app_id and project_name are required"
+        }));
+    }
+
+    let compose_dir = compose_project_dir(&req);
+    if let Err(e) = tokio::fs::create_dir_all(&compose_dir).await {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": format!("compose directory could not be created: {e}")
+        }));
+    }
+    if let Some(content) = req.compose_content.as_deref() {
+        if let Err(e) = tokio::fs::write(compose_dir.join("docker-compose.yml"), content).await {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "error": format!("docker-compose.yml could not be written: {e}")
+            }));
+        }
+    }
+
+    let args = if prepare_mode == "build" {
+        vec!["compose", "-p", &project_name, "build"]
+    } else {
+        vec!["compose", "-p", &project_name, "pull"]
+    };
+    let result = Command::new(docker_cli_path())
+        .args(args)
+        .current_dir(&compose_dir)
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "project": project_name,
+            "prepare_mode": prepare_mode,
+            "compose_dir": compose_dir.display().to_string(),
+            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim()
+        })),
+        Ok(output) => HttpResponse::BadGateway().json(serde_json::json!({
+            "success": false,
+            "project": project_name,
+            "prepare_mode": prepare_mode,
+            "compose_dir": compose_dir.display().to_string(),
+            "status": output.status.code(),
             "stderr": String::from_utf8_lossy(&output.stderr).trim()
         })),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => HttpResponse::ServiceUnavailable().json(serde_json::json!({
@@ -2053,6 +2124,7 @@ async fn main() -> std::io::Result<()> {
             .service(compose_up)
             .service(compose_down)
             .service(compose_status)
+            .service(compose_prepare)
             // Developer Mode endpoints
             .service(get_developer_mode_status)
             .service(toggle_developer_mode)

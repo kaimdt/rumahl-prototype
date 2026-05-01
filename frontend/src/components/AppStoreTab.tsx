@@ -450,6 +450,18 @@ function InstalledAppsView({
                   <span className="flex items-center gap-1 px-2 py-0.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Läuft
                   </span>
+                ) : app.status === 'starting' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/15 text-amber-300 rounded text-[10px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" /> Startet
+                  </span>
+                ) : app.status === 'installing' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/15 text-blue-300 rounded text-[10px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" /> Verarbeitet
+                  </span>
+                ) : app.status === 'error' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-red-500/15 text-red-300 rounded text-[10px] font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-300" /> Fehler
+                  </span>
                 ) : app.status === 'stopped' ? (
                   <span className="flex items-center gap-1 px-2 py-0.5 bg-foreground/10 text-foreground/50 rounded text-[10px] font-semibold">
                     <span className="w-1.5 h-1.5 rounded-full bg-foreground/30" /> Gestoppt
@@ -488,6 +500,13 @@ function InstalledAppsView({
                       >
                         {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
                         Stoppen
+                      </button>
+                    ) : app.status === 'starting' || app.status === 'installing' ? (
+                      <button
+                        disabled
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/10 text-amber-300 rounded text-[10px] font-semibold opacity-80 cursor-default"
+                      >
+                        <InlineSpinner size={12} /> {app.status === 'installing' ? 'Vorbereiten…' : 'Startet…'}
                       </button>
                     ) : (
                       <button
