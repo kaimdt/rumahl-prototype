@@ -515,43 +515,127 @@ struct AuthResponse {
     expires_in_secs: u64,
 }
 
+/// Try to reach iora-home on standard ports (3001 dev, 8126 production).
+/// Returns the first successful response or the last error.
+async fn try_iora_home_login(
+    http: &reqwest::Client,
+    username: &str,
+    password: &str,
+) -> Result<(String, serde_json::Value), String> {
+    // Standard ports: 3001 (dev), 8126 (production IORA OS)
+    const IORA_HOME_PORTS: &[u16] = &[3001, 8126];
+    let mut last_err = String::new();
+
+    for port in IORA_HOME_PORTS {
+        let login_url = format!("http://127.0.0.1:{port}/api/auth/login");
+        match http
+            .post(&login_url)
+            .json(&serde_json::json!({"username": username, "password": password}))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        if let Some(token) = json.get("token").and_then(|v| v.as_str()) {
+                            return Ok((token.to_string(), json));
+                        }
+                        last_err = format!("port {port}: no token in response");
+                    }
+                    Err(e) => last_err = format!("port {port}: invalid JSON: {e}"),
+                }
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                if status == 502 || status.as_u16() >= 500 {
+                    // Server error on this port — likely wrong service, try next
+                    last_err = format!("port {port}: HTTP {status} {body}");
+                    continue;
+                }
+                // 4xx on this port means we found the right service but
+                // credentials are wrong — no point trying other ports.
+                return Err(format!("HTTP {status} from port {port}: {body}"));
+            }
+            Err(e) => {
+                last_err = format!("port {port}: {e}");
+                // Connection refused — try next port
+                continue;
+            }
+        }
+    }
+
+    Err(format!(
+        "Cannot reach iora-home on any port. Tried ports: {:?}. Last error: {}",
+        IORA_HOME_PORTS, last_err
+    ))
+}
+
+async fn try_iora_home_verify(
+    http: &reqwest::Client,
+    jwt: &str,
+) -> Result<serde_json::Value, String> {
+    const IORA_HOME_PORTS: &[u16] = &[3001, 8126];
+    let mut last_err = String::new();
+
+    for port in IORA_HOME_PORTS {
+        let verify_url = format!("http://127.0.0.1:{port}/api/auth/verify");
+        match http
+            .get(&verify_url)
+            .header("Authorization", format!("Bearer {jwt}"))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => return Ok(json),
+                    Err(e) => last_err = format!("port {port}: invalid JSON: {e}"),
+                }
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                if status == 502 || status.as_u16() >= 500 {
+                    last_err = format!("port {port}: HTTP {status}");
+                    continue;
+                }
+                return Err(format!("verify HTTP {status} from port {port}: {body}"));
+            }
+            Err(e) => {
+                last_err = format!("port {port}: {e}");
+                continue;
+            }
+        }
+    }
+
+    Err(format!(
+        "Cannot verify token on any iora-home port. Tried: {:?}. Last error: {}",
+        IORA_HOME_PORTS, last_err
+    ))
+}
+
 async fn dev_auth(
     State(state): State<AppState>,
     Json(body): Json<AuthRequest>,
 ) -> impl IntoResponse {
-    // Call iora-home login
-    let login_url = "http://127.0.0.1:3001/api/auth/login";
-    let Ok(login_resp) = state.http
-        .post(login_url)
-        .json(&serde_json::json!({"username": &body.username, "password": &body.password}))
-        .send().await
-    else {
-        return (StatusCode::BAD_GATEWAY, "Cannot reach iora-home").into_response();
+    // Try to login against iora-home on any standard port (3001 dev, 8126 production)
+    let (jwt, _login_json) = match try_iora_home_login(&state.http, &body.username, &body.password).await {
+        Ok(result) => result,
+        Err(e) => {
+            return (StatusCode::BAD_GATEWAY, e).into_response();
+        }
     };
 
-    if !login_resp.status().is_success() {
-        let body = login_resp.text().await.unwrap_or_default();
-        return (StatusCode::UNAUTHORIZED, format!("Invalid credentials: {body}")).into_response();
-    }
-
-    let Ok(login_json) = login_resp.json::<serde_json::Value>().await else {
-        return (StatusCode::BAD_GATEWAY, "Invalid response").into_response();
+    // Verify token + get role on the same iora-home instance
+    let user_info = match try_iora_home_verify(&state.http, &jwt).await {
+        Ok(info) => info,
+        Err(e) => {
+            return (StatusCode::BAD_GATEWAY, e).into_response();
+        }
     };
 
-    let Some(jwt) = login_json.get("token").and_then(|v| v.as_str()) else {
-        return (StatusCode::UNAUTHORIZED, "No token in response").into_response();
-    };
-
-    // Verify token + get role
-    let Ok(verify_resp) = state.http
-        .get("http://127.0.0.1:3001/api/auth/verify")
-        .header("Authorization", format!("Bearer {jwt}"))
-        .send().await
-    else {
-        return (StatusCode::BAD_GATEWAY, "Cannot verify token").into_response();
-    };
-
-    let user_info = verify_resp.json::<serde_json::Value>().await.unwrap_or_default();
     let role = user_info.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
     if role != "admin" {
