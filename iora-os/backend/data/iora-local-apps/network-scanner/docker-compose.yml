@@ -1,0 +1,22 @@
+services:
+  network-scanner:
+    image: iora-app-network-scanner:local
+    build:
+      context: .
+      dockerfile: .iora-generated.Dockerfile
+    command: ./target/release/network-scanner-app
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    environment:
+      RUST_LOG: info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  default:
+    driver: bridge

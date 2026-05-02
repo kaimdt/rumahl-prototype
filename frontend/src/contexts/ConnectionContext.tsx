@@ -51,6 +51,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const sseRef = useRef<EventSource | null>(null)
   const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  const devBridgeAvailableRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
@@ -68,6 +69,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   // und lassen den Browser arbeiten.
   const connectDevBridgeSSE = useCallback(() => {
     if (!mountedRef.current) return
+    if (!devBridgeAvailableRef.current) return
 
     const devBridgeUrl = getDevBridgeUrl()
     if (!devBridgeUrl) return
@@ -198,10 +200,12 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   // Fallback-Dev-Bridge-Check (nur wenn SSE nicht funktioniert)
   const checkDevBridge = useCallback(async () => {
     if (!mountedRef.current) return
+    if (!devBridgeAvailableRef.current) return
     // Nur als Fallback, wenn SSE nicht verbunden ist
     if (sseRef.current) return
     try {
       const devBridgeUrl = getDevBridgeUrl()
+      if (!devBridgeUrl) return
       const response = await fetch(`${devBridgeUrl}/dev/health`, {
         signal: AbortSignal.timeout(5_000),
       })
@@ -227,14 +231,35 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
   // ── Initialisierung ────────────────────────────────────────
   useEffect(() => {
-    // Beim Start: Backend prüfen und SSE zur Dev Bridge aufbauen
+    let cancelled = false
+
+    const detectDevBridge = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/admin/dev-image`, {
+          signal: AbortSignal.timeout(5_000),
+        })
+        const data = response.ok ? await response.json() : null
+        devBridgeAvailableRef.current = Boolean(
+          data?.is_os_dev && data?.bridge_unit_installed && data?.dev_token_present,
+        )
+      } catch {
+        devBridgeAvailableRef.current = false
+      }
+
+      if (!cancelled && devBridgeAvailableRef.current) {
+        connectDevBridgeSSE()
+      }
+    }
+
+    // Beim Start: Backend prüfen; Dev Bridge nur auf echten OS-Dev-Images verbinden.
     checkBackend()
-    connectDevBridgeSSE()
+    detectDevBridge()
 
     // Backend-Polling alle 15s (zusätzlich zum Backoff)
     const backendInterval = setInterval(checkBackend, 15_000)
 
     return () => {
+      cancelled = true
       clearInterval(backendInterval)
       if (sseRef.current) {
         sseRef.current.close()

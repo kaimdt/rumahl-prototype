@@ -129,8 +129,11 @@ See [BUILD_IMAGES.md](BUILD_IMAGES.md) for detailed build documentation.
 # Using Make
 make build
 
-# Using the wrapper
+# Using the wrapper (fast install build: raw image + bootable installer ISO)
 ./build.sh
+
+# Full release with every optional artifact (qcow2/vdi/vmdk/ova/rauc)
+./build.sh all
 
 # Resume interrupted build (with optional progress view)
 ./build.sh resume --progress

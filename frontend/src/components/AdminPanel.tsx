@@ -11254,7 +11254,7 @@ function ThemesTab({ token }: { token: string }) {
         body: JSON.stringify({ zip_data: base64, file_name: file.name }),
       })
       if (!r.ok) {
-        const err = await r.json().catch(() => ({ message: 'Installation fehlgeschlagen' }))
+        const err = await r.json().catch(async () => ({ message: await r.text().catch(() => 'Installation fehlgeschlagen') }))
         throw new Error(err.message || err.error || 'Installation fehlgeschlagen')
       }
       toast.success(`Theme „${file.name.replace(/\.zip$/i, '')}“ installiert`)

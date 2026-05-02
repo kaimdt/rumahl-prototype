@@ -54,5 +54,25 @@ export function setAssistUrl(url: string): void {
  * In local development, it can be overridden via VITE_DEV_BRIDGE_URL.
  */
 export function getDevBridgeUrl(): string {
-  return import.meta.env.VITE_DEV_BRIDGE_URL || _backendUrl.replace(/:\d+$/, ':8101') || 'http://localhost:8101'
+  if (import.meta.env.VITE_DEV_BRIDGE_URL) return import.meta.env.VITE_DEV_BRIDGE_URL
+
+  if (_backendUrl) {
+    try {
+      const parsed = new URL(_backendUrl, globalThis.location?.origin)
+      parsed.port = '8101'
+      parsed.pathname = ''
+      parsed.search = ''
+      parsed.hash = ''
+      return parsed.toString().replace(/\/$/, '')
+    } catch {
+      return _backendUrl.replace(/:\d+$/, ':8101')
+    }
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+    return `${protocol}//${window.location.hostname}:8101`
+  }
+
+  return ''
 }

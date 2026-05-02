@@ -5957,9 +5957,75 @@ fn generated_auto_build_dockerfile(docker: &serde_json::Value) -> String {
     let base_image = docker.get("base_image").and_then(|v| v.as_str()).unwrap_or("alpine:latest");
     let working_dir = docker.get("working_dir").and_then(|v| v.as_str()).unwrap_or("/app");
     let install_cmd = docker.get("install_cmd").and_then(|v| v.as_str()).unwrap_or(":");
+    let rust_build_deps = if base_image.starts_with("rust:") && (base_image.contains("slim") || base_image.contains("bookworm") || base_image.contains("bullseye")) {
+        "RUN apt-get update \\\n+    && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates build-essential \\\n+    && rm -rf /var/lib/apt/lists/*\n"
+    } else {
+        ""
+    };
     format!(
-        "FROM {base_image}\nWORKDIR {working_dir}\nCOPY . .\nRUN {install_cmd}\n"
+        "FROM {base_image}\n{rust_build_deps}WORKDIR {working_dir}\nCOPY . .\nRUN if [ -d .iora-sdks/rust ]; then mkdir -p /sdks && cp -a .iora-sdks/rust /sdks/rust; fi\nRUN {install_cmd}\n"
     )
+}
+
+fn copy_dir_all_sync(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let target = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all_sync(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
+fn candidate_rust_sdk_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = vec![
+        std::path::PathBuf::from("/opt/iora/sdks/rust"),
+        std::path::PathBuf::from("/usr/share/iora/sdks/rust"),
+        std::path::PathBuf::from("/var/lib/iora/sdks/rust"),
+    ];
+    if let Ok(cwd) = std::env::current_dir() {
+        paths.extend([
+            cwd.join("sdks/rust"),
+            cwd.join("../sdks/rust"),
+            cwd.join("../../sdks/rust"),
+            cwd.join("../../../sdks/rust"),
+        ]);
+    }
+    paths
+}
+
+fn should_vendor_rust_sdk(compose_dir: &std::path::Path) -> bool {
+    let Ok(cargo_toml) = std::fs::read_to_string(compose_dir.join("Cargo.toml")) else {
+        return false;
+    };
+    cargo_toml.contains("iora-sdk") && cargo_toml.contains("../../sdks/rust")
+}
+
+async fn ensure_vendored_rust_sdk(compose_dir: &std::path::Path) -> Result<(), String> {
+    if !should_vendor_rust_sdk(compose_dir) {
+        return Ok(());
+    }
+    let Some(source) = candidate_rust_sdk_paths().into_iter().find(|path| path.join("Cargo.toml").exists()) else {
+        return Err("Rust-App benoetigt iora-sdk via ../../sdks/rust, aber der lokale Rust-SDK wurde nicht gefunden".to_string());
+    };
+    let target = compose_dir.join(".iora-sdks/rust");
+    let source_for_task = source.clone();
+    let target_for_task = target.clone();
+    tokio::task::spawn_blocking(move || {
+        if target_for_task.exists() {
+            std::fs::remove_dir_all(&target_for_task)?;
+        }
+        copy_dir_all_sync(&source_for_task, &target_for_task)
+    })
+    .await
+    .map_err(|e| format!("Rust-SDK-Kopie fehlgeschlagen: {e}"))?
+    .map_err(|e| format!("Rust-SDK kann nicht nach {} kopiert werden: {e}", target.display()))?;
+    Ok(())
 }
 
 async fn write_compose_support_files(
@@ -5970,6 +6036,7 @@ async fn write_compose_support_files(
         let auto_build = docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false);
         let dockerfile = docker.get("dockerfile").and_then(|v| v.as_str());
         if auto_build && dockerfile.is_none() {
+            ensure_vendored_rust_sdk(compose_dir).await?;
             tokio::fs::write(
                 compose_dir.join(".iora-generated.Dockerfile"),
                 generated_auto_build_dockerfile(docker),

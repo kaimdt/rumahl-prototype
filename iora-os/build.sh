@@ -25,6 +25,7 @@ IORA OS Image Builder
 Usage: $(basename $0) [OPTIONS]
 
 Commands:
+    quick           Fast default: Buildroot + install artifacts only (raw + boot ISO)
     all             Full workflow (Buildroot + release artifacts)
     resume          Resume Buildroot compilation; optional artifact generation via --with-images
     images          Generate release artifacts from existing output/images only
@@ -36,6 +37,10 @@ OPTIONS:
     all/images options (forwarded to build-all-images.sh):
         --progress
         --images-only
+        --minimal-artifacts | --quick
+        --artifacts raw,boot-iso,qcow2,...
+        --jobs N
+        --xz-preset N
         --force-full-image
         --allow-fallback
         --force-fallback-image
@@ -57,6 +62,7 @@ OPTIONS:
 
 EXAMPLES:
     $(basename $0)
+    $(basename $0) quick --progress
     $(basename $0) all --progress --require-all-artifacts
     $(basename $0) all --force-full-image --progress
     $(basename $0) resume --progress
@@ -172,7 +178,11 @@ if [ "${IORA_OS_DEV}" = "1" ]; then
 fi
 
 
-case "${1:-all}" in
+case "${1:-quick}" in
+    quick|fast)
+        [ $# -gt 0 ] && shift
+        "${SCRIPT_DIR}/build-all-images.sh" --minimal-artifacts "$@"
+        ;;
     all)
         shift
         "${SCRIPT_DIR}/build-all-images.sh" "$@"

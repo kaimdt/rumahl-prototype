@@ -90,6 +90,22 @@ mkdir -p "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
 mkdir -p "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants"
 mkdir -p "${TARGET_DIR}/etc/apparmor.d"
 
+# Make the Rust SDK available to locally installed Rust apps. Some example
+# ZIPs use `iora-sdk = { path = "../../sdks/rust" }`; iora-home vendors this
+# SDK into the Docker build context when it is present here.
+for sdk_src in \
+    "${BR2_EXTERNAL_IORA_PATH:-}/../sdks/rust" \
+    "$(pwd)/../sdks/rust" \
+    "$(pwd)/sdks/rust"; do
+    if [ -f "${sdk_src}/Cargo.toml" ]; then
+        mkdir -p "${TARGET_DIR}/usr/share/iora/sdks"
+        rm -rf "${TARGET_DIR}/usr/share/iora/sdks/rust"
+        cp -a "${sdk_src}" "${TARGET_DIR}/usr/share/iora/sdks/rust"
+        echo "IORA OS: Rust SDK bundled for local app builds"
+        break
+    fi
+done
+
 # ── Robust DHCP for *any* wired NIC name (eth0, ens3, enp0s3, …) ────────────
 # Buildroot's BR2_SYSTEM_DHCP="eth0" only writes /etc/systemd/network/eth0.network
 # that matches literally Name=eth0. Modern VMs (Proxmox/KVM/VMware/Hyper-V/VirtualBox)

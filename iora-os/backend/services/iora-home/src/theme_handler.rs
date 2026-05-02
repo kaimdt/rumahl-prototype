@@ -117,6 +117,22 @@ fn map_theme_row(row: &sqlx::postgres::PgRow) -> InstalledThemeRow {
     }
 }
 
+fn normalize_zip_path(name: &str) -> String {
+    name.replace('\\', "/").trim_start_matches('/').to_string()
+}
+
+fn strip_zip_prefix(name: &str, prefix: &str) -> String {
+    let normalized = normalize_zip_path(name);
+    if prefix.is_empty() {
+        return normalized;
+    }
+    if let Some(value) = normalized.strip_prefix(prefix) {
+        value.trim_start_matches('/').to_string()
+    } else {
+        normalized
+    }
+}
+
 // ─── Full implementations on ThemeState ─────────────────────────────
 
 impl ThemeState {
@@ -127,15 +143,17 @@ impl ThemeState {
             .map_err(|e| anyhow::anyhow!("Invalid ZIP: {}", e))?;
 
         let mut manifest_bytes = Vec::new();
+        let mut manifest_prefix = String::new();
         let mut found = false;
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let name = file.name().to_string();
+            let name = normalize_zip_path(file.name());
             // Skip directories, but NOT manifest.json itself
             if name.ends_with('/') { continue; }
             // Check if this is manifest.json (at root or in a subfolder)
             if name == "manifest.json" || name.ends_with("/manifest.json") {
                 file.read_to_end(&mut manifest_bytes)?;
+                manifest_prefix = name.trim_end_matches("manifest.json").trim_end_matches('/').to_string();
                 found = true;
                 break;
             }
@@ -144,7 +162,15 @@ impl ThemeState {
             anyhow::bail!("ZIP must contain a manifest.json at the root");
         }
 
-        let mut def: iora_shared::theme::ThemeDefinition = serde_json::from_slice(&manifest_bytes)
+        let manifest_json: serde_json::Value = serde_json::from_slice(&manifest_bytes)
+            .map_err(|e| anyhow::anyhow!("Invalid manifest.json: {}", e))?;
+        let mut merged_manifest = manifest_json.clone();
+        if let (Some(root), Some(theme)) = (merged_manifest.as_object_mut(), manifest_json.get("theme").and_then(|v| v.as_object())) {
+            for (key, value) in theme {
+                root.insert(key.clone(), value.clone());
+            }
+        }
+        let mut def: iora_shared::theme::ThemeDefinition = serde_json::from_value(merged_manifest)
             .map_err(|e| anyhow::anyhow!("Invalid manifest.json: {}", e))?;
         def.source = "file".to_string();
 
@@ -155,14 +181,20 @@ impl ThemeState {
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let name = file.name().to_string();
+            let name = normalize_zip_path(file.name());
             if name == "manifest.json" || name.ends_with('/') { continue; }
-            if let Some(parent) = FsPath::new(&name).parent() {
+            let relative_name = strip_zip_prefix(&name, &manifest_prefix);
+            if relative_name.is_empty() || relative_name == "manifest.json" { continue; }
+            let relative_path = FsPath::new(&relative_name);
+            if relative_name.contains(':') || relative_path.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir)) {
+                anyhow::bail!("Unsafe ZIP path: {}", name);
+            }
+            if let Some(parent) = relative_path.parent() {
                 if !parent.as_os_str().is_empty() {
                     std::fs::create_dir_all(theme_dir.join(parent))?;
                 }
             }
-            let target = theme_dir.join(&name);
+            let target = theme_dir.join(relative_path);
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
             std::fs::write(&target, &buf)?;

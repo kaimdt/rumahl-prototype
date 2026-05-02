@@ -35,6 +35,9 @@ UNATTENDED=false
 IMAGES_ONLY=false
 PROGRESS=false
 REQUIRE_ALL_ARTIFACTS=false
+ARTIFACT_FILTER="all"
+BUILD_JOBS=""
+XZ_PRESET="${XZ_PRESET:-9}"
 
 CREATED_ARTIFACTS=()
 SKIPPED_ARTIFACTS=()
@@ -77,6 +80,52 @@ mark_skipped() {
     SKIPPED_ARTIFACTS+=("$1")
 }
 
+want_artifact() {
+    local artifact="$1"
+    if [ "${ARTIFACT_FILTER}" = "all" ]; then
+        return 0
+    fi
+    case ",${ARTIFACT_FILTER}," in
+        *,${artifact},*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+set_artifact_filter() {
+    local filter="$1"
+    local normalized=""
+    local item
+    IFS=',' read -r -a _artifact_items <<< "${filter}"
+    for item in "${_artifact_items[@]}"; do
+        item="$(echo "${item}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+        case "${item}" in
+            all)
+                ARTIFACT_FILTER="all"
+                return 0
+                ;;
+            raw|img|img-xz)
+                item="raw" ;;
+            boot|boot-iso|installer-boot|installer-boot-iso)
+                item="boot-iso" ;;
+            iso|archive-iso|qcow2|vdi|vmdk|ova|rauc|raucb)
+                [ "${item}" = "archive-iso" ] && item="iso"
+                [ "${item}" = "raucb" ] && item="rauc"
+                ;;
+            "")
+                continue ;;
+            *)
+                log_error "Unknown artifact '${item}'. Expected: raw,iso,boot-iso,qcow2,vdi,vmdk,ova,rauc,all"
+                exit 1
+                ;;
+        esac
+        case ",${normalized}," in
+            *,${item},*) ;;
+            *) normalized="${normalized:+${normalized},}${item}" ;;
+        esac
+    done
+    ARTIFACT_FILTER="${normalized:-all}"
+}
+
 xz_compress_file() {
     local src_file="$1"
     local dst_file="$2"
@@ -90,7 +139,7 @@ xz_compress_file() {
     # dictionary at -9 wants ~675 MiB per thread and xz caps total RAM at
     # ~25% of system memory by default. Override via XZ_MEMLIMIT env if needed.
     local _memlimit="${XZ_MEMLIMIT:-0}"
-    if ! xz -9 -T0 --memlimit-compress="${_memlimit}" -c "${src_file}" > "${tmp_file}"; then
+    if ! xz "-${XZ_PRESET}" -T0 --memlimit-compress="${_memlimit}" -c "${src_file}" > "${tmp_file}"; then
         rm -f "${tmp_file}"
         return 1
     fi
@@ -372,7 +421,7 @@ check_dependencies() {
 
     refresh_optional_tool_flags
 
-    if [ "${ISO_TOOL_AVAILABLE}" = false ]; then
+    if want_artifact iso && [ "${ISO_TOOL_AVAILABLE}" = false ]; then
         log_warn "No ISO creator found (xorriso/genisoimage/mkisofs) - ISO creation will be skipped"
         if offer_install_missing_packages "ISO creation tools" "xorriso"; then
             refresh_optional_tool_flags
@@ -385,7 +434,7 @@ check_dependencies() {
         fi
     fi
 
-    if [ "${HAS_GRUB_MKRESCUE}" = false ]; then
+    if want_artifact boot-iso && [ "${HAS_GRUB_MKRESCUE}" = false ]; then
         log_warn "grub-mkrescue not found - bootable installer ISO will be skipped"
         if offer_install_missing_packages "bootable ISO tooling" "grub-pc-bin grub-common mtools"; then
             refresh_optional_tool_flags
@@ -400,27 +449,29 @@ check_dependencies() {
 
     # UEFI boot tooling check — grub-mkrescue silently produces BIOS-only ISOs
     # when mtools or xorriso are missing. The installer must boot on UEFI too.
-    local need_uefi=()
-    command -v mformat  >/dev/null 2>&1 || need_uefi+=(mtools)
-    command -v xorriso  >/dev/null 2>&1 || need_uefi+=(xorriso)
-    if [ -d /usr/lib/grub/x86_64-efi ] || [ -d /usr/share/grub/x86_64-efi ]; then
-        :
-    else
-        need_uefi+=("grub-efi-amd64-bin")
-    fi
-    if [ "${#need_uefi[@]}" -gt 0 ]; then
-        log_warn "UEFI boot tooling missing: ${need_uefi[*]} — installer ISO may only boot on BIOS."
-        if offer_install_missing_packages "UEFI ISO tooling" "${need_uefi[@]}"; then
+    if want_artifact boot-iso; then
+        local need_uefi=()
+        command -v mformat  >/dev/null 2>&1 || need_uefi+=(mtools)
+        command -v xorriso  >/dev/null 2>&1 || need_uefi+=(xorriso)
+        if [ -d /usr/lib/grub/x86_64-efi ] || [ -d /usr/share/grub/x86_64-efi ]; then
             :
         else
-            show_install_alternatives "UEFI-bootable installer ISO" "${need_uefi[*]}"
-            if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "Continue without UEFI boot support?" "Y"; then
-                exit 1
+            need_uefi+=("grub-efi-amd64-bin")
+        fi
+        if [ "${#need_uefi[@]}" -gt 0 ]; then
+            log_warn "UEFI boot tooling missing: ${need_uefi[*]} — installer ISO may only boot on BIOS."
+            if offer_install_missing_packages "UEFI ISO tooling" "${need_uefi[@]}"; then
+                :
+            else
+                show_install_alternatives "UEFI-bootable installer ISO" "${need_uefi[*]}"
+                if [ "${UNATTENDED}" = false ] && ! prompt_yes_no "Continue without UEFI boot support?" "Y"; then
+                    exit 1
+                fi
             fi
         fi
     fi
 
-    if [ "${HAS_VBOXMANAGE}" = false ]; then
+    if want_artifact ova && [ "${HAS_VBOXMANAGE}" = false ]; then
         log_warn "VBoxManage not found - OVA export will be skipped"
         if offer_install_missing_packages "OVA export tools" "virtualbox"; then
             refresh_optional_tool_flags
@@ -433,7 +484,7 @@ check_dependencies() {
         fi
     fi
 
-    if [ "${HAS_RAUC}" = false ]; then
+    if want_artifact rauc && [ "${HAS_RAUC}" = false ]; then
         log_warn "RAUC not found - update bundle creation will be skipped"
         if offer_install_missing_packages "RAUC tooling" "rauc"; then
             refresh_optional_tool_flags
@@ -446,7 +497,7 @@ check_dependencies() {
         fi
     fi
 
-    if ! command -v qemu-img &> /dev/null; then
+    if (want_artifact qcow2 || want_artifact vdi || want_artifact vmdk || want_artifact ova) && ! command -v qemu-img &> /dev/null; then
         log_warn "qemu-img not found - qcow2/vdi/vmdk export will be skipped"
         if offer_install_missing_packages "VM conversion tooling" "qemu-utils"; then
             if ! command -v qemu-img &> /dev/null; then
@@ -476,8 +527,35 @@ parse_args() {
             --images-only)
                 IMAGES_ONLY=true
                 ;;
+            --minimal-artifacts|--quick)
+                set_artifact_filter "raw,boot-iso"
+                if [ "${XZ_PRESET}" = "9" ]; then
+                    XZ_PRESET="6"
+                fi
+                ;;
+            --artifacts)
+                shift
+                set_artifact_filter "${1:-}"
+                ;;
+            --artifacts=*)
+                set_artifact_filter "${1#*=}"
+                ;;
             --progress)
                 PROGRESS=true
+                ;;
+            --jobs)
+                shift
+                BUILD_JOBS="${1:-}"
+                ;;
+            --jobs=*)
+                BUILD_JOBS="${1#*=}"
+                ;;
+            --xz-preset)
+                shift
+                XZ_PRESET="${1:-9}"
+                ;;
+            --xz-preset=*)
+                XZ_PRESET="${1#*=}"
                 ;;
             --require-all-artifacts)
                 REQUIRE_ALL_ARTIFACTS=true
@@ -493,15 +571,19 @@ parse_args() {
 Usage: $(basename "$0") [OPTIONS]
 
 OPTIONS:
-  --force-full-image     Require full GPT/loop/grub post-image flow (fail if unavailable)
-  --allow-fallback       Allow automatic fallback to rootfs.ext2 image (default)
-  --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
+    --force-full-image     Require full GPT/loop/grub post-image flow (fail if unavailable)
+    --allow-fallback       Allow automatic fallback to rootfs.ext2 image (default)
+    --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
     --images-only          Skip Buildroot compile, generate release artifacts from existing output/images
+    --minimal-artifacts    Create only raw image + bootable installer ISO (faster local install build)
+    --artifacts LIST       Comma list: raw,iso,boot-iso,qcow2,vdi,vmdk,ova,rauc,all
     --progress             Show build step progress while running make
+    --jobs N               Override Buildroot make parallelism (default: nproc)
+    --xz-preset N          xz compression preset 0-9 (default: 9; quick uses 6)
     --require-all-artifacts Fail build if any optional artifact is skipped
     --unattended           No interactive prompts; auto-attempt install and continue when optional tooling is missing
     --publish              Publish release to IORA update server (requires IORA_UPDATE_API_KEY)
-  -h, --help             Show this help
+    -h, --help             Show this help
 EOF
                 exit 0
                 ;;
@@ -537,13 +619,26 @@ configure_buildroot() {
     log_info "Configuring Buildroot for IORA OS..."
 
     cd "${BUILD_DIR}"
-    PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" "${IORA_DEFCONFIG:-iora_defconfig}"
-    if [ "${IORA_OS_DEV:-0}" = "1" ]; then
-        log_info "Enabling native build toolchain for IORA OS Dev image..."
-        cat >> .config <<'EOF'
+    local config_key="${IORA_DEFCONFIG:-iora_defconfig}|dev=${IORA_OS_DEV:-0}"
+    local config_marker=".iora-config-key"
+    local current_key=""
+    [ -f "${config_marker}" ] && current_key="$(cat "${config_marker}" 2>/dev/null || true)"
+
+    if [ -f .config ] && [ "${current_key}" = "${config_key}" ] && [ "${IORA_FORCE_RECONFIGURE:-0}" != "1" ]; then
+        log_info "Reusing existing Buildroot .config (${config_key}); running olddefconfig only."
+        PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" olddefconfig
+    else
+        PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" "${IORA_DEFCONFIG:-iora_defconfig}"
+        if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+            log_info "Enabling native build toolchain for IORA OS Dev image..."
+            if ! grep -q '^BR2_PACKAGE_IORA_DEV_TOOLCHAIN=y$' .config 2>/dev/null; then
+                cat >> .config <<'EOF'
 BR2_PACKAGE_IORA_DEV_TOOLCHAIN=y
 EOF
-        PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" olddefconfig
+            fi
+            PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" olddefconfig
+        fi
+        echo "${config_key}" > "${config_marker}"
     fi
 
     log_success "Buildroot configured"
@@ -571,8 +666,8 @@ build_base_image() {
     fi
 
     local _ncpu
-    _ncpu=$(nproc)
-    log_info "  make -j${_ncpu} (cores reported by nproc: ${_ncpu})"
+    _ncpu="${BUILD_JOBS:-$(nproc)}"
+    log_info "  make -j${_ncpu} (override with --jobs N)"
 
     cd "${BUILD_DIR}"
     if [ "${PROGRESS}" = true ]; then
@@ -6243,6 +6338,8 @@ main() {
     log_info "Unattended mode: ${UNATTENDED}"
     log_info "Images-only mode: ${IMAGES_ONLY}"
     log_info "Progress mode: ${PROGRESS}"
+    log_info "Artifacts: ${ARTIFACT_FILTER}"
+    log_info "xz preset: -${XZ_PRESET}"
     log_info "Require all artifacts: ${REQUIRE_ALL_ARTIFACTS}"
     echo ""
 
@@ -6275,14 +6372,14 @@ main() {
     log_info "Creating release images..."
     log_info ""
 
-    create_raw_image
-    create_iso_image
-    create_bootable_installer_iso
-    create_qcow2_image
-    create_vdi_image
-    create_vmdk_image
-    create_ova_image
-    create_rauc_bundle
+    if want_artifact raw; then create_raw_image; else mark_skipped "iora-os.img.xz (disabled by artifact selection)"; fi
+    if want_artifact iso; then create_iso_image; else mark_skipped "iora-os-installer.iso (disabled by artifact selection)"; fi
+    if want_artifact boot-iso; then create_bootable_installer_iso; else mark_skipped "iora-os-installer-boot.iso (disabled by artifact selection)"; fi
+    if want_artifact qcow2; then create_qcow2_image; else mark_skipped "iora-os.qcow2.xz (disabled by artifact selection)"; fi
+    if want_artifact vdi; then create_vdi_image; else mark_skipped "iora-os.vdi.zip (disabled by artifact selection)"; fi
+    if want_artifact vmdk; then create_vmdk_image; else mark_skipped "iora-os.vmdk.zip (disabled by artifact selection)"; fi
+    if want_artifact ova; then create_ova_image; else mark_skipped "iora-os.ova (disabled by artifact selection)"; fi
+    if want_artifact rauc; then create_rauc_bundle; else mark_skipped "iora-os-YYYYMMDD.raucb (disabled by artifact selection)"; fi
     create_checksums
     create_readme
 
