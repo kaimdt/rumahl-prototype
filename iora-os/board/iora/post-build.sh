@@ -3150,8 +3150,6 @@ if [ -f "${TARGET_DIR}/opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge" ]; th
     ln -sf /opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge \
         "${TARGET_DIR}/usr/bin/iora-dev-bridge"
 fi
-          "${TARGET_DIR}/usr/bin/iora-dev-bridge"
-fi
 
 # The public key and signed manifest are populated by build-integrity.sh,
 # which is invoked from post-image.sh after Buildroot finished installing
