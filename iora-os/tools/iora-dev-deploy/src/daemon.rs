@@ -104,7 +104,7 @@ pub enum Event {
     WatchStarted { session: WatchSession },
     WatchStopped { id: Uuid },
     WatchTriggered { id: Uuid, components: Vec<String> },
-    Connection { host: Option<String>, hostname: Option<String>, build: Option<String>, variant: Option<String> },
+    Connection { host: Option<String>, hostname: Option<String>, build: Option<String>, variant: Option<String>, reachable: bool, token_ok: bool },
     ServiceLogs { unit: String, tail: u32, stdout: String, stderr: String },
     SystemData { path: String, kind: String, content: serde_json::Value },
     Log { source: String, line: String },
@@ -486,6 +486,8 @@ async fn emit_connection_event(
                             .or(Some(st.hostname.clone())),
                         build: Some(st.build.clone()),
                         variant: Some(st.variant.clone()),
+                        reachable: true,
+                        token_ok: true,
                     });
                     return;
                 }
@@ -498,6 +500,8 @@ async fn emit_connection_event(
         hostname: None,
         build: None,
         variant: None,
+        reachable,
+        token_ok: false,
     });
     // Update cached connection state
     let conn = connection_state().await;
@@ -512,6 +516,8 @@ async fn emit_discovered_hint(state: &AppState, devices: &[discover::Found]) {
             hostname: first.txt.get("hostname").cloned(),
             build: first.txt.get("build").cloned(),
             variant: Some("dev".into()),
+            reachable: false,
+            token_ok: false,
         });
     }
 }
@@ -742,6 +748,8 @@ async fn h_connect(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<
         hostname: Some(st.hostname.clone()),
         build: Some(st.build.clone()),
         variant: Some(st.variant.clone()),
+        reachable: true,
+        token_ok: true,
     });
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -757,7 +765,7 @@ async fn h_disconnect(headers: HeaderMap, State(s): State<AppState>) -> Result<J
     check_auth(&s, &headers)?;
     let p = config::config_file_path().map_err(server_err)?;
     if p.exists() { let _ = std::fs::remove_file(&p); }
-    let _ = s.inner.events.send(Event::Connection { host: None, hostname: None, build: None, variant: None });
+    let _ = s.inner.events.send(Event::Connection { host: None, hostname: None, build: None, variant: None, reachable: false, token_ok: false });
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -1638,6 +1646,8 @@ async fn h_connect_credentials(
         hostname: status_snapshot.as_ref().map(|status| status.hostname.clone()),
         build: status_snapshot.as_ref().map(|status| status.build.clone()),
         variant: status_snapshot.as_ref().map(|status| status.variant.clone()).or(Some("dev".into())),
+        reachable: status_snapshot.is_some(),
+        token_ok: status_snapshot.is_some(),
     });
 
     Ok(Json(serde_json::json!({
