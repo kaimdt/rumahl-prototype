@@ -84,19 +84,19 @@ export function CameraWidget({ entity, config }: CameraWidgetProps) {
                 <p className="text-foreground/40">Status</p>
                 <p className="font-medium text-foreground capitalize">{entity.state === 'idle' ? 'Bereit' : entity.state}</p>
               </div>
-              {entity.attributes.brand && (
+              {!!entity.attributes.brand && (
                 <div className="rounded-xl bg-foreground/5 border border-foreground/8 px-3 py-2">
                   <p className="text-foreground/40">Marke</p>
                   <p className="font-medium text-foreground">{entity.attributes.brand as string}</p>
                 </div>
               )}
-              {entity.attributes.model_name && (
+              {!!entity.attributes.model_name && (
                 <div className="rounded-xl bg-foreground/5 border border-foreground/8 px-3 py-2">
                   <p className="text-foreground/40">Modell</p>
                   <p className="font-medium text-foreground">{entity.attributes.model_name as string}</p>
                 </div>
               )}
-              {entity.attributes.frontend_stream_type && (
+              {!!entity.attributes.frontend_stream_type && (
                 <div className="rounded-xl bg-foreground/5 border border-foreground/8 px-3 py-2">
                   <p className="text-foreground/40">Stream</p>
                   <p className="font-medium text-foreground capitalize">{entity.attributes.frontend_stream_type as string}</p>

@@ -887,6 +887,15 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
 
         if result.is_none() {
             tracing::info!("iora-core: applying migration {}", name);
+
+            // Wrap the entire migration in a transaction so a failure in
+            // any single statement rolls back everything. This avoids
+            // "already exists" / FK errors on retry after partial failure.
+            let mut tx = pool.begin().await.map_err(|e| {
+                tracing::error!("iora-core: failed to begin transaction for migration {}: {}", name, e);
+                e
+            })?;
+
             // Split by semicolons and execute each statement individually
             // because prepared statements cannot contain multiple commands
             for statement in sql.split(';') {
@@ -901,12 +910,26 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
                 if trimmed.is_empty() {
                     continue;
                 }
-                sqlx::query(&trimmed).execute(pool).await?;
+                sqlx::query(&trimmed).execute(&mut *tx).await.map_err(|e| {
+                    tracing::error!(
+                        "iora-core: migration {} failed on statement (rolling back): {}",
+                        name,
+                        e
+                    );
+                    e
+                })?;
             }
+
+            // Record migration as applied INSIDE the same transaction.
             sqlx::query("INSERT INTO _core_migrations (name) VALUES ($1)")
                 .bind(name)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
+
+            tx.commit().await.map_err(|e| {
+                tracing::error!("iora-core: failed to commit migration {}: {}", name, e);
+                e
+            })?;
         }
     }
 

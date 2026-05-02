@@ -14,8 +14,19 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
-const IORA_CORE_URL: &str = "http://localhost:8090";
-const IORA_HOME_URL: &str = "http://localhost:8080";
+/// Returns the iora-core base URL.
+/// Honors `$IORA_CORE_URL` env var; falls back to system_config.
+fn iora_core_url() -> String {
+    std::env::var("IORA_CORE_URL")
+        .unwrap_or_else(|_| iora_shared::system_config::service_url("iora-core", 8090))
+}
+
+/// Returns the iora-home base URL.
+/// Honors `$IORA_HOME_URL` env var; falls back to system_config.
+fn iora_home_url() -> String {
+    std::env::var("IORA_HOME_URL")
+        .unwrap_or_else(|_| iora_shared::system_config::service_url("iora-home", 8126))
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -57,7 +68,7 @@ async fn dashboard_overview(State(state): State<AppState>) -> Json<serde_json::V
     let services = async {
         state
             .http
-            .get(format!("{}/api/core/services", IORA_CORE_URL))
+            .get(format!("{}/api/core/services", iora_core_url()))
             .send()
             .await
             .ok()?
@@ -71,7 +82,7 @@ async fn dashboard_overview(State(state): State<AppState>) -> Json<serde_json::V
     let plugins = async {
         state
             .http
-            .get(format!("{}/api/core/plugins", IORA_CORE_URL))
+            .get(format!("{}/api/core/plugins", iora_core_url()))
             .send()
             .await
             .ok()?
@@ -118,7 +129,7 @@ async fn system_stats() -> Json<serde_json::Value> {
 async fn list_services(State(state): State<AppState>) -> impl IntoResponse {
     match state
         .http
-        .get(format!("{}/api/core/services", IORA_CORE_URL))
+        .get(format!("{}/api/core/services", iora_core_url()))
         .send()
         .await
     {
@@ -148,8 +159,8 @@ async fn aggregate_logs() -> Json<serde_json::Value> {
         .ok();
 
     let services: Vec<(&str, String)> = vec![
-        ("iora-home", std::env::var("IORA_HOME_URL").unwrap_or_else(|_| IORA_HOME_URL.to_string())),
-        ("iora-core", std::env::var("IORA_CORE_URL").unwrap_or_else(|_| IORA_CORE_URL.to_string())),
+        ("iora-home", iora_home_url()),
+        ("iora-core", iora_core_url()),
         ("iora-control", "http://localhost:8123".to_string()),
         ("iora-assist", std::env::var("IORA_ASSIST_URL").unwrap_or_else(|_| "http://localhost:8129".to_string())),
         ("iora-supervisor", "http://localhost:8097".to_string()),
@@ -205,7 +216,7 @@ async fn aggregate_logs() -> Json<serde_json::Value> {
 async fn list_plugins(State(state): State<AppState>) -> impl IntoResponse {
     match state
         .http
-        .get(format!("{}/api/core/plugins", IORA_CORE_URL))
+        .get(format!("{}/api/core/plugins", iora_core_url()))
         .send()
         .await
     {
@@ -231,7 +242,7 @@ async fn install_plugin(
 ) -> impl IntoResponse {
     match state
         .http
-        .post(format!("{}/api/core/plugins", IORA_CORE_URL))
+        .post(format!("{}/api/core/plugins", iora_core_url()))
         .json(&body)
         .send()
         .await
@@ -265,7 +276,7 @@ async fn remove_plugin(
 ) -> impl IntoResponse {
     match state
         .http
-        .delete(format!("{}/api/core/plugins/{}", IORA_CORE_URL, id))
+        .delete(format!("{}/api/core/plugins/{}", iora_core_url(), id))
         .send()
         .await
     {
@@ -295,7 +306,7 @@ async fn remove_plugin(
 async fn list_users(State(state): State<AppState>) -> impl IntoResponse {
     match state
         .http
-        .get(format!("{}/api/users", IORA_HOME_URL))
+        .get(format!("{}/api/users", iora_home_url()))
         .send()
         .await
     {

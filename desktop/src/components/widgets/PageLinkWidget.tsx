@@ -93,7 +93,7 @@ import {
 } from '@phosphor-icons/react'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 
-const iconMap: Record<string, React.ComponentType<{ size?: number; weight?: 'regular' | 'fill' | 'bold' }>> = {
+const iconMap: Record<string, React.ComponentType<any>> = {
   House, Lightbulb, Thermometer, PlugsConnected, Gauge, Gear, FloppyDisk,
   VideoCamera, SpeakerHigh, Lock, Garage, Fan, Bathtub, Bed, CookingPot,
   Couch, Desktop, Tree, Door, ShieldCheck, Drop, Lightning, WifiHigh,

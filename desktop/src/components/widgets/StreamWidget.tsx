@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState, useCallback } from 'react'
 import { getApiBase } from '@/lib/apiBase'
+import { API_BASE } from '@/lib/tauriApi'
 import { VideoCamera, Play, Pause, Eye, WifiHigh, WifiSlash, ArrowsOut, ArrowsIn, SpeakerHigh, SpeakerSlash, SpeakerLow, FilmStrip, Circle, X, PictureInPicture } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Tip } from '@/components/ui/tip'

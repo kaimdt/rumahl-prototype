@@ -1,0 +1,36 @@
+// Type declarations for direct lucide-react subpath imports used by shadcn/ui components.
+// lucide-react ships these as JS files; TS needs this hint.
+declare module 'lucide-react/dist/esm/icons/chevron-down';
+declare module 'lucide-react/dist/esm/icons/chevron-right';
+declare module 'lucide-react/dist/esm/icons/chevron-left';
+declare module 'lucide-react/dist/esm/icons/more-horizontal';
+declare module 'lucide-react/dist/esm/icons/arrow-left';
+declare module 'lucide-react/dist/esm/icons/arrow-right';
+declare module 'lucide-react/dist/esm/icons/check';
+declare module 'lucide-react/dist/esm/icons/search';
+declare module 'lucide-react/dist/esm/icons/x';
+declare module 'lucide-react/dist/esm/icons/dot';
+declare module 'lucide-react/dist/esm/icons/chevrons-up-down';
+declare module 'lucide-react/dist/esm/icons/chevron-up';
+declare module 'lucide-react/dist/esm/icons/loader-circle';
+declare module 'lucide-react/dist/esm/icons/eye-off';
+declare module 'lucide-react/dist/esm/icons/sun';
+declare module 'lucide-react/dist/esm/icons/moon';
+declare module 'lucide-react/dist/esm/icons/slash';
+declare module 'lucide-react/dist/esm/icons/plus';
+declare module 'lucide-react/dist/esm/icons/minus';
+declare module 'lucide-react/dist/esm/icons/grip-vertical';
+declare module 'lucide-react/dist/esm/icons/align-justify';
+declare module 'lucide-react/dist/esm/icons/alarm-clock';
+declare module 'lucide-react/dist/esm/icons/bell';
+declare module 'lucide-react/dist/esm/icons/calendar';
+declare module 'lucide-react/dist/esm/icons/settings';
+declare module 'lucide-react/dist/esm/icons/user';
+declare module 'lucide-react/dist/esm/icons/home';
+declare module 'lucide-react/dist/esm/icons/info';
+declare module 'lucide-react/dist/esm/icons/alert-circle';
+declare module 'lucide-react/dist/esm/icons/alert-triangle';
+declare module 'lucide-react/dist/esm/icons/circle';
+declare module 'lucide-react/dist/esm/icons/panel-left';
+declare module 'lucide-react/dist/esm/icons/panel-left-close';
+declare module 'lucide-react/dist/esm/icons/panel-left-open';

@@ -41,6 +41,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use tokio::sync::broadcast;
 use futures_util::stream::Stream;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -115,6 +116,7 @@ pub(crate) struct AppState {
     http:         reqwest::Client,
     started_at:   Arc<std::time::Instant>,
     sessions:     Arc<RwLock<HashMap<String, DevSession>>>,
+    event_tx:     broadcast::Sender<DevBridgeEvent>,
 }
 
 #[derive(Clone, Serialize)]
@@ -312,6 +314,8 @@ async fn main() -> Result<()> {
         .build()
         .context("building HTTP client")?;
 
+    let (event_tx, _) = broadcast::channel::<DevBridgeEvent>(256);
+
     let state = AppState {
         token:      Arc::new(token),
         build_id:   Arc::new(build_id),
@@ -319,6 +323,7 @@ async fn main() -> Result<()> {
         http,
         started_at: Arc::new(std::time::Instant::now()),
         sessions:   Arc::new(RwLock::new(HashMap::new())),
+        event_tx:   event_tx.clone(),
     };
 
     let cli = Cli::parse();
@@ -348,6 +353,7 @@ async fn main() -> Result<()> {
         .route("/dev/replace-binary", post(replace_binary))
         .route("/dev/build-replace", post(build_replace))
         .route("/dev/self-update", post(self_update))
+        .route("/dev/events", get(events_sse))
         .route("/dev/system/info", get(system_info))
         .route("/dev/system/reboot", post(system_reboot))
         .route("/dev/system/journal", get(journal_recent))
@@ -382,6 +388,27 @@ async fn main() -> Result<()> {
             None
         }
     };
+
+    // ── Heartbeat-Task: alle 5s ein Herzschlag-Event ───────
+    let hb_tx = event_tx.clone();
+    let hb_build = state.build_id.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let uptime = std::time::Instant::now().elapsed().as_secs();
+            let _ = hb_tx.send(DevBridgeEvent::Heartbeat {
+                uptime_seconds: uptime,
+                build: (*hb_build).clone(),
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                mem_available_bytes: read_mem_available(),
+                loadavg: read_loadavg(),
+            });
+        }
+    });
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.into_make_service()).await?;
@@ -681,6 +708,117 @@ async fn dev_health(State(s): State<AppState>) -> Json<serde_json::Value> {
         "core_url": *s.core_url,
         "timestamp": chrono_now(),
     }))
+}
+
+/// Events for the /dev/events SSE stream.
+#[derive(Clone, serde::Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub(crate) enum DevBridgeEvent {
+    Heartbeat {
+        uptime_seconds: u64,
+        build: String,
+        timestamp: u64,
+        mem_available_bytes: u64,
+        loadavg: String,
+    },
+    ServiceStatus {
+        name: String,
+        status: String,
+        timestamp: u64,
+    },
+    LogMessage {
+        service: String,
+        message: String,
+        timestamp: u64,
+    },
+}
+
+/// SSE endpoint that streams DevBridgeEvent objects as JSON.
+/// Clients can connect via EventSource and receive periodic heartbeats
+/// every 5s, plus service status and other events as they happen.
+/// Accepts `?token=` for auth (same as log streams) so browsers work.
+/// Uses ReceiverStream (same pattern as log_stream_for_unit) to avoid
+/// pulling in the async-stream dependency.
+async fn events_sse(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<LogStreamQuery>,
+) -> impl IntoResponse {
+    let header_ok = check_auth(&s, &headers).is_ok();
+    let query_ok = q
+        .token
+        .as_deref()
+        .map(|t| {
+            if ct_eq(t.as_bytes(), s.token.as_bytes()) {
+                return true;
+            }
+            let sessions = s.sessions.read().unwrap();
+            sessions.contains_key(t)
+        })
+        .unwrap_or(false);
+    if !header_ok && !query_ok {
+        return (StatusCode::UNAUTHORIZED, "missing or invalid token".to_string()).into_response();
+    }
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
+    let mut event_rx = s.event_tx.subscribe();
+
+    tokio::spawn(async move {
+        // Send initial connection event
+        let _ = tx
+            .send(Ok(Event::default().event("connected").data(r#"{"status":"ok"}"#)))
+            .await;
+
+        loop {
+            match event_rx.recv().await {
+                Ok(event) => {
+                    let json = serde_json::to_string(&event).unwrap_or_default();
+                    let event_name = match &event {
+                        DevBridgeEvent::Heartbeat { .. } => "heartbeat",
+                        DevBridgeEvent::ServiceStatus { .. } => "service_status",
+                        DevBridgeEvent::LogMessage { .. } => "log_message",
+                    };
+                    if tx
+                        .send(Ok(Event::default().event(event_name).data(json)))
+                        .await
+                        .is_err()
+                    {
+                        // Client disconnected
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    let _ = tx
+                        .send(Ok(Event::default()
+                            .event("lagged")
+                            .data(format!(r#"{{"dropped":{n}}}"#))))
+                        .await;
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
+    Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+fn read_mem_available() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("MemAvailable:"))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|x| x.parse::<u64>().ok())
+                .map(|kb| kb * 1024)
+        })
+        .unwrap_or(0)
+}
+
+fn read_loadavg() -> String {
+    std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim().to_string()
 }
 
 fn chrono_now() -> String {

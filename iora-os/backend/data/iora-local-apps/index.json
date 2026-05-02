@@ -1,0 +1,103 @@
+[
+  {
+    "id": "io.iora.streaming",
+    "name": "ORA Streaming",
+    "version": "2.0.0",
+    "developer": "IORA Project",
+    "description": "Streame Kamera, Mikrofon oder Bildschirm live über IORA — niedrige Latenz, ideal für Überwachungskameras oder Präsentationen.",
+    "icon": "broadcast",
+    "trust_level": "trusted",
+    "enabled": true,
+    "status": "running",
+    "installed_at": "2026-05-02T10:37:43.433338700+00:00",
+    "source": "system",
+    "kind": "app",
+    "system": true,
+    "manifest": {
+      "id": "io.iora.streaming",
+      "name": "ORA Streaming",
+      "version": "2.0.0",
+      "developer": "IORA Project",
+      "description": "Live-Streaming von Kamera, Mikro und Bildschirm",
+      "icon": "broadcast",
+      "type": "app",
+      "permissions": [
+        "NetworkLocalAccess",
+        "MediaCapture"
+      ],
+      "custom_pages": [
+        {
+          "icon": "Broadcast",
+          "id": "streaming",
+          "order": 510,
+          "show_in_nav": true,
+          "title": "ORA Streaming",
+          "url": "/streaming"
+        }
+      ]
+    },
+    "custom_pages": [
+      {
+        "id": "streaming",
+        "title": "ORA Streaming",
+        "icon": "Broadcast",
+        "url": "/streaming",
+        "show_in_nav": true,
+        "order": 510,
+        "iframe": false
+      }
+    ],
+    "ports": [],
+    "is_bundle": false
+  },
+  {
+    "id": "io.iora.share",
+    "name": "ORA Share",
+    "version": "2.0.0",
+    "developer": "IORA Project",
+    "description": "Teile Dateien & Links zwischen Geräten im lokalen Netzwerk — eigene Pairdrop-Implementation ohne externe Dienste.",
+    "icon": "share-network",
+    "trust_level": "trusted",
+    "enabled": true,
+    "status": "running",
+    "installed_at": "2026-05-02T10:37:43.431246700+00:00",
+    "source": "system",
+    "kind": "app",
+    "system": true,
+    "manifest": {
+      "id": "io.iora.share",
+      "name": "ORA Share",
+      "version": "2.0.0",
+      "developer": "IORA Project",
+      "description": "Lokales Datei-Sharing",
+      "icon": "share-network",
+      "type": "app",
+      "permissions": [
+        "NetworkLocalAccess"
+      ],
+      "custom_pages": [
+        {
+          "icon": "ShareNetwork",
+          "id": "share",
+          "order": 500,
+          "show_in_nav": true,
+          "title": "ORA Share",
+          "url": "/share"
+        }
+      ]
+    },
+    "custom_pages": [
+      {
+        "id": "share",
+        "title": "ORA Share",
+        "icon": "ShareNetwork",
+        "url": "/share",
+        "show_in_nav": true,
+        "order": 500,
+        "iframe": false
+      }
+    ],
+    "ports": [],
+    "is_bundle": false
+  }
+]

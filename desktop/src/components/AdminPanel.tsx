@@ -16,6 +16,7 @@ import {
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
+import { API_BASE } from '@/lib/tauriApi'
 
 interface CloudSettings {
   privateApiUrl: string
@@ -1814,7 +1815,7 @@ function MqttTab({ token }: { token: string }) {
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
             <span className="text-xs font-medium text-foreground/85">{isConnected ? 'Verbunden' : 'Nicht verbunden'}</span>
-            {status?.error && <span className="text-[10px] text-red-400 truncate ml-2">{status.error as string}</span>}
+            {!!status?.error && <span className="text-[10px] text-red-400 truncate ml-2">{status.error as string}</span>}
           </div>
           <div className="flex gap-1.5">
             <button onClick={() => setShowConfig(true)} className="flex items-center gap-1 px-2 py-1 rounded bg-foreground/5 text-xs text-foreground/70 hover:bg-foreground/10 transition">
@@ -2037,8 +2038,8 @@ function MatterTab({ token }: { token: string }) {
                 </div>
                 <div className="grid grid-cols-2 gap-x-3 text-[10px] text-foreground/60">
                   <span>Typ: <span className="text-foreground/80">{d.device_type as string}</span></span>
-                  {d.vendor && <span>Hersteller: <span className="text-foreground/80">{d.vendor as string}</span></span>}
-                  {d.model && <span>Modell: <span className="text-foreground/80">{d.model as string}</span></span>}
+                  {!!d.vendor && <span>Hersteller: <span className="text-foreground/80">{d.vendor as string}</span></span>}
+                  {!!d.model && <span>Modell: <span className="text-foreground/80">{d.model as string}</span></span>}
                 </div>
               </div>
             ))}
@@ -2120,7 +2121,7 @@ function HaConnectionTab({ token }: { token: string }) {
         <div className="space-y-1">
           <StatItem label="Status" value={status?.available ? '🟢 Verbunden' : '🔴 Getrennt'} />
           <StatItem label="HA URL" value={status?.ha_url as string} />
-          {status?.ha_version && <StatItem label="HA Version" value={status.ha_version as string} />}
+          {!!status?.ha_version && <StatItem label="HA Version" value={status.ha_version as string} />}
           <StatItem label="Fehler in Folge" value={String(status?.failure_count ?? 0)} />
         </div>
         <button onClick={refresh} className="mt-2 flex items-center gap-1 px-2 py-1 rounded bg-foreground/5 text-xs text-foreground/70 hover:bg-foreground/10 transition">
@@ -2367,12 +2368,12 @@ function ZwaveTab({ token }: { token: string }) {
                 <div className="grid grid-cols-3 gap-x-2 text-[10px] text-foreground/60">
                   <span>Node: <span className="text-foreground/80">{String(n.node_id)}</span></span>
                   <span>Typ: <span className="text-foreground/80">{n.device_type as string}</span></span>
-                  {n.product && <span>Produkt: <span className="text-foreground/80">{n.product as string}</span></span>}
+                  {!!n.product && <span>Produkt: <span className="text-foreground/80">{n.product as string}</span></span>}
                 </div>
                 <div className="flex gap-2 mt-0.5">
-                  {n.is_secure && <span className="text-[9px] px-1 rounded bg-blue-500/10 text-blue-400">Sicher</span>}
-                  {n.is_routing && <span className="text-[9px] px-1 rounded bg-purple-500/10 text-purple-400">Routing</span>}
-                  {n.is_beaming && <span className="text-[9px] px-1 rounded bg-cyan-500/10 text-cyan-400">Beaming</span>}
+                  {!!n.is_secure && <span className="text-[9px] px-1 rounded bg-blue-500/10 text-blue-400">Sicher</span>}
+                  {!!n.is_routing && <span className="text-[9px] px-1 rounded bg-purple-500/10 text-purple-400">Routing</span>}
+                  {!!n.is_beaming && <span className="text-[9px] px-1 rounded bg-cyan-500/10 text-cyan-400">Beaming</span>}
                 </div>
               </div>
             ))}
@@ -2537,7 +2538,7 @@ function HomekitTab({ token }: { token: string }) {
         setConfig({
           enabled: (c.enabled as boolean) ?? false,
           bridge_name: (c.bridge_name as string) ?? 'MDT Dashboard Bridge',
-          bridge_port: (c.bridge_port ?? c.port as number) ?? 21063,
+          bridge_port: Number(c.bridge_port ?? c.port) || 21063,
         })
       }
     } catch { /* optional */ }

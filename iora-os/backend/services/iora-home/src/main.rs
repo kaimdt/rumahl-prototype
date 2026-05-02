@@ -12923,7 +12923,7 @@ async fn admin_control_services(
 ) -> Json<Value> {
     let client = &state.http_client;
     let services = vec![
-        ("iora-home", "http://localhost:3001".to_string(), "Dashboard Backend, API, Auth, Streaming"),
+        ("iora-home", system_config::service_url("iora-home", 8126), "Dashboard Backend, API, Auth, Streaming"),
         ("iora-core", system_config::service_url("iora-core", 8090), "Service Registry, Tasks, Plugins"),
         ("iora-control", "http://localhost:8091".to_string(), "Dashboard Aggregation, System Monitor"),
         ("iora-assist", "http://localhost:8092".to_string(), "AI Chat, Automation Suggestions"),

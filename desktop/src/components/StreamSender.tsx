@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getApiBase } from '@/lib/apiBase'
+import { API_BASE } from '@/lib/tauriApi'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   VideoCamera,

@@ -8092,7 +8092,7 @@ function DevBridgeTab({ token: _token }: { token: string }) {
   const [bridgeStatusText, setBridgeStatusText] = useState('')
   const [devToken, setDevToken] = useState<string | null>(null)
   const [bridgeBuild, setBridgeBuild] = useState('')
-  const [activeSubTab, setActiveSubTab] = useState<'services' | 'system-info' | 'filesystem' | 'build'>('services')
+  const [activeSubTab, setActiveSubTab] = useState<'services' | 'system-info' | 'filesystem' | 'build' | 'journal' | 'compose'>('services')
   const [loginUser, setLoginUser] = useState('')
   const [loginPass, setLoginPass] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
@@ -8242,6 +8242,8 @@ function DevBridgeTab({ token: _token }: { token: string }) {
               { id: 'system-info' as const, label: 'System-Info', icon: Cpu },
               { id: 'filesystem' as const, label: 'Dateisystem', icon: FolderOpen },
               { id: 'build' as const, label: 'Build & Replace', icon: Code },
+            { id: 'journal' as const, label: 'Journal', icon: ListBullets },
+            { id: 'compose' as const, label: 'Docker Compose', icon: Cube },
             ]).map(sub => (
               <button key={sub.id} onClick={() => setActiveSubTab(sub.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -8257,6 +8259,8 @@ function DevBridgeTab({ token: _token }: { token: string }) {
           {activeSubTab === 'system-info' && <DevBridgeSystemInfo devToken={devToken} />}
           {activeSubTab === 'filesystem' && <DevBridgeFilesystem devToken={devToken} />}
           {activeSubTab === 'build' && <DevBridgeBuild devToken={devToken} />}
+          {activeSubTab === 'journal' && <DevBridgeJournal devToken={devToken} />}
+          {activeSubTab === 'compose' && <DevBridgeCompose devToken={devToken} />}
         </>
       )}
     </div>
@@ -8310,11 +8314,17 @@ function DevBridgeServices({ devToken }: { devToken: string | null }) {
     setRestarting(null)
   }
 
-  const startStream = (name: string) => {
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptRef = useRef(0)
+
+  const startStream = (name: string, attempt = 0) => {
     if (streamRef.current) {
       streamRef.current.close()
     }
-    setStreamLogs([])
+    if (attempt === 0) {
+      setStreamLogs([])
+      reconnectAttemptRef.current = 0
+    }
     setStreamingService(name)
 
     const baseUrl = getDevBridgeUrl()
@@ -8323,6 +8333,7 @@ function DevBridgeServices({ devToken }: { devToken: string | null }) {
 
     es.addEventListener('hello', (e: Event) => {
       const msgEvent = e as MessageEvent
+      reconnectAttemptRef.current = 0 // Verbindung steht – Backoff zurücksetzen
       setStreamLogs(prev => [...prev, `── ${msgEvent.data}`])
     })
 
@@ -8341,26 +8352,47 @@ function DevBridgeServices({ devToken }: { devToken: string | null }) {
     })
 
     es.onerror = () => {
-      setStreamLogs(prev => [...prev, '⚠️ Verbindung unterbrochen'])
       es.close()
-      setStreamingService(null)
+      // Auto-Reconnect mit exponentiellem Backoff (1s, 2s, 4s, max 30s)
+      const retry = reconnectAttemptRef.current
+      if (retry < 10) {
+        const delay = Math.min(1000 * Math.pow(2, retry), 30_000)
+        reconnectAttemptRef.current = retry + 1
+        setStreamLogs(prev => [...prev, `⚠️ Verbindung unterbrochen – erneuter Versuch in ${delay / 1000}s…`])
+        if (reconnectRef.current) clearTimeout(reconnectRef.current)
+        reconnectRef.current = setTimeout(() => {
+          startStream(name, retry + 1)
+        }, delay)
+      } else {
+        setStreamLogs(prev => [...prev, '⚠️ Verbindung endgültig getrennt (max. Wiederholungen)'])
+        setStreamingService(null)
+      }
     }
 
     streamRef.current = es
   }
 
+  // Cleanup auch den reconnect-Timeout
   const stopStream = () => {
+    if (reconnectRef.current) {
+      clearTimeout(reconnectRef.current)
+      reconnectRef.current = null
+    }
     if (streamRef.current) {
       streamRef.current.close()
       streamRef.current = null
     }
     setStreamingService(null)
     setStreamLogs([])
+    reconnectAttemptRef.current = 0
   }
 
-  // Clean up on unmount
+  // Clean up on unmount (schließt Stream + reconnect-Timeout)
   useEffect(() => {
-    return () => { if (streamRef.current) streamRef.current.close() }
+    return () => {
+      if (reconnectRef.current) clearTimeout(reconnectRef.current)
+      if (streamRef.current) streamRef.current.close()
+    }
   }, [])
 
   if (!devToken) {
@@ -8499,6 +8531,21 @@ function DevBridgeSystemInfo({ devToken }: { devToken: string | null }) {
   if (error) return <ErrorMessage>{error}</ErrorMessage>
   if (!info) return null
 
+  const [rebooting, setRebooting] = useState(false)
+
+  const handleReboot = async () => {
+    if (!confirm('⚠️  System wirklich neu starten? Die Verbindung wird getrennt.')) return
+    setRebooting(true)
+    try {
+      const res = await devBridgeFetch('/dev/system/reboot', devToken, { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      toast.success('Neustart wird ausgeführt… Die Verbindung wird in Kürze getrennt.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+      setRebooting(false)
+    }
+  }
+
   const formatBytes = (b: number) => {
     if (b >= 1_000_000_000) return `${(b / 1_000_000_000).toFixed(1)} GB`
     if (b >= 1_000_000) return `${(b / 1_000_000).toFixed(1)} MB`
@@ -8515,6 +8562,18 @@ function DevBridgeSystemInfo({ devToken }: { devToken: string | null }) {
 
   return (
     <AdminCard title="System-Informationen" icon={Cpu}>
+      <div className="flex items-start justify-between mb-4">
+        <div />
+        <button onClick={handleReboot} disabled={rebooting}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+            rebooting
+              ? 'bg-red-500/20 text-red-300 cursor-wait'
+              : 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
+          }`}>
+          <Power size={14} className={`inline mr-1.5 ${rebooting ? 'animate-pulse' : ''}`} />
+          {rebooting ? 'Starte neu…' : 'System neu starten'}
+        </button>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">Hostname</div>
@@ -9135,6 +9194,214 @@ function ServiceJsonBlock({ data, max = 'max-h-72' }: { data: unknown; max?: str
     </pre>
   )
 }
+
+// ─── Dev Bridge: Journal (System-Logs) ────────────────────────────────
+
+function DevBridgeJournal({ devToken }: { devToken: string | null }) {
+  const [logs, setLogs] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [tail, setTail] = useState(200)
+  const [priority, setPriority] = useState('warning')
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const loadLogs = useCallback(async (t?: number, p?: string) => {
+    if (!devToken) return
+    setLoading(true)
+    setError('')
+    try {
+      const tVal = t ?? tail
+      const pVal = p ?? priority
+      const res = await devBridgeFetch(`/dev/system/journal?tail=${tVal}&priority=${encodeURIComponent(pVal)}`, devToken)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const stdout = data.stdout || ''
+      setLogs(stdout.split('\n').filter(Boolean))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    setLoading(false)
+  }, [devToken, tail, priority])
+
+  useEffect(() => { if (devToken) loadLogs() }, [devToken, loadLogs])
+
+  // Auto-Refresh
+  useEffect(() => {
+    if (autoRefresh && devToken) {
+      autoRefreshRef.current = setInterval(() => loadLogs(), 10_000)
+    } else if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current)
+      autoRefreshRef.current = null
+    }
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current) }
+  }, [autoRefresh, devToken, loadLogs])
+
+  if (!devToken) return null
+
+  return (
+    <AdminCard title="System-Journal" icon={ListBullets}>
+      <div className="space-y-3">
+        {/* Filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={priority} onChange={e => { setPriority(e.target.value); loadLogs(tail, e.target.value) }}
+            className="px-2.5 py-1.5 rounded-lg text-xs bg-foreground/5 border border-foreground/10 text-foreground">
+            <option value="emerg">emerg</option>
+            <option value="alert">alert</option>
+            <option value="crit">crit</option>
+            <option value="error">error</option>
+            <option value="warning">warning</option>
+            <option value="notice">notice</option>
+            <option value="info">info</option>
+            <option value="debug">debug</option>
+          </select>
+          <select value={tail} onChange={e => { setTail(Number(e.target.value)); loadLogs(Number(e.target.value), priority) }}
+            className="px-2.5 py-1.5 rounded-lg text-xs bg-foreground/5 border border-foreground/10 text-foreground">
+            <option value={50}>50 Zeilen</option>
+            <option value={200}>200 Zeilen</option>
+            <option value={500}>500 Zeilen</option>
+            <option value={1000}>1000 Zeilen</option>
+          </select>
+          <label className="flex items-center gap-1.5 text-xs text-foreground/60 cursor-pointer ml-2">
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-foreground/30" />
+            Auto-Refresh (10s)
+          </label>
+          <button onClick={() => loadLogs()} disabled={loading} className={ccBtnSecondary('text-xs ml-auto')}>
+            <ArrowClockwise size={12} className={loading ? 'animate-spin' : ''} /> Aktualisieren
+          </button>
+        </div>
+
+        {/* Log-Ansicht */}
+        {loading && logs.length === 0 ? (
+          <LoadingSpinner />
+        ) : error ? (
+          <ErrorMessage>{error}</ErrorMessage>
+        ) : logs.length === 0 ? (
+          <p className="text-xs text-foreground/50 text-center py-8">Keine Log-Einträge gefunden.</p>
+        ) : (
+          <div className="max-h-[500px] overflow-y-auto font-mono text-[10px] leading-relaxed bg-black/20 rounded-xl p-3 space-y-0.5">
+            {logs.map((line, i) => {
+              const level = line.includes('EMERG') || line.includes('emerg') ? 'text-red-300' :
+                line.includes('ALERT') || line.includes('alert') ? 'text-red-400' :
+                line.includes('CRIT') || line.includes('crit') ? 'text-red-500' :
+                line.includes('ERR') || line.includes('error') ? 'text-red-400' :
+                line.includes('WARN') || line.includes('warning') ? 'text-amber-400' :
+                line.includes('NOTICE') || line.includes('notice') ? 'text-blue-400' :
+                line.includes('INFO') || line.includes('info') ? 'text-foreground/70' :
+                line.includes('DEBUG') || line.includes('debug') ? 'text-foreground/40' :
+                'text-foreground/60'
+              return (
+                <div key={i} className={`${level} truncate hover:text-foreground hover:bg-foreground/5 px-1 rounded transition-colors`}>
+                  {line}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </AdminCard>
+  )
+}
+
+// ─── Dev Bridge: Docker Compose ─────────────────────────────────────────
+
+function DevBridgeCompose({ devToken }: { devToken: string | null }) {
+  const [svcName, setSvcName] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [composeLogs, setComposeLogs] = useState<string[]>([])
+  const [showLogs, setShowLogs] = useState(false)
+
+  const handleReload = async () => {
+    if (!devToken || !svcName) return
+    setLoading(true)
+    setStatus(null)
+    try {
+      const res = await devBridgeFetch(`/dev/compose/${encodeURIComponent(svcName)}/reload`, devToken, { method: 'POST' })
+      const data = await res.json()
+      setStatus(JSON.stringify(data, null, 2))
+      if (data.ok) toast.success(`${svcName} wird neu geladen…`)
+      else toast.error('Fehler beim Neuladen')
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e))
+      toast.error('Fehler beim Neuladen')
+    }
+    setLoading(false)
+  }
+
+  const handleLogs = async () => {
+    if (!devToken || !svcName) return
+    setLoading(true)
+    try {
+      const res = await devBridgeFetch(`/dev/compose/${encodeURIComponent(svcName)}/logs`, devToken, {
+        method: 'POST',
+        body: JSON.stringify({ tail: 100 }),
+      })
+      const data = await res.json()
+      const stdout = data.stdout || ''
+      setComposeLogs(stdout.split('\n').filter(Boolean))
+      setShowLogs(true)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+    setLoading(false)
+  }
+
+  if (!devToken) return null
+
+  return (
+    <AdminCard title="Docker Compose Services" icon={Cube}>
+      <div className="space-y-4">
+        <p className="text-xs text-foreground/60">
+          Steuere Docker-Compose-Services im IORA-Compose-Verzeichnis ({' '}
+          <code className="font-mono">{'/mnt/data/iora'}</code> ).
+        </p>
+
+        <div className="flex gap-2">
+          <input type="text" value={svcName} onChange={e => setSvcName(e.target.value)}
+            placeholder="Service-Name (z.B. iora-home)" className={ccInput('flex-1')}
+            onKeyDown={e => e.key === 'Enter' && handleReload()} />
+          <button onClick={handleReload} disabled={loading || !svcName} className={ccBtnSecondary()}>
+            <ArrowClockwise size={14} className={loading ? 'animate-spin' : ''} />
+            Reload
+          </button>
+          <button onClick={handleLogs} disabled={loading || !svcName} className={ccBtnPrimary()}>
+            <ListBullets size={14} />
+            Logs
+          </button>
+        </div>
+
+        {status && (
+          <div className="rounded-xl bg-black/20 border border-foreground/10 p-3">
+            <pre className="text-[10px] font-mono text-foreground/70 whitespace-pre-wrap max-h-[200px] overflow-y-auto">{status}</pre>
+          </div>
+        )}
+
+        {showLogs && composeLogs.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-foreground/70">Logs: {svcName}</span>
+              <button onClick={() => setShowLogs(false)} className={ccBtnIcon()}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="max-h-[400px] overflow-y-auto font-mono text-[10px] leading-relaxed bg-black/20 rounded-xl p-3 space-y-0.5">
+              {composeLogs.map((line, i) => (
+                <div key={i} className={`${
+                  line.includes('ERROR') || line.includes('error') ? 'text-red-400' :
+                  line.includes('WARN') || line.includes('warn') ? 'text-amber-400' :
+                  'text-foreground/70'
+                } truncate`}>{line}</div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </AdminCard>
+  )
+}
+
 
 // ─── Secrets (iora-secrets) ─────────────────────────────────────────────
 interface SecretRow {

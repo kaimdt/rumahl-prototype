@@ -14,6 +14,25 @@ import {
   CloudSun,
   SpeakerHigh,
   ChatText,
+  ListBullets,
+  TextT,
+  ToggleLeft,
+  Fan,
+  LockKey,
+  Gear,
+  Scroll,
+  CursorClick,
+  Palette,
+  User,
+  MapPin,
+  Timer,
+  ClockCounterClockwise,
+  SquaresFour,
+  Camera,
+  Robot,
+  Drop,
+  ShieldCheck,
+  CalendarBlank,
 } from '@phosphor-icons/react'
 import {
   DndContext,
@@ -44,7 +63,7 @@ interface PageWidgetEditorProps {
   availableEntities: EntityState[]
 }
 
-const widgetTypeIcons = {
+const widgetTypeIcons: Record<string, React.ComponentType<any>> = {
   light: Lightbulb,
   climate: Thermometer,
   switch: PlugsConnected,
@@ -53,6 +72,33 @@ const widgetTypeIcons = {
   media_player: SpeakerHigh,
   greeting: ChatText,
   custom: GridFour,
+  number: Gauge,
+  select: ListBullets,
+  text: TextT,
+  input_boolean: ToggleLeft,
+  input_number: Gauge,
+  input_select: ListBullets,
+  binary_sensor: Gauge,
+  cover: SquaresFour,
+  fan: Fan,
+  lock: LockKey,
+  automation: Gear,
+  script: Scroll,
+  button: CursorClick,
+  scene_entity: Palette,
+  input_text: TextT,
+  input_datetime: CalendarBlank,
+  person: User,
+  device_tracker: MapPin,
+  timer: Timer,
+  counter: ClockCounterClockwise,
+  group: SquaresFour,
+  camera: Camera,
+  vacuum: Robot,
+  humidifier: Drop,
+  alarm_control_panel: ShieldCheck,
+  chat_card: ChatText,
+  dynamic_text: TextT,
 }
 
 const widgetTypeLabels: Record<string, string> = {

@@ -1,8 +1,14 @@
 // Smart Home Context Injection Module
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use iora_shared::system_config;
 
-const IORA_HOME_URL: &str = "http://localhost:8080";
+/// Returns the iora-home base URL.
+/// Honors `$IORA_HOME_URL` env var; falls back to `system_config::service_url`.
+fn iora_home_url() -> String {
+    std::env::var("IORA_HOME_URL")
+        .unwrap_or_else(|_| system_config::service_url("iora-home", 8126))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SmartHomeContext {
@@ -106,7 +112,7 @@ impl ContextBuilder {
     ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
         let resp = self
             .client
-            .get(format!("{}/api/integration/dashboard-settings", IORA_HOME_URL))
+            .get(format!("{}/api/integration/dashboard-settings", iora_home_url()))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -133,7 +139,7 @@ impl ContextBuilder {
     /// Fetch all entities from iora-home
     async fn fetch_entities(&self) -> Result<Vec<EntityState>, Box<dyn std::error::Error + Send + Sync>> {
         let response = self.client
-            .get(format!("{}/api/states", IORA_HOME_URL))
+            .get(format!("{}/api/states", iora_home_url()))
             .send()
             .await?;
 
