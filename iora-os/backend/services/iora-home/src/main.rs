@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::SocketAddr, path::Path as FsPath, sync::Arc};
+use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::{Ipv4Addr, SocketAddr}, path::Path as FsPath, sync::Arc, time::Duration};
 use std::sync::atomic::{AtomicU64, Ordering};
 use futures_util::Stream;
 use tower_http::{
@@ -69,6 +69,7 @@ use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
 use iora_shared::settings::{SettingsRegistry, SettingDefinition};
 use iora_shared::system_config;
+use tokio::net::TcpStream;
 
 /// Per-entity service call buffer that coalesces rapid-fire requests.
 ///
@@ -1671,12 +1672,105 @@ fn compute_dist_hash() -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// Try to find the first-boot setup wizard and return its URL.
+/// Checks ports 8080 and 80 on localhost and the primary LAN IP.
+async fn detect_setup_wizard() -> (Option<String>, bool) {
+    if iora_shared::env::IoraEnv::is_setup_complete() {
+        return (None, false);
+    }
+
+    const CHECK_PORTS: &[u16] = &[8080, 80];
+    let conn_timeout = Duration::from_secs(2);
+
+    // Helper: try connecting to addr:port.
+    async fn try_connect(host: &str, port: u16) -> bool {
+        let addr = format!("{}:{}", host, port);
+        match tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await {
+            Ok(Ok(_)) => true,
+            _ => false,
+        }
+    }
+
+    // Try localhost first (fastest, no network needed).
+    for port in CHECK_PORTS {
+        if try_connect("127.0.0.1", *port).await {
+            return (Some(format!("http://127.0.0.1:{}/setup", port)), true);
+        }
+    }
+
+    // Try to find the primary LAN IP.
+    if let Some(ip) = get_lan_ip().await {
+        for port in CHECK_PORTS {
+            if try_connect(&ip, *port).await {
+                return (Some(format!("http://{}:{}/setup", ip, port)), true);
+            }
+        }
+    }
+
+    (None, false)
+}
+
+/// Get the primary LAN IPv4 address using hostname -I, /proc/net/fib_trie,
+/// or interface detection.
+async fn get_lan_ip() -> Option<String> {
+    // 1. Try `hostname -I` (fastest, most reliable on Linux).
+    if let Ok(out) = tokio::process::Command::new("hostname")
+        .arg("-I")
+        .output()
+        .await
+    {
+        if out.status.success() {
+            let ips = String::from_utf8_lossy(&out.stdout);
+            for ip in ips.split_whitespace() {
+                if let Ok(parsed) = ip.parse::<Ipv4Addr>() {
+                    if !parsed.is_loopback() && !parsed.is_link_local() {
+                        return Some(ip.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: check /proc/net/fib_trie.
+    if let Ok(content) = tokio::fs::read_to_string("/proc/net/fib_trie").await {
+        let lines: Vec<&str> = content.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim() == "LOCAL" && i > 0 {
+                let prev = lines[i - 1].trim();
+                if let Some(ip) = prev.split_whitespace().next() {
+                    if let Ok(parsed) = ip.parse::<Ipv4Addr>() {
+                        if !parsed.is_loopback() && !parsed.is_link_local() {
+                            return Some(ip.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Last resort: try to detect via UDP socket (doesn't send packets).
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:53").is_ok() {
+            if let Ok(local) = socket.local_addr() {
+                let ip = local.ip();
+                if !ip.is_loopback() && ip.is_ipv4() {
+                    return Some(ip.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 async fn health_check(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let metrics = state.entity_cache.metrics();
     let connected_clients = state.ws_manager.client_count().await;
     let entity_count = state.entity_cache.count().await;
+
+    let (setup_url, setup_reachable) = detect_setup_wizard().await;
 
     Json(serde_json::json!({
         "status": "ok",
@@ -1696,6 +1790,8 @@ async fn health_check(
             "started": true,
         },
         "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
+        "setup_url": setup_url,
+        "setup_reachable": setup_reachable,
     }))
 }
 
