@@ -136,7 +136,7 @@ Added network monitor route:
 
 ```nginx
 upstream iora_network_monitor {
-    server 127.0.0.1:8099;
+    server iora.local:8099;
     keepalive 32;
 }
 
@@ -433,16 +433,16 @@ Hierarchical sidenav structure:
 ### Network Monitor Service
 ```bash
 # Check service health
-curl http://localhost:8099/health
+curl http://iora.local:8099/health
 
 # List all devices
-curl http://localhost:8099/api/network/devices
+curl http://iora.local:8099/api/network/devices
 
 # Get statistics
-curl http://localhost:8099/api/network/stats
+curl http://iora.local:8099/api/network/stats
 
 # Enable/disable monitoring
-curl -X POST http://localhost:8099/api/network/monitoring \
+curl -X POST http://iora.local:8099/api/network/monitoring \
   -H "Content-Type: application/json" \
   -d '{"enabled": true}'
 ```

@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 import { resolve } from 'path'
 
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname
+const backendTarget = process.env.VITE_IORA_BACKEND_URL || 'http://iora.local:3001'
+const backendWsTarget = backendTarget.replace(/^http/, 'ws')
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -39,19 +41,19 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:3001',
+        target: backendWsTarget,
         ws: true,
       },
       '/health': {
-        target: 'http://localhost:3001',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:3001',
+        target: backendTarget,
         changeOrigin: true,
       },
     },

@@ -2,7 +2,7 @@ use axum::{
     extract::{Multipart, Path, Query, RawQuery, State, WebSocketUpgrade},
     http::{header, HeaderMap, StatusCode, Uri},
     response::{IntoResponse, Response, sse::{Event as SseEvent, KeepAlive, Sse}},
-    routing::{delete, get, get_service, post, put},
+    routing::{any, delete, get, get_service, post, put},
     Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -679,7 +679,10 @@ async fn main() -> anyhow::Result<()> {
         local_appstore: match local_appstore::LocalAppStore::open().await {
             Ok(s) => s,
             Err(e) => {
-                warn!("local-appstore init failed ({e:#}); falling back to in-memory only");
+                if cfg!(target_os = "linux") {
+                    anyhow::bail!("local-appstore init failed; persistent storage is required: {e:#}");
+                }
+                warn!("local-appstore init failed ({e:#}); falling back to temporary storage only");
                 // open() only fails if the directory cannot be created;
                 // retry into a temp dir so the rest of the server still
                 // starts.
@@ -699,7 +702,7 @@ async fn main() -> anyhow::Result<()> {
             // wird lazy aufgerufen – hier nur das Verzeichnis vorbereiten.
             let base = std::env::var("IORA_LOCAL_APPS_DIR")
                 .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"));
+                .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps"));
             match plugin_sandbox::PluginSandbox::new(&base).await {
                 Ok(s) => s,
                 Err(e) => {
@@ -725,7 +728,7 @@ async fn main() -> anyhow::Result<()> {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|_| {
                     if cfg!(target_os = "linux") {
-                        std::path::PathBuf::from("/var/lib/iora/themes")
+                        std::path::PathBuf::from("/var/lib/iora/iora-home")
                     } else {
                         std::env::current_dir()
                             .unwrap_or_else(|_| std::path::PathBuf::from("."))
@@ -1285,6 +1288,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/appstore/search", get(proxy_appstore))
         .route("/api/appstore/install", post(local_appstore_install))
         .route("/api/appstore/jobs", get(local_appstore_jobs))
+        .route("/api/appstore/jobs/:job_id", delete(local_appstore_clear_job))
         .route("/api/appstore/jobs/stream", get(local_appstore_jobs_stream))
         .route("/api/appstore/apps/:app_id", get(local_appstore_app_get).delete(local_appstore_app_delete))
         .route("/api/appstore/apps/:app_id/enable", post(local_appstore_app_enable))
@@ -1360,6 +1364,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/gateway/http/get", post(proxy_gateway))
         .route("/api/gateway/requests", get(proxy_gateway))
         .route("/api/gateway/ai-requests", get(proxy_gateway))
+        // iora-assist (Port 8092). Browser clients must use this proxy or
+        // the same-origin nginx route, never http://localhost:8092 directly.
+        .route("/api/assist", any(proxy_assist))
+        .route("/api/assist/*path", any(proxy_assist))
         // iora-watchdog (Port 8094)
         .route("/api/watchdog/status", get(proxy_watchdog))
         .route("/api/watchdog/services", get(proxy_watchdog))
@@ -1929,6 +1937,12 @@ async fn health_check(
         (None, false)
     };
     let (ipv4_addrs, ipv6_addrs) = get_local_ips().await;
+    let primary_ipv4 = get_lan_ip().await.or_else(|| {
+        ipv4_addrs
+            .first()
+            .and_then(|entry| entry.split_whitespace().next())
+            .map(|ip| ip.to_string())
+    });
 
     Json(serde_json::json!({
         "status": "ok",
@@ -1953,6 +1967,7 @@ async fn health_check(
         "raw_setup_complete": raw_setup_complete,
         "setup_url": setup_url,
         "setup_reachable": setup_reachable,
+        "primary_ipv4": primary_ipv4,
         "ipv4_addrs": ipv4_addrs,
         "ipv6_addrs": ipv6_addrs,
     }))
@@ -4363,8 +4378,9 @@ async fn proxy_intelligence_overview(
     State(state): State<AppState>,
 ) -> Json<Value> {
     let intel_url = std::env::var("INTELLIGENCE_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}",
-            std::env::var("INTELLIGENCE_PORT").unwrap_or_else(|_| "8099".to_string())));
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| system_config::service_url("iora-intelligence", 8099));
 
     match state.http_client
         .get(&format!("{}/api/intelligence/overview", intel_url))
@@ -4388,8 +4404,9 @@ async fn proxy_intelligence_maintenance_run(
     axum::extract::Path(task): axum::extract::Path<String>,
 ) -> Json<Value> {
     let intel_url = std::env::var("INTELLIGENCE_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}",
-            std::env::var("INTELLIGENCE_PORT").unwrap_or_else(|_| "8099".to_string())));
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| system_config::service_url("iora-intelligence", 8099));
 
     match state.http_client
         .get(&format!("{}/api/intelligence/maintenance/run/{}", intel_url, task))
@@ -4518,20 +4535,20 @@ async fn forward_request_to(
     }
 }
 
-fn microservice_url(env_var: &str, default_port: u16) -> String {
+fn microservice_url(env_var: &str, service: &str, default_port: u16) -> String {
     if let Ok(v) = std::env::var(env_var) {
         if !v.is_empty() {
             return v;
         }
     }
-    format!("http://127.0.0.1:{}", default_port)
+    system_config::service_url(service, default_port)
 }
 
 async fn proxy_secrets(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_SECRETS_URL", 8093);
+    let base = microservice_url("IORA_SECRETS_URL", "iora-secrets", 8093);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4539,7 +4556,7 @@ async fn proxy_files(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_FILES_URL", 8100);
+    let base = microservice_url("IORA_FILES_URL", "iora-files", 8100);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4549,7 +4566,7 @@ async fn proxy_files_share(
 ) -> axum::response::Response {
     // /api/share/:token in iora-home maps to /api/files/shared/:token in iora-files
     use axum::body::Body;
-    let base = microservice_url("IORA_FILES_URL", 8100);
+    let base = microservice_url("IORA_FILES_URL", "iora-files", 8100);
     let path = req.uri().path().to_string();
     let new_path = path.replacen("/api/share/", "/api/files/shared/", 1);
     let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
@@ -4566,7 +4583,15 @@ async fn proxy_gateway(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_GATEWAY_URL", 8096);
+    let base = microservice_url("IORA_GATEWAY_URL", "iora-gateway", 8096);
+    forward_request_to(&state, &base, req).await
+}
+
+async fn proxy_assist(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4574,7 +4599,7 @@ async fn proxy_watchdog(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_WATCHDOG_URL", 8094);
+    let base = microservice_url("IORA_WATCHDOG_URL", "iora-watchdog", 8094);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4582,7 +4607,7 @@ async fn proxy_connector(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_CONNECTOR_URL", 8102);
+    let base = microservice_url("IORA_CONNECTOR_URL", "iora-connector", 8102);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4590,7 +4615,7 @@ async fn proxy_domain_validator(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_DOMAIN_VALIDATOR_URL", 8104);
+    let base = microservice_url("IORA_DOMAIN_VALIDATOR_URL", "iora-domain-validator", 8104);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4598,7 +4623,7 @@ async fn proxy_resources(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_RESOURCE_MANAGER_URL", 8105);
+    let base = microservice_url("IORA_RESOURCE_MANAGER_URL", "iora-resource-manager", 8105);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4606,7 +4631,7 @@ async fn proxy_network_monitor(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_NETWORK_MONITOR_URL", 8103);
+    let base = microservice_url("IORA_NETWORK_MONITOR_URL", "iora-network-monitor", 8103);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4614,7 +4639,7 @@ async fn proxy_iora_cloud(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_CLOUD_URL", 8120);
+    let base = microservice_url("IORA_CLOUD_URL", "iora-cloud", 8120);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4622,7 +4647,7 @@ async fn proxy_supervisor(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let base = microservice_url("IORA_SUPERVISOR_URL", "iora-supervisor", 8097);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4630,7 +4655,7 @@ async fn proxy_appstore(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_APPSTORE_URL", 8098);
+    let base = microservice_url("IORA_APPSTORE_URL", "iora-appstore", 8098);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4638,7 +4663,7 @@ async fn proxy_core(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> axum::response::Response {
-    let base = microservice_url("IORA_CORE_URL", 8090);
+    let base = microservice_url("IORA_CORE_URL", "iora-core", 8090);
     forward_request_to(&state, &base, req).await
 }
 
@@ -4649,7 +4674,7 @@ async fn proxy_core_security(
     req: axum::extract::Request,
 ) -> axum::response::Response {
     use axum::body::Body;
-    let base = microservice_url("IORA_SECURITY_URL", 8095);
+    let base = microservice_url("IORA_SECURITY_URL", "iora-security", 8095);
     let path = req.uri().path().to_string();
     let new_path = path.replacen("/api/core/security/", "/api/security/", 1);
     let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
@@ -4802,6 +4827,20 @@ async fn local_appstore_jobs(State(state): State<AppState>) -> Json<Value> {
         "jobs": jobs,
         "active": active,
     }))
+}
+
+async fn local_appstore_clear_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let id = uuid::Uuid::parse_str(&job_id)
+        .map_err(|_| ErrorResponse::bad_request("Ungültige Installations-ID".to_string()))?;
+    let removed = state.local_appstore.clear_job(id).await
+        .map_err(|e| ErrorResponse::bad_request(format!("Installations-Eintrag kann nicht entfernt werden: {}", e)))?;
+    if !removed {
+        return Err(ErrorResponse::not_found("Installations-Eintrag nicht gefunden".to_string()));
+    }
+    Ok(Json(json!({ "success": true, "removed": true, "job_id": job_id })))
 }
 
 /// SSE stream der Docker-realen App-Status. Pollt alle 10 s `docker compose ps`
@@ -6173,7 +6212,7 @@ async fn supervisor_compose_up(
     compose_content: &str,
     compose_dir: &std::path::Path,
 ) -> Option<Result<String, String>> {
-    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let base = microservice_url("IORA_SUPERVISOR_URL", "iora-supervisor", 8097);
     let url = format!("{}/api/supervisor/compose/up", base.trim_end_matches('/'));
     let body = json!({
         "app_id": app_id,
@@ -6204,7 +6243,7 @@ async fn supervisor_compose_prepare(
     compose_dir: &std::path::Path,
     prepare_mode: &str,
 ) -> Option<Result<String, String>> {
-    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let base = microservice_url("IORA_SUPERVISOR_URL", "iora-supervisor", 8097);
     let url = format!("{}/api/supervisor/compose/prepare", base.trim_end_matches('/'));
     let body = json!({
         "app_id": app_id,
@@ -6311,7 +6350,7 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
 }
 
 async fn supervisor_compose_down(app_id: &str, project_name: &str) -> Option<Result<String, String>> {
-    let base = microservice_url("IORA_SUPERVISOR_URL", 8097);
+    let base = microservice_url("IORA_SUPERVISOR_URL", "iora-supervisor", 8097);
     let url = format!("{}/api/supervisor/compose/down", base.trim_end_matches('/'));
     let body = json!({
         "app_id": app_id,
@@ -13248,24 +13287,37 @@ async fn admin_list_all_webhooks(
 async fn admin_control_services(
     State(state): State<AppState>,
 ) -> Json<Value> {
-    let client = &state.http_client;
+    use futures_util::future::join_all;
+
+    let client = state.http_client.clone();
     let services = vec![
-        ("iora-home", system_config::service_url("iora-home", 8126), "Dashboard Backend, API, Auth, Streaming"),
+        ("iora-home", system_config::service_url("iora-home", 3001), "Dashboard Backend, API, Auth, Streaming"),
         ("iora-core", system_config::service_url("iora-core", 8090), "Service Registry, Tasks, Plugins"),
-        ("iora-control", "http://localhost:8091".to_string(), "Dashboard Aggregation, System Monitor"),
-        ("iora-assist", "http://localhost:8092".to_string(), "AI Chat, Automation Suggestions"),
+        ("iora-control", system_config::service_url("iora-control", 8091), "Dashboard Aggregation, System Monitor"),
+        ("iora-assist", system_config::service_url("iora-assist", 8092), "AI Chat, Automation Suggestions"),
         ("iora-secrets", system_config::service_url("iora-secrets", 8093), "Secret & Credential Management"),
         ("iora-watchdog", system_config::service_url("iora-watchdog", 8094), "Service Monitoring & Alerting"),
         ("iora-security", system_config::service_url("iora-security", 8095), "Security Monitoring, Audit Logging"),
         ("iora-gateway", system_config::service_url("iora-gateway", 8096), "API Gateway, External Integrations"),
+        ("iora-supervisor", system_config::service_url("iora-supervisor", 8097), "App-Container, Docker und Laufzeitverwaltung"),
+        ("iora-appstore", system_config::service_url("iora-appstore", 8098), "App Store, Pakete und Signaturen"),
         ("iora-intelligence", system_config::service_url("iora-intelligence", 8099), "KI-gestützte Systemanalyse & Health Intelligence"),
+        ("iora-files", system_config::service_url("iora-files", 8100), "Dateien, Freigaben und App-Artefakte"),
+        ("iora-connector", system_config::service_url("iora-connector", 8102), "Remote-Zugriff und Cloud-Verbindung"),
+        ("iora-network-monitor", system_config::service_url("iora-network-monitor", 8103), "Netzwerk-Scan und Geräteerkennung"),
+        ("iora-domain-validator", system_config::service_url("iora-domain-validator", 8104), "Domain-Whitelist und DNS-Prüfung"),
+        ("iora-resource-manager", system_config::service_url("iora-resource-manager", 8105), "CPU-, RAM- und Speicherüberwachung"),
+        ("iora-updater", system_config::service_url("iora-updater", 8106), "System- und App-Updates"),
+        ("iora-backup", system_config::service_url("iora-backup", 8107), "Backups und Wiederherstellung"),
+        ("iora-nginx", system_config::service_url("iora-nginx", 8108), "Reverse Proxy und TLS-Routing"),
     ];
 
-    let mut results = Vec::new();
-    for (name, url, description) in &services {
+    let checks = services.into_iter().map(|(name, url, description)| {
+        let client = client.clone();
+        async move {
         let health_url = format!("{}/health", url);
         let (status, uptime, details) = match client.get(&health_url)
-            .timeout(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_millis(900))
             .send().await
         {
             Ok(resp) if resp.status().is_success() => {
@@ -13281,18 +13333,20 @@ async fn admin_control_services(
             // as a red "Offline" alarm. iora-home itself is special-cased:
             // if we're running this handler, iora-home is obviously up,
             // so treat its own failure as a real outage.
-            Err(_) if *name == "iora-home" => ("offline", 0u64, json!({ "note": "self check failed" })),
+            Err(_) if name == "iora-home" => ("offline", 0u64, json!({ "note": "self check failed" })),
             Err(_) => ("not_deployed", 0u64, json!({ "note": "Dienst nicht erreichbar — vermutlich nicht installiert oder nicht aktiviert." })),
         };
-        results.push(json!({
+        json!({
             "name": name,
             "url": url,
             "description": description,
             "status": status,
             "uptime_seconds": uptime,
             "details": details,
-        }));
-    }
+        })
+        }
+    });
+    let results = join_all(checks).await;
 
     Json(json!({ "services": results, "timestamp": chrono::Utc::now().to_rfc3339() }))
 }
@@ -13438,7 +13492,7 @@ async fn admin_control_overview(
 }
 
 /// Generic proxy: forwards /api/admin/iora-control/<path> to
-/// http://localhost:8091/api/control/<path> on iora-control. The endpoint is
+/// iora-control's internal service URL. The endpoint is
 /// already gated by the admin middleware on the `admin_routes` group, so we
 /// simply replay the verb, headers (minus hop-by-hop), and body, and stream
 /// the upstream response back unchanged.
@@ -13450,9 +13504,12 @@ async fn admin_iora_control_proxy(
     raw_query: RawQuery,
     body: axum::body::Bytes,
 ) -> Response {
-    let port = system_config::service_port("iora-control", 8091).to_string();
     let qs = raw_query.0.as_deref().map(|q| format!("?{}", q)).unwrap_or_default();
-    let url = format!("http://localhost:{}/api/control/{}{}", port, path, qs);
+    let base = std::env::var("IORA_CONTROL_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| system_config::service_url("iora-control", 8091));
+    let url = format!("{}/api/control/{}{}", base.trim_end_matches('/'), path, qs);
 
     let reqwest_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
         Ok(m) => m,
@@ -13468,9 +13525,9 @@ async fn admin_iora_control_proxy(
     let mut req = state.http_client.request(reqwest_method, &url);
     for (k, v) in headers.iter() {
         let name = k.as_str().to_ascii_lowercase();
-        // Skip hop-by-hop headers and the dashboard's own auth bearer (the
-        // upstream iora-control trusts requests on localhost and does not
-        // re-validate the dashboard JWT).
+        // Skip hop-by-hop headers and the dashboard's own auth bearer. The
+        // upstream iora-control is reached on the internal IORA service network
+        // and does not re-validate the dashboard JWT.
         if matches!(
             name.as_str(),
             "host" | "content-length" | "connection" | "authorization" | "cookie"
@@ -15480,31 +15537,45 @@ async fn api_doc_realtime_ws() {}
 async fn handle_theme_zip_install(
     State(gs): State<AppState>,
     body: String,
-) -> Result<Json<Value>, (StatusCode, String)> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     use base64::Engine as _;
+    let fail = |status: StatusCode, stage: &'static str, message: String| {
+        warn!(target: "themes", stage, error = %message, "Theme ZIP installation failed");
+        (status, Json(json!({ "success": false, "stage": stage, "message": message })))
+    };
     let v: Value = match serde_json::from_str(&body) {
         Ok(v) => v,
-        Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid JSON".into())),
+        Err(e) => return Err(fail(StatusCode::BAD_REQUEST, "request", format!("Ungültiges JSON: {}", e))),
     };
     let zip_data = match v.get("zip_data").and_then(|v| v.as_str()) {
         Some(s) => s,
-        None => return Err((StatusCode::BAD_REQUEST, "Missing zip_data".into())),
+        None => return Err(fail(StatusCode::BAD_REQUEST, "request", "Feld 'zip_data' fehlt".into())),
     };
     let payload = zip_data.split(',').last().unwrap_or(zip_data).trim();
-    let bytes = match base64::engine::general_purpose::STANDARD.decode(payload.as_bytes()) {
-        Ok(b) => b,
-        Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid base64".into())),
+    let padded_payload;
+    let decode_payload = if payload.len() % 4 == 0 {
+        payload
+    } else {
+        padded_payload = format!("{}{}", payload, "=".repeat(4 - payload.len() % 4));
+        &padded_payload
     };
-    if bytes.is_empty() { return Err((StatusCode::BAD_REQUEST, "Empty ZIP".into())); }
-    if bytes.len() > 256*1024*1024 { return Err((StatusCode::BAD_REQUEST, "ZIP >256 MiB".into())); }
+    let bytes = match base64::engine::general_purpose::STANDARD
+        .decode(decode_payload.as_bytes())
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(decode_payload.as_bytes()))
+    {
+        Ok(b) => b,
+        Err(e) => return Err(fail(StatusCode::BAD_REQUEST, "request", format!("ZIP-Daten sind kein gültiges Base64: {}", e))),
+    };
+    if bytes.is_empty() { return Err(fail(StatusCode::BAD_REQUEST, "request", "ZIP-Datei ist leer".into())); }
+    if bytes.len() > 256*1024*1024 { return Err(fail(StatusCode::BAD_REQUEST, "request", "ZIP-Datei ist größer als 256 MiB".into())); }
     // Step 1: Extract ZIP on blocking thread (contains non-Send types)
     let tm = gs.theme_manager.clone();
     let def = tokio::task::spawn_blocking(move || {
         tm.extract_zip(&bytes)
-    }).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Spawn: {}", e)))?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Extract: {}", e)))?;
+    }).await.map_err(|e| fail(StatusCode::INTERNAL_SERVER_ERROR, "extract", format!("Theme-Extraktion konnte nicht gestartet werden: {}", e)))?
+    .map_err(|e| fail(StatusCode::BAD_REQUEST, "extract", format!("Theme-ZIP konnte nicht gelesen werden: {}", e)))?;
     // Step 2: Store in DB (async, no non-Send types)
     let def = gs.theme_manager.store_theme(def).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Store: {}", e)))?;
-    Ok(Json(json!({"status":"ok","theme":{"id":def.id,"name":def.name,"version":def.version}})))
+        .map_err(|e| fail(StatusCode::INTERNAL_SERVER_ERROR, "store", format!("Theme konnte nicht gespeichert werden: {}", e)))?;
+    Ok(Json(json!({"success":true,"status":"ok","theme":{"id":def.id,"name":def.name,"version":def.version}})))
 }

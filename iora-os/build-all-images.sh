@@ -626,6 +626,12 @@ configure_buildroot() {
 
     if [ -f .config ] && [ "${current_key}" = "${config_key}" ] && [ "${IORA_FORCE_RECONFIGURE:-0}" != "1" ]; then
         log_info "Reusing existing Buildroot .config (${config_key}); running olddefconfig only."
+        if [ "${IORA_OS_DEV:-0}" = "1" ] && ! grep -q '^BR2_PACKAGE_IORA_DEV_TOOLCHAIN=y$' .config 2>/dev/null; then
+            log_info "Enabling native build toolchain for reused IORA OS Dev config..."
+            cat >> .config <<'EOF'
+BR2_PACKAGE_IORA_DEV_TOOLCHAIN=y
+EOF
+        fi
         PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" olddefconfig
     else
         PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" "${IORA_DEFCONFIG:-iora_defconfig}"

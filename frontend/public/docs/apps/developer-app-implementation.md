@@ -296,7 +296,7 @@ Enhanced Developer Mode documentation with:
 ```python
 from iora_sdk import IoraClient
 
-async with IoraClient("http://localhost:8080", api_key="key") as client:
+async with IoraClient("http://iora.local:8080", api_key="key") as client:
     # This auto-installs the Developer App
     await client.toggle_developer_mode(enabled=True)
 ```

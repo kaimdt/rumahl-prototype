@@ -106,7 +106,7 @@ GET /api/apps/:app_id/schedules/:task_id/logs
 ```typescript
 import IoraClient from '@iora/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new IoraClient('http://iora.local:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Create a cron task

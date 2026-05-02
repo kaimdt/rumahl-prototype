@@ -73,7 +73,7 @@ Für erweiterte Konfigurationen kann auch `configuration.yaml` verwendet werden:
 
 ```yaml
 mdt_home_dashboard:
-  dashboard_url: "http://localhost:5173"  # Optional
+  dashboard_url: "http://iora.local:5173"  # Optional
   enable_webhooks: true                    # Default: true
 ```
 

@@ -25,8 +25,8 @@ Welcome to the IORA SDK! This documentation will guide you through creating Apps
 
 - **For Apps**: Docker installed and basic Docker knowledge
 - **For Plugins**: Rust toolchain (rustc, cargo)
-- IORA Core running (localhost:8090) or access to IORA instance
-- IORA Supervisor running (localhost:8097) for Apps
+- IORA Core running (iora.local:8090) or access to IORA instance
+- IORA Supervisor running (iora.local:8097) for Apps
 
 ### Quick Start
 

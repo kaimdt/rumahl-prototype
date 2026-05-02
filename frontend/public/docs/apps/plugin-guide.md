@@ -230,7 +230,7 @@ cargo run --release
 import { backendManager } from '@/lib/backend/provider'
 
 await backendManager.setProvider('proxy', {
-  url: 'http://localhost:3001',
+  url: 'http://iora.local:3001',
   useWebSocket: true, // Enable real-time updates
 })
 ```

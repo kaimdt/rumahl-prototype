@@ -213,7 +213,7 @@ The database will be automatically created and migrations will run on first star
 1. Set up environment variables in `.env`:
 
 ```bash
-VITE_BACKEND_URL=http://localhost:3001
+VITE_BACKEND_URL=http://iora.local:3001
 ```
 
 2. Start the frontend:

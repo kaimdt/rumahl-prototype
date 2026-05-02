@@ -115,7 +115,9 @@ export function AppStoreTab({ token }: { token: string }) {
     setLoading(true)
     setError('')
     try {
-      // Try supervisor endpoint first (has status, custom_pages, etc.)
+      // Try supervisor endpoint first (has status, custom_pages, etc.).
+      // The local appstore is still the source of truth for ZIP-installed apps,
+      // so merge both lists instead of treating local apps as a fallback only.
       let data: { apps: AppInfo[] }
       try {
         data = await adminFetch('/api/supervisor/apps', token) as { apps: AppInfo[] }
@@ -127,15 +129,18 @@ export function AppStoreTab({ token }: { token: string }) {
       try {
         const localData = await adminFetch('/api/appstore/installed', token) as { apps: AppInfo[] }
         if (localData.apps && localData.apps.length > 0) {
-          // Merge trust_level from local appstore into supervisor data
+          // Merge local server-side apps into the supervisor list and keep
+          // supervisor runtime status when both sides know the same app.
           const localMap = new Map(localData.apps.map(a => [a.id, a]))
-          data.apps = (data.apps || []).map(app => {
+          const merged = (data.apps || []).map(app => {
             const local = localMap.get(app.id)
             if (local) {
-              return { ...app, trust_level: local.trust_level || 'untrusted' }
+              localMap.delete(app.id)
+              return { ...local, ...app, trust_level: local.trust_level || app.trust_level || 'untrusted' }
             }
             return app
           })
+          data.apps = [...merged, ...localMap.values()]
         }
       } catch { /* ignore */ }
       let appList = data.apps || []
@@ -166,7 +171,7 @@ export function AppStoreTab({ token }: { token: string }) {
       setError((e as Error).message)
     }
     setLoading(false)
-  }, [token])
+  }, [token, devMode])
 
   useEffect(() => {
     if (view === 'installed') {
@@ -883,6 +888,18 @@ function InstallProgressList({ token, onJobComplete }: { token: string; onJobCom
   const barColor = (s: InstallJob['status']) =>
     s === 'failed' ? 'bg-red-400' : s === 'succeeded' ? 'bg-green-400' : 'bg-accent'
 
+  const canClear = (s: InstallJob['status']) => ['succeeded', 'failed', 'canceled'].includes(s)
+
+  const clearJob = async (jobId: string) => {
+    try {
+      await adminFetch(`/api/appstore/jobs/${encodeURIComponent(jobId)}`, token, { method: 'DELETE' })
+      setJobs(current => current.filter(job => job.id !== jobId))
+      toast.success('Installationseintrag entfernt')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   return (
     <AdminCard
       title={activeCount > 0 ? `App-Installationen (${activeCount} aktiv)` : 'Letzte Installationen'}
@@ -901,9 +918,21 @@ function InstallProgressList({ token, onJobComplete }: { token: string; onJobCom
                 </div>
                 <div className="text-[10px] text-foreground/50 truncate">{job.message}</div>
               </div>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${statusColor(job.status)}`}>
-                {statusLabel(job.status)} {job.progress > 0 && job.status !== 'succeeded' ? `· ${job.progress}%` : ''}
-              </span>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColor(job.status)}`}>
+                  {statusLabel(job.status)} {job.progress > 0 && job.status !== 'succeeded' ? `· ${job.progress}%` : ''}
+                </span>
+                {canClear(job.status) && (
+                  <button
+                    type="button"
+                    onClick={() => clearJob(job.id)}
+                    className="p-1 rounded text-foreground/35 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                    title="Eintrag aus Letzte Installationen entfernen"
+                  >
+                    <X size={12} weight="bold" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
               <div

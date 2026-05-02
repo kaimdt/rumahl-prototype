@@ -464,25 +464,25 @@ pub fn default_settings() -> Vec<SettingDefinition> {
         // ── Backend / Frontend URLs (auto-detected by system) ──────────
         SettingBuilder::new("backend.url", "Backend API URL", System, Url)
             .description("Base-URL des IORA Backends. Vom System automatisch erkannt.")
-            .default(serde_json::json!("http://localhost:3001"))
+            .default(serde_json::json!(""))
             .required(true)
             .restart(&["iora-home.service"])
             .tags(&["network", "api", "auto"])
             .build(),
         SettingBuilder::new("backend.assist_url", "ORA Assist URL", System, Url)
             .description("URL des ORA AI Assistant. Vom System automatisch erkannt.")
-            .default(serde_json::json!("http://localhost:8092"))
+            .default(serde_json::json!(""))
             .restart(&["iora-home.service"])
             .tags(&["ai", "api", "auto"])
             .build(),
         SettingBuilder::new("backend.supervisor_url", "Supervisor URL", System, Url)
             .description("URL des Container-Supervisors. Vom System automatisch erkannt.")
-            .default(serde_json::json!("http://localhost:8097"))
+            .default(serde_json::json!("http://127.0.0.1:8097"))
             .tags(&["docker", "auto"])
             .build(),
         SettingBuilder::new("backend.files_url", "Files Service URL", System, Url)
             .description("URL des Datei-Sharing Dienstes. Vom System automatisch erkannt.")
-            .default(serde_json::json!("http://localhost:8100"))
+            .default(serde_json::json!("http://127.0.0.1:8100"))
             .tags(&["files", "auto"])
             .build(),
         // ── Database (auto-detected) ────────────────────────────────────
@@ -537,8 +537,8 @@ pub fn default_settings() -> Vec<SettingDefinition> {
             .tags(&["ai"])
             .build(),
         SettingBuilder::new("ai.base_url", "AI Base URL", Integrations, Url)
-            .description("Basis-URL des KI-API-Endpunkts (z.B. http://localhost:1234/v1 für Ollama).")
-            .default(serde_json::json!("http://localhost:1234/v1"))
+            .description("Basis-URL des KI-API-Endpunkts, aus Sicht von IORA/iora-assist erreichbar.")
+            .default(serde_json::json!(""))
             .tags(&["ai"])
             .build(),
         SettingBuilder::new("ai.api_key", "AI API Key", Integrations, Secret)

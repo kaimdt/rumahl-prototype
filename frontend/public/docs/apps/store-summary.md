@@ -96,7 +96,7 @@ Based on the German requirements:
 3. Mapping created: `3042:3000/tcp`
 4. Port stored in database
 5. Environment variable `IORA_EXTERNAL_PORT=3042` injected
-6. App accessible at `http://localhost:3042` externally
+6. App accessible at `http://iora.local:3042` externally
 
 ### Custom Pages
 

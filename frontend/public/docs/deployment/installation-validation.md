@@ -106,8 +106,8 @@ These services provide additional functionality but are not required for basic o
    ```
 
 5. **Access IORA**
-   - IORA Home: http://localhost:8080
-   - IORA Control: http://localhost:8091
+   - IORA Home: http://iora.local:8080
+   - IORA Control: http://iora.local:8091
 
 **Expected behavior:**
 - ✅ All containers start without errors

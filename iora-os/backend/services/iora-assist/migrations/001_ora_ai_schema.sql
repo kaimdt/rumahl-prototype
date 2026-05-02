@@ -162,9 +162,9 @@ CREATE TRIGGER update_provider_configs_updated_at BEFORE UPDATE ON provider_conf
 
 -- Insert default provider configurations
 INSERT INTO provider_configs (provider_type, purpose, priority, config) VALUES
-    ('local', 'general', 100, '{"base_url": "http://localhost:11434", "model": "llama3.2"}'),
-    ('local', 'chat', 90, '{"base_url": "http://localhost:11434", "model": "llama3.2"}'),
-    ('local', 'monitoring', 80, '{"base_url": "http://localhost:11434", "model": "llama3.2"}')
+    ('local', 'general', 100, '{"base_url": "http://127.0.0.1:11434", "model": "llama3.2"}'),
+    ('local', 'chat', 90, '{"base_url": "http://127.0.0.1:11434", "model": "llama3.2"}'),
+    ('local', 'monitoring', 80, '{"base_url": "http://127.0.0.1:11434", "model": "llama3.2"}')
 ON CONFLICT DO NOTHING;
 
 -- Insert sample autonomous tasks

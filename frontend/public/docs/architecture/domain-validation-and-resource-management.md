@@ -351,9 +351,9 @@ CREATE TABLE resource_allocations (
 
 **Environment Variables**:
 ```bash
-DATABASE_URL=postgresql://user:pass@localhost/iora
+DATABASE_URL=postgresql://user:pass@iora.local/iora
 RUST_LOG=info
-BIND_ADDRESS=127.0.0.1:8100
+BIND_ADDRESS=iora.local:8100
 DNS_CACHE_TTL=300  # seconds
 ```
 
@@ -361,10 +361,10 @@ DNS_CACHE_TTL=300  # seconds
 
 **Environment Variables**:
 ```bash
-DATABASE_URL=postgresql://user:pass@localhost/iora
+DATABASE_URL=postgresql://user:pass@iora.local/iora
 DOCKER_HOST=unix:///var/run/docker.sock
 RUST_LOG=info
-BIND_ADDRESS=127.0.0.1:8101
+BIND_ADDRESS=iora.local:8101
 MONITORING_INTERVAL=30  # seconds
 ```
 

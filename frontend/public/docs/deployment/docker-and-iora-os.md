@@ -104,9 +104,9 @@ The supervisor is the **master container** that controls Docker. It:
    ```
 
 5. **Access IORA**
-   - **IORA Home**: http://localhost:8080
-   - **IORA Control**: http://localhost:8091
-   - **Supervisor API**: http://localhost:8097
+   - **IORA Home**: http://iora.local:8080
+   - **IORA Control**: http://iora.local:8091
+   - **Supervisor API**: http://iora.local:8097
 
 ### Docker Compose Services
 
@@ -306,7 +306,7 @@ Profiles enforce:
 
 ```bash
 # Via API
-curl -X POST http://localhost:8097/api/supervisor/services/update \
+curl -X POST http://iora.local:8097/api/supervisor/services/update \
   -H "Content-Type: application/json" \
   -d '{"service_name": "iora-home", "image_tag": "latest"}'
 
@@ -363,7 +363,7 @@ docker compose logs -f
 docker compose logs -f iora-home
 
 # Via supervisor API
-curl http://localhost:8097/api/supervisor/containers/iora-home/logs
+curl http://iora.local:8097/api/supervisor/containers/iora-home/logs
 ```
 
 ### Health checks
@@ -371,7 +371,7 @@ curl http://localhost:8097/api/supervisor/containers/iora-home/logs
 # All services
 for port in 8080 8090 8091 8092 8093 8094 8095 8096 8097; do
   echo -n "Port $port: "
-  curl -s http://localhost:$port/health | jq -r .status
+  curl -s http://iora.local:$port/health | jq -r .status
 done
 ```
 

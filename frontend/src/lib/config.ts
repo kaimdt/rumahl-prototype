@@ -24,14 +24,46 @@ const DEV_ASSIST_URL = import.meta.env.VITE_IORA_ASSIST_URL || ''
 let _backendUrl = DEV_BACKEND_URL
 let _assistUrl = DEV_ASSIST_URL
 
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (normalized === ['local', 'host'].join('') || normalized === '::1') return true
+  const parts = normalized.split('.').map((part) => Number(part))
+  return parts.length === 4
+    && parts[0] === 127
+    && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+}
+
+function browserSafeBaseUrl(url: string): string {
+  if (!url || typeof window === 'undefined') return url
+  try {
+    const parsed = new URL(url, window.location.origin)
+    if (isLoopbackHost(parsed.hostname) && !isLoopbackHost(window.location.hostname)) {
+      return ''
+    }
+  } catch {
+    return ''
+  }
+  return url
+}
+
 /** Returns the current backend URL. Safe to call from anywhere. */
 export function getBackendUrl(): string {
-  return _backendUrl
+  return browserSafeBaseUrl(_backendUrl)
 }
 
 /** Returns the current assist/AI URL. Safe to call from anywhere. */
 export function getAssistUrl(): string {
-  return _assistUrl
+  if (_assistUrl && typeof window !== 'undefined') {
+    try {
+      const assist = new URL(_assistUrl, window.location.origin)
+      if (isLoopbackHost(assist.hostname) && !isLoopbackHost(window.location.hostname)) {
+        return getBackendUrl()
+      }
+    } catch {
+      return getBackendUrl()
+    }
+  }
+  return browserSafeBaseUrl(_assistUrl)
 }
 
 /** Called by GlobalConfigProvider after fetching live config. */

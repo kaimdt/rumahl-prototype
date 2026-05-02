@@ -127,13 +127,21 @@ pub fn service_port(service: &str, default: u16) -> u16 {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Builds the URL for another IORA service.
-/// Format: `http://localhost:{port}` — services run on the same host.
+/// Native IORA OS services run as systemd units on the same device, so the
+/// safe default is device-local loopback. Container/service-DNS mode is opt-in.
 pub fn service_url(service: &str, default_port: u16) -> String {
     let url_key = format!("{}_URL", service.to_uppercase().replace('-', "_"));
     if let Some(url) = env_optional(&url_key) { return url }
 
     let port = service_port(service, default_port);
-    format!("http://localhost:{port}")
+    if std::env::var("IORA_SERVICE_DNS").ok().as_deref() == Some("1")
+        || std::env::var("IORA_CONTAINER_MODE").ok().as_deref() == Some("1")
+        || std::path::Path::new("/.dockerenv").exists()
+    {
+        format!("http://{service}:{port}")
+    } else {
+        format!("http://127.0.0.1:{port}")
+    }
 }
 
 /// Backend API base URL (iora-home or the main API gateway).
@@ -219,7 +227,7 @@ pub fn ai_api_key() -> Option<String> {
 pub fn ai_base_url() -> String {
     env_optional("ORA_AI_BASE_URL")
         .or_else(|| env_optional("ASSIST_AI_BACKEND_URL"))
-        .unwrap_or_else(|| "http://localhost:1234/v1".to_string())
+        .unwrap_or_default()
 }
 
 pub fn ai_model() -> Option<String> {

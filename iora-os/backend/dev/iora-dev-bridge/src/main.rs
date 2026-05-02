@@ -1412,10 +1412,10 @@ async fn build_replace(
     let _ = tokio::fs::create_dir_all(&cargo_target_cache).await;
     let _ = tokio::fs::create_dir_all(&cargo_home_cache).await;
 
-    // Prefer native cargo (no docker overhead) when it's already on the
-    // dev image, falling back to a containerised toolchain otherwise.
-    // Either way CARGO_TARGET_DIR + CARGO_HOME live inside `work_root`
-    // so the cache survives but never leaks across components.
+    // Native IORA OS dev images build on-device. Docker is intentionally not
+    // used unless explicitly enabled via IORA_DEV_ALLOW_DOCKER_BUILD=1.
+    // CARGO_TARGET_DIR + CARGO_HOME live inside `work_root` so the cache
+    // survives but never leaks across components.
     let build = if command_exists("cargo") {
         emit_bridge_log(&s.event_tx, &log_service, format!("running cargo build --release -p {component}"));
         run_cmd_with_env_and_logs(
@@ -1433,7 +1433,7 @@ async fn build_replace(
             &s.event_tx,
             &log_service,
         ).await
-    } else if command_exists("docker") {
+    } else if allow_docker_build_fallback() && command_exists("docker") {
         emit_bridge_log(&s.event_tx, &log_service, format!("running docker build container for {component}"));
         run_cmd_owned_with_logs(
             "docker",
@@ -1463,12 +1463,12 @@ async fn build_replace(
             &log_service,
         ).await
     } else {
-        emit_bridge_log(&s.event_tx, &log_service, "neither docker nor cargo available on device".to_string());
+        emit_bridge_log(&s.event_tx, &log_service, "native cargo is not available on this IORA OS Dev image".to_string());
         CmdResult {
             ok: false,
             code: -1,
             stdout: String::new(),
-            stderr: "neither docker nor cargo available on device".into(),
+            stderr: "native cargo/rustc missing on device; rebuild the IORA OS Dev image with IORA_OS_DEV=1 so BR2_PACKAGE_IORA_DEV_TOOLCHAIN is included".into(),
         }
     };
 
@@ -1980,10 +1980,11 @@ async fn ensure_build_tooling(
     if local.ok {
         return local;
     }
-    if command_exists("docker") {
-        emit_bridge_log(event_tx, service, format!("native build tooling incomplete: {}; falling back to docker", local.stderr.trim()));
+    if allow_docker_build_fallback() && command_exists("docker") {
+        emit_bridge_log(event_tx, service, format!("native build tooling incomplete: {}; docker fallback explicitly enabled", local.stderr.trim()));
         return ensure_tooling_with_docker(event_tx, service).await;
     }
+    emit_bridge_log(event_tx, service, format!("native build tooling incomplete: {}", local.stderr.trim()));
     local
 }
 
@@ -2069,7 +2070,7 @@ async fn ensure_tooling_locally(
             code: -1,
             stdout: String::new(),
             stderr: format!(
-                "docker is unavailable and apt-get is missing; cannot auto-install required tooling: {}",
+                "apt-get is missing; cannot auto-install required tooling on Buildroot IORA OS. Missing: {}. Rebuild the Dev image with IORA_OS_DEV=1 / BR2_PACKAGE_IORA_DEV_TOOLCHAIN=y",
                 missing_packages.join(", ")
             ),
         };
@@ -2113,6 +2114,10 @@ fn command_exists(bin: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+fn allow_docker_build_fallback() -> bool {
+    std::env::var("IORA_DEV_ALLOW_DOCKER_BUILD").ok().as_deref() == Some("1")
 }
 
 /// ─── Self-Update ─────────────────────────────────────────────────────────

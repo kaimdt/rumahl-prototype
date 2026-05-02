@@ -51,8 +51,12 @@ pub struct ThemeState {
 
 impl ThemeState {
     pub fn new(db_pool: DbPool, data_dir: &FsPath) -> Self {
-        let themes_dir = data_dir.join("themes");
-        std::fs::create_dir_all(&themes_dir).ok();
+        let requested = if data_dir.file_name().and_then(|v| v.to_str()) == Some("themes") {
+            data_dir.to_path_buf()
+        } else {
+            data_dir.join("themes")
+        };
+        let themes_dir = pick_writable_theme_dir(requested);
         Self { db_pool, theme_cache: Arc::new(RwLock::new(HashMap::new())), themes_dir }
     }
 
@@ -65,6 +69,40 @@ impl ThemeState {
         info!("Theme cache refreshed: {} themes", cache.len());
         Ok(())
     }
+}
+
+fn pick_writable_theme_dir(requested: PathBuf) -> PathBuf {
+    let mut candidates = vec![requested];
+    if cfg!(target_os = "linux") {
+        candidates.push(PathBuf::from("/var/lib/iora/iora-home/themes"));
+    }
+    if !cfg!(target_os = "linux") {
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join("data").join("themes"));
+        }
+        candidates.push(std::env::temp_dir().join("iora-home").join("themes"));
+    }
+
+    for dir in candidates {
+        match ensure_writable_dir(&dir) {
+            Ok(()) => return dir,
+            Err(e) => warn!("Theme directory {} is not writable: {}", dir.display(), e),
+        }
+    }
+
+    if cfg!(target_os = "linux") {
+        PathBuf::from("/var/lib/iora/iora-home/themes")
+    } else {
+        std::env::temp_dir().join("iora-home").join("themes")
+    }
+}
+
+fn ensure_writable_dir(dir: &FsPath) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let probe = dir.join(".write-test");
+    std::fs::write(&probe, b"ok")?;
+    let _ = std::fs::remove_file(probe);
+    Ok(())
 }
 
 // The handler functions below use State<AppState> and access theme_manager via app_state.theme_manager
@@ -96,6 +134,8 @@ pub struct InstalledThemeRow {
 }
 
 fn map_theme_row(row: &sqlx::postgres::PgRow) -> InstalledThemeRow {
+    let installed_at: chrono::DateTime<chrono::Utc> = row.get("installed_at");
+    let updated_at: chrono::DateTime<chrono::Utc> = row.get("updated_at");
     InstalledThemeRow {
         id: row.get("id"), name: row.get("name"),
         version: row.get("version"), developer: row.get("developer"),
@@ -111,9 +151,9 @@ fn map_theme_row(row: &sqlx::postgres::PgRow) -> InstalledThemeRow {
         fonts_json: row.get("fonts_json"),
         icon_font_json: row.get("icon_font_json"),
         system: row.get("system"), enabled: row.get("enabled"),
-        installed_at: row.get("installed_at"),
+        installed_at: installed_at.to_rfc3339(),
         source_app_id: row.get("source_app_id"),
-        updated_at: row.get("updated_at"),
+        updated_at: updated_at.to_rfc3339(),
     }
 }
 
@@ -176,8 +216,12 @@ impl ThemeState {
 
         // Extract
         let theme_dir = self.themes_dir.join(&def.id);
-        if theme_dir.exists() { std::fs::remove_dir_all(&theme_dir)?; }
-        std::fs::create_dir_all(&theme_dir)?;
+        if theme_dir.exists() {
+            std::fs::remove_dir_all(&theme_dir)
+                .map_err(|e| anyhow::anyhow!("cannot replace existing theme dir {}: {}", theme_dir.display(), e))?;
+        }
+        std::fs::create_dir_all(&theme_dir)
+            .map_err(|e| anyhow::anyhow!("cannot create theme dir {}: {}", theme_dir.display(), e))?;
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
@@ -191,13 +235,16 @@ impl ThemeState {
             }
             if let Some(parent) = relative_path.parent() {
                 if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(theme_dir.join(parent))?;
+                    let parent_dir = theme_dir.join(parent);
+                    std::fs::create_dir_all(&parent_dir)
+                        .map_err(|e| anyhow::anyhow!("cannot create theme asset dir {}: {}", parent_dir.display(), e))?;
                 }
             }
             let target = theme_dir.join(relative_path);
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
-            std::fs::write(&target, &buf)?;
+            std::fs::write(&target, &buf)
+                .map_err(|e| anyhow::anyhow!("cannot write theme asset {}: {}", target.display(), e))?;
         }
 
         // Preview
@@ -216,7 +263,7 @@ impl ThemeState {
     /// Store extracted theme in the database (async)
     pub async fn store_theme(&self, def: iora_shared::theme::ThemeDefinition) -> anyhow::Result<iora_shared::theme::ThemeDefinition> {
         // DB insert
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now();
         let css_vars_json = serde_json::to_string(&def.css_variables)?;
         let css_files_json = serde_json::to_string(&def.css_files)?;
         let js_files_json = serde_json::to_string(&def.js_files)?;
@@ -243,7 +290,7 @@ impl ThemeState {
         .bind(&def.source).bind(&css_vars_json).bind(&def.additional_css)
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
         .bind(&fonts_json).bind(&icon_font_json)
-        .bind(false).bind(true).bind(&now).bind(Option::<&str>::None).bind(&now)
+        .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
         self.refresh_cache().await?;
@@ -253,7 +300,7 @@ impl ThemeState {
     /// Install an inline theme from manifest data (no ZIP).
     pub async fn install_inline(&self, mut def: iora_shared::theme::ThemeDefinition) -> anyhow::Result<()> {
         def.source = "inline".to_string();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now();
         let css_vars_json = serde_json::to_string(&def.css_variables)?;
         let css_files_json = serde_json::to_string(&def.css_files)?;
         let js_files_json = serde_json::to_string(&def.js_files)?;
@@ -280,7 +327,7 @@ impl ThemeState {
         .bind(&def.source).bind(&css_vars_json).bind(&def.additional_css)
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
         .bind(&fonts_json).bind(&icon_font_json)
-        .bind(false).bind(true).bind(&now).bind(Option::<&str>::None).bind(&now)
+        .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
         self.refresh_cache().await?;
@@ -309,7 +356,7 @@ impl ThemeState {
 
     /// Set user theme selection.
     pub async fn set_user_theme(&self, user_id: &str, profile_id: &str, sel: iora_shared::theme::UserThemeSelection) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now();
         let overrides_json = serde_json::to_string(&sel.overrides)?;
         let id = format!("theme_sel_{}", Uuid::new_v4());
         sqlx::query(
@@ -318,7 +365,7 @@ impl ThemeState {
              ON CONFLICT(profile_id) DO UPDATE SET theme_id=$4,auto_theme=$5,overrides=$6,updated_at=$8"
         ).bind(&id).bind(user_id).bind(profile_id)
         .bind(&sel.theme_id).bind(sel.auto_theme)
-        .bind(&overrides_json).bind(&now).bind(&now)
+        .bind(&overrides_json).bind(now).bind(now)
         .execute(&self.db_pool).await?;
         Ok(())
     }

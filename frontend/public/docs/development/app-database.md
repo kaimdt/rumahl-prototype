@@ -137,7 +137,7 @@ GET /api/apps/:app_id/database/backups
 ```typescript
 import IoraClient from '@iora/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new IoraClient('http://iora.local:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Provision database with initial schema

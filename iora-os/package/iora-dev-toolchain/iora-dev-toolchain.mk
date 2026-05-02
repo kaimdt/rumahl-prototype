@@ -17,11 +17,15 @@ endif
 IORA_DEV_TOOLCHAIN_SOURCE = rust-$(IORA_DEV_TOOLCHAIN_VERSION)-$(IORA_DEV_TOOLCHAIN_RUST_TRIPLE).tar.xz
 IORA_DEV_TOOLCHAIN_DEPENDENCIES = \
 	binutils \
+	ca-certificates \
 	clang \
+	cmake \
 	git \
+	libcurl \
 	make \
 	nodejs \
 	openssl \
+	perl \
 	pkgconf \
 	postgresql \
 	python3
@@ -39,6 +43,28 @@ define IORA_DEV_TOOLCHAIN_INSTALL_TARGET_CMDS
 	ln -sf /usr/local/bin/cargo $(TARGET_DIR)/usr/bin/cargo
 	ln -sf /usr/local/bin/rustc $(TARGET_DIR)/usr/bin/rustc
 	ln -sf /usr/local/bin/rustdoc $(TARGET_DIR)/usr/bin/rustdoc
+	mkdir -p $(TARGET_DIR)/usr/include $(TARGET_DIR)/usr/lib $(TARGET_DIR)/usr/share
+	if [ -d $(STAGING_DIR)/usr/include ]; then \
+		cp -a $(STAGING_DIR)/usr/include/. $(TARGET_DIR)/usr/include/; \
+	fi
+	if [ -d $(STAGING_DIR)/usr/lib/pkgconfig ]; then \
+		mkdir -p $(TARGET_DIR)/usr/lib/pkgconfig; \
+		cp -a $(STAGING_DIR)/usr/lib/pkgconfig/. $(TARGET_DIR)/usr/lib/pkgconfig/; \
+	fi
+	if [ -d $(STAGING_DIR)/usr/share/pkgconfig ]; then \
+		mkdir -p $(TARGET_DIR)/usr/share/pkgconfig; \
+		cp -a $(STAGING_DIR)/usr/share/pkgconfig/. $(TARGET_DIR)/usr/share/pkgconfig/; \
+	fi
+	if [ -d $(STAGING_DIR)/usr/lib/cmake ]; then \
+		mkdir -p $(TARGET_DIR)/usr/lib/cmake; \
+		cp -a $(STAGING_DIR)/usr/lib/cmake/. $(TARGET_DIR)/usr/lib/cmake/; \
+	fi
+	if [ -d $(STAGING_DIR)/usr/share/cmake ]; then \
+		mkdir -p $(TARGET_DIR)/usr/share/cmake; \
+		cp -a $(STAGING_DIR)/usr/share/cmake/. $(TARGET_DIR)/usr/share/cmake/; \
+	fi
+	find $(STAGING_DIR)/usr/lib -maxdepth 1 \( -name '*.so' -o -name '*.so.*' -o -name '*.a' -o -name 'crt*.o' -o -name 'Scrt*.o' \) \
+		-exec cp -a -P {} $(TARGET_DIR)/usr/lib/ \; 2>/dev/null || true
 	if [ -x $(TARGET_DIR)/usr/bin/clang ]; then \
 		ln -sf /usr/bin/clang $(TARGET_DIR)/usr/bin/cc; \
 		ln -sf /usr/bin/clang $(TARGET_DIR)/usr/bin/gcc; \

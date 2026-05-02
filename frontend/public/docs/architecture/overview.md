@@ -30,7 +30,7 @@ dependency.
   │                                                                      │
   │  System Tray App (background)  ·  Settings Window (React)           │
   │  ┌──────────────────────────────────────────────────────────────┐   │
-  │  │  LM Studio Proxy  →  http://localhost:11435  →  LM Studio    │   │
+  │  │  LM Studio Proxy  →  http://iora.local:11435  →  LM Studio    │   │
   │  │                          (OpenAI-compatible REST API)         │   │
   │  └──────────────────────────────────────────────────────────────┘   │
   └────────────────────────────────────────────────────────────────────┘
@@ -241,7 +241,7 @@ ORA_AI_PROVIDER=local
 
 # Provider-specific settings
 ORA_AI_API_KEY=sk-your-api-key-here      # For OpenAI/Anthropic
-ORA_AI_BASE_URL=http://localhost:11434   # For Local/Desktop
+ORA_AI_BASE_URL=http://iora.local:11434   # For Local/Desktop
 ORA_AI_MODEL=llama3.2                    # Model name
 ORA_AI_API_VERSION=2023-06-01            # For Anthropic
 
@@ -268,14 +268,14 @@ ORA_AI_MODEL=claude-3-5-sonnet-20241022
 Local AI (Ollama):
 ```env
 ORA_AI_PROVIDER=local
-ORA_AI_BASE_URL=http://localhost:11434
+ORA_AI_BASE_URL=http://iora.local:11434
 ORA_AI_MODEL=llama3.2
 ```
 
 Desktop AI (via IORA Desktop):
 ```env
 ORA_AI_PROVIDER=desktop
-ORA_AI_BASE_URL=http://localhost:11435
+ORA_AI_BASE_URL=http://iora.local:11435
 ```
 
 **Voice Capabilities:**
@@ -529,12 +529,12 @@ POST /api/security/users               ← Create PostgreSQL user
 SECURITY_DB_PATH=/var/lib/iora/security.db
 SECURITY_DB_KEY=<64-hex-char-key>     # From iora-secrets
 # Uses DATABASE_URL for PostgreSQL (same as iora-home). Optional override:
-# POSTGRES_ADMIN_URL=postgres://postgres:<admin-pass>@localhost:5432/postgres
+# POSTGRES_ADMIN_URL=postgres://postgres:<admin-pass>@iora.local:5432/postgres
 IORA_ENV=production                   # Or 'development' (default)
 AUTO_LOCKDOWN_ENABLED=true
 LOCKDOWN_THRESHOLD_CRITICAL=5
 THREAT_LEVEL_THRESHOLD=7
-WHITELIST_IPS=127.0.0.1,::1,10.0.0.0/8
+WHITELIST_IPS=iora.local,::1,10.0.0.0/8
 PORT=8095
 ```
 
@@ -1024,9 +1024,9 @@ docker compose ps
 docker compose logs -f
 
 # Access IORA
-# - Home: http://localhost:8080
-# - Control: http://localhost:8091
-# - Supervisor: http://localhost:8097
+# - Home: http://iora.local:8080
+# - Control: http://iora.local:8091
+# - Supervisor: http://iora.local:8097
 ```
 
 The full docker-compose.yml includes:
@@ -1187,10 +1187,10 @@ desktop/
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `lm_studio_url` | `http://localhost:1234` | LM Studio base URL |
+| `lm_studio_url` | `http://iora.local:1234` | LM Studio base URL |
 | `lm_studio_api_key` | *(empty)* | API key (optional for local instances) |
 | `selected_model` | *(empty)* | Model identifier selected from LM Studio |
-| `iora_backend_url` | `http://localhost:8092` | iora-assist URL |
+| `iora_backend_url` | `http://iora.local:8092` | iora-assist URL |
 | `auto_start_proxy` | `true` | Start proxy on desktop app startup |
 | `proxy_port` | `11435` | Local port for the IORA→LM Studio proxy |
 

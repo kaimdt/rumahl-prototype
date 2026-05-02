@@ -241,7 +241,7 @@ IORA automatically assigns external ports from the range **3000-4000**.
 ### Access Your App
 
 - **From other containers**: `http://my-app:3000` (internal port)
-- **From host/external**: `http://localhost:3042` (external port)
+- **From host/external**: `http://iora.local:3042` (external port)
 
 ### Port Environment Variable
 

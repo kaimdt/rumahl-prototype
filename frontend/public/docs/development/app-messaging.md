@@ -102,7 +102,7 @@ POST /api/apps/:app_id/messaging/subscribe
 {
   "channel": "myapp:alerts",
   "filter": "$.level == 'critical'",
-  "webhook_url": "http://localhost:3000/webhook/alerts"
+  "webhook_url": "http://iora.local:3000/webhook/alerts"
 }
 
 // List subscriptions
@@ -146,7 +146,7 @@ GET /api/apps/messaging/events
 ```typescript
 import IoraClient from '@iora/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new IoraClient('http://iora.local:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Register a channel
@@ -167,7 +167,7 @@ await client.appMessaging.publish(
 const sub = await client.appMessaging.subscribe(
   'other-app:notifications',
   undefined,
-  'http://localhost:3000/hooks/notifications'
+  'http://iora.local:3000/hooks/notifications'
 );
 
 // Send a direct message

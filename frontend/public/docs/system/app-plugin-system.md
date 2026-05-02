@@ -119,7 +119,7 @@
         "name": "github_webhook",
         "description": "Empfängt GitHub-Push-Events",
         "method": "POST",
-        "target_url": "http://localhost:3000/webhook"
+        "target_url": "http://iora.local:3000/webhook"
       }
     ]
   },
@@ -301,7 +301,7 @@ GET    /api/apps/{app_id}/database/backups      → Backups auflisten
 **SDK-Beispiel (JavaScript):**
 ```javascript
 const IoraClient = require('iora-sdk');
-const client = new IoraClient('http://localhost:3001', 'api-key');
+const client = new IoraClient('http://iora.local:3001', 'api-key');
 
 // Datenbank provisionieren
 await client.appDatabase.provision({
@@ -333,7 +333,7 @@ const result = await client.appDatabase.execute(
 **Ablauf:**
 1. App beantragt PostgreSQL-Zugriff im Manifest (`database.backend: "postgres"`)
 2. IORA erstellt einen **dedizierten DB-User** mit `GRANT USAGE ON SCHEMA app_{id}`
-3. IORA konfiguriert einen **Proxy-Endpunkt** (z.B. `localhost:5433?user=app_{id}&db=iora_apps`)
+3. IORA konfiguriert einen **Proxy-Endpunkt** (z.B. `iora.local:5433?user=app_{id}&db=iora_apps`)
 4. Die App verbindet sich NUR zum Proxy, nicht direkt zur PostgreSQL
 
 ```json
@@ -455,7 +455,7 @@ Externe Dienste können via Webhooks Daten an Apps senden.
       {
         "name": "github_push",
         "method": "POST",
-        "target_url": "http://localhost:3000/webhook/github"
+        "target_url": "http://iora.local:3000/webhook/github"
       }
     ]
   }
@@ -880,7 +880,7 @@ const IoraClient = require('iora-sdk');
 // oder: import IoraClient from 'iora-sdk';
 
 const client = new IoraClient(
-  'http://localhost:3001',  // IORA Backend URL
+  'http://iora.local:3001',  // IORA Backend URL
   'mein-api-key'            // Optional: API-Key
 );
 client.setAppId('meine-app');

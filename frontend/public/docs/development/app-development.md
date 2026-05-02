@@ -407,8 +407,8 @@ docker run -p 3000:3000 my-app:test
 
 2. Verify endpoints:
 ```bash
-curl http://localhost:3000/health
-curl http://localhost:3000/api/hello
+curl http://iora.local:3000/health
+curl http://iora.local:3000/api/hello
 ```
 
 ### Testing in IORA
@@ -573,7 +573,7 @@ Create webhook endpoints for external services:
       {
         "name": "GitHub Push",
         "method": "POST",
-        "target_url": "http://localhost:3000/api/hook",
+        "target_url": "http://iora.local:3000/api/hook",
         "verify_signature": true
       }
     ]

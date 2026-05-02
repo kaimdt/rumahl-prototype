@@ -12,11 +12,12 @@
 //
 //   <base_dir>/
 //     index.json                — catalogue of installed apps
+//     install-history.json      — recent installation entries shown in the UI
 //     <app_id>/
 //       manifest.json           — copy of the app's manifest
 //       <… extracted ZIP …>
 //
-// Defaults to `/var/lib/iora/local-apps` on Linux, falls back to a
+// Defaults to `/var/lib/iora/iora-home/local-apps` on Linux, falls back to a
 // `iora-local-apps` folder under the current working directory on
 // Windows / unprivileged dev envs.
 
@@ -30,7 +31,9 @@ use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
 const INDEX_FILE: &str = "index.json";
+const JOBS_FILE: &str = "install-history.json";
 const MAX_LOG_LINES: usize = 200;
+const MAX_INSTALL_HISTORY: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppManifest {
@@ -207,7 +210,7 @@ impl LocalAppStore {
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 if cfg!(target_os = "linux") {
-                    PathBuf::from("/var/lib/iora/local-apps")
+                    PathBuf::from("/var/lib/iora/iora-home/local-apps")
                 } else {
                     std::env::current_dir()
                         .unwrap_or_else(|_| PathBuf::from("."))
@@ -226,6 +229,7 @@ impl LocalAppStore {
             events: tx,
         });
         store.reload_index().await?;
+        store.reload_jobs().await?;
         Ok(store)
     }
 
@@ -283,6 +287,42 @@ impl LocalAppStore {
         Ok(())
     }
 
+    async fn reload_jobs(&self) -> Result<()> {
+        let path = self.base_dir.join(JOBS_FILE);
+        let jobs = match tokio::fs::read(&path).await {
+            Ok(bytes) => serde_json::from_slice::<Vec<InstallJob>>(&bytes)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("install history corrupted ({e}); starting empty");
+                    Vec::new()
+                }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(e).context("reading install history"),
+        };
+        let mut inner = self.inner.write().await;
+        inner.jobs.clear();
+        inner.job_order.clear();
+        for job in jobs.into_iter().rev().take(MAX_INSTALL_HISTORY).rev() {
+            inner.job_order.push(job.id);
+            inner.jobs.insert(job.id, job);
+        }
+        Ok(())
+    }
+
+    async fn persist_jobs(&self) -> Result<()> {
+        let inner = self.inner.read().await;
+        let list: Vec<InstallJob> = inner.job_order
+            .iter()
+            .filter_map(|id| inner.jobs.get(id).cloned())
+            .collect();
+        drop(inner);
+        let bytes = serde_json::to_vec_pretty(&list).context("serialising install history")?;
+        let path = self.base_dir.join(JOBS_FILE);
+        let tmp = path.with_extension("json.tmp");
+        tokio::fs::write(&tmp, bytes).await.context("writing tmp install history")?;
+        tokio::fs::rename(&tmp, &path).await.context("rotating install history")?;
+        Ok(())
+    }
+
     pub async fn list(&self) -> Vec<InstalledApp> {
         let inner = self.inner.read().await;
         let mut v: Vec<InstalledApp> = inner.apps.values().cloned().collect();
@@ -308,6 +348,24 @@ impl LocalAppStore {
                 )
             })
             .collect()
+    }
+
+    pub async fn clear_job(&self, id: Uuid) -> Result<bool> {
+        let removed = {
+            let mut inner = self.inner.write().await;
+            let Some(job) = inner.jobs.get(&id) else {
+                return Ok(false);
+            };
+            if !matches!(job.status, InstallStatus::Succeeded | InstallStatus::Failed | InstallStatus::Canceled) {
+                anyhow::bail!("aktive Installation kann nicht aus der Historie entfernt werden");
+            }
+            inner.job_order.retain(|job_id| *job_id != id);
+            inner.jobs.remove(&id).is_some()
+        };
+        if removed {
+            self.persist_jobs().await?;
+        }
+        Ok(removed)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<InstallEvent> {
@@ -628,14 +686,17 @@ impl LocalAppStore {
         let mut inner = self.inner.write().await;
         if !inner.jobs.contains_key(&job.id) {
             inner.job_order.push(job.id);
-            // Prune to last 50 jobs.
-            while inner.job_order.len() > 50 {
+            // Prune to last server-side history entries.
+            while inner.job_order.len() > MAX_INSTALL_HISTORY {
                 let evict = inner.job_order.remove(0);
                 inner.jobs.remove(&evict);
             }
         }
         inner.jobs.insert(job.id, job.clone());
         drop(inner);
+        if let Err(e) = self.persist_jobs().await {
+            tracing::warn!("failed to persist install history: {e:#}");
+        }
         let _ = self.events.send(InstallEvent::JobUpdated { job: job.clone() });
     }
 
@@ -657,6 +718,9 @@ impl LocalAppStore {
             }
         };
         if let Some(job) = snapshot {
+            if let Err(e) = self.persist_jobs().await {
+                tracing::warn!("failed to persist install history: {e:#}");
+            }
             let _ = self.events.send(InstallEvent::JobUpdated { job });
         }
     }

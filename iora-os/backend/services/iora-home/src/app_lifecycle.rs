@@ -134,7 +134,7 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
 
 async fn supervisor_compose_status(app_id: &str) -> Option<AppDockerStatus> {
     let base = std::env::var("IORA_SUPERVISOR_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8097".to_string());
+        .unwrap_or_else(|_| iora_shared::system_config::service_url("iora-supervisor", 8097));
     let url = format!(
         "{}/api/supervisor/compose/status/{}",
         base.trim_end_matches('/'),

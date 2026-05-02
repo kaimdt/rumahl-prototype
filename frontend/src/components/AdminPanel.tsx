@@ -22,7 +22,7 @@ import { toast } from 'sonner'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
-import { getBackendUrl, getAssistUrl, getDevBridgeUrl } from '@/lib/config'
+import { getBackendUrl, getDevBridgeUrl } from '@/lib/config'
 import { useTheme } from '@/contexts/ThemeContext'
 import { authFetch } from '@/lib/authHelpers'
 
@@ -399,16 +399,12 @@ function CloudSettingsTab({ token }: { token: string }) {
 const backendBase = () => getBackendUrl() || ''
 
 /**
- * Returns the correct base URL for `path`. Calls under `/api/assist/` are
- * served by the iora-assist microservice (port 8092 by default), everything
- * else goes through iora-home. Without this routing, requests to
- * /api/assist/* hit iora-home and trip its SPA fallback → 404 "Endpunkt
- * nicht gefunden", which made the AI/Provider tabs look completely broken.
+ * Returns the correct base URL for `path`. Assist calls intentionally go
+ * through iora-home/nginx as relative `/api/assist/*` requests; direct
+ * browser calls to local loopback break as soon as the dashboard is opened from
+ * another device.
  */
 function baseUrlFor(path: string): string {
-  if (path.startsWith('/api/assist/') || path === '/api/assist') {
-    return getAssistUrl() || backendBase()
-  }
   return backendBase()
 }
 
@@ -3454,7 +3450,7 @@ function ZwaveTab({ token }: { token: string }) {
           </label>
           <div>
             <label className="text-[10px] text-foreground/50 block mb-0.5">Z-Wave JS WebSocket URL (optional)</label>
-            <input value={config.zwave_js_url} onChange={e => setConfig(c => ({ ...c, zwave_js_url: e.target.value }))} placeholder="ws://localhost:3000" className="w-full px-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
+            <input value={config.zwave_js_url} onChange={e => setConfig(c => ({ ...c, zwave_js_url: e.target.value }))} placeholder="ws://iora.local:3000" className="w-full px-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50" />
           </div>
           <button onClick={handleSave} disabled={saving} className="w-full px-3 py-2 rounded-lg bg-accent/20 text-accent text-xs font-medium hover:bg-accent/30 transition disabled:opacity-40">
             {saving ? 'Speichern...' : 'Speichern'}
@@ -7349,9 +7345,9 @@ function AiProvidersTab({ token }: { token: string }) {
       case 'anthropic':
         return '{\n  "api_key": "sk-ant-...",\n  "model": "claude-3-5-sonnet-latest",\n  "base_url": "https://api.anthropic.com"\n}'
       case 'local':
-        return '{\n  "base_url": "http://localhost:11434",\n  "model": "llama3.2"\n}'
+        return '{\n  "base_url": "",\n  "model": "llama3.2"\n}'
       case 'desktop':
-        return '{\n  "base_url": "http://host.docker.internal:1234/v1",\n  "api_key": "lm-studio",\n  "model": "auto"\n}'
+        return '{\n  "base_url": "https://your-desktop-ai-proxy/v1",\n  "api_key": "lm-studio",\n  "model": "auto"\n}'
       case 'deepseek':
         return '{\n  "api_key": "sk-...",\n  "model": "deepseek-chat",\n  "base_url": "https://api.deepseek.com"\n}'
       case 'grok':
@@ -10371,6 +10367,7 @@ function OsSshTab({ token }: { token: string }) {
 
 function OsNetworkConfigTab({ token }: { token: string }) {
   const [interfaces, setInterfaces] = useState<any[]>([])
+  const [currentIp, setCurrentIp] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -10444,6 +10441,10 @@ function OsNetworkConfigTab({ token }: { token: string }) {
           }
         }
         setInterfaces(parsed.length > 0 ? parsed : [{ name: 'eth0', ipv4: '—', ipv6: '—' }])
+        const primary = typeof health.primary_ipv4 === 'string'
+          ? health.primary_ipv4
+          : (parsed.find((iface) => iface.ipv4 && iface.ipv4 !== '-')?.ipv4 || '').split('/')[0]
+        setCurrentIp(primary)
 
         // Try to load current config via iora-control
         try {
@@ -10539,6 +10540,16 @@ function OsNetworkConfigTab({ token }: { token: string }) {
         <p className="text-xs text-foreground/50 mb-3">
           Alle Netzwerkschnittstellen mit aktuellen IP-Adressen (IPv4 + IPv6)
         </p>
+        {currentIp && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-accent/15 bg-accent/[0.06] px-3 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-accent/80">Aktuelle IP</span>
+            <code className="text-xs font-mono text-foreground/90">{currentIp}</code>
+            <button onClick={() => { navigator.clipboard.writeText(currentIp); toast.success('Aktuelle IP kopiert') }}
+              className="p-1 rounded text-foreground/35 hover:text-accent transition-colors" title="Kopieren">
+              <Copy size={12} />
+            </button>
+          </div>
+        )}
         {error && <p className="text-xs text-red-400 mb-2 bg-red-500/10 p-2 rounded-lg">{error}</p>}
         <div className="space-y-2">
           {interfaces.map((iface, i) => (
@@ -11247,15 +11258,24 @@ function ThemesTab({ token }: { token: string }) {
     setUploading(true)
     try {
       const buf = await file.arrayBuffer()
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      const chunkSize = 0x8000
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+      }
+      const base64 = btoa(binary)
       const r = await authFetch('/api/themes/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ zip_data: base64, file_name: file.name }),
       })
       if (!r.ok) {
-        const err = await r.json().catch(async () => ({ message: await r.text().catch(() => 'Installation fehlgeschlagen') }))
-        throw new Error(err.message || err.error || 'Installation fehlgeschlagen')
+        const text = await r.text().catch(() => '')
+        let err: any = null
+        try { err = text ? JSON.parse(text) : null } catch { err = null }
+        const stage = err?.stage ? `[${err.stage}] ` : ''
+        throw new Error(`${stage}${err?.message || err?.error || text || 'Installation fehlgeschlagen'}`)
       }
       toast.success(`Theme „${file.name.replace(/\.zip$/i, '')}“ installiert`)
       load()

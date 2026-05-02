@@ -130,8 +130,7 @@ const ConfigurationContext = createContext<ConfigurationContextType | undefined>
 // GlobalConfigProvider patches the value asynchronously, and in the
 // production IORA OS bundle the frontend is served from the same origin
 // as the backend — so an empty string (= relative URL) is the correct
-// default. NEVER fall back to `http://localhost:3001`: that file path
-// is broken on every device the dashboard is opened from.
+// default for every device the dashboard is opened from.
 const apiBase = () => getBackendUrl() || ''
 
 export function ConfigurationProvider({ children }: { children: ReactNode }) {

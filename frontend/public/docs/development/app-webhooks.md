@@ -31,7 +31,7 @@ POST /api/webhooks/apps/{app_id}/{webhook_id}
         "name": "GitHub Push Hook",
         "description": "Receives GitHub push events",
         "method": "POST",
-        "target_url": "http://localhost:3000/api/github-hook",
+        "target_url": "http://iora.local:3000/api/github-hook",
         "verify_signature": true,
         "enabled": true,
         "max_retries": 5,
@@ -67,7 +67,7 @@ POST /api/apps/:app_id/webhooks
   "name": "GitHub Push",
   "description": "Receives push events from GitHub",
   "method": "POST",
-  "target_url": "http://localhost:3000/hooks/github",
+  "target_url": "http://iora.local:3000/hooks/github",
   "verify_signature": true,
   "enabled": true,
   "max_retries": 3,
@@ -89,7 +89,7 @@ GET /api/apps/:app_id/webhooks/:hook_id
 PUT /api/apps/:app_id/webhooks/:hook_id
 {
   "enabled": false,
-  "target_url": "http://localhost:3000/hooks/new-endpoint"
+  "target_url": "http://iora.local:3000/hooks/new-endpoint"
 }
 
 // Delete a webhook
@@ -135,13 +135,13 @@ GET /api/apps/:app_id/webhooks/:hook_id/stats
 ```typescript
 import IoraClient from '@iora/sdk';
 
-const client = new IoraClient('http://localhost:8126', 'your-api-key');
+const client = new IoraClient('http://iora.local:8126', 'your-api-key');
 client.setAppId('my-app');
 
 // Create a webhook for GitHub
 const result = await client.appWebhooks.create({
   name: 'GitHub Push',
-  target_url: 'http://localhost:3000/api/github',
+  target_url: 'http://iora.local:3000/api/github',
   verify_signature: true,
   max_retries: 3
 });

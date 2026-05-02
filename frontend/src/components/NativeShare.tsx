@@ -53,7 +53,7 @@ export function NativeShare() {
         setPeers(data.peers || [])
       }
     } catch {
-      // Fallback: show a demo peer (localhost)
+      // Fallback: show the current browser host as a demo peer.
       setPeers([{
         id: 'self',
         name: 'Dieses Gerät',
