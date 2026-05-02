@@ -15,6 +15,7 @@
       "theme.css"
     ],
     "js_files": [
+      "js/theme.js"
     ],
     "html_templates": {
       "header": "html/templates/header.html",
