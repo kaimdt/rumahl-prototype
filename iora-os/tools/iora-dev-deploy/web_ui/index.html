@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IORA OS Dev</title>
@@ -7,7 +7,7 @@
 :root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d2991d}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
-.hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:7px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:40px}
+.hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:7px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:40px;flex-wrap:wrap}
 .hdr .logo{font-weight:700;font-size:14px;color:var(--accent);white-space:nowrap}
 .hdr .spacer{flex:1}
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px}
@@ -18,8 +18,9 @@ body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgr
 .btn:hover{opacity:.9}.btn:disabled{opacity:.3;cursor:default}
 .btn2{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px}
 .btn2:hover{background:#21262d}.btn2.danger{color:var(--red);border-color:var(--red)}
-nav{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;padding:0 14px;background:var(--surface)}
-nav button{background:none;border:none;color:var(--muted);padding:6px 12px;cursor:pointer;font-size:12px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.btn2.success{color:var(--green);border-color:var(--green)}
+nav{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;padding:0 14px;background:var(--surface)}
+nav button{background:none;border:none;color:var(--muted);padding:6px 10px;cursor:pointer;font-size:11px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 nav button:hover{color:var(--text)}nav button.active{color:var(--accent);border-bottom-color:var(--accent)}
 main{flex:1;overflow-y:auto;padding:14px;display:none;flex-direction:column;gap:12px}
 main.active{display:flex}
@@ -27,10 +28,10 @@ main.active{display:flex}
 .card h3{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .row{display:flex;gap:12px}.row>*{flex:1;min-width:0}
 input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:5px;font-size:12px;width:100%}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
-.item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px}
+input:focus,select:textarea:focus{outline:none;border-color:var(--accent)}
+.item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap}
 .item:last-child{border-bottom:none}
-.logs{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px;font-family:'Cascadia Code',monospace;font-size:11px;line-height:1.5;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.logs{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px;font-family:monospace;font-size:11px;line-height:1.5;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .empty{color:var(--muted);font-size:12px;padding:14px;text-align:center}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100}
 .modal.show{display:flex}
@@ -38,130 +39,156 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .modal h2{font-size:15px}.modal label{font-size:11px;color:var(--muted)}
 .toast{position:fixed;bottom:16px;right:16px;background:var(--surface);border:1px solid var(--border);padding:8px 14px;border-radius:7px;font-size:12px;z-index:200;max-width:380px;display:none}
 .toast.show{display:block}
-.job{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:11px}
+.job{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:11px;flex-wrap:wrap}
 .setup-hero{text-align:center;padding:30px 16px}
 .setup-hero h2{font-size:17px;margin-bottom:6px}
 .setup-hero p{color:var(--muted);margin-bottom:12px}
 .fs-path{font-family:monospace;font-size:11px;color:var(--accent);cursor:pointer}
 .fs-path:hover{text-decoration:underline}
+.svc-btn{padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:10px;margin-left:4px}
+.svc-btn:hover{background:var(--surface)}
+.tab-desc{font-size:9px;color:var(--muted);margin-top:1px}
 canvas{border-radius:5px;background:var(--bg);width:100%}
+.help-text{font-size:10px;color:var(--muted);margin-top:4px}
+.section-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px}
 @media(max-width:800px){.row{flex-direction:column}}
 </style>
 </head>
 <body>
 
 <div class="hdr">
-  <span class="logo">⚡ IORA OS Dev</span>
-  <span id="hdrStatus">
-    <span id="hdrDot" class="dot off"></span>
-    <span id="hdrLabel">loading…</span>
-  </span>
+  <span class="logo">IORA OS Dev</span>
+  <span id="hdrStatus"><span id="hdrDot" class="dot off"></span><span id="hdrLabel">starte...</span></span>
   <span id="hdrDeviceStatus" style="font-size:10px;color:var(--muted);display:none"></span>
   <span class="spacer"></span>
-  <span style="font-size:10px;color:var(--muted)" id="hdrHost"></span>
-  <button class="btn" onclick="M.connectDialog()">🔑 Connect</button>
-  <button class="btn" id="deployBtn" disabled onclick="M.deploy()">🚀 Deploy</button>
+  <button class="btn2" onclick="M.connectDialog()">Verbinden</button>
+  <button class="btn" id="deployBtn" disabled onclick="M.deploy()">Deploy</button>
 </div>
 
 <nav>
   <button class="active" data-t="dash" onclick="M.switchTab('dash')">Dashboard</button>
-  <button data-t="svc" onclick="M.switchTab('svc')">Services</button>
-  <button data-t="deploy" onclick="M.switchTab('deploy')">Deploy</button>
-  <button data-t="logs" onclick="M.switchTab('logs')">Logs</button>
-  <button data-t="system" onclick="M.switchTab('system')">System</button>
-  <button data-t="config" onclick="M.switchTab('config')">Config</button>
-  <button data-t="compose" onclick="M.switchTab('compose')">Compose</button>
+  <button data-t="svc" onclick="M.switchTab('svc')">Dienste & Logs</button>
+  <button data-t="deploy" onclick="M.switchTab('deploy')">Deploy & Update</button>
+  <button data-t="system" onclick="M.switchTab('system')">System & Dateien</button>
+  <button data-t="config" onclick="M.switchTab('config')">Konfiguration</button>
 </nav>
 
 <!-- DASHBOARD -->
 <main id="tab-dash" class="active">
   <div id="setupBanner" class="card setup-hero" style="display:none">
-    <h2>IORA OS Dev</h2><p>Click <b>🔑 Connect</b> — login with IORA dashboard credentials (admin).</p>
-    <button class="btn" onclick="M.connectDialog()" style="margin:0 auto">🔑 Connect</button>
+    <h2>IORA OS Dev</h2>
+    <p>Verbinde dich mit einem IORA-OS-Gerat, um Dienste zu verwalten, Logs anzusehen und Updates zu deployen.</p>
+    <button class="btn" onclick="M.connectDialog()" style="margin:0 auto">Verbinden</button>
+    <p class="help-text" style="margin-top:8px">Login mit IORA-Dashboard-Zugangsdaten (Admin).</p>
   </div>
   <div id="dashRow" class="row" style="display:none">
-    <div class="card"><h3>Device</h3><div id="dashDev"></div></div>
-    <div class="card"><h3>LAN</h3><div id="dashDevices"></div></div>
+    <div class="card"><h3>Gerat</h3><div id="dashDev"></div></div>
+    <div class="card"><h3>Netzwerk</h3><div id="dashDevices"></div></div>
   </div>
   <div class="row">
-    <div class="card"><h3>Activity</h3><div id="dashJobs"></div></div>
-    <div class="card"><h3>Services</h3><div id="dashSvcSummary"></div></div>
+    <div class="card"><h3>Letzte Aktivitaten</h3><div id="dashJobs"></div></div>
+    <div class="card"><h3>Dienste-Status</h3><div id="dashSvcSummary"></div></div>
   </div>
 </main>
 
-<!-- SERVICES -->
+<!-- DIENSTE & LOGS -->
 <main id="tab-svc">
-  <div class="card"><h3>Services <span style="font-weight:400;font-size:11px" id="svcCount"></span></h3><div id="svcList"></div></div>
+  <div class="card"><h3>IORA Dienste <span style="font-weight:400;font-size:11px" id="svcCount"></span></h3><div id="svcList"></div></div>
+  <div class="card">
+    <h3>Logs ansehen</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <select id="logUnit" style="width:220px" onchange="M.tailLogs()"></select>
+      <button class="btn2" onclick="M.tailLogs()">Aktualisieren</button>
+      <button class="btn2" onclick="M.liveLogs()">Live-Stream</button>
+      <span style="font-size:10px;color:var(--muted)" id="logMsg"></span>
+    </div>
+    <div class="logs" id="logView" style="max-height:400px">Dienst auswahlen und auf "Aktualisieren" klicken.</div>
+  </div>
 </main>
 
-<!-- DEPLOY -->
+<!-- DEPLOY & UPDATE -->
 <main id="tab-deploy">
   <div class="card">
-    <h3>Deploy <button class="btn2" style="float:right" onclick="M.showNewService()">+ New Service</button></h3>
+    <h3>Komponenten deployen</h3>
+    <p class="help-text" style="margin-bottom:8px">Wahle Komponenten aus, baue sie und ubertrage sie auf das Gerat.</p>
     <div style="display:flex;flex-direction:column;gap:8px">
-      <select id="deploySel" multiple style="height:160px"></select>
+      <select id="deploySel" multiple style="height:140px"></select>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <select id="buildMode" style="width:130px"><option value="auto">Auto</option><option value="device">Device</option><option value="docker">Docker</option><option value="cargo">Native</option></select>
-        <button class="btn" onclick="M.deploy()">🚀 Deploy</button>
-        <button class="btn2" onclick="M.watch()">👁 Watch</button>
+        <select id="buildMode" style="width:130px"><option value="auto">Auto</option><option value="device">Device</option><option value="docker">Docker</option><option value="cargo">Cargo</option></select>
+        <button class="btn" onclick="M.deploy()">Deploy starten</button>
+        <button class="btn2" onclick="M.watch()">Watch starten</button>
         <span style="font-size:10px;color:var(--muted)" id="deployMsg"></span>
       </div>
     </div>
   </div>
   <div class="card" id="liveDeployCard" style="display:none">
-    <h3>Live Deploy <span id="liveJobLabel"></span></h3>
-    <div class="logs" id="liveJobLog" style="max-height:250px"></div>
+    <h3>Deploy-Log</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+      <span id="liveJobLabel"></span>
+      <span style="font-size:10px;color:var(--muted)" id="liveJobTime"></span>
+    </div>
+    <div class="logs" id="liveJobLog" style="max-height:300px"></div>
   </div>
-  <!-- Upload App/Plugin -->
   <div class="card">
-    <h3>Upload App / Plugin</h3>
+    <h3>App / Plugin hochladen</h3>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input type="file" id="appFile" accept=".zip,.tar.gz,.tgz" style="width:auto;flex:1">
-      <button class="btn" onclick="M.uploadApp()">📦 Upload & Install</button>
+      <button class="btn" onclick="M.uploadApp()">Hochladen & Installieren</button>
       <span style="font-size:10px;color:var(--muted)" id="uploadMsg"></span>
     </div>
-    <p style="font-size:10px;color:var(--muted);margin-top:4px">Upload a .zip or .tar.gz IORA app/plugin package. Installs to the device.</p>
+    <p class="help-text">.zip oder .tar.gz IORA-App/Plugin-Paket. Wird auf dem Gerat installiert.</p>
   </div>
-</main>
-
-<!-- LOGS -->
-<main id="tab-logs">
   <div class="card">
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-      <h3 style="margin:0">Logs</h3>
-      <select id="logUnit" style="width:200px" onchange="M.tailLogs()"></select>
-      <button class="btn2" onclick="M.tailLogs()">Refresh</button>
-      <button class="btn2" onclick="M.liveLogs()">▶ Live Stream</button>
-      <span style="font-size:10px;color:var(--muted)" id="logMsg"></span>
+    <h3>Self-Update (Dev Bridge aktualisieren)</h3>
+    <p class="help-text" style="margin-bottom:8px">Aktualisiere die Dev Bridge auf dem Gerat per HTTP, SSH oder FTP.</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="suSource" style="width:120px" onchange="M.suToggleFields()">
+          <option value="http">HTTP</option>
+          <option value="ssh">SSH</option>
+          <option value="ftp">FTP</option>
+        </select>
+        <input id="suUrl" placeholder="https://example.com/iora-dev-bridge" style="flex:2;min-width:200px">
+        <input id="suSha" placeholder="SHA-256 (optional)" style="flex:1;min-width:140px">
+      </div>
+      <div id="suSshFields" style="display:none;gap:8px;flex-wrap:wrap">
+        <input id="suHost" placeholder="SSH-Host" style="flex:1">
+        <input id="suPath" placeholder="/usr/bin/iora-dev-bridge" style="flex:1" value="/usr/bin/iora-dev-bridge">
+        <input id="suUser" placeholder="Benutzer" style="width:100px" value="root">
+        <input id="suPort" placeholder="Port" style="width:70px" value="22">
+        <input id="suKey" placeholder="SSH-Key-Pfad" style="flex:1" value="/root/.ssh/id_rsa">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn" onclick="M.doSuUpdate()">Update ausfuhren</button>
+        <span style="font-size:10px;color:var(--muted)" id="suMsg"></span>
+      </div>
     </div>
-    <div class="logs" id="logView">Select a service.</div>
+    <div class="logs" id="suResult" style="max-height:150px;margin-top:8px;display:none"></div>
   </div>
 </main>
 
-<!-- SYSTEM -->
+<!-- SYSTEM & DATEIEN -->
 <main id="tab-system">
   <div class="row">
-    <div class="card"><h3>System Info</h3><div id="sysInfo"></div></div>
+    <div class="card"><h3>System-Information</h3><div id="sysInfo"></div></div>
     <div class="card">
-      <h3>Actions</h3>
+      <h3>Aktionen</h3>
       <div style="display:flex;flex-direction:column;gap:6px">
-        <button class="btn2 danger" onclick="M.reboot()">🔄 Reboot Device</button>
-        <button class="btn2" onclick="M.refreshSysInfo()">Refresh</button>
+        <button class="btn2 danger" onclick="M.reboot()">Gerat neustarten</button>
+        <button class="btn2" onclick="M.refreshSysInfo()">Aktualisieren</button>
       </div>
     </div>
   </div>
-  <!-- Live Graphs -->
   <div class="row">
-    <div class="card"><h3>CPU Usage</h3><canvas id="cpuGraph" height="120"></canvas></div>
-    <div class="card"><h3>Memory</h3><canvas id="memGraph" height="120"></canvas></div>
+    <div class="card"><h3>CPU-Auslastung</h3><canvas id="cpuGraph" height="100"></canvas></div>
+    <div class="card"><h3>Arbeitsspeicher</h3><canvas id="memGraph" height="100"></canvas></div>
   </div>
-  <!-- File Browser -->
   <div class="card">
-    <h3>Files <span style="font-weight:400;font-size:10px" id="fsPath">/</span></h3>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <input id="fsInput" placeholder="/etc/iora" onkeydown="if(event.key==='Enter')M.fsBrowse()">
-      <button class="btn2" onclick="M.fsBrowse()">Browse</button>
-      <button class="btn2" onclick="M.fsParent()">⬆ Up</button>
+    <h3>Dateibrowser <span style="font-weight:400;font-size:10px" id="fsPath">/</span></h3>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <input id="fsInput" placeholder="/etc/iora" style="flex:1" onkeydown="if(event.key==='Enter')M.fsBrowse()">
+      <button class="btn2" onclick="M.fsBrowse()">Offnen</button>
+      <button class="btn2" onclick="M.fsParent()">Eine Ebene hoch</button>
     </div>
     <div id="fsList" style="max-height:250px;overflow-y:auto"></div>
     <div id="fsContent" style="display:none;margin-top:8px">
@@ -171,63 +198,37 @@ canvas{border-radius:5px;background:var(--bg);width:100%}
   </div>
 </main>
 
-<!-- CONFIG -->
+<!-- KONFIGURATION -->
 <main id="tab-config">
   <div class="card">
-    <h3>Global Config</h3>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <input id="cfgKey" placeholder="Key (z.B. ui.theme)" style="width:200px">
-      <input id="cfgVal" placeholder="Value" style="flex:1">
-      <button class="btn" onclick="M.cfgSet()">Set</button>
-      <button class="btn2" onclick="M.cfgGet()">Get</button>
-      <button class="btn2 danger" onclick="M.cfgDelete()">Delete</button>
-    </div>
-    <div class="logs" id="cfgResult" style="max-height:300px">Enter a key to look up or set a config value.</div>
-    <h3 style="margin-top:12px">All Config</h3>
-    <div id="cfgList" style="max-height:200px;overflow-y:auto"></div>
-    <button class="btn2" onclick="M.cfgList()" style="margin-top:4px">Refresh</button>
-  </div>
-</main>
-
-<!-- COMPOSE -->
-<main id="tab-compose">
-  <div class="card">
-    <h3>Docker Compose</h3>
+    <h3>Globale Konfiguration</h3>
+    <p class="help-text" style="margin-bottom:8px">Lese, setze oder losche Konfigurationswerte auf dem Gerat.</p>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-      <select id="composeSvc" style="width:200px"><option value="">Select service…</option></select>
-      <button class="btn" onclick="M.composeReload()">🔄 Reload</button>
-      <button class="btn2" onclick="M.composeLogs()">📋 Logs</button>
-      <span id="composeMsg" style="font-size:10px;color:var(--muted)"></span>
+      <input id="cfgKey" placeholder="Key (z.B. ui.theme)" style="width:200px">
+      <input id="cfgVal" placeholder="Value" style="flex:1;min-width:150px">
+      <button class="btn" onclick="M.cfgSet()">Setzen</button>
+      <button class="btn2" onclick="M.cfgGet()">Lesen</button>
+      <button class="btn2 danger" onclick="M.cfgDelete()">Loschen</button>
     </div>
-    <div class="logs" id="composeLogView" style="max-height:350px">Select a compose service.</div>
+    <div class="logs" id="cfgResult" style="max-height:200px">Key eingeben und auf "Lesen" oder "Setzen" klicken.</div>
+    <div class="section-title">Alle Konfigurationswerte</div>
+    <div id="cfgList" style="max-height:250px;overflow-y:auto"></div>
+    <button class="btn2" onclick="M.cfgList()" style="margin-top:4px">Liste aktualisieren</button>
   </div>
 </main>
 
 <!-- CONNECT MODAL -->
 <div class="modal" id="connectModal"><div>
-  <h2>Connect</h2>
+  <h2>Mit Gerat verbinden</h2>
   <div id="modalDevices" style="max-height:90px;overflow-y:auto;font-size:11px"></div>
-  <label>Host</label><input id="connHost" placeholder="192.168.1.100 (Port 8101 automatisch)">
-  <label>IORA Username</label><input id="connUser" placeholder="admin">
-  <label>Password</label><input type="password" id="connPass">
-  <p style="font-size:10px;color:var(--muted)">Admin role required.</p>
+  <label>Host (IP:Port)</label><input id="connHost" placeholder="192.168.1.100 (Port 8101 automatisch)">
+  <label>IORA-Benutzername</label><input id="connUser" placeholder="admin">
+  <label>Passwort</label><input type="password" id="connPass" onkeydown="if(event.key==='Enter')M.doConnect()">
+  <p style="font-size:10px;color:var(--muted)">Admin-Rechte erforderlich.</p>
   <div style="display:flex;justify-content:flex-end;gap:8px">
-    <button class="btn2" onclick="M.closeConnect()">Cancel</button>
-    <button class="btn" id="connBtn" onclick="M.doConnect()">Connect</button>
+    <button class="btn2" onclick="M.closeConnect()">Abbrechen</button>
+    <button class="btn" id="connBtn" onclick="M.doConnect()">Verbinden</button>
     <span style="font-size:10px;color:var(--muted)" id="connMsg"></span>
-  </div>
-</div></div>
-
-<!-- NEW SERVICE MODAL -->
-<div class="modal" id="newSvcModal"><div>
-  <h2>New IORA Service</h2>
-  <label>Service Name</label><input id="newSvcName" placeholder="my-service">
-  <label>Port (optional)</label><input id="newSvcPort" placeholder="8100" type="number">
-  <label>Description</label><input id="newSvcDesc" placeholder="My custom service">
-  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
-    <button class="btn2" onclick="M.closeNewService()">Cancel</button>
-    <button class="btn" id="newSvcBtn" onclick="M.createService()">Create</button>
-    <span style="font-size:10px;color:var(--muted);align-self:center" id="newSvcMsg"></span>
   </div>
 </div></div>
 
@@ -245,7 +246,7 @@ const M = {
   async init() {
     try { await fetch('/api/v1/health'); } catch {
       document.getElementById('hdrDot').className='dot off';
-      document.getElementById('hdrLabel').textContent='daemon down';
+      document.getElementById('hdrLabel').textContent='Daemon nicht erreichbar';
       return setTimeout(()=>M.init(),1500);
     }
     try { M.components = await M.api('GET','/api/v1/components'); } catch {}
@@ -262,57 +263,31 @@ const M = {
 
   connectWS() {
     if(M.ws) try{M.ws.close()}catch{}
-    // Use the page origin to connect to the daemon WebSocket.
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${proto}//${host}/api/v1/events`;
     M.ws = new WebSocket(wsUrl);
-    M.ws.onopen = () => {
-      // WebSocket-Verbindung zum Daemon steht
-      M.wsRetries = 0;
-      M.wsConnected = true;
-      M.updateHdrStatus();
-    };
+    M.ws.onopen = () => { M.wsRetries = 0; M.wsConnected = true; M.updateHdrStatus(); };
     M.ws.onmessage = e => { try { M.onEvent(JSON.parse(e.data)); } catch {} };
-    M.ws.onclose = (ev) => {
-      M.ws = null;
-      M.wsConnected = false;
+    M.ws.onclose = () => {
+      M.ws = null; M.wsConnected = false;
       document.getElementById('hdrDeviceStatus').style.display='none';
-      // Exponentielles Backoff: 1s, 2s, 4s, 8s, ... max 30s
       const delay = Math.min(1000 * Math.pow(2, M.wsRetries), 30000);
       M.wsRetries = Math.min(M.wsRetries + 1, M.wsMaxRetries);
       document.getElementById('hdrDot').className='dot off';
-      document.getElementById('hdrLabel').textContent=`reconnecting in ${(delay/1000).toFixed(0)}s`;
+      document.getElementById('hdrLabel').textContent=`Wiederverbinden in ${(delay/1000).toFixed(0)}s`;
       setTimeout(() => M.connectWS(), delay);
-    };
-    M.ws.onerror = () => {
-      // EventSource/WebSocket feuert onerror + onclose — wir
-      // behandeln nur onclose, der immer nach onerror kommt.
     };
   },
 
   updateHdrStatus() {
-    // Zeigt WebSocket-Status + Device-Status kombiniert
-    const dot = document.getElementById('hdrDot');
-    const label = document.getElementById('hdrLabel');
-    const dev = document.getElementById('hdrDeviceStatus');
-    if (!M.wsConnected) {
-      dot.className = 'dot off';
-      label.textContent = 'offline';
-      dev.style.display = 'none';
-      return;
-    }
-    dot.className = 'dot on';
-    label.textContent = M.wsRetries > 0 ? 'reconnected' : 'connected';
-    if (M.connected && M.connHostname) {
-      dev.style.display = 'inline';
-      dev.textContent = '🔗 ' + M.connHostname;
-    } else if (M.connected && M.connHost) {
-      dev.style.display = 'inline';
-      dev.textContent = '🔗 ' + M.connHost;
-    } else {
-      dev.style.display = 'none';
-    }
+    const dot=document.getElementById('hdrDot'),label=document.getElementById('hdrLabel'),dev=document.getElementById('hdrDeviceStatus');
+    if(!M.wsConnected){dot.className='dot off';label.textContent='offline';dev.style.display='none';return}
+    dot.className='dot on';
+    label.textContent=M.wsRetries>0?'wiederverbunden':'verbunden';
+    if(M.connected&&M.connHostname){dev.style.display='inline';dev.textContent=M.connHostname;}
+    else if(M.connected&&M.connHost){dev.style.display='inline';dev.textContent=M.connHost;}
+    else dev.style.display='none';
   },
 
   onEvent(ev) {
@@ -348,7 +323,7 @@ const M = {
 
   renderAll() {
     M.updateHdrStatus();
-    document.getElementById('hdrHost').textContent=M.connected?`build ${M.connBuild}`:'';
+    document.getElementById('hdrHost').textContent=M.connected?`Build ${M.connBuild}`:'';
     document.getElementById('deployBtn').disabled=!M.connected;
     document.getElementById('setupBanner').style.display=M.connected?'none':'block';
     document.getElementById('dashRow').style.display=M.connected?'flex':'none';
@@ -356,270 +331,233 @@ const M = {
   },
   renderDashDev() {
     const el=document.getElementById('dashDev');
-    el.innerHTML=M.connected?`<div class="item"><b>${M.connHostname||M.connHost}</b> <span class="badge ok">${M.connBuild}</span></div>`:'<div class="empty">No device</div>';
+    el.innerHTML=M.connected?`<div class="item"><b>${M.connHostname||M.connHost}</b> <span class="badge ok">${M.connBuild}</span> <span style="color:var(--muted);font-size:10px;margin-left:auto">Status: verbunden</span></div>`:'<div class="empty">Kein Gerat verbunden</div>';
   },
   renderDashSvcSummary() {
     const el=document.getElementById('dashSvcSummary'),s=M.svcSummary;
-    el.innerHTML=s?.total?`<span class="badge ok">${s.healthy}▲</span> <span class="badge warn" style="margin-left:3px">${s.degraded}●</span> <span class="badge err" style="margin-left:3px">${s.unhealthy+s.stale}▼</span>`:'<div class="empty">—</div>';
+    el.innerHTML=s?.total?`<div class="item"><span class="badge ok">${s.healthy} OK</span> <span class="badge warn">${s.degraded} Einschrankungen</span> <span class="badge err">${s.unhealthy+s.stale} Fehler</span> <span style="color:var(--muted);font-size:10px;margin-left:auto">${s.total} Dienste</span></div>`:'<div class="empty">Keine Daten</div>';
   },
   renderDevices() {
     document.getElementById('dashDevices').innerHTML=M.devices.length?M.devices.map(d=>{
       const ep=(d.addrs?.[0]||d.host)+':'+d.port;
       return `<div class="item"><span style="color:${M.connHost&&M.connHost.includes(d.addrs?.[0]||d.host)?'var(--green)':'var(--muted)'}">${M.connHost&&M.connHost.includes(d.addrs?.[0]||d.host)?'●':'○'}</span> <b>${d.txt?.hostname||d.instance||ep}</b> <span style="color:var(--muted);font-size:10px">${ep}</span></div>`;
-    }).join(''):'<div class="empty">No devices</div>';
+    }).join(''):'<div class="empty">Keine Gerate gefunden</div>';
   },
   renderModalDevices() {
     const el=document.getElementById('modalDevices');
     el.innerHTML=M.devices.length?M.devices.map(d=>{
       const ep=(d.addrs?.[0]||d.host)+':'+d.port;
       return `<div class="item" style="cursor:pointer;font-size:11px" onclick="document.getElementById('connHost').value='${ep}'">${d.txt?.hostname||d.instance||ep} <span style="color:var(--muted);font-size:10px">${ep}</span></div>`;
-    }).join(''):'<span style="font-size:10px;color:var(--muted)">No devices — enter host manually</span>';
+    }).join(''):'<span style="font-size:10px;color:var(--muted)">Keine Gerate gefunden. Host manuell eingeben.</span>';
   },
   renderJobs() {
     const el=document.getElementById('dashJobs');
-    el.innerHTML=M.jobs.length?M.jobs.slice(0,10).map(j=>`<div class="job"><span class="badge ${j.status==='succeeded'?'ok':j.status==='failed'?'err':'info'}">${j.status}</span> ${j.label} <span style="color:var(--muted);margin-left:auto;font-size:10px">${new Date(j.started_at).toLocaleTimeString()}</span></div>`).join(''):'<div class="empty">No activity</div>';
+    if(!M.jobs.length){el.innerHTML='<div class="empty">Keine Aktivitaten</div>';return}
+    el.innerHTML=M.jobs.slice(0,15).map(j=>{
+      const icon=j.status==='succeeded'?'OK':j.status==='failed'?'FEHLER':j.status==='running'?'LAUFT':'WARTET';
+      const cls=j.status==='succeeded'?'ok':j.status==='failed'?'err':'info';
+      return `<div class="job"><span class="badge ${cls}">${icon}</span> ${j.label} <span style="color:var(--muted);margin-left:auto;font-size:10px">${new Date(j.started_at).toLocaleTimeString()}</span></div>`;
+    }).join('');
   },
   renderServices() {
     const el=document.getElementById('svcList'),cnt=document.getElementById('svcCount');
-    if(!M.services.length){el.innerHTML='<div class="empty">No services</div>';cnt.textContent='';return}
+    if(!M.services.length){el.innerHTML='<div class="empty">Keine Dienste gefunden. Mit einem Gerat verbinden.</div>';cnt.textContent='';return}
     cnt.textContent=`(${M.services.length})`;
     el.innerHTML=M.services.map(s=>{
       const cls=s.effective_status==='healthy'?'ok':s.effective_status==='degraded'?'warn':'err';
-      return `<div class="item"><span class="badge ${cls}">${s.effective_status}</span><b>${s.name}</b>${s.url?`<a href="${s.url}" target="_blank" style="color:var(--accent);font-size:10px;margin-left:4px">↗</a>`:''}<span style="color:var(--muted);font-size:10px;margin-left:auto">${s.heartbeat_age_secs!=null?Math.round(s.heartbeat_age_secs)+'s':'—'}</span><button class="btn2" onclick="M.svcLogs('${s.name}')">📋</button><button class="btn2" onclick="M.svcRestart('${s.name}')">🔄</button></div>`;
+      const label=s.effective_status==='healthy'?'OK':s.effective_status==='degraded'?'Eingeschrankt':'Fehler';
+      const lastSeen=s.heartbeat_age_secs!=null?Math.round(s.heartbeat_age_secs)+'s':'—';
+      return `<div class="item"><span class="badge ${cls}">${label}</span><b>${s.name}</b>${s.url?` <a href="${s.url}" target="_blank" style="color:var(--accent);font-size:10px">↗</a>`:''}<span style="color:var(--muted);font-size:10px;margin-left:auto">${lastSeen}</span><button class="svc-btn" onclick="M.svcShowLogs('${s.name}')">Logs</button><button class="svc-btn" onclick="M.svcRestart('${s.name}')">Neustart</button></div>`;
     }).join(''); M.renderLogUnits();
   },
-  renderComponents(){document.getElementById('deploySel').innerHTML=(M.components||[]).map(c=>`<option value="${c.name}">${c.name} → ${c.target_path}</option>`).join('')},
+  renderComponents(){
+    const el=document.getElementById('deploySel');
+    el.innerHTML='<option value="" disabled style="color:var(--muted)">— Komponenten auswahlen —</option>'+
+      (M.components||[]).map(c=>`<option value="${c.name}">${c.name}</option>`).join('');
+  },
   renderLogUnits() {
-    const sel=document.getElementById('logUnit'),cur=sel.value,seen=new Set();sel.innerHTML='<option value="">Select…</option>';
+    const sel=document.getElementById('logUnit'),cur=sel.value,seen=new Set();
+    sel.innerHTML='<option value="">— Dienst auswahlen —</option>';
     (M.components||[]).forEach(c=>{if(!seen.has(c.unit)){seen.add(c.unit);sel.innerHTML+=`<option value="${c.unit}">${c.name}</option>`}});
     (M.services||[]).forEach(s=>{if(!seen.has(s.name)){seen.add(s.name);sel.innerHTML+=`<option value="${s.name}">${s.name}</option>`}});
     if(cur)sel.value=cur;
   },
   renderLiveDeploy() {
     const card=document.getElementById('liveDeployCard'),j=M.activeJob;
-    if(!j){card.style.display='none';return} card.style.display='block';
-    document.getElementById('liveJobLabel').textContent=`${j.status==='succeeded'?'✅':j.status==='failed'?'❌':j.status==='running'?'⏳':'🕐'} ${j.label} — ${j.status}`;
-    let txt=(j.log||[]).join('\n');if(j._svc?.length)txt+='\n\n── Startup ──\n'+j._svc.join('\n');
-    const log=document.getElementById('liveJobLog');log.textContent=txt||'Waiting…';log.scrollTop=log.scrollHeight;
-    if(j.status==='succeeded'||j.status==='failed'){clearTimeout(j._t);j._t=setTimeout(()=>{if(M.activeJob===j){card.style.display='none';M.activeJob=null}document.getElementById('deployMsg').textContent=''},20000)}
+    if(!j){card.style.display='none';return}
+    card.style.display='block';
+    const icon=j.status==='succeeded'?'OK':j.status==='failed'?'FEHLER':j.status==='running'?'LAUFT':'WARTET';
+    document.getElementById('liveJobLabel').textContent=`${icon}: ${j.label}`;
+    document.getElementById('liveJobTime').textContent=new Date(j.started_at).toLocaleString();
+    let txt='';if(j.log?.length)txt=j.log.join('\n');if(j._svc?.length)txt+='\n\n--- Dienst-Logs ---\n'+j._svc.join('\n');
+    const log=document.getElementById('liveJobLog');log.textContent=txt||'Warte...';log.scrollTop=log.scrollHeight;
+    if(j.status==='succeeded'||j.status==='failed'){clearTimeout(j._t);j._t=setTimeout(()=>{if(M.activeJob===j){card.style.display='none';M.activeJob=null}document.getElementById('deployMsg').textContent=''},30000)}
   },
 
-  // ── System graphs ───────────────────────────────────────────────
+  // ── System ─────────────────────────────────────────────────────
   startGraphs() {
     if(M.graphTimer) return;
-    M.graphTimer = setInterval(()=>M.pollGraphs(), 3000);
+    M.graphTimer=setInterval(()=>M.pollGraphs(),3000);
     M.pollGraphs();
   },
-  stopGraphs() { if(M.graphTimer){clearInterval(M.graphTimer);M.graphTimer=null} },
+  stopGraphs(){if(M.graphTimer){clearInterval(M.graphTimer);M.graphTimer=null}},
   async pollGraphs() {
     if(!M.connected) return;
     try {
-      const info = await M.api('GET','/api/v1/system/info');
-      const cpuPct = parseFloat(info.loadavg?.split(' ')[0]||0) / (info.cpu_count||1) * 100;
-      const memPct = info.mem_total_bytes ? ((info.mem_total_bytes-info.mem_available_bytes)/info.mem_total_bytes*100) : 0;
-      M.graphData.cpu.push(Math.min(100, cpuPct)); M.graphData.cpu.shift();
-      M.graphData.mem.push(Math.min(100, memPct)); M.graphData.mem.shift();
-      M.drawGraph('cpuGraph', M.graphData.cpu, 'var(--accent)', 'CPU %');
-      M.drawGraph('memGraph', M.graphData.mem, 'var(--green)', 'MEM %');
-    } catch {}
+      const i=await M.api('GET','/api/v1/system/info');
+      const cpuPct=parseFloat(i.loadavg?.split(' ')[0]||0)/(i.cpu_count||1)*100;
+      const memPct=i.mem_total_bytes?((i.mem_total_bytes-i.mem_available_bytes)/i.mem_total_bytes*100):0;
+      M.graphData.cpu.push(Math.min(100,cpuPct));M.graphData.cpu.shift();
+      M.graphData.mem.push(Math.min(100,memPct));M.graphData.mem.shift();
+      M.drawGraph('cpuGraph',M.graphData.cpu,'var(--accent)','CPU %');
+      M.drawGraph('memGraph',M.graphData.mem,'var(--green)','RAM %');
+    }catch{}
   },
-  drawGraph(id, data, color, label) {
-    const c = document.getElementById(id), w=c.width=c.parentElement.clientWidth-24, h=c.height;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0,0,w,h);
-    ctx.strokeStyle='var(--border)'; ctx.lineWidth=0.5;
+  drawGraph(id,data,color,label){
+    const c=document.getElementById(id),w=c.width=c.parentElement.clientWidth-24,h=c.height;
+    const ctx=c.getContext('2d');ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle='var(--border)';ctx.lineWidth=0.5;
     for(let i=0;i<=4;i++){const y=h*i/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
-    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath();
-    data.forEach((v,i)=>{const x=i/(data.length-1)*w,y=h-(v/100*h);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});
-    ctx.stroke();
-    ctx.fillStyle=color; ctx.globalAlpha=0.15; ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.fill(); ctx.globalAlpha=1;
-    ctx.fillStyle='var(--muted)'; ctx.font='9px sans-serif'; ctx.fillText(label,4,10);
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+    data.forEach((v,i)=>{const x=i/(data.length-1)*w,y=h-(v/100*h);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke();
+    ctx.fillStyle=color;ctx.globalAlpha=0.15;ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.fill();ctx.globalAlpha=1;
+    ctx.fillStyle='var(--muted)';ctx.font='9px sans-serif';ctx.fillText(label,4,10);
   },
-
-  // ─── System tab ──────────────────────────────────────────────────
-  async refreshSysInfo() {
+  async refreshSysInfo(){
     const el=document.getElementById('sysInfo');
     try {
       const i=await M.api('GET','/api/v1/system/info');
-      const f=n=>n>1e9?(n/1e9).toFixed(1)+'GB':n>1e6?(n/1e6).toFixed(1)+'MB':n+'B';
-      el.innerHTML=`<div class="item">Host: <b>${i.hostname}</b></div><div class="item">Build: <b>${i.build}</b></div><div class="item">Uptime: <b>${i.uptime_seconds}s</b></div><div class="item">Load: <b>${i.loadavg}</b></div><div class="item">CPUs: <b>${i.cpu_count}</b></div><div class="item">RAM: <b>${f(i.mem_total_bytes-i.mem_available_bytes)} / ${f(i.mem_total_bytes)}</b></div><div class="item">Disk: <b>${f(i.disk_used_bytes)} / ${f(i.disk_total_bytes)}</b></div>`;
+      const f=n=>n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':n+' B';
+      el.innerHTML=`<div class="item">Hostname: <b>${i.hostname}</b></div><div class="item">Build: <b>${i.build}</b></div><div class="item">Betriebszeit: <b>${Math.floor(i.uptime_seconds/3600)}h ${Math.floor((i.uptime_seconds%3600)/60)}m</b></div><div class="item">Auslastung: <b>${i.loadavg}</b></div><div class="item">CPU-Kerne: <b>${i.cpu_count}</b></div><div class="item">RAM: <b>${f(i.mem_total_bytes-i.mem_available_bytes)} / ${f(i.mem_total_bytes)}</b></div><div class="item">Festplatte: <b>${f(i.disk_used_bytes)} / ${f(i.disk_total_bytes)}</b></div>`;
       M.startGraphs();
-    } catch(e) { el.innerHTML=`<div class="empty">${e.message}</div>`; }
+    }catch(e){el.innerHTML=`<div class="empty">${e.message}</div>`}
   },
-  async reboot() { if(!confirm('Reboot device?'))return; try{await M.api('POST','/api/v1/system/reboot');M.toast('ok','Rebooting')}catch(e){M.toast('err',e.message)} },
+  async reboot(){if(!confirm('Gerat wirklich neustarten?'))return;try{await M.api('POST','/api/v1/system/reboot');M.toast('ok','Neustart eingeleitet')}catch(e){M.toast('err',e.message)}},
 
-  // ── File browser ────────────────────────────────────────────────
-  async fsBrowse(p) {
+  // ── File browser ───────────────────────────────────────────────
+  async fsBrowse(p){
     const path=p||document.getElementById('fsInput').value.trim()||'/';M.fsCurrent=path;
     document.getElementById('fsPath').textContent=path;document.getElementById('fsInput').value=path;
     document.getElementById('fsContent').style.display='none';
     try {
       const r=await M.api('POST','/api/v1/system/list',{path});
       document.getElementById('fsList').innerHTML=r.entries.length?r.entries.map(e=>{
-        const icon=e.kind==='dir'?'📁':'📄';
-        return `<div class="item"><span>${icon}</span> <span class="${e.kind==='dir'?'fs-path':''}" style="cursor:pointer" onclick="M.${e.kind==='dir'?`fsBrowse('${e.path}')`:`fsRead('${e.path}','${e.name}')`}">${e.name}</span>${e.kind==='file'?` <span style="color:var(--muted);font-size:10px">${e.size>1024?(e.size/1024).toFixed(1)+'k':e.size+'B'}</span>`:''}</div>`;
-      }).join(''):'<div class="empty">Empty</div>';
-    } catch(e) { document.getElementById('fsList').innerHTML=`<div class="empty">${e.message}</div>`; }
+        const icon=e.kind==='dir'?'[VERZEICHNIS]':'[DATEI]';
+        return `<div class="item"><span class="${e.kind==='dir'?'fs-path':''}" style="cursor:pointer;font-size:11px" onclick="M.${e.kind==='dir'?`fsBrowse('${e.path}')`:`fsRead('${e.path}','${e.name}')`}">${icon} ${e.name}</span>${e.kind==='file'?` <span style="color:var(--muted);font-size:10px;margin-left:auto">${e.size>1024?(e.size/1024).toFixed(1)+' KB':e.size+' B'}</span>`:''}</div>`;
+      }).join(''):'<div class="empty">Leeres Verzeichnis</div>';
+    }catch(e){document.getElementById('fsList').innerHTML=`<div class="empty">${e.message}</div>`}
   },
   fsParent(){M.fsBrowse(M.fsCurrent.split('/').slice(0,-1).join('/')||'/')},
-  async fsRead(path,name){try{const r=await M.api('POST','/api/v1/system/read',{path,max_bytes:65536});document.getElementById('fsFileName').textContent=name;document.getElementById('fsFileContent').textContent=r.truncated?r.content+'\n\n[TRUNCATED]':r.content;document.getElementById('fsContent').style.display='block'}catch(e){M.toast('err',e.message)}},
+  async fsRead(path,name){try{const r=await M.api('POST','/api/v1/system/read',{path,max_bytes:65536});document.getElementById('fsFileName').textContent=name;document.getElementById('fsFileContent').textContent=r.truncated?r.content+'\n\n[GEKURZT]':r.content;document.getElementById('fsContent').style.display='block'}catch(e){M.toast('err',e.message)}},
 
-  // ── Service actions ─────────────────────────────────────────────
-  async svcRestart(n){if(!confirm(`Restart ${n}?`))return;try{await M.api('POST','/api/v1/restart',{unit:n});M.toast('ok',`Restarting ${n}`)}catch(e){M.toast('err',e.message)}},
-  svcLogs(n){document.getElementById('logUnit').value=n;M.switchTab('logs');M.tailLogs()},
+  // ── Service actions ────────────────────────────────────────────
+  async svcRestart(n){if(!confirm(`Dienst "${n}" neustarten?`))return;try{await M.api('POST','/api/v1/restart',{unit:n});M.toast('ok',`Neustart von ${n} eingeleitet`)}catch(e){M.toast('err',e.message)}},
+  svcShowLogs(n){document.getElementById('logUnit').value=n;M.switchTab('svc');M.tailLogs()},
 
-  // ── New Service ──────────────────────────────────────────────────
-  showNewService(){document.getElementById('newSvcModal').classList.add('show');document.getElementById('newSvcMsg').textContent=''},
-  closeNewService(){document.getElementById('newSvcModal').classList.remove('show')},
-  async createService() {
-    const name=document.getElementById('newSvcName').value.trim().replace(/[^a-z0-9-]/g,'-');
-    const port=document.getElementById('newSvcPort').value;
-    const desc=document.getElementById('newSvcDesc').value.trim();
-    if(!name){document.getElementById('newSvcMsg').textContent='Name required';return}
-    const btn=document.getElementById('newSvcBtn'),msg=document.getElementById('newSvcMsg');
-    btn.disabled=true; msg.textContent='Creating…';
+  // ── Self-Update ─────────────────────────────────────────────────
+  suToggleFields(){document.getElementById('suSshFields').style.display=document.getElementById('suSource').value==='ssh'?'flex':'none'},
+  async doSuUpdate(){
+    const src=document.getElementById('suSource').value,url=document.getElementById('suUrl').value.trim();
+    if(!url){M.toast('warn','URL eingeben');return}
+    const body={source:src,url};
+    if(src==='ssh'){
+      body.host=document.getElementById('suHost').value.trim()||url;
+      body.path=document.getElementById('suPath').value.trim();
+      body.user=document.getElementById('suUser').value.trim()||'root';
+      body.port=parseInt(document.getElementById('suPort').value)||22;
+      body.key_path=document.getElementById('suKey').value.trim()||'/root/.ssh/id_rsa';
+    }
+    const sha=document.getElementById('suSha').value.trim();
+    if(sha)body.expected_sha=sha;
+    const el=document.getElementById('suResult');el.style.display='block';el.textContent='Update wird durchgefuhrt...';
+    document.getElementById('suMsg').textContent='Lauft...';
     try {
-      await M.api('POST','/api/v1/service/scaffold',{name,port:port?parseInt(port):0,description:desc||name});
-      await M.api('POST','/api/v1/components/register',{name,target_path:`/usr/bin/${name}`});
-      M.components = await M.api('GET','/api/v1/components');
-      M.renderComponents(); M.renderLogUnits();
-      msg.textContent='Created! Reload workspace to see new files.';
-      setTimeout(()=>M.closeNewService(),1500);
-    } catch(e) { msg.textContent=e.message; }
-    btn.disabled=false;
+      const r=await M.api('POST','/api/v1/deploy',{self_update:body});
+      el.textContent=JSON.stringify(r,null,2);
+      document.getElementById('suMsg').textContent=r.ok?'Update erfolgreich!':'Fehlgeschlagen';
+      M.toast(r.ok?'ok':'err',r.ok?'Dev Bridge Update gestartet':'Update fehlgeschlagen');
+    }catch(e){el.textContent='Fehler: '+e.message;document.getElementById('suMsg').textContent='Fehler';M.toast('err',e.message)}
   },
 
-  // ─── Upload App/Plugin ───────────────────────────────────────────
-  async uploadApp() {
-    const file=document.getElementById('appFile').files[0];
-    if(!file){document.getElementById('uploadMsg').textContent='Select a file';return}
-    const msg=document.getElementById('uploadMsg'); msg.textContent='Uploading…';
-    try {
-      const form=new FormData(); form.append('file',file);
-      const r=await fetch('/api/v1/app/upload',{method:'POST',body:form});
-      if(!r.ok){const t=await r.text();throw new Error(t||r.statusText)}
-      const j=await r.json();
-      msg.textContent=`Installed: ${j.name||file.name}`;
-      M.toast('ok','App installed — restart affected services');
-    } catch(e) { msg.textContent=e.message; }
-  },
-
-  // ─── Config ──────────────────────────────────────────────────────
+  // ── Config ─────────────────────────────────────────────────────
   async cfgList() {
     try {
-      const r = await M.api('GET','/api/v1/config');
+      const r=await M.api('GET','/api/v1/config');
       const el=document.getElementById('cfgList');
-      if(!el) return;
-      el.innerHTML = (r && r.length) ? r.map(c=>`<div class="item"><b>${c.key}</b> <span style="color:var(--muted);margin-left:auto;font-size:10px">${String(c.value).substring(0,80)}</span></div>`).join('') : '<div class="empty">No config</div>';
-    } catch(e) { 
-      const el=document.getElementById('cfgResult');
-      if(el) el.textContent='Error: '+e.message;
-    }
+      if(!el)return;
+      if(r&&r.length)el.innerHTML=r.map(c=>`<div class="item"><b style="font-family:monospace;font-size:11px">${c.key}</b> <span style="color:var(--muted);font-size:10px;margin-left:auto;max-width:400px;overflow:hidden;text-overflow:ellipsis">${String(c.value).substring(0,100)}</span></div>`).join('');
+      else el.innerHTML='<div class="empty">Keine Konfiguration gefunden</div>';
+    }catch(e){const el=document.getElementById('cfgResult');if(el)el.textContent='Fehler: '+e.message}
   },
-  async cfgGet() {
-    const key=document.getElementById('cfgKey').value.trim();
-    if(!key){document.getElementById('cfgResult').textContent='Enter a key';return}
-    try {
-      document.getElementById('cfgResult').textContent=JSON.stringify(await M.api('GET','/api/v1/config/'+encodeURIComponent(key)),null,2);
-    } catch(e) { document.getElementById('cfgResult').textContent='Error: '+e.message; }
-  },
-  async cfgSet() {
-    const key=document.getElementById('cfgKey').value.trim();
-    const val=document.getElementById('cfgVal').value.trim();
-    if(!key||!val){document.getElementById('cfgResult').textContent='Key and value required';return}
-    try {
-      document.getElementById('cfgResult').textContent=JSON.stringify(await M.api('PUT','/api/v1/config/'+encodeURIComponent(key),{value:val}),null,2);
-      M.cfgList();
-    } catch(e) { document.getElementById('cfgResult').textContent='Error: '+e.message; }
-  },
-  async cfgDelete() {
-    const key=document.getElementById('cfgKey').value.trim();
-    if(!key||!confirm('Delete '+key+'?'))return;
-    try {
-      await fetch('/api/v1/config/'+encodeURIComponent(key),{method:'DELETE'});
-      document.getElementById('cfgResult').textContent='Deleted';
-      document.getElementById('cfgKey').value='';
-      M.cfgList();
-    } catch(e) { document.getElementById('cfgResult').textContent='Error: '+e.message; }
-  },
+  async cfgGet(){const key=document.getElementById('cfgKey').value.trim();if(!key){document.getElementById('cfgResult').textContent='Key eingeben';return}try{document.getElementById('cfgResult').textContent=JSON.stringify(await M.api('GET','/api/v1/config/'+encodeURIComponent(key)),null,2)}catch(e){document.getElementById('cfgResult').textContent='Fehler: '+e.message}},
+  async cfgSet(){const key=document.getElementById('cfgKey').value.trim(),val=document.getElementById('cfgVal').value.trim();if(!key||!val){document.getElementById('cfgResult').textContent='Key und Value eingeben';return}try{document.getElementById('cfgResult').textContent=JSON.stringify(await M.api('PUT','/api/v1/config/'+encodeURIComponent(key),{value:val}),null,2);M.cfgList()}catch(e){document.getElementById('cfgResult').textContent='Fehler: '+e.message}},
+  async cfgDelete(){const key=document.getElementById('cfgKey').value.trim();if(!key||!confirm('Key "'+key+'" loschen?'))return;try{await fetch('/api/v1/config/'+encodeURIComponent(key),{method:'DELETE'});document.getElementById('cfgResult').textContent='Geloscht';document.getElementById('cfgKey').value='';M.cfgList()}catch(e){document.getElementById('cfgResult').textContent='Fehler: '+e.message}},
 
-  // ─── Compose ─────────────────────────────────────────────────────
-  async composeReload() {
-    const svc=document.getElementById('composeSvc').value;
-    if(!svc){document.getElementById('composeMsg').textContent='Select service';return}
-    document.getElementById('composeMsg').textContent='Reloading…';
-    try {
-      const r=await M.api('POST','/api/v1/compose/reload',{service:svc});
-      document.getElementById('composeLogView').textContent=JSON.stringify(r,null,2);
-      document.getElementById('composeMsg').textContent='OK';
-    } catch(e) { document.getElementById('composeMsg').textContent=e.message; }
-  },
-  async composeLogs() {
-    const svc=document.getElementById('composeSvc').value;
-    if(!svc){document.getElementById('composeMsg').textContent='Select service';return}
-    document.getElementById('composeMsg').textContent='Loading…';
-    try {
-      const r=await M.api('POST','/api/v1/compose/logs',{service:svc,tail:200});
-      document.getElementById('composeLogView').textContent=r.stdout||'(empty)';
-      document.getElementById('composeMsg').textContent='OK';
-    } catch(e) { document.getElementById('composeMsg').textContent=e.message; }
-  },
-
-  // ─── Tabs ────────────────────────────────────────────────────────
+  // ── Tabs ───────────────────────────────────────────────────────
   switchTab(t) {
     document.querySelectorAll('main').forEach(m=>m.classList.remove('active'));
     document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
     document.getElementById('tab-'+t)?.classList.add('active');
     if(t==='svc'&&M.connected)M.refreshServices();
     if(t==='system'){M.refreshSysInfo();M.startGraphs()}else M.stopGraphs();
-    if(t==='config'){M.cfgList()};
-    if(t==='compose'&&M.services&&M.services.length){
-      const sel=document.getElementById('composeSvc');
-      if(sel&&sel.options.length<=1)M.services.forEach(s=>{if(s.name!=='iora-core')sel.innerHTML+=`<option value="${s.name}">${s.name}</option>`});
-    }
+    if(t==='config')M.cfgList();
   },
   async refreshServices(){try{const s=await M.api('GET','/api/v1/services');M.services=s?.services||[];M.svcSummary=s?.summary||M.svcSummary;M.renderServices()}catch{}},
 
-  // ── Connect ─────────────────────────────────────────────────────
+  // ── Connect ────────────────────────────────────────────────────
   connectDialog(){document.getElementById('connectModal').classList.add('show');M.renderModalDevices();if(M.connHost)document.getElementById('connHost').value=M.connHost;document.getElementById('connMsg').textContent=''},
   closeConnect(){document.getElementById('connectModal').classList.remove('show')},
-  async doConnect() {
+  async doConnect(){
     const h=document.getElementById('connHost').value.trim(),u=document.getElementById('connUser').value.trim(),p=document.getElementById('connPass').value;
-    if(!h||!u||!p){document.getElementById('connMsg').textContent='All fields required';return}
-    const btn=document.getElementById('connBtn'),msg=document.getElementById('connMsg');btn.disabled=true;msg.textContent='Connecting…';
-    try{const r=await M.api('POST','/api/v1/connect-credentials',{host:h,username:u,password:p});M.closeConnect();M.toast('ok','Connected as '+r.username)}catch(e){msg.textContent=e.message}
+    if(!h||!u||!p){document.getElementById('connMsg').textContent='Alle Felder ausfullen';return}
+    const btn=document.getElementById('connBtn'),msg=document.getElementById('connMsg');btn.disabled=true;msg.textContent='Verbinde...';
+    try{const r=await M.api('POST','/api/v1/connect-credentials',{host:h,username:u,password:p});M.closeConnect();M.toast('ok','Verbunden als '+r.username)}catch(e){msg.textContent=e.message}
     btn.disabled=false;
   },
 
-  // ── Deploy ──────────────────────────────────────────────────────
+  // ── Deploy ─────────────────────────────────────────────────────
   deploy() {
-    if(!M.connected)return M.toast('warn','Not connected');
-    const sel=document.getElementById('deploySel');let comps=[...sel.selectedOptions].map(o=>o.value);
-    if(!comps.length){const a=[...sel.options].map(o=>o.value);if(!a.length)return M.toast('warn','No components');comps=[a[0]]}
-    const mode=document.getElementById('buildMode').value,msg=document.getElementById('deployMsg');msg.textContent='Deploying '+comps.join(',')+'…';
+    if(!M.connected)return M.toast('warn','Nicht verbunden');
+    const sel=document.getElementById('deploySel');let comps=[...sel.selectedOptions].map(o=>o.value).filter(v=>v);
+    if(!comps.length){const a=[...sel.options].map(o=>o.value).filter(v=>v);if(!a.length)return M.toast('warn','Keine Komponenten');comps=[a[0]]}
+    const mode=document.getElementById('buildMode').value,msg=document.getElementById('deployMsg');msg.textContent='Deploye '+comps.join(',')+'...';
     M.api('POST','/api/v1/deploy',{components:comps,target:'aarch64-unknown-linux-gnu',build_mode:mode})
-      .then(r=>{msg.textContent='Job '+r.job_id.slice(0,8);M.activeJob={id:r.job_id,label:comps.join(',')+' ['+mode+']',log:[],status:'pending'};M.renderLiveDeploy();document.getElementById('liveDeployCard').style.display='block'})
+      .then(r=>{msg.textContent='Job '+r.job_id.slice(0,8);M.activeJob={id:r.job_id,label:comps.join(',')+' ('+mode+')',log:[],status:'pending',started_at:new Date().toISOString()};M.renderLiveDeploy();document.getElementById('liveDeployCard').style.display='block'})
       .catch(e=>{msg.textContent=e.message});
   },
   watch() {
-    if(!M.connected)return M.toast('warn','Not connected');
-    const sel=document.getElementById('deploySel');let comps=[...sel.selectedOptions].map(o=>o.value);
-    if(!comps.length)comps=[...sel.options].map(o=>o.value).slice(0,1);
+    if(!M.connected)return M.toast('warn','Nicht verbunden');
+    const sel=document.getElementById('deploySel');let comps=[...sel.selectedOptions].map(o=>o.value).filter(v=>v);
+    if(!comps.length)comps=[...sel.options].map(o=>o.value).filter(v=>v).slice(0,1);
     M.api('POST','/api/v1/watch',{components:comps,target:'aarch64-unknown-linux-gnu',build_mode:document.getElementById('buildMode').value,automatic:false})
-      .then(r=>M.toast('ok','Watching '+(r.components||comps).join(', '))).catch(e=>M.toast('err',e.message));
+      .then(r=>M.toast('ok','Watch gestartet fur '+(r.components||comps).join(', '))).catch(e=>M.toast('err',e.message));
   },
 
-  // ── Logs ────────────────────────────────────────────────────────
+  // ── Upload ─────────────────────────────────────────────────────
+  async uploadApp() {
+    const file=document.getElementById('appFile').files[0];
+    if(!file){document.getElementById('uploadMsg').textContent='Datei auswahlen';return}
+    const msg=document.getElementById('uploadMsg');msg.textContent='Lade hoch...';
+    try {
+      const form=new FormData();form.append('file',file);
+      const r=await fetch('/api/v1/app/upload',{method:'POST',body:form});
+      if(!r.ok){const t=await r.text();throw new Error(t||r.statusText)}
+      const j=await r.json();
+      msg.textContent='Installiert: '+(j.name||file.name);
+      M.toast('ok','App/Plugin installiert');
+    }catch(e){msg.textContent=e.message}
+  },
+
+  // ── Logs ───────────────────────────────────────────────────────
   async tailLogs() {
     const u=document.getElementById('logUnit').value;if(!u)return;
-    document.getElementById('logMsg').textContent='Loading…';
-    try{const r=await M.api('POST','/api/v1/service/logs',{unit:u,tail:300});document.getElementById('logView').textContent=r.stdout||'(empty)';document.getElementById('logMsg').textContent='OK'}catch(e){document.getElementById('logView').textContent=e.message;document.getElementById('logMsg').textContent='Failed'}
+    document.getElementById('logMsg').textContent='Lade...';
+    try{const r=await M.api('POST','/api/v1/service/logs',{unit:u,tail:300});document.getElementById('logView').textContent=r.stdout||'(leer)';document.getElementById('logMsg').textContent='OK'}catch(e){document.getElementById('logView').textContent=e.message;document.getElementById('logMsg').textContent='Fehler'}
   },
-  async liveLogs(){const u=document.getElementById('logUnit').value;if(!u)return M.toast('warn','Select service');try{const r=await M.api('GET',`/api/v1/service/${encodeURIComponent(u)}/logs-url`);window.open(r.url,'_blank')}catch(e){M.toast('err',e.message)}},
-  toast(type,text){const el=document.getElementById('toast');el.textContent=text;el.style.borderColor=type==='err'?'var(--red)':type==='warn'?'var(--yellow)':'var(--green)';el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),4000)},
+  async liveLogs(){const u=document.getElementById('logUnit').value;if(!u)return M.toast('warn','Dienst auswahlen');try{const r=await M.api('GET','/api/v1/service/'+encodeURIComponent(u)+'/logs-url');window.open(r.url,'_blank')}catch(e){M.toast('err',e.message)}},
+  toast(type,text){const el=document.getElementById('toast');el.textContent=text;el.style.borderColor=type==='err'?'var(--red)':type==='warn'?'var(--yellow)':'var(--green)';el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),5000)},
 };
 
-document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='d'){e.preventDefault();M.deploy()}});
 M.init();
 </script>
 </body>

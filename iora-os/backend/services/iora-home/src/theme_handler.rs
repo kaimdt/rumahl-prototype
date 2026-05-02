@@ -131,9 +131,10 @@ impl ThemeState {
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let name = file.name().to_string();
-            if name == "manifest.json" || name.ends_with('/') { continue; }
-            // Also check if it's in a subfolder
-            if name.ends_with("manifest.json") {
+            // Skip directories, but NOT manifest.json itself
+            if name.ends_with('/') { continue; }
+            // Check if this is manifest.json (at root or in a subfolder)
+            if name == "manifest.json" || name.ends_with("/manifest.json") {
                 file.read_to_end(&mut manifest_bytes)?;
                 found = true;
                 break;

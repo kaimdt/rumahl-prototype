@@ -53,6 +53,10 @@ struct Inner {
     watches: RwLock<HashMap<Uuid, WatchSession>>,
     events: broadcast::Sender<Event>,
     started_at: DateTime<Utc>,
+    /// Cached connection state — updated periodically by
+    /// health_check_connection so we don't hammer the Dev Bridge
+    /// with HTTP requests on every WebSocket (re)connect.
+    cached_connection: RwLock<serde_json::Value>,
 }
 
 #[derive(Clone, Serialize)]
@@ -185,6 +189,12 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool,
             watches: RwLock::new(HashMap::new()),
             events: tx,
             started_at: Utc::now(),
+            cached_connection: RwLock::new(serde_json::json!({
+                "host": null,
+                "configured": false,
+                "reachable": false,
+                "token_ok": false,
+            })),
         }),
     };
 
@@ -489,6 +499,9 @@ async fn emit_connection_event(
         build: None,
         variant: None,
     });
+    // Update cached connection state
+    let conn = connection_state().await;
+    *state.inner.cached_connection.write().await = conn;
 }
 
 /// Emit a hint event with discovered alternatives.
@@ -1228,7 +1241,10 @@ async fn ws_loop(s: AppState, mut sock: WebSocket, is_auth: bool) {
         let jobs = s.inner.jobs.read().await;
         order.iter().rev().take(20).filter_map(|id| jobs.get(id).cloned()).collect()
     };
-    let conn = connection_state().await;
+    // Use CACHED connection state — the background_tasks loop updates it
+    // periodically via health_check_connection. This avoids making 2 HTTP
+    // requests to the Dev Bridge on every WebSocket (re)connect.
+    let conn = s.inner.cached_connection.read().await.clone();
     let snapshot = serde_json::json!({
         "type": "snapshot",
         "connection": conn,
@@ -1237,6 +1253,12 @@ async fn ws_loop(s: AppState, mut sock: WebSocket, is_auth: bool) {
         "jobs_recent": jobs_recent,
     });
     if sock.send(Message::Text(snapshot.to_string())).await.is_err() { return; }
+
+    // Heartbeat timer: send a keep-alive ping every 5 seconds so the
+    // browser/proxy does NOT close the WebSocket during idle periods.
+    let mut hb_tick = tokio::time::interval(std::time::Duration::from_secs(5));
+    hb_tick.tick().await; // consume immediate tick
+
     loop {
         tokio::select! {
             ev = rx.recv() => {
@@ -1248,6 +1270,11 @@ async fn ws_loop(s: AppState, mut sock: WebSocket, is_auth: bool) {
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
                 }
+            }
+            _ = hb_tick.tick() => {
+                // Send a heartbeat ping so the browser/proxy knows we are alive.
+                let hb = serde_json::json!({"type": "heartbeat", "ts": chrono::Utc::now().timestamp()});
+                if sock.send(Message::Text(hb.to_string())).await.is_err() { break; }
             }
             msg = sock.recv() => {
                 match msg {
