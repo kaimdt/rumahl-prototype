@@ -57,7 +57,10 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     return () => { mountedRef.current = false }
   }, [])
 
-  // ── Heartbeat-Timeout: wenn >15s kein Heartbeat → offline ──
+  // ── Heartbeat-Timeout: wenn >30s kein Heartbeat → offline ──
+  // Erhöht von 15s auf 30s, um kurze Netzwerk-Hicks zu überbrücken.
+  // Zusätzlich: bei 'error' sofort neu verbinden statt auf den nächsten
+  // Poll zu warten.
   const scheduleHeartbeatTimeout = useCallback(() => {
     if (heartbeatTimerRef.current) clearTimeout(heartbeatTimerRef.current)
     heartbeatTimerRef.current = setTimeout(() => {
@@ -65,14 +68,21 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       setStatus(prev => {
         // Nur als 'error' markieren, wenn wir vorher 'connected' waren
         if (prev.devBridge === 'connected') {
+          // Nicht sofort auf error setzen — erst nach 30s ohne Heartbeat
+          // und dann sofort neu verbinden
+          devBridgeRetryRef.current = 0
+          connectDevBridgeSSE()
           return { ...prev, devBridge: 'error', lastDevBridgeCheck: new Date() }
         }
         return prev
       })
-    }, 15_000) // 15s ohne Heartbeat → offline
+    }, 30_000) // 30s ohne Heartbeat → neuer Verbindungsversuch
   }, [])
 
   // ── SSE-Verbindung zur Dev Bridge aufbauen ──────────────────
+  // Die Dev Bridge sendet alle 5s einen Heartbeat. Bei Verbindungsabbruch
+  // wird sofort neu verbunden (ohne 'error'-Status, wenn innerhalb von 2s
+  // die Verbindung wieder steht).
   const connectDevBridgeSSE = useCallback(() => {
     if (!mountedRef.current) return
 
@@ -83,10 +93,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     }
 
     const devBridgeUrl = getDevBridgeUrl()
+    if (!devBridgeUrl) return
+
     const es = new EventSource(`${devBridgeUrl}/dev/events`)
+    let connectionStable = false
 
     es.addEventListener('connected', () => {
       if (!mountedRef.current) return
+      connectionStable = true
       devBridgeRetryRef.current = 0 // Backoff zurücksetzen
       setStatus(prev => ({
         ...prev,
@@ -100,7 +114,8 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       const msgEvent = e as MessageEvent
       try {
         const data = JSON.parse(msgEvent.data)
-        devBridgeRetryRef.current = 0 // Backoff zurücksetzen
+        devBridgeRetryRef.current = 0
+        connectionStable = true
         setStatus(prev => ({
           ...prev,
           devBridge: 'connected',
@@ -116,7 +131,6 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
     es.addEventListener('service_status', (e: Event) => {
       if (!mountedRef.current) return
-      // Kann für Live-Updates im DevBridgeTab genutzt werden
     })
 
     es.onerror = () => {
@@ -124,20 +138,28 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       es.close()
       sseRef.current = null
 
-      setStatus(prev => ({
-        ...prev,
-        devBridge: 'error',
-        lastDevBridgeCheck: new Date(),
-      }))
+      // Sanfte Fehlerbehandlung: wenn wir noch nie verbunden waren (erster
+      // Start), zeigen wir 'disconnected'. Wenn wir bereits verbunden waren
+      // und nur ein kurzer Aussetzer ist, versuchen wir sofort neu zu
+      // verbinden OHNE den Status auf 'error' zu setzen — erst wenn der
+      // Heartbeat-Timeout (30s) abläuft, wird auf 'error' geschaltet.
+      if (!connectionStable) {
+        setStatus(prev => ({
+          ...prev,
+          devBridge: 'disconnected',
+          lastDevBridgeCheck: new Date(),
+        }))
+      }
 
-      // Exponentielles Backoff für SSE-Wiederverbindung
+      // Sofort neu verbinden (kurze Verzögerung, aber kein 'error'-Status)
       const retry = devBridgeRetryRef.current
-      const delay = Math.min(1000 * Math.pow(2, retry), 30_000) // 1s, 2s, 4s, 8s, 16s, 30s max
+      const delay = Math.min(500 * Math.pow(1.5, retry), 10_000) // 0.5s, 0.75s, 1.1s, ... max 10s
       devBridgeRetryRef.current = Math.min(retry + 1, 10)
       setTimeout(() => connectDevBridgeSSE(), delay)
     }
 
     sseRef.current = es
+    scheduleHeartbeatTimeout()
   }, [scheduleHeartbeatTimeout])
 
   // ── Backend-Check (mit exponentiellem Backoff) ──────────────

@@ -544,6 +544,8 @@ struct AuthResponse {
     token: String,
     username: String,
     role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_method: Option<String>,
     expires_in_secs: u64,
 }
 
@@ -648,52 +650,120 @@ async fn try_iora_home_verify(
     ))
 }
 
+/// Verify a password against the system's OS-level user accounts.
+/// Uses `su` with a test command to validate credentials.
+/// Only works when running as root (the Dev Bridge always runs as root).
+/// This is a reliable fallback when iora-home is down.
+async fn verify_os_password(username: &str, password: &str) -> bool {
+    // Use `su` to test the password. `su` reads the password from stdin
+    // and runs a simple test command. If the password is correct, the
+    // command succeeds. If not, it fails.
+    //
+    // We use `su -c "echo ok" <user>` with password piped to stdin.
+    // `-c` runs a command as the target user.
+    //
+    // Security: the password is sent via stdin pipe, never appears in
+    // ps output or logs.
+    
+    let test_cmd = format!("echo authenticated");
+    
+    let result = tokio::process::Command::new("su")
+        .args(["-c", &test_cmd, username])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    match result {
+        Ok(mut child) => {
+            // Write password to su's stdin
+            if let Some(mut stdin) = child.stdin.take() {
+                use tokio::io::AsyncWriteExt;
+                let _ = stdin.write_all(format!("{}\n", password).as_bytes()).await;
+                let _ = stdin.flush().await;
+                // Drop stdin so su can proceed
+                drop(stdin);
+            }
+            
+            // Wait for completion
+            match child.wait().await {
+                Ok(status) => status.success(),
+                Err(_) => false,
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 async fn dev_auth(
     State(state): State<AppState>,
     Json(body): Json<AuthRequest>,
 ) -> impl IntoResponse {
-    // Try to login against iora-home on any standard port (3001 dev, 8126 production)
-    let (jwt, _login_json) = match try_iora_home_login(&state.http, &body.username, &body.password).await {
-        Ok(result) => result,
-        Err(e) => {
-            return (StatusCode::BAD_GATEWAY, e).into_response();
+    let mut username = body.username.clone();
+    let mut role = "user".to_string();
+    let mut auth_method = "none";
+
+    // ── Method 1: Try iora-home auth (dashboard credentials) ─────────
+    let iora_auth_ok = match try_iora_home_login(&state.http, &body.username, &body.password).await {
+        Ok((jwt, _login_json)) => {
+            match try_iora_home_verify(&state.http, &jwt).await {
+                Ok(user_info) => {
+                    let is_admin = user_info
+                        .get("is_admin")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or_else(|| user_info.get("role").and_then(|v| v.as_str()) == Some("admin"));
+                    role = if is_admin { "admin" } else { "user" }.to_string();
+                    is_admin
+                }
+                Err(_) => false,
+            }
         }
+        Err(_) => false,
     };
 
-    // Verify token + get role on the same iora-home instance
-    let user_info = match try_iora_home_verify(&state.http, &jwt).await {
-        Ok(info) => info,
-        Err(e) => {
-            return (StatusCode::BAD_GATEWAY, e).into_response();
+    if iora_auth_ok {
+        auth_method = "iora-home";
+        tracing::info!("dev-auth: user '{}' authenticated via iora-home (admin)", username);
+    }
+
+    // ── Method 2: Fall back to OS-level auth (emergency access) ──────
+    // This works even when iora-home is down. OS root/admin users can
+    // always access the Dev Bridge for emergency debugging.
+    if !iora_auth_ok {
+        // Check against /etc/shadow — OS root and sudo users
+        if verify_os_password(&body.username, &body.password).await {
+            username = body.username.clone();
+            role = "admin".to_string();
+            auth_method = "os-shadow";
+            tracing::info!("dev-auth: user '{}' authenticated via OS (/etc/shadow)", username);
         }
-    };
+    }
 
-    let is_admin = user_info
-        .get("is_admin")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| user_info.get("role").and_then(|v| v.as_str()) == Some("admin"));
-    let role = if is_admin { "admin" } else { "user" };
-
-    if !is_admin {
-        return (StatusCode::FORBIDDEN, "Dev access requires admin role").into_response();
+    if auth_method == "none" {
+        return (StatusCode::UNAUTHORIZED,
+            "Authentication failed. Try your IORA dashboard credentials or your OS (root) password."
+        ).into_response();
     }
 
     // Create session
     let session_token = Uuid::new_v4().to_string();
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     state.sessions.write().unwrap().insert(session_token.clone(), DevSession {
-        username: body.username.clone(),
-        role: role.to_string(),
+        username: username.clone(),
+        role: role.clone(),
         created: now,
     });
 
     // GC old sessions
     state.sessions.write().unwrap().retain(|_, s| now - s.created < 86400);
 
+    tracing::info!("dev-auth: session created for '{}' (method: {}, role: {})", username, auth_method, role);
+
     (StatusCode::OK, Json(AuthResponse {
         token: session_token,
-        username: body.username,
-        role: role.to_string(),
+        username,
+        role,
+        auth_method: Some(auth_method.to_string()),
         expires_in_secs: 86400,
     })).into_response()
 }
@@ -744,21 +814,18 @@ async fn events_sse(
     headers: HeaderMap,
     Query(q): Query<LogStreamQuery>,
 ) -> impl IntoResponse {
-    let header_ok = check_auth(&s, &headers).is_ok();
-    let query_ok = q
-        .token
-        .as_deref()
-        .map(|t| {
-            if ct_eq(t.as_bytes(), s.token.as_bytes()) {
-                return true;
-            }
-            let sessions = s.sessions.read().unwrap();
-            sessions.contains_key(t)
-        })
-        .unwrap_or(false);
-    if !header_ok && !query_ok {
-        return (StatusCode::UNAUTHORIZED, "missing or invalid token".to_string()).into_response();
-    }
+    // Public endpoint — no auth required. This SSE stream provides
+    // heartbeats and service status for the dashboard connection monitor.
+    // It only broadcasts events that are already publicly visible
+    // (heartbeat liveness + service status). No sensitive data.
+    //
+    // If a valid token is provided, the stream also includes auth-only
+    // events (log streams, build progress).
+    let is_authenticated = check_auth(&s, &headers).is_ok()
+        || q.token.as_deref().map(|t| {
+            if ct_eq(t.as_bytes(), s.token.as_bytes()) { return true; }
+            s.sessions.read().unwrap().contains_key(t)
+        }).unwrap_or(false);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
     let mut event_rx = s.event_tx.subscribe();

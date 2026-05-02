@@ -59,15 +59,68 @@ def get_local_ip() -> str:
     the OS would route through to reach an external host — i.e. the IP that
     remote browsers can use to reach this machine.
     """
+    ips = get_all_lan_ips()
+    return ips[0] if ips else socket.gethostname()
+
+
+def get_all_lan_ips() -> list:
+    """Return ALL non-loopback, non-Docker LAN IPv4 addresses on this host.
+
+    Filters out:
+      - Docker bridge (172.17.0.0/16, docker0, br-*)
+      - Virtual interfaces (veth*, vnet*, virbr*)
+      - Loopback (127.0.0.1)
+      - Link-local (169.254.x.x)
+    """
+    result = []
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            # 192.0.2.1 is TEST-NET-1 (RFC 5737) — routable but reserved,
-            # so no packets are ever actually sent; we just need the OS to
-            # pick the right outbound interface.
-            s.connect(("192.0.2.1", 80))
-            return s.getsockname()[0]
-    except Exception:
-        return socket.gethostname()
+        import netifaces
+        for iface in netifaces.interfaces():
+            # Skip virtual/container interfaces
+            if iface in ('lo', 'docker0') or iface.startswith(('br-', 'veth', 'vnet', 'virbr', 'tun', 'tap', 'docker')):
+                continue
+            addrs = netifaces.ifaddresses(iface).get(socket.AF_INET, [])
+            for addr_info in addrs:
+                ip = addr_info.get('addr', '')
+                if ip and not ip.startswith('127.') and not ip.startswith('169.254.') and not ip.startswith('172.17.'):
+                    result.append(ip)
+    except ImportError:
+        # Fallback: parse /proc/net/fib_trie manually
+        try:
+            with open('/proc/net/fib_trie', 'r') as f:
+                content = f.read()
+            lines = content.split('\n')
+            for i, line in enumerate(lines):
+                if line.strip() == 'LOCAL' and i > 0:
+                    prev = lines[i - 1].strip()
+                    parts = prev.split()
+                    if parts:
+                        ip = parts[0]
+                        # Check next lines for interface name
+                        is_docker = False
+                        for j in range(i, min(i + 5, len(lines))):
+                            l = lines[j].strip()
+                            if l.startswith('DEV') and any(x in l for x in ['docker', 'br-', 'veth', 'vnet']):
+                                is_docker = True
+                                break
+                        if not is_docker and not ip.startswith('127.') and not ip.startswith('169.254.') and not ip.startswith('172.17.'):
+                            if ip not in result:
+                                result.append(ip)
+        except Exception:
+            pass
+
+    # Fallback: use the UDP route trick
+    if not result:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                if ip and not ip.startswith('172.17.'):
+                    result.append(ip)
+        except Exception:
+            pass
+
+    return result
 
 
 # ── Progress tracker ─────────────────────────────────────────────────────────
@@ -2853,19 +2906,17 @@ def main():
     server = http.server.ThreadingHTTPServer(("0.0.0.0", SETUP_PORT), SetupHandler)
     hostname = socket.gethostname()
 
-    # Get first IP
-    ip = "0.0.0.0"
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        pass
+    # Get ALL LAN IPs (excludes Docker/bridge/virtual interfaces)
+    all_ips = get_all_lan_ips()
 
     print(f"IORA OS Setup Wizard")
-    print(f"  http://{ip}:{SETUP_PORT}")
+    print(f"  Port: {SETUP_PORT}")
+    for ip in all_ips:
+        print(f"  http://{ip}:{SETUP_PORT}")
     print(f"  http://{hostname}:{SETUP_PORT}")
+    if not all_ips:
+        print("  WARNING: No LAN IP detected! Check network configuration.")
+        print("  http://127.0.0.1:8080 (localhost only)")
     print()
     print("Waiting for setup to be completed via web browser...")
 

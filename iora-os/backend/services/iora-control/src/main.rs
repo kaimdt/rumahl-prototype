@@ -739,6 +739,35 @@ async fn list_disks() -> Json<serde_json::Value> {
 }
 
 async fn list_network_interfaces() -> Json<serde_json::Value> {
+    // Try iora-netctl first (available on IORA OS hosts).
+    let netctl_output = tokio::process::Command::new("/usr/bin/iora-netctl")
+        .args(["status"])
+        .output()
+        .await;
+
+    if let Ok(out) = netctl_output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                // Include sysinfo stats alongside netctl data
+                let networks = Networks::new_with_refreshed_list();
+                let sysinfo_ifaces: Vec<serde_json::Value> = networks
+                    .iter()
+                    .map(|(name, data)| {
+                        serde_json::json!({
+                            "name": name,
+                            "mac_address": data.mac_address().to_string(),
+                            "received_bytes": data.total_received(),
+                            "transmitted_bytes": data.total_transmitted(),
+                        })
+                    })
+                    .collect();
+                return Json(serde_json::json!({"netctl": json, "sysinfo": sysinfo_ifaces}));
+            }
+        }
+    }
+
+    // Fallback: use sysinfo only (non-IORA-OS or iora-netctl not installed).
     let networks = Networks::new_with_refreshed_list();
     let interfaces: Vec<serde_json::Value> = networks
         .iter()
@@ -996,6 +1025,59 @@ async fn os_shutdown(Json(req): Json<PowerRequest>) -> impl IntoResponse {
     }
 }
 
+/// POST /api/control/os/network/set — Apply network configuration via iora-netctl.
+/// Only works on IORA OS hosts where /usr/bin/iora-netctl is installed.
+pub async fn set_network_config(
+    Json(config): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let config_json = serde_json::to_string(&config).unwrap_or_default();
+
+    let mut child = match tokio::process::Command::new("/usr/bin/iora-netctl")
+        .args(["set", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Cannot run iora-netctl: {}", e),
+                "note": "This API requires IORA OS with iora-netctl installed"
+            }));
+        }
+    };
+
+    // Write JSON config to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin.write_all(config_json.as_bytes()).await.ok();
+        stdin.flush().await.ok();
+    }
+
+    match child.wait_with_output().await {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            match serde_json::from_str::<serde_json::Value>(&stdout) {
+                Ok(json) => Json(json),
+                Err(_) => Json(serde_json::json!({"ok": true, "raw": stdout})),
+            }
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Json(serde_json::json!({
+                "ok": false,
+                "error": format!("iora-netctl failed: {}", stderr)
+            }))
+        }
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "error": format!("iora-netctl error: {}", e)
+        })),
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -1028,6 +1110,7 @@ async fn main() -> anyhow::Result<()> {
         // OS-level management (only useful when running on IORA OS)
         .route("/api/control/os/disks", get(list_disks))
         .route("/api/control/os/network", get(list_network_interfaces))
+        .route("/api/control/os/network/set", post(set_network_config))
         .route("/api/control/os/processes", get(list_top_processes))
         .route("/api/control/os/hostname", get(get_hostname).put(set_hostname))
         .route("/api/control/os/reboot", post(os_reboot))

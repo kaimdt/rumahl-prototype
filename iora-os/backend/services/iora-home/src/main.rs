@@ -1710,9 +1710,35 @@ async fn detect_setup_wizard() -> (Option<String>, bool) {
     (None, false)
 }
 
+/// Check if an IPv4 address belongs to a virtual/Docker bridge range.
+fn is_virtual_ip(ip: &Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    match octets {
+        // Docker default bridge: 172.17.0.0/16
+        [172, 17, _, _] => true,
+        // Docker user-defined bridges often use 172.18-172.31
+        [172, n, _, _] if n >= 18 && n <= 31 => true,
+        // Docker host mode / internal: 10.x.x.x overlaps with LAN, but
+        // if the interface is docker*, br-*, veth* it's caught below.
+        _ => false,
+    }
+}
+
 /// Get the primary LAN IPv4 address using hostname -I, /proc/net/fib_trie,
-/// or interface detection.
+/// or interface detection. Excludes Docker/bridge/virtual IPs.
 async fn get_lan_ip() -> Option<String> {
+    // Helper: validate IP (not loopback, not link-local, not virtual/Docker).
+    fn is_valid_lan_ip(ip_str: &str) -> Option<String> {
+        let parsed: Ipv4Addr = ip_str.parse().ok()?;
+        if parsed.is_loopback() || parsed.is_link_local() || parsed.is_multicast() {
+            return None;
+        }
+        if is_virtual_ip(&parsed) {
+            return None;
+        }
+        Some(ip_str.to_string())
+    }
+
     // 1. Try `hostname -I` (fastest, most reliable on Linux).
     if let Ok(out) = tokio::process::Command::new("hostname")
         .arg("-I")
@@ -1722,24 +1748,95 @@ async fn get_lan_ip() -> Option<String> {
         if out.status.success() {
             let ips = String::from_utf8_lossy(&out.stdout);
             for ip in ips.split_whitespace() {
-                if let Ok(parsed) = ip.parse::<Ipv4Addr>() {
-                    if !parsed.is_loopback() && !parsed.is_link_local() {
-                        return Some(ip.to_string());
-                    }
+                if let Some(valid) = is_valid_lan_ip(ip) {
+                    return Some(valid);
                 }
             }
         }
     }
 
-    // 2. Fallback: check /proc/net/fib_trie.
+    // 2. Fallback: parse /proc/net/fib_trie for local addresses,
+    //    filtering out Docker/bridge interfaces.
     if let Ok(content) = tokio::fs::read_to_string("/proc/net/fib_trie").await {
         let lines: Vec<&str> = content.lines().collect();
         for (i, line) in lines.iter().enumerate() {
             if line.trim() == "LOCAL" && i > 0 {
                 let prev = lines[i - 1].trim();
                 if let Some(ip) = prev.split_whitespace().next() {
-                    if let Ok(parsed) = ip.parse::<Ipv4Addr>() {
-                        if !parsed.is_loopback() && !parsed.is_link_local() {
+                    if let Some(valid) = is_valid_lan_ip(ip) {
+                        // Double-check this IP is NOT on a Docker/bridge interface
+                        // by checking /proc/net/fib_trie for the interface name.
+                        let mut is_docker_iface = false;
+                        // Look ahead for the device name in following lines
+                        for j in (i.saturating_sub(5))..(i + 5).min(lines.len()) {
+                            let l = lines[j].trim();
+                            if l.starts_with("DEV") &&
+                                (l.contains("docker") || l.contains("br-") ||
+                                 l.contains("veth") || l.contains("vnet"))
+                            {
+                                is_docker_iface = true;
+                                break;
+                            }
+                        }
+                        if !is_docker_iface {
+                            return Some(valid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Read /proc/net/dev to find physical interfaces and their IPs.
+    if let Ok(content) = tokio::fs::read_to_string("/proc/net/dev").await {
+        for line in content.lines() {
+            let iface_name = line.split(':').next().unwrap_or("").trim();
+            match iface_name {
+                "lo" | "docker0" => continue,
+                name if name.starts_with("br-") => continue,
+                name if name.starts_with("veth") => continue,
+                name if name.starts_with("docker") => continue,
+                name if name.starts_with("vnet") => continue,
+                name if name.starts_with("tun") => continue,
+                name if name.starts_with("tap") => continue,
+                name if name.starts_with("virbr") => continue,
+                name if name.is_empty() => continue,
+                _ => {}
+            }
+            // If we got here, it's likely a physical interface.
+            // Try to get its IP via /sys/class/net/<iface>/address and route.
+            let addr_path = format!("/sys/class/net/{}/address", iface_name);
+            if tokio::fs::metadata(&addr_path).await.is_ok() {
+                // Interface exists and has a MAC — get its IP.
+                if let Ok(addr_out) = tokio::process::Command::new("ip")
+                    .args(["-o", "-4", "addr", "show", "dev", iface_name])
+                    .output()
+                    .await
+                {
+                    if addr_out.status.success() {
+                        let stdout = String::from_utf8_lossy(&addr_out.stdout);
+                        for word in stdout.split_whitespace() {
+                            if word.contains('.') && word.contains('/') {
+                                let ip = word.split('/').next().unwrap_or("");
+                                if let Some(valid) = is_valid_lan_ip(ip) {
+                                    return Some(valid);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Last resort: try to detect via UDP socket (doesn't send packets).
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:53").is_ok() {
+            if let Ok(local) = socket.local_addr() {
+                let ip = local.ip();
+                if ip.is_ipv4() {
+                    if let std::net::SocketAddr::V4(v4) = local {
+                        if !v4.ip().is_loopback() && !is_virtual_ip(v4.ip()) {
                             return Some(ip.to_string());
                         }
                     }
@@ -1748,19 +1845,70 @@ async fn get_lan_ip() -> Option<String> {
         }
     }
 
-    // 3. Last resort: try to detect via UDP socket (doesn't send packets).
-    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if socket.connect("8.8.8.8:53").is_ok() {
-            if let Ok(local) = socket.local_addr() {
-                let ip = local.ip();
-                if !ip.is_loopback() && ip.is_ipv4() {
-                    return Some(ip.to_string());
+    None
+}
+
+/// Get local IPv4 and IPv6 addresses (excluding virtual/Docker interfaces).
+async fn get_local_ips() -> (Vec<String>, Vec<String>) {
+    let mut v4_addrs = Vec::new();
+    let mut v6_addrs = Vec::new();
+
+    // Use `ip -o addr show` for both families.
+    for family in &["-4", "-6"] {
+        if let Ok(out) = tokio::process::Command::new("ip")
+            .args(["-o", family, "addr", "show", "scope", "global"])
+            .output()
+            .await
+        {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    // Format: "2: eth0    inet 192.168.1.100/24 brd ..."
+                    let iface = line.split(':').nth(1).unwrap_or("").trim();
+                    // Skip virtual interfaces
+                    match iface {
+                        "docker0" | "lo" => continue,
+                        name if name.starts_with("br-") => continue,
+                        name if name.starts_with("veth") => continue,
+                        name if name.starts_with("docker") => continue,
+                        name if name.starts_with("vnet") => continue,
+                        name if name.starts_with("virbr") => continue,
+                        name if name.starts_with("tun") => continue,
+                        name if name.starts_with("tap") => continue,
+                        _ => {}
+                    }
+                    // Extract the address
+                    if let Some(addr_part) = line.split_whitespace().nth(3) {
+                        let addr = addr_part.split('/').next().unwrap_or("");
+                        if !addr.is_empty() {
+                            match *family {
+                                "-4" => {
+                                    if let Ok(parsed) = addr.parse::<Ipv4Addr>() {
+                                        if !parsed.is_loopback() && !parsed.is_link_local()
+                                            && !parsed.is_multicast()
+                                        {
+                                            let oct = parsed.octets();
+                                            if oct[0] != 172 || oct[1] != 17 {  // skip Docker bridge
+                                                v4_addrs.push(format!("{} ({})", addr, iface));
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    // IPv6 — just skip link-local
+                                    if !addr.starts_with("fe80:") {
+                                        v6_addrs.push(format!("{} ({})", addr, iface));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    None
+    (v4_addrs, v6_addrs)
 }
 
 async fn health_check(
@@ -1771,6 +1919,7 @@ async fn health_check(
     let entity_count = state.entity_cache.count().await;
 
     let (setup_url, setup_reachable) = detect_setup_wizard().await;
+    let (ipv4_addrs, ipv6_addrs) = get_local_ips().await;
 
     Json(serde_json::json!({
         "status": "ok",
@@ -1792,6 +1941,8 @@ async fn health_check(
         "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
         "setup_url": setup_url,
         "setup_reachable": setup_reachable,
+        "ipv4_addrs": ipv4_addrs,
+        "ipv6_addrs": ipv6_addrs,
     }))
 }
 

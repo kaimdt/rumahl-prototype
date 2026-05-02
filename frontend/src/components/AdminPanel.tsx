@@ -10370,32 +10370,320 @@ function OsSshTab({ token }: { token: string }) {
 }
 
 function OsNetworkConfigTab({ token }: { token: string }) {
-  const [data, setData] = useState<unknown>(null)
+  const [interfaces, setInterfaces] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [mode, setMode] = useState<'dhcp' | 'static' | 'dhcp-v4-only' | 'dhcp-v6-only' | 'hybrid'>('dhcp')
+  const [ipv4, setIpv4] = useState('')
+  const [gateway4, setGateway4] = useState('')
+  const [ipv6, setIpv6] = useState('')
+  const [gateway6, setGateway6] = useState('')
+  const [dns1, setDns1] = useState('')
+  const [dns2, setDns2] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
 
-  const load = useCallback(async () => {
+  // Validation
+  const isValidIpv4 = (ip: string) => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/.test(ip)
+  const isValidIpv6 = (ip: string) => ip.includes(':') && ip.length >= 3
+  const isFormValid = () => {
+    if (mode === 'dhcp') return true
+    if (mode === 'static' || mode === 'dhcp-v6-only') {
+      if (ipv4 && !isValidIpv4(ipv4)) return false
+    }
+    if (mode === 'static' || mode === 'dhcp-v4-only') {
+      if (ipv6 && !isValidIpv6(ipv6)) return false
+    }
+    if (mode === 'hybrid') {
+      if (ipv4 && !isValidIpv4(ipv4)) return false
+      if (ipv6 && !isValidIpv6(ipv6)) return false
+    }
+    return true
+  }
+
+  const loadStatus = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await adminFetch(OS_BASE + '/os/network', token)
-      setData(r)
+      const healthRes = await fetch(getBackendUrl() + '/api/health', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      })
+      if (healthRes.ok) {
+        const health = await healthRes.json()
+        const v4 = (health.ipv4_addrs || [health.ipv4_addrs].filter(Boolean)) as string[]
+        const v6 = (health.ipv6_addrs || [health.ipv6_addrs].filter(Boolean)) as string[]
+        const all = [...(Array.isArray(health.ipv4_addrs) ? health.ipv4_addrs : [health.ipv4_addrs].filter(Boolean)),
+                     ...(Array.isArray(health.ipv6_addrs) ? health.ipv6_addrs : [health.ipv6_addrs].filter(Boolean))]
+        const seen = new Set<string>()
+        const parsed: any[] = []
+        for (const addr of all) {
+          const m = String(addr).match(/^(.+?)\s+\((.+?)\)$/)
+          if (m && !seen.has(m[2])) {
+            seen.add(m[2])
+            const iv4 = v4.find((a: string) => a.includes(`(${m[2]})`))
+            const iv6 = v6.find((a: string) => a.includes(`(${m[2]})`))
+            parsed.push({
+              name: m[2],
+              ipv4: iv4 ? String(iv4).split(' ')[0] : '-',
+              ipv6: iv6 ? String(iv6).split(' ')[0] : '-',
+            })
+          }
+        }
+        setInterfaces(parsed.length > 0 ? parsed : [{ name: 'eth0', ipv4: '—', ipv6: '—' }])
+
+        // Try to load current config via iora-control
+        try {
+          const netRes = await adminFetch(OS_BASE + '/os/network', token)
+          const content: string = netRes?.netctl?.content || netRes?.content || ''
+          if (content) {
+            if (content.includes('DHCP=yes')) setMode('dhcp')
+            else if (content.includes('DHCP=ipv4')) setMode('dhcp-v4-only')
+            else if (content.includes('DHCP=ipv6')) setMode('dhcp-v6-only')
+            else if (content.includes('Address=')) setMode('static')
+            const v4a = content.match(/^Address=([0-9.]+\/\d+)$/m)
+            const v6a = content.match(/^Address=([0-9a-f:]+\/\d+)$/mi)
+            if (v4a) setIpv4(v4a[1])
+            if (v6a) setIpv6(v6a[1])
+            const g4 = content.match(/^Gateway=([0-9.]+)$/m)
+            const g6 = content.match(/^Gateway=([0-9a-f:]+)$/mi)
+            if (g4) setGateway4(g4[1])
+            if (g6) setGateway6(g6[1])
+            const dnsLines = content.match(/^DNS=(.+)$/gm)
+            if (dnsLines) {
+              const dnsList = dnsLines.map(l => l.replace(/^DNS=/, '').trim())
+              if (dnsList[0]) setDns1(dnsList[0])
+              if (dnsList[1]) setDns2(dnsList[1])
+            }
+          }
+        } catch {}
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setLoading(false) }
   }, [token])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { loadStatus() }, [loadStatus])
+
+  const doApply = async () => {
+    setSaving(true); setShowConfirm(false)
+    try {
+      const dnsList = [dns1, dns2].filter(Boolean)
+      const config: Record<string, any> = { mode }
+      if (mode === 'static' || mode === 'dhcp-v6-only' || mode === 'hybrid') {
+        if (ipv4) config.ipv4 = ipv4
+        if (gateway4) config.gateway4 = gateway4
+      }
+      if (mode === 'static' || mode === 'dhcp-v4-only' || mode === 'hybrid') {
+        if (ipv6) config.ipv6 = ipv6
+        if (gateway6) config.gateway6 = gateway6
+      }
+      if (dnsList.length > 0) config.dns = dnsList
+
+      const res = await adminFetch(OS_BASE + '/os/network/set', token, {
+        method: 'POST', body: JSON.stringify(config),
+      })
+      setSaved(true)
+      toast.success('Netzwerkkonfiguration wurde übernommen')
+      setTimeout(() => {
+        setSaved(false)
+        loadStatus()
+      }, 3000)
+    } catch (e) {
+      toast.error('Fehler: ' + (e instanceof Error ? e.message : String(e)))
+    } finally { setSaving(false) }
+  }
+
+  if (loading) return <LoadingSpinner />
+
+  const showV4 = mode === 'static' || mode === 'dhcp-v6-only' || mode === 'hybrid'
+  const showV6 = mode === 'static' || mode === 'dhcp-v4-only' || mode === 'hybrid'
 
   return (
-    <div className="space-y-3">
-      <AdminCard title="Netzwerk-Schnittstellen & IP-Adressen" icon={Globe}>
-        <p className="text-xs text-foreground/60 mb-3">
-          Live-Sicht aller Netzwerk-Schnittstellen mit MAC, Traffic-Statistik und (sofern verfuegbar via <code className="text-accent">ip addr</code>) IPv4/IPv6-Adressen pro Interface. Statische IP-Konfiguration erfolgt ueber <code className="text-accent">/etc/systemd/network</code> bzw. NetworkManager auf dem IORA-OS-Host.
+    <div className="space-y-6">
+      {/* ── Live network status ── */}
+      <AdminCard icon={WifiHigh} title="Live-Netzwerkstatus">
+        <p className="text-xs text-foreground/50 mb-3">
+          Alle Netzwerkschnittstellen mit aktuellen IP-Adressen (IPv4 + IPv6)
         </p>
-        {loading && <p className="text-xs text-foreground/50">Lade...</p>}
-        {error && <p className="text-xs text-red-300">{error}</p>}
-        {data !== null && <ServiceJsonBlock data={data} max="max-h-[32rem]" />}
-        <button onClick={load} className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30">Aktualisieren</button>
+        {error && <p className="text-xs text-red-400 mb-2 bg-red-500/10 p-2 rounded-lg">{error}</p>}
+        <div className="space-y-2">
+          {interfaces.map((iface, i) => (
+            <div key={i} className="flex items-center gap-4 p-3.5 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02] hover:border-foreground/10 transition-colors">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iface.ipv4 !== '-' ? 'bg-success/10' : 'bg-foreground/5'}`}>
+                <Globe size={18} className={iface.ipv4 !== '-' ? 'text-success' : 'text-foreground/30'} weight="fill" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground capitalize">{iface.name}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-foreground/40 uppercase tracking-wider w-8">IPv4</span>
+                    <code className={`text-[11px] font-mono ${iface.ipv4 !== '-' ? 'text-foreground/80' : 'text-foreground/30'}`}>
+                      {iface.ipv4}
+                    </code>
+                    {iface.ipv4 !== '-' && (
+                      <button onClick={() => { navigator.clipboard.writeText(iface.ipv4.split('/')[0]); toast.success('IPv4 kopiert') }}
+                        className="p-0.5 rounded text-foreground/20 hover:text-foreground/50 transition-colors" title="Kopieren">
+                        <Copy size={10} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-foreground/40 uppercase tracking-wider w-8">IPv6</span>
+                    <code className={`text-[11px] font-mono ${iface.ipv6 !== '-' ? 'text-foreground/80' : 'text-foreground/30'}`}>
+                      {iface.ipv6 !== '-' ? iface.ipv6 : '—'}
+                    </code>
+                    {iface.ipv6 !== '-' && (
+                      <button onClick={() => { navigator.clipboard.writeText(iface.ipv6.split('/')[0]); toast.success('IPv6 kopiert') }}
+                        className="p-0.5 rounded text-foreground/20 hover:text-foreground/50 transition-colors" title="Kopieren">
+                        <Copy size={10} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={loadStatus} className="mt-3 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition-colors">
+          Neu laden
+        </button>
+      </AdminCard>
+
+      {/* ── IP-Konfiguration ── */}
+      <AdminCard icon={Gear} title="IP-Konfiguration">
+        <p className="text-xs text-foreground/50 mb-5 leading-relaxed">
+          Wähle aus, wie dein Gerät IP-Adressen bezieht. Bei <strong>„Statisch"</strong> oder <strong>„Hybrid"</strong>
+          kannst du feste Adressen eingeben. Die Einstellungen werden sofort aktiv.
+        </p>
+
+        {/* ── Modus-Auswahl ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mb-6">
+          {[
+            { id: 'dhcp' as const, label: 'DHCP (Auto)', icon: '🌐', desc: 'IPv4 + IPv6 automatisch', detail: 'Der Router weist Adressen zu' },
+            { id: 'dhcp-v4-only' as const, label: 'DHCPv4 + Statisches IPv6', icon: '🌍', desc: 'IPv4 automatisch', detail: 'IPv6 gibst du manuell ein' },
+            { id: 'dhcp-v6-only' as const, label: 'Statisches IPv4 + DHCPv6', icon: '🌏', desc: 'IPv6 automatisch', detail: 'IPv4 gibst du manuell ein' },
+            { id: 'static' as const, label: 'Vollständig statisch', icon: '📌', desc: 'Alles manuell', detail: 'IPv4 + IPv6 fest vergeben' },
+            { id: 'hybrid' as const, label: 'Hybrid', icon: '🔀', desc: 'DHCP + Extra-IPs', detail: 'DHCP + zusätzliche statische IPs' },
+          ].map(opt => (
+            <button key={opt.id} onClick={() => setMode(opt.id)}
+              className={`relative p-3.5 rounded-xl border-2 transition-all text-left group ${
+                mode === opt.id
+                  ? 'border-accent bg-accent/[0.08] shadow-sm shadow-accent/10'
+                  : 'border-foreground/8 bg-foreground/[0.02] hover:border-foreground/20 hover:bg-foreground/[0.04]'
+              }`}>
+              <span className="text-lg mb-1 block">{opt.icon}</span>
+              <p className={`text-[12px] font-semibold leading-tight ${mode === opt.id ? 'text-accent' : 'text-foreground'}`}>{opt.label}</p>
+              <p className="text-[10px] text-foreground/50 mt-0.5 leading-tight">{opt.detail}</p>
+              {mode === opt.id && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-accent" />}
+            </button>
+          ))}
+        </div>
+
+        {/* ── IPv4 Felder ── */}
+        {showV4 && (
+          <div className="mb-5 p-4 rounded-xl border border-blue-500/15 bg-blue-500/5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">IPv4</span>
+              <span className="text-[9px] text-foreground/40">— Nur bei statischer Konfiguration nötig</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-medium text-foreground/50 mb-1 block">IP-Adresse</label>
+                <input value={ipv4} onChange={e => setIpv4(e.target.value)}
+                  placeholder="z.B. 192.168.1.100/24"
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono transition-colors ${
+                    ipv4 && !isValidIpv4(ipv4) ? 'bg-red-500/10 border border-red-500/30 text-red-300' :
+                    'bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20'
+                  } focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20`} />
+                {ipv4 && !isValidIpv4(ipv4) && <p className="text-[9px] text-red-400 mt-1">Ungültiges Format (z.B. 192.168.1.100/24)</p>}
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Gateway (Standardroute)</label>
+                <input value={gateway4} onChange={e => setGateway4(e.target.value)}
+                  placeholder="z.B. 192.168.1.1"
+                  className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── IPv6 Felder ── */}
+        {showV6 && (
+          <div className="mb-5 p-4 rounded-xl border border-purple-500/15 bg-purple-500/5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">IPv6</span>
+              <span className="text-[9px] text-foreground/40">— Nur bei statischer Konfiguration nötig</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-medium text-foreground/50 mb-1 block">IPv6-Adresse</label>
+                <input value={ipv6} onChange={e => setIpv6(e.target.value)}
+                  placeholder="z.B. 2001:db8::1/64"
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono transition-colors ${
+                    ipv6 && !isValidIpv6(ipv6) ? 'bg-red-500/10 border border-red-500/30 text-red-300' :
+                    'bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20'
+                  } focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20`} />
+                {ipv6 && !isValidIpv6(ipv6) && <p className="text-[9px] text-red-400 mt-1">Ungültiges Format (z.B. 2001:db8::1/64)</p>}
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Gateway IPv6</label>
+                <input value={gateway6} onChange={e => setGateway6(e.target.value)}
+                  placeholder="z.B. 2001:db8::1"
+                  className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── DNS ── */}
+        <div className="mb-5 p-4 rounded-xl border border-amber-500/15 bg-amber-500/5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">DNS-Server</span>
+            <span className="text-[9px] text-foreground/40">— Optional, werden sonst via DHCP bezogen</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Bevorzugter DNS</label>
+              <input value={dns1} onChange={e => setDns1(e.target.value)}
+                placeholder="z.B. 1.1.1.1"
+                className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Alternativer DNS</label>
+              <input value={dns2} onChange={e => setDns2(e.target.value)}
+                placeholder="z.B. 8.8.8.8"
+                className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Buttons ── */}
+        <div className="flex items-center gap-3">
+          {showConfirm ? (
+            <>
+              <div className="flex-1 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-foreground/70">
+                ⚠️ Die Konfiguration wird sofort übernommen. Bei Fehlern  setzt iora-netctl automatisch zurück.
+              </div>
+              <button onClick={() => setShowConfirm(false)} className="px-4 py-2.5 rounded-xl border border-foreground/10 text-xs text-foreground/50 hover:bg-foreground/5 transition-colors shrink-0">
+                Abbrechen
+              </button>
+              <button onClick={doApply} disabled={!isFormValid()}
+                className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-accent text-white hover:bg-accent/90 disabled:opacity-40 transition-all shrink-0">
+                Bestätigen
+              </button>
+            </>
+          ) : saved ? (
+            <div className="flex-1 flex items-center gap-2 p-3 rounded-xl bg-success/10 border border-success/20">
+              <CheckCircle size={16} className="text-success shrink-0" />
+              <span className="text-xs text-success">Konfiguration wurde erfolgreich übernommen ✓</span>
+            </div>
+          ) : (
+            <button onClick={() => setShowConfirm(true)} disabled={!isFormValid() || saving}
+              className="w-full py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-accent text-white hover:bg-accent/90 disabled:opacity-40 shadow-sm shadow-accent/20">
+              {saving ? <><div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Wird angewendet…</> : 'Konfiguration übernehmen'}
+            </button>
+          )}
+        </div>
       </AdminCard>
     </div>
   )

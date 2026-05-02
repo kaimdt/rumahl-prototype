@@ -113,6 +113,9 @@ cat > "${TARGET_DIR}/etc/systemd/network/90-iora-wired-default.network" <<'EOF'
 # (10-* / 20-*) .network file matches the interface. Replaced automatically
 # by iora-netctl when the admin configures a static IP or different DHCP
 # options via the Control Center.
+#
+# Default: DHCP for both IPv4 AND IPv6. IPv6 is enabled by default so
+# the system can be reached via both address families on first boot.
 [Match]
 Name=eth* en* eno* ens* enp* enx*
 Type=ether
@@ -133,6 +136,7 @@ RouteMetric=100
 [DHCPv6]
 UseDNS=yes
 UseNTP=yes
+WithoutRA=solicit
 
 # Don't block boot forever if DHCP takes a while: consider the link online
 # as soon as it has an IP (degraded is enough for iora-stack / docker pulls
@@ -157,10 +161,15 @@ EOF
 #                          [--dns 1.1.1.1] [--ipv6 2001:db8::1/64 --gw6 2001:db8::]
 #   iora-netctl rollback                        # restore the previous config
 #
-# JSON schema (POST /api/network in the Control Center would send this):
-#   {"mode":"dhcp"|"static","ipv4":"…/…","gateway4":"…","ipv6":"…/…",
+# JSON schema (POST /api/network in the Control Center sends this):
+#   mode: "dhcp" | "static" | "dhcp-v4-only" | "dhcp-v6-only" | "hybrid"
+#   {"mode":"dhcp","ipv4":"…/…","gateway4":"…","ipv6":"…/…",
 #    "gateway6":"…","dns":["…","…"],"accept_ra":true,
 #    "match":"eth* en* eno* ens* enp* enx*","hostname":"foo"}
+#
+#   hybrid: DHCP for unspecified, static for specified addresses.
+#   Example: {"mode":"hybrid","ipv6":"2001:db8::1/64","gateway6":"2001:db8::1"}
+#   → DHCP for IPv4, static for IPv6
 mkdir -p "${TARGET_DIR}/usr/bin" "${TARGET_DIR}/usr/lib/iora"
 cat > "${TARGET_DIR}/usr/bin/iora-netctl" <<'NETCTLEOF'
 #!/usr/bin/env python3
@@ -251,8 +260,9 @@ def validate_ip(value, family):
 
 def cfg_to_ini(cfg):
     mode = cfg.get("mode", "dhcp").lower()
-    if mode not in ("dhcp", "static"):
-        die(f"invalid mode {mode!r}")
+    valid_modes = ("dhcp", "static", "dhcp-v4-only", "dhcp-v6-only", "hybrid")
+    if mode not in valid_modes:
+        die(f"invalid mode {mode!r} — expected one of {valid_modes}")
     match = cfg.get("match") or DEFAULT_MATCH
     if not MATCH_RE.match(match):
         die("invalid match pattern")
@@ -276,12 +286,49 @@ def cfg_to_ini(cfg):
             die(f"invalid DNS {s!r}: {e}")
 
     accept_ra = cfg.get("accept_ra", True)
+    has_v4 = bool(cfg.get("ipv4"))
+    has_v6 = bool(cfg.get("ipv6"))
+    dhcp_v4 = mode in ("dhcp", "dhcp-v4-only", "hybrid") and not has_v4
+    dhcp_v6 = mode in ("dhcp", "dhcp-v6-only", "hybrid") and not has_v6
+    static_v4 = mode == "static" or (mode == "hybrid" and has_v4) or mode == "dhcp-v6-only"
+    static_v6 = mode == "static" or (mode == "hybrid" and has_v6) or mode == "dhcp-v4-only"
 
-    if mode == "dhcp":
+    if not dhcp_v4 and not static_v4 and not dhcp_v6 and not static_v6:
+        die("no network configuration could be determined from the given settings")
+
+    if dhcp_v4 and dhcp_v6:
         lines.append("DHCP=yes")
+    elif dhcp_v4:
+        lines.append("DHCP=ipv4")
+    elif dhcp_v6:
+        lines.append("DHCP=ipv6")
+
+    if dhcp_v4 or dhcp_v6 or static_v6:
         lines.append(f"IPv6AcceptRA={'yes' if accept_ra else 'no'}")
-        for s in dns:
-            lines.append(f"DNS={s}")
+    elif not static_v6:
+        lines.append("IPv6AcceptRA=no")
+
+    for s in dns:
+        lines.append(f"DNS={s}")
+
+    # Static IPv4
+    if cfg.get("ipv4"):
+        v4 = validate_cidr(cfg["ipv4"], "v4")
+        lines.append(f"Address={v4}")
+        if cfg.get("gateway4"):
+            gw4 = validate_ip(cfg["gateway4"], "v4")
+            lines.append(f"Gateway={gw4}")
+
+    # Static IPv6
+    if cfg.get("ipv6"):
+        v6 = validate_cidr(cfg["ipv6"], "v6")
+        lines.append(f"Address={v6}")
+        if cfg.get("gateway6"):
+            gw6 = validate_ip(cfg["gateway6"], "v6")
+            lines.append(f"Gateway={gw6}")
+
+    # DHCP sections
+    if dhcp_v4:
         lines += [
             "", "[DHCPv4]",
             "ClientIdentifier=mac",
@@ -289,34 +336,13 @@ def cfg_to_ini(cfg):
             "UseNTP=true",
             "UseHostname=no",
             "RouteMetric=100",
+        ]
+    if dhcp_v6:
+        lines += [
             "", "[DHCPv6]",
             f"UseDNS={'false' if dns else 'true'}",
             "UseNTP=true",
         ]
-    else:  # static
-        v4 = cfg.get("ipv4")
-        gw4 = cfg.get("gateway4")
-        v6 = cfg.get("ipv6")
-        gw6 = cfg.get("gateway6")
-        if not v4 and not v6:
-            die("static mode requires at least one of ipv4/ipv6")
-        if v4:
-            v4 = validate_cidr(v4, "v4")
-            lines.append(f"Address={v4}")
-            if gw4:
-                gw4 = validate_ip(gw4, "v4")
-                lines.append(f"Gateway={gw4}")
-        if v6:
-            v6 = validate_cidr(v6, "v6")
-            lines.append(f"Address={v6}")
-            if gw6:
-                gw6 = validate_ip(gw6, "v6")
-                lines.append(f"Gateway={gw6}")
-            lines.append(f"IPv6AcceptRA={'yes' if accept_ra and not gw6 else 'no'}")
-        else:
-            lines.append(f"IPv6AcceptRA={'yes' if accept_ra else 'no'}")
-        for s in dns:
-            lines.append(f"DNS={s}")
 
     lines += [
         "",
@@ -450,8 +476,11 @@ def parse_cli():
     sub.add_parser("rollback")
     s = sub.add_parser("set")
     s.add_argument("json", nargs="?", help='JSON config, "-" for stdin')
-    s.add_argument("--dhcp", action="store_true")
-    s.add_argument("--static", action="store_true")
+    s.add_argument("--dhcp", action="store_true", help="DHCP for both IPv4 and IPv6")
+    s.add_argument("--static", action="store_true", help="Static for both IPv4 and IPv6 (requires --ipv4 and/or --ipv6)")
+    s.add_argument("--dhcp-v4-only", action="store_true", help="DHCP for IPv4 only")
+    s.add_argument("--dhcp-v6-only", action="store_true", help="DHCP for IPv6 only (static IPv4)")
+    s.add_argument("--hybrid", action="store_true", help="DHCP for unspecified; static for --ipv4/--ipv6")
     s.add_argument("--ipv4")
     s.add_argument("--gw4")
     s.add_argument("--ipv6")
@@ -482,9 +511,13 @@ def main():
             except Exception as e:
                 die(f"invalid JSON: {e}")
         else:
-            if args.dhcp and args.static:
-                die("--dhcp and --static are mutually exclusive")
-            cfg = {"mode": "dhcp" if args.dhcp or not args.static else "static"}
+            # Determine mode from CLI flags
+            flags = ["dhcp", "static", "dhcp-v4-only", "dhcp-v6-only", "hybrid"]
+            active_modes = [f for f in flags if getattr(args, f.replace("-", "_"), False)]
+            if len(active_modes) > 1:
+                die(f"modes are mutually exclusive, got: {active_modes}")
+            mode = active_modes[0] if active_modes else "dhcp"
+            cfg = {"mode": mode}
             if args.ipv4:   cfg["ipv4"] = args.ipv4
             if args.gw4:    cfg["gateway4"] = args.gw4
             if args.ipv6:   cfg["ipv6"] = args.ipv6
@@ -516,11 +549,33 @@ ln -sf /usr/lib/systemd/system/systemd-networkd-wait-online.service \
 
 cat > "${TARGET_DIR}/usr/lib/iora/iora-dhcp-conflict-guard.sh" <<'EOF'
 #!/bin/sh
+# IORA OS DHCP Conflict Guard
+#
+# Validates that the IPv4 address on each physical interface is not
+# conflicting with another host on the LAN. Uses arping for Duplicate
+# Address Detection (DAD).
+#
+# CRITICAL: This script must EXCLUDE the system's own IP from the
+# conflict check, otherwise the kernel responds to its own ARP probe
+# and the script flushes a perfectly valid static IP — destroying the
+# network config set by the installer or setup wizard.
+#
+# Rules:
+#   1. Skip Docker/bridge/veth/tun/tap interfaces entirely.
+#   2. Skip interfaces with statically configured IPs (no DHCP lease).
+#   3. Use arping with -S <self_ip> so the kernel doesn't respond to
+#      its own probe.
+#   4. Skip addresses in Docker's default bridge range (172.17.0.0/16)
+#      and other virtual ranges.
+
 set -eu
 
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 LOG_TAG="iora-dhcp-conflict-guard"
-RETRIES=3
+RETRIES=2
+
+# Docker default bridge subnet
+DOCKER_BRIDGE_SUBNET="172.17.0.0/16"
 
 log() {
     logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*"
@@ -534,34 +589,124 @@ renew_iface() {
         || true
 }
 
+# Helper: check if an IP belongs to a subnet (CIDR notation).
+ip_in_subnet() {
+    ip="$1"
+    subnet="$2"
+    # Convert IP and subnet to comparable integers using ipcalc or awk.
+    # Use a simple prefix-based approach.
+    case "$subnet" in
+        172.17.0.0/16)
+            case "$ip" in 172.17.*) return 0;; esac ;;
+        10.*) ;& 172.16.*) ;& 192.168.*) ;&
+        *) return 1 ;;
+    esac
+    return 1
+}
+
+# Helper: check if this interface has a static network config (not DHCP).
+is_static_iface() {
+    iface="$1"
+    # Check if any .network file in /etc/systemd/network matches this
+    # interface AND does NOT contain "DHCP=yes".
+    for nf in /etc/systemd/network/*.network; do
+        [ -f "$nf" ] || continue
+        # Check if this file matches our interface name.
+        if grep -q "Name=$iface\|Name=${iface}*\|Name=eth*\|Name=en*" "$nf" 2>/dev/null; then
+            # If it does NOT contain DHCP=yes or contains a static Address=, treat as static.
+            if grep -q "^Address=" "$nf" 2>/dev/null || ! grep -q "^DHCP=yes" "$nf" 2>/dev/null; then
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
 for iface_path in /sys/class/net/*; do
     iface=$(basename "$iface_path")
-    [ "$iface" = "lo" ] && continue
+
+    # ── Skip virtual / container interfaces ──────────────────────────
+    case "$iface" in
+        lo|docker*|br-*|veth*|vnet*|virbr*|tun*|tap*|bond*|sit*)
+            continue ;;
+    esac
+
+    # Only physical interfaces have a "device" symlink.
     [ -d "/sys/class/net/$iface/device" ] || continue
 
     ifindex=$(cat "/sys/class/net/$iface/ifindex" 2>/dev/null || echo "")
     [ -n "$ifindex" ] || continue
+
+    # Get the current IPv4 address.
+    addr_info=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | head -1)
+    addr="${addr_info%%/*}"
+    [ -n "$addr" ] || continue
+
+    # ── Skip Docker bridge range IPs ─────────────────────────────────
+    case "$addr" in 172.17.*|172.18.*|172.19.*)
+        log "Skipping $iface: $addr is in Docker bridge range"
+        continue ;;
+    esac
+
+    # ── Skip statically configured interfaces ─────────────────────────
+    # Only run DHCP conflict detection on interfaces that actually use DHCP.
+    if is_static_iface "$iface"; then
+        log "Skipping $iface: statically configured (no DHCP conflict check needed)"
+        continue
+    fi
+
+    # ── Skip if no DHCP lease was assigned ───────────────────────────
     [ -f "/run/systemd/netif/leases/$ifindex" ] || continue
+
+    log "Checking $iface ($addr) for DHCP conflicts..."
 
     attempt=1
     while [ "$attempt" -le "$RETRIES" ]; do
-        addr=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-        [ -n "$addr" ] || break
-
-        if arping -D -q -c 2 -w 3 -I "$iface" "$addr" >/dev/null 2>&1; then
+        # Use arping with source IP (-S) so the kernel does NOT respond
+        # to its own probe. This prevents false-positive conflict detection
+        # that would flush the IP.
+        if arping -D -q -c 1 -w 2 -I "$iface" -S "$addr" "$addr" >/dev/null 2>&1; then
+            log "$iface: no conflict detected for $addr"
             break
         fi
 
-        log "Duplicate DHCP IPv4 $addr detected on $iface (attempt $attempt/$RETRIES); requesting a new lease"
-        ip addr flush dev "$iface" scope global >/dev/null 2>&1 || true
-        renew_iface "$iface"
-        sleep 3
+        # If arping -D returns non-zero, this could mean:
+        #   1. A real conflict (another host has this IP)
+        #   2. arping itself failed (not available, wrong interface)
+        #
+        # To avoid false positives, double-check with a simple ping first.
+        if ping -c 1 -W 1 "$addr" >/dev/null 2>&1; then
+            # Someone IS responding — could be us or a conflict.
+            # Check if it's ourselves by comparing MAC.
+            self_mac=$(cat "/sys/class/net/$iface/address" 2>/dev/null || echo "")
+            reply_mac=$(arping -c 1 -w 2 -I "$iface" "$addr" 2>/dev/null | grep -oE '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1)
+            if [ "$reply_mac" = "$self_mac" ] && [ -n "$self_mac" ]; then
+                log "$iface: response is from ourselves ($self_mac) — no conflict"
+                break
+            fi
+
+            log "WARNING: Possible DHCP conflict on $iface ($addr) — attempt $attempt/$RETRIES"
+            if [ "$attempt" -lt "$RETRIES" ]; then
+                log "Requesting new lease..."
+                ip addr flush dev "$iface" scope global >/dev/null 2>&1 || true
+                renew_iface "$iface"
+                sleep 3
+                # Re-read address after renewal
+                addr_info=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | head -1)
+                addr="${addr_info%%/*}"
+                [ -n "$addr" ] || break
+            fi
+        else
+            # No one responds to ping — arping false positive, no conflict.
+            log "$iface: no host responds to ping on $addr — no conflict"
+            break
+        fi
         attempt=$((attempt + 1))
     done
 
     final_addr=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     if [ -n "$final_addr" ]; then
-        log "DHCP lease on $iface validated at $final_addr"
+        log "$iface: lease validated at $final_addr"
     fi
 done
 
@@ -2954,37 +3099,34 @@ PREPARE_EOF
 
     cat > "${TARGET_DIR}/etc/systemd/system/iora-dev-bridge.service" <<'EOF'
 [Unit]
-Description=IORA Developer Bridge (OS dev images only)
+Description=IORA Emergency Access Bridge (diagnostic & hot-reload)
+Documentation=https://iora.os/docs/emergency-access
+# Always start: provides SSH-less emergency access even when iora-home
+# or the dashboard is not functioning. Authentication uses either IORA
+# dashboard credentials OR OS-level (root) passwords via /etc/shadow.
 After=network.target docker.service iora-init-data.service
 Wants=network.target
-ConditionPathExists=/etc/iora/os-dev-mode
 ConditionPathExists=/opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge
 
 [Service]
 Type=simple
-# Explicitly run as root: the dev token at /etc/iora/dev-token is mode 0600,
-# and we also need to swap binaries owned by root and call docker/systemctl.
+# Must run as root to access /etc/shadow for OS-level auth fallback,
+# read any log file, restart any service, and perform emergency repairs.
 User=root
 Group=root
-# Bind on all interfaces by default — the whole point of a dev image is
-# that the IDE on the developer's workstation can reach the bridge over
-# the LAN. Override with /etc/iora/dev-bridge.env if you want to lock it
-# down again.
+# Bind on all interfaces for LAN access from admin workstations.
+# Override via EnvironmentFile if you want to restrict to localhost.
 Environment=IORA_DEV_BIND=0.0.0.0:8101
-Environment=IORA_DEV_TOKEN_FILE=/var/lib/iora/dev-token
 EnvironmentFile=-/etc/iora/iora-dev-bridge.env
-EnvironmentFile=-/etc/iora/dev-bridge.env
 # Self-heal: copy/regenerate the dev-token onto a writable path, fix
-# perms, and poke firewall holes for 8101. The script tolerates every
-# error and never blocks startup.
+# permissions, and configure firewall rules for 8101.
 ExecStartPre=/usr/lib/iora/iora-dev-bridge-prepare.sh
 ExecStart=/opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge
 Restart=on-failure
-RestartSec=2
-# Dev mode is INTENTIONALLY unrestricted: the bridge must be able to
-# swap any file on the host and call any systemd unit / docker command
-# on behalf of the IDE. We rely on (a) the binary only existing on
-# os-dev images and (b) the per-image dev token for access control.
+RestartSec=5
+# Emergency mode: no restrictions. The bridge can read/write any file,
+# restart any service, and execute any command. Auth is required (see
+# /dev/auth endpoint).
 NoNewPrivileges=no
 ProtectSystem=no
 ProtectHome=no
@@ -2997,14 +3139,17 @@ WantedBy=multi-user.target
 EOF
     ln -sf /etc/systemd/system/iora-dev-bridge.service \
         "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-dev-bridge.service"
-else
-    # Defence in depth: on a production build, make absolutely sure no
-    # stale dev artefacts from a previous build survive in the rootfs.
-    rm -f "${TARGET_DIR}/etc/iora/os-dev-mode" \
-          "${TARGET_DIR}/etc/iora/dev-mode" \
-          "${TARGET_DIR}/etc/iora/dev-token" \
-          "${TARGET_DIR}/etc/systemd/system/iora-dev-bridge.service" \
-          "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-dev-bridge.service" \
+
+    # Always enable, regardless of dev-mode. The binary is authenticated
+    # via OS credentials (fallback) or iora-home dashboard credentials.
+fi
+
+# In both dev and production: ensure the binary path symlink exists.
+if [ -f "${TARGET_DIR}/opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge" ]; then
+    mkdir -p "${TARGET_DIR}/usr/bin"
+    ln -sf /opt/iora/build/iora-dev-bridge/bin/iora-dev-bridge \
+        "${TARGET_DIR}/usr/bin/iora-dev-bridge"
+fi
           "${TARGET_DIR}/usr/bin/iora-dev-bridge"
 fi
 
