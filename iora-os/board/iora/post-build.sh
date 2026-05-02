@@ -3046,6 +3046,26 @@ fi
 # with the freshly-generated token.  None of this is present on a stock
 # production image, so enabling it after the fact is impossible.
 if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+    echo "IORA OS: Installing native DEV build headers and pkg-config metadata..."
+    if [ -n "${STAGING_DIR:-}" ] && [ -d "${STAGING_DIR}/usr" ]; then
+        mkdir -p "${TARGET_DIR}/usr/include" "${TARGET_DIR}/usr/lib" "${TARGET_DIR}/usr/share"
+        if [ -d "${STAGING_DIR}/usr/include" ]; then
+            cp -a "${STAGING_DIR}/usr/include/." "${TARGET_DIR}/usr/include/" 2>/dev/null || true
+        fi
+        if [ -d "${STAGING_DIR}/usr/lib" ]; then
+            cp -a "${STAGING_DIR}/usr/lib/." "${TARGET_DIR}/usr/lib/" 2>/dev/null || true
+        fi
+        for dir in pkgconfig cmake aclocal; do
+            if [ -d "${STAGING_DIR}/usr/share/${dir}" ]; then
+                mkdir -p "${TARGET_DIR}/usr/share/${dir}"
+                cp -a "${STAGING_DIR}/usr/share/${dir}/." "${TARGET_DIR}/usr/share/${dir}/" 2>/dev/null || true
+            fi
+        done
+        find "${STAGING_DIR}/usr/bin" -maxdepth 1 -type f -name '*-config' -exec cp -a {} "${TARGET_DIR}/usr/bin/" \; 2>/dev/null || true
+    else
+        echo "IORA OS: WARN: STAGING_DIR not available; native DEV headers not copied"
+    fi
+
     echo "IORA OS: Installing OS dev bridge..."
     mkdir -p "${TARGET_DIR}/etc/iora"
     mkdir -p "${TARGET_DIR}/usr/bin"

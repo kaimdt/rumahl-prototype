@@ -507,7 +507,7 @@ async fn main() -> anyhow::Result<()> {
     // Check setup completion status for diagnostics
     let setup_complete = iora_shared::env::IoraEnv::is_setup_complete();
     info!("First-boot setup completed: {}", setup_complete);
-    if !setup_complete {
+    if iora_env.is_production() && !setup_complete {
         warn!(
             "First-boot setup has NOT been completed. The setup wizard should be \
              running on port 8080. iora-home is starting regardless to be ready \
@@ -1675,7 +1675,9 @@ fn compute_dist_hash() -> String {
 /// Try to find the first-boot setup wizard and return its URL.
 /// Checks ports 8080 and 80 on localhost and the primary LAN IP.
 async fn detect_setup_wizard() -> (Option<String>, bool) {
-    if iora_shared::env::IoraEnv::is_setup_complete() {
+    if !iora_shared::env::IoraEnv::detect().is_production()
+        || iora_shared::env::IoraEnv::is_setup_complete()
+    {
         return (None, false);
     }
 
@@ -1917,8 +1919,15 @@ async fn health_check(
     let metrics = state.entity_cache.metrics();
     let connected_clients = state.ws_manager.client_count().await;
     let entity_count = state.entity_cache.count().await;
+    let iora_env = iora_shared::env::IoraEnv::detect();
+    let raw_setup_complete = iora_shared::env::IoraEnv::is_setup_complete();
+    let setup_required = iora_env.is_production() && !raw_setup_complete;
 
-    let (setup_url, setup_reachable) = detect_setup_wizard().await;
+    let (setup_url, setup_reachable) = if setup_required {
+        detect_setup_wizard().await
+    } else {
+        (None, false)
+    };
     let (ipv4_addrs, ipv6_addrs) = get_local_ips().await;
 
     Json(serde_json::json!({
@@ -1938,7 +1947,10 @@ async fn health_check(
         "uptime_info": {
             "started": true,
         },
-        "setup_complete": iora_shared::env::IoraEnv::is_setup_complete(),
+        "iora_env": iora_env.to_string(),
+        "setup_complete": !setup_required,
+        "setup_required": setup_required,
+        "raw_setup_complete": raw_setup_complete,
         "setup_url": setup_url,
         "setup_reachable": setup_reachable,
         "ipv4_addrs": ipv4_addrs,

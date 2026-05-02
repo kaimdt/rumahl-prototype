@@ -285,7 +285,7 @@ const M = {
       case 'snapshot':
         M.applyConn(ev.connection);
         if(ev.devices){M.devices=ev.devices;M.renderDevices();M.renderModalDevices()}
-        if(ev.jobs_recent){M.jobs=ev.jobs_recent;M.renderJobs()}
+        if(ev.jobs_recent){M.jobs=ev.jobs_recent;if(!M.activeJob&&M.jobs.length)M.activeJob=M.jobs[0];M.renderJobs();M.renderLiveDeploy()}
         if(ev.services){M.services=ev.services.services||[];M.svcSummary=ev.services.summary||M.svcSummary}
         M.renderAll(); break;
       case 'connection': M.applyConn(ev); M.renderAll(); break;
@@ -294,7 +294,7 @@ const M = {
         if(ev.job){const i=M.jobs.findIndex(j=>j.id===ev.job.id);if(i>=0)M.jobs[i]=ev.job;else M.jobs.unshift(ev.job);
         if(ev.job.status==='running'||ev.job.status==='pending')M.activeJob=ev.job;
         else if(M.activeJob&&M.activeJob.id===ev.job.id)M.activeJob=ev.job}
-        else if(ev.id){let j=M.jobs.find(x=>x.id===ev.id);if(!j&&M.activeJob&&M.activeJob.id===ev.id)j=M.activeJob;if(j){j.status=ev.status||j.status;if(ev.line){if(!j.log)j.log=[];j.log.push(ev.line);if(j.log.length>500)j.log.shift()}if(!M.activeJob||M.activeJob.id===ev.id)M.activeJob=j}}
+        else if(ev.id){let j=M.jobs.find(x=>x.id===ev.id);if(!j&&M.activeJob&&M.activeJob.id===ev.id)j=M.activeJob;if(j){j.status=ev.status||j.status;if(ev.line){if(!j.log)j.log=[];j.log.push(ev.line)}if(!M.activeJob||M.activeJob.id===ev.id)M.activeJob=j}}
         M.renderJobs(); M.renderLiveDeploy(); break;
       case 'services_updated':
         if(ev.services){M.services=ev.services.services||[];M.svcSummary=ev.services.summary||M.svcSummary}
@@ -347,7 +347,7 @@ const M = {
     el.innerHTML=M.jobs.slice(0,15).map(j=>{
       const icon=j.status==='succeeded'?'OK':j.status==='failed'?'FEHLER':j.status==='running'?'LAUFT':'WARTET';
       const cls=j.status==='succeeded'?'ok':j.status==='failed'?'err':'info';
-      return `<div class="job"><span class="badge ${cls}">${icon}</span> ${j.label} <span style="color:var(--muted);margin-left:auto;font-size:10px">${new Date(j.started_at).toLocaleTimeString()}</span></div>`;
+      return `<div class="job" style="cursor:pointer" onclick="M.showJob('${j.id}')"><span class="badge ${cls}">${icon}</span> ${j.label} <span style="color:var(--muted);margin-left:auto;font-size:10px">${new Date(j.started_at).toLocaleTimeString()}</span></div>`;
     }).join('');
   },
   renderServices() {
@@ -383,9 +383,20 @@ const M = {
     let txt='';if(j.log?.length)txt=j.log.join('\n');if(j._svc?.length)txt+='\n\n--- Dienst-Logs ---\n'+j._svc.join('\n');
     document.getElementById('liveJobLines').textContent=(j.log?.length||0)+' Zeilen';
     const log=document.getElementById('liveJobLog');log.textContent=txt||'Warte...';if(document.getElementById('liveFollow')?.checked)log.scrollTop=log.scrollHeight;
-    if(j.status==='succeeded'||j.status==='failed'){clearTimeout(j._t);j._t=setTimeout(()=>{if(M.activeJob===j){card.style.display='none';M.activeJob=null}document.getElementById('deployMsg').textContent=''},30000)}
   },
-  clearLiveLog(){if(M.activeJob){M.activeJob.log=[];M.activeJob._svc=[];M.renderLiveDeploy()}},
+  async showJob(id){
+    let j=M.jobs.find(x=>x.id===id);
+    if(!j){try{j=await M.api('GET','/api/v1/jobs/'+id)}catch(e){M.toast('err',e.message);return}}
+    M.activeJob=j;M.renderLiveDeploy();document.getElementById('liveDeployCard').style.display='block';
+  },
+  async clearLiveLog(){
+    if(!M.activeJob)return;
+    try{
+      const j=await M.api('DELETE','/api/v1/jobs/'+M.activeJob.id+'/log');
+      const i=M.jobs.findIndex(x=>x.id===j.id);if(i>=0)M.jobs[i]=j;
+      M.activeJob=j;M.renderJobs();M.renderLiveDeploy();M.toast('ok','Log geleert');
+    }catch(e){M.toast('err',e.message)}
+  },
 
   // ── System ─────────────────────────────────────────────────────
   startGraphs() {

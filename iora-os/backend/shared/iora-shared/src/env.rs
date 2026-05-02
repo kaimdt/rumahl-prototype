@@ -80,17 +80,31 @@ impl IoraEnv {
 
     /// Check whether the first-boot setup has been completed.
     ///
-    /// Uses a dual-flag strategy: if EITHER the data-partition flag
-    /// (`/mnt/data/iora/.setup-complete`) OR the rootfs flag
-    /// (`/etc/iora/.setup-complete`) exists, setup is considered complete.
-    /// This prevents the wizard from re-launching when the data partition
-    /// is temporarily unavailable (LUKS not yet unlocked at boot, etc.).
+    /// Uses the same strategy as the first-boot setup server: primary and
+    /// secondary marker files first, then a conservative recovery heuristic
+    /// for systems that already have generated setup artifacts but lost the
+    /// marker files.
     pub fn is_setup_complete() -> bool {
         let flags = [
             Path::new("/mnt/data/iora/.setup-complete"),
             Path::new("/etc/iora/.setup-complete"),
         ];
-        flags.iter().any(|p| p.exists())
+        if flags.iter().any(|p| p.exists()) {
+            return true;
+        }
+
+        let setup_artifacts = [
+            Path::new("/mnt/data/iora/docker-compose.yml"),
+            Path::new("/etc/iora/db.password"),
+        ];
+        if setup_artifacts.iter().all(|p| p.exists()) {
+            for flag in flags {
+                let _ = write_recovered_setup_flag(flag);
+            }
+            return true;
+        }
+
+        false
     }
 
     /// Platform-dependent path for the marker file.
@@ -104,6 +118,13 @@ impl IoraEnv {
         });
         Path::new(&base).join("installed.marker")
     }
+}
+
+fn write_recovered_setup_flag(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, "recovered\n")
 }
 
 impl std::fmt::Display for IoraEnv {

@@ -895,7 +895,7 @@ function SetupWizardOverlay({ children }: { children: React.ReactNode }) {
     setupComplete: boolean
     setupUrl: string | null
     setupReachable: boolean | null
-  }>({ checking: true, setupComplete: false, setupUrl: null, setupReachable: null })
+  }>({ checking: true, setupComplete: true, setupUrl: null, setupReachable: null })
   const API_BASE = getBackendUrl()
 
   const checkSetup = useCallback(async () => {
@@ -904,24 +904,24 @@ function SetupWizardOverlay({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch(healthUrl, { signal: AbortSignal.timeout(5_000) })
       if (!res.ok) {
-        // Backend not responding yet — retry later
-        setState(prev => ({ ...prev, checking: false, setupComplete: false }))
+        // Backend/proxy not ready: don't block the app with the setup gate.
+        setState(prev => ({ ...prev, checking: false, setupComplete: true }))
         return
       }
       const data = await res.json()
-      if (data.setup_complete === true) {
-        setState({ checking: false, setupComplete: true, setupUrl: null, setupReachable: false })
-      } else {
+      if (data.setup_required === true) {
         setState({
           checking: false,
           setupComplete: false,
           setupUrl: data.setup_url || null,
           setupReachable: data.setup_reachable ?? false,
         })
+      } else {
+        setState({ checking: false, setupComplete: true, setupUrl: null, setupReachable: false })
       }
     } catch {
-      // Fetch failed — backend might not be ready
-      setState(prev => ({ ...prev, checking: false }))
+      // Fetch failed: let the normal backend-unavailable UI handle it.
+      setState(prev => ({ ...prev, checking: false, setupComplete: true }))
     }
   }, [API_BASE])
 

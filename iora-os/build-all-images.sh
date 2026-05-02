@@ -537,7 +537,14 @@ configure_buildroot() {
     log_info "Configuring Buildroot for IORA OS..."
 
     cd "${BUILD_DIR}"
-    PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" iora_defconfig
+    PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" "${IORA_DEFCONFIG:-iora_defconfig}"
+    if [ "${IORA_OS_DEV:-0}" = "1" ]; then
+        log_info "Enabling native build toolchain for IORA OS Dev image..."
+        cat >> .config <<'EOF'
+BR2_PACKAGE_IORA_DEV_TOOLCHAIN=y
+EOF
+        PATH="${BUILDROOT_SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make BR2_EXTERNAL="${SCRIPT_DIR}" olddefconfig
+    fi
 
     log_success "Buildroot configured"
 }

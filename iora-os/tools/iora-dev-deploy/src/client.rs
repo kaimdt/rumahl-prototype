@@ -301,9 +301,27 @@ impl Client {
                     self.base,
                 ));
             }
-            return Err(anyhow!("build-replace failed ({status}): {body}"));
+            return Err(anyhow!("build-replace failed ({status}): {}", summarize_build_replace_error(&body)));
         }
         Ok(body)
+    }
+}
+
+fn summarize_build_replace_error(body: &serde_json::Value) -> String {
+    let top = body["error"].as_str().unwrap_or("device build failed");
+    let detail = body["build"]["stderr"]
+        .as_str()
+        .or_else(|| body["bootstrap"]["stderr"].as_str())
+        .or_else(|| body["extract"]["stderr"].as_str())
+        .unwrap_or("")
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    if detail.is_empty() {
+        top.to_string()
+    } else {
+        format!("{top}: {detail}")
     }
 }
 

@@ -50,10 +50,11 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
+use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 use uuid::Uuid;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 mod config;
@@ -81,10 +82,6 @@ const DEV_TOKEN_FILE_WRITABLE: &str = "/var/lib/iora/dev-token";
 const VERSION_FILE:  &str = "/etc/iora-version";
 const COMPOSE_DIR:   &str = "/mnt/data/iora";
 const REMOTE_BUILD_IMAGE: &str = "rust:1.90";
-const NODE_BUILD_IMAGE: &str = "node:20-bookworm";
-const PYTHON_BUILD_IMAGE: &str = "python:3.12-bookworm";
-const GO_BUILD_IMAGE: &str = "golang:1.24-bookworm";
-const JAVA_BUILD_IMAGE: &str = "eclipse-temurin:21-jdk";
 
 /// Resolve the path of the dev-token file, honoring `$IORA_DEV_TOKEN_FILE`
 /// when set. Without override, prefers the writable copy under /var/lib.
@@ -840,6 +837,9 @@ async fn events_sse(
         loop {
             match event_rx.recv().await {
                 Ok(event) => {
+                    if matches!(event, DevBridgeEvent::LogMessage { .. }) && !is_authenticated {
+                        continue;
+                    }
                     let json = serde_json::to_string(&event).unwrap_or_default();
                     let event_name = match &event {
                         DevBridgeEvent::Heartbeat { .. } => "heartbeat",
@@ -1371,6 +1371,8 @@ async fn build_replace(
     if bundle.is_empty() {
         return (StatusCode::BAD_REQUEST, "empty bundle".to_string()).into_response();
     }
+    let log_service = component.clone();
+    emit_bridge_log(&s.event_tx, &log_service, format!("bundle received: {} bytes", bundle.len()));
 
     // Persistent per-component workspace. The first upload extracts the
     // full bundle; subsequent uploads overwrite source files in place,
@@ -1390,13 +1392,18 @@ async fn build_replace(
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("write bundle: {e}")).into_response();
     }
 
+    emit_bridge_log(&s.event_tx, &log_service, format!("extracting backend bundle into {}", work_root.display()));
     let extract = extract_backend_bundle(bundle_path.clone(), work_root.clone()).await;
     if !extract.ok {
+        emit_bridge_log(&s.event_tx, &log_service, format!("extract failed: {}", extract.stderr.trim()));
         return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "extract failed", "extract": extract }))).into_response();
     }
+    emit_bridge_log(&s.event_tx, &log_service, extract.stdout.trim().to_string());
 
-    let bootstrap = ensure_build_tooling().await;
+    emit_bridge_log(&s.event_tx, &log_service, "checking build tooling".to_string());
+    let bootstrap = ensure_build_tooling(&s.event_tx, &log_service).await;
     if !bootstrap.ok {
+        emit_bridge_log(&s.event_tx, &log_service, format!("tooling bootstrap failed: {}", bootstrap.stderr.trim()));
         return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "tooling bootstrap failed", "bootstrap": bootstrap }))).into_response();
     }
 
@@ -1410,7 +1417,8 @@ async fn build_replace(
     // Either way CARGO_TARGET_DIR + CARGO_HOME live inside `work_root`
     // so the cache survives but never leaks across components.
     let build = if command_exists("cargo") {
-        run_cmd_with_env(
+        emit_bridge_log(&s.event_tx, &log_service, format!("running cargo build --release -p {component}"));
+        run_cmd_with_env_and_logs(
             "cargo",
             vec!["build".into(), "--release".into(), "-p".into(), component.clone()],
             Some(&backend_root),
@@ -1418,10 +1426,16 @@ async fn build_replace(
                 ("CARGO_TARGET_DIR", cargo_target_cache.display().to_string()),
                 ("CARGO_HOME",       cargo_home_cache.display().to_string()),
                 ("CARGO_INCREMENTAL","1".to_string()),
+                ("CC", "cc".to_string()),
+                ("CXX", "c++".to_string()),
+                ("PKG_CONFIG_PATH", "/usr/lib/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/pkgconfig".to_string()),
             ],
+            &s.event_tx,
+            &log_service,
         ).await
     } else if command_exists("docker") {
-        run_cmd_owned(
+        emit_bridge_log(&s.event_tx, &log_service, format!("running docker build container for {component}"));
+        run_cmd_owned_with_logs(
             "docker",
             vec![
                 "run".into(),
@@ -1445,8 +1459,11 @@ async fn build_replace(
                 ),
             ],
             None,
+            &s.event_tx,
+            &log_service,
         ).await
     } else {
+        emit_bridge_log(&s.event_tx, &log_service, "neither docker nor cargo available on device".to_string());
         CmdResult {
             ok: false,
             code: -1,
@@ -1458,6 +1475,7 @@ async fn build_replace(
     let elapsed_ms = started.elapsed().as_millis() as u64;
 
     if !build.ok {
+        emit_bridge_log(&s.event_tx, &log_service, format!("build failed with exit code {}", build.code));
         // Keep the workspace around on failure so the next attempt
         // benefits from the partial cache and so the developer can
         // ssh in and inspect what went wrong.
@@ -1484,6 +1502,7 @@ async fn build_replace(
             return resp;
         }
     };
+    emit_bridge_log(&s.event_tx, &log_service, format!("installed {} bytes to {}", payload.len(), target));
     // Drop only the bundle, keep target/ for the next incremental build.
     let _ = tokio::fs::remove_file(&bundle_path).await;
 
@@ -1750,28 +1769,6 @@ async fn run_cmd_in(bin: &str, args: &[&str], cwd: &str) -> CmdResult {
     run_cmd_inner(bin, args, Some(cwd)).await
 }
 
-/// Like `run_cmd_owned` but with explicit env-vars (e.g. `CARGO_TARGET_DIR`).
-async fn run_cmd_with_env(
-    bin: &str,
-    args: Vec<String>,
-    cwd: Option<&std::path::Path>,
-    envs: &[(&str, String)],
-) -> CmdResult {
-    let mut c = Command::new(bin);
-    c.args(&args);
-    if let Some(d) = cwd { c.current_dir(d); }
-    for (k, v) in envs { c.env(k, v); }
-    match c.output().await {
-        Ok(o) => CmdResult {
-            ok: o.status.success(),
-            code: o.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
-        },
-        Err(e) => CmdResult { ok: false, code: -1, stdout: String::new(), stderr: format!("spawn failed: {e}") },
-    }
-}
-
 async fn run_cmd_owned(bin: &str, args: Vec<String>, cwd: Option<&std::path::Path>) -> CmdResult {
     let mut c = Command::new(bin);
     c.args(&args);
@@ -1792,6 +1789,140 @@ async fn run_cmd_owned(bin: &str, args: Vec<String>, cwd: Option<&std::path::Pat
             stderr: format!("spawn failed: {e}"),
         },
     }
+}
+
+async fn run_cmd_with_env_and_logs(
+    bin: &str,
+    args: Vec<String>,
+    cwd: Option<&std::path::Path>,
+    envs: &[(&str, String)],
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
+    run_cmd_streaming(bin, args, cwd, envs, event_tx, service).await
+}
+
+async fn run_cmd_owned_with_logs(
+    bin: &str,
+    args: Vec<String>,
+    cwd: Option<&std::path::Path>,
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
+    run_cmd_streaming(bin, args, cwd, &[], event_tx, service).await
+}
+
+async fn run_cmd_streaming(
+    bin: &str,
+    args: Vec<String>,
+    cwd: Option<&std::path::Path>,
+    envs: &[(&str, String)],
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
+    let mut c = Command::new(bin);
+    c.args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(d) = cwd {
+        c.current_dir(d);
+    }
+    for (key, value) in envs {
+        c.env(key, value);
+    }
+
+    let mut child = match c.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            let msg = format!("spawn failed: {e}");
+            emit_bridge_log(event_tx, service, msg.clone());
+            return CmdResult { ok: false, code: -1, stdout: String::new(), stderr: msg };
+        }
+    };
+
+    let stdout_task = child.stdout.take().map(|stdout| {
+        spawn_output_reader(stdout, event_tx.clone(), service.to_string())
+    });
+    let stderr_task = child.stderr.take().map(|stderr| {
+        spawn_output_reader(stderr, event_tx.clone(), service.to_string())
+    });
+
+    let status = match child.wait().await {
+        Ok(status) => status,
+        Err(e) => {
+            let msg = format!("wait failed: {e}");
+            emit_bridge_log(event_tx, service, msg.clone());
+            return CmdResult { ok: false, code: -1, stdout: String::new(), stderr: msg };
+        }
+    };
+
+    let stdout = match stdout_task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => String::new(),
+    };
+    let stderr = match stderr_task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => String::new(),
+    };
+
+    CmdResult {
+        ok: status.success(),
+        code: status.code().unwrap_or(-1),
+        stdout,
+        stderr,
+    }
+}
+
+fn spawn_output_reader<R>(
+    stream: R,
+    event_tx: broadcast::Sender<DevBridgeEvent>,
+    service: String,
+) -> tokio::task::JoinHandle<String>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stream).lines();
+        let mut output = String::new();
+        loop {
+            match reader.next_line().await {
+                Ok(Some(line)) => {
+                    output.push_str(&line);
+                    output.push('\n');
+                    if !line.trim().is_empty() {
+                        emit_bridge_log(&event_tx, &service, line);
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    let msg = format!("read process output failed: {e}");
+                    output.push_str(&msg);
+                    output.push('\n');
+                    emit_bridge_log(&event_tx, &service, msg);
+                    break;
+                }
+            }
+        }
+        output
+    })
+}
+
+fn emit_bridge_log(event_tx: &broadcast::Sender<DevBridgeEvent>, service: &str, message: String) {
+    if message.trim().is_empty() {
+        return;
+    }
+    let _ = event_tx.send(DevBridgeEvent::LogMessage {
+        service: service.to_string(),
+        message,
+        timestamp: unix_timestamp(),
+    });
+}
+
+fn unix_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 async fn extract_backend_bundle(bundle_path: PathBuf, work_root: PathBuf) -> CmdResult {
@@ -1833,25 +1964,34 @@ fn extract_backend_bundle_sync(bundle_path: &FsPath, work_root: &FsPath) -> std:
     }
 }
 
-async fn run_shell(script: String) -> CmdResult {
-    run_cmd_owned("sh", vec!["-lc".into(), script], None).await
+async fn run_shell_with_logs(
+    script: String,
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
+    run_cmd_owned_with_logs("sh", vec!["-lc".into(), script], None, event_tx, service).await
 }
 
-async fn ensure_build_tooling() -> CmdResult {
-    if command_exists("docker") {
-        return ensure_tooling_with_docker().await;
+async fn ensure_build_tooling(
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
+    let local = ensure_tooling_locally(event_tx, service).await;
+    if local.ok {
+        return local;
     }
-    ensure_tooling_locally().await
+    if command_exists("docker") {
+        emit_bridge_log(event_tx, service, format!("native build tooling incomplete: {}; falling back to docker", local.stderr.trim()));
+        return ensure_tooling_with_docker(event_tx, service).await;
+    }
+    local
 }
 
-async fn ensure_tooling_with_docker() -> CmdResult {
-    let images = [
-        REMOTE_BUILD_IMAGE,
-        NODE_BUILD_IMAGE,
-        PYTHON_BUILD_IMAGE,
-        GO_BUILD_IMAGE,
-        JAVA_BUILD_IMAGE,
-    ];
+async fn ensure_tooling_with_docker(
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
+    let images = [REMOTE_BUILD_IMAGE];
     let mut stdout = String::new();
     for image in images {
         let inspect = run_cmd_owned(
@@ -1863,11 +2003,31 @@ async fn ensure_tooling_with_docker() -> CmdResult {
             stdout.push_str(&format!("tool image ready: {image}\n"));
             continue;
         }
-        let pull = run_cmd_owned(
+        emit_bridge_log(event_tx, service, format!("pulling build image {image}"));
+        let mut pull = run_cmd_owned_with_logs(
             "docker",
             vec!["pull".into(), image.into()],
             None,
+            event_tx,
+            service,
         ).await;
+        if !pull.ok && format!("{}{}", pull.stdout, pull.stderr).contains("no space left on device") {
+            emit_bridge_log(event_tx, service, "docker ran out of space; pruning unused docker data and retrying pull".to_string());
+            let _ = run_cmd_owned_with_logs(
+                "docker",
+                vec!["system".into(), "prune".into(), "-af".into()],
+                None,
+                event_tx,
+                service,
+            ).await;
+            pull = run_cmd_owned_with_logs(
+                "docker",
+                vec!["pull".into(), image.into()],
+                None,
+                event_tx,
+                service,
+            ).await;
+        }
         if !pull.ok {
             return CmdResult {
                 ok: false,
@@ -1881,23 +2041,19 @@ async fn ensure_tooling_with_docker() -> CmdResult {
     CmdResult { ok: true, code: 0, stdout, stderr: String::new() }
 }
 
-async fn ensure_tooling_locally() -> CmdResult {
+async fn ensure_tooling_locally(
+    event_tx: &broadcast::Sender<DevBridgeEvent>,
+    service: &str,
+) -> CmdResult {
     let mut missing_packages: Vec<&str> = Vec::new();
-    if !command_exists("gcc") { missing_packages.push("build-essential"); }
-    if !command_exists("pkg-config") { missing_packages.push("pkg-config"); }
-    if !command_exists("cmake") { missing_packages.push("cmake"); }
+    if !command_exists("cc") && !command_exists("gcc") && !command_exists("clang") { missing_packages.push("build-essential"); }
+    if !command_exists("pkg-config") && !command_exists("pkgconf") { missing_packages.push("pkg-config"); }
     if !command_exists("git") { missing_packages.push("git"); }
     if !command_exists("curl") { missing_packages.push("curl"); }
     if !command_exists("cargo") || !command_exists("rustc") {
         missing_packages.push("cargo");
         missing_packages.push("rustc");
     }
-    if !command_exists("node") { missing_packages.push("nodejs"); }
-    if !command_exists("npm") { missing_packages.push("npm"); }
-    if !command_exists("python3") { missing_packages.push("python3"); }
-    if !command_exists("pip3") { missing_packages.push("python3-pip"); }
-    if !command_exists("go") { missing_packages.push("golang-go"); }
-    if !command_exists("javac") { missing_packages.push("openjdk-17-jdk-headless"); }
 
     if missing_packages.is_empty() {
         return CmdResult {
@@ -1923,7 +2079,8 @@ async fn ensure_tooling_locally() -> CmdResult {
         "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends {}",
         missing_packages.join(" ")
     );
-    run_shell(install_script).await
+    emit_bridge_log(event_tx, service, format!("installing local build packages: {}", missing_packages.join(", ")));
+    run_shell_with_logs(install_script, event_tx, service).await
 }
 
 async fn run_cmd_inner(bin: &str, args: &[&str], cwd: Option<&str>) -> CmdResult {

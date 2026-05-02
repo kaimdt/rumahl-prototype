@@ -1,2 +1,6 @@
 # Buildroot external tree configuration entry point for IORA OS.
 # Add custom package menus here when needed.
+
+menu "IORA OS packages"
+source "$BR2_EXTERNAL_IORA_PATH/package/iora-dev-toolchain/Config.in"
+endmenu

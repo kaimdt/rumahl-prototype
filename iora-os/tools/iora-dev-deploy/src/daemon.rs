@@ -22,6 +22,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -34,6 +35,7 @@ use uuid::Uuid;
 
 const DAEMON_INFO_FILE: &str = "daemon.json";
 const DAEMON_TOKEN_FILE: &str = "daemon.token";
+const JOB_STORE_FILE: &str = "jobs.json";
 const EVENT_BUFFER: usize = 256;
 const MAX_JOB_LOG_LINES: usize = 2000;
 const MAX_RECENT_JOBS: usize = 100;
@@ -59,7 +61,7 @@ struct Inner {
     cached_connection: RwLock<serde_json::Value>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Job {
     pub id: Uuid,
     pub kind: String,
@@ -70,7 +72,7 @@ pub struct Job {
     pub log: Vec<String>,
 }
 
-#[derive(Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
     Pending,
@@ -180,12 +182,16 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool,
 
     let (tx, _) = broadcast::channel(EVENT_BUFFER);
     let _ = tx.send(Event::Hello { version: env!("CARGO_PKG_VERSION").into() });
+    let (persisted_jobs, persisted_job_order) = load_persisted_jobs().unwrap_or_else(|e| {
+        eprintln!("WARN: could not load persisted deploy jobs: {e:#}");
+        (HashMap::new(), Vec::new())
+    });
     let state = AppState {
         inner: Arc::new(Inner {
             auth_token: token.clone(),
             devices: RwLock::new(Vec::new()),
-            jobs: RwLock::new(HashMap::new()),
-            job_order: RwLock::new(Vec::new()),
+            jobs: RwLock::new(persisted_jobs),
+            job_order: RwLock::new(persisted_job_order),
             watches: RwLock::new(HashMap::new()),
             events: tx,
             started_at: Utc::now(),
@@ -215,6 +221,7 @@ pub async fn run(bind: SocketAddr, token_override: Option<String>, no_pin: bool,
         .route("/api/v1/deploy", post(h_deploy))
         .route("/api/v1/jobs", get(h_jobs))
         .route("/api/v1/jobs/:id", get(h_job_one))
+        .route("/api/v1/jobs/:id/log", delete(h_job_clear_log))
         .route("/api/v1/restart", post(h_restart))
         .route("/api/v1/service/reload", post(h_service_reload))
         .route("/api/v1/compose/reload", post(h_compose_reload))
@@ -832,6 +839,19 @@ async fn h_job_one(headers: HeaderMap, State(s): State<AppState>, AxPath(id): Ax
         .ok_or((StatusCode::NOT_FOUND, "no such job".into()))
 }
 
+async fn h_job_clear_log(headers: HeaderMap, State(s): State<AppState>, AxPath(id): AxPath<Uuid>) -> Result<Json<Job>, (StatusCode, String)> {
+    check_auth(&s, &headers)?;
+    let job = {
+        let mut jobs = s.inner.jobs.write().await;
+        let job = jobs.get_mut(&id).ok_or((StatusCode::NOT_FOUND, "no such job".to_string()))?;
+        job.log.clear();
+        job.clone()
+    };
+    persist_jobs(&s).await.map_err(server_err)?;
+    let _ = s.inner.events.send(Event::JobFinished { job: job.clone() });
+    Ok(Json(job))
+}
+
 async fn h_deploy(headers: HeaderMap, State(s): State<AppState>, Json(b): Json<DeployBody>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&s, &headers)?;
     if b.components.is_empty() {
@@ -890,20 +910,31 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
             };
             append_log(&s, job_id, format!("▶ build {} ({}) via {} [requested: {}]", entry.name, b.target, strategy.label(), b.build_mode)).await;
             if effective_build_mode == "device" {
+                let stream_url = format!(
+                    "{}/dev/events?token={}",
+                    client.base(),
+                    urlencoding::encode(client.token())
+                );
+                let (bridge_log_tx, mut bridge_log_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+                let bridge_log_task = tokio::spawn(stream_bridge_build_logs(
+                    stream_url,
+                    entry.name.clone(),
+                    bridge_log_tx,
+                ));
+                append_log(&s, job_id, "  uploading backend workspace to device".to_string()).await;
                 let mut build_future = Box::pin(client.build_replace_remote(&entry.name, &entry.target_path, if b.no_restart { None } else { Some(entry.unit.as_str()) }));
-                let mut progress_tick = tokio::time::interval(std::time::Duration::from_secs(5));
-                let progress_started = std::time::Instant::now();
                 let build_result = loop {
                     tokio::select! {
                         result = &mut build_future => break result,
-                        _ = progress_tick.tick() => {
-                            let elapsed = progress_started.elapsed().as_secs();
-                            if elapsed > 0 {
-                                append_log(&s, job_id, format!("  device build lauft seit {}s", elapsed)).await;
-                            }
+                        Some(line) = bridge_log_rx.recv() => {
+                            append_log(&s, job_id, format!("  {line}")).await;
                         }
                     }
                 };
+                bridge_log_task.abort();
+                while let Ok(line) = bridge_log_rx.try_recv() {
+                    append_log(&s, job_id, format!("  {line}")).await;
+                }
                 match build_result {
                     Ok(resp) => {
                         let ms = resp["elapsed_ms"].as_u64().unwrap_or(0);
@@ -917,16 +948,6 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
                             if inc { ", incremental cache" } else { "" },
                             if !workspace.is_empty() { format!(" @ {}", workspace) } else { String::new() },
                         )).await;
-                        if let Some(stdout) = resp["build"]["stdout"].as_str() {
-                            for line in stdout.lines().filter(|line| !line.trim().is_empty()).take(200) {
-                                append_log(&s, job_id, format!("  {line}")).await;
-                            }
-                        }
-                        if let Some(stderr) = resp["build"]["stderr"].as_str() {
-                            for line in stderr.lines().filter(|line| !line.trim().is_empty()).take(200) {
-                                append_log(&s, job_id, format!("  {line}")).await;
-                            }
-                        }
                         if !b.no_restart {
                             let r = &resp["restart"];
                             if r["ok"].as_bool().unwrap_or(false) {
@@ -1209,7 +1230,32 @@ async fn run_watch_session(
                     };
                     append_log(&s, job, format!("▶ build {} via {}{}", e.name, strategy.label(), if automatic { " (automatic)" } else { "" })).await;
                     if effective_build_mode == "device" {
-                        match client.build_replace_remote(&e.name, &e.target_path, Some(&e.unit)).await {
+                        let stream_url = format!(
+                            "{}/dev/events?token={}",
+                            client.base(),
+                            urlencoding::encode(client.token())
+                        );
+                        let (bridge_log_tx, mut bridge_log_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+                        let bridge_log_task = tokio::spawn(stream_bridge_build_logs(
+                            stream_url,
+                            e.name.clone(),
+                            bridge_log_tx,
+                        ));
+                        append_log(&s, job, "  uploading backend workspace to device".to_string()).await;
+                        let mut build_future = Box::pin(client.build_replace_remote(&e.name, &e.target_path, Some(&e.unit)));
+                        let build_result = loop {
+                            tokio::select! {
+                                result = &mut build_future => break result,
+                                Some(line) = bridge_log_rx.recv() => {
+                                    append_log(&s, job, format!("  {line}")).await;
+                                }
+                            }
+                        };
+                        bridge_log_task.abort();
+                        while let Ok(line) = bridge_log_rx.try_recv() {
+                            append_log(&s, job, format!("  {line}")).await;
+                        }
+                        match build_result {
                             Ok(resp) => {
                                 let ms = resp["elapsed_ms"].as_u64().unwrap_or(0);
                                 append_log(&s, job, format!("✓ {} deployed ({} bytes, {}ms)", e.name, resp["bytes"], ms)).await;
@@ -1344,6 +1390,7 @@ async fn create_job(s: &AppState, kind: &str, label: &str) -> Uuid {
         }
     }
     let _ = s.inner.events.send(Event::JobCreated { job });
+    let _ = persist_jobs(s).await;
     id
 }
 
@@ -1352,6 +1399,7 @@ async fn set_job_status(s: &AppState, id: Uuid, status: JobStatus) {
         j.status = status;
     }
     let _ = s.inner.events.send(Event::JobUpdated { id, status, line: None });
+    let _ = persist_jobs(s).await;
 }
 
 async fn append_log(s: &AppState, id: Uuid, line: String) {
@@ -1361,6 +1409,85 @@ async fn append_log(s: &AppState, id: Uuid, line: String) {
         j.log.push(line.clone());
     }
     let _ = s.inner.events.send(Event::JobUpdated { id, status: JobStatus::Running, line: Some(line) });
+    let _ = persist_jobs(s).await;
+}
+
+#[derive(Deserialize)]
+struct BridgeLogMessage {
+    service: String,
+    message: String,
+}
+
+async fn stream_bridge_build_logs(
+    stream_url: String,
+    component: String,
+    tx: tokio::sync::mpsc::UnboundedSender<String>,
+) {
+    let http = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60 * 60))
+        .build()
+    {
+        Ok(http) => http,
+        Err(e) => {
+            let _ = tx.send(format!("bridge log stream unavailable: {e}"));
+            return;
+        }
+    };
+
+    let response = match http.get(&stream_url).send().await {
+        Ok(response) => response,
+        Err(e) => {
+            let _ = tx.send(format!("bridge log stream unavailable: {e}"));
+            return;
+        }
+    };
+    if !response.status().is_success() {
+        let _ = tx.send(format!("bridge log stream unavailable: HTTP {}", response.status()));
+        return;
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                let _ = tx.send(format!("bridge log stream interrupted: {e}"));
+                return;
+            }
+        };
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(end) = buffer.find("\n\n") {
+            let frame = buffer[..end].to_string();
+            buffer.drain(..end + 2);
+            forward_bridge_sse_frame(&frame, &component, &tx);
+        }
+    }
+}
+
+fn forward_bridge_sse_frame(
+    frame: &str,
+    component: &str,
+    tx: &tokio::sync::mpsc::UnboundedSender<String>,
+) {
+    let mut event_name = "";
+    let mut data = Vec::new();
+    for line in frame.lines() {
+        if let Some(value) = line.strip_prefix("event:") {
+            event_name = value.trim();
+        } else if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.trim_start());
+        }
+    }
+    if event_name != "log_message" || data.is_empty() {
+        return;
+    }
+    let data = data.join("\n");
+    if let Ok(message) = serde_json::from_str::<BridgeLogMessage>(&data) {
+        if message.service == component && !message.message.trim().is_empty() {
+            let _ = tx.send(message.message);
+        }
+    }
 }
 
 async fn fail_job(s: &AppState, id: Uuid, msg: String) {
@@ -1379,6 +1506,7 @@ async fn finalize_job(s: &AppState, id: Uuid, status: JobStatus) {
     };
     if let Some(j) = snap {
         let _ = s.inner.events.send(Event::JobFinished { job: j });
+        let _ = persist_jobs(s).await;
     }
 }
 
@@ -1391,6 +1519,48 @@ async fn emit_service_logs_event(s: &AppState, client: &client::Client, unit: &s
             stderr: logs.stderr,
         });
     }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct PersistedJobs {
+    jobs: Vec<Job>,
+}
+
+fn job_store_path() -> Result<PathBuf> { Ok(config_dir()?.join(JOB_STORE_FILE)) }
+
+fn load_persisted_jobs() -> Result<(HashMap<Uuid, Job>, Vec<Uuid>)> {
+    let path = job_store_path()?;
+    if !path.exists() {
+        return Ok((HashMap::new(), Vec::new()));
+    }
+    let text = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let mut persisted: PersistedJobs = serde_json::from_str(&text)
+        .with_context(|| format!("parse {}", path.display()))?;
+    persisted.jobs.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    if persisted.jobs.len() > MAX_RECENT_JOBS {
+        let remove = persisted.jobs.len() - MAX_RECENT_JOBS;
+        persisted.jobs.drain(0..remove);
+    }
+    let order: Vec<Uuid> = persisted.jobs.iter().map(|job| job.id).collect();
+    let jobs = persisted.jobs.into_iter().map(|job| (job.id, job)).collect();
+    Ok((jobs, order))
+}
+
+async fn persist_jobs(s: &AppState) -> Result<()> {
+    let order = s.inner.job_order.read().await.clone();
+    let jobs_map = s.inner.jobs.read().await;
+    let jobs: Vec<Job> = order
+        .iter()
+        .filter_map(|id| jobs_map.get(id).cloned())
+        .collect();
+    drop(jobs_map);
+
+    let path = job_store_path()?;
+    let tmp = path.with_extension("json.tmp");
+    let payload = serde_json::to_string_pretty(&PersistedJobs { jobs })?;
+    tokio::fs::write(&tmp, payload).await.with_context(|| format!("write {}", tmp.display()))?;
+    tokio::fs::rename(&tmp, &path).await.with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
 }
 
 // ─── token / info file ────────────────────────────────────────────────────
