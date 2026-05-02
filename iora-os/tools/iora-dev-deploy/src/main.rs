@@ -301,16 +301,7 @@ async fn deploy_one(
 ) -> Result<()> {
     let entry = catalog::lookup(name)
         .with_context(|| format!("unknown component `{name}` — see `iora-dev-deploy list`"))?;
-    let effective_build_mode = if build_mode == "device" && build::must_build_on_host(&entry) {
-        println!(
-            "{} {} uses a dedicated host-build bridge update path",
-            "▶ info".bold(),
-            entry.name.cyan()
-        );
-        "host"
-    } else {
-        build_mode
-    };
+    let effective_build_mode = build_mode;
 
     let bin_path = if no_build {
         build::existing_binary(&entry, target)?

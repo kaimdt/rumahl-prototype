@@ -15,7 +15,7 @@ import {
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
   Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
   Terminal, List, Sparkle,
-  Palette, TrashSimple, Check, EyeSlash, UploadSimple, Swatches
+  Palette, TrashSimple, Check, EyeSlash, UploadSimple, Swatches, File, MapPin
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -156,7 +156,7 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'ai-tasks', label: 'AI Aufgaben', icon: Robot, description: 'Autonome AI-Aufgaben — Zeitpläne, Trigger und Status der Hintergrund-Agenten' },
   { id: 'ai-tools', label: 'AI Tools', icon: Hand, description: 'Internet-Suche, Web-Scraping und Screenshot-Tools des Assistenten testen und ausführen' },
   { id: 'ai-voice', label: 'AI Stimme', icon: Microphone, description: 'Spracheingabe (STT) und Sprachausgabe (TTS) testen — Voice-Modelle und Latenz prüfen' },
-  { id: 'ai-agent', label: '🤖 Agent', icon: Robot, description: 'Vollständiger Agent-Arbeitsbereich mit Chat, Aufgaben und Verlauf — wie GitHub Agent Tab' },
+  { id: 'ai-agent', label: 'Agent', icon: Robot, description: 'Vollständiger Agent-Arbeitsbereich mit Chat, Aufgaben und Verlauf — wie GitHub Agent Tab' },
   { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten IORA Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
   { id: 'secrets', label: 'Secrets', icon: Vault, description: 'Verschlüsselter Tresor für API-Keys, Tokens und Passwörter — verwalten, rotieren und Audit-Log einsehen (iora-secrets)' },
   { id: 'files', label: 'Dateien', icon: FolderOpen, description: 'Datei-Verwaltung mit Versionierung, Freigabe-Links, Berechtigungen und Quotas (iora-files)' },
@@ -3182,7 +3182,7 @@ function HaConnectionTab({ token }: { token: string }) {
     <div className="space-y-3">
       <AdminCard title="Home Assistant Verbindung" icon={Pulse}>
         <div className="space-y-1">
-          <StatItem label="Status" value={status?.available ? '🟢 Verbunden' : '🔴 Getrennt'} />
+          <StatItem label="Status" value={status?.available ? 'Verbunden' : 'Getrennt'} />
           <StatItem label="HA URL" value={status?.ha_url as string} />
           {typeof status?.ha_version === 'string' && <StatItem label="HA Version" value={status.ha_version} />}
           <StatItem label="Fehler in Folge" value={String(status?.failure_count ?? 0)} />
@@ -6538,7 +6538,7 @@ function CalendarsTab({ token }: { token: string }) {
                           <span className="font-mono">{start}</span>
                           {end && <><span className="text-foreground/30">→</span> <span className="font-mono">{end}</span></>}
                         </div>
-                        {location && <div className="text-[10px] text-foreground/40 mt-0.5">📍 {location}</div>}
+                        {location && <div className="text-[10px] text-foreground/40 mt-0.5 flex items-center gap-1"><MapPin size={10} /> {location}</div>}
                         {description && <div className="text-[10px] text-foreground/40 mt-0.5 truncate max-w-md">{description}</div>}
                       </div>
                     </div>
@@ -8707,7 +8707,7 @@ function DevBridgeFilesystem({ devToken }: { devToken: string | null }) {
                 entry.kind === 'symlink' ? 'text-cyan-400' :
                 'text-foreground/50'
               }`}>
-                {entry.kind === 'dir' ? '📁' : entry.kind === 'symlink' ? '🔗' : '📄'}
+                {entry.kind === 'dir' ? <FolderOpen size={13} /> : entry.kind === 'symlink' ? <LinkSimple size={13} /> : <File size={13} />}
               </span>
               <span className="text-xs text-foreground/80 font-mono truncate flex-1">{entry.name}</span>
               <span className="text-[10px] text-foreground/40 group-hover:text-foreground/60 transition-colors">
@@ -10380,13 +10380,26 @@ function OsNetworkConfigTab({ token }: { token: string }) {
   const [gateway4, setGateway4] = useState('')
   const [ipv6, setIpv6] = useState('')
   const [gateway6, setGateway6] = useState('')
-  const [dns1, setDns1] = useState('')
-  const [dns2, setDns2] = useState('')
+  const [dns4Primary, setDns4Primary] = useState('')
+  const [dns4Secondary, setDns4Secondary] = useState('')
+  const [dns6Primary, setDns6Primary] = useState('')
+  const [dns6Secondary, setDns6Secondary] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
 
   // Validation
-  const isValidIpv4 = (ip: string) => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/.test(ip)
-  const isValidIpv6 = (ip: string) => ip.includes(':') && ip.length >= 3
+  const isValidIpv4 = (value: string) => {
+    const [address, prefix] = value.split('/')
+    const octets = address.split('.')
+    if (octets.length !== 4) return false
+    if (!octets.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255)) return false
+    return prefix === undefined || (/^\d{1,2}$/.test(prefix) && Number(prefix) >= 0 && Number(prefix) <= 32)
+  }
+  const isValidIpv6 = (value: string) => {
+    const [address, prefix] = value.split('/')
+    if (!address.includes(':') || address.length < 3) return false
+    return prefix === undefined || (/^\d{1,3}$/.test(prefix) && Number(prefix) >= 0 && Number(prefix) <= 128)
+  }
+  const isValidDns = (value: string) => !value || isValidIpv4(value) || isValidIpv6(value)
   const isFormValid = () => {
     if (mode === 'dhcp') return true
     if (mode === 'static' || mode === 'dhcp-v6-only') {
@@ -10399,6 +10412,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
       if (ipv4 && !isValidIpv4(ipv4)) return false
       if (ipv6 && !isValidIpv6(ipv6)) return false
     }
+    if (![dns4Primary, dns4Secondary, dns6Primary, dns6Secondary].every(isValidDns)) return false
     return true
   }
 
@@ -10451,8 +10465,12 @@ function OsNetworkConfigTab({ token }: { token: string }) {
             const dnsLines = content.match(/^DNS=(.+)$/gm)
             if (dnsLines) {
               const dnsList = dnsLines.map(l => l.replace(/^DNS=/, '').trim())
-              if (dnsList[0]) setDns1(dnsList[0])
-              if (dnsList[1]) setDns2(dnsList[1])
+              const dns4 = dnsList.filter(isValidIpv4)
+              const dns6 = dnsList.filter(isValidIpv6)
+              if (dns4[0]) setDns4Primary(dns4[0])
+              if (dns4[1]) setDns4Secondary(dns4[1])
+              if (dns6[0]) setDns6Primary(dns6[0])
+              if (dns6[1]) setDns6Secondary(dns6[1])
             }
           }
         } catch {}
@@ -10467,19 +10485,35 @@ function OsNetworkConfigTab({ token }: { token: string }) {
   const doApply = async () => {
     setSaving(true); setShowConfirm(false)
     try {
-      const dnsList = [dns1, dns2].filter(Boolean)
-      const config: Record<string, any> = { mode }
+      const dns4 = [dns4Primary, dns4Secondary].map((value) => value.trim()).filter(Boolean)
+      const dns6 = [dns6Primary, dns6Secondary].map((value) => value.trim()).filter(Boolean)
+      const config: Record<string, any> = {
+        mode,
+        ipv4_config: {
+          method: showV4 ? 'static' : 'dhcp',
+          address: ipv4.trim(),
+          gateway: gateway4.trim(),
+          dns: dns4,
+        },
+        ipv6_config: {
+          method: showV6 ? 'static' : 'dhcp',
+          address: ipv6.trim(),
+          gateway: gateway6.trim(),
+          dns: dns6,
+        },
+      }
       if (mode === 'static' || mode === 'dhcp-v6-only' || mode === 'hybrid') {
-        if (ipv4) config.ipv4 = ipv4
-        if (gateway4) config.gateway4 = gateway4
+        if (ipv4.trim()) config.ipv4 = ipv4.trim()
+        if (gateway4.trim()) config.gateway4 = gateway4.trim()
       }
       if (mode === 'static' || mode === 'dhcp-v4-only' || mode === 'hybrid') {
-        if (ipv6) config.ipv6 = ipv6
-        if (gateway6) config.gateway6 = gateway6
+        if (ipv6.trim()) config.ipv6 = ipv6.trim()
+        if (gateway6.trim()) config.gateway6 = gateway6.trim()
       }
+      const dnsList = [...dns4, ...dns6]
       if (dnsList.length > 0) config.dns = dnsList
 
-      const res = await adminFetch(OS_BASE + '/os/network/set', token, {
+      await adminFetch(OS_BASE + '/os/network/set', token, {
         method: 'POST', body: JSON.stringify(config),
       })
       setSaved(true)
@@ -10559,11 +10593,11 @@ function OsNetworkConfigTab({ token }: { token: string }) {
         {/* ── Modus-Auswahl ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mb-6">
           {[
-            { id: 'dhcp' as const, label: 'DHCP (Auto)', icon: '🌐', desc: 'IPv4 + IPv6 automatisch', detail: 'Der Router weist Adressen zu' },
-            { id: 'dhcp-v4-only' as const, label: 'DHCPv4 + Statisches IPv6', icon: '🌍', desc: 'IPv4 automatisch', detail: 'IPv6 gibst du manuell ein' },
-            { id: 'dhcp-v6-only' as const, label: 'Statisches IPv4 + DHCPv6', icon: '🌏', desc: 'IPv6 automatisch', detail: 'IPv4 gibst du manuell ein' },
-            { id: 'static' as const, label: 'Vollständig statisch', icon: '📌', desc: 'Alles manuell', detail: 'IPv4 + IPv6 fest vergeben' },
-            { id: 'hybrid' as const, label: 'Hybrid', icon: '🔀', desc: 'DHCP + Extra-IPs', detail: 'DHCP + zusätzliche statische IPs' },
+            { id: 'dhcp' as const, label: 'DHCP (Auto)', icon: Globe, desc: 'IPv4 + IPv6 automatisch', detail: 'Der Router weist Adressen zu' },
+            { id: 'dhcp-v4-only' as const, label: 'DHCPv4 + Statisches IPv6', icon: WifiHigh, desc: 'IPv4 automatisch', detail: 'IPv6 gibst du manuell ein' },
+            { id: 'dhcp-v6-only' as const, label: 'Statisches IPv4 + DHCPv6', icon: ShareNetwork, desc: 'IPv6 automatisch', detail: 'IPv4 gibst du manuell ein' },
+            { id: 'static' as const, label: 'Vollständig statisch', icon: MapPin, desc: 'Alles manuell', detail: 'IPv4 + IPv6 fest vergeben' },
+            { id: 'hybrid' as const, label: 'Hybrid', icon: LinkSimple, desc: 'DHCP + Extra-IPs', detail: 'DHCP + zusätzliche statische IPs' },
           ].map(opt => (
             <button key={opt.id} onClick={() => setMode(opt.id)}
               className={`relative p-3.5 rounded-xl border-2 transition-all text-left group ${
@@ -10571,7 +10605,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
                   ? 'border-accent bg-accent/[0.08] shadow-sm shadow-accent/10'
                   : 'border-foreground/8 bg-foreground/[0.02] hover:border-foreground/20 hover:bg-foreground/[0.04]'
               }`}>
-              <span className="text-lg mb-1 block">{opt.icon}</span>
+              <opt.icon size={18} className={`mb-2 ${mode === opt.id ? 'text-accent' : 'text-foreground/60'}`} weight="duotone" />
               <p className={`text-[12px] font-semibold leading-tight ${mode === opt.id ? 'text-accent' : 'text-foreground'}`}>{opt.label}</p>
               <p className="text-[10px] text-foreground/50 mt-0.5 leading-tight">{opt.detail}</p>
               {mode === opt.id && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-accent" />}
@@ -10584,7 +10618,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
           <div className="mb-5 p-4 rounded-xl border border-blue-500/15 bg-blue-500/5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">IPv4</span>
-              <span className="text-[9px] text-foreground/40">— Nur bei statischer Konfiguration nötig</span>
+              <span className="text-[9px] text-foreground/40">Nur bei statischer IPv4-Konfiguration nötig</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -10612,7 +10646,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
           <div className="mb-5 p-4 rounded-xl border border-purple-500/15 bg-purple-500/5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">IPv6</span>
-              <span className="text-[9px] text-foreground/40">— Nur bei statischer Konfiguration nötig</span>
+              <span className="text-[9px] text-foreground/40">Nur bei statischer IPv6-Konfiguration nötig</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -10639,20 +10673,42 @@ function OsNetworkConfigTab({ token }: { token: string }) {
         <div className="mb-5 p-4 rounded-xl border border-amber-500/15 bg-amber-500/5">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">DNS-Server</span>
-            <span className="text-[9px] text-foreground/40">— Optional, werden sonst via DHCP bezogen</span>
+            <span className="text-[9px] text-foreground/40">IPv4 und IPv6 werden getrennt abgelegt</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Bevorzugter DNS</label>
-              <input value={dns1} onChange={e => setDns1(e.target.value)}
-                placeholder="z.B. 1.1.1.1"
-                className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.03] p-3">
+              <div className="flex items-center gap-2 mb-3 text-xs font-semibold text-foreground/70"><Globe size={14} /> IPv4 DNS</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Bevorzugt</label>
+                  <input value={dns4Primary} onChange={e => setDns4Primary(e.target.value)}
+                    placeholder="z.B. 1.1.1.1"
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono transition-colors ${dns4Primary && !isValidDns(dns4Primary) ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20'} focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20`} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Alternativ</label>
+                  <input value={dns4Secondary} onChange={e => setDns4Secondary(e.target.value)}
+                    placeholder="z.B. 8.8.8.8"
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono transition-colors ${dns4Secondary && !isValidDns(dns4Secondary) ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20'} focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20`} />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Alternativer DNS</label>
-              <input value={dns2} onChange={e => setDns2(e.target.value)}
-                placeholder="z.B. 8.8.8.8"
-                className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20 focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20 transition-colors" />
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.03] p-3">
+              <div className="flex items-center gap-2 mb-3 text-xs font-semibold text-foreground/70"><ShareNetwork size={14} /> IPv6 DNS</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Bevorzugt</label>
+                  <input value={dns6Primary} onChange={e => setDns6Primary(e.target.value)}
+                    placeholder="z.B. 2606:4700:4700::1111"
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono transition-colors ${dns6Primary && !isValidDns(dns6Primary) ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20'} focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20`} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-foreground/50 mb-1 block">Alternativ</label>
+                  <input value={dns6Secondary} onChange={e => setDns6Secondary(e.target.value)}
+                    placeholder="z.B. 2001:4860:4860::8888"
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono transition-colors ${dns6Secondary && !isValidDns(dns6Secondary) ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-foreground/[0.04] border border-foreground/10 text-foreground hover:border-foreground/20'} focus:border-accent/50 focus:outline-none focus:bg-accent/5 placeholder:text-foreground/20`} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -10662,7 +10718,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
           {showConfirm ? (
             <>
               <div className="flex-1 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-foreground/70">
-                ⚠️ Die Konfiguration wird sofort übernommen. Bei Fehlern  setzt iora-netctl automatisch zurück.
+                <span className="inline-flex items-center gap-1.5"><Warning size={14} className="text-amber-400" /> Die Konfiguration wird sofort übernommen. Bei Fehlern setzt iora-netctl automatisch zurück.</span>
               </div>
               <button onClick={() => setShowConfirm(false)} className="px-4 py-2.5 rounded-xl border border-foreground/10 text-xs text-foreground/50 hover:bg-foreground/5 transition-colors shrink-0">
                 Abbrechen
@@ -10675,7 +10731,7 @@ function OsNetworkConfigTab({ token }: { token: string }) {
           ) : saved ? (
             <div className="flex-1 flex items-center gap-2 p-3 rounded-xl bg-success/10 border border-success/20">
               <CheckCircle size={16} className="text-success shrink-0" />
-              <span className="text-xs text-success">Konfiguration wurde erfolgreich übernommen ✓</span>
+              <span className="text-xs text-success">Konfiguration wurde erfolgreich übernommen</span>
             </div>
           ) : (
             <button onClick={() => setShowConfirm(true)} disabled={!isFormValid() || saving}

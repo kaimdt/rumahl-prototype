@@ -32,6 +32,7 @@ input:focus,select:textarea:focus{outline:none;border-color:var(--accent)}
 .item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap}
 .item:last-child{border-bottom:none}
 .logs{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px;font-family:monospace;font-size:11px;line-height:1.5;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.log-head{display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap}.log-head span:first-child{font-weight:600}.log-actions{display:flex;gap:6px;margin-left:auto;align-items:center}.log-actions label{display:flex;gap:4px;align-items:center;color:var(--muted);font-size:10px}.log-actions input{width:auto}
 .empty{color:var(--muted);font-size:12px;padding:14px;text-align:center}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100}
 .modal.show{display:flex}
@@ -122,12 +123,17 @@ canvas{border-radius:5px;background:var(--bg);width:100%}
     </div>
   </div>
   <div class="card" id="liveDeployCard" style="display:none">
-    <h3>Deploy-Log</h3>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+    <h3>Deployment Live Echtzeit-Log</h3>
+    <div class="log-head">
       <span id="liveJobLabel"></span>
       <span style="font-size:10px;color:var(--muted)" id="liveJobTime"></span>
+      <span class="badge info" id="liveJobLines">0 Zeilen</span>
+      <div class="log-actions">
+        <label><input type="checkbox" id="liveFollow" checked> folgen</label>
+        <button class="btn2" onclick="M.clearLiveLog()">Leeren</button>
+      </div>
     </div>
-    <div class="logs" id="liveJobLog" style="max-height:300px"></div>
+    <div class="logs" id="liveJobLog" style="max-height:420px"></div>
   </div>
   <div class="card">
     <h3>App / Plugin hochladen</h3>
@@ -140,24 +146,8 @@ canvas{border-radius:5px;background:var(--bg);width:100%}
   </div>
   <div class="card">
     <h3>Self-Update (Dev Bridge aktualisieren)</h3>
-    <p class="help-text" style="margin-bottom:8px">Aktualisiere die Dev Bridge auf dem Gerat per HTTP, SSH oder FTP.</p>
+    <p class="help-text" style="margin-bottom:8px">Baut die lokale Dev-Bridge aus diesem Checkout und deployt sie wie jede andere Komponente.</p>
     <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <select id="suSource" style="width:120px" onchange="M.suToggleFields()">
-          <option value="http">HTTP</option>
-          <option value="ssh">SSH</option>
-          <option value="ftp">FTP</option>
-        </select>
-        <input id="suUrl" placeholder="https://example.com/iora-dev-bridge" style="flex:2;min-width:200px">
-        <input id="suSha" placeholder="SHA-256 (optional)" style="flex:1;min-width:140px">
-      </div>
-      <div id="suSshFields" style="display:none;gap:8px;flex-wrap:wrap">
-        <input id="suHost" placeholder="SSH-Host" style="flex:1">
-        <input id="suPath" placeholder="/usr/bin/iora-dev-bridge" style="flex:1" value="/usr/bin/iora-dev-bridge">
-        <input id="suUser" placeholder="Benutzer" style="width:100px" value="root">
-        <input id="suPort" placeholder="Port" style="width:70px" value="22">
-        <input id="suKey" placeholder="SSH-Key-Pfad" style="flex:1" value="/root/.ssh/id_rsa">
-      </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn" onclick="M.doSuUpdate()">Update ausfuhren</button>
         <span style="font-size:10px;color:var(--muted)" id="suMsg"></span>
@@ -304,6 +294,7 @@ const M = {
         if(ev.job){const i=M.jobs.findIndex(j=>j.id===ev.job.id);if(i>=0)M.jobs[i]=ev.job;else M.jobs.unshift(ev.job);
         if(ev.job.status==='running'||ev.job.status==='pending')M.activeJob=ev.job;
         else if(M.activeJob&&M.activeJob.id===ev.job.id)M.activeJob=ev.job}
+        else if(ev.id){let j=M.jobs.find(x=>x.id===ev.id);if(!j&&M.activeJob&&M.activeJob.id===ev.id)j=M.activeJob;if(j){j.status=ev.status||j.status;if(ev.line){if(!j.log)j.log=[];j.log.push(ev.line);if(j.log.length>500)j.log.shift()}if(!M.activeJob||M.activeJob.id===ev.id)M.activeJob=j}}
         M.renderJobs(); M.renderLiveDeploy(); break;
       case 'services_updated':
         if(ev.services){M.services=ev.services.services||[];M.svcSummary=ev.services.summary||M.svcSummary}
@@ -390,9 +381,11 @@ const M = {
     document.getElementById('liveJobLabel').textContent=`${icon}: ${j.label}`;
     document.getElementById('liveJobTime').textContent=new Date(j.started_at).toLocaleString();
     let txt='';if(j.log?.length)txt=j.log.join('\n');if(j._svc?.length)txt+='\n\n--- Dienst-Logs ---\n'+j._svc.join('\n');
-    const log=document.getElementById('liveJobLog');log.textContent=txt||'Warte...';log.scrollTop=log.scrollHeight;
+    document.getElementById('liveJobLines').textContent=(j.log?.length||0)+' Zeilen';
+    const log=document.getElementById('liveJobLog');log.textContent=txt||'Warte...';if(document.getElementById('liveFollow')?.checked)log.scrollTop=log.scrollHeight;
     if(j.status==='succeeded'||j.status==='failed'){clearTimeout(j._t);j._t=setTimeout(()=>{if(M.activeJob===j){card.style.display='none';M.activeJob=null}document.getElementById('deployMsg').textContent=''},30000)}
   },
+  clearLiveLog(){if(M.activeJob){M.activeJob.log=[];M.activeJob._svc=[];M.renderLiveDeploy()}},
 
   // ── System ─────────────────────────────────────────────────────
   startGraphs() {
@@ -455,27 +448,17 @@ const M = {
   svcShowLogs(n){document.getElementById('logUnit').value=n;M.switchTab('svc');M.tailLogs()},
 
   // ── Self-Update ─────────────────────────────────────────────────
-  suToggleFields(){document.getElementById('suSshFields').style.display=document.getElementById('suSource').value==='ssh'?'flex':'none'},
   async doSuUpdate(){
-    const src=document.getElementById('suSource').value,url=document.getElementById('suUrl').value.trim();
-    if(!url){M.toast('warn','URL eingeben');return}
-    const body={source:src,url};
-    if(src==='ssh'){
-      body.host=document.getElementById('suHost').value.trim()||url;
-      body.path=document.getElementById('suPath').value.trim();
-      body.user=document.getElementById('suUser').value.trim()||'root';
-      body.port=parseInt(document.getElementById('suPort').value)||22;
-      body.key_path=document.getElementById('suKey').value.trim()||'/root/.ssh/id_rsa';
-    }
-    const sha=document.getElementById('suSha').value.trim();
-    if(sha)body.expected_sha=sha;
     const el=document.getElementById('suResult');el.style.display='block';el.textContent='Update wird durchgefuhrt...';
     document.getElementById('suMsg').textContent='Lauft...';
     try {
-      const r=await M.api('POST','/api/v1/deploy',{self_update:body});
-      el.textContent=JSON.stringify(r,null,2);
-      document.getElementById('suMsg').textContent=r.ok?'Update erfolgreich!':'Fehlgeschlagen';
-      M.toast(r.ok?'ok':'err',r.ok?'Dev Bridge Update gestartet':'Update fehlgeschlagen');
+      const mode=document.getElementById('buildMode').value||'device';
+      const r=await M.api('POST','/api/v1/deploy',{components:['iora-dev-bridge'],target:'aarch64-unknown-linux-gnu',build_mode:mode});
+      el.textContent='Job '+r.job_id+' gestartet. Details stehen im Deploy-Log.';
+      document.getElementById('suMsg').textContent='Job '+r.job_id.slice(0,8);
+      M.activeJob={id:r.job_id,label:'iora-dev-bridge self-update ('+mode+')',log:[],status:'pending',started_at:new Date().toISOString()};
+      M.renderLiveDeploy();document.getElementById('liveDeployCard').style.display='block';
+      M.toast('ok','Dev Bridge Self-Update gestartet');
     }catch(e){el.textContent='Fehler: '+e.message;document.getElementById('suMsg').textContent='Fehler';M.toast('err',e.message)}
   },
 

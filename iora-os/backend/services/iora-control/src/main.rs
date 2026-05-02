@@ -1030,7 +1030,8 @@ async fn os_shutdown(Json(req): Json<PowerRequest>) -> impl IntoResponse {
 pub async fn set_network_config(
     Json(config): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    let config_json = serde_json::to_string(&config).unwrap_or_default();
+    let normalized_config = normalize_network_config(config);
+    let config_json = serde_json::to_string(&normalized_config).unwrap_or_default();
 
     let mut child = match tokio::process::Command::new("/usr/bin/iora-netctl")
         .args(["set", "-"])
@@ -1075,6 +1076,81 @@ pub async fn set_network_config(
             "ok": false,
             "error": format!("iora-netctl error: {}", e)
         })),
+    }
+}
+
+fn normalize_network_config(mut config: serde_json::Value) -> serde_json::Value {
+    let Some(obj) = config.as_object_mut() else {
+        return config;
+    };
+
+    let ipv4_config = obj.get("ipv4_config").cloned();
+    if let Some(ipv4) = ipv4_config.and_then(|value| value.as_object().cloned()) {
+        copy_string_field(&mut *obj, &ipv4, "address", "ipv4");
+        copy_string_field(&mut *obj, &ipv4, "gateway", "gateway4");
+        merge_dns_field(&mut *obj, ipv4.get("dns"));
+    }
+
+    let ipv6_config = obj.get("ipv6_config").cloned();
+    if let Some(ipv6) = ipv6_config.and_then(|value| value.as_object().cloned()) {
+        copy_string_field(&mut *obj, &ipv6, "address", "ipv6");
+        copy_string_field(&mut *obj, &ipv6, "gateway", "gateway6");
+        merge_dns_field(&mut *obj, ipv6.get("dns"));
+    }
+
+    config
+}
+
+fn copy_string_field(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    source: &serde_json::Map<String, serde_json::Value>,
+    source_key: &str,
+    target_key: &str,
+) {
+    if target.contains_key(target_key) {
+        return;
+    }
+    let Some(value) = source.get(source_key).and_then(|value| value.as_str()) else {
+        return;
+    };
+    let trimmed = value.trim();
+    if !trimmed.is_empty() {
+        target.insert(target_key.to_string(), serde_json::json!(trimmed));
+    }
+}
+
+fn merge_dns_field(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    dns_value: Option<&serde_json::Value>,
+) {
+    let Some(items) = dns_value.and_then(|value| value.as_array()) else {
+        return;
+    };
+
+    let mut merged: Vec<String> = target
+        .get("dns")
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::trim))
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for item in items {
+        let Some(value) = item.as_str().map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        if !merged.iter().any(|existing| existing == value) {
+            merged.push(value.to_string());
+        }
+    }
+
+    if !merged.is_empty() {
+        target.insert("dns".to_string(), serde_json::json!(merged));
     }
 }
 

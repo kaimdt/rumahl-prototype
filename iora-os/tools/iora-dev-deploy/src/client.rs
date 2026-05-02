@@ -1,6 +1,5 @@
 use crate::build;
 use anyhow::{anyhow, Context, Result};
-use flate2::{write::GzEncoder, Compression};
 use reqwest::{multipart, Client as HttpClient};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -276,8 +275,8 @@ impl Client {
             .with_context(|| format!("read {}", archive.path().display()))?;
 
         let file_part = multipart::Part::bytes(bytes)
-            .file_name("backend.tar.gz")
-            .mime_str("application/gzip")?;
+            .file_name("backend.tar")
+            .mime_str("application/x-tar")?;
 
         let mut form = multipart::Form::new()
             .text("component", component.to_string())
@@ -289,6 +288,7 @@ impl Client {
 
         let url = format!("{}/dev/build-replace", self.base);
         let r = self.with_auth(self.http.post(&url))
+            .timeout(Duration::from_secs(60 * 60))
             .multipart(form)
             .send().await?;
         let status = r.status();
@@ -327,8 +327,7 @@ fn create_backend_bundle() -> Result<NamedTempFile> {
     let backend = root.join("backend");
     let tmp = NamedTempFile::new().context("create temp archive")?;
     let file = File::create(tmp.path()).with_context(|| format!("open {}", tmp.path().display()))?;
-    let encoder = GzEncoder::new(file, Compression::default());
-    let mut builder = Builder::new(encoder);
+    let mut builder = Builder::new(file);
 
     builder.append_dir("backend", &backend)
         .with_context(|| format!("append backend dir {}", backend.display()))?;

@@ -21,6 +21,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
 hex = "0.4"
 futures-util = "0.3"
 mdns-sd = "0.11"

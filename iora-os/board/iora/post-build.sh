@@ -258,7 +258,48 @@ def validate_ip(value, family):
     return str(addr)
 
 
+def normalize_cfg(cfg):
+    if not isinstance(cfg, dict):
+        die("config must be a JSON object")
+    cfg = dict(cfg)
+    dns = []
+    if isinstance(cfg.get("dns"), list):
+        dns.extend(cfg["dns"])
+
+    ipv4_cfg = cfg.get("ipv4_config") or {}
+    if isinstance(ipv4_cfg, dict):
+        address = str(ipv4_cfg.get("address") or "").strip()
+        gateway = str(ipv4_cfg.get("gateway") or "").strip()
+        if address and not cfg.get("ipv4"):
+            cfg["ipv4"] = address
+        if gateway and not cfg.get("gateway4"):
+            cfg["gateway4"] = gateway
+        if isinstance(ipv4_cfg.get("dns"), list):
+            dns.extend(ipv4_cfg["dns"])
+
+    ipv6_cfg = cfg.get("ipv6_config") or {}
+    if isinstance(ipv6_cfg, dict):
+        address = str(ipv6_cfg.get("address") or "").strip()
+        gateway = str(ipv6_cfg.get("gateway") or "").strip()
+        if address and not cfg.get("ipv6"):
+            cfg["ipv6"] = address
+        if gateway and not cfg.get("gateway6"):
+            cfg["gateway6"] = gateway
+        if isinstance(ipv6_cfg.get("dns"), list):
+            dns.extend(ipv6_cfg["dns"])
+
+    seen_dns = []
+    for item in dns:
+        value = str(item).strip()
+        if value and value not in seen_dns:
+            seen_dns.append(value)
+    if seen_dns:
+        cfg["dns"] = seen_dns
+    return cfg
+
+
 def cfg_to_ini(cfg):
+    cfg = normalize_cfg(cfg)
     mode = cfg.get("mode", "dhcp").lower()
     valid_modes = ("dhcp", "static", "dhcp-v4-only", "dhcp-v6-only", "hybrid")
     if mode not in valid_modes:

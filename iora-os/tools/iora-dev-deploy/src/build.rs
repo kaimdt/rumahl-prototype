@@ -116,20 +116,8 @@ impl BuildStrategy {
 }
 
 /// Pick the best available strategy given the user's preference, the
-/// host capabilities and the component. The dev-bridge component is
-/// special-cased because it must run on the developer workstation
-/// architecture, not on the device.
-pub fn resolve_strategy(component: &Component, target: &str, requested_mode: &str) -> BuildStrategy {
-    if must_build_on_host(component) {
-        // The bridge itself can't be device-built (chicken-and-egg).
-        if host_can_cross_compile(target) {
-            return BuildStrategy::Cargo;
-        }
-        if command_exists("docker") && docker_daemon_running() {
-            return BuildStrategy::Docker;
-        }
-        return BuildStrategy::Cargo; // best-effort; the failure mode is at least obvious.
-    }
+/// host capabilities and the component.
+pub fn resolve_strategy(_component: &Component, target: &str, requested_mode: &str) -> BuildStrategy {
     let mode = requested_mode.to_lowercase();
     let mode = mode.as_str();
     match mode {
@@ -249,7 +237,8 @@ fn cargo_build_command(c: &Component, target: &str) -> Vec<String> {
 }
 
 pub fn must_build_on_host(c: &Component) -> bool {
-    is_device_bridge(c)
+    let _ = c;
+    false
 }
 
 pub fn watch_dirs(c: &Component) -> Result<Vec<PathBuf>> {

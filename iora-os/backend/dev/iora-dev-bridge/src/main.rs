@@ -47,8 +47,9 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -1389,23 +1390,7 @@ async fn build_replace(
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("write bundle: {e}")).into_response();
     }
 
-    // Extract on top of the existing tree. tar overwrites identically
-    // named files but never deletes (so `target/` survives). We use
-    // `-a` (auto-decompress) instead of `-z` because some devices ship
-    // BusyBox tar which does not support `-z` but does support `-a`
-    // (decompress based on extension). We use `-o` instead of
-    // `--no-same-owner` for the same reason (BusyBox compat).
-    let extract = run_cmd_owned(
-        "tar",
-        vec![
-            "-xaf".into(),
-            bundle_path.display().to_string(),
-            "-C".into(),
-            work_root.display().to_string(),
-            "-o".into(),
-        ],
-        None,
-    ).await;
+    let extract = extract_backend_bundle(bundle_path.clone(), work_root.clone()).await;
     if !extract.ok {
         return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "extract failed", "extract": extract }))).into_response();
     }
@@ -1806,6 +1791,45 @@ async fn run_cmd_owned(bin: &str, args: Vec<String>, cwd: Option<&std::path::Pat
             stdout: String::new(),
             stderr: format!("spawn failed: {e}"),
         },
+    }
+}
+
+async fn extract_backend_bundle(bundle_path: PathBuf, work_root: PathBuf) -> CmdResult {
+    match tokio::task::spawn_blocking(move || extract_backend_bundle_sync(&bundle_path, &work_root)).await {
+        Ok(Ok(format)) => CmdResult {
+            ok: true,
+            code: 0,
+            stdout: format!("extracted {format} bundle"),
+            stderr: String::new(),
+        },
+        Ok(Err(e)) => CmdResult { ok: false, code: 1, stdout: String::new(), stderr: e },
+        Err(e) => CmdResult { ok: false, code: 1, stdout: String::new(), stderr: format!("extract task failed: {e}") },
+    }
+}
+
+fn extract_backend_bundle_sync(bundle_path: &FsPath, work_root: &FsPath) -> std::result::Result<&'static str, String> {
+    let mut file = std::fs::File::open(bundle_path)
+        .map_err(|e| format!("open bundle {}: {e}", bundle_path.display()))?;
+    let mut magic = [0u8; 2];
+    let read = file
+        .read(&mut magic)
+        .map_err(|e| format!("read bundle header {}: {e}", bundle_path.display()))?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("rewind bundle {}: {e}", bundle_path.display()))?;
+
+    if read == 2 && magic == [0x1f, 0x8b] {
+        let decoder = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .unpack(work_root)
+            .map_err(|e| format!("unpack gzip tar into {}: {e}", work_root.display()))?;
+        Ok("tar.gz")
+    } else {
+        let mut archive = tar::Archive::new(file);
+        archive
+            .unpack(work_root)
+            .map_err(|e| format!("unpack tar into {}: {e}", work_root.display()))?;
+        Ok("tar")
     }
 }
 
@@ -2246,7 +2270,21 @@ async fn install_binary_and_restart(
     }
     let restart_result = if let Some(u) = unit {
         if is_allowed_unit(u) {
-            run_cmd("systemctl", &["restart", u]).await
+            if u == "iora-dev-bridge.service" {
+                let unit_name = u.to_string();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+                    let _ = run_cmd("systemctl", &["restart", &unit_name]).await;
+                });
+                CmdResult {
+                    ok: true,
+                    code: 0,
+                    stdout: "iora-dev-bridge restart scheduled after response".into(),
+                    stderr: String::new(),
+                }
+            } else {
+                run_cmd("systemctl", &["restart", u]).await
+            }
         } else {
             CmdResult { ok: false, code: -1, stdout: String::new(), stderr: "unit not allowlisted".into() }
         }

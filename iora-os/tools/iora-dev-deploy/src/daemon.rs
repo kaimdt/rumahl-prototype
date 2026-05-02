@@ -883,17 +883,28 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
             // the host can't realistically cross-compile, we silently
             // fall back to letting the bridge build on the device.
             let strategy = build::resolve_strategy(&entry, &b.target, &b.build_mode);
-            let effective_build_mode = if build::must_build_on_host(&entry) {
-                append_log(&s, job_id, format!("▶ {} must be built on the host (it is the bridge itself) — using {}", entry.name, strategy.label())).await;
-                "host"
-            } else if strategy == build::BuildStrategy::Device {
+            let effective_build_mode = if strategy == build::BuildStrategy::Device {
                 "device"
             } else {
                 "host"
             };
             append_log(&s, job_id, format!("▶ build {} ({}) via {} [requested: {}]", entry.name, b.target, strategy.label(), b.build_mode)).await;
             if effective_build_mode == "device" {
-                match client.build_replace_remote(&entry.name, &entry.target_path, if b.no_restart { None } else { Some(entry.unit.as_str()) }).await {
+                let mut build_future = Box::pin(client.build_replace_remote(&entry.name, &entry.target_path, if b.no_restart { None } else { Some(entry.unit.as_str()) }));
+                let mut progress_tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                let progress_started = std::time::Instant::now();
+                let build_result = loop {
+                    tokio::select! {
+                        result = &mut build_future => break result,
+                        _ = progress_tick.tick() => {
+                            let elapsed = progress_started.elapsed().as_secs();
+                            if elapsed > 0 {
+                                append_log(&s, job_id, format!("  device build lauft seit {}s", elapsed)).await;
+                            }
+                        }
+                    }
+                };
+                match build_result {
                     Ok(resp) => {
                         let ms = resp["elapsed_ms"].as_u64().unwrap_or(0);
                         let inc = resp["incremental"].as_bool().unwrap_or(false);
@@ -935,7 +946,21 @@ async fn run_deploy_job(s: AppState, job_id: Uuid, cfg: config::Config, b: Deplo
                     }
                 }
             } else {
-                match build::cargo_release_with_mode(&entry, &b.target, &b.build_mode).await {
+                let mut build_future = Box::pin(build::cargo_release_with_mode(&entry, &b.target, &b.build_mode));
+                let mut progress_tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                let progress_started = std::time::Instant::now();
+                let build_result = loop {
+                    tokio::select! {
+                        result = &mut build_future => break result,
+                        _ = progress_tick.tick() => {
+                            let elapsed = progress_started.elapsed().as_secs();
+                            if elapsed > 0 {
+                                append_log(&s, job_id, format!("  host build lauft seit {}s", elapsed)).await;
+                            }
+                        }
+                    }
+                };
+                match build_result {
                     Ok(p) => p,
                     Err(e) => {
                         append_log(&s, job_id, format!("✗ build {}: {e:#}", entry.name)).await;
