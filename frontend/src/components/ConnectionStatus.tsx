@@ -1,20 +1,21 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { Warning, WifiSlash, CheckCircle } from '@phosphor-icons/react'
+import { Warning, WifiSlash, CheckCircle, Terminal } from '@phosphor-icons/react'
 import { useConnection } from '@/contexts/ConnectionContext'
 
 export function ConnectionStatus() {
-  const { backend, homeAssistant } = useConnection()
+  const { backend, homeAssistant, devBridge } = useConnection()
 
   const showBackendError = backend === 'error' || backend === 'disconnected'
   const showHAError = homeAssistant === 'error' || homeAssistant === 'disconnected'
+  const showDevBridge = devBridge === 'connected'
 
-  if (!showBackendError && !showHAError) {
+  if (!showBackendError && !showHAError && !showDevBridge) {
     return null
   }
 
   return (
     <AnimatePresence>
-      {(showBackendError || showHAError) && (
+      {(showBackendError || showHAError || showDevBridge) && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -55,6 +56,26 @@ export function ConnectionStatus() {
                   </p>
                   <p className="text-xs text-destructive/80">
                     Prüfe deine Verbindung
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {showDevBridge && (
+            <motion.div
+              className="glass-card px-4 py-3 rounded-lg border border-green-500/20 bg-green-500/10 backdrop-blur-xl"
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+            >
+              <div className="flex items-center gap-3">
+                <Terminal size={20} weight="fill" className="text-green-400" />
+                <div>
+                  <p className="text-sm font-medium text-green-400">
+                    Dev Bridge verfügbar
+                  </p>
+                  <p className="text-xs text-green-400/60">
+                    Entwickler-Funktionen sind bereit
                   </p>
                 </div>
               </div>

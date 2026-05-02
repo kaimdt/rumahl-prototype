@@ -47,3 +47,12 @@ export function setAssistUrl(url: string): void {
     _assistUrl = url
   }
 }
+
+/**
+ * Returns the Dev Bridge URL.
+ * In production (IORA OS), the dev bridge runs on port 8101 of the same host.
+ * In local development, it can be overridden via VITE_DEV_BRIDGE_URL.
+ */
+export function getDevBridgeUrl(): string {
+  return import.meta.env.VITE_DEV_BRIDGE_URL || _backendUrl.replace(/:\d+$/, ':8101') || 'http://localhost:8101'
+}

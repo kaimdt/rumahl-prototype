@@ -52,6 +52,7 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("020_notification_channels", include_str!("../../migrations/020_notification_channels.sql")),
         ("021_desktop_commands", include_str!("../../migrations/021_desktop_commands.sql")),
         ("022_app_extended_capabilities", include_str!("../../migrations/022_app_extended_capabilities.sql")),
+        ("023_themes", include_str!("../../migrations/023_themes.sql")),
         ("023_core_registrations_and_updates", include_str!("../../migrations/023_core_registrations_and_updates.sql")),
         ("024_home_state", include_str!("../../migrations/024_home_state.sql")),
         ("025_desktop_clients", include_str!("../../migrations/025_desktop_clients.sql")),

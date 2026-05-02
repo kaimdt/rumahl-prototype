@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
@@ -50,6 +50,7 @@ import {
   CalendarBlank,
   BookOpen,
   ArrowSquareOut,
+  PaintBrush,
 } from '@phosphor-icons/react'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
@@ -58,8 +59,38 @@ import { CssSettingsSection } from '@/components/CssSettings'
 import { useLocalStorage } from '@/lib/storage'
 import { useTheme } from '@/contexts/ThemeContext'
 import type { ThemeMode } from '@/lib/types'
+import type { ThemeDefinition } from '@/contexts/ThemeContext'
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
+import type { InstalledTheme } from '@/contexts/ThemeContext'
+
+/** Map icon name string to Phosphor icon component */
+function MapThemeIcon(iconName?: string | null): React.ElementType {
+  const iconMap: Record<string, React.ElementType> = {
+    Sun, Moon, Monitor, CloudSun, SunDim, MoonStars,
+    ArrowsClockwise, Palette, PaintBrush, Sparkle, Eye,
+    Lightbulb, Star: Sparkle,
+  }
+  return iconName && iconMap[iconName] ? iconMap[iconName] : PaintBrush
+}
+
+/** Generate a preview gradient for custom themes */
+function getCustomThemePreview(theme: InstalledTheme): string {
+  // Try to parse CSS variables for a preview color
+  if (theme.css_variables) {
+    try {
+      const vars = JSON.parse(theme.css_variables)
+      const bg = vars['background'] || vars['bg'] || vars['base']
+      const accent = vars['accent'] || vars['primary']
+      if (bg && accent) {
+        // Extract OKLCH values for gradient
+        return `linear-gradient(135deg, ${bg} 0%, ${accent} 100%)`
+      }
+      if (bg) return `linear-gradient(135deg, ${bg} 0%, rgba(0,0,0,0.6) 100%)`
+    } catch {}
+  }
+  return 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
+}
 
 const API_BASE = getBackendUrl()
 
@@ -310,7 +341,7 @@ function ToggleRow({
 }
 
 // ─── Theme Picker Section ──────────────────────────────────────────────
-const THEME_OPTIONS: { value: ThemeMode | 'auto'; label: string; description: string; icon: React.ElementType; preview: string }[] = [
+const THEME_OPTIONS: { value: string; label: string; description: string; icon: React.ElementType; preview: string }[] = [
   { value: 'auto', label: 'Automatisch', description: 'Wechselt nach Tageszeit', icon: ArrowsClockwise, preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
   { value: 'light', label: 'Hell', description: 'Maximale Helligkeit', icon: Sun, preview: 'linear-gradient(135deg, #f5f5f7 0%, #e8eaf0 50%, #dde0e8 100%)' },
   { value: 'day', label: 'Tag', description: 'Helles Design', icon: CloudSun, preview: 'linear-gradient(135deg, #e0e4ec 0%, #c8cdd8 50%, #b8bfcc 100%)' },
@@ -321,12 +352,27 @@ const THEME_OPTIONS: { value: ThemeMode | 'auto'; label: string; description: st
 ]
 
 function ThemePickerSection() {
-  const { selectedTheme, setSelectedTheme, theme: activeTheme } = useTheme()
+  const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
+
+  // Combine builtin THEME_OPTIONS with custom installed themes
+  const allThemeOptions = useMemo(() => {
+    const builtin = THEME_OPTIONS
+    const custom: typeof builtin = installedThemes
+      .filter(t => t.enabled)
+      .map(t => ({
+        value: t.id,
+        label: t.name,
+        description: t.description || `v${t.version} by ${t.developer}`,
+        icon: MapThemeIcon(t.icon),
+        preview: getCustomThemePreview(t),
+      }))
+    return [...builtin, ...custom]
+  }, [installedThemes])
 
   return (
     <SettingsSection icon={Palette} title="Design-Modus" description="Farbschema pro Benutzer wählen" accentIcon>
       <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-        {THEME_OPTIONS.map(opt => {
+        {allThemeOptions.map(opt => {
           const Icon = opt.icon
           const isSelected = selectedTheme === opt.value
           return (

@@ -339,7 +339,7 @@ async fn main() -> Result<()> {
         .route("/dev/services", get(dev_services))
         .route("/dev/service/:name/restart", post(service_restart))
         .route("/dev/service/:name/reload", post(service_reload))
-        .route("/dev/service/:name/logs", post(service_logs))
+        .route("/dev/service/:name/logs", get(service_logs_get).post(service_logs))
         .route("/dev/service/:name/logs/stream", get(service_logs_stream))
         .route("/dev/compose/:svc/reload", post(compose_reload))
         .route("/dev/compose/:svc/logs", post(compose_logs))
@@ -347,6 +347,7 @@ async fn main() -> Result<()> {
         .route("/dev/fs/read", post(fs_read))
         .route("/dev/replace-binary", post(replace_binary))
         .route("/dev/build-replace", post(build_replace))
+        .route("/dev/self-update", post(self_update))
         .route("/dev/system/info", get(system_info))
         .route("/dev/system/reboot", post(system_reboot))
         .route("/dev/system/journal", get(journal_recent))
@@ -489,6 +490,10 @@ async fn status(State(s): State<AppState>) -> impl IntoResponse {
             "binary.replace",
             "binary.build_replace",
             "binary.build_replace.incremental",
+            "self.update",
+            "self.update.ssh",
+            "self.update.ftp",
+            "self.update.http",
             "system.info",
             "system.reboot",
             "system.journal",
@@ -742,6 +747,12 @@ struct LogStreamQuery {
 /// Server-Sent Events stream of journalctl output for a unit. Replaces
 /// the polling fallback the VS Code extension previously used; the IDE
 /// just attaches an EventSource and keeps the connection open.
+///
+/// Auth: accepts (1) `x-iora-dev-token` header with static dev token,
+/// (2) `authorization: Bearer` with session token from POST /dev/auth,
+/// or (3) `?token=` query param matching **either** the static dev token
+///   OR a valid session token (so browsers using EventSource work with
+///   Bearer session tokens too).
 async fn service_logs_stream(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -754,7 +765,15 @@ async fn service_logs_stream(
     let query_ok = q
         .token
         .as_deref()
-        .map(|t| ct_eq(t.as_bytes(), s.token.as_bytes()))
+        .map(|t| {
+            // Check static dev token first
+            if ct_eq(t.as_bytes(), s.token.as_bytes()) {
+                return true;
+            }
+            // Also check session tokens (Bearer tokens from POST /dev/auth)
+            let sessions = s.sessions.read().unwrap();
+            sessions.contains_key(t)
+        })
         .unwrap_or(false);
     if !header_ok && !query_ok {
         return (StatusCode::UNAUTHORIZED, "missing or invalid token".to_string()).into_response();
@@ -1166,17 +1185,19 @@ async fn build_replace(
     }
 
     // Extract on top of the existing tree. tar overwrites identically
-    // named files but never deletes (so `target/` survives). We pass
-    // `--no-same-owner` so files extracted into a root-owned tree on
-    // an arbitrary uid still succeed.
+    // named files but never deletes (so `target/` survives). We use
+    // `-a` (auto-decompress) instead of `-z` because some devices ship
+    // BusyBox tar which does not support `-z` but does support `-a`
+    // (decompress based on extension). We use `-o` instead of
+    // `--no-same-owner` for the same reason (BusyBox compat).
     let extract = run_cmd_owned(
         "tar",
         vec![
-            "-xzf".into(),
+            "-xaf".into(),
             bundle_path.display().to_string(),
             "-C".into(),
             work_root.display().to_string(),
-            "--no-same-owner".into(),
+            "-o".into(),
         ],
         None,
     ).await;
@@ -1430,6 +1451,45 @@ async fn journal_recent(
     r.into_response()
 }
 
+/// GET handler for service logs — query-based alternative to POST.
+/// Accepts `?tail=N` to specify number of lines and `?token=` for auth.
+#[derive(Deserialize)]
+struct LogsGetQuery {
+    #[serde(default)]
+    tail: Option<u32>,
+    #[serde(default)]
+    token: Option<String>,
+}
+
+async fn service_logs_get(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Query(q): Query<LogsGetQuery>,
+) -> impl IntoResponse {
+    let header_ok = check_auth(&s, &headers).is_ok();
+    let query_ok = q
+        .token
+        .as_deref()
+        .map(|t| {
+            if ct_eq(t.as_bytes(), s.token.as_bytes()) {
+                return true;
+            }
+            let sessions = s.sessions.read().unwrap();
+            sessions.contains_key(t)
+        })
+        .unwrap_or(false);
+    if !header_ok && !query_ok {
+        return (StatusCode::UNAUTHORIZED, "missing or invalid token".to_string()).into_response();
+    }
+    if !is_allowed_unit(&name) {
+        return (StatusCode::FORBIDDEN, "unit not allowlisted".to_string()).into_response();
+    }
+    let tail = q.tail.unwrap_or(200).min(5000).to_string();
+    let args = ["-u", &name, "-n", &tail, "--no-pager", "-o", "short-iso"];
+    run_cmd("journalctl", &args).await.into_response()
+}
+
 // ─── Allowlists ─────────────────────────────────────────────────────────────
 //
 // We only act on units / paths that belong to IORA so the dev bridge can't
@@ -1667,6 +1727,284 @@ fn command_exists(bin: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// ─── Self-Update ─────────────────────────────────────────────────────────
+//
+// POST /dev/self-update – Ersetzt das iora-dev-bridge Binary und startet
+// den Dienst neu. Unterstützt folgende Quellen:
+//   - HTTP/HTTPS-URL  ({"source": "http", "url": "https://..."})
+//   - SCP/SSH-Pull    ({"source": "ssh", "host": "...", "path": "...",
+//                      "user": "root", "key_path": "/root/.ssh/...",
+//                      "port": 22})
+//   - FTP             ({"source": "ftp", "url": "ftp://...",
+//                      "user": "...", "password": "..."})
+
+#[derive(Deserialize)]
+struct SelfUpdateRequest {
+    source: String,  // "http" | "ssh" | "ftp"
+    /// URL for http/ftp sources
+    #[serde(default)]
+    url: Option<String>,
+    /// SSH host (for ssh source)
+    #[serde(default)]
+    host: Option<String>,
+    /// Remote path (for ssh source)
+    #[serde(default)]
+    path: Option<String>,
+    /// SSH user (default: root)
+    #[serde(default = "default_ssh_user")]
+    user: String,
+    /// SSH port (default: 22)
+    #[serde(default = "default_ssh_port")]
+    port: u16,
+    /// Path to SSH private key (default: /root/.ssh/id_rsa)
+    #[serde(default = "default_ssh_key")]
+    key_path: String,
+    /// Password for FTP
+    #[serde(default)]
+    password: Option<String>,
+    /// SHA-256 hash to verify the downloaded binary (optional)
+    #[serde(default)]
+    expected_sha: Option<String>,
+    /// Skip TLS verification for https
+    #[serde(default)]
+    insecure: bool,
+}
+
+fn default_ssh_user() -> String { "root".to_string() }
+fn default_ssh_port() -> u16 { 22 }
+fn default_ssh_key() -> String { "/root/.ssh/id_rsa".to_string() }
+
+async fn self_update(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SelfUpdateRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&s, &headers) {
+        return e.into_response();
+    }
+
+    let self_path = "/usr/bin/iora-dev-bridge";
+    let self_unit = "iora-dev-bridge.service";
+    let tmp = "/tmp/iora-dev-bridge-update";
+    let started = std::time::Instant::now();
+
+    // ── Step 1: Download the binary ────────────────────────────
+    let download = match body.source.as_str() {
+        "http" | "https" => self_update_http(&body, tmp).await,
+        "ssh" | "scp"    => self_update_ssh(&body, tmp).await,
+        "ftp"             => self_update_ftp(&body, tmp).await,
+        other => CmdResult {
+            ok: false, code: -1,
+            stdout: String::new(),
+            stderr: format!("unsupported source '{}' — use 'http', 'ssh', or 'ftp'", other),
+        },
+    };
+
+    if !download.ok {
+        let _ = tokio::fs::remove_file(tmp).await;
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
+            "error": "download failed",
+            "source": body.source,
+            "download": download,
+            "elapsed_ms": started.elapsed().as_millis(),
+        }))).into_response();
+    }
+
+    // ── Step 2: Verify SHA if provided ─────────────────────────
+    if let Some(ref expected) = body.expected_sha {
+        let payload = match tokio::fs::read(tmp).await {
+            Ok(p) => p,
+            Err(e) => {
+                return (StatusCode::BAD_GATEWAY, format!("reading downloaded binary: {e}")).into_response();
+            }
+        };
+        let got_sha = hex::encode(Sha256::digest(&payload));
+        if !ct_eq(got_sha.as_bytes(), expected.trim().as_bytes()) {
+            let _ = tokio::fs::remove_file(tmp).await;
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "error": "SHA-256 mismatch",
+                "expected": expected,
+                "got": got_sha,
+            }))).into_response();
+        }
+    }
+
+    // ── Step 3: Replace binary ─────────────────────────────────
+    let payload = match tokio::fs::read(tmp).await {
+        Ok(p) => p,
+        Err(e) => {
+            return (StatusCode::BAD_GATEWAY, format!("reading downloaded binary: {e}")).into_response();
+        }
+    };
+    let _ = tokio::fs::remove_file(tmp).await;
+    let got_sha = hex::encode(Sha256::digest(&payload));
+
+    let restart_result = match install_binary_and_restart(self_path, &payload, Some(self_unit)).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+
+    tracing::info!(
+        "self-update: replaced {} with new binary (sha256={}) and restarted {}",
+        self_path, got_sha, self_unit
+    );
+
+    Json(serde_json::json!({
+        "ok": true,
+        "source": body.source,
+        "target": self_path,
+        "sha256": got_sha,
+        "elapsed_ms": elapsed_ms,
+        "restart": {
+            "ok": restart_result.ok,
+            "code": restart_result.code,
+            "stdout": restart_result.stdout,
+            "stderr": restart_result.stderr,
+        },
+        "note": "The dev bridge will restart — this connection will drop. Reconnect after a few seconds.",
+    })).into_response()
+}
+
+async fn self_update_http(body: &SelfUpdateRequest, output: &str) -> CmdResult {
+    let url = match &body.url {
+        Some(u) => u,
+        None => return CmdResult {
+            ok: false, code: -1, stdout: String::new(),
+            stderr: "missing 'url' field for http source".into(),
+        },
+    };
+
+    if command_exists("curl") {
+        let mut args = vec![
+            "-sSL".into(),
+            "-o".into(),
+            output.to_string(),
+            url.clone(),
+        ];
+        if body.insecure {
+            args.insert(0, "-k".into());
+        }
+        run_cmd_owned("curl", args, None).await
+    } else if command_exists("wget") {
+        let mut args = vec![
+            "-O".into(),
+            output.to_string(),
+            url.clone(),
+        ];
+        if body.insecure {
+            args.push("--no-check-certificate".into());
+        }
+        run_cmd_owned("wget", args, None).await
+    } else {
+        CmdResult {
+            ok: false, code: -1, stdout: String::new(),
+            stderr: "neither curl nor wget available on device".into(),
+        }
+    }
+}
+
+async fn self_update_ftp(body: &SelfUpdateRequest, output: &str) -> CmdResult {
+    let url = match &body.url {
+        Some(u) => u,
+        None => return CmdResult {
+            ok: false, code: -1, stdout: String::new(),
+            stderr: "missing 'url' field for ftp source".into(),
+        },
+    };
+
+    // curl supports ftp:// and ftps:// URLs natively
+    if command_exists("curl") {
+        let mut args = vec![
+            "-sS".into(),
+            "-o".into(),
+            output.to_string(),
+            url.clone(),
+        ];
+        if body.user != "root" && body.password.is_some() {
+            args.push("-u".into());
+            args.push(format!("{}:{}", body.user, body.password.as_deref().unwrap_or("")));
+        }
+        run_cmd_owned("curl", args, None).await
+    } else if command_exists("wget") {
+        let mut args = vec![
+            "-O".into(),
+            output.to_string(),
+            url.clone(),
+        ];
+        if body.user != "root" {
+            args.push("--ftp-user".into());
+            args.push(body.user.clone());
+            if let Some(ref pw) = body.password {
+                args.push("--ftp-password".into());
+                args.push(pw.clone());
+            }
+        }
+        run_cmd_owned("wget", args, None).await
+    } else {
+        CmdResult {
+            ok: false, code: -1, stdout: String::new(),
+            stderr: "neither curl nor wget available for ftp download".into(),
+        }
+    }
+}
+
+async fn self_update_ssh(body: &SelfUpdateRequest, output: &str) -> CmdResult {
+    let host = match &body.host {
+        Some(h) => h,
+        None => return CmdResult {
+            ok: false, code: -1, stdout: String::new(),
+            stderr: "missing 'host' field for ssh source".into(),
+        },
+    };
+    let remote_path = match &body.path {
+        Some(p) => p,
+        None => "/usr/bin/iora-dev-bridge",
+    };
+    let port = body.port;
+
+    // Try scp first, then rsync over ssh as fallback
+    if command_exists("scp") {
+        let identity = if body.key_path != "/root/.ssh/id_rsa" && std::path::Path::new(&body.key_path).exists() {
+            vec!["-i".into(), body.key_path.clone()]
+        } else {
+            vec![]
+        };
+
+        let mut args = identity;
+        if port != 22 {
+            args.push("-P".into());
+            args.push(port.to_string());
+        }
+        args.push("-o".into());
+        args.push("StrictHostKeyChecking=no".into());
+        args.push("-o".into());
+        args.push("UserKnownHostsFile=/dev/null".into());
+        args.push(format!("{}@{}:{}", body.user, host, remote_path));
+        args.push(output.to_string());
+
+        run_cmd_owned("scp", args, None).await
+    } else if command_exists("rsync") && command_exists("ssh") {
+        let mut args = vec![
+            "-avz".into(),
+            "-e".into(),
+            format!("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {}", port),
+            format!("{}@{}:{}", body.user, host, remote_path),
+            output.to_string(),
+        ];
+        if body.key_path != "/root/.ssh/id_rsa" && std::path::Path::new(&body.key_path).exists() {
+            args.insert(2, format!("-i {}", body.key_path));
+        }
+        run_cmd_owned("rsync", args, None).await
+    } else {
+        CmdResult {
+            ok: false, code: -1, stdout: String::new(),
+            stderr: "neither scp nor rsync available for ssh download".into(),
+        }
+    }
 }
 
 async fn install_binary_and_restart(

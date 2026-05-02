@@ -1,0 +1,53 @@
+{
+  "id": "steampunk",
+  "name": "Steampunk",
+  "version": "1.0.0",
+  "developer": "IORA Community",
+  "description": "Ein opulentes Steampunk-Theme mit viktorianischen Elementen – Messing, Kupfer, Leder und Zahnräder.",
+  "type": "theme",
+  "icon": "Gear",
+  "theme": {
+    "parent_theme": "night",
+    "order": 60,
+    "preview_image": "images/preview.svg",
+    "css_files": [
+      "variables.css",
+      "theme.css"
+    ],
+    "js_files": [
+    ],
+    "html_templates": {
+      "header": "html/templates/header.html",
+      "widget-frame": "html/templates/widget-frame.html"
+    },
+    "fonts": [
+      {
+        "name": "Playfair Display",
+        "family": "'Playfair Display', 'Georgia', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900&display=swap",
+        "weights": "400;700;900",
+        "is_heading": true
+      },
+      {
+        "name": "Cinzel Decorative",
+        "family": "'Cinzel Decorative', 'Playfair Display', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&display=swap",
+        "weights": "400;700;900",
+        "is_primary": true
+      },
+      {
+        "name": "Courier Prime",
+        "family": "'Courier Prime', 'Courier New', monospace",
+        "url": "https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700&display=swap",
+        "weights": "400;700",
+        "is_monospace": true
+      }
+    ],
+    "css_variables": {
+      "steampunk-brass": "oklch(0.72 0.14 70)",
+      "steampunk-copper": "oklch(0.6 0.12 50)",
+      "steampunk-gold": "oklch(0.75 0.12 80)",
+      "steampunk-leather": "oklch(0.25 0.05 40)"
+    }
+  }
+}

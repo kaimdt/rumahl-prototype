@@ -110,6 +110,13 @@ pub struct AppManifest {
     /// Inter-app messaging (pub/sub) configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub messaging: Option<MessagingConfig>,
+
+    /// --- New in v2.2: Theme definition ---
+    ///
+    /// If the app/plugin provides a custom theme, define it here.
+    /// The theme will be available for users to select in the Settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<crate::theme::ThemeDefinition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

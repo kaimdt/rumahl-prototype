@@ -51,6 +51,7 @@ mod app_database_handler;
 mod app_scheduler_handler;
 mod app_messaging_handler;
 mod app_webhooks_handler;
+mod theme_handler;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -191,6 +192,9 @@ pub struct AppState {
 
     /// App webhook handler
     pub app_webhooks: Arc<app_webhooks_handler::AppWebhooksState>,
+
+    /// Theme manager – file-based themes
+    pub theme_manager: Arc<theme_handler::ThemeState>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -713,6 +717,22 @@ async fn main() -> anyhow::Result<()> {
         app_scheduler: Arc::new(app_scheduler_handler::AppSchedulerState::new()),
         app_messaging: Arc::new(app_messaging_handler::AppMessagingState::new()),
         app_webhooks: Arc::new(app_webhooks_handler::AppWebhooksState::new()),
+
+        // Theme system
+        theme_manager: {
+            let data_dir = std::env::var("IORA_THEMES_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| {
+                    if cfg!(target_os = "linux") {
+                        std::path::PathBuf::from("/var/lib/iora/themes")
+                    } else {
+                        std::env::current_dir()
+                            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                            .join("data")
+                    }
+                });
+            Arc::new(theme_handler::ThemeState::new(db_pool.clone(), &data_dir))
+        },
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -720,6 +740,11 @@ async fn main() -> anyhow::Result<()> {
         Ok(Some(username)) => info!("No admin found – auto-promoted '{}' to admin", username),
         Ok(None) => {}
         Err(e) => warn!("Failed to check admin status: {}", e),
+    }
+
+    // Refresh theme cache
+    if let Err(e) = state.theme_manager.refresh_cache().await {
+        warn!("Failed to refresh theme cache: {}", e);
     }
 
     // ── Developer-Mode bootstrap ─────────────────────────────────
@@ -1167,6 +1192,14 @@ async fn main() -> anyhow::Result<()> {
         .merge(scheduler_router)
         .merge(webhooks_router)
         .merge(messaging_router)
+        // Theme API
+        .route("/api/themes", get(theme_handler::list_themes))
+        .route("/api/themes/install", post(handle_theme_zip_install))
+        .route("/api/themes/install-from-manifest", post(theme_handler::handle_install_theme_inline))
+        .route("/api/themes/:theme_id", delete(theme_handler::uninstall_theme))
+        .route("/api/themes/user/:profile_id", get(theme_handler::get_user_theme).post(theme_handler::set_user_theme))
+        .route("/api/themes/css/:profile_id", get(theme_handler::get_theme_css))
+        .route("/api/themes/assets/:theme_id/*path", get(theme_handler::serve_theme_asset))
         // Home Assistant API proxy
         .route("/api/states", get(get_states))
         .route("/api/states/:entity_id", get(get_state))
@@ -15115,3 +15148,36 @@ async fn api_doc_sse_system_stream() {}
     )
 )]
 async fn api_doc_realtime_ws() {}
+
+/// POST /api/themes/install - Install theme from base64-encoded ZIP
+async fn handle_theme_zip_install(
+    State(gs): State<AppState>,
+    body: String,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    use base64::Engine as _;
+    let v: Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid JSON".into())),
+    };
+    let zip_data = match v.get("zip_data").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Err((StatusCode::BAD_REQUEST, "Missing zip_data".into())),
+    };
+    let payload = zip_data.split(',').last().unwrap_or(zip_data).trim();
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(payload.as_bytes()) {
+        Ok(b) => b,
+        Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid base64".into())),
+    };
+    if bytes.is_empty() { return Err((StatusCode::BAD_REQUEST, "Empty ZIP".into())); }
+    if bytes.len() > 256*1024*1024 { return Err((StatusCode::BAD_REQUEST, "ZIP >256 MiB".into())); }
+    // Step 1: Extract ZIP on blocking thread (contains non-Send types)
+    let tm = gs.theme_manager.clone();
+    let def = tokio::task::spawn_blocking(move || {
+        tm.extract_zip(&bytes)
+    }).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Spawn: {}", e)))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Extract: {}", e)))?;
+    // Step 2: Store in DB (async, no non-Send types)
+    let def = gs.theme_manager.store_theme(def).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Store: {}", e)))?;
+    Ok(Json(json!({"status":"ok","theme":{"id":def.id,"name":def.name,"version":def.version}})))
+}

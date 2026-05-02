@@ -86,6 +86,11 @@
         {
           "title": "Inter-App Messaging",
           "path": "development/app-messaging.md"
+        },
+        {
+          "title": "Theme System",
+          "path": "development/theme-system.md",
+          "highlight": true
         }
       ]
     },

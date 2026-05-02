@@ -127,6 +127,14 @@ pub enum Permission {
     WebhookUpdate,
     WebhookDelete,
     WebhookManage,
+
+    // Theme permissions
+    /// Install custom themes from app/plugin manifests
+    ThemeInstall,
+    /// Manage installed themes (enable/disable/uninstall)
+    ThemeManage,
+    /// Select and apply themes per user
+    ThemeSelect,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -423,6 +431,10 @@ impl Permission {
             Permission::WebhookUpdate => "Aktualisieren von Webhook-Endpunkten",
             Permission::WebhookDelete => "Löschen von Webhook-Endpunkten",
             Permission::WebhookManage => "Verwaltung aller Webhooks (Admin)",
+            Permission::ThemeInstall => "Installieren von Themes aus App-/Plugin-Manifesten",
+            Permission::ThemeManage => "Verwalten installierter Themes (aktivieren/deaktivieren/deinstallieren)",
+            Permission::ThemeSelect => "Auswählen und Anwenden von Themes pro Benutzer",
+
         }
     }
 
@@ -442,6 +454,8 @@ impl Permission {
             | Permission::AppStorageWrite | Permission::AppScheduleCreate | Permission::AppScheduleUpdate
             | Permission::MessagingPublish | Permission::MessagingSubscribe | Permission::MessagingDirect
             | Permission::WebhookCreate | Permission::WebhookUpdate => RiskLevel::Medium,
+            Permission::ThemeSelect => RiskLevel::Low,
+            Permission::ThemeInstall => RiskLevel::Medium,
 
             Permission::CreateEntities | Permission::DeleteEntities | Permission::StorageDelete
             | Permission::NetworkOutbound | Permission::NetworkInbound | Permission::NetworkLocalAccess
@@ -457,7 +471,8 @@ impl Permission {
             | Permission::FileShareManage | Permission::DeveloperAccess | Permission::InterAppCommunication
             | Permission::LiveMetrics | Permission::DirectDeploy | Permission::DebugAccess
             | Permission::LiveLogs | Permission::HotReload
-            | Permission::AppStorageManage | Permission::AppDatabaseManage | Permission::WebhookManage => RiskLevel::Critical,
+            | Permission::AppStorageManage | Permission::AppDatabaseManage | Permission::WebhookManage
+            | Permission::ThemeManage => RiskLevel::Critical,
         }
     }
 
@@ -483,6 +498,9 @@ impl Permission {
             Permission::MessagingSubscribe |
             Permission::WebhookCreate |
             Permission::WebhookRead
+        ) || matches!(self,
+            Permission::ThemeInstall |
+            Permission::ThemeSelect
         )
     }
 
@@ -515,7 +533,8 @@ impl Permission {
             Permission::AppStorageManage |
             Permission::AppDatabaseManage |
             Permission::MessagingWildcard |
-            Permission::WebhookManage
+            Permission::WebhookManage |
+            Permission::ThemeManage
         )
     }
 

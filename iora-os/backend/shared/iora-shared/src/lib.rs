@@ -22,3 +22,4 @@ pub mod app_database;
 pub mod app_scheduler;
 pub mod app_messaging;
 pub mod app_webhooks;
+pub mod theme;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -14,14 +14,17 @@ import {
   MagnifyingGlassPlus, Timer, ChartLine, BookOpen, CalendarBlank, TrendUp, Heartbeat, Dog, CaretDown, CaretUp,
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
   Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
-  Terminal, List, Sparkle
+  Terminal, List, Sparkle,
+  Palette, TrashSimple, Check, EyeSlash
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
 import { SystemInfoTab, PluginsTab, RegistrationManagementTab, SecurityMonitorTab, UpdateManagementTab, WidgetManagementTab, AppStoreTab } from './AdminPanelTabs'
 import { AgentTab } from './AgentTab'
 import { InfrastructureVisualization } from './InfrastructureVisualization'
-import { getBackendUrl, getAssistUrl } from '@/lib/config'
+import { getBackendUrl, getAssistUrl, getDevBridgeUrl } from '@/lib/config'
+import { useTheme } from '@/contexts/ThemeContext'
+import { authFetch } from '@/lib/authHelpers'
 
 interface CloudSettings {
   connectorHost: string
@@ -62,7 +65,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power'
+type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -102,7 +105,7 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
   { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
   { id: 'health-intelligence', label: 'Health Intelligence', icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
-  { id: 'global-config', label: 'Globale Konfiguration', icon: Gear, description: 'Zentrale IORA-OS Konfiguration mit Kategorien — spiegelt das .env-System wider, mit Beschreibungen und Validierung pro Eintrag' },
+  { id: 'themes', label: 'Themes', icon: Palette, description: 'Installierte Themes verwalten — eigene Farbschemas installieren, aktivieren/deaktivieren und löschen' },
   { id: 'developer-mode', label: 'Developer Mode', icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
   { id: 'documentation', label: 'Dokumentation', icon: BookOpen, description: 'IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation' },
   { id: 'protocols', label: 'Protokoll-Übersicht', icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
@@ -163,6 +166,7 @@ const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: str
   { id: 'domain-validator', label: 'Domain Validator', icon: ShieldCheck, description: 'App-Zugriffsrichtlinien für externe Domains und Audit-Log (iora-domain-validator)' },
   { id: 'resources', label: 'Ressourcen', icon: HardDrive, description: 'Container-Ressourcenverwaltung, CPU-/RAM-Allokation und Reallokation (iora-resource-manager)' },
   { id: 'api-bridge', label: 'API Bridge', icon: Code, description: 'GraphQL, WebDAV, CalDAV und MQTT-Bridge — externe Schnittstellen der iora-api' },
+  { id: 'dev-bridge', label: 'Dev Bridge', icon: Terminal, description: 'IORA OS Dev Bridge — Service-Logs, System-Info, Filesystem, Build & Replace und Live-Streaming aller Dienste auf Entwickler-Images' },
   { id: 'os-ssh', label: 'SSH-Zugang', icon: Terminal, description: 'SSH-Server aktivieren/deaktivieren, autorisierte Schlüssel und SSH-Benutzer verwalten — nur auf IORA OS' },
   { id: 'os-network-config', label: 'IP-Konfiguration', icon: Globe, description: 'Netzwerk-Interfaces auflisten und IP/Gateway/DNS pro Interface konfigurieren — nur auf IORA OS' },
   { id: 'os-disks', label: 'Festplatten', icon: HardDrive, description: 'Alle gemounteten Datenträger, Belegung, Dateisysteme und entfernbare Medien — nur auf IORA OS' },
@@ -178,9 +182,9 @@ type TabGroup = {
 }
 
 const tabGroups: TabGroup[] = [
-  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'health-intelligence', 'global-config', 'developer-mode', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
+  { id: 'core', title: 'System & Kontrolle', icon: Cpu, items: ['services', 'health-intelligence', 'global-config', 'developer-mode', 'dev-bridge', 'documentation', 'tasks', 'control-mode', 'system', 'system-info', 'network', 'infrastructure', 'devices'] },
   { id: 'ai', title: 'KI & Assistent', icon: Brain, items: ['ai-agent', 'ai-overview', 'ai-providers', 'ai-conversations', 'ai-tasks', 'ai-tools', 'ai-voice'] },
-  { id: 'extensions', title: 'Apps & Plugins', icon: Lightning, items: ['apps', 'plugins', 'registrations', 'security-monitor', 'updates', 'widgets'] },
+  { id: 'extensions', title: 'Apps, Plugins & Themes', icon: Palette, items: ['apps', 'plugins', 'themes', 'registrations', 'security-monitor', 'updates', 'widgets'] },
   { id: 'home', title: 'Home Assistant', icon: Cube, items: ['ha-config', 'ha-connection', 'integrations', 'entities', 'ha-tools', 'scenes', 'automations', 'logbook', 'calendars'] },
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
   { id: 'services', title: 'IORA Backend-Dienste', icon: Plug, items: ['secrets', 'files', 'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge'] },
@@ -824,7 +828,9 @@ export function AdminPanel() {
               {activeTab === 'os-disks' && <OsDisksTab token={token} />}
               {activeTab === 'os-processes' && <OsProcessesTab token={token} />}
               {activeTab === 'os-power' && <OsPowerTab token={token} />}
+              {activeTab === 'dev-bridge' && <DevBridgeTab token={token} />}
               {activeTab === 'devices' && <DevicesTab token={token} />}
+              {activeTab === 'themes' && <ThemesTab token={token} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -8051,6 +8057,920 @@ interface AdminDevicesPayload {
   online_threshold_seconds: number
 }
 
+// ═════════════════════════════════════════════════════════════════
+// Dev Bridge Tab — IORA OS Dev Bridge Management
+// ═════════════════════════════════════════════════════════════════
+//
+// Vollständige Integration der iora-dev-bridge (Port 8101) ins WebUI:
+// - Service-Status und Logs (auch Live-Stream über SSE)
+// - System-Info (CPU, RAM, Disk, Uptime)
+// - Docker-Compose-Management
+// - Dateisystem-Browser und Datei-Reader
+// - Binary Build und Replace
+
+/**
+ * Ruft einen Dev-Bridge-Endpunkt auf. Authentifizierung erfolgt wahlweise
+ * per Session-Token (Bearer, via /dev/auth) oder per Statischem Dev-Token.
+ */
+async function devBridgeFetch(path: string, devToken?: string | null, options?: RequestInit): Promise<Response> {
+  const baseUrl = getDevBridgeUrl()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options?.headers as Record<string, string>) || {}),
+  }
+  if (devToken) {
+    headers['x-iora-dev-token'] = devToken
+  }
+  return fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers,
+  })
+}
+
+function DevBridgeTab({ token: _token }: { token: string }) {
+  const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'online' | 'offline'>('checking')
+  const [bridgeStatusText, setBridgeStatusText] = useState('')
+  const [devToken, setDevToken] = useState<string | null>(null)
+  const [bridgeBuild, setBridgeBuild] = useState('')
+  const [activeSubTab, setActiveSubTab] = useState<'services' | 'system-info' | 'filesystem' | 'build'>('services')
+  const [loginUser, setLoginUser] = useState('')
+  const [loginPass, setLoginPass] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [loginError, setLoginError] = useState('')
+
+  // ─── Bridge-Konnektivität prüfen ────────────────────────────
+  const checkBridge = useCallback(async () => {
+    setBridgeStatus('checking')
+    try {
+      const baseUrl = getDevBridgeUrl()
+      const res = await fetch(`${baseUrl}/dev/health`, { signal: AbortSignal.timeout(5_000) })
+      if (res.ok) {
+        const data = await res.json()
+        setBridgeStatus('online')
+        setBridgeBuild(data.build || '')
+        setBridgeStatusText(`Build ${data.build || '?'}, Uptime ${data.uptime_seconds || 0}s`)
+      } else {
+        setBridgeStatus('offline')
+        setBridgeStatusText(`HTTP ${res.status}`)
+      }
+    } catch (e) {
+      setBridgeStatus('offline')
+      setBridgeStatusText(e instanceof Error ? e.message : 'Unbekannter Fehler')
+    }
+  }, [])
+
+  useEffect(() => { checkBridge() }, [checkBridge])
+
+  // ─── Auto-Login via gespeichertem Session-Token ─────────────
+  useEffect(() => {
+    const stored = localStorage.getItem('iora-dev-session-token') || sessionStorage.getItem('iora-dev-session-token')
+    // Fallback: statischer Dev-Token
+    const staticToken = localStorage.getItem('iora-dev-token')
+    if (stored) {
+      setDevToken(stored)
+    } else if (staticToken) {
+      setDevToken(staticToken)
+    }
+  }, [])
+
+  // ─── Login bei der Dev Bridge ───────────────────────────────
+  const handleDevBridgeLogin = async () => {
+    if (!loginUser || !loginPass) return
+    setLoginLoading(true)
+    setLoginError('')
+    try {
+      const res = await fetch(`${getDevBridgeUrl()}/dev/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginUser, password: loginPass }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setDevToken(data.token)
+      localStorage.setItem('iora-dev-session-token', data.token)
+      toast.success('Dev Bridge Login erfolgreich')
+      setLoginUser('')
+      setLoginPass('')
+    } catch (e) {
+      setLoginError(e instanceof Error ? e.message : String(e))
+    }
+    setLoginLoading(false)
+  }
+
+  const handleLogout = () => {
+    setDevToken(null)
+    localStorage.removeItem('iora-dev-session-token')
+    sessionStorage.removeItem('iora-dev-session-token')
+  }
+
+  // ─── Subtabs ─────────────────────────────────────────────────
+  if (bridgeStatus === 'checking') {
+    return (
+      <div className="space-y-3">
+        <AdminCard title="Dev Bridge" icon={Terminal}>
+          <div className="flex items-center gap-3 p-4">
+            <div className="w-5 h-5 rounded-full border-2 border-foreground/30 border-t-accent animate-spin" />
+            <p className="text-sm text-foreground/60">Prüfe Verbindung zur Dev Bridge unter {getDevBridgeUrl()}...</p>
+          </div>
+        </AdminCard>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Bridge-Status-Karte mit Login */}
+      <AdminCard title="Dev Bridge Status" icon={Terminal}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${
+              bridgeStatus === 'online' ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]' : 'bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.5)]'
+            }`} />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {bridgeStatus === 'online' ? 'Verbunden' : 'Nicht erreichbar'}
+              </p>
+              <p className="text-xs text-foreground/50 font-mono">
+                {getDevBridgeUrl()} — {bridgeStatusText}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {devToken ? (
+              <button onClick={handleLogout} className={ccBtnDanger('text-xs')}>
+                <X size={14} /> Abmelden
+              </button>
+            ) : null}
+            <button onClick={checkBridge} className={ccBtnSecondary('text-xs')}>
+              <ArrowClockwise size={14} /> Neu prüfen
+            </button>
+          </div>
+        </div>
+
+        {/* Login-Formular wenn kein Token vorhanden */}
+        {!devToken && bridgeStatus === 'online' && (
+          <div className="mt-4 p-4 rounded-xl bg-foreground/3 border border-foreground/5">
+            <p className="text-xs font-semibold text-foreground/80 mb-3">
+              Anmeldung an der Dev Bridge erforderlich — verwende deine IORA-Dashboard-Zugangsdaten:
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input type="text" value={loginUser} onChange={e => setLoginUser(e.target.value)}
+                placeholder="Benutzername" className={ccInput('text-xs')}
+                onKeyDown={e => e.key === 'Enter' && handleDevBridgeLogin()} />
+              <input type="password" value={loginPass} onChange={e => setLoginPass(e.target.value)}
+                placeholder="Passwort" className={ccInput('text-xs')}
+                onKeyDown={e => e.key === 'Enter' && handleDevBridgeLogin()} />
+              <button onClick={handleDevBridgeLogin} disabled={loginLoading || !loginUser || !loginPass}
+                className={ccBtnPrimary('text-xs whitespace-nowrap')}>
+                {loginLoading ? 'Verbindet…' : 'Anmelden'}
+              </button>
+            </div>
+            {loginError && <p className="text-xs text-red-400 mt-2">{loginError}</p>}
+          </div>
+        )}
+      </AdminCard>
+
+      {/* Subtabs (nur wenn authentifiziert) */}
+      {devToken && (
+        <>
+          <div className="flex gap-1.5 flex-wrap">
+            {([
+              { id: 'services' as const, label: 'Dienste & Logs', icon: Gauge },
+              { id: 'system-info' as const, label: 'System-Info', icon: Cpu },
+              { id: 'filesystem' as const, label: 'Dateisystem', icon: FolderOpen },
+              { id: 'build' as const, label: 'Build & Replace', icon: Code },
+            ]).map(sub => (
+              <button key={sub.id} onClick={() => setActiveSubTab(sub.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeSubTab === sub.id ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/8'
+                }`}>
+                <sub.icon size={14} className="inline mr-1.5" />
+                {sub.label}
+              </button>
+            ))}
+          </div>
+
+          {activeSubTab === 'services' && <DevBridgeServices devToken={devToken} />}
+          {activeSubTab === 'system-info' && <DevBridgeSystemInfo devToken={devToken} />}
+          {activeSubTab === 'filesystem' && <DevBridgeFilesystem devToken={devToken} />}
+          {activeSubTab === 'build' && <DevBridgeBuild devToken={devToken} />}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Dev Bridge: Dienste & Logs ─────────────────────────────────────────
+
+function DevBridgeServices({ devToken }: { devToken: string | null }) {
+  const [services, setServices] = useState<Array<{ name: string; status: string; url?: string; version?: string; response_time_ms?: number; uptime?: string }>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [restarting, setRestarting] = useState<string | null>(null)
+  const [streamingService, setStreamingService] = useState<string | null>(null)
+  const [streamLogs, setStreamLogs] = useState<string[]>([])
+  const streamRef = useRef<EventSource | null>(null)
+
+  const loadServices = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await devBridgeFetch('/dev/services', devToken)
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      const list = data.services || data || []
+      setServices(Array.isArray(list) ? list : [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    setLoading(false)
+  }, [devToken])
+
+  useEffect(() => { if (devToken) loadServices() }, [devToken, loadServices])
+
+  const restartService = async (name: string) => {
+    setRestarting(name)
+    try {
+      const res = await devBridgeFetch(`/dev/service/${encodeURIComponent(name)}/restart`, devToken, { method: 'POST' })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || `HTTP ${res.status}`)
+      }
+      toast.success(`${name} wird neu gestartet…`)
+      setTimeout(() => loadServices(), 3000)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+    setRestarting(null)
+  }
+
+  const startStream = (name: string) => {
+    if (streamRef.current) {
+      streamRef.current.close()
+    }
+    setStreamLogs([])
+    setStreamingService(name)
+
+    const baseUrl = getDevBridgeUrl()
+    const tokenParam = devToken ? `&token=${encodeURIComponent(devToken)}` : ''
+    const es = new EventSource(`${baseUrl}/dev/service/${encodeURIComponent(name)}/logs/stream?tail=50${tokenParam}`)
+
+    es.addEventListener('hello', (e: Event) => {
+      const msgEvent = e as MessageEvent
+      setStreamLogs(prev => [...prev, `── ${msgEvent.data}`])
+    })
+
+    es.onmessage = (e: MessageEvent) => {
+      setStreamLogs(prev => {
+        const next = [...prev, e.data]
+        return next.length > 500 ? next.slice(-500) : next
+      })
+    }
+
+    es.addEventListener('error', (e: Event) => {
+      const msgEvent = e as MessageEvent
+      if (msgEvent.data) {
+        setStreamLogs(prev => [...prev, `⚠️ ${msgEvent.data}`])
+      }
+    })
+
+    es.onerror = () => {
+      setStreamLogs(prev => [...prev, '⚠️ Verbindung unterbrochen'])
+      es.close()
+      setStreamingService(null)
+    }
+
+    streamRef.current = es
+  }
+
+  const stopStream = () => {
+    if (streamRef.current) {
+      streamRef.current.close()
+      streamRef.current = null
+    }
+    setStreamingService(null)
+    setStreamLogs([])
+  }
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => { if (streamRef.current) streamRef.current.close() }
+  }, [])
+
+  if (!devToken) {
+    return (
+      <AdminCard>
+        <div className="p-4 text-center">
+          <p className="text-sm text-foreground/60">Dev-Token nicht gefunden.</p>
+          <p className="text-xs text-foreground/40 mt-2">
+            Bitte im Developer-Mode-Tab den Dev-Bridge-Token hinterlegen oder das
+            OS-Entwickler-Image verwenden.
+          </p>
+        </div>
+      </AdminCard>
+    )
+  }
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+
+  const onlineCount = services.filter(s => s.status === 'online').length
+
+  return (
+    <div className="space-y-3">
+      {/* Live-Log-Stream */}
+      {streamingService && (
+        <AdminCard title={`Live-Log: ${streamingService}`} icon={Broadcast}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-xs text-green-400 font-medium">Live-Stream aktiv</span>
+              </div>
+              <button onClick={stopStream} className={ccBtnDanger('text-xs')}>
+                <X size={14} /> Stream beenden
+              </button>
+            </div>
+            <div className="max-h-[400px] overflow-y-auto font-mono text-[10px] leading-relaxed bg-black/20 rounded-xl p-3 space-y-0.5">
+              {streamLogs.length === 0 ? (
+                <p className="text-foreground/50 text-center py-4">Warte auf Log-Einträge…</p>
+              ) : streamLogs.map((line, i) => (
+                <div key={i} className={`${
+                  line.includes('ERROR') || line.includes('error') ? 'text-red-400' :
+                  line.includes('WARN') || line.includes('warn') ? 'text-amber-400' :
+                  line.startsWith('⚠') ? 'text-amber-300' :
+                  line.startsWith('──') ? 'text-foreground/40' :
+                  'text-foreground/70'
+                }`}>{line}</div>
+              ))}
+            </div>
+          </div>
+        </AdminCard>
+      )}
+
+      {/* Service-Übersicht */}
+      <AdminCard title={`Dienste (${onlineCount}/${services.length} online)`} icon={Gauge}>
+        <div className="space-y-2">
+          {services.length === 0 ? (
+            <p className="text-xs text-foreground/50 text-center py-4">Keine Dienste gefunden.</p>
+          ) : services.map(svc => (
+            <div key={svc.name} className="flex items-start justify-between gap-3 p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                  svc.status === 'online' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]' :
+                  svc.status === 'degraded' ? 'bg-amber-400' :
+                  svc.status === 'not_deployed' ? 'bg-foreground/30' :
+                  'bg-red-400'
+                }`} />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{svc.name}</p>
+                  {svc.url && <p className="text-[10px] text-foreground/40 font-mono truncate">{svc.url}</p>}
+                  <div className="flex gap-2 mt-0.5">
+                    {svc.response_time_ms && <span className="text-[10px] text-foreground/50">{svc.response_time_ms}ms</span>}
+                    {svc.version && <span className="text-[10px] text-foreground/50">v{svc.version}</span>}
+                    {svc.uptime && <span className="text-[10px] text-foreground/50">{svc.uptime}</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => startStream(svc.name)}
+                  disabled={streamingService === svc.name}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+                    streamingService === svc.name
+                      ? 'bg-green-500/20 text-green-300'
+                      : 'bg-foreground/8 text-foreground/60 hover:text-accent hover:bg-accent/10'
+                  }`}
+                  title="Live-Log streamen">
+                  <Broadcast size={11} className="inline mr-1" />
+                  {streamingService === svc.name ? 'Streamt' : 'Live'}
+                </button>
+                <button onClick={() => restartService(svc.name)}
+                  disabled={restarting === svc.name}
+                  className="px-2.5 py-1 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+                  title="Dienst neu starten">
+                  <ArrowClockwise size={11} className={restarting === svc.name ? 'animate-spin inline mr-1' : 'inline mr-1'} />
+                  {restarting === svc.name ? 'Starte…' : 'Restart'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end mt-2">
+          <button onClick={loadServices} className={ccBtnSecondary('text-xs')}>
+            <ArrowClockwise size={14} /> Aktualisieren
+          </button>
+        </div>
+      </AdminCard>
+    </div>
+  )
+}
+
+// ─── Dev Bridge: System-Info ────────────────────────────────────────────
+
+function DevBridgeSystemInfo({ devToken }: { devToken: string | null }) {
+  const [info, setInfo] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    if (!devToken) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await devBridgeFetch('/dev/system/info', devToken)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setInfo(await res.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    setLoading(false)
+  }, [devToken])
+
+  useEffect(() => { load() }, [load])
+
+  if (!devToken) return null
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+  if (!info) return null
+
+  const formatBytes = (b: number) => {
+    if (b >= 1_000_000_000) return `${(b / 1_000_000_000).toFixed(1)} GB`
+    if (b >= 1_000_000) return `${(b / 1_000_000).toFixed(1)} MB`
+    if (b >= 1_000) return `${(b / 1_000).toFixed(1)} KB`
+    return `${b} B`
+  }
+
+  const formatUptime = (sec: number) => {
+    const d = Math.floor(sec / 86400)
+    const h = Math.floor((sec % 86400) / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    return `${d}d ${h}h ${m}m`
+  }
+
+  return (
+    <AdminCard title="System-Informationen" icon={Cpu}>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">Hostname</div>
+          <div className="text-sm font-semibold text-foreground font-mono">{String(info.hostname || '–')}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">Build</div>
+          <div className="text-sm font-semibold text-foreground font-mono">{String(info.build || '–')}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">Uptime</div>
+          <div className="text-sm font-semibold text-foreground">{formatUptime(Number(info.uptime_seconds || 0))}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">CPU</div>
+          <div className="text-sm font-semibold text-foreground">{String(info.cpu_count || '?')} Kerne</div>
+          <div className="text-[10px] text-foreground/40 mt-0.5">Load: {String(info.loadavg || '–')}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">Arbeitsspeicher</div>
+          <div className="text-sm font-semibold text-foreground">{formatBytes(Number(info.mem_total_bytes || 0))}</div>
+          <div className="text-[10px] text-foreground/40 mt-0.5">Frei: {formatBytes(Number(info.mem_available_bytes || 0))}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-foreground/3 border border-foreground/5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50 mb-1">Festplatte (/)</div>
+          <div className="text-sm font-semibold text-foreground">{formatBytes(Number(info.disk_total_bytes || 0))}</div>
+          <div className="text-[10px] text-foreground/40 mt-0.5">
+            Genutzt: {formatBytes(Number(info.disk_used_bytes || 0))} · Frei: {formatBytes(Number(info.disk_free_bytes || 0))}
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end mt-3">
+        <button onClick={load} className={ccBtnSecondary('text-xs')}>
+          <ArrowClockwise size={14} /> Aktualisieren
+        </button>
+      </div>
+    </AdminCard>
+  )
+}
+
+// ─── Dev Bridge: Dateisystem ────────────────────────────────────────────
+
+function DevBridgeFilesystem({ devToken }: { devToken: string | null }) {
+  const [currentPath, setCurrentPath] = useState('/')
+  const [entries, setEntries] = useState<Array<{ name: string; path: string; kind: string; size: number }>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [selectedFile, setSelectedFile] = useState<{ path: string; content: string; bytes: number; total_bytes: number; truncated: boolean; binary_hint: boolean } | null>(null)
+  const [pathHistory, setPathHistory] = useState<string[]>(['/'])
+
+  const listDir = useCallback(async (path: string) => {
+    if (!devToken) return
+    setLoading(true)
+    setError('')
+    setSelectedFile(null)
+    try {
+      const res = await devBridgeFetch('/dev/fs/list', devToken, {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setEntries(data.entries || [])
+      setCurrentPath(data.path || path)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    setLoading(false)
+  }, [devToken])
+
+  useEffect(() => { if (devToken) listDir('/') }, [devToken, listDir])
+
+  const navigateTo = (path: string) => {
+    setPathHistory(prev => [...prev, path])
+    listDir(path)
+  }
+
+  const goBack = () => {
+    if (pathHistory.length <= 1) return
+    const prev = pathHistory.slice(0, -1)
+    setPathHistory(prev)
+    listDir(prev[prev.length - 1])
+  }
+
+  const readFile = async (path: string) => {
+    if (!devToken) return
+    try {
+      const res = await devBridgeFetch('/dev/fs/read', devToken, {
+        method: 'POST',
+        body: JSON.stringify({ path, max_bytes: 64 * 1024 }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setSelectedFile(data)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  if (!devToken) return null
+
+  if (loading && entries.length === 0) return <LoadingSpinner />
+  if (error && entries.length === 0) return <ErrorMessage>{error}</ErrorMessage>
+
+  const parentPath = currentPath === '/' ? '/' : currentPath.split('/').slice(0, -1).join('/') || '/'
+
+  return (
+    <div className="space-y-3">
+      <AdminCard title={`Dateisystem: ${currentPath}`} icon={FolderOpen}>
+        {/* Navigation */}
+        <div className="flex items-center gap-2 mb-3">
+          <button onClick={goBack} disabled={pathHistory.length <= 1}
+            className={`px-2 py-1 rounded-lg text-xs ${pathHistory.length <= 1 ? 'text-foreground/30' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/8'}`}>
+            ← Zurück
+          </button>
+          <span className="text-xs text-foreground/40 font-mono truncate">{currentPath}</span>
+          <button onClick={() => listDir(currentPath)} className={ccBtnIcon('ml-auto')}>
+            <ArrowClockwise size={14} />
+          </button>
+        </div>
+
+        <div className="max-h-[400px] overflow-y-auto space-y-0.5">
+          {entries.length === 0 ? (
+            <p className="text-xs text-foreground/50 text-center py-8">Leeres Verzeichnis</p>
+          ) : entries.map(entry => (
+            <div key={entry.path}
+              onClick={() => entry.kind === 'dir' ? navigateTo(entry.path) : readFile(entry.path)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-foreground/5 cursor-pointer transition-colors group">
+              <span className={`text-xs ${
+                entry.kind === 'dir' ? 'text-accent' :
+                entry.kind === 'symlink' ? 'text-cyan-400' :
+                'text-foreground/50'
+              }`}>
+                {entry.kind === 'dir' ? '📁' : entry.kind === 'symlink' ? '🔗' : '📄'}
+              </span>
+              <span className="text-xs text-foreground/80 font-mono truncate flex-1">{entry.name}</span>
+              <span className="text-[10px] text-foreground/40 group-hover:text-foreground/60 transition-colors">
+                {entry.kind === 'file' ? formatFileSize(entry.size) : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      </AdminCard>
+
+      {/* Datei-Ansicht */}
+      {selectedFile && (
+        <AdminCard title={selectedFile.path} icon={Code}>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-[10px] text-foreground/50">
+              <span>{formatFileSize(selectedFile.total_bytes)}</span>
+              {selectedFile.truncated && <span className="text-amber-400">(gekürzt, erste {formatFileSize(selectedFile.bytes)})</span>}
+              {selectedFile.binary_hint && <span className="text-red-400">(binär)</span>}
+            </div>
+            <div className="max-h-[500px] overflow-y-auto font-mono text-[10px] leading-relaxed bg-black/20 rounded-xl p-3">
+              {selectedFile.binary_hint ? (
+                <p className="text-foreground/50 text-center py-4">Binäre Datei kann nicht als Text angezeigt werden.</p>
+              ) : (
+                <pre className="text-foreground/80 whitespace-pre-wrap">{selectedFile.content}</pre>
+              )}
+            </div>
+          </div>
+        </AdminCard>
+      )}
+    </div>
+  )
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
+// ─── Dev Bridge: Build & Replace ────────────────────────────────────────
+
+function DevBridgeBuild({ devToken }: { devToken: string | null }) {
+  const [target, setTarget] = useState('')
+  const [unit, setUnit] = useState('')
+  const [component, setComponent] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  const [building, setBuilding] = useState(false)
+
+  // Self-Update State
+  const [selfUpdateSource, setSelfUpdateSource] = useState<'http' | 'ssh' | 'ftp'>('http')
+  const [suUrl, setSuUrl] = useState('')
+  const [suHost, setSuHost] = useState('')
+  const [suPath, setSuPath] = useState('/usr/bin/iora-dev-bridge')
+  const [suUser, setSuUser] = useState('root')
+  const [suPort, setSuPort] = useState('22')
+  const [suKeyPath, setSuKeyPath] = useState('/root/.ssh/id_rsa')
+  const [suPassword, setSuPassword] = useState('')
+  const [suSha, setSuSha] = useState('')
+  const [suInsecure, setSuInsecure] = useState(false)
+  const [suRunning, setSuRunning] = useState(false)
+  const [suResult, setSuResult] = useState<string | null>(null)
+
+  const handleReplace = async () => {
+    if (!devToken || !target) return
+    setBuilding(true)
+    setStatus(null)
+    try {
+      // Read the binary file from local machine via file input
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '*'
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+
+        const formData = new FormData()
+        formData.append('target', target)
+        if (unit) formData.append('unit', unit)
+        formData.append('file', file)
+
+        const res = await fetch(`${getDevBridgeUrl()}/dev/replace-binary`, {
+          method: 'POST',
+          headers: devToken ? { 'x-iora-dev-token': devToken } : {},
+          body: formData,
+        })
+
+        const data = await res.json()
+        setStatus(JSON.stringify(data, null, 2))
+        if (data.restart?.ok) toast.success('Binary ersetzt und Dienst neu gestartet')
+        else toast.error('Fehler beim Ersetzen')
+        setBuilding(false)
+      }
+      input.click()
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e))
+      setBuilding(false)
+    }
+  }
+
+  // ── Self-Update Handler ──────────────────────────────────────
+  const handleSelfUpdate = async () => {
+    if (!devToken) return
+    setSuRunning(true)
+    setSuResult(null)
+
+    const body: Record<string, unknown> = { source: selfUpdateSource }
+
+    if (selfUpdateSource === 'http' || selfUpdateSource === 'ftp') {
+      if (!suUrl) { toast.error('Bitte eine URL angeben'); setSuRunning(false); return }
+      body.url = suUrl
+      if (selfUpdateSource === 'ftp') {
+        body.user = suUser
+        if (suPassword) body.password = suPassword
+      }
+    } else if (selfUpdateSource === 'ssh') {
+      if (!suHost) { toast.error('Bitte Host angeben'); setSuRunning(false); return }
+      body.host = suHost
+      body.path = suPath
+      body.user = suUser
+      body.port = parseInt(suPort) || 22
+      body.key_path = suKeyPath
+    }
+
+    if (suSha) body.expected_sha = suSha
+    if (suInsecure) body.insecure = true
+
+    try {
+      const res = await fetch(`${getDevBridgeUrl()}/dev/self-update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-iora-dev-token': devToken,
+        },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      setSuResult(JSON.stringify(data, null, 2))
+      if (data.ok) {
+        toast.success('Self-Update gestartet! Die Dev Bridge wird neu gestartet…')
+      } else {
+        toast.error('Self-Update fehlgeschlagen: ' + (data.error || 'Unbekannter Fehler'))
+      }
+    } catch (e) {
+      setSuResult(e instanceof Error ? e.message : String(e))
+      toast.error('Self-Update fehlgeschlagen')
+    }
+    setSuRunning(false)
+  }
+
+  if (!devToken) return null
+
+  return (
+    <div className="space-y-4">
+      {/* Binary Replace */}
+      <AdminCard title="Binary Replace" icon={Code}>
+        <div className="space-y-4">
+          <p className="text-xs text-foreground/60">
+            Ersetze ein Binary auf dem Gerät und starte den zugehörigen Dienst neu.
+            Der Upload erfolgt per Datei-Auswahl.
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <label className={ccLabel}>Target-Pfad</label>
+              <input type="text" value={target} onChange={e => setTarget(e.target.value)}
+                placeholder="/usr/bin/iora-home" className={ccInput()} />
+            </div>
+            <div className="grid gap-1.5">
+              <label className={ccLabel}>Systemd-Unit (optional)</label>
+              <input type="text" value={unit} onChange={e => setUnit(e.target.value)}
+                placeholder="iora-home.service" className={ccInput()} />
+            </div>
+            <div className="grid gap-1.5">
+              <label className={ccLabel}>Component (für Build)</label>
+              <input type="text" value={component} onChange={e => setComponent(e.target.value)}
+                placeholder="iora-home" className={ccInput()} />
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={handleReplace} disabled={building || !target} className={ccBtnPrimary()}>
+              {building ? 'Wird hochgeladen…' : 'Binary auswählen & ersetzen'}
+            </button>
+          </div>
+
+          {status && (
+            <div className="rounded-xl bg-black/20 border border-foreground/10 p-3">
+              <pre className="text-[10px] font-mono text-foreground/70 whitespace-pre-wrap max-h-[300px] overflow-y-auto">{status}</pre>
+            </div>
+          )}
+        </div>
+      </AdminCard>
+
+      {/* Self-Update: Dev Bridge via SSH/FTP/HTTP */}
+      <AdminCard title="Dev Bridge Self-Update" icon={Terminal}>
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <Warning size={16} className="text-amber-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-amber-200 mb-1">⚠️  Achtung</p>
+              <p className="text-[10px] text-amber-200/70">
+                Dies ersetzt <code className="font-mono">/usr/bin/iora-dev-bridge</code> auf dem Gerät und
+                startet den Dienst neu. Die aktuelle Verbindung wird dabei getrennt.
+                Der Dev Bridge muss dann von der CLI/IDE neu verbunden werden.
+              </p>
+            </div>
+          </div>
+
+          {/* Source selector */}
+          <div className="flex gap-1.5">
+            {([
+              { id: 'http' as const, label: 'HTTP/HTTPS', icon: Globe },
+              { id: 'ssh' as const, label: 'SSH/SCP', icon: Terminal },
+              { id: 'ftp' as const, label: 'FTP', icon: CloudArrowUp },
+            ]).map(src => (
+              <button key={src.id} onClick={() => setSelfUpdateSource(src.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  selfUpdateSource === src.id ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground hover:bg-foreground/8'
+                }`}>
+                <src.icon size={12} className="inline mr-1" />
+                {src.label}
+              </button>
+            ))}
+          </div>
+
+          {/* HTTP source */}
+          {selfUpdateSource === 'http' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5 sm:col-span-2">
+                <label className={ccLabel}>Download-URL</label>
+                <input type="url" value={suUrl} onChange={e => setSuUrl(e.target.value)}
+                  placeholder="https://build-server.local/iora-dev-bridge-latest" className={ccInput()} />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-foreground/70 cursor-pointer">
+                <input type="checkbox" checked={suInsecure} onChange={e => setSuInsecure(e.target.checked)}
+                  className="h-4 w-4 rounded border-foreground/30" />
+                TLS-Verifikation deaktivieren (--insecure)
+              </label>
+            </div>
+          )}
+
+          {/* SSH source */}
+          {selfUpdateSource === 'ssh' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <label className={ccLabel}>Host</label>
+                <input type="text" value={suHost} onChange={e => setSuHost(e.target.value)}
+                  placeholder="192.168.2.100" className={ccInput()} />
+              </div>
+              <div className="grid gap-1.5">
+                <label className={ccLabel}>Remote-Pfad</label>
+                <input type="text" value={suPath} onChange={e => setSuPath(e.target.value)}
+                  placeholder="/usr/bin/iora-dev-bridge" className={ccInput()} />
+              </div>
+              <div className="grid gap-1.5">
+                <label className={ccLabel}>SSH-Benutzer</label>
+                <input type="text" value={suUser} onChange={e => setSuUser(e.target.value)}
+                  placeholder="root" className={ccInput()} />
+              </div>
+              <div className="grid gap-1.5">
+                <label className={ccLabel}>SSH-Port</label>
+                <input type="number" value={suPort} onChange={e => setSuPort(e.target.value)}
+                  placeholder="22" min={1} max={65535} className={ccInput()} />
+              </div>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <label className={ccLabel}>SSH-Key-Pfad (auf dem Gerät)</label>
+                <input type="text" value={suKeyPath} onChange={e => setSuKeyPath(e.target.value)}
+                  placeholder="/root/.ssh/id_rsa" className={ccInput()} />
+              </div>
+            </div>
+          )}
+
+          {/* FTP source */}
+          {selfUpdateSource === 'ftp' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5 sm:col-span-2">
+                <label className={ccLabel}>FTP-URL</label>
+                <input type="url" value={suUrl} onChange={e => setSuUrl(e.target.value)}
+                  placeholder="ftp://build-server.local/iora-dev-bridge-latest" className={ccInput()} />
+              </div>
+              <div className="grid gap-1.5">
+                <label className={ccLabel}>FTP-Benutzer</label>
+                <input type="text" value={suUser} onChange={e => setSuUser(e.target.value)}
+                  placeholder="anonymous" className={ccInput()} />
+              </div>
+              <div className="grid gap-1.5">
+                <label className={ccLabel}>FTP-Passwort</label>
+                <input type="password" value={suPassword} onChange={e => setSuPassword(e.target.value)}
+                  placeholder="optional" className={ccInput()} />
+              </div>
+            </div>
+          )}
+
+          {/* Optional SHA */}
+          <div className="grid gap-1.5">
+            <label className={ccLabel}>SHA-256 Hash (optional — zur Verifikation)</label>
+            <input type="text" value={suSha} onChange={e => setSuSha(e.target.value)}
+              placeholder="a1b2c3d4..." className={ccInput('font-mono')} />
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={handleSelfUpdate} disabled={suRunning || !devToken} className={ccBtnDanger()}>
+              {suRunning ? (
+                <><CircleNotch size={14} className="animate-spin mr-1" /> Lade herunter & ersetze…</>
+              ) : (
+                <><Terminal size={14} className="mr-1" /> Dev Bridge Self-Update starten</>
+              )}
+            </button>
+          </div>
+
+          {suResult && (
+            <div className="rounded-xl bg-black/20 border border-foreground/10 p-3">
+              <pre className="text-[10px] font-mono text-foreground/70 whitespace-pre-wrap max-h-[300px] overflow-y-auto">{suResult}</pre>
+            </div>
+          )}
+        </div>
+      </AdminCard>
+    </div>
+  )
+}
+
 function DevicesTab({ token }: { token: string }) {
   const [data, setData] = useState<AdminDevicesPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -9664,4 +10584,169 @@ function HealthIntelligenceTab({ token }: { token: string }) {
       </div>
     </div>
   )
+}
+
+// ── Themes Tab ────────────────────────────────────────────────────────
+function ThemesTab({ token }: { token: string }) {
+  const [themes, setThemes] = useState<{ builtin: ThemeDef[]; installed: InstalledThemeDef[] } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const { refreshThemes } = useTheme()
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const r = await authFetch('/api/themes')
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      setThemes(await r.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const uninstallTheme = async (themeId: string) => {
+    try {
+      const r = await authFetch(`/api/themes/${themeId}`, { method: 'DELETE' })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ message: 'Fehler beim Deinstallieren' }))
+        toast.error(err.message || 'Fehler beim Deinstallieren')
+        return
+      }
+      toast.success('Theme deinstalliert')
+      load()
+      refreshThemes()
+    } catch (e) {
+      toast.error('Fehler beim Deinstallieren: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>Fehler: {error}</ErrorMessage>
+
+  const installed = themes?.installed || []
+  const builtin = themes?.builtin || []
+
+  // Re-fetch if error
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-sm text-foreground/50">{error}</p>
+        <button onClick={load} className="mt-4 px-4 py-2 rounded-xl bg-accent text-white text-sm">Erneut versuchen</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Installed themes section */}
+      <AdminCard icon={Palette} title="Installierte Themes">
+        <p className="text-xs text-foreground/50 mb-4">Verwalte installierte Themes von Apps und Plugins</p>
+        {installed.length === 0 ? (
+          <div className="text-center py-12">
+            <Palette size={48} weight="thin" className="mx-auto text-foreground/20 mb-4" />
+            <p className="text-sm text-foreground/50">Keine benutzerdefinierten Themes installiert</p>
+            <p className="text-xs text-foreground/30 mt-1">
+              Themes werden automatisch installiert, wenn eine App oder ein Plugin ein Theme im Manifest definiert.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {installed.map((t) => {
+              let cssVars: Record<string, string> = {}
+              try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
+              const bgColor = cssVars['background'] || cssVars['bg'] || '#1a1d2e'
+              const accentColor = cssVars['accent'] || cssVars['primary'] || '#6366f1'
+
+              return (
+                <div key={t.id} className="flex items-center gap-4 p-4 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02]">
+                  <div
+                    className="w-12 h-12 rounded-xl shrink-0 border border-foreground/10"
+                    style={{ background: `linear-gradient(135deg, ${bgColor} 0%, ${accentColor} 100%)` }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{t.name}</p>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-foreground/40">v{t.version}</span>
+                      {t.system && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">System</span>}
+                    </div>
+                    {t.description && (
+                      <p className="text-xs text-foreground/50 mt-0.5 truncate">{t.description}</p>
+                    )}
+                    <p className="text-[10px] text-foreground/30 mt-0.5">
+                      Von {t.developer || 'Unbekannt'} · {t.source === 'app' ? 'App-Theme' : 'Plugin-Theme'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full ${
+                      t.enabled ? 'bg-success/10 text-success' : 'bg-foreground/5 text-foreground/40'
+                    }`}>
+                      {t.enabled ? <Check size={10} /> : <EyeSlash size={10} />}
+                      {t.enabled ? 'Aktiv' : 'Inaktiv'}
+                    </span>
+                    {!t.system && (
+                      <button
+                        onClick={() => uninstallTheme(t.id)}
+                        className="p-2 rounded-lg text-foreground/30 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                        title="Deinstallieren"
+                      >
+                        <TrashSimple size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </AdminCard>
+
+      {/* Built-in themes overview */}
+      <AdminCard icon={Palette} title="Standard-Themes">
+        <p className="text-xs text-foreground/50 mb-4">Die integrierten Farbschemas von IORA</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {builtin
+            .filter(t => t.id !== 'auto')
+            .sort((a: ThemeDef, b: ThemeDef) => (a.order || 50) - (b.order || 50))
+            .map((t) => (
+              <div key={t.id} className="flex items-center gap-2 p-2 rounded-lg border border-foreground/[0.04] bg-foreground/[0.02]">
+                <div className="w-8 h-8 rounded-lg shrink-0 border border-foreground/10"
+                  style={{ background: getThemePreview(t.id) }}
+                />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground truncate">{t.name}</p>
+                  <p className="text-[9px] text-foreground/40">{t.id}</p>
+                </div>
+              </div>
+            ))}
+        </div>
+      </AdminCard>
+    </div>
+  )
+}
+
+// Helper for theme previews
+function getThemePreview(themeId: string): string {
+  const previews: Record<string, string> = {
+    auto: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)',
+    light: 'linear-gradient(135deg, #f5f5f7 0%, #e8eaf0 50%, #dde0e8 100%)',
+    day: 'linear-gradient(135deg, #e0e4ec 0%, #c8cdd8 50%, #b8bfcc 100%)',
+    'day-classic': 'linear-gradient(135deg, #2a2d3e 0%, #1a1d2e 50%, #0f1118 100%)',
+    evening: 'linear-gradient(135deg, #2d2f4a 0%, #1e2040 50%, #15172e 100%)',
+    night: 'linear-gradient(135deg, #181c2e 0%, #0f1220 50%, #0a0d18 100%)',
+    sleep: 'linear-gradient(135deg, #050508 0%, #000000 100%)',
+  }
+  return previews[themeId] || 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
+}
+
+interface ThemeDef {
+  id: string; name: string; version: string; order?: number;
+}
+interface InstalledThemeDef {
+  id: string; name: string; version: string; developer: string;
+  description: string; system: boolean; enabled: boolean;
+  source: string; icon?: string;
 }

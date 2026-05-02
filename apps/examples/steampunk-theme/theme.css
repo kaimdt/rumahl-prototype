@@ -1,0 +1,70 @@
+/* ═══════════════════════════════════════════════
+   STEAMPUNK THEME – Vollständige CSS-Anpassungen
+   ═══════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Cinzel+Decorative:wght@400;700;900&family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+/* ─── Basis ─────────────────────────────────────── */
+body {
+  background-color: oklch(0.08 0.02 60) !important;
+  background-image:
+    radial-gradient(ellipse at 15% 25%, oklch(0.12 0.04 55 / 0.3) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 75%, oklch(0.1 0.03 45 / 0.25) 0%, transparent 50%),
+    repeating-linear-gradient(0deg, transparent, transparent 120px, oklch(0.12 0.02 60 / 0.15) 120px, oklch(0.12 0.02 60 / 0.15) 121px);
+  background-attachment: fixed;
+}
+
+/* Fonts */
+body, p, span, div:not([class*='font-mono']):not([class*='font-heading']) {
+  font-family: 'Cinzel Decorative', 'Playfair Display', Georgia, serif !important;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Playfair Display', Georgia, serif !important;
+  font-weight: 700;
+}
+.font-mono, code, pre {
+  font-family: 'Courier Prime', 'Courier New', monospace !important;
+}
+
+/* Karten */
+.glass-card, .widget-card, [class*='rounded-2xl'], [class*='rounded-xl'] {
+  border: 1.5px solid oklch(0.35 0.06 60 / 0.4) !important;
+  background: oklch(0.14 0.03 55 / 0.65) !important;
+  backdrop-filter: blur(16px) saturate(1.2) !important;
+  box-shadow: 0 2px 12px oklch(0 0 0 / 0.3), inset 0 1px 0 oklch(0.72 0.14 70 / 0.08) !important;
+}
+.glass-card:hover, .widget-card:hover {
+  border-color: oklch(0.72 0.14 70 / 0.35) !important;
+}
+
+/* Header */
+.glass-header, header {
+  background: oklch(0.1 0.025 55 / 0.85) !important;
+  border-bottom: 2px solid oklch(0.35 0.06 60 / 0.5) !important;
+}
+
+/* Buttons */
+button:not([class*='icon-only']):not([role='switch']) {
+  border: 1.5px solid oklch(0.4 0.06 60 / 0.4) !important;
+  background: linear-gradient(180deg, oklch(0.25 0.05 55) 0%, oklch(0.18 0.04 55) 100%) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+}
+button:hover:not([class*='icon-only']):not([role='switch']) {
+  border-color: oklch(0.72 0.14 70 / 0.5) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px !important; height: 10px !important; }
+::-webkit-scrollbar-track { background: oklch(0.1 0.02 55) !important; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, oklch(0.5 0.08 55) 0%, oklch(0.35 0.06 60) 100%) !important;
+  border: 1px solid oklch(0.25 0.04 55 / 0.4) !important;
+  border-radius: 5px !important;
+}
+* { scrollbar-width: thin !important; scrollbar-color: oklch(0.5 0.08 55) oklch(0.1 0.02 55) !important; }
+
+/* Gear decoration on headings */
+h1::before, h2::before { content: '⚙ ' !important; font-size: 0.7em !important; opacity: 0.5 !important; }
+h1::after, h2::after { content: ' ⚙' !important; font-size: 0.7em !important; opacity: 0.5 !important; }
+@media (max-width: 640px) { h1::before, h2::before, h1::after, h2::after { content: '' !important; } }
