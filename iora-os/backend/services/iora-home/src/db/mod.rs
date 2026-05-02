@@ -52,10 +52,10 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("020_notification_channels", include_str!("../../migrations/020_notification_channels.sql")),
         ("021_desktop_commands", include_str!("../../migrations/021_desktop_commands.sql")),
         ("022_app_extended_capabilities", include_str!("../../migrations/022_app_extended_capabilities.sql")),
-        ("023_themes", include_str!("../../migrations/023_themes.sql")),
         ("023_core_registrations_and_updates", include_str!("../../migrations/023_core_registrations_and_updates.sql")),
         ("024_home_state", include_str!("../../migrations/024_home_state.sql")),
         ("025_desktop_clients", include_str!("../../migrations/025_desktop_clients.sql")),
+        ("026_themes", include_str!("../../migrations/026_themes.sql")),
     ];
 
     // Apply each migration if not already applied
@@ -69,6 +69,14 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
 
         if result.is_none() {
             tracing::info!("Applying migration: {}", name);
+
+            // Wrap the entire migration in a transaction so that a failure in
+            // any single statement rolls back the whole migration. This avoids
+            // "already exists" / FK errors on retry after a partial failure.
+            let mut tx = pool.begin().await.map_err(|e| {
+                tracing::error!("Failed to begin transaction for migration {}: {}", name, e);
+                e
+            })?;
 
             // Strip `--` line comments BEFORE splitting on `;`, otherwise a
             // semicolon inside a comment (e.g. "handlers; the iora-updater")
@@ -110,12 +118,27 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
                 if trimmed.is_empty() {
                     continue;
                 }
-                sqlx::query(trimmed).execute(pool).await?;
+                sqlx::query(trimmed).execute(&mut *tx).await.map_err(|e| {
+                    tracing::error!(
+                        "Migration {} failed on statement (rolling back): {}",
+                        name,
+                        e
+                    );
+                    e
+                })?;
             }
+
+            // Record migration as applied INSIDE the same transaction.
             sqlx::query("INSERT INTO _migrations (name) VALUES ($1)")
                 .bind(name)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
+
+            tx.commit().await.map_err(|e| {
+                tracing::error!("Failed to commit migration {}: {}", name, e);
+                e
+            })?;
+
             tracing::info!("Migration {} applied successfully", name);
         } else {
             tracing::debug!("Migration {} already applied, skipping", name);

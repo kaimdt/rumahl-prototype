@@ -36,6 +36,6 @@ CREATE TABLE IF NOT EXISTS user_theme_selections (
     overrides TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+    FOREIGN KEY (profile_id) REFERENCES configuration_profiles(id) ON DELETE CASCADE,
     UNIQUE(profile_id)
 );

@@ -252,13 +252,3 @@ pub struct ThemeCssResponse {
     /// HTML templates with resolved URLs
     pub html_templates: HashMap<String, String>,
 }
-
-/// Request body for installing a theme from base64-encoded ZIP.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThemeZipInstallBody {
-    /// Base64-encoded ZIP file data (optionally with data: URL prefix)
-    pub zip_data: String,
-    /// Optional filename for display
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_name: Option<String>,
-}

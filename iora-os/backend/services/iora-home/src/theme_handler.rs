@@ -503,16 +503,6 @@ pub async fn list_themes(
     Ok(Json(iora_shared::theme::ThemeListResponse { builtin, installed }))
 }
 
-/// POST /api/themes/install
-pub async fn handle_install_theme_zip_handler(
-    State(gs): State<AppState>,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // For now, just echo back. Full ZIP install coming soon.
-    let _ = gs;
-    Ok(Json(serde_json::json!({"status":"ok","message":"ZIP install coming soon. Use /api/themes/install-from-manifest for inline themes."})))
-}
-
 /// POST /api/themes/install-from-manifest
 pub async fn handle_install_theme_inline(
     State(gs): State<AppState>,
