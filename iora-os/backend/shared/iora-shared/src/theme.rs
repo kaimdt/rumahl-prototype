@@ -252,3 +252,30 @@ pub struct ThemeCssResponse {
     /// HTML templates with resolved URLs
     pub html_templates: HashMap<String, String>,
 }
+
+/// Global default theme configuration.
+/// Stored in `system_preferences` as JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefaultThemeConfig {
+    /// The theme ID to use as default for all users without explicit selection.
+    /// If "auto", the built-in auto-switching logic applies.
+    pub theme_id: String,
+    /// Whether users are allowed to override the default theme.
+    #[serde(default = "default_true")]
+    pub allow_user_override: bool,
+    /// If true, new users without a profile default to this theme.
+    #[serde(default = "default_true")]
+    pub apply_to_new_users: bool,
+}
+
+fn default_true() -> bool { true }
+
+impl Default for DefaultThemeConfig {
+    fn default() -> Self {
+        Self {
+            theme_id: "auto".to_string(),
+            allow_user_override: true,
+            apply_to_new_users: true,
+        }
+    }
+}

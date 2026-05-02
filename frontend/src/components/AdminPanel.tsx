@@ -15,7 +15,7 @@ import {
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
   Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
   Terminal, List, Sparkle,
-  Palette, TrashSimple, Check, EyeSlash
+  Palette, TrashSimple, Check, EyeSlash, UploadSimple, Swatches
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -10856,16 +10856,22 @@ function HealthIntelligenceTab({ token }: { token: string }) {
 // ── Themes Tab ────────────────────────────────────────────────────────
 function ThemesTab({ token }: { token: string }) {
   const [themes, setThemes] = useState<{ builtin: ThemeDef[]; installed: InstalledThemeDef[] } | null>(null)
+  const [defaultTheme, setDefaultTheme] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const { refreshThemes } = useTheme()
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await authFetch('/api/themes')
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      setThemes(await r.json())
+      const [themesRes, defaultRes] = await Promise.all([
+        authFetch('/api/themes'),
+        authFetch('/api/themes/default'),
+      ])
+      if (!themesRes.ok) throw new Error(`HTTP ${themesRes.status}`)
+      setThemes(await themesRes.json())
+      if (defaultRes.ok) setDefaultTheme(await defaultRes.json())
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -10891,34 +10897,133 @@ function ThemesTab({ token }: { token: string }) {
     }
   }
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const buf = await file.arrayBuffer()
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      const r = await authFetch('/api/themes/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip_data: base64, file_name: file.name }),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ message: 'Installation fehlgeschlagen' }))
+        throw new Error(err.message || err.error || 'Installation fehlgeschlagen')
+      }
+      toast.success(`Theme „${file.name.replace(/\.zip$/i, '')}“ installiert`)
+      load()
+      refreshThemes()
+    } catch (e) {
+      toast.error('Fehler: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  const saveDefaultTheme = async (themeId: string) => {
+    try {
+      const config = { ...(defaultTheme || {}), theme_id: themeId }
+      const r = await authFetch('/api/themes/default', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      })
+      if (!r.ok) throw new Error('Fehler beim Speichern')
+      const data = await r.json()
+      setDefaultTheme(data.config)
+      toast.success('Standard-Theme aktualisiert')
+    } catch (e) {
+      toast.error('Fehler: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorMessage>Fehler: {error}</ErrorMessage>
 
   const installed = themes?.installed || []
   const builtin = themes?.builtin || []
 
-  // Re-fetch if error
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-sm text-foreground/50">{error}</p>
-        <button onClick={load} className="mt-4 px-4 py-2 rounded-xl bg-accent text-white text-sm">Erneut versuchen</button>
-      </div>
-    )
-  }
+  const allThemeOptions = [
+    { id: 'auto', name: 'Automatisch (Tageszeit)', preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
+    ...builtin.filter(t => t.id !== 'auto').map(t => ({ id: t.id, name: t.name, preview: getThemePreview(t.id) })),
+    ...installed.filter(t => t.enabled).map(t => {
+      let cssVars: Record<string, string> = {}
+      try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
+      const bg = cssVars['background'] || cssVars['bg'] || '#1a1d2e'
+      const ac = cssVars['accent'] || cssVars['primary'] || '#6366f1'
+      return { id: t.id, name: t.name, preview: `linear-gradient(135deg, ${bg} 0%, ${ac} 100%)` }
+    }),
+  ]
 
   return (
     <div className="space-y-6">
-      {/* Installed themes section */}
+
+      {/* Default Theme Section */}
+      <AdminCard icon={Palette} title="Standard-Theme">
+        <p className="text-xs text-foreground/50 mb-4">
+          Lege das Standard-Theme für alle Benutzer ohne eigene Auswahl fest.
+          Benutzer können ihr Theme in den Einstellungen überschreiben.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {allThemeOptions.map(opt => {
+            const isSelected = defaultTheme?.theme_id === opt.id || (!defaultTheme && opt.id === 'auto')
+            return (
+              <button
+                key={opt.id}
+                onClick={() => saveDefaultTheme(opt.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all text-left ${
+                  isSelected
+                    ? 'border-accent bg-accent/10 shadow-sm'
+                    : 'border-foreground/8 bg-foreground/[0.03] hover:border-foreground/18'
+                }`}
+              >
+                <div className="w-8 h-8 rounded-lg shrink-0 border border-foreground/10" style={{ background: opt.preview }} />
+                <div>
+                  <p className={`text-xs font-medium ${isSelected ? 'text-accent' : 'text-foreground'}`}>{opt.name}</p>
+                  <p className="text-[9px] text-foreground/40">{isSelected ? 'Aktiv' : 'Klicken zum Setzen'}</p>
+                </div>
+                {isSelected && <Check size={14} className="text-accent shrink-0" weight="bold" />}
+              </button>
+            )
+          })}
+        </div>
+      </AdminCard>
+
+      {/* Theme Upload Section */}
+      <AdminCard icon={UploadSimple} title="Theme hochladen">
+        <p className="text-xs text-foreground/50 mb-4">
+          Lade ein Theme als ZIP-Datei hoch (manifest.json + CSS/JS/Fonts/Assets).
+        </p>
+        <label className={`relative flex flex-col items-center justify-center gap-2 p-8 rounded-xl border-2 border-dashed transition-all cursor-pointer ${
+          uploading ? 'border-accent/50 bg-accent/5' : 'border-foreground/15 hover:border-foreground/30 bg-foreground/[0.02] hover:bg-foreground/[0.04]'
+        }`}>
+          <input type="file" accept=".zip" className="sr-only" onChange={handleFileUpload} disabled={uploading} />
+          {uploading ? (
+            <>
+              <div className="animate-spin w-8 h-8 border-2 border-accent border-t-transparent rounded-full" />
+              <p className="text-sm text-foreground/50">Installiere Theme…</p>
+            </>
+          ) : (
+            <>
+              <UploadSimple size={32} className="text-foreground/30" weight="thin" />
+              <p className="text-sm font-medium text-foreground/60">Theme-ZIP auswählen</p>
+              <p className="text-[10px] text-foreground/30">manifest.json + CSS-Dateien + Assets</p>
+            </>
+          )}
+        </label>
+      </AdminCard>
+
+      {/* Installed themes */}
       <AdminCard icon={Palette} title="Installierte Themes">
-        <p className="text-xs text-foreground/50 mb-4">Verwalte installierte Themes von Apps und Plugins</p>
+        <p className="text-xs text-foreground/50 mb-4">Verwalte installierte Themes</p>
         {installed.length === 0 ? (
           <div className="text-center py-12">
             <Palette size={48} weight="thin" className="mx-auto text-foreground/20 mb-4" />
             <p className="text-sm text-foreground/50">Keine benutzerdefinierten Themes installiert</p>
-            <p className="text-xs text-foreground/30 mt-1">
-              Themes werden automatisch installiert, wenn eine App oder ein Plugin ein Theme im Manifest definiert.
-            </p>
           </div>
         ) : (
           <div className="grid gap-3">
@@ -10927,41 +11032,25 @@ function ThemesTab({ token }: { token: string }) {
               try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
               const bgColor = cssVars['background'] || cssVars['bg'] || '#1a1d2e'
               const accentColor = cssVars['accent'] || cssVars['primary'] || '#6366f1'
-
               return (
                 <div key={t.id} className="flex items-center gap-4 p-4 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02]">
-                  <div
-                    className="w-12 h-12 rounded-xl shrink-0 border border-foreground/10"
-                    style={{ background: `linear-gradient(135deg, ${bgColor} 0%, ${accentColor} 100%)` }}
-                  />
+                  <div className="w-12 h-12 rounded-xl shrink-0 border border-foreground/10" style={{ background: `linear-gradient(135deg, ${bgColor} 0%, ${accentColor} 100%)` }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-foreground">{t.name}</p>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-foreground/40">v{t.version}</span>
                       {t.system && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">System</span>}
+                      {defaultTheme?.theme_id === t.id && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">Standard</span>}
                     </div>
-                    {t.description && (
-                      <p className="text-xs text-foreground/50 mt-0.5 truncate">{t.description}</p>
-                    )}
-                    <p className="text-[10px] text-foreground/30 mt-0.5">
-                      Von {t.developer || 'Unbekannt'} · {t.source === 'app' ? 'App-Theme' : 'Plugin-Theme'}
-                    </p>
+                    {t.description && <p className="text-xs text-foreground/50 mt-0.5 truncate">{t.description}</p>}
+                    <p className="text-[10px] text-foreground/30 mt-0.5">Von {t.developer || 'Unbekannt'} · {t.source === 'file' ? 'Manuell' : 'App/Plugin'}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full ${
-                      t.enabled ? 'bg-success/10 text-success' : 'bg-foreground/5 text-foreground/40'
-                    }`}>
-                      {t.enabled ? <Check size={10} /> : <EyeSlash size={10} />}
-                      {t.enabled ? 'Aktiv' : 'Inaktiv'}
+                    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full ${t.enabled ? 'bg-success/10 text-success' : 'bg-foreground/5 text-foreground/40'}`}>
+                      {t.enabled ? <Check size={10} /> : <EyeSlash size={10} />} {t.enabled ? 'Aktiv' : 'Inaktiv'}
                     </span>
                     {!t.system && (
-                      <button
-                        onClick={() => uninstallTheme(t.id)}
-                        className="p-2 rounded-lg text-foreground/30 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                        title="Deinstallieren"
-                      >
-                        <TrashSimple size={16} />
-                      </button>
+                      <button onClick={() => uninstallTheme(t.id)} className="p-2 rounded-lg text-foreground/30 hover:text-red-400 hover:bg-red-500/10 transition-all" title="Deinstallieren"><TrashSimple size={16} /></button>
                     )}
                   </div>
                 </div>
@@ -10971,24 +11060,17 @@ function ThemesTab({ token }: { token: string }) {
         )}
       </AdminCard>
 
-      {/* Built-in themes overview */}
-      <AdminCard icon={Palette} title="Standard-Themes">
-        <p className="text-xs text-foreground/50 mb-4">Die integrierten Farbschemas von IORA</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          {builtin
-            .filter(t => t.id !== 'auto')
-            .sort((a: ThemeDef, b: ThemeDef) => (a.order || 50) - (b.order || 50))
-            .map((t) => (
-              <div key={t.id} className="flex items-center gap-2 p-2 rounded-lg border border-foreground/[0.04] bg-foreground/[0.02]">
-                <div className="w-8 h-8 rounded-lg shrink-0 border border-foreground/10"
-                  style={{ background: getThemePreview(t.id) }}
-                />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-foreground truncate">{t.name}</p>
-                  <p className="text-[9px] text-foreground/40">{t.id}</p>
-                </div>
-              </div>
-            ))}
+      {/* Built-in themes */}
+      <AdminCard icon={Swatches} title="Integrierte Farbschemas">
+        <p className="text-xs text-foreground/50 mb-4">Die sechs Standard-Farbschemas von IORA</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          {builtin.filter(t => t.id !== 'auto').sort((a: ThemeDef, b: ThemeDef) => (a.order || 50) - (b.order || 50)).map((t) => (
+            <div key={t.id} className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-foreground/[0.04] bg-foreground/[0.02]">
+              <div className="w-10 h-10 rounded-xl border border-foreground/10" style={{ background: getThemePreview(t.id) }} />
+              <p className="text-[10px] font-medium text-foreground truncate w-full text-center">{t.name}</p>
+              <p className="text-[8px] text-foreground/30">{t.id}</p>
+            </div>
+          ))}
         </div>
       </AdminCard>
     </div>

@@ -1194,6 +1194,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(messaging_router)
         // Theme API
         .route("/api/themes", get(theme_handler::list_themes))
+        .route("/api/themes/default", get(theme_handler::get_default_theme).put(theme_handler::set_default_theme))
         .route("/api/themes/install", post(handle_theme_zip_install))
         .route("/api/themes/install-from-manifest", post(theme_handler::handle_install_theme_inline))
         .route("/api/themes/:theme_id", delete(theme_handler::uninstall_theme))

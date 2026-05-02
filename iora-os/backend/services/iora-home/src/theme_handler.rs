@@ -561,6 +561,50 @@ pub async fn get_theme_css(
     Ok(Json(css))
 }
 
+// ─── Default Theme API ───────────────────────────────────────────────
+
+/// GET /api/themes/default – Get the global default theme configuration.
+pub async fn get_default_theme(
+    State(gs): State<AppState>,
+) -> Result<Json<iora_shared::theme::DefaultThemeConfig>, (StatusCode, String)> {
+    let raw: Option<String> = sqlx::query_scalar(
+        "SELECT preference_value FROM system_preferences WHERE preference_key = 'default_theme'"
+    )
+    .fetch_optional(&gs.db_pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let config: iora_shared::theme::DefaultThemeConfig = match raw {
+        Some(val) => serde_json::from_str(&val).unwrap_or_default(),
+        None => iora_shared::theme::DefaultThemeConfig::default(),
+    };
+    Ok(Json(config))
+}
+
+/// PUT /api/themes/default – Set the global default theme configuration.
+pub async fn set_default_theme(
+    State(gs): State<AppState>,
+    Json(config): Json<iora_shared::theme::DefaultThemeConfig>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let json = serde_json::to_string(&config)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    sqlx::query(
+        "INSERT INTO system_preferences (id, preference_key, preference_value, created_at, updated_at) \
+         VALUES($1, $2, $3, NOW(), NOW()) \
+         ON CONFLICT (preference_key) DO UPDATE SET \
+         preference_value = $3, updated_at = NOW()"
+    )
+    .bind(&format!("default_theme_{}", uuid::Uuid::new_v4()))
+    .bind("default_theme")
+    .bind(&json)
+    .execute(&gs.db_pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(serde_json::json!({"status":"ok", "config": config})))
+}
+
 /// GET /api/themes/assets/:theme_id/*path
 pub async fn serve_theme_asset(
     State(gs): State<AppState>,
