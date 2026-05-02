@@ -61,47 +61,29 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   // Erhöht von 15s auf 30s, um kurze Netzwerk-Hicks zu überbrücken.
   // Zusätzlich: bei 'error' sofort neu verbinden statt auf den nächsten
   // Poll zu warten.
-  const scheduleHeartbeatTimeout = useCallback(() => {
-    if (heartbeatTimerRef.current) clearTimeout(heartbeatTimerRef.current)
-    heartbeatTimerRef.current = setTimeout(() => {
-      if (!mountedRef.current) return
-      setStatus(prev => {
-        // Nur als 'error' markieren, wenn wir vorher 'connected' waren
-        if (prev.devBridge === 'connected') {
-          // Nicht sofort auf error setzen — erst nach 30s ohne Heartbeat
-          // und dann sofort neu verbinden
-          devBridgeRetryRef.current = 0
-          connectDevBridgeSSE()
-          return { ...prev, devBridge: 'error', lastDevBridgeCheck: new Date() }
-        }
-        return prev
-      })
-    }, 30_000) // 30s ohne Heartbeat → neuer Verbindungsversuch
-  }, [])
-
-  // ── SSE-Verbindung zur Dev Bridge aufbauen ──────────────────
-  // Die Dev Bridge sendet alle 5s einen Heartbeat. Bei Verbindungsabbruch
-  // wird sofort neu verbunden (ohne 'error'-Status, wenn innerhalb von 2s
-  // die Verbindung wieder steht).
+  // ── SSE-Verbindung zur Dev Bridge (einmalig, browser-eigenes Reconnect) ──
+  // Nutzt den nativen EventSource-Reconnect des Browsers statt manuellem
+  // Schließen+Neuöffnen. Der Browser reconnectet automatisch bei Verbindungs-
+  // abbruch (HTTP-Ergebnis-Code < 200 oder >= 300). Wir setzen nur den Status
+  // und lassen den Browser arbeiten.
   const connectDevBridgeSSE = useCallback(() => {
     if (!mountedRef.current) return
 
-    // Bestehende SSE-Verbindung schließen
+    const devBridgeUrl = getDevBridgeUrl()
+    if (!devBridgeUrl) return
+
+    // Bestehende SSE-Verbindung sauber schließen (falls vorhanden)
     if (sseRef.current) {
       sseRef.current.close()
       sseRef.current = null
     }
 
-    const devBridgeUrl = getDevBridgeUrl()
-    if (!devBridgeUrl) return
-
     const es = new EventSource(`${devBridgeUrl}/dev/events`)
-    let connectionStable = false
 
+    // Verbindung steht
     es.addEventListener('connected', () => {
       if (!mountedRef.current) return
-      connectionStable = true
-      devBridgeRetryRef.current = 0 // Backoff zurücksetzen
+      devBridgeRetryRef.current = 0
       setStatus(prev => ({
         ...prev,
         devBridge: 'connected',
@@ -109,13 +91,13 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }))
     })
 
+    // Heartbeat empfangen (alle 5s von der Dev Bridge)
     es.addEventListener('heartbeat', (e: Event) => {
       if (!mountedRef.current) return
       const msgEvent = e as MessageEvent
       try {
         const data = JSON.parse(msgEvent.data)
         devBridgeRetryRef.current = 0
-        connectionStable = true
         setStatus(prev => ({
           ...prev,
           devBridge: 'connected',
@@ -123,44 +105,56 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
           lastDevBridgeHeartbeat: new Date(),
           lastDevBridgeCheck: new Date(),
         }))
-        scheduleHeartbeatTimeout()
       } catch {
         // ignorieren
       }
     })
 
-    es.addEventListener('service_status', (e: Event) => {
-      if (!mountedRef.current) return
-    })
-
+    // Verbindungsfehler — der Browser reconnectet selbstständig.
+    // Wir setzen den Status nur, wenn wir noch nie verbunden waren.
     es.onerror = () => {
       if (!mountedRef.current) return
-      es.close()
-      sseRef.current = null
-
-      // Sanfte Fehlerbehandlung: wenn wir noch nie verbunden waren (erster
-      // Start), zeigen wir 'disconnected'. Wenn wir bereits verbunden waren
-      // und nur ein kurzer Aussetzer ist, versuchen wir sofort neu zu
-      // verbinden OHNE den Status auf 'error' zu setzen — erst wenn der
-      // Heartbeat-Timeout (30s) abläuft, wird auf 'error' geschaltet.
-      if (!connectionStable) {
+      // EventSource.readyState === 0 (CONNECTING) bedeutet: Browser
+      // versucht automatisch neu zu verbinden — kein Eingriff nötig.
+      // readyState === 2 (CLOSED) bedeutet: endgültig getrennt.
+      if (es.readyState === EventSource.CLOSED) {
         setStatus(prev => ({
           ...prev,
-          devBridge: 'disconnected',
+          devBridge: 'error',
+          lastDevBridgeCheck: new Date(),
+        }))
+      } else {
+        // CONNECTING — der Browser reconnectet, Status bleibt
+        // 'connected' bis das Heartbeat-Timeout (60s) zuschlägt
+        setStatus(prev => ({
+          ...prev,
           lastDevBridgeCheck: new Date(),
         }))
       }
-
-      // Sofort neu verbinden (kurze Verzögerung, aber kein 'error'-Status)
-      const retry = devBridgeRetryRef.current
-      const delay = Math.min(500 * Math.pow(1.5, retry), 10_000) // 0.5s, 0.75s, 1.1s, ... max 10s
-      devBridgeRetryRef.current = Math.min(retry + 1, 10)
-      setTimeout(() => connectDevBridgeSSE(), delay)
     }
 
     sseRef.current = es
-    scheduleHeartbeatTimeout()
-  }, [scheduleHeartbeatTimeout])
+  }, [])
+
+  // ── Heartbeat-Timeout: 60s ohne Heartbeat → offline markieren
+  // Der Browser reconnectet automatisch, aber wenn 60s lang gar nichts
+  // ankommt, ist die Dev Bridge wirklich weg.
+  useEffect(() => {
+    if (!mountedRef.current) return
+    const interval = setInterval(() => {
+      if (!mountedRef.current) return
+      setStatus(prev => {
+        if (prev.devBridge !== 'connected') return prev
+        const now = Date.now()
+        const lastBeat = prev.lastDevBridgeHeartbeat?.getTime() || 0
+        if (now - lastBeat > 60_000) {
+          return { ...prev, devBridge: 'error', lastDevBridgeCheck: new Date() }
+        }
+        return prev
+      })
+    }, 15_000)
+    return () => clearInterval(interval)
+  }, [])
 
   // ── Backend-Check (mit exponentiellem Backoff) ──────────────
   const checkBackend = useCallback(async () => {

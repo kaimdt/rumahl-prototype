@@ -52,7 +52,11 @@ canvas{border-radius:5px;background:var(--bg);width:100%}
 
 <div class="hdr">
   <span class="logo">⚡ IORA OS Dev</span>
-  <span id="hdrStatus"><span class="dot off"></span>loading…</span>
+  <span id="hdrStatus">
+    <span id="hdrDot" class="dot off"></span>
+    <span id="hdrLabel">loading…</span>
+  </span>
+  <span id="hdrDeviceStatus" style="font-size:10px;color:var(--muted);display:none"></span>
   <span class="spacer"></span>
   <span style="font-size:10px;color:var(--muted)" id="hdrHost"></span>
   <button class="btn" onclick="M.connectDialog()">🔑 Connect</button>
@@ -65,6 +69,8 @@ canvas{border-radius:5px;background:var(--bg);width:100%}
   <button data-t="deploy" onclick="M.switchTab('deploy')">Deploy</button>
   <button data-t="logs" onclick="M.switchTab('logs')">Logs</button>
   <button data-t="system" onclick="M.switchTab('system')">System</button>
+  <button data-t="config" onclick="M.switchTab('config')">Config</button>
+  <button data-t="compose" onclick="M.switchTab('compose')">Compose</button>
 </nav>
 
 <!-- DASHBOARD -->
@@ -165,6 +171,38 @@ canvas{border-radius:5px;background:var(--bg);width:100%}
   </div>
 </main>
 
+<!-- CONFIG -->
+<main id="tab-config">
+  <div class="card">
+    <h3>Global Config</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input id="cfgKey" placeholder="Key (z.B. ui.theme)" style="width:200px">
+      <input id="cfgVal" placeholder="Value" style="flex:1">
+      <button class="btn" onclick="M.cfgSet()">Set</button>
+      <button class="btn2" onclick="M.cfgGet()">Get</button>
+      <button class="btn2 danger" onclick="M.cfgDelete()">Delete</button>
+    </div>
+    <div class="logs" id="cfgResult" style="max-height:300px">Enter a key to look up or set a config value.</div>
+    <h3 style="margin-top:12px">All Config</h3>
+    <div id="cfgList" style="max-height:200px;overflow-y:auto"></div>
+    <button class="btn2" onclick="M.cfgList()" style="margin-top:4px">Refresh</button>
+  </div>
+</main>
+
+<!-- COMPOSE -->
+<main id="tab-compose">
+  <div class="card">
+    <h3>Docker Compose</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <select id="composeSvc" style="width:200px"><option value="">Select service…</option></select>
+      <button class="btn" onclick="M.composeReload()">🔄 Reload</button>
+      <button class="btn2" onclick="M.composeLogs()">📋 Logs</button>
+      <span id="composeMsg" style="font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div class="logs" id="composeLogView" style="max-height:350px">Select a compose service.</div>
+  </div>
+</main>
+
 <!-- CONNECT MODAL -->
 <div class="modal" id="connectModal"><div>
   <h2>Connect</h2>
@@ -200,13 +238,14 @@ const M = {
   connected: false, connHost: '', connBuild: '', connHostname: '',
   devices: [], components: [], services: [], jobs: [],
   svcSummary: {total:0,healthy:0,degraded:0,unhealthy:0,stale:0},
-  ws: null, activeJob: null, fsCurrent: '/',
+  ws: null, wsConnected: false, wsRetries: 0, wsMaxRetries: 30, activeJob: null, fsCurrent: '/',
   graphData: { cpu: Array(60).fill(0), mem: Array(60).fill(0) },
   graphTimer: null,
 
   async init() {
     try { await fetch('/api/v1/health'); } catch {
-      document.getElementById('hdrStatus').innerHTML='<span class="dot off"></span>daemon down';
+      document.getElementById('hdrDot').className='dot off';
+      document.getElementById('hdrLabel').textContent='daemon down';
       return setTimeout(()=>M.init(),1500);
     }
     try { M.components = await M.api('GET','/api/v1/components'); } catch {}
@@ -223,9 +262,57 @@ const M = {
 
   connectWS() {
     if(M.ws) try{M.ws.close()}catch{}
-    M.ws = new WebSocket('ws://127.0.0.1:8765/api/v1/events');
+    // Use the page origin to connect to the daemon WebSocket.
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${proto}//${host}/api/v1/events`;
+    M.ws = new WebSocket(wsUrl);
+    M.ws.onopen = () => {
+      // WebSocket-Verbindung zum Daemon steht
+      M.wsRetries = 0;
+      M.wsConnected = true;
+      M.updateHdrStatus();
+    };
     M.ws.onmessage = e => { try { M.onEvent(JSON.parse(e.data)); } catch {} };
-    M.ws.onclose = () => setTimeout(()=>M.connectWS(),2000);
+    M.ws.onclose = (ev) => {
+      M.ws = null;
+      M.wsConnected = false;
+      document.getElementById('hdrDeviceStatus').style.display='none';
+      // Exponentielles Backoff: 1s, 2s, 4s, 8s, ... max 30s
+      const delay = Math.min(1000 * Math.pow(2, M.wsRetries), 30000);
+      M.wsRetries = Math.min(M.wsRetries + 1, M.wsMaxRetries);
+      document.getElementById('hdrDot').className='dot off';
+      document.getElementById('hdrLabel').textContent=`reconnecting in ${(delay/1000).toFixed(0)}s`;
+      setTimeout(() => M.connectWS(), delay);
+    };
+    M.ws.onerror = () => {
+      // EventSource/WebSocket feuert onerror + onclose — wir
+      // behandeln nur onclose, der immer nach onerror kommt.
+    };
+  },
+
+  updateHdrStatus() {
+    // Zeigt WebSocket-Status + Device-Status kombiniert
+    const dot = document.getElementById('hdrDot');
+    const label = document.getElementById('hdrLabel');
+    const dev = document.getElementById('hdrDeviceStatus');
+    if (!M.wsConnected) {
+      dot.className = 'dot off';
+      label.textContent = 'offline';
+      dev.style.display = 'none';
+      return;
+    }
+    dot.className = 'dot on';
+    label.textContent = M.wsRetries > 0 ? 'reconnected' : 'connected';
+    if (M.connected && M.connHostname) {
+      dev.style.display = 'inline';
+      dev.textContent = '🔗 ' + M.connHostname;
+    } else if (M.connected && M.connHost) {
+      dev.style.display = 'inline';
+      dev.textContent = '🔗 ' + M.connHost;
+    } else {
+      dev.style.display = 'none';
+    }
   },
 
   onEvent(ev) {
@@ -260,8 +347,7 @@ const M = {
   },
 
   renderAll() {
-    const st=document.getElementById('hdrStatus');
-    st.innerHTML=M.connected?`<span class="dot on"></span>${M.connHostname||M.connHost}`:'<span class="dot off"></span>not connected';
+    M.updateHdrStatus();
     document.getElementById('hdrHost').textContent=M.connected?`build ${M.connBuild}`:'';
     document.getElementById('deployBtn').disabled=!M.connected;
     document.getElementById('setupBanner').style.display=M.connected?'none':'block';
@@ -418,6 +504,67 @@ const M = {
     } catch(e) { msg.textContent=e.message; }
   },
 
+  // ─── Config ──────────────────────────────────────────────────────
+  async cfgList() {
+    try {
+      const r = await M.api('GET','/api/v1/config');
+      const el=document.getElementById('cfgList');
+      if(!el) return;
+      el.innerHTML = (r && r.length) ? r.map(c=>`<div class="item"><b>${c.key}</b> <span style="color:var(--muted);margin-left:auto;font-size:10px">${String(c.value).substring(0,80)}</span></div>`).join('') : '<div class="empty">No config</div>';
+    } catch(e) { 
+      const el=document.getElementById('cfgResult');
+      if(el) el.textContent='Error: '+e.message;
+    }
+  },
+  async cfgGet() {
+    const key=document.getElementById('cfgKey').value.trim();
+    if(!key){document.getElementById('cfgResult').textContent='Enter a key';return}
+    try {
+      document.getElementById('cfgResult').textContent=JSON.stringify(await M.api('GET','/api/v1/config/'+encodeURIComponent(key)),null,2);
+    } catch(e) { document.getElementById('cfgResult').textContent='Error: '+e.message; }
+  },
+  async cfgSet() {
+    const key=document.getElementById('cfgKey').value.trim();
+    const val=document.getElementById('cfgVal').value.trim();
+    if(!key||!val){document.getElementById('cfgResult').textContent='Key and value required';return}
+    try {
+      document.getElementById('cfgResult').textContent=JSON.stringify(await M.api('PUT','/api/v1/config/'+encodeURIComponent(key),{value:val}),null,2);
+      M.cfgList();
+    } catch(e) { document.getElementById('cfgResult').textContent='Error: '+e.message; }
+  },
+  async cfgDelete() {
+    const key=document.getElementById('cfgKey').value.trim();
+    if(!key||!confirm('Delete '+key+'?'))return;
+    try {
+      await fetch('/api/v1/config/'+encodeURIComponent(key),{method:'DELETE'});
+      document.getElementById('cfgResult').textContent='Deleted';
+      document.getElementById('cfgKey').value='';
+      M.cfgList();
+    } catch(e) { document.getElementById('cfgResult').textContent='Error: '+e.message; }
+  },
+
+  // ─── Compose ─────────────────────────────────────────────────────
+  async composeReload() {
+    const svc=document.getElementById('composeSvc').value;
+    if(!svc){document.getElementById('composeMsg').textContent='Select service';return}
+    document.getElementById('composeMsg').textContent='Reloading…';
+    try {
+      const r=await M.api('POST','/api/v1/compose/reload',{service:svc});
+      document.getElementById('composeLogView').textContent=JSON.stringify(r,null,2);
+      document.getElementById('composeMsg').textContent='OK';
+    } catch(e) { document.getElementById('composeMsg').textContent=e.message; }
+  },
+  async composeLogs() {
+    const svc=document.getElementById('composeSvc').value;
+    if(!svc){document.getElementById('composeMsg').textContent='Select service';return}
+    document.getElementById('composeMsg').textContent='Loading…';
+    try {
+      const r=await M.api('POST','/api/v1/compose/logs',{service:svc,tail:200});
+      document.getElementById('composeLogView').textContent=r.stdout||'(empty)';
+      document.getElementById('composeMsg').textContent='OK';
+    } catch(e) { document.getElementById('composeMsg').textContent=e.message; }
+  },
+
   // ─── Tabs ────────────────────────────────────────────────────────
   switchTab(t) {
     document.querySelectorAll('main').forEach(m=>m.classList.remove('active'));
@@ -425,6 +572,11 @@ const M = {
     document.getElementById('tab-'+t)?.classList.add('active');
     if(t==='svc'&&M.connected)M.refreshServices();
     if(t==='system'){M.refreshSysInfo();M.startGraphs()}else M.stopGraphs();
+    if(t==='config'){M.cfgList()};
+    if(t==='compose'&&M.services&&M.services.length){
+      const sel=document.getElementById('composeSvc');
+      if(sel&&sel.options.length<=1)M.services.forEach(s=>{if(s.name!=='iora-core')sel.innerHTML+=`<option value="${s.name}">${s.name}</option>`});
+    }
   },
   async refreshServices(){try{const s=await M.api('GET','/api/v1/services');M.services=s?.services||[];M.svcSummary=s?.summary||M.svcSummary;M.renderServices()}catch{}},
 

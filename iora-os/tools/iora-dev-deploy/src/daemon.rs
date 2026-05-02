@@ -1210,13 +1210,15 @@ async fn h_events_ws(
     if !token_q.is_empty() && !h.contains_key(header::AUTHORIZATION) {
         h.insert(header::AUTHORIZATION, format!("Bearer {token_q}").parse().unwrap());
     }
-    // check_auth now supports cookies too, so WebSocket upgrades from the
-    // /ui page will authenticate via the daemon_token cookie automatically.
-    check_auth(&s, &h)?;
-    Ok(ws.on_upgrade(move |sock| ws_loop(s, sock)))
+    // Public endpoint — the Web UI needs to connect BEFORE the user logs in
+    // (to show the connect dialog). The stream only contains non-sensitive
+    // data (connection status, device list). Auth-only data (jobs, watches)
+    // is only included if the client is authenticated.
+    let is_auth = check_auth(&s, &h).is_ok();
+    Ok(ws.on_upgrade(move |sock| ws_loop(s, sock, is_auth)))
 }
 
-async fn ws_loop(s: AppState, mut sock: WebSocket) {
+async fn ws_loop(s: AppState, mut sock: WebSocket, is_auth: bool) {
     let mut rx = s.inner.events.subscribe();
     // Build the snapshot manually (json! doesn't accept block expressions).
     let devices = s.inner.devices.read().await.clone();
