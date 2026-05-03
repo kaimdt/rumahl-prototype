@@ -1061,12 +1061,57 @@ build_service_binaries() {
             # Use -p <package> instead of --bin: each IORA service lives in its
         # own workspace crate of the same name, so -p is unambiguous and
         # also builds the crate's *lib* dependencies in the right order.
-        local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${BACKEND_DIR}/target}"
+        # ── Persistent cargo target directory ───────────────────────────────
+        # Keep compiled artefacts outside the checkout so they survive
+        # `git checkout .` and `update.sh`.  Combined with sccache this
+        # makes repeated builds near-instant for unchanged crates.
+        local _persistent_target="${HOME}/.iora-cache/cargo-target"
+        mkdir -p "${_persistent_target}"
+        local CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${_persistent_target}}"
         export CARGO_TARGET_DIR
         : >/tmp/iora-cargo-build.log
         local CARGO_LOG_DIR="/tmp/iora-cargo-logs"
         rm -rf "${CARGO_LOG_DIR}"
         mkdir -p "${CARGO_LOG_DIR}"
+
+        # ── sccache – Rust compiler cache ───────────────────────────────────
+        # Like ccache, but for rustc.  Persisted in ~/.iora-cache/sccache.
+        # Even when iora-shared changes, unchanged translation units in
+        # dependent crates still hit the cache (3-10× speedup on rebuiilds).
+        if [ "${IORA_SCCACHE:-1}" = "1" ] && command -v sccache >/dev/null 2>&1; then
+            export SCCACHE_DIR="${HOME}/.iora-cache/sccache"
+            mkdir -p "${SCCACHE_DIR}"
+            export RUSTC_WRAPPER="sccache"
+            # Prefer local disk cache only (no S3/GCS/…).
+            sccache --start-server >/dev/null 2>&1 || true
+            log_info "sccache active → cache dir: ${SCCACHE_DIR}"
+        elif [ "${IORA_SCCACHE:-1}" = "1" ]; then
+            log_warn "sccache not found – install with: sudo apt-get install sccache"
+            log_warn "(Rust rebuilds will be slower without it.)"
+        fi
+
+        # ── mold – fast linker ──────────────────────────────────────────────
+        # 2-5× faster than GNU ld for Rust linking.  Falls back silently if
+        # mold is not installed.
+        local _mold_flag=""
+        if [ "${IORA_MOLD:-1}" = "1" ] && command -v mold >/dev/null 2>&1; then
+            _mold_flag="-C link-arg=-fuse-ld=mold"
+            log_info "mold linker active"
+        elif [ "${IORA_MOLD:-1}" = "1" ]; then
+            log_info "mold not found – using default linker (install: sudo apt-get install mold)"
+        fi
+
+        # ── Profile selection ───────────────────────────────────────────────
+        # IORA_FAST_BUILD=1 → --profile release-fast  (lto=off, cgu=16, ~3× faster)
+        # default           → --release               (full fat LTO, max optimisation)
+        local _cargo_profile_flag="--release"
+        local _profile_name="release"
+        if [ "${IORA_FAST_BUILD:-0}" = "1" ]; then
+            _cargo_profile_flag="--profile release-fast"
+            _profile_name="release-fast"
+            log_info "Fast build profile: lto=off, codegen-units=16, opt-level=2"
+        fi
+        local _profile_subdir="${_profile_name}"
 
         # ── Optimised workspace build ───────────────────────────────────
         # Build all services in ONE cargo invocation so that cargo can
@@ -1081,13 +1126,14 @@ build_service_binaries() {
         # per-package builds so one type-error doesn't nuke everything.
         local _cargo_jobs="${CARGO_BUILD_JOBS:-$(nproc)}"
         export CARGO_BUILD_JOBS="${_cargo_jobs}"
-        log_info "cargo build --workspace --release --target ${RUST_TRIPLE}  (jobs=${_cargo_jobs})"
+        log_info "cargo build --workspace ${_cargo_profile_flag} --target ${RUST_TRIPLE}  (profile=${_profile_name}, jobs=${_cargo_jobs})"
         local _ws_log="${CARGO_LOG_DIR}/_workspace.log"
         local built_ok=""
         local built_fail=""
 
         if ( cd "${BACKEND_DIR}" && \
-             cargo build --workspace --release --target "${RUST_TRIPLE}" \
+             RUSTFLAGS="${RUSTFLAGS:-} ${_mold_flag}" \
+             cargo build --workspace ${_cargo_profile_flag} --target "${RUST_TRIPLE}" \
                  --message-format=short ) \
              >"${_ws_log}" 2>&1; then
             cat "${_ws_log}" >>/tmp/iora-cargo-build.log
@@ -1109,15 +1155,16 @@ build_service_binaries() {
                 local svc="${entry%%:*}"
                 local svc_log="${CARGO_LOG_DIR}/${svc}.log"
                 # Skip packages that already compiled fine in the workspace build.
-                local _bin_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${svc}"
+                local _bin_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/${_profile_subdir}/${svc}"
                 if [ -f "${_bin_cross}" ]; then
                     built_ok="${built_ok} ${svc}"
                     continue
                 fi
                 # If it wasn't in the failed list either, try building it.
-                log_info "  cargo build -p ${svc} --release --target ${RUST_TRIPLE}"
+                log_info "  cargo build -p ${svc} ${_cargo_profile_flag} --target ${RUST_TRIPLE}"
                 if ( cd "${BACKEND_DIR}" && \
-                     cargo build --release --target "${RUST_TRIPLE}" -p "${svc}" \
+                     RUSTFLAGS="${RUSTFLAGS:-} ${_mold_flag}" \
+                     cargo build ${_cargo_profile_flag} --target "${RUST_TRIPLE}" -p "${svc}" \
                          --message-format=short ) \
                      >"${svc_log}" 2>&1; then
                     cat "${svc_log}" >>/tmp/iora-cargo-build.log
@@ -1136,7 +1183,8 @@ build_service_binaries() {
                 fi
                 log_warn "    ${svc}: trying host-native fallback…"
                 if ( cd "${BACKEND_DIR}" && \
-                     cargo build --release -p "${svc}" --message-format=short ) \
+                     RUSTFLAGS="${RUSTFLAGS:-} ${_mold_flag}" \
+                     cargo build ${_cargo_profile_flag} -p "${svc}" --message-format=short ) \
                      >>"${svc_log}" 2>&1; then
                     cat "${svc_log}" >>/tmp/iora-cargo-build.log
                     built_ok="${built_ok} ${svc}:hostnative"
@@ -1163,8 +1211,8 @@ build_service_binaries() {
             local dest="${OVERLAY}/${svc}/bin"
             mkdir -p "${dest}"
 
-            local src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${svc}"
-            local src_host="${CARGO_TARGET_DIR}/release/${svc}"
+            local src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/${_profile_subdir}/${svc}"
+            local src_host="${CARGO_TARGET_DIR}/${_profile_subdir}/${svc}"
             local src=""
             if [ -f "${src_cross}" ]; then
                 src="${src_cross}"
@@ -1197,8 +1245,8 @@ build_service_binaries() {
         for entry in ${CLI_TOOLS}; do
             local cli="${entry%%:*}"
             local bin="${entry##*:}"
-            local cli_src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/release/${bin}"
-            local cli_src_host="${CARGO_TARGET_DIR}/release/${bin}"
+            local cli_src_cross="${CARGO_TARGET_DIR}/${RUST_TRIPLE}/${_profile_subdir}/${bin}"
+            local cli_src_host="${CARGO_TARGET_DIR}/${_profile_subdir}/${bin}"
             local cli_src=""
             if [ -f "${cli_src_cross}" ]; then
                 cli_src="${cli_src_cross}"
