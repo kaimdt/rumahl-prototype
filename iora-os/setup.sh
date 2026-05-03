@@ -402,7 +402,7 @@ install_rust() {
     case "$PM" in
         apt)
             # We still install curl + ca-certificates so the rustup bootstrap works.
-            $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
                 curl ca-certificates gcc build-essential >/dev/null 2>&1 || true
             ;;
         dnf)    $SUDO dnf install -y curl ca-certificates gcc make >/dev/null 2>&1 || true ;;
@@ -482,7 +482,7 @@ install_pkgs "${PKGS[@]}" || die "Package installation failed."
 # Skip the interactive prompt by default in --yes mode.
 if [ "$PM" = apt ] && [ "$IS_WSL" = false ] && [ "$TARGET" = pc ]; then
     if [ "${ASSUME_YES}" = true ] || ask_yn "Install optional VirtualBox/RAUC support?" n; then
-        $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y "${OPT_APT[@]}" \
+        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "${OPT_APT[@]}" \
             || warn "Optional packages failed – OVA export / RAUC bundle may be skipped."
     fi
 fi
