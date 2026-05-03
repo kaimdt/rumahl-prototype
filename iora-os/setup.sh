@@ -159,8 +159,8 @@ fi
 # uses when host glibc >= 2.39 (target glibc is 2.38) — without it crates with C
 # dependencies fail to link with `cc: error: unrecognized command-line option`.
 COMMON_APT=(build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc
-            libncurses-dev libssl-dev libelf-dev python3 python3-pip pkg-config
-            ca-certificates file jq musl-tools nodejs npm ccache sccache mold)
+            libncurses-dev libssl-dev libelf-dev libcrypt-dev python3 python3-pip
+            pkg-config ca-certificates file jq musl-tools nodejs npm ccache sccache mold)
 
 # Extra packages when building PC-class x86 images.
 PC_APT=(qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin mtools dosfstools parted)

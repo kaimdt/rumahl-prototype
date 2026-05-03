@@ -744,6 +744,11 @@ patch_host_gawk_gcc15() {
     _ncpu="${BUILD_JOBS:-$(nproc)}"
     log_info "  make -j${_ncpu} (override with --jobs N)"
 
+    # GCC 15 (Ubuntu 26.04+) defaults to -std=gnu23 which breaks many older
+    # host packages (cmake, m4, gawk, go-bootstrap, ...). Force gnu17 globally.
+    export HOST_CFLAGS="${HOST_CFLAGS:-} -std=gnu17"
+    export HOST_CXXFLAGS="${HOST_CXXFLAGS:-} -std=gnu17"
+
     cd "${BUILD_DIR}"
     if [ "${PROGRESS}" = true ]; then
         PATH="${BUILDROOT_SAFE_PATH}" \
