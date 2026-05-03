@@ -650,6 +650,39 @@ EOF
     log_success "Buildroot configured"
 }
 
+# ── GCC 15 compatibility fix for host-cmake ──────────────────────────────────
+# GCC 15 (shipped with Ubuntu 26.04+) no longer implicitly includes <cstdint>
+# through other headers. CMake 3.28.1's bundled cppdap uses uint32_t without
+# an explicit #include <cstdint>, causing a build failure:
+#   error: 'uint32_t' has not been declared
+# This function patches the host-cmake source after Buildroot extracts it.
+patch_host_cmake_gcc15() {
+    local cmake_src="${BUILD_DIR}/output/build/host-cmake-3.28.1"
+    # Source might not be extracted yet (handled by make); skip silently.
+    [ -d "${cmake_src}" ] || return 0
+
+    local patched_marker="${cmake_src}/.iora-gcc15-patched"
+    [ -f "${patched_marker}" ] && return 0
+
+    local network_h="${cmake_src}/Utilities/cmcppdap/include/dap/network.h"
+    local socket_h="${cmake_src}/Utilities/cmcppdap/src/socket.h"
+
+    if [ -f "${network_h}" ]; then
+        if ! grep -q '<cstdint>' "${network_h}" 2>/dev/null; then
+            log_info "Patching host-cmake: adding #include <cstdint> to network.h (GCC 15 compat)"
+            sed -i '/^#include <functional>/i #include <cstdint>' "${network_h}"
+        fi
+    fi
+    if [ -f "${socket_h}" ]; then
+        if ! grep -q '<cstdint>' "${socket_h}" 2>/dev/null; then
+            log_info "Patching host-cmake: adding #include <cstdint> to socket.h (GCC 15 compat)"
+            sed -i '/^#include "dap\/io.h"/a #include <cstdint>' "${socket_h}"
+        fi
+    fi
+
+    touch "${patched_marker}"
+}
+
 build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
@@ -6412,6 +6445,7 @@ main() {
         build_service_binaries
         download_buildroot
         configure_buildroot
+        patch_host_cmake_gcc15
         build_base_image
     else
         log_info "Skipping Buildroot compile steps (images-only mode)."

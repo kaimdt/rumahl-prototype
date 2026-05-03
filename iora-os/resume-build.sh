@@ -86,6 +86,37 @@ show_progress_stream() {
     }'
 }
 
+# ── GCC 15 compatibility fix for host-cmake ──────────────────────────────────
+# GCC 15 (shipped with Ubuntu 26.04+) no longer implicitly includes <cstdint>
+# through other headers. CMake 3.28.1's bundled cppdap uses uint32_t without
+# an explicit #include <cstdint>, causing a build failure.
+# Safe on all systems: only adds a missing standard include where needed.
+patch_host_cmake_gcc15() {
+    local cmake_src="${BUILD_DIR}/output/build/host-cmake-3.28.1"
+    [ -d "${cmake_src}" ] || return 0
+
+    local patched_marker="${cmake_src}/.iora-gcc15-patched"
+    [ -f "${patched_marker}" ] && return 0
+
+    local network_h="${cmake_src}/Utilities/cmcppdap/include/dap/network.h"
+    local socket_h="${cmake_src}/Utilities/cmcppdap/src/socket.h"
+
+    if [ -f "${network_h}" ]; then
+        if ! grep -q '<cstdint>' "${network_h}" 2>/dev/null; then
+            log_info "Patching host-cmake: adding #include <cstdint> to network.h (GCC 15 compat)"
+            sed -i '/^#include <functional>/i #include <cstdint>' "${network_h}"
+        fi
+    fi
+    if [ -f "${socket_h}" ]; then
+        if ! grep -q '<cstdint>' "${socket_h}" 2>/dev/null; then
+            log_info "Patching host-cmake: adding #include <cstdint> to socket.h (GCC 15 compat)"
+            sed -i '/^#include "dap\/io.h"/a #include <cstdint>' "${socket_h}"
+        fi
+    fi
+
+    touch "${patched_marker}"
+}
+
 check_prereqs() {
     if [ ! -d "${BUILD_DIR}" ]; then
         log_error "Buildroot directory not found: ${BUILD_DIR}"
@@ -199,6 +230,9 @@ if [ "${CLEAN_LINUX}" = true ]; then
     log_warn "Cleaning linux build directory before resume..."
     PATH="${SAFE_PATH}" FORCE_UNSAFE_CONFIGURE=1 make linux-dirclean
 fi
+
+# Apply GCC 15 compat patches before building (idempotent, safe on all distros).
+patch_host_cmake_gcc15
 
 # Force xz parallelism — prevent silent thread downgrades (16→3).
 export XZ_OPT="-T0 --memlimit-compress=0"

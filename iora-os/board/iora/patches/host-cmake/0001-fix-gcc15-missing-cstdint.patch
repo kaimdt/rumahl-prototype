@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IORA Build System <build@iora.local>
+Date: Sat, 3 May 2026 00:00:00 +0000
+Subject: [PATCH] Fix GCC 15 compatibility: add missing <cstdint> includes
+
+GCC 15 no longer implicitly includes <cstdint> through other standard
+library headers (specifically <memory>). This causes build failures in
+CMake's bundled cppdap library which uses uint32_t without explicitly
+including <cstdint>.
+
+Fix by adding the missing #include <cstdint> to both network.h (header)
+and socket.h (internal header), which both use uint32_t in their public
+API.
+
+Error fixed:
+  Utilities/cmcppdap/include/dap/network.h:31:39: error: 'uint32_t' has
+  not been declared
+
+References:
+  https://gcc.gnu.org/gcc-15/porting_to.html
+  (headers used less widely: <cstdint> for std::int32_t etc.)
+
+--- a/Utilities/cmcppdap/include/dap/network.h
++++ b/Utilities/cmcppdap/include/dap/network.h
+@@ -18,6 +18,7 @@
+ #ifndef dap_network_h
+ #define dap_network_h
+ 
++#include <cstdint>
+ #include <functional>
+ #include <memory>
+ 
+--- a/Utilities/cmcppdap/src/socket.h
++++ b/Utilities/cmcppdap/src/socket.h
+@@ -18,6 +18,7 @@
+ 
+ #include "dap/io.h"
+ 
++#include <cstdint>
+ #include <atomic>
+ #include <memory>

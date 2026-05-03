@@ -53,6 +53,7 @@ mkdir -p "${CACHE_DIR}/cargo-target" # Persistent cargo target dir
 # ── Parse arguments ────────────────────────────────────────────────────
 MODE="full"
 JOBS="$(nproc)"
+IORA_OS_DEV="${IORA_OS_DEV:-0}"
 FORWARD_ARGS=()
 FAST_DEFCONFIG="iora_defconfig_fast_iso"
 
@@ -74,12 +75,18 @@ while [ $# -gt 0 ]; do
         --jobs=*)
             JOBS="${1#*=}"
             ;;
+        --dev)
+            IORA_OS_DEV=1
+            ;;
+        --no-dev)
+            IORA_OS_DEV=0
+            ;;
         --progress|--unattended|--non-interactive|--force-full-image|--require-all-artifacts)
             FORWARD_ARGS+=("$1")
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--resume] [--clean] [--jobs N] [--progress] [--unattended]"
+            echo "Usage: $0 [--resume] [--clean] [--dev] [--jobs N] [--progress] [--unattended]"
             exit 1
             ;;
     esac
@@ -99,6 +106,9 @@ echo " Rust profile: release-fast  (lto=off, codegen-units=16)"
 echo " Rust cache:   sccache → ${CACHE_DIR}/sccache"
 echo " Rust linker:  mold (2-5× faster linking)"
 echo " Skipped pkgs: Docker, Python, TPM, RAUC, plymouth, vim, tmux, …"
+if [ "${IORA_OS_DEV}" = "1" ]; then
+    echo " ***** DEV BUILD (iora-dev-bridge enabled) *****"
+fi
 echo "============================================"
 echo ""
 
@@ -109,6 +119,7 @@ export BR2_DL_DIR="${CACHE_DIR}/dl"
 export IORA_FAST_BUILD=1
 export IORA_SCCACHE=1
 export IORA_MOLD=1
+export IORA_OS_DEV
 
 if [ "${MODE}" = "resume" ]; then
     echo "[INFO] Resuming previous Buildroot build..."
