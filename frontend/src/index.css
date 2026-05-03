@@ -203,6 +203,20 @@
   --glass-shadow-1: oklch(0.18 0.02 240 / 0.06);
   --glass-shadow-2: oklch(0.18 0.02 240 / 0.03);
   --transition-duration: 0.4s;
+
+  /* ─── Layout Theme Variables ───────────────────────────────── */
+  /* Themes can override these via css_variables to restructure the page */
+  --layout-nav-position: bottom;       /* bottom | left | right | top | none */
+  --layout-nav-width: auto;            /* Width for side navigation (e.g., 240px) */
+  --layout-nav-height: auto;           /* Height for top/bottom navigation */
+  --layout-header-style: glass;        /* glass | compact | hidden | floating */
+  --layout-header-height: auto;        /* Header height override */
+  --layout-content-max-width: 1500px;  /* Max width for content area */
+  --layout-grid-columns: auto;         /* Override grid columns (e.g., 4) */
+  --layout-sidebar-width: 0px;         /* Sidebar panel width (0 = hidden) */
+  --layout-card-radius: var(--radius); /* Global widget card radius */
+  --layout-card-padding: auto;         /* Global widget card padding */
+  --layout-widget-gap: auto;           /* Gap between widget cards */
 }
 
 :root[data-theme="light"] {
@@ -1403,6 +1417,210 @@ body {
 }
 .compact-widgets .glass-card-interactive {
   padding: 0.5rem !important;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Theme Layout System – CSS-driven page restructuring
+   
+   Themes set CSS variables (--layout-nav-position, etc.) and
+   these rules handle the visual transformation. No HTML templates
+   needed for common layout changes.
+   
+   For complete page restructuring, themes provide HTML templates
+   via `html_templates.layout` in their manifest.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ─── Side Navigation (left) ─── */
+:root[data-nav-position="left"] {
+  --layout-nav-width: 260px;
+}
+
+:root[data-nav-position="left"] .glass-header {
+  padding-left: var(--layout-nav-width);
+}
+
+:root[data-nav-position="left"] main,
+:root[data-nav-position="left"] .page-content {
+  padding-left: calc(var(--layout-nav-width) + 2rem) !important;
+  max-width: calc(var(--layout-content-max-width) + var(--layout-nav-width));
+}
+
+/* Transform bottom navigation to left sidebar */
+:root[data-nav-position="left"] [data-nav="root"] {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: auto !important;
+  transform: none !important;
+  width: var(--layout-nav-width) !important;
+  max-width: var(--layout-nav-width) !important;
+  border-radius: 0 !important;
+  flex-direction: column !important;
+  padding-top: env(safe-area-inset-top, 0px) !important;
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  z-index: 45 !important;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] > div {
+  flex-direction: column !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] .flex.items-center {
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  gap: 0.25rem !important;
+  padding: 0.5rem !important;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] button {
+  width: 100% !important;
+  justify-content: flex-start !important;
+  border-radius: 0.75rem !important;
+  min-width: unset !important;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] .w-px {
+  display: none !important;
+}
+
+/* ─── Side Navigation (right) ─── */
+:root[data-nav-position="right"] {
+  --layout-nav-width: 260px;
+}
+
+:root[data-nav-position="right"] .glass-header {
+  padding-right: var(--layout-nav-width);
+}
+
+:root[data-nav-position="right"] main,
+:root[data-nav-position="right"] .page-content {
+  padding-right: calc(var(--layout-nav-width) + 2rem) !important;
+}
+
+:root[data-nav-position="right"] [data-nav="root"] {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  right: 0 !important;
+  left: auto !important;
+  transform: none !important;
+  width: var(--layout-nav-width) !important;
+  max-width: var(--layout-nav-width) !important;
+  border-radius: 0 !important;
+  flex-direction: column !important;
+  padding-top: env(safe-area-inset-top, 0px) !important;
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  z-index: 45 !important;
+}
+
+:root[data-nav-position="right"] [data-nav="root"] > div {
+  flex-direction: column !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+}
+
+:root[data-nav-position="right"] [data-nav="root"] .flex.items-center {
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  gap: 0.25rem !important;
+  padding: 0.5rem !important;
+}
+
+:root[data-nav-position="right"] [data-nav="root"] button {
+  width: 100% !important;
+  justify-content: flex-start !important;
+  border-radius: 0.75rem !important;
+  min-width: unset !important;
+}
+
+:root[data-nav-position="right"] [data-nav="root"] .w-px {
+  display: none !important;
+}
+
+/* ─── Top Navigation ─── */
+:root[data-nav-position="top"] [data-nav="root"] {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: auto !important;
+  left: 0 !important;
+  right: 0 !important;
+  transform: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  border-radius: 0 !important;
+  z-index: 45 !important;
+}
+
+:root[data-nav-position="top"] .glass-header {
+  padding-top: 4rem;
+}
+
+:root[data-nav-position="top"] main,
+:root[data-nav-position="top"] .page-content {
+  padding-top: 5rem !important;
+}
+
+/* ─── Hidden Navigation ─── */
+:root[data-nav-position="none"] [data-nav="root"] {
+  display: none !important;
+}
+
+/* ─── Header Styles ─── */
+:root[data-header-style="compact"] .glass-header {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+
+:root[data-header-style="compact"] .glass-header h1 {
+  font-size: 0.8rem !important;
+}
+
+:root[data-header-style="hidden"] .glass-header {
+  display: none !important;
+}
+
+:root[data-header-style="floating"] .glass-header {
+  position: fixed !important;
+  top: 0.75rem !important;
+  left: 1rem !important;
+  right: 1rem !important;
+  border-radius: 1rem !important;
+  z-index: 50 !important;
+  box-shadow: 0 4px 24px oklch(0 0 0 / 0.15) !important;
+}
+
+:root[data-header-style="floating"] main,
+:root[data-header-style="floating"] .page-content {
+  padding-top: 5rem !important;
+}
+
+/* ─── Global Card Radius ─── */
+:root {
+  --layout-card-radius: var(--radius);
+}
+
+:root .glass-card {
+  border-radius: var(--layout-card-radius);
+}
+
+/* ─── Global Widget Gap ─── */
+:root .grid {
+  gap: var(--layout-widget-gap, 0.75rem);
+}
+
+@media (min-width: 640px) {
+  :root .grid {
+    gap: var(--layout-widget-gap, 1rem);
+  }
 }
 
 /* ─── Mobile Layout Helpers ────────────────────────────────────── */

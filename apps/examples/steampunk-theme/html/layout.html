@@ -1,0 +1,104 @@
+<!--
+  STEAMPUNK REVOLUTION – HTML Layout Template
+  
+  Victorian-industrial three-column layout with decorative brass
+  borders, gear ornaments, and mechanical precision.
+  
+  Slots: header, navigation, content, sidebar, status-bar
+-->
+<div class="steampunk-layout" style="
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: var(--layout-nav-width, 260px) 1fr;
+  grid-template-areas:
+    'header  header'
+    'nav     content'
+    'status  status';
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-primary, 'IM Fell English', serif);
+  position: relative;
+  overflow-x: hidden;
+">
+
+  <!-- ═══ Ornamental Border Frame ═══ -->
+  <div style="
+    position: fixed;
+    inset: 8px;
+    border: 1px solid oklch(from var(--accent) l c h / 0.12);
+    pointer-events: none;
+    z-index: 100;
+    border-radius: 2px;
+  "></div>
+
+  <!-- Corner ornaments -->
+  <div style="position:fixed;top:4px;left:4px;color:oklch(from var(--accent) l c h / 0.2);font-size:14px;pointer-events:none;z-index:101;">◆</div>
+  <div style="position:fixed;top:4px;right:4px;color:oklch(from var(--accent) l c h / 0.2);font-size:14px;pointer-events:none;z-index:101;">◆</div>
+  <div style="position:fixed;bottom:4px;left:4px;color:oklch(from var(--accent) l c h / 0.2);font-size:14px;pointer-events:none;z-index:101;">◆</div>
+  <div style="position:fixed;bottom:4px;right:4px;color:oklch(from var(--accent) l c h / 0.2);font-size:14px;pointer-events:none;z-index:101;">◆</div>
+
+  <!-- ═══ Header – Control Panel ═══ -->
+  <header 
+    data-slot="header" 
+    style="grid-area: header; z-index: 40;"
+  ></header>
+
+  <!-- ═══ Navigation Sidebar – Machine Controls ═══ -->
+  <nav 
+    data-slot="navigation" 
+    style="grid-area: nav; z-index: 35; overflow-y: auto; overflow-x: hidden; position: relative;"
+  ></nav>
+
+  <!-- ═══ Main Content – Workshop Floor ═══ -->
+  <main 
+    data-slot="content" 
+    style="
+      grid-area: content;
+      overflow-y: auto;
+      padding: 1.5rem;
+      padding-bottom: 2rem;
+      position: relative;
+      background-image:
+        radial-gradient(
+          ellipse at 50% 0%,
+          oklch(from var(--accent) l c h / 0.02) 0%,
+          transparent 60%
+        );
+    "
+  ></main>
+
+  <!-- ═══ Status Bar – Pressure & Alert Panel ═══ -->
+  <div 
+    data-slot="status-bar" 
+    style="
+      grid-area: status;
+      z-index: 36;
+      position: sticky;
+      bottom: 0;
+      background: linear-gradient(0deg, oklch(from var(--card) l c h / 0.9), transparent);
+      padding: 0.5rem 1.5rem;
+      border-top: 1px solid oklch(from var(--accent) l c h / 0.1);
+    "
+  ></div>
+
+</div>
+
+<style>
+  /* Responsive: single column on mobile */
+  @media (max-width: 768px) {
+    .steampunk-layout {
+      grid-template-columns: 1fr !important;
+      grid-template-rows: auto 1fr auto auto !important;
+      grid-template-areas:
+        'header'
+        'content'
+        'status'
+        'nav' !important;
+    }
+    .steampunk-layout main[data-slot] {
+      padding: 1rem !important;
+    }
+  }
+</style>

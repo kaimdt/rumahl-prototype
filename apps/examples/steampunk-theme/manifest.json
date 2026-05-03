@@ -1,54 +1,215 @@
 {
-  "id": "steampunk",
-  "name": "Steampunk",
+  "id": "steampunk-revolution",
+  "name": "Steampunk Revolution",
   "version": "1.0.0",
-  "developer": "IORA Community",
-  "description": "Ein opulentes Steampunk-Theme mit viktorianischen Elementen – Messing, Kupfer, Leder und Zahnräder.",
-  "type": "theme",
-  "icon": "Gear",
+  "developer": "IORA",
+  "description": "Vollständiges Steampunk-Design – viktorianische Ästhetik mit Messing, Kupfer, Zahnrädern und Dampf-Effekten. Transformiert das gesamte IORA-Interface.",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": ["ThemeInstall"],
   "theme": {
-    "parent_theme": "night",
-    "order": 60,
-    "preview_image": "images/preview.svg",
-    "css_files": [
-      "variables.css",
-      "theme.css"
-    ],
-    "js_files": [
-      "js/theme.js"
-    ],
+    "id": "steampunk-revolution",
+    "name": "Steampunk Revolution",
+    "version": "1.0.0",
+    "developer": "IORA",
+    "description": "Steampunk – Messing, Zahnräder, Dampf & viktorianische Eleganz",
+    "icon": "Gear",
+    "parent_theme": "day-classic",
+    "source": "file",
+
+    "css_files": ["theme.css"],
+    "js_files": ["theme.js"],
     "html_templates": {
-      "header": "html/templates/header.html",
-      "widget-frame": "html/templates/widget-frame.html"
+      "layout": "html/layout.html"
     },
+
     "fonts": [
       {
-        "name": "Playfair Display",
-        "family": "'Playfair Display', 'Georgia', serif",
-        "url": "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900&display=swap",
-        "weights": "400;700;900",
-        "is_heading": true
-      },
-      {
         "name": "Cinzel Decorative",
-        "family": "'Cinzel Decorative', 'Playfair Display', serif",
+        "family": "'Cinzel Decorative', 'Georgia', serif",
         "url": "https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&display=swap",
         "weights": "400;700;900",
-        "is_primary": true
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": true,
+        "is_monospace": false
+      },
+      {
+        "name": "IM Fell English",
+        "family": "'IM Fell English', 'Georgia', serif",
+        "url": "https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&display=swap",
+        "weights": "400",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": false,
+        "is_monospace": false
       },
       {
         "name": "Courier Prime",
         "family": "'Courier Prime', 'Courier New', monospace",
-        "url": "https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700&display=swap",
+        "url": "https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap",
         "weights": "400;700",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": false,
         "is_monospace": true
       }
     ],
+
     "css_variables": {
-      "steampunk-brass": "oklch(0.72 0.14 70)",
-      "steampunk-copper": "oklch(0.6 0.12 50)",
-      "steampunk-gold": "oklch(0.75 0.12 80)",
-      "steampunk-leather": "oklch(0.25 0.05 40)"
+      "background": "oklch(0.22 0.03 85)",
+      "foreground": "oklch(0.88 0.04 85)",
+      "card": "oklch(0.26 0.035 80)",
+      "card-foreground": "oklch(0.90 0.035 85)",
+      "accent": "oklch(0.62 0.18 85)",
+      "accent-foreground": "oklch(0.18 0.03 85)",
+      "muted": "oklch(0.30 0.03 80)",
+      "muted-foreground": "oklch(0.55 0.04 85)",
+      "border": "oklch(0.45 0.08 80)",
+      "ring": "oklch(0.65 0.20 85)",
+      "radius": "3px",
+      "glass-bg": "oklch(0.35 0.04 85 / 0.65)",
+      "glass-bg-end": "oklch(0.28 0.03 80 / 0.55)",
+      "glass-border-color": "oklch(0.55 0.12 85 / 0.25)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.35)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.2)",
+      "layout-nav-position": "left",
+      "layout-nav-width": "260px",
+      "layout-header-style": "compact",
+      "layout-card-radius": "3px",
+      "layout-widget-gap": "0.75rem",
+      "success": "oklch(0.55 0.15 160)",
+      "destructive": "oklch(0.50 0.20 25)",
+      "transition-duration": "0.5s"
+    },
+
+    "capabilities": {
+      "design_modes": [
+        {
+          "id": "steampunk-day",
+          "name": "Steam Day",
+          "icon": "Sun",
+          "time_start": "06:00",
+          "time_end": "17:00",
+          "css_variables": {
+            "background": "oklch(0.22 0.03 85)",
+            "foreground": "oklch(0.88 0.04 85)",
+            "card": "oklch(0.26 0.035 80)",
+            "accent": "oklch(0.62 0.18 85)",
+            "muted": "oklch(0.30 0.03 80)",
+            "border": "oklch(0.45 0.08 80)",
+            "glass-bg": "oklch(0.35 0.04 85 / 0.65)",
+            "glass-bg-end": "oklch(0.28 0.03 80 / 0.55)",
+            "glass-border-color": "oklch(0.55 0.12 85 / 0.25)"
+          }
+        },
+        {
+          "id": "steampunk-evening",
+          "name": "Gaslight Evening",
+          "icon": "Fire",
+          "time_start": "17:00",
+          "time_end": "22:00",
+          "css_variables": {
+            "background": "oklch(0.18 0.025 70)",
+            "foreground": "oklch(0.85 0.05 75)",
+            "card": "oklch(0.22 0.03 65)",
+            "accent": "oklch(0.58 0.20 60)",
+            "muted": "oklch(0.26 0.025 65)",
+            "border": "oklch(0.42 0.10 65)",
+            "glass-bg": "oklch(0.30 0.035 65 / 0.55)",
+            "glass-bg-end": "oklch(0.24 0.025 60 / 0.45)",
+            "glass-border-color": "oklch(0.52 0.14 65 / 0.22)"
+          }
+        },
+        {
+          "id": "steampunk-night",
+          "name": "Midnight Factory",
+          "icon": "MoonStars",
+          "time_start": "22:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "oklch(0.12 0.015 70)",
+            "foreground": "oklch(0.75 0.03 70)",
+            "card": "oklch(0.16 0.02 65)",
+            "accent": "oklch(0.50 0.15 65)",
+            "muted": "oklch(0.18 0.015 65)",
+            "border": "oklch(0.30 0.06 65)",
+            "glass-bg": "oklch(0.22 0.025 65 / 0.4)",
+            "glass-bg-end": "oklch(0.16 0.015 60 / 0.3)",
+            "glass-border-color": "oklch(0.38 0.08 65 / 0.18)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "steampunk-day": { "start": "06:00", "end": "17:00" },
+          "steampunk-evening": { "start": "17:00", "end": "22:00" },
+          "steampunk-night": { "start": "22:00", "end": "06:00" }
+        },
+        "default_mode": "steampunk-day"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          { "name": "Messing (Standard)", "color": "oklch(0.62 0.18 85)" },
+          { "name": "Kupfer", "color": "oklch(0.55 0.20 50)" },
+          { "name": "Bronze", "color": "oklch(0.50 0.16 70)" },
+          { "name": "Rose Gold", "color": "oklch(0.58 0.16 30)" },
+          { "name": "Oxidiertes Kupfer", "color": "oklch(0.48 0.12 180)" }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_values",
+        "blur": "24px",
+        "opacity": "0.7"
+      },
+      "custom_settings": [
+        {
+          "id": "steam_particles",
+          "name": "Dampf-Partikel",
+          "description": "Animierte Dampfschwaden im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "gear_animation_speed",
+          "name": "Zahnrad-Geschwindigkeit",
+          "description": "Rotationsgeschwindigkeit der dekorativen Zahnräder",
+          "setting_type": "select",
+          "default_value": "normal",
+          "options": [
+            { "label": "Langsam", "value": "slow" },
+            { "label": "Normal", "value": "normal" },
+            { "label": "Schnell", "value": "fast" }
+          ],
+          "css_variable": "steampunk-gear-speed"
+        },
+        {
+          "id": "vignette_intensity",
+          "name": "Vignette-Effekt",
+          "description": "Abdunkelung an den Bildrändern (viktorianischer Look)",
+          "setting_type": "slider",
+          "default_value": 60,
+          "min": 0, "max": 100, "step": 10,
+          "css_variable": "steampunk-vignette"
+        },
+        {
+          "id": "brass_borders",
+          "name": "Messing-Rahmen",
+          "description": "Dekorative Messing-Umrandung um Karten",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "steampunk-brass-borders"
+        },
+        {
+          "id": "typewriter_sounds",
+          "name": "Schreibmaschinen-Sound",
+          "description": "Dezentes Klickgeräusch bei Texteingabe",
+          "setting_type": "toggle",
+          "default_value": false
+        }
+      ]
     }
   }
 }

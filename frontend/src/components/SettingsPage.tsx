@@ -58,8 +58,19 @@ import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { useLocalStorage } from '@/lib/storage'
 import { useTheme } from '@/contexts/ThemeContext'
+import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import type { ThemeMode } from '@/lib/types'
 import type { ThemeDefinition } from '@/contexts/ThemeContext'
+
+function ThemeSettingsPanelWrapper() {
+  const { capabilities } = useTheme()
+  if (!capabilities?.custom_settings?.length) return null
+  return (
+    <div className="p-4 rounded-2xl glass-card border-foreground/10">
+      <ThemeSettingsPanel />
+    </div>
+  )
+}
 import { toast } from 'sonner'
 import { Tip } from '@/components/ui/tip'
 import type { InstalledTheme } from '@/contexts/ThemeContext'
@@ -1152,6 +1163,9 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Theme Mode */}
             <ThemePickerSection />
+
+            {/* Theme Custom Settings (never hides the theme switcher above) */}
+            <ThemeSettingsPanelWrapper />
 
             {/* Accent Color */}
             <SettingsSection icon={Drop} title="Akzentfarbe" description="Automatisch aus Hintergrund oder manuell festlegen" accentIcon>

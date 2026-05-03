@@ -1,0 +1,66 @@
+<!--
+  Material Sidebar Theme – HTML Layout Template
+  
+  This completely redefines the page structure. The theme system
+  parses this HTML and mounts React components at data-slot positions.
+  
+  Available slots: header, navigation, content, sidebar, status-bar,
+  background, toast, assistant
+-->
+<div class="theme-material-sidebar" style="
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: var(--layout-nav-width, 240px) 1fr;
+  grid-template-areas:
+    'header header'
+    'nav    content';
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-primary, 'Inter', system-ui, sans-serif);
+  transition: background-color 0.4s ease, color 0.4s ease;
+">
+  
+  <!-- Header spans full width -->
+  <header 
+    data-slot="header" 
+    style="grid-area: header; z-index: 40;"
+  ></header>
+
+  <!-- Navigation sidebar -->
+  <nav 
+    data-slot="navigation" 
+    style="grid-area: nav; z-index: 35; overflow-y: auto; overflow-x: hidden;"
+  ></nav>
+
+  <!-- Main content scrollable area -->
+  <main 
+    data-slot="content" 
+    style="grid-area: content; overflow-y: auto; padding: 1.5rem; padding-bottom: 2rem;"
+  ></main>
+
+  <!-- Status bar overlay (emergency alerts, warnings) -->
+  <div 
+    data-slot="status-bar" 
+    style="grid-area: content; align-self: start; z-index: 36; pointer-events: none;"
+  ></div>
+
+</div>
+
+<style>
+  /* Responsive: stack vertically on mobile */
+  @media (max-width: 768px) {
+    .theme-material-sidebar {
+      grid-template-columns: 1fr !important;
+      grid-template-rows: auto 1fr auto !important;
+      grid-template-areas:
+        'header'
+        'content'
+        'nav' !important;
+    }
+    .theme-material-sidebar main[data-slot] {
+      padding: 1rem !important;
+    }
+  }
+</style>

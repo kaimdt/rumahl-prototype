@@ -1,0 +1,43 @@
+{
+  "id": "sidebar-theme",
+  "name": "Sidebar Navigation",
+  "version": "1.0.0",
+  "developer": "IORA",
+  "description": "Demonstrates CSS-driven layout changes via CSS variables – moves navigation from bottom to left sidebar.",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": ["ThemeInstall"],
+  "theme": {
+    "id": "sidebar-dark",
+    "name": "Sidebar Dark",
+    "version": "1.0.0",
+    "developer": "IORA",
+    "description": "Dunkles Theme mit Sidebar-Navigation links. Zeigt wie CSS-Variablen das komplette Layout verändern können.",
+    "icon": "Sidebar",
+    "parent_theme": "night",
+    "source": "inline",
+    "css_variables": {
+      "layout-nav-position": "left",
+      "layout-nav-width": "240px",
+      "layout-header-style": "compact",
+      "layout-card-radius": "1rem",
+      "layout-widget-gap": "1rem",
+      "background": "oklch(0.18 0.02 260)",
+      "foreground": "oklch(0.85 0.015 260)",
+      "card": "oklch(0.22 0.025 260)",
+      "card-foreground": "oklch(0.88 0.015 260)",
+      "accent": "oklch(0.62 0.20 260)",
+      "accent-foreground": "oklch(0.98 0 0)",
+      "muted": "oklch(0.25 0.02 260)",
+      "muted-foreground": "oklch(0.55 0.02 260)",
+      "border": "oklch(0.28 0.015 260)",
+      "ring": "oklch(0.62 0.20 260)",
+      "glass-bg": "oklch(0.22 0.03 260 / 0.55)",
+      "glass-bg-end": "oklch(0.18 0.02 260 / 0.45)",
+      "glass-border-color": "oklch(0.40 0.02 260 / 0.12)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.15)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.08)"
+    },
+    "additional_css": "/* ─── Sidebar Theme: Additional Styling ─── */\n:root[data-nav-position=\"left\"] [data-nav=\"root\"] {\n  background: oklch(0.16 0.025 260 / 0.95) !important;\n  backdrop-filter: blur(30px) saturate(1.4);\n  border-right: 1px solid oklch(0.35 0.02 260 / 0.2);\n  box-shadow: 2px 0 30px oklch(0 0 0 / 0.3);\n}\n:root[data-nav-position=\"left\"] [data-nav=\"root\"] button { min-height: 48px !important; margin: 2px 4px !important; font-size: 14px !important; }\n:root[data-nav-position=\"left\"] [data-nav=\"root\"] button:hover { background: oklch(0.30 0.03 260 / 0.4) !important; }\n:root[data-nav-position=\"left\"] main { padding-top: 1.5rem !important; }\n:root[data-header-style=\"compact\"] .glass-header { background: oklch(0.20 0.02 260 / 0.6) !important; backdrop-filter: blur(20px); border-bottom: 1px solid oklch(0.30 0.02 260 / 0.15); }\n.glass-card { transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease; }\n.glass-card:hover { border-color: oklch(from var(--accent) l c h / 0.15); transform: translateY(-1px); }\n@media (max-width: 768px) {\n  :root[data-nav-position=\"left\"] { --layout-nav-width: 0px; }\n  :root[data-nav-position=\"left\"] [data-nav=\"root\"] {\n    bottom: 0 !important; top: auto !important; left: 50% !important; right: auto !important;\n    transform: translateX(-50%) !important; width: auto !important; max-width: calc(100vw - 1rem) !important;\n    flex-direction: row !important; border-radius: 9999px !important; border-right: none !important;\n  }\n  :root[data-nav-position=\"left\"] [data-nav=\"root\"] .flex.items-center { flex-direction: row !important; }\n  :root[data-nav-position=\"left\"] [data-nav=\"root\"] > div { flex-direction: row !important; height: auto !important; }\n  :root[data-nav-position=\"left\"] main, :root[data-nav-position=\"left\"] .page-content { padding-left: 1rem !important; }\n  :root[data-nav-position=\"left\"] .glass-header { padding-left: 0 !important; }\n}\n"
+  }
+}

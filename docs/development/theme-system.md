@@ -9,52 +9,166 @@ Das Theme-System erlaubt es, das Design von **IORA Home**, **Custom Pages** und 
 ### Features
 
 - **CSS-Variablen** – Farben, Abstände, Radien und Glass-Effekte
+- **Layout-Variablen** – Navigation (bottom/side/top), Header-Style, Content-Breite per CSS-Variable
+- **HTML-Templates** – Komplette Seitenstruktur per HTML-Template überschreiben (Slots für React-Komponenten)
 - **Custom Fonts** – Beliebige Webfonts (Google Fonts, selbst gehostet)
 - **Icon Fonts** – Phosphor-Icons durch Font Awesome, Material Icons etc. ersetzen
 - **Vollständiges CSS** – Komplette Kontrolle über jedes Element inkl. Animationen
-- **Externe CSS-Dateien** – CSS-URLs für sehr große Themes
+- **Externe CSS-/JS-Dateien** – Für komplexe Themes mit eigenem JavaScript
 - **Eltern-Theme-Vererbung** – Theme kann ein bestehendes erweitern
 
 ### Funktionsweise
 
 1. **Basisthemes**: IORA kommt mit 7 integrierten Themes (Tag, Nacht, Hell, Abend, Schlaf, Klassisch, Automatisch)
-2. **Custom Themes**: Apps und Plugins können eigene Themes über ihr Manifest bereitstellen
-3. **CSS-Variablen**: Themes definieren CSS-Custom-Properties, die auf `:root` angewendet werden
-4. **Fonts & Icons**: Werden via `<link>` und `<style>` in den `<head>` injiziert
-5. **Vererbung**: Custom Themes können ein Eltern-Theme erweitern (z.B. "night" als Basis)
+2. **Custom Themes**: Apps und Plugins können eigene Themes bereitstellen
+3. **File-based Themes (empfohlen)**: ZIP-Paket mit `manifest.json` + separaten CSS/JS/HTML-Dateien
+4. **Inline Themes (einfach)**: Alles in der `manifest.json` für schnelle Prototypen
+5. **CSS-Variablen**: Themes definieren CSS-Custom-Properties, die auf `:root` angewendet werden
+6. **Fonts & Icons**: Werden via `<link>` und `<style>` in den `<head>` injiziert
+7. **Vererbung**: Custom Themes können ein Eltern-Theme erweitern (z.B. "night" als Basis)
 
-### Architektur
+### Theme-Typen: Inline vs. File-based
+
+| Feature | Inline (`"source": "inline"`) | File-based (`"source": "file"`) |
+|---------|------|-------------|
+| CSS | `additional_css` im Manifest (ein String) | `css_files: ["theme.css", ...]` – separate Dateien |
+| JavaScript | ❌ Nicht möglich | `js_files: ["theme.js", ...]` – separate Dateien |
+| HTML-Templates | ❌ Nicht möglich | `html_templates: {"layout": "html/layout.html"}` |
+| Verteilung | Einzelne JSON-Datei | ZIP-Paket |
+| Use Case | Schnelle Farb-Themes | Komplette Theme-Pakete |
+
+### Architektur (File-based Theme)
 
 ```
-App/Plugin Manifest
-  └── theme: ThemeDefinition
-       ├── id: "steampunk"
-       ├── name: "Steampunk"
-       ├── fonts: [                    ← Custom Webfonts
-       │     { name, family, url, is_primary, is_heading, ... }
-       │   ]
-       ├── icon_font: {               ← Icon-Font-Ersatz
-       │     font_name, font_url,
-       │     class_prefix,
-       │     icon_map: { "Lightbulb": "fa-regular fa-lightbulb", ... }
-       │   }
-       ├── css_variables: { ... }     ← CSS-Custom-Properties
-       ├── additional_css: "..."       ← Volle CSS-Regeln
-       └── css_url: "..."              ← Externe CSS-Datei
+Theme ZIP-Paket:
+  ├── manifest.json              ← Theme-Definition + CSS-Variablen
+  ├── theme.css                  ← Haupt-Stylesheet
+  ├── components.css             ← Weitere Stylesheets (optional)
+  ├── theme.js                   ← Client-seitige Interaktivität
+  ├── html/
+  │   └── layout.html            ← HTML-Seitenlayout (Slots)
+  ├── fonts/                     ← Selbst gehostete Fonts (optional)
+  │   └── custom-font.woff2
+  └── images/                    ← Theme-Assets (optional)
+      └── preview.png
 
-Beim Installieren der App/Plugin:
-  → Theme wird in `installed_themes` Tabelle gespeichert
-  → Theme erscheint im Theme-Picker der Settings-Seite
+manifest.json → ThemeDefinition
+  ├── id, name, version
+  ├── source: "file"
+  ├── parent_theme: "night"
+  ├── css_variables: { ... }     ← Design Tokens
+  ├── css_files: ["theme.css"]   ← CSS-Dateien (aus ZIP extrahiert)
+  ├── js_files: ["theme.js"]     ← JS-Dateien (client-only)
+  ├── fonts: [ ... ]
+  ├── icon_font: { ... }
+  └── html_templates: {          ← HTML-Templates
+        "layout": "html/layout.html"
+      }
 
-Benutzer wählt Theme in Settings:
-  → Auswahl wird in `user_theme_selections` gespeichert
-  → Frontend lädt Fonts, CSS-Variablen, zusätzliches CSS
-  → Alles wird dynamisch in den <head> injiziert
+Installation:
+  → ZIP wird entpackt nach data/themes/{id}/
+  → Dateien werden statisch via /api/themes/assets/{id}/... serviert
+  → DB-Eintrag in installed_themes Tabelle
+
+Theme-Aktivierung (Frontend):
+  → CSS-Variablen auf :root
+  → CSS-Dateien via <link> geladen
+  → JS-Dateien via <script> geladen
+  → HTML-Templates via fetch() + TemplateRenderer
+  → Fonts & Icons injiziert
 ```
 
 ## Theme für eine App/Plugin definieren
 
-### Minimal-Beispiel (nur CSS-Variablen)
+### File-based Theme (empfohlen)
+
+Ein Theme als ZIP-Paket mit separaten CSS/JS/HTML-Dateien:
+
+**Ordnerstruktur:**
+```
+my-theme/
+├── manifest.json
+├── theme.css
+├── theme.js          (optional)
+└── html/
+    └── layout.html   (optional)
+```
+
+**manifest.json:**
+```json
+{
+  "id": "my-theme-app",
+  "name": "My Theme",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": ["ThemeInstall"],
+  "theme": {
+    "id": "my-custom-theme",
+    "name": "My Custom Theme",
+    "version": "1.0.0",
+    "source": "file",
+    "parent_theme": "night",
+    "css_files": ["theme.css"],
+    "js_files": ["theme.js"],
+    "html_templates": {
+      "layout": "html/layout.html"
+    },
+    "css_variables": {
+      "background": "oklch(0.15 0.02 260)",
+      "accent": "oklch(0.6 0.22 260)"
+    }
+  }
+}
+```
+
+**theme.css – eigenständiges Stylesheet:**
+```css
+/* Alle CSS-Regeln in einer separaten Datei */
+.glass-card {
+  border-radius: 16px;
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.2);
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.3);
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+```
+
+**theme.js – client-seitige Interaktivität:**
+```js
+// Läuft NUR im Browser – kein Server-Zugriff
+(function() {
+  'use strict';
+  window.__iora_theme = { id: 'my-custom-theme', version: '1.0.0' };
+  
+  // Ripple-Effekt auf Klicks
+  document.addEventListener('click', (e) => {
+    const card = e.target.closest('.glass-card');
+    if (card) {
+      // Ripple-Logik...
+    }
+  });
+})();
+```
+
+**Paketierung & Installation:**
+```bash
+# ZIP erstellen
+zip -r my-theme.zip manifest.json theme.css theme.js html/
+
+# Installieren
+ora app install my-theme.zip
+```
+
+Vollständiges Beispiel: `apps/examples/material-sidebar-theme/`
+
+### Inline-Theme (einfach, nur CSS-Variablen)
 
 ```json
 {
@@ -85,6 +199,76 @@ Siehe `apps/examples/steampunk-theme/manifest.json` für ein vollständiges Stea
 - 50+ CSS-Variablen für Farben und Glass-Effekte
 - 400+ Zeilen Custom CSS für komplette Steampunk-Optik
 - Benutzerdefinierte Cursor, Scrollbars, Animationen
+
+## Layout-System
+
+Themes können das komplette Seitenlayout auf zwei Arten verändern:
+
+### 1. Layout-CSS-Variablen (einfach)
+
+Durch Setzen von Layout-Variablen in `css_variables` kann das Layout ohne HTML-Templates verändert werden:
+
+| Variable | Werte | Beschreibung |
+|----------|-------|-------------|
+| `layout-nav-position` | `bottom`, `left`, `right`, `top`, `none` | Position der Navigation |
+| `layout-nav-width` | z.B. `240px` | Breite der Sidebar-Navigation |
+| `layout-header-style` | `glass`, `compact`, `hidden`, `floating` | Header-Darstellung |
+| `layout-content-max-width` | z.B. `1200px` | Maximale Content-Breite |
+| `layout-card-radius` | z.B. `1.5rem` | Widget-Card Border-Radius |
+| `layout-widget-gap` | z.B. `1.5rem` | Abstand zwischen Widgets |
+
+**Beispiel: Navigation von unten nach links verschieben**
+```json
+"css_variables": {
+  "layout-nav-position": "left",
+  "layout-nav-width": "240px",
+  "layout-header-style": "compact"
+}
+```
+
+### 2. HTML-Templates (vollständige Kontrolle)
+
+Themes können das komplette Seiten-Markup per HTML-Template neu definieren.
+Das Template verwendet `data-slot="name"` Attribute, an denen React-Komponenten
+eingefügt werden.
+
+**Verfügbare Slots:**
+
+| Slot-Name | Inhalt |
+|-----------|--------|
+| `header` | Header-Bar (Uhr, Status, Titel) |
+| `navigation` | Navigationskomponente |
+| `content` | Hauptinhalt (Widgets, Seiten) |
+| `sidebar` | Optionale Sidebar |
+| `status-bar` | Status-/Benachrichtigungsleiste |
+| `background` | Hintergrund-Ebene |
+| `toast` | Toast-Benachrichtigungen |
+| `assistant` | AI-Assistant Widget |
+
+**Beispiel: Dreispaltiges Layout**
+```html
+<!-- html/layout.html -->
+<div style="display:grid; grid-template-columns:240px 1fr 280px; min-height:100vh">
+  <header data-slot="header" style="grid-column:1/-1"></header>
+  <nav data-slot="navigation"></nav>
+  <main data-slot="content"></main>
+  <aside data-slot="sidebar"></aside>
+</div>
+```
+
+```json
+// manifest.json
+{
+  "theme": {
+    "source": "file",
+    "html_templates": {
+      "layout": "html/layout.html"
+    }
+  }
+}
+```
+
+Das Theme wird als ZIP mit `manifest.json` + `html/layout.html` (+ CSS/JS-Dateien) verteilt.
 
 ### Verfügbare CSS-Variablen
 
@@ -140,6 +324,134 @@ Siehe `apps/examples/steampunk-theme/manifest.json` für ein vollständiges Stea
     "Users": "fa-solid fa-users"
   }
 }
+```
+
+## Theme Capabilities
+
+Über das `capabilities`-Feld im Manifest können Themes weitreichende Kontrolle übernehmen:
+
+### Design Modes
+
+Themes können eigene Design-Modi hinzufügen, die im Theme-Picker erscheinen:
+
+```json
+"capabilities": {
+  "design_modes": [
+    {
+      "id": "aurora",
+      "name": "Aurora",
+      "icon": "Fire",
+      "time_start": "05:00", "time_end": "09:00",
+      "css_variables": {
+        "background": "oklch(0.20 0.05 300)",
+        "accent": "oklch(0.65 0.25 320)"
+      }
+    }
+  ]
+}
+```
+
+### Auto-Verhalten
+
+Das automatische Umschalten zwischen Modi kann angepasst werden:
+
+```json
+"capabilities": {
+  "auto_behavior": {
+    "mode": "time",
+    "time_ranges": {
+      "aurora": { "start": "05:00", "end": "09:00" },
+      "day": { "start": "09:00", "end": "18:00" },
+      "night": { "start": "18:00", "end": "05:00" }
+    },
+    "default_mode": "day"
+  }
+}
+```
+
+### Akzentfarbe
+
+Themes können die Akzentfarbe:
+- **Freigeben** (`"mode": "user"`) – Nutzer wählt selbst
+- **Erzwingen** (`"mode": "force"`) – Theme legt Farbe fest
+- **Vorgeben** (`"mode": "presets"`) – Theme bietet Auswahl
+
+```json
+"accent_control": {
+  "mode": "force",
+  "forced_color": "oklch(0.60 0.22 260)"
+}
+```
+
+### Glaseffekt
+
+Themes können den Glaseffekt:
+- **Freigeben** (`"mode": "user"`) – Nutzer konfiguriert
+- **Erzwingen** (`"mode": "force_on"`) – Immer an
+- **Deaktivieren** (`"mode": "force_off"`) – Flat Design
+- **Werte setzen** (`"mode": "force_values"`) – Spezifische Blur/Opacity
+
+### Custom Settings
+
+Themes können eigene Einstellungsfelder definieren, die im Settings-Tab
+**unterhalb** des Theme-Wechslers erscheinen:
+
+```json
+"custom_settings": [
+  {
+    "id": "animation_speed",
+    "name": "Animationsgeschwindigkeit",
+    "description": "0 = aus, 100 = schnell",
+    "setting_type": "slider",
+    "default_value": 50,
+    "min": 0, "max": 100, "step": 5,
+    "css_variable": "theme-anim-speed"
+  },
+  {
+    "id": "dark_widgets",
+    "name": "Dunkle Widgets",
+    "setting_type": "toggle",
+    "default_value": false
+  }
+]
+```
+
+Unterstützte `setting_type`-Werte: `toggle`, `select`, `slider`, `color`, `text`.
+
+Wenn `css_variable` gesetzt ist, wird der Wert automatisch als CSS-Variable
+auf `:root` gesetzt (z.B. `--theme-anim-speed: 50`).
+
+### JavaScript-Dateien
+
+File-based Themes (ZIP) können JavaScript-Dateien enthalten, die automatisch
+geladen werden:
+
+```json
+{
+  "theme": {
+    "source": "file",
+    "js_files": ["js/theme.js", "js/animations.js"]
+  }
+}
+```
+
+Die JS-Dateien werden in Reihenfolge als `<script>`-Tags geladen und können:
+- DOM-Manipulationen durchführen
+- Event-Listener für Theme-Interaktionen registrieren
+- Auf `window.__iora_theme` zugreifen (Theme-Metadaten)
+- CSS-Variablen dynamisch ändern
+
+**Beispiel `js/theme.js`:**
+```js
+// Theme-Initialisierung
+console.log('[Theme] Geladen:', window.__iora_theme?.id)
+
+// Partikel-Effekt auf Hintergrund
+document.addEventListener('DOMContentLoaded', () => {
+  const canvas = document.createElement('canvas')
+  canvas.id = 'theme-particles'
+  // ... Partikel-Animation
+})
 ```
 
 ### Vollständiges CSS

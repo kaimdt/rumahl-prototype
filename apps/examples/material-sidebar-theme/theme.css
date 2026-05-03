@@ -1,0 +1,207 @@
+/* ════════════════════════════════════════════════════════════════
+   Material Sidebar Theme – Main Stylesheet
+   
+   This is a separate CSS file loaded by the theme system.
+   It defines the complete visual appearance of the theme.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ─── Root Variables ─────────────────────────────────────────── */
+.theme-material-sidebar {
+  --md-sys-color-surface: var(--background);
+  --md-sys-color-on-surface: var(--foreground);
+  --md-sys-color-primary: var(--accent);
+  --md-sys-color-surface-variant: var(--card);
+  --md-sys-color-outline: var(--border);
+  
+  /* Material elevation tokens */
+  --md-elevation-1: 0 1px 3px oklch(0 0 0 / 0.15), 0 1px 2px oklch(0 0 0 / 0.1);
+  --md-elevation-2: 0 3px 6px oklch(0 0 0 / 0.18), 0 2px 4px oklch(0 0 0 / 0.12);
+  --md-elevation-3: 0 8px 16px oklch(0 0 0 / 0.2), 0 4px 8px oklch(0 0 0 / 0.15);
+  
+  /* Material motion */
+  --md-motion-duration-short: 200ms;
+  --md-motion-duration-medium: 400ms;
+  --md-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-motion-easing-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+/* ─── Material Ripple Effect ─────────────────────────────────── */
+.md-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.md-ripple::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, oklch(1 0 0 / 0.15) 10%, transparent 10%);
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.4s, background-size 0.4s;
+  pointer-events: none;
+}
+
+.md-ripple:active::after {
+  background-size: 200% 200%;
+  opacity: 1;
+  transition: background-size 0s;
+}
+
+/* ─── Glass Card – Material Elevation ────────────────────────── */
+.glass-card {
+  box-shadow: var(--md-elevation-1);
+  transition: box-shadow var(--md-motion-duration-medium) var(--md-motion-easing-standard),
+              transform var(--md-motion-duration-short) var(--md-motion-easing-standard);
+}
+
+.glass-card:hover {
+  box-shadow: var(--md-elevation-2);
+  transform: translateY(-2px);
+}
+
+.glass-card:active {
+  box-shadow: var(--md-elevation-1);
+  transform: translateY(0);
+}
+
+/* ─── Navigation Sidebar Styling ─────────────────────────────── */
+:root[data-nav-position="left"] [data-nav="root"] {
+  background: oklch(0.12 0.01 260 / 0.97) !important;
+  backdrop-filter: blur(40px) saturate(1.5);
+  -webkit-backdrop-filter: blur(40px) saturate(1.5);
+  border-right: 1px solid oklch(0.30 0.015 260 / 0.2) !important;
+  box-shadow: 2px 0 40px oklch(0 0 0 / 0.4), 0 0 0 0.5px oklch(1 0 0 / 0.05) !important;
+}
+
+/* Navigation items */
+:root[data-nav-position="left"] [data-nav="root"] button {
+  border-radius: 12px !important;
+  margin: 3px 8px !important;
+  min-height: 48px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em;
+  transition: background var(--md-motion-duration-short) var(--md-motion-easing-standard),
+              color var(--md-motion-duration-short) var(--md-motion-easing-standard) !important;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] button:hover {
+  background: oklch(0.28 0.02 260 / 0.5) !important;
+}
+
+/* Active nav item indicator – Material style */
+:root[data-nav-position="left"] [data-nav="root"] button [class*="navActiveIndicator"] {
+  border-radius: 12px !important;
+  background: oklch(from var(--accent) l c h / 0.2) !important;
+  box-shadow: 0 0 20px oklch(from var(--accent) l c h / 0.15) !important;
+}
+
+/* ─── Header – Compact Material Bar ──────────────────────────── */
+.glass-header {
+  background: oklch(0.16 0.015 260 / 0.8) !important;
+  backdrop-filter: blur(30px) saturate(1.3);
+  -webkit-backdrop-filter: blur(30px) saturate(1.3);
+  border-bottom: 1px solid oklch(0.28 0.015 260 / 0.15) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Widget Cards – Material Shape ──────────────────────────── */
+[class*="widget-"] .glass-card,
+.glass-card[class*="cursor-pointer"] {
+  border-radius: 16px;
+}
+
+/* ─── Buttons & Interactive Elements ─────────────────────────── */
+button:not([data-nav]):not(.md-ripple) {
+  transition: all var(--md-motion-duration-short) var(--md-motion-easing-standard);
+}
+
+/* ─── Typography ─────────────────────────────────────────────── */
+body {
+  letter-spacing: 0.01em;
+  font-weight: 400;
+}
+
+h1, h2, h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Status Indicator – Material Badge ──────────────────────── */
+.status-dot::after {
+  animation: material-pulse 2s ease-in-out infinite;
+}
+
+@keyframes material-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.8); opacity: 0; }
+}
+
+/* ─── Page Transition – Material Motion ──────────────────────── */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.page-transition-enter {
+  animation: page-enter 0.35s var(--md-motion-easing-emphasized) both;
+}
+
+/* ─── Scrollbar – Material Style ─────────────────────────────── */
+*::-webkit-scrollbar {
+  width: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: oklch(0.40 0.02 260 / 0.3);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.50 0.02 260 / 0.4);
+}
+
+/* ─── Custom Setting: Animation toggle ──────────────────────── */
+:root {
+  --theme-animations: 1;
+  --theme-card-density: comfortable;
+}
+
+/* Disable animations when theme setting is off */
+:root[style*="--theme-animations: false"] *,
+:root[style*="--theme-animations:false"] * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Card density modes */
+:root[style*="--theme-card-density: compact"] .glass-card {
+  padding: 0.6rem !important;
+}
+
+:root[style*="--theme-card-density: spacious"] .glass-card {
+  padding: 1.5rem !important;
+}
+
+:root[style*="--theme-card-density: spacious"] .grid {
+  gap: 1.5rem !important;
+}
+
+/* ─── Responsive: Full width on mobile ───────────────────────── */
+@media (max-width: 768px) {
+  :root[data-nav-position="left"] [data-nav="root"] {
+    border-right: none !important;
+  }
+  
+  .glass-card {
+    border-radius: 12px !important;
+  }
+}

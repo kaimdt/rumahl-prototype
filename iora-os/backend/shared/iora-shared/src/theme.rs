@@ -163,6 +163,10 @@ pub struct ThemeDefinition {
     /// Sorting order in the theme picker (lower = first)
     #[serde(default)]
     pub order: i32,
+
+    /// Theme capabilities: design modes, auto, accent, glass, custom settings
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ThemeCapabilities>,
 }
 
 fn default_theme_source() -> String { "inline".to_string() }
@@ -204,6 +208,9 @@ pub struct InstalledTheme {
     /// JSON serialized ThemeIconConfig
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_font_json: Option<String>,
+    /// JSON serialized ThemeCapabilities
+    #[serde(default)]
+    pub capabilities_json: Option<String>,
 }
 
 /// Per-user theme selection stored in the profile.
@@ -251,6 +258,157 @@ pub struct ThemeCssResponse {
     pub icon_font: Option<ThemeIconConfig>,
     /// HTML templates with resolved URLs
     pub html_templates: HashMap<String, String>,
+    /// Theme capabilities (design modes, auto, accent, glass, settings)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ThemeCapabilities>,
+}
+
+// ════════════════════════════════════════════════════════════════
+// Theme Capabilities – Design Modes, Auto, Accent, Glass, Settings
+// ════════════════════════════════════════════════════════════════
+
+/// A custom design mode provided by a theme.
+/// Themes can add modes beyond the built-in day/night/evening/sleep.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeDesignMode {
+    /// Unique mode ID (e.g. "aurora", "sunset")
+    pub id: String,
+    /// Display name in the mode picker
+    pub name: String,
+    /// Phosphor icon name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// When auto-switching: start time (HH:MM, 24h)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_start: Option<String>,
+    /// When auto-switching: end time (HH:MM, 24h)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_end: Option<String>,
+    /// CSS variable overrides specific to this mode
+    #[serde(default)]
+    pub css_variables: HashMap<String, String>,
+}
+
+/// Time range for auto-switching
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeRange {
+    pub start: String,  // "06:00"
+    pub end: String,    // "18:00"
+}
+
+/// Theme's auto-switching behavior (overrides built-in time-based logic)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeAutoBehavior {
+    /// "time" (default), "sun", "custom", "disabled"
+    #[serde(default = "default_auto_mode")]
+    pub mode: String,
+    /// Custom time ranges: mode_id → TimeRange
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub time_ranges: HashMap<String, TimeRange>,
+    /// Default mode when no time range matches
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<String>,
+}
+
+fn default_auto_mode() -> String { "time".to_string() }
+
+/// Accent color preset offered by a theme
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccentPreset {
+    pub name: String,
+    /// OKLCH color value (e.g. "oklch(0.55 0.22 210)")
+    pub color: String,
+}
+
+/// How the theme controls the accent color
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeAccentControl {
+    /// "user" (user picks), "force" (theme locks), "presets" (theme offers choices)
+    #[serde(default = "default_accent_mode")]
+    pub mode: String,
+    /// For mode="force": the locked accent color
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forced_color: Option<String>,
+    /// For mode="presets": available accent options
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presets: Option<Vec<AccentPreset>>,
+}
+
+fn default_accent_mode() -> String { "user".to_string() }
+
+/// How the theme controls glass effects
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeGlassControl {
+    /// "user" (default), "force_on", "force_off", "force_values"
+    #[serde(default = "default_glass_mode")]
+    pub mode: String,
+    /// For mode="force_values": forced blur value (e.g. "40px")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blur: Option<String>,
+    /// For mode="force_values": forced opacity value
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<String>,
+}
+
+fn default_glass_mode() -> String { "user".to_string() }
+
+/// Option for a select-type custom setting
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeSettingOption {
+    pub label: String,
+    pub value: String,
+}
+
+/// A custom setting field defined by the theme.
+/// Rendered in the Appearance tab below the theme switcher.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeSetting {
+    /// Unique setting key (e.g. "animation_speed")
+    pub id: String,
+    /// Display label
+    pub name: String,
+    /// Help text / description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Input type: "toggle", "select", "slider", "color", "text"
+    pub setting_type: String,
+    /// Default value (JSON: bool, string, number)
+    pub default_value: serde_json::Value,
+    /// Options for "select" type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<ThemeSettingOption>>,
+    /// Min value for "slider" type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    /// Max value for "slider" type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    /// Step for "slider" type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+    /// If set, auto-binds to this CSS variable on :root
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css_variable: Option<String>,
+}
+
+/// Complete theme capabilities – what a theme can control beyond colors.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThemeCapabilities {
+    /// Custom design modes added by the theme
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design_modes: Option<Vec<ThemeDesignMode>>,
+    /// Auto-switching override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_behavior: Option<ThemeAutoBehavior>,
+    /// Accent color control
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent_control: Option<ThemeAccentControl>,
+    /// Glass effect control
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub glass_control: Option<ThemeGlassControl>,
+    /// Custom settings fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_settings: Option<Vec<ThemeSetting>>,
 }
 
 /// Global default theme configuration.

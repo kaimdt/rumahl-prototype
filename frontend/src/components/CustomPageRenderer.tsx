@@ -800,6 +800,7 @@ export function CustomPageRenderer({
             return (
               <motion.div
                 key={widget.id}
+                data-widget-type={widget.type}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}

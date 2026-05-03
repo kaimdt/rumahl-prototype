@@ -1202,6 +1202,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/themes/install", post(handle_theme_zip_install))
         .route("/api/themes/install-from-manifest", post(theme_handler::handle_install_theme_inline))
         .route("/api/themes/:theme_id", delete(theme_handler::uninstall_theme))
+        .route("/api/themes/user/:profile_id/settings/:theme_id", get(theme_handler::get_user_theme_settings).put(theme_handler::update_user_theme_settings))
         .route("/api/themes/user/:profile_id", get(theme_handler::get_user_theme).post(theme_handler::set_user_theme))
         .route("/api/themes/css/:profile_id", get(theme_handler::get_theme_css))
         .route("/api/themes/assets/:theme_id/*path", get(theme_handler::serve_theme_asset))

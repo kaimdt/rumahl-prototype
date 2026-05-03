@@ -1,70 +1,681 @@
-/* ═══════════════════════════════════════════════
-   STEAMPUNK THEME – Vollständige CSS-Anpassungen
-   ═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   STEAMPUNK REVOLUTION – Main Stylesheet
+   
+   Complete visual transformation of the IORA interface into a
+   Victorian-industrial steampunk aesthetic.
+   
+   Design tokens: Brass, Copper, Bronze, Dark Wood, Parchment
+   Decorations: Gears, Rivets, Steam, Victorian Ornaments
+   Typography: Cinzel Decorative (headings), IM Fell English (body)
+   ═══════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Cinzel+Decorative:wght@400;700;900&family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+/* ─── CSS Variable Defaults for Custom Settings ─────────────────── */
+:root {
+  --steampunk-gear-speed: normal;
+  --steampunk-vignette: 60;
+  --steampunk-brass-borders: 1;
+}
 
-/* ─── Basis ─────────────────────────────────────── */
+/* ─── Base: Dark Wood & Brass Background ────────────────────────── */
 body {
-  background-color: oklch(0.08 0.02 60) !important;
+  background: var(--background) !important;
   background-image:
-    radial-gradient(ellipse at 15% 25%, oklch(0.12 0.04 55 / 0.3) 0%, transparent 55%),
-    radial-gradient(ellipse at 85% 75%, oklch(0.1 0.03 45 / 0.25) 0%, transparent 50%),
-    repeating-linear-gradient(0deg, transparent, transparent 120px, oklch(0.12 0.02 60 / 0.15) 120px, oklch(0.12 0.02 60 / 0.15) 121px);
-  background-attachment: fixed;
+    /* Subtle wood grain texture */
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      oklch(0 0 0 / 0.03) 2px,
+      oklch(0 0 0 / 0.03) 4px
+    ),
+    /* Radial vignette */
+    radial-gradient(
+      ellipse at 50% 0%,
+      oklch(from var(--card) l c h / 0) 0%,
+      oklch(0 0 0 / calc(var(--steampunk-vignette) / 100 * 0.5)) 100%
+    ) !important;
+  font-family: var(--font-primary, 'IM Fell English', serif);
+  letter-spacing: 0.02em;
 }
 
-/* Fonts */
-body, p, span, div:not([class*='font-mono']):not([class*='font-heading']) {
-  font-family: 'Cinzel Decorative', 'Playfair Display', Georgia, serif !important;
-}
+/* ─── Typography: Victorian Elegance ────────────────────────────── */
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Playfair Display', Georgia, serif !important;
-  font-weight: 700;
-}
-.font-mono, code, pre {
-  font-family: 'Courier Prime', 'Courier New', monospace !important;
-}
-
-/* Karten */
-.glass-card, .widget-card, [class*='rounded-2xl'], [class*='rounded-xl'] {
-  border: 1.5px solid oklch(0.35 0.06 60 / 0.4) !important;
-  background: oklch(0.14 0.03 55 / 0.65) !important;
-  backdrop-filter: blur(16px) saturate(1.2) !important;
-  box-shadow: 0 2px 12px oklch(0 0 0 / 0.3), inset 0 1px 0 oklch(0.72 0.14 70 / 0.08) !important;
-}
-.glass-card:hover, .widget-card:hover {
-  border-color: oklch(0.72 0.14 70 / 0.35) !important;
-}
-
-/* Header */
-.glass-header, header {
-  background: oklch(0.1 0.025 55 / 0.85) !important;
-  border-bottom: 2px solid oklch(0.35 0.06 60 / 0.5) !important;
-}
-
-/* Buttons */
-button:not([class*='icon-only']):not([role='switch']) {
-  border: 1.5px solid oklch(0.4 0.06 60 / 0.4) !important;
-  background: linear-gradient(180deg, oklch(0.25 0.05 55) 0%, oklch(0.18 0.04 55) 100%) !important;
+  font-family: var(--font-heading, 'Cinzel Decorative', serif) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.08em !important;
-}
-button:hover:not([class*='icon-only']):not([role='switch']) {
-  border-color: oklch(0.72 0.14 70 / 0.5) !important;
+  color: oklch(from var(--accent) l c h / 0.9) !important;
+  text-shadow:
+    0 1px 2px oklch(0 0 0 / 0.5),
+    0 0 20px oklch(from var(--accent) l c h / 0.15) !important;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 10px !important; height: 10px !important; }
-::-webkit-scrollbar-track { background: oklch(0.1 0.02 55) !important; }
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, oklch(0.5 0.08 55) 0%, oklch(0.35 0.06 60) 100%) !important;
-  border: 1px solid oklch(0.25 0.04 55 / 0.4) !important;
-  border-radius: 5px !important;
-}
-* { scrollbar-width: thin !important; scrollbar-color: oklch(0.5 0.08 55) oklch(0.1 0.02 55) !important; }
+h1 { font-size: 1.6rem !important; }
+h2 { font-size: 1.3rem !important; }
+h3 { font-size: 1.1rem !important; }
 
-/* Gear decoration on headings */
-h1::before, h2::before { content: '⚙ ' !important; font-size: 0.7em !important; opacity: 0.5 !important; }
-h1::after, h2::after { content: ' ⚙' !important; font-size: 0.7em !important; opacity: 0.5 !important; }
-@media (max-width: 640px) { h1::before, h2::before, h1::after, h2::after { content: '' !important; } }
+/* Body text – parchment-like */
+p, span, div:not([class*="glass"]) {
+  color: var(--foreground);
+  letter-spacing: 0.015em;
+}
+
+code, pre, .font-mono, [class*="font-mono"] {
+  font-family: var(--font-mono, 'Courier Prime', monospace) !important;
+  background: oklch(0 0 0 / 0.3) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.15) !important;
+  border-radius: 2px;
+  padding: 0.1em 0.4em;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   GLASS CARDS → BRASS PANELS
+   ═══════════════════════════════════════════════════════════════════ */
+
+.glass-card {
+  /* Replace glass with frosted brass */
+  background:
+    /* Inner light reflection */
+    linear-gradient(
+      135deg,
+      oklch(from var(--accent) l c h / 0.08) 0%,
+      transparent 40%
+    ),
+    /* Main brass panel */
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) calc(l + 0.05) calc(c * 0.4) h / 0.35) 0%,
+      oklch(from var(--card) l c h / 0.85) 50%,
+      oklch(from var(--accent) calc(l - 0.03) calc(c * 0.3) h / 0.3) 100%
+    ) !important;
+  
+  backdrop-filter: blur(24px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.2) !important;
+  
+  /* Brass border with rivets */
+  border: 2px solid oklch(from var(--accent) calc(l + 0.1) calc(c * 0.5) h / 0.5) !important;
+  border-radius: 3px !important;
+  
+  /* Copper shadow */
+  box-shadow:
+    0 4px 16px oklch(0 0 0 / 0.4),
+    0 1px 3px oklch(0 0 0 / 0.3),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.15),
+    inset 0 -1px 0 oklch(0 0 0 / 0.2) !important;
+  
+  /* Rivet decorations on corners */
+  position: relative;
+}
+
+/* Corner rivets – only when brass_borders enabled */
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 5px; left: 5px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 40% 40%,
+    oklch(from var(--accent) calc(l + 0.2) calc(c * 0.3) h / 0.9),
+    oklch(from var(--accent) l c h / 0.6)
+  );
+  box-shadow: 0 0 2px oklch(0 0 0 / 0.5);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.glass-card::after {
+  content: '';
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 40% 40%,
+    oklch(from var(--accent) calc(l + 0.2) calc(c * 0.3) h / 0.9),
+    oklch(from var(--accent) l c h / 0.6)
+  );
+  box-shadow: 0 0 2px oklch(0 0 0 / 0.5);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Hover: panels lift with mechanical precision */
+.glass-card:hover {
+  transform: translateY(-2px);
+  border-color: oklch(from var(--accent) calc(l + 0.15) calc(c * 0.6) h / 0.6) !important;
+  box-shadow:
+    0 8px 28px oklch(0 0 0 / 0.5),
+    0 2px 6px oklch(0 0 0 / 0.35),
+    0 0 20px oklch(from var(--accent) l c h / 0.08),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.2),
+    inset 0 -1px 0 oklch(0 0 0 / 0.25) !important;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.4s ease,
+              border-color 0.3s ease;
+}
+
+/* Active/pressed: mechanical click feel */
+.glass-card:active {
+  transform: translateY(0);
+  transition-duration: 0.1s;
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.3),
+    inset 0 2px 4px oklch(0 0 0 / 0.2) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HEADER – Brass Control Panel
+   ═══════════════════════════════════════════════════════════════════ */
+
+.glass-header {
+  background: linear-gradient(
+    180deg,
+    oklch(0.18 0.02 80 / 0.95) 0%,
+    oklch(0.15 0.015 75 / 0.9) 100%
+  ) !important;
+  backdrop-filter: blur(30px) saturate(1.3);
+  border-bottom: 3px solid oklch(from var(--accent) l c h / 0.4) !important;
+  box-shadow:
+    0 2px 12px oklch(0 0 0 / 0.4),
+    0 0 20px oklch(from var(--accent) l c h / 0.05) !important;
+}
+
+.glass-header h1 {
+  font-family: 'Cinzel Decorative', serif !important;
+  font-size: 0.9rem !important;
+  letter-spacing: 0.2em !important;
+  color: oklch(from var(--accent) calc(l + 0.15) calc(c * 0.5) h) !important;
+  text-shadow:
+    0 0 10px oklch(from var(--accent) l c h / 0.3),
+    0 1px 3px oklch(0 0 0 / 0.6) !important;
+}
+
+.glass-header::after {
+  content: '⚙';
+  position: absolute;
+  right: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.2rem;
+  color: oklch(from var(--accent) l c h / 0.3);
+  animation: gear-spin 8s linear infinite;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SIDEBAR NAVIGATION – Steam-Powered Control Panel
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root[data-nav-position="left"] [data-nav="root"] {
+  background: linear-gradient(
+    90deg,
+    oklch(0.14 0.015 80 / 0.98) 0%,
+    oklch(0.18 0.02 75 / 0.95) 100%
+  ) !important;
+  backdrop-filter: blur(40px) saturate(1.5);
+  border-right: 3px solid oklch(from var(--accent) l c h / 0.3) !important;
+  box-shadow:
+    3px 0 40px oklch(0 0 0 / 0.5),
+    0 0 20px oklch(from var(--accent) l c h / 0.04) !important;
+}
+
+/* Steam pipe decoration on sidebar */
+:root[data-nav-position="left"] [data-nav="root"]::before {
+  content: '';
+  position: absolute;
+  right: -8px; top: 20%; bottom: 20%;
+  width: 4px;
+  background: linear-gradient(
+    180deg,
+    oklch(from var(--accent) calc(l + 0.2) calc(c * 0.5) h / 0.5),
+    oklch(from var(--accent) l c h / 0.3),
+    oklch(from var(--accent) calc(l + 0.15) calc(c * 0.4) h / 0.5)
+  );
+  border-radius: 2px;
+  box-shadow: 0 0 8px oklch(from var(--accent) l c h / 0.2);
+}
+
+/* Nav items – brass buttons */
+:root[data-nav-position="left"] [data-nav="root"] button {
+  border-radius: 2px !important;
+  margin: 3px 12px !important;
+  min-height: 44px !important;
+  font-family: 'IM Fell English', serif !important;
+  font-size: 13px !important;
+  letter-spacing: 0.05em !important;
+  background: oklch(0.22 0.02 80 / 0.4) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.15) !important;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    oklch(from var(--accent) l c h / 0.08) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+}
+
+:root[data-nav-position="left"] [data-nav="root"] button:hover {
+  background: oklch(0.30 0.03 80 / 0.6) !important;
+  border-color: oklch(from var(--accent) l c h / 0.3) !important;
+  box-shadow:
+    0 0 10px oklch(from var(--accent) l c h / 0.15),
+    inset 0 0 15px oklch(from var(--accent) l c h / 0.05) !important;
+}
+
+/* Active nav item – glowing brass */
+:root[data-nav-position="left"] [data-nav="root"] button [class*="navActiveIndicator"] {
+  border-radius: 2px !important;
+  background: oklch(from var(--accent) l c h / 0.25) !important;
+  box-shadow:
+    0 0 20px oklch(from var(--accent) l c h / 0.2),
+    inset 0 0 10px oklch(from var(--accent) l c h / 0.08) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BUTTONS & CONTROLS – Mechanical Switches
+   ═══════════════════════════════════════════════════════════════════ */
+
+button:not([data-nav]) {
+  font-family: 'IM Fell English', serif !important;
+  letter-spacing: 0.04em;
+  border-radius: 2px !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+button:not([data-nav]):hover {
+  transform: translateY(-1px);
+}
+
+button:not([data-nav]):active {
+  transform: translateY(1px);
+  transition-duration: 0.08s !important;
+}
+
+/* Toggle switches – steam-era levers */
+[role="switch"], .switch {
+  background: oklch(0.25 0.02 80 / 0.6) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.2) !important;
+  border-radius: 8px !important;
+}
+
+[role="switch"][data-state="checked"], .switch[data-state="checked"] {
+  background: oklch(from var(--accent) l c h / 0.7) !important;
+  box-shadow: 0 0 10px oklch(from var(--accent) l c h / 0.3) !important;
+}
+
+/* Select dropdowns */
+select {
+  background: oklch(0.20 0.02 80 / 0.8) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.2) !important;
+  border-radius: 2px !important;
+  color: var(--foreground) !important;
+  font-family: 'Courier Prime', monospace !important;
+}
+
+/* Input fields */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+textarea {
+  background: oklch(0.20 0.02 80 / 0.6) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.2) !important;
+  border-radius: 2px !important;
+  color: var(--foreground) !important;
+  font-family: 'Courier Prime', monospace !important;
+  letter-spacing: 0.03em;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: oklch(from var(--accent) l c h / 0.5) !important;
+  box-shadow: 0 0 12px oklch(from var(--accent) l c h / 0.15) !important;
+  outline: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SCROLLBARS – Brass Rails
+   ═══════════════════════════════════════════════════════════════════ */
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: oklch(0.15 0.015 80 / 0.5);
+  border-left: 1px solid oklch(from var(--accent) l c h / 0.1);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    oklch(from var(--accent) calc(l + 0.1) calc(c * 0.5) h / 0.5),
+    oklch(from var(--accent) l c h / 0.35)
+  );
+  border-radius: 2px;
+  border: 1px solid oklch(from var(--accent) l c h / 0.2);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    oklch(from var(--accent) calc(l + 0.15) calc(c * 0.6) h / 0.6),
+    oklch(from var(--accent) l c h / 0.45)
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   DIALOGS & MODALS – Gilded Frames
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-slot="dialog-content"],
+[role="dialog"] {
+  background: linear-gradient(
+    180deg,
+    oklch(from var(--card) l c h / 0.95) 0%,
+    oklch(from var(--background) l c h / 0.9) 100%
+  ) !important;
+  border: 3px solid oklch(from var(--accent) l c h / 0.4) !important;
+  border-radius: 4px !important;
+  box-shadow:
+    0 20px 60px oklch(0 0 0 / 0.6),
+    0 0 30px oklch(from var(--accent) l c h / 0.1),
+    inset 0 1px 0 oklch(from var(--accent) l c h / 0.1) !important;
+}
+
+/* Ornamental corners on dialogs */
+[data-slot="dialog-content"]::before {
+  content: '◆';
+  position: absolute;
+  top: -2px; left: -2px;
+  color: oklch(from var(--accent) l c h / 0.5);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TOASTS – Telegram Notifications
+   ═══════════════════════════════════════════════════════════════════ */
+
+.glass-toast,
+[data-sonner-toaster] [data-sonner-toast] {
+  background: oklch(0.22 0.025 80 / 0.95) !important;
+  border: 2px solid oklch(from var(--accent) l c h / 0.3) !important;
+  border-radius: 2px !important;
+  font-family: 'IM Fell English', serif !important;
+  box-shadow:
+    0 8px 32px oklch(0 0 0 / 0.5),
+    0 0 15px oklch(from var(--accent) l c h / 0.08) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WIDGET GRID – Machine Shop Layout
+   ═══════════════════════════════════════════════════════════════════ */
+
+.grid {
+  gap: var(--layout-widget-gap, 0.75rem);
+}
+
+/* Widget entrance – mechanical reveal */
+@keyframes widget-enter-steampunk {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+    filter: brightness(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: brightness(1);
+  }
+}
+
+.widget-animate-in {
+  animation: widget-enter-steampunk 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANIMATIONS – Gears & Steam
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Rotating gear */
+@keyframes gear-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gear-spin-reverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+@keyframes gear-spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Steam puff */
+@keyframes steam-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.8);
+  }
+  20% {
+    opacity: 0.15;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-60px) scale(2);
+  }
+}
+
+/* Flickering gaslight */
+@keyframes gaslight-flicker {
+  0%, 100% { opacity: 0.85; }
+  5% { opacity: 0.7; }
+  10% { opacity: 0.9; }
+  15% { opacity: 0.75; }
+  20% { opacity: 0.88; }
+  50% { opacity: 0.82; }
+  80% { opacity: 0.9; }
+}
+
+/* Pressure gauge pulse */
+@keyframes gauge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Typewriter cursor */
+@keyframes typewriter-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Page transition – factory gate sliding */
+@keyframes page-enter-steampunk {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: sepia(0.5) brightness(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: sepia(0) brightness(1);
+  }
+}
+
+.page-transition-enter {
+  animation: page-enter-steampunk 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CUSTOM SETTING RESPONSIVE STYLES
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Gear animation speeds */
+[style*="--steampunk-gear-speed: slow"] .steampunk-gear {
+  animation-duration: 20s !important;
+}
+
+[style*="--steampunk-gear-speed: fast"] .steampunk-gear {
+  animation-duration: 4s !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PER-WIDGET STYLING – Industrial Machine Types
+   Themes target widgets via data-widget-type="..."
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Light Widget – Gaslamp Indicator */
+[data-widget-type="light"] .glass-card {
+  background: linear-gradient(
+    135deg,
+    oklch(from var(--accent) calc(l + 0.05) calc(c * 0.3) h / 0.25) 0%,
+    oklch(from var(--card) l c h / 0.8) 100%
+  ) !important;
+  border-left: 3px solid oklch(from var(--accent) calc(l + 0.1) c h / 0.5) !important;
+}
+
+[data-widget-type="light"] .glass-card::before {
+  content: '💡';
+  position: absolute;
+  top: -8px;
+  right: 12px;
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 3;
+  filter: drop-shadow(0 0 4px oklch(from var(--accent) l c h / 0.4));
+}
+
+/* Climate Widget – Thermometer / Pressure Gauge */
+[data-widget-type="climate"] .glass-card {
+  background: linear-gradient(
+    180deg,
+    oklch(0.28 0.02 30 / 0.65) 0%,
+    oklch(0.22 0.03 200 / 0.5) 100%
+  ) !important;
+  border-top: 3px solid oklch(0.55 0.15 30 / 0.5) !important;
+  border-bottom: 3px solid oklch(0.50 0.12 200 / 0.5) !important;
+}
+
+/* Switch Widget – Lever / Toggle */
+[data-widget-type="switch"] .glass-card {
+  border: 2px solid oklch(from var(--accent) calc(l + 0.05) calc(c * 0.4) h / 0.35) !important;
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.3),
+    inset 0 2px 4px oklch(from var(--accent) l c h / 0.08) !important;
+}
+
+/* Sensor Widget – Dial Gauge */
+[data-widget-type="sensor"] .glass-card {
+  border-radius: 4px !important;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 4px,
+      oklch(0 0 0 / 0.04) 4px,
+      oklch(0 0 0 / 0.04) 5px
+    ),
+    oklch(from var(--card) l c h / 0.7) !important;
+  font-family: 'Courier Prime', monospace !important;
+}
+
+[data-widget-type="sensor"] .glass-card .number-display {
+  font-family: 'Courier Prime', monospace !important;
+  font-size: 1.4em !important;
+  color: oklch(from var(--accent) calc(l + 0.1) c h) !important;
+}
+
+/* Media Player Widget – Phonograph */
+[data-widget-type="media_player"] .glass-card {
+  border: 2px solid oklch(0.50 0.12 300 / 0.3) !important;
+  background: linear-gradient(
+    135deg,
+    oklch(0.24 0.025 300 / 0.5) 0%,
+    oklch(0.20 0.02 300 / 0.4) 100%
+  ) !important;
+}
+
+/* Weather Widget – Barometer */
+[data-widget-type="weather"] .glass-card {
+  background: linear-gradient(
+    180deg,
+    oklch(0.30 0.03 240 / 0.5) 0%,
+    oklch(0.22 0.02 240 / 0.4) 100%
+  ) !important;
+  border: 2px solid oklch(0.55 0.12 240 / 0.3) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PER-PAGE STYLING – Different Rooms in the Factory
+   Themes target pages via [data-page="..."] on <html>
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Settings Page – Engineer's Blueprint Desk */
+[data-page="settings"] .glass-card {
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      oklch(0.35 0.02 240 / 0.1) 2%,
+      transparent 4%
+    ),
+    oklch(from var(--card) l c h / 0.8) !important;
+  border-left: 2px solid oklch(0.45 0.08 240 / 0.2) !important;
+}
+
+/* Admin Panel – Factory Control Room */
+[data-page="admin"] .glass-card {
+  border: 2px solid oklch(from var(--accent) calc(l + 0.1) calc(c * 0.5) h / 0.4) !important;
+  box-shadow:
+    0 4px 16px oklch(0 0 0 / 0.4),
+    0 0 20px oklch(from var(--accent) l c h / 0.06) !important;
+}
+
+/* Docs Page – Library / Archive */
+[data-page="docs"] {
+  --accent: oklch(0.45 0.10 100);
+}
+
+[data-page="docs"] .glass-card {
+  background: oklch(0.25 0.02 90 / 0.9) !important;
+  border: 1px solid oklch(0.45 0.08 90 / 0.25) !important;
+  font-family: 'IM Fell English', serif !important;
+  line-height: 1.8 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE – Mobile Factory Floor
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  .glass-card::before,
+  .glass-card::after {
+    display: none;
+  }
+
+  :root[data-nav-position="left"] [data-nav="root"]::before {
+    display: none;
+  }
+
+  .glass-header::after {
+    right: 1rem;
+    font-size: 0.9rem;
+  }
+
+  h1 { font-size: 1.3rem !important; }
+  h2 { font-size: 1.1rem !important; }
+}

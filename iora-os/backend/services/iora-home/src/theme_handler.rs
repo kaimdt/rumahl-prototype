@@ -128,6 +128,7 @@ pub struct InstalledThemeRow {
     pub html_templates_json: Option<String>,
     pub fonts_json: Option<String>,
     pub icon_font_json: Option<String>,
+    pub capabilities_json: Option<String>,
     pub system: bool, pub enabled: bool,
     pub installed_at: String, pub source_app_id: Option<String>,
     pub updated_at: String,
@@ -150,6 +151,7 @@ fn map_theme_row(row: &sqlx::postgres::PgRow) -> InstalledThemeRow {
         html_templates_json: row.get("html_templates_json"),
         fonts_json: row.get("fonts_json"),
         icon_font_json: row.get("icon_font_json"),
+        capabilities_json: row.get("capabilities_json"),
         system: row.get("system"), enabled: row.get("enabled"),
         installed_at: installed_at.to_rfc3339(),
         source_app_id: row.get("source_app_id"),
@@ -270,26 +272,27 @@ impl ThemeState {
         let html_templates_json = serde_json::to_string(&def.html_templates)?;
         let fonts_json = serde_json::to_string(&def.fonts)?;
         let icon_font_json = def.icon_font.as_ref().map(|f| serde_json::to_string(f).unwrap_or_default());
+        let capabilities_json = def.capabilities.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
 
         sqlx::query(
             "INSERT INTO installed_themes \
              (id,name,version,developer,description,icon,preview_image,parent_theme,\
              source,css_variables,additional_css,css_files_json,js_files_json,\
-             html_templates_json,fonts_json,icon_font_json,system,enabled,installed_at,\
-             source_app_id,updated_at) \
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) \
+             html_templates_json,fonts_json,icon_font_json,capabilities_json,\
+             system,enabled,installed_at,source_app_id,updated_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) \
              ON CONFLICT(id) DO UPDATE SET \
              name=$2,version=$3,developer=$4,description=$5,icon=$6,preview_image=$7,\
              parent_theme=$8,source=$9,css_variables=$10,additional_css=$11,\
              css_files_json=$12,js_files_json=$13,html_templates_json=$14,\
-             fonts_json=$15,icon_font_json=$16,updated_at=$21"
+             fonts_json=$15,icon_font_json=$16,capabilities_json=$17,updated_at=$22"
         )
         .bind(&def.id).bind(&def.name).bind(&def.version)
         .bind(&def.developer).bind(&def.description)
         .bind(&def.icon).bind(&def.preview_image).bind(&def.parent_theme)
         .bind(&def.source).bind(&css_vars_json).bind(&def.additional_css)
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
-        .bind(&fonts_json).bind(&icon_font_json)
+        .bind(&fonts_json).bind(&icon_font_json).bind(&capabilities_json)
         .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
@@ -307,26 +310,27 @@ impl ThemeState {
         let html_templates_json = serde_json::to_string(&def.html_templates)?;
         let fonts_json = serde_json::to_string(&def.fonts)?;
         let icon_font_json = def.icon_font.as_ref().map(|f| serde_json::to_string(f).unwrap_or_default());
+        let capabilities_json = def.capabilities.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
 
         sqlx::query(
             "INSERT INTO installed_themes \
              (id,name,version,developer,description,icon,preview_image,parent_theme,\
              source,css_variables,additional_css,css_files_json,js_files_json,\
-             html_templates_json,fonts_json,icon_font_json,system,enabled,installed_at,\
-             source_app_id,updated_at) \
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) \
+             html_templates_json,fonts_json,icon_font_json,capabilities_json,\
+             system,enabled,installed_at,source_app_id,updated_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) \
              ON CONFLICT(id) DO UPDATE SET \
              name=$2,version=$3,developer=$4,description=$5,icon=$6,preview_image=$7,\
              parent_theme=$8,source=$9,css_variables=$10,additional_css=$11,\
              css_files_json=$12,js_files_json=$13,html_templates_json=$14,\
-             fonts_json=$15,icon_font_json=$16,updated_at=$21"
+             fonts_json=$15,icon_font_json=$16,capabilities_json=$17,updated_at=$22"
         )
         .bind(&def.id).bind(&def.name).bind(&def.version)
         .bind(&def.developer).bind(&def.description)
         .bind(&def.icon).bind(&def.preview_image).bind(&def.parent_theme)
         .bind(&def.source).bind(&css_vars_json).bind(&def.additional_css)
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
-        .bind(&fonts_json).bind(&icon_font_json)
+        .bind(&fonts_json).bind(&icon_font_json).bind(&capabilities_json)
         .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
@@ -394,6 +398,7 @@ impl ThemeState {
                 css_urls: vec![], js_urls: vec![],
                 assets_base_url: None, fonts: vec![], icon_font: None,
                 html_templates: HashMap::new(),
+                capabilities: None,
             });
         }
 
@@ -456,6 +461,9 @@ impl ThemeState {
                 (k.clone(), resolved)
             }).collect();
 
+            let capabilities: Option<iora_shared::theme::ThemeCapabilities> = row.capabilities_json.as_ref()
+                .and_then(|j| serde_json::from_str(j).ok());
+
             return Ok(iora_shared::theme::ThemeCssResponse {
                 theme_id: theme_id.to_string(), source: row.source.clone(),
                 css_variables: vars, additional_css: row.additional_css.clone(),
@@ -463,6 +471,7 @@ impl ThemeState {
                 assets_base_url: assets_base,
                 fonts: resolved_fonts, icon_font: resolved_icon_font,
                 html_templates: html_resolved,
+                capabilities,
             });
         }
 
@@ -472,6 +481,7 @@ impl ThemeState {
             css_urls: vec![], js_urls: vec![],
             assets_base_url: None, fonts: vec![], icon_font: None,
             html_templates: HashMap::new(),
+            capabilities: None,
         })
     }
 
@@ -524,6 +534,7 @@ fn builtin_themes() -> Vec<iora_shared::theme::ThemeDefinition> {
                 css_files: vec![], js_files: vec![], html_templates: HashMap::new(),
                 fonts: vec![], icon_font: None, additional_css: None,
                 system: true, order: $order,
+                capabilities: None,
             }
         };
     }
@@ -578,6 +589,7 @@ pub async fn list_themes(
             fonts_json: r.fonts_json, icon_font_json: r.icon_font_json,
             css_files_json: r.css_files_json, js_files_json: r.js_files_json,
             html_templates_json: r.html_templates_json,
+            capabilities_json: r.capabilities_json,
         }
     }).collect();
     Ok(Json(iora_shared::theme::ThemeListResponse { builtin, installed }))
@@ -691,6 +703,74 @@ pub async fn serve_theme_asset(
     Path((theme_id, path)): Path<(String, String)>,
 ) -> Result<Response, (StatusCode, String)> {
     gs.theme_manager.serve_asset(&theme_id, &path).await
+}
+
+// ════════════════════════════════════════════════════════════════
+// User Theme Custom Settings API
+// ════════════════════════════════════════════════════════════════
+
+/// GET /api/themes/user/:profile_id/settings/:theme_id
+/// Returns custom settings for a user's active theme
+pub async fn get_user_theme_settings(
+    State(gs): State<AppState>,
+    Path((profile_id, theme_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let rows = sqlx::query(
+        "SELECT setting_key, setting_value FROM user_theme_settings 
+         WHERE profile_id = $1 AND theme_id = $2"
+    )
+    .bind(&profile_id).bind(&theme_id)
+    .fetch_all(&gs.db_pool).await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut settings = serde_json::Map::new();
+    for row in &rows {
+        let key: String = row.get("setting_key");
+        let value: String = row.get("setting_value");
+        // Try to parse as JSON, fall back to string
+        let parsed = serde_json::from_str::<serde_json::Value>(&value)
+            .unwrap_or(serde_json::Value::String(value));
+        settings.insert(key, parsed);
+    }
+
+    Ok(Json(serde_json::json!({
+        "theme_id": theme_id,
+        "settings": settings
+    })))
+}
+
+/// PUT /api/themes/user/:profile_id/settings/:theme_id
+/// Saves custom settings for a user's theme
+#[derive(Debug, Deserialize)]
+pub struct UpdateThemeSettingsRequest {
+    pub settings: HashMap<String, serde_json::Value>,
+}
+
+pub async fn update_user_theme_settings(
+    State(gs): State<AppState>,
+    Path((profile_id, theme_id)): Path<(String, String)>,
+    Json(req): Json<UpdateThemeSettingsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let now = chrono::Utc::now();
+
+    for (key, value) in &req.settings {
+        let value_str = serde_json::to_string(value)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid value for {}: {}", key, e)))?;
+
+        sqlx::query(
+            "INSERT INTO user_theme_settings (id, user_id, profile_id, theme_id, setting_key, setting_value, created_at, updated_at) 
+             VALUES($1, $2, $3, $4, $5, $6, $7, $8) 
+             ON CONFLICT (profile_id, theme_id, setting_key) DO UPDATE SET 
+             setting_value = $6, updated_at = $8"
+        )
+        .bind(&format!("uts_{}", uuid::Uuid::new_v4()))
+        .bind(&profile_id).bind(&profile_id).bind(&theme_id)
+        .bind(key).bind(&value_str).bind(now).bind(now)
+        .execute(&gs.db_pool).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB: {}", e)))?;
+    }
+
+    Ok(Json(serde_json::json!({"status": "ok", "updated": req.settings.len()})))
 }
 
 

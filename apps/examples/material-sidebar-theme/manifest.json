@@ -1,0 +1,173 @@
+{
+  "id": "material-sidebar",
+  "name": "Material Sidebar Theme",
+  "version": "1.0.0",
+  "developer": "IORA",
+  "description": "Material Design theme with sidebar nav, custom design modes, locked accent color, and theme-specific settings. Demonstrates all ThemeCapabilities.",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": ["ThemeInstall"],
+  "theme": {
+    "id": "material-sidebar",
+    "name": "Material Sidebar",
+    "version": "1.0.0",
+    "developer": "IORA",
+    "description": "Material Design Sidebar mit eigenen Design-Modes, Akzentfarben-Lock und Theme-Einstellungen",
+    "icon": "Sidebar",
+    "parent_theme": "night",
+    "source": "file",
+
+    "css_files": ["theme.css"],
+    "js_files": ["theme.js"],
+    "html_templates": {
+      "layout": "html/layout.html"
+    },
+
+    "css_variables": {
+      "background": "oklch(0.15 0.01 260)",
+      "foreground": "oklch(0.90 0.008 260)",
+      "card": "oklch(0.19 0.015 260)",
+      "card-foreground": "oklch(0.92 0.008 260)",
+      "accent": "oklch(0.60 0.22 260)",
+      "accent-foreground": "oklch(0.98 0 0)",
+      "muted": "oklch(0.22 0.01 260)",
+      "muted-foreground": "oklch(0.55 0.015 260)",
+      "border": "oklch(0.26 0.012 260)",
+      "ring": "oklch(0.60 0.22 260)",
+      "radius": "12px",
+      "glass-bg": "oklch(0.19 0.02 260 / 0.6)",
+      "glass-bg-end": "oklch(0.15 0.01 260 / 0.5)",
+      "glass-border-color": "oklch(0.30 0.015 260 / 0.15)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.2)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.1)",
+      "layout-nav-position": "left",
+      "layout-nav-width": "240px",
+      "layout-header-style": "compact"
+    },
+
+    "capabilities": {
+      "design_modes": [
+        {
+          "id": "material-light",
+          "name": "Material Hell",
+          "icon": "Sun",
+          "time_start": "06:00",
+          "time_end": "17:00",
+          "css_variables": {
+            "background": "oklch(0.97 0.005 260)",
+            "foreground": "oklch(0.18 0.02 260)",
+            "card": "oklch(0.99 0.002 260)",
+            "card-foreground": "oklch(0.15 0.02 260)",
+            "accent": "oklch(0.55 0.22 260)",
+            "border": "oklch(0.88 0.008 260)",
+            "muted": "oklch(0.94 0.008 260)",
+            "muted-foreground": "oklch(0.50 0.02 260)",
+            "glass-bg": "oklch(0.97 0.003 260 / 0.6)",
+            "glass-bg-end": "oklch(0.99 0.002 260 / 0.5)",
+            "glass-border-color": "oklch(0.18 0.02 260 / 0.08)"
+          }
+        },
+        {
+          "id": "material-dark",
+          "name": "Material Dunkel",
+          "icon": "MoonStars",
+          "time_start": "17:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "oklch(0.15 0.01 260)",
+            "foreground": "oklch(0.90 0.008 260)",
+            "card": "oklch(0.19 0.015 260)",
+            "card-foreground": "oklch(0.92 0.008 260)",
+            "accent": "oklch(0.60 0.22 260)",
+            "border": "oklch(0.26 0.012 260)",
+            "muted": "oklch(0.22 0.01 260)",
+            "muted-foreground": "oklch(0.55 0.015 260)",
+            "glass-bg": "oklch(0.19 0.02 260 / 0.6)",
+            "glass-bg-end": "oklch(0.15 0.01 260 / 0.5)",
+            "glass-border-color": "oklch(0.30 0.015 260 / 0.15)"
+          }
+        },
+        {
+          "id": "material-oled",
+          "name": "Material OLED",
+          "icon": "Moon",
+          "time_start": "22:00",
+          "time_end": "05:00",
+          "css_variables": {
+            "background": "oklch(0 0 0)",
+            "foreground": "oklch(0.40 0.008 260)",
+            "card": "oklch(0.04 0.005 260)",
+            "card-foreground": "oklch(0.35 0.008 260)",
+            "accent": "oklch(0.35 0.08 260)",
+            "border": "oklch(0.10 0.005 260)",
+            "muted": "oklch(0.06 0.005 260)",
+            "muted-foreground": "oklch(0.25 0.006 260)",
+            "glass-bg": "oklch(0.06 0.005 260 / 0.08)",
+            "glass-bg-end": "oklch(0.04 0.005 260 / 0.04)",
+            "glass-border-color": "oklch(0.20 0.005 260 / 0.08)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "material-light": { "start": "06:00", "end": "17:00" },
+          "material-dark": { "start": "17:00", "end": "22:00" },
+          "material-oled": { "start": "22:00", "end": "06:00" }
+        },
+        "default_mode": "material-dark"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          { "name": "Blau (Standard)", "color": "oklch(0.60 0.22 260)" },
+          { "name": "Violett", "color": "oklch(0.55 0.20 290)" },
+          { "name": "Teal", "color": "oklch(0.55 0.18 190)" },
+          { "name": "Orange", "color": "oklch(0.60 0.18 50)" },
+          { "name": "Rosa", "color": "oklch(0.55 0.18 350)" }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_on"
+      },
+      "custom_settings": [
+        {
+          "id": "animations_enabled",
+          "name": "Animationen",
+          "description": "Karten-Animationen und Übergänge",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "theme-animations"
+        },
+        {
+          "id": "card_density",
+          "name": "Kartendichte",
+          "description": "Abstände zwischen Widgets",
+          "setting_type": "select",
+          "default_value": "comfortable",
+          "options": [
+            { "label": "Komfortabel", "value": "comfortable" },
+            { "label": "Kompakt", "value": "compact" },
+            { "label": "Großzügig", "value": "spacious" }
+          ],
+          "css_variable": "theme-card-density"
+        },
+        {
+          "id": "ripple_effect",
+          "name": "Ripple-Effekt",
+          "description": "Material-Ripple bei Klick auf Karten",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "sidebar_collapsed",
+          "name": "Sidebar minimieren",
+          "description": "Sidebar standardmäßig einklappen",
+          "setting_type": "toggle",
+          "default_value": false,
+          "css_variable": "layout-nav-width"
+        }
+      ]
+    }
+  }
+}

@@ -36,6 +36,7 @@ import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ThemeLayout } from '@/components/ThemeLayout'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
@@ -128,6 +129,20 @@ function DashboardContent() {
     const styleClass = getCardStyleClass(globalCardStyle !== 'default' ? globalCardStyle : undefined)
     if (styleClass) root.classList.add(styleClass)
   }, [globalCardStyle])
+
+  // Set data-page attribute for theme CSS targeting
+  useEffect(() => {
+    const pageType = (() => {
+      if (['settings', 'admin', 'docs', 'share', 'streaming', 'ai-agent'].includes(currentPageId)) return currentPageId
+      if (['home', 'lights', 'climate', 'switches', 'sensors', 'music'].includes(currentPageId)) return currentPageId
+      if (currentPage?.pageSource?.kind === 'app') return 'app-page'
+      return 'custom-page'
+    })()
+    document.documentElement.setAttribute('data-page', pageType)
+    return () => {
+      document.documentElement.removeAttribute('data-page')
+    }
+  }, [currentPageId, currentPage?.pageSource?.kind])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
   const [showSplash, setShowSplash] = useState(true)
   const [showPageDesigner, setShowPageDesigner] = useState(false)
