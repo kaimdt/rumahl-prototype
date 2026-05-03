@@ -86,11 +86,7 @@ show_progress_stream() {
     }'
 }
 
-# ── GCC 15 compatibility fix for host-cmake ──────────────────────────────────
-# GCC 15 (shipped with Ubuntu 26.04+) no longer implicitly includes <cstdint>
-# through other headers. CMake 3.28.1's bundled cppdap uses uint32_t without
-# an explicit #include <cstdint>, causing a build failure.
-# Safe on all systems: only adds a missing standard include where needed.
+# ── GCC 15 compatibility fixes ──────────────────────────────────────────────
 patch_host_cmake_gcc15() {
     local cmake_src="${BUILD_DIR}/output/build/host-cmake-3.28.1"
     [ -d "${cmake_src}" ] || return 0
@@ -115,6 +111,33 @@ patch_host_cmake_gcc15() {
     fi
 
     touch "${patched_marker}"
+}
+
+patch_host_m4_gcc15() {
+    local m4_src="${BUILD_DIR}/output/build/host-m4-1.4.19"
+    [ -d "${m4_src}" ] || return 0
+    local marker="${m4_src}/.iora-gcc15-patched"
+    [ -f "${marker}" ] && return 0
+    for f in "${m4_src}/lib/gl_oset.h" "${m4_src}/lib/gl_list.h"; do
+        if [ -f "$f" ] && grep -q 'INLINE _GL_ATTRIBUTE_NODISCARD' "$f" 2>/dev/null; then
+            log_info "Patching host-m4: removing _GL_ATTRIBUTE_NODISCARD from inline fns"
+            sed -i 's/\(GL_.*INLINE\) _GL_ATTRIBUTE_NODISCARD/\1/' "$f"
+        fi
+    done
+    touch "${marker}"
+}
+
+patch_host_gawk_gcc15() {
+    local gawk_src="${BUILD_DIR}/output/build/host-gawk-5.3.0"
+    [ -d "${gawk_src}" ] || return 0
+    local marker="${gawk_src}/.iora-gcc15-patched"
+    [ -f "${marker}" ] && return 0
+    local io_c="${gawk_src}/io.c"
+    if [ -f "${io_c}" ] && grep -q 'ssize_t(\*)()' "${io_c}" 2>/dev/null; then
+        log_info "Patching host-gawk: fixing ssize_t(*)() casts (C23 compat)"
+        sed -i 's/( ssize_t(\*)() ) read/( ssize_t(*)(int, void *, size_t) ) read/g' "${io_c}"
+    fi
+    touch "${marker}"
 }
 
 check_prereqs() {
@@ -233,6 +256,8 @@ fi
 
 # Apply GCC 15 compat patches before building (idempotent, safe on all distros).
 patch_host_cmake_gcc15
+patch_host_m4_gcc15
+patch_host_gawk_gcc15
 
 # Force xz parallelism — prevent silent thread downgrades (16→3).
 export XZ_OPT="-T0 --memlimit-compress=0"

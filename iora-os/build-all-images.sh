@@ -650,12 +650,14 @@ EOF
     log_success "Buildroot configured"
 }
 
-# ── GCC 15 compatibility fix for host-cmake ──────────────────────────────────
-# GCC 15 (shipped with Ubuntu 26.04+) no longer implicitly includes <cstdint>
-# through other headers. CMake 3.28.1's bundled cppdap uses uint32_t without
-# an explicit #include <cstdint>, causing a build failure:
-#   error: 'uint32_t' has not been declared
-# This function patches the host-cmake source after Buildroot extracts it.
+# ── GCC 15 compatibility fixes ──────────────────────────────────────────────
+# GCC 15 (Ubuntu 26.04+) brings two breaking changes:
+#   1. <cstdint> no longer implicitly included → affects host-cmake cppdap
+#   2. -std=gnu23 default: empty parens mean (void), [[nodiscard]] in C is
+#      invalid between inline and return type → affects host-m4, host-gawk
+# These functions patch already-extracted sources (Buildroot patches handle
+# fresh extractions). All functions are idempotent via marker files.
+
 patch_host_cmake_gcc15() {
     local cmake_src="${BUILD_DIR}/output/build/host-cmake-3.28.1"
     # Source might not be extracted yet (handled by make); skip silently.
@@ -683,7 +685,41 @@ patch_host_cmake_gcc15() {
     touch "${patched_marker}"
 }
 
-build_base_image() {
+patch_host_m4_gcc15() {
+    local m4_src="${BUILD_DIR}/output/build/host-m4-1.4.19"
+    [ -d "${m4_src}" ] || return 0
+    local marker="${m4_src}/.iora-gcc15-patched"
+    [ -f "${marker}" ] && return 0
+
+    # Remove _GL_ATTRIBUTE_NODISCARD from inline functions (C23 syntax error)
+    local f
+    for f in "${m4_src}/lib/gl_oset.h" "${m4_src}/lib/gl_list.h"; do
+        if [ -f "$f" ] && grep -q 'INLINE _GL_ATTRIBUTE_NODISCARD' "$f" 2>/dev/null; then
+            log_info "Patching host-m4: removing _GL_ATTRIBUTE_NODISCARD from inline fns ($(basename "$f"))"
+            sed -i 's/\(GL_.*INLINE\) _GL_ATTRIBUTE_NODISCARD/\1/' "$f"
+        fi
+    done
+    touch "${marker}"
+}
+
+patch_host_gawk_gcc15() {
+    local gawk_src="${BUILD_DIR}/output/build/host-gawk-5.3.0"
+    [ -d "${gawk_src}" ] || return 0
+    local marker="${gawk_src}/.iora-gcc15-patched"
+    [ -f "${marker}" ] && return 0
+
+    local io_c="${gawk_src}/io.c"
+    if [ -f "${io_c}" ] && grep -q 'ssize_t(\*)()' "${io_c}" 2>/dev/null; then
+        log_info "Patching host-gawk: fixing ssize_t(*)() casts (C23 compat)"
+        sed -i 's/( ssize_t(\*)() ) read/( ssize_t(*)(int, void *, size_t) ) read/g' "${io_c}"
+    fi
+    local awkgram="${gawk_src}/awkgram.y"
+    if [ -f "${awkgram}" ] && grep -q 'No argument prototype on readfunc' "${awkgram}" 2>/dev/null; then
+        log_info "Patching host-gawk: removing obsolete comment in awkgram.y"
+        sed -i '/No argument prototype on readfunc/,/^[[:space:]]*\*\//d' "${awkgram}"
+    fi
+    touch "${marker}"
+}
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
@@ -6446,6 +6482,8 @@ main() {
         download_buildroot
         configure_buildroot
         patch_host_cmake_gcc15
+        patch_host_m4_gcc15
+        patch_host_gawk_gcc15
         build_base_image
     else
         log_info "Skipping Buildroot compile steps (images-only mode)."

@@ -1,24 +1,18 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: IORA Build System <build@iora.local>
 Date: Sat, 3 May 2026 00:00:00 +0000
-Subject: [PATCH] Fix _GL_ATTRIBUTE_NODISCARD with GCC 14+ in C99 mode
+Subject: [PATCH] Fix _GL_ATTRIBUTE_NODISCARD with GCC 15+ in C23 mode
 
-GCC 14+ accepts [[nodiscard]] in C99/C11 mode as an extension, but it
-is not valid C99 syntax in the position used by gnulib inline functions
-(between the storage-class/inline specifier and the return type).
+GCC 15 defaults to -std=gnu23 where [[nodiscard]] between
+storage-class/inline specifier and return type is a syntax error.
 
-Specifically:
-  GL_OSET_INLINE _GL_ATTRIBUTE_NODISCARD int  → syntax error
-  GL_LIST_INLINE _GL_ATTRIBUTE_NODISCARD int  → syntax error
-
-Remove _GL_ATTRIBUTE_NODISCARD from the inline function declarations
-(keeping it in the declarations-only prototypes where it is syntactically
-valid). This is a pragmatic fix; the nodiscard attribute is a quality-of-
-implementation hint, not essential for correctness.
+Remove _GL_ATTRIBUTE_NODISCARD from all inline function definitions
+in gl_oset.h and gl_list.h (keeping it only on declarations where it
+is syntactically valid).  Line numbers corrected for m4-1.4.19.
 
 --- a/lib/gl_oset.h
 +++ b/lib/gl_oset.h
-@@ -272,7 +272,7 @@
+@@ -275,7 +275,7 @@
           ->search_atleast (set, threshold_fn, threshold, eltp);
  }
  
@@ -29,7 +23,7 @@ implementation hint, not essential for correctness.
    return ((const struct gl_oset_impl_base *) set)->vtable->nx_add (set, elt);
 --- a/lib/gl_list.h
 +++ b/lib/gl_list.h
-@@ -630,7 +630,7 @@
+@@ -633,7 +633,7 @@
           ->node_value (list, node);
  }
  
@@ -38,7 +32,7 @@ implementation hint, not essential for correctness.
  gl_list_node_nx_set_value (gl_list_t list, gl_list_node_t node,
                             const void *elt)
  {
-@@ -685,20 +685,20 @@
+@@ -688,20 +688,20 @@
    return gl_list_get_at (list, gl_list_size (list) - 1);
  }
  
@@ -62,7 +56,7 @@ implementation hint, not essential for correctness.
  gl_list_nx_set_last (gl_list_t list, const void *elt)
  {
    return gl_list_nx_set_at (list, gl_list_size (list) - 1, elt);
-@@ -752,35 +752,35 @@
+@@ -755,29 +755,29 @@
           ->indexof_from_to (list, start_index, end_index, elt);
  }
  
@@ -103,7 +97,7 @@ implementation hint, not essential for correctness.
  gl_list_nx_add_at (gl_list_t list, size_t position, const void *elt)
  {
    return ((const struct gl_list_impl_base *) list)->vtable
-@@ -891,7 +891,7 @@
+@@ -894,7 +894,7 @@
                                         elt);
  }
  
