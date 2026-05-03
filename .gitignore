@@ -41,4 +41,13 @@ nul
 /desktop/src-tauri/target
 /backend/data
 /iora-os/buildroot-2024.02
+/iora-os/buildroot-2024.02.tar.gz
 /update-server-main
+
+# Database files
+*.db
+*.db-wal
+*.db-shm
+
+# Python cache
+__pycache__/
