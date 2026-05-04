@@ -899,6 +899,10 @@ build_base_image() {
     export HOST_CFLAGS="${HOST_CFLAGS:-} -std=gnu17"
     export HOST_CXXFLAGS="${HOST_CXXFLAGS:-} -std=gnu17"
 
+    # Clean stale cmake CMakeCache.txt — previous failed runs may cache
+    # C++ feature detection results that are now fixed by our patches.
+    rm -f "${BUILD_DIR}/output/build/host-cmake-"*/CMakeCache.txt 2>/dev/null || true
+
     cd "${BUILD_DIR}"
     if [ "${PROGRESS}" = true ]; then
         PATH="${BUILDROOT_SAFE_PATH}" \

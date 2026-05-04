@@ -380,6 +380,9 @@ export XZ_DEFAULTS="-T0 --memlimit-compress=0"
 export HOST_CFLAGS="${HOST_CFLAGS:-} -std=gnu17"
 export HOST_CXXFLAGS="${HOST_CXXFLAGS:-} -std=gnu17"
 
+# Clean stale cmake CMakeCache.txt from previous failed runs.
+rm -f "${BUILD_DIR}/output/build/host-cmake-"*/CMakeCache.txt 2>/dev/null || true
+
 log_info "make -j${JOBS} (cores: ${JOBS}, xz: $(xz --version 2>/dev/null | head -1 || echo unknown))"
 
 set +e
