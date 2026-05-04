@@ -1,0 +1,93 @@
+{
+  "id": "iora-forge",
+  "name": "IORA Forge – Idle Settler",
+  "version": "1.0.0",
+  "developer": "IORA Community",
+  "description": "Ein entspanntes Idle-Spiel, bei dem du eine Siedlung aufbaust. Deine Gebäude produzieren automatisch Ressourcen – du schaust zu und triffst strategische Entscheidungen. Mit Prestige-System, Upgrades und Save/Load.",
+  "icon": "https://img.icons8.com/color/256/minecraft-pickaxe.png",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "AppStorageRead",
+    "AppStorageWrite",
+    "AppStorageDelete",
+    "AppStorageManage"
+  ],
+  "storage": {
+    "enabled": true,
+    "quota": {
+      "max_file_storage_bytes": 10485760,
+      "max_kv_entries": 50,
+      "max_file_size_bytes": 5242880
+    }
+  },
+  "custom_pages": [
+    {
+      "id": "iora-forge-main",
+      "title": "IORA Forge",
+      "icon": "Hammer",
+      "url": "/apps/iora-forge/",
+      "show_in_nav": true,
+      "order": 200
+    }
+  ],
+  "settings_schema": {
+    "title": "IORA Forge Einstellungen",
+    "description": "Passe dein Spielerlebnis an",
+    "fields": [
+      {
+        "key": "tick_interval",
+        "label": "Tick-Intervall (ms)",
+        "description": "Wie oft pro Sekunde werden Ressourcen berechnet? (Standard: 1000ms = 1 Tick/s)",
+        "type": "number",
+        "default": 1000,
+        "validation": {
+          "min": 100,
+          "max": 5000
+        }
+      },
+      {
+        "key": "auto_save_interval",
+        "label": "Auto-Save Intervall (Sekunden)",
+        "description": "Wie oft wird der Spielstand automatisch gespeichert?",
+        "type": "number",
+        "default": 60,
+        "validation": {
+          "min": 10,
+          "max": 600
+        }
+      }
+    ]
+  },
+  "docker": {
+    "auto_build": true,
+    "base_image": "node:20-alpine",
+    "working_dir": "/app",
+    "install_cmd": "npm install",
+    "start_cmd": "node server.js",
+    "internal_ports": [
+      {
+        "port": 3000,
+        "protocol": "tcp",
+        "assignment_mode": "random",
+        "description": "Game Web UI"
+      }
+    ],
+    "environment": {
+      "NODE_ENV": "production"
+    },
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "store_metadata": {
+    "category": "Games",
+    "tags": ["idle", "spiel", "entspannung", "strategie", "settler"],
+    "min_iora_version": "2.0.0",
+    "source_url": "https://github.com/iora/idle-game",
+    "license": "MIT"
+  }
+}

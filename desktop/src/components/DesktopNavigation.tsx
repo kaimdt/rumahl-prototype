@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Gear, Robot, House, Moon, Sun, Globe } from '@phosphor-icons/react'
+import { Gear, Robot, House, Moon, Sun, Globe, Terminal, Shield } from '@phosphor-icons/react'
 import { useState } from 'react'
 
 export type NavId = "ai" | "iora-home" | "connection" | "settings"
@@ -11,6 +11,8 @@ interface Props {
   onSleepModeToggle: () => void
   user?: { username: string; display_name?: string } | null
   onUserClick?: () => void
+  onSystemLogToggle?: () => void
+  onSystemControlToggle?: () => void
 }
 
 const TABS = [
@@ -20,7 +22,7 @@ const TABS = [
   { id: "settings" as NavId, label: "Einstellungen", Icon: Gear },
 ]
 
-export function DesktopNavigation({ active, onChange, sleepMode, onSleepModeToggle, user, onUserClick }: Props) {
+export function DesktopNavigation({ active, onChange, sleepMode, onSleepModeToggle, user, onUserClick, onSystemLogToggle, onSystemControlToggle }: Props) {
   return (
     <motion.div
       initial={{ y: 100, opacity: 0 }}
@@ -96,6 +98,21 @@ export function DesktopNavigation({ active, onChange, sleepMode, onSleepModeTogg
               </>
             )}
 
+            {/* System Log toggle */}
+            {onSystemLogToggle && (
+              <motion.button
+                onClick={onSystemLogToggle}
+                className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-full text-foreground/40 hover:text-emerald-400 transition-colors duration-200 flex items-center justify-center"
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.92 }}
+                title="System Live Log"
+              >
+                <Terminal size={19} weight="regular" />
+              </motion.button>
+            )}
+
+            <div className="w-px h-5 bg-foreground/8 mx-0.5" />
+
             {/* Sleep mode toggle */}
             <motion.button
               onClick={onSleepModeToggle}
@@ -128,6 +145,34 @@ export function DesktopNavigation({ active, onChange, sleepMode, onSleepModeTogg
                 </motion.div>
               )}
             </motion.button>
+
+            <div className="w-px h-5 bg-foreground/8 mx-0.5" />
+
+            {/* System Log toggle */}
+            {onSystemLogToggle && (
+              <motion.button
+                onClick={onSystemLogToggle}
+                className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-full text-foreground/40 hover:text-emerald-400 transition-colors duration-200 flex items-center justify-center"
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.92 }}
+                title="System Live Log"
+              >
+                <Terminal size={19} weight="regular" />
+              </motion.button>
+            )}
+
+            {/* System Guard toggle */}
+            {onSystemControlToggle && (
+              <motion.button
+                onClick={onSystemControlToggle}
+                className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-full text-foreground/40 hover:text-amber-400 transition-colors duration-200 flex items-center justify-center"
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.92 }}
+                title="System Guard"
+              >
+                <Shield size={19} weight="regular" />
+              </motion.button>
+            )}
           </div>
         </div>
       </motion.div>

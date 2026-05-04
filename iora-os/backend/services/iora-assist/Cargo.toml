@@ -37,3 +37,4 @@ cron = "0.12"
 toml = "0.8"
 notify = { version = "7", features = ["macos_kqueue"] }
 tempfile = "3.10"
+bollard = "0.16"

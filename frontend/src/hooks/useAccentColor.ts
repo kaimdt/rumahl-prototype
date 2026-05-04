@@ -1,16 +1,18 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { getPalette } from 'colorthief'
-import { useConfiguration } from '@/contexts/ConfigurationContext'
+import { useCurrentBackground } from '@/contexts/CurrentBackgroundContext'
+import { useTheme } from '@/contexts/ThemeContext'
 
 interface AccentColorSettings {
   mode: 'auto' | 'static'
   staticColor: string
 }
 
-const DEFAULT_ACCENT = '#3b82f6' // Default blue accent
+const DEFAULT_ACCENT = '#3b82f6'
 
 export function useAccentColor() {
-  const { background } = useConfiguration()
+  const { currentImageUrl } = useCurrentBackground()
+  const { theme } = useTheme()
   const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT)
   const [extractedPalette, setExtractedPalette] = useState<string[]>([])
   const [settings, setSettings] = useState<AccentColorSettings>(() => {
@@ -18,127 +20,175 @@ export function useAccentColor() {
     return stored ? JSON.parse(stored) : { mode: 'auto', staticColor: DEFAULT_ACCENT }
   })
 
+  // Counter to discard stale async extractions
+  const extractionIdRef = useRef(0)
+  // Track the last URL we extracted from to avoid duplicate work
+  const lastExtractedUrlRef = useRef<string | null>(null)
+
   useEffect(() => {
     localStorage.setItem('accent-color-settings', JSON.stringify(settings))
   }, [settings])
 
+  // Core effect: auto-extract accent when background image changes
   useEffect(() => {
     if (settings.mode === 'static') {
+      updateCSSVariable(settings.staticColor, theme)
       setAccentColor(settings.staticColor)
-      updateCSSVariable(settings.staticColor)
       return
     }
 
-    // Auto mode - extract from background
-    if (!background || !background.is_active) {
+    // Auto mode — nothing to do if no image
+    if (!currentImageUrl) {
       setAccentColor(DEFAULT_ACCENT)
       setExtractedPalette([])
-      updateCSSVariable(DEFAULT_ACCENT)
+      updateCSSVariable(DEFAULT_ACCENT, theme)
       return
     }
 
-    const config = typeof background.config === 'string'
-      ? JSON.parse(background.config)
-      : background.config
-
-    if (background.background_type === 'static' && config.url) {
-      extractColorFromImage(config.url)
-    } else if (background.background_type === 'slideshow' && config.urls && config.urls.length > 0) {
-      extractColorFromImage(config.urls[0])
-    } else if (background.background_type === 'gradient' && config.colors && config.colors.length > 0) {
-      const color = config.colors[0]
+    // Gradient background: use the hex color directly
+    if (currentImageUrl.startsWith('gradient:')) {
+      const color = currentImageUrl.replace('gradient:', '')
       setAccentColor(color)
-      setExtractedPalette(config.colors)
-      updateCSSVariable(color)
-    } else {
-      setAccentColor(DEFAULT_ACCENT)
-      setExtractedPalette([])
-      updateCSSVariable(DEFAULT_ACCENT)
+      setExtractedPalette([color])
+      updateCSSVariable(color, theme)
+      return
     }
-  }, [background, settings.mode, settings.staticColor])
 
-  const extractColorFromImage = async (imageUrl: string) => {
+    // Skip if we already extracted from this URL
+    if (currentImageUrl === lastExtractedUrlRef.current) return
+
+    // Increment extraction counter to invalidate any in-flight extractions
+    const id = ++extractionIdRef.current
+    lastExtractedUrlRef.current = currentImageUrl
+
+    extractColorFromImage(currentImageUrl, id)
+  }, [currentImageUrl, settings.mode, settings.staticColor, theme])
+
+  const extractColorFromImage = async (imageUrl: string, requestId: number) => {
     try {
       const img = new Image()
       img.crossOrigin = 'Anonymous'
 
-      img.onload = async () => {
-        try {
-          const palette = await getPalette(img, { colorCount: 8 })
-          if (palette && palette.length > 0) {
-            // Score colors by vibrancy: prefer saturated + not too dark/light
-            const paletteWithScore = palette.map((color) => {
-              const { r, g, b } = color.rgb()
-              const sat = calculateSaturation(r, g, b)
-              const oklch = rgbToOklch(r, g, b)
-              // Penalize very dark (l < 0.4) and very light (l > 0.9) colors
-              const lightnessPenalty = oklch.l < 0.4 ? (0.4 - oklch.l) * 2 : oklch.l > 0.9 ? (oklch.l - 0.9) * 2 : 0
-              const score = sat - lightnessPenalty
-              return { hex: color.hex(), score, saturation: sat }
-            })
-            paletteWithScore.sort((a, b) => b.score - a.score)
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('Image load failed'))
+        img.src = imageUrl
+      })
 
-            const allColors = paletteWithScore.map(c => c.hex)
-            setExtractedPalette(allColors)
+      // Discard if a newer extraction has started
+      if (requestId !== extractionIdRef.current) return
 
-            // Auto-select the most vibrant
-            const hexColor = allColors[0]
-            setAccentColor(hexColor)
-            updateCSSVariable(hexColor)
-          }
-        } catch (error) {
-          console.error('Failed to extract color:', error)
-          setAccentColor(DEFAULT_ACCENT)
-          setExtractedPalette([])
-          updateCSSVariable(DEFAULT_ACCENT)
-        }
-      }
-
-      img.onerror = () => {
-        console.error('Failed to load image for color extraction')
+      const palette = await getPalette(img, { colorCount: 8 })
+      if (!palette || palette.length === 0) {
         setAccentColor(DEFAULT_ACCENT)
         setExtractedPalette([])
-        updateCSSVariable(DEFAULT_ACCENT)
+        updateCSSVariable(DEFAULT_ACCENT, theme)
+        return
       }
 
-      img.src = imageUrl
+      // Score colors by vibrancy — prefer saturated, not too dark/light
+      const paletteWithScore = palette.map((color) => {
+        const { r, g, b } = color.rgb()
+        const sat = calculateSaturation(r, g, b)
+        const oklch = rgbToOklch(r, g, b)
+        const lightnessPenalty = oklch.l < 0.25 ? (0.25 - oklch.l) * 3 : oklch.l > 0.95 ? (oklch.l - 0.95) * 2 : 0
+        const score = sat - lightnessPenalty
+        return { hex: color.hex(), score, saturation: sat }
+      })
+      paletteWithScore.sort((a, b) => b.score - a.score)
+
+      const allColors = paletteWithScore.map(c => c.hex)
+      setExtractedPalette(allColors)
+      const hexColor = allColors[0]
+      setAccentColor(hexColor)
+      updateCSSVariable(hexColor, theme)
     } catch (error) {
-      console.error('Failed to extract color from image:', error)
+      // Discard stale errors
+      if (requestId !== extractionIdRef.current) return
+      console.warn('[AccentColor] Extraction failed:', error)
       setAccentColor(DEFAULT_ACCENT)
       setExtractedPalette([])
-      updateCSSVariable(DEFAULT_ACCENT)
+      updateCSSVariable(DEFAULT_ACCENT, theme)
     }
   }
 
-  const updateCSSVariable = (color: string) => {
-    // The CSS already uses --accent as an oklch value
-    // We need to convert hex to oklch for proper integration
+  const updateCSSVariable = (color: string, currentTheme: string) => {
     const rgb = hexToRgb(color)
-    if (rgb) {
-      const oklch = rgbToOklch(rgb.r, rgb.g, rgb.b)
-      // Ensure accent color is never too dark (min lightness 0.55) or too light (max 0.85)
-      // and has enough chroma to be visible as an accent
-      const l = Math.max(0.55, Math.min(0.85, oklch.l))
-      const c = Math.max(0.06, oklch.c) // ensure minimum vibrancy
-      document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${oklch.h})`)
-      document.documentElement.style.setProperty('--ring', `oklch(${l} ${c} ${oklch.h})`)
+    if (!rgb) return
+    const oklch = rgbToOklch(rgb.r, rgb.g, rgb.b)
+
+    let minLightness: number
+    let maxLightness: number
+
+    switch (currentTheme) {
+      case 'sleep':
+        minLightness = 0.40
+        maxLightness = 0.72
+        break
+      case 'night':
+      case 'evening':
+        minLightness = 0.44
+        maxLightness = 0.82
+        break
+      case 'day':
+      case 'light':
+      case 'day-classic':
+        minLightness = 0.48
+        maxLightness = 0.88
+        break
+      default:
+        minLightness = 0.44
+        maxLightness = 0.88
     }
+
+    const l = parseFloat(Math.max(minLightness, Math.min(maxLightness, oklch.l)).toFixed(2))
+    const c = parseFloat(Math.max(0.08, oklch.c).toFixed(2))
+    const h = parseFloat(oklch.h.toFixed(1))
+
+    document.documentElement.style.setProperty('--accent', `oklch(${l} ${c} ${h})`)
+    document.documentElement.style.setProperty('--ring', `oklch(${l} ${c} ${h})`)
   }
 
   const setMode = useCallback((mode: 'auto' | 'static') => {
     setSettings(prev => ({ ...prev, mode }))
+    // Clear the last extracted URL when switching to auto
+    // so it re-extracts immediately
+    if (mode === 'auto') {
+      lastExtractedUrlRef.current = null
+    }
   }, [])
 
   const setStaticColor = useCallback((color: string) => {
     setSettings(prev => ({ ...prev, staticColor: color }))
   }, [])
 
+  /** Select a color from the palette. This switches to static mode
+   *  because the user explicitly wants this color. Use resetToAuto()
+   *  to go back to dynamic extraction. */
   const selectFromPalette = useCallback((color: string) => {
     setAccentColor(color)
-    updateCSSVariable(color)
-    // Switch to static mode when user manually selects a palette color
+    updateCSSVariable(color, theme)
     setSettings(prev => ({ ...prev, mode: 'static', staticColor: color }))
-  }, [])
+  }, [theme])
+
+  /** Reset to full auto mode — accent will re-extract from current background */
+  const resetToAuto = useCallback(() => {
+    lastExtractedUrlRef.current = null
+    setSettings(prev => ({ ...prev, mode: 'auto' }))
+    // Force re-extraction by clearing the tracked URL
+    if (currentImageUrl) {
+      lastExtractedUrlRef.current = null
+      const id = ++extractionIdRef.current
+      if (currentImageUrl.startsWith('gradient:')) {
+        const color = currentImageUrl.replace('gradient:', '')
+        setAccentColor(color)
+        setExtractedPalette([color])
+        updateCSSVariable(color, theme)
+      } else {
+        extractColorFromImage(currentImageUrl, id)
+      }
+    }
+  }, [currentImageUrl, theme])
 
   return useMemo(() => ({
     accentColor,
@@ -148,10 +198,12 @@ export function useAccentColor() {
     setMode,
     setStaticColor,
     selectFromPalette,
-  }), [accentColor, extractedPalette, settings.mode, settings.staticColor, setMode, setStaticColor, selectFromPalette])
+    resetToAuto,
+  }), [accentColor, extractedPalette, settings.mode, settings.staticColor, setMode, setStaticColor, selectFromPalette, resetToAuto])
 }
 
-// Helper functions
+// --- Helpers ---
+
 function calculateSaturation(r: number, g: number, b: number): number {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
@@ -159,60 +211,34 @@ function calculateSaturation(r: number, g: number, b: number): number {
   return max === 0 ? 0 : delta / max
 }
 
-function rgbToHex(r: number, g: number, b: number): string {
-  return '#' + [r, g, b].map(x => {
-    const hex = x.toString(16)
-    return hex.length === 1 ? '0' + hex : hex
-  }).join('')
-}
-
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : null
+  return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null
 }
 
-// Convert RGB to OKLCH color space
 function rgbToOklch(r: number, g: number, b: number): { l: number; c: number; h: number } {
-  // Normalize RGB values to 0-1
-  const rNorm = r / 255
-  const gNorm = g / 255
-  const bNorm = b / 255
+  const rNorm = r / 255, gNorm = g / 255, bNorm = b / 255
+  const rL = rgbToLinear(rNorm), gL = rgbToLinear(gNorm), bL = rgbToLinear(bNorm)
 
-  // Convert to linear RGB
-  const rLinear = rgbToLinear(rNorm)
-  const gLinear = rgbToLinear(gNorm)
-  const bLinear = rgbToLinear(bNorm)
+  const x = 0.4124564 * rL + 0.3575761 * gL + 0.1804375 * bL
+  const y = 0.2126729 * rL + 0.7151522 * gL + 0.0721750 * bL
+  const z = 0.0193339 * rL + 0.1191920 * gL + 0.9503041 * bL
 
-  // Convert to XYZ
-  const x = 0.4124564 * rLinear + 0.3575761 * gLinear + 0.1804375 * bLinear
-  const y = 0.2126729 * rLinear + 0.7151522 * gLinear + 0.0721750 * bLinear
-  const z = 0.0193339 * rLinear + 0.1191920 * gLinear + 0.9503041 * bLinear
-
-  // Convert to OKLab
   const l_ = Math.cbrt(0.8189330101 * x + 0.3618667424 * y - 0.1288597137 * z)
   const m_ = Math.cbrt(0.0329845436 * x + 0.9293118715 * y + 0.0361456387 * z)
   const s_ = Math.cbrt(0.0482003018 * x + 0.2643662691 * y + 0.6338517070 * z)
 
   const l = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
   const a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
-  const b_ = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+  const b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
 
-  // Convert to LCH
-  const c = Math.sqrt(a * a + b_ * b_)
-  let h = Math.atan2(b_, a) * 180 / Math.PI
+  const c = Math.sqrt(a * a + b * b)
+  let h = Math.atan2(b, a) * 180 / Math.PI
   if (h < 0) h += 360
 
-  return {
-    l: Math.round(l * 100) / 100,
-    c: Math.round(c * 100) / 100,
-    h: Math.round(h * 100) / 100
-  }
+  return { l: Math.round(l * 100) / 100, c: Math.round(c * 100) / 100, h: Math.round(h * 100) / 100 }
 }
 
-function rgbToLinear(val: number): number {
-  return val <= 0.04045 ? val / 12.92 : Math.pow((val + 0.055) / 1.055, 2.4)
+function rgbToLinear(v: number): number {
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
 }

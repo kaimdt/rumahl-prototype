@@ -11,7 +11,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -40,6 +40,12 @@ mod acp;
 mod subagents;
 mod github;
 mod models_registry;
+mod pi_dev_controller;
+mod system_event_bus;
+mod system_guard;
+mod model_router;
+mod memory_system;
+mod autonomous_scheduler;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
@@ -63,6 +69,12 @@ use self_evolution::{
 
 use sandbox::SandboxManager;
 use agent_task_executor::AgentTaskExecutor;
+use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel};
+use system_event_bus::{SystemEventBus, SystemEvent};
+use system_guard::{SystemGuard, SystemState, LoopDetection, ProtectionRule};
+use model_router::{ModelRouter, RoutingDecision, TaskCategory, RouterConfig};
+use memory_system::{MemoryStore, Memory, MemoryQuery, MemoryCategory};
+use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun, Schedule, SchedulerEvent};
 use cost_manager::{BudgetConfig, CostManager};
 use lsp::LspManager;
 use acp::AcpRouter;
@@ -94,6 +106,12 @@ struct AppState {
     github_client: Arc<GitHubClient>,
     github_actions: Arc<GitHubActionExecutor>,
     models_registry: Option<Arc<models_registry::ModelsRegistry>>,
+    pi_dev: Arc<PiDevController>,
+    event_bus: Arc<SystemEventBus>,
+    guard: Arc<SystemGuard>,
+    router: Arc<ModelRouter>,
+    memory_store: Arc<MemoryStore>,
+    scheduler: Arc<AutonomousScheduler>,
 }
 
 /// Default system prompt injected when no custom prompt is provided.
@@ -4079,6 +4097,444 @@ async fn stream_instant_task(
     Sse::new(sse_stream).keep_alive(KeepAlive::default()).into_response()
 }
 
+// ─── Pi.dev API Handlers ───────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CreatePiDevSessionRequest {
+    workspace_id: String,
+    workspace_path: String,
+    image: Option<String>,
+    api_key: String,
+    cpu_limit: Option<String>,
+    memory_limit: Option<String>,
+    network_enabled: Option<bool>,
+    allowed_domains: Option<Vec<String>>,
+    session_timeout_secs: Option<u64>,
+    security_level: Option<String>,
+    plugins: Option<Vec<PluginConfig>>,
+    auto_approve_workspace: Option<bool>,
+    max_tool_calls: Option<u32>,
+}
+
+async fn create_pidev_session(
+    State(state): State<AppState>,
+    Json(req): Json<CreatePiDevSessionRequest>,
+) -> Result<Json<PiDevSession>, (StatusCode, String)> {
+    let security_level = match req.security_level.as_deref().unwrap_or("standard") {
+        "permissive" => SecurityLevel::Permissive,
+        "strict" => SecurityLevel::Strict,
+        "readonly" => SecurityLevel::ReadOnly,
+        _ => SecurityLevel::Standard,
+    };
+
+    let config = PiDevSessionConfig {
+        workspace_id: req.workspace_id,
+        workspace_path: req.workspace_path,
+        image: req.image.unwrap_or_else(|| "pi-dev-agent:latest".to_string()),
+        api_key: req.api_key,
+        cpu_limit: req.cpu_limit,
+        memory_limit: req.memory_limit,
+        disk_limit: None,
+        network_enabled: req.network_enabled.unwrap_or(true),
+        allowed_domains: req.allowed_domains.unwrap_or_default(),
+        session_timeout_secs: req.session_timeout_secs.unwrap_or(3600),
+        security_level,
+        plugins: req.plugins.unwrap_or_else(|| vec![
+            PluginConfig { package_name: "pi-subagents".into(), version: None, config: None },
+            PluginConfig { package_name: "pi-web-access".into(), version: None, config: None },
+            PluginConfig { package_name: "@juicesharp/rpiv-todo".into(), version: None, config: None },
+            PluginConfig { package_name: "@juicesharp/rpiv-ask-user-question".into(), version: None, config: None },
+        ]),
+        auto_approve_workspace: req.auto_approve_workspace.unwrap_or(true),
+        max_tool_calls: req.max_tool_calls.unwrap_or(500),
+    };
+
+    match state.pi_dev.create_session(config).await {
+        Ok(session) => Ok(Json(session)),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn list_pidev_sessions(
+    State(state): State<AppState>,
+) -> Json<Vec<PiDevSession>> {
+    Json(state.pi_dev.list_sessions().await)
+}
+
+async fn get_pidev_session(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<PiDevSession>, StatusCode> {
+    match state.pi_dev.get_session(&id).await {
+        Some(session) => Ok(Json(session)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn stop_pidev_session(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    match state.pi_dev.stop_session(&id).await {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+async fn stream_pidev_events(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.pi_dev.subscribe();
+
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let data = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok(Event::default().data(data));
+                }
+                Err(_) => break,
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+#[derive(Deserialize)]
+struct ApproveDenyRequest {
+    event_id: String,
+}
+
+async fn approve_pidev_action(
+    State(state): State<AppState>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+    Json(req): Json<ApproveDenyRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    match state.pi_dev.approve_action(&session_id, &req.event_id).await {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn deny_pidev_action(
+    State(state): State<AppState>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+    Json(req): Json<ApproveDenyRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    match state.pi_dev.deny_action(&session_id, &req.event_id).await {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn get_pidev_security_events(
+    State(state): State<AppState>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+) -> Json<Vec<pi_dev_controller::security_monitor::SecurityEvent>> {
+    Json(state.pi_dev.get_security_events(&session_id).await)
+}
+
+async fn list_pidev_plugins(
+    State(state): State<AppState>,
+) -> Json<Vec<pi_dev_controller::plugin_manager::PluginInfo>> {
+    Json(state.pi_dev.list_available_plugins().await)
+}
+
+#[derive(Deserialize)]
+struct InstallPluginRequest {
+    session_id: String,
+    package_name: String,
+}
+
+async fn install_pidev_plugin(
+    State(_state): State<AppState>,
+    Json(_req): Json<InstallPluginRequest>,
+) -> StatusCode {
+    // Plugin installation happens during container creation
+    // For runtime install, we'd exec into the container
+    StatusCode::NOT_IMPLEMENTED
+}
+
+/// Unified system event stream – admin live log for all background activity
+async fn stream_system_events(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.event_bus.subscribe();
+
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let data = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok(Event::default()
+                        .event(&event.category)
+                        .data(data));
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    yield Ok(Event::default()
+                        .event("system")
+                        .data(format!(r#"{{"category":"system","event_type":"lagged","summary":"Skipped {} events","severity":"warn"}}"#, n)));
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ─── System Guard Handlers ─────────────────────────────────────────────────
+
+async fn get_system_state(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "state": format!("{:?}", state.guard.get_state()),
+        "uptime_secs": state.guard.uptime_secs(),
+        "active_agents": state.guard.get_agent_activities().len(),
+        "loop_detections": state.guard.get_loop_detections().len(),
+        "recovery_pending": state.guard.get_recovery_actions().len(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct SetStateRequest { state: String }
+
+async fn set_system_state(
+    State(state): State<AppState>,
+    Json(req): Json<SetStateRequest>,
+) -> StatusCode {
+    match req.state.as_str() {
+        "paused" => state.guard.pause_system(),
+        "resumed" | "running" => state.guard.resume_system(),
+        "emergency_stop" => state.guard.emergency_stop(),
+        _ => return StatusCode::BAD_REQUEST,
+    }
+    StatusCode::OK
+}
+
+async fn pause_system_handler(State(state): State<AppState>) -> StatusCode {
+    state.guard.pause_system();
+    StatusCode::OK
+}
+
+async fn resume_system_handler(State(state): State<AppState>) -> StatusCode {
+    state.guard.resume_system();
+    StatusCode::OK
+}
+
+async fn emergency_stop_handler(State(state): State<AppState>) -> StatusCode {
+    state.guard.emergency_stop();
+    StatusCode::OK
+}
+
+async fn pause_agent_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(agent_id): axum::extract::Path<String>,
+) -> StatusCode {
+    state.guard.pause_agent(&agent_id);
+    StatusCode::OK
+}
+
+async fn resume_agent_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(agent_id): axum::extract::Path<String>,
+) -> StatusCode {
+    state.guard.resume_agent(&agent_id);
+    StatusCode::OK
+}
+
+async fn stop_agent_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(agent_id): axum::extract::Path<String>,
+) -> StatusCode {
+    state.guard.stop_agent(&agent_id);
+    StatusCode::OK
+}
+
+async fn get_protection_rules(State(state): State<AppState>) -> Json<Vec<ProtectionRule>> {
+    Json(state.guard.get_rules())
+}
+
+#[derive(Deserialize)]
+struct UpdateRuleRequest {
+    rule_id: String,
+    enabled: bool,
+    threshold: Option<u32>,
+}
+
+async fn update_protection_rule(
+    State(state): State<AppState>,
+    Json(req): Json<UpdateRuleRequest>,
+) -> StatusCode {
+    state.guard.update_rule(&req.rule_id, req.enabled, req.threshold);
+    StatusCode::OK
+}
+
+async fn get_loop_detections(State(state): State<AppState>) -> Json<Vec<LoopDetection>> {
+    Json(state.guard.get_loop_detections())
+}
+
+async fn get_recovery_actions(State(state): State<AppState>) -> Json<Vec<system_guard::RecoveryAction>> {
+    Json(state.guard.get_recovery_actions())
+}
+
+async fn apply_recovery(State(state): State<AppState>) -> StatusCode {
+    if let Some(action) = state.guard.take_recovery_action() {
+        info!("Applied recovery for agent {}: {}", action.agent_id, action.reason);
+        StatusCode::OK
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+// ─── Model Router Handlers ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ClassifyRequest { message: String }
+
+async fn classify_task_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ClassifyRequest>,
+) -> Json<serde_json::Value> {
+    let category = state.router.classify_task(&req.message);
+    Json(serde_json::json!({"category": format!("{:?}", category)}))
+}
+
+#[derive(Deserialize)]
+struct RouteRequest { message: String, force_provider: Option<String> }
+
+async fn route_task_handler(
+    State(state): State<AppState>,
+    Json(req): Json<RouteRequest>,
+) -> Json<RoutingDecision> {
+    Json(state.router.route(&req.message, req.force_provider.as_deref()))
+}
+
+async fn get_router_config(State(state): State<AppState>) -> Json<RouterConfig> {
+    Json(state.router.get_config())
+}
+
+async fn update_router_config(
+    State(state): State<AppState>,
+    Json(cfg): Json<RouterConfig>,
+) -> StatusCode {
+    state.router.update_config(cfg);
+    StatusCode::OK
+}
+
+async fn get_router_usage(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "daily_tokens": state.router.get_daily_usage(),
+        "within_budget": state.router.within_budget(),
+    }))
+}
+
+// ─── Memory System Handlers ────────────────────────────────────────────────
+
+async fn get_all_memories(State(state): State<AppState>) -> Json<Vec<Memory>> {
+    Json(state.memory_store.get_all())
+}
+
+async fn query_memories(
+    State(state): State<AppState>,
+    Json(query): Json<MemoryQuery>,
+) -> Json<Vec<Memory>> {
+    Json(state.memory_store.query(&query))
+}
+
+#[derive(Deserialize)]
+struct ContextRequest { query: String, limit: Option<usize> }
+
+async fn get_memory_context(
+    State(state): State<AppState>,
+    Json(req): Json<ContextRequest>,
+) -> Json<serde_json::Value> {
+    let ctx = state.memory_store.build_context(&req.query, req.limit.unwrap_or(5));
+    Json(serde_json::json!({"context": ctx}))
+}
+
+async fn delete_memory_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> StatusCode {
+    state.memory_store.delete(&id);
+    StatusCode::OK
+}
+
+async fn clear_memories(State(state): State<AppState>) -> StatusCode {
+    state.memory_store.clear();
+    StatusCode::OK
+}
+
+// ─── Autonomous Scheduler Handlers ─────────────────────────────────────────
+
+async fn list_scheduled_tasks(State(state): State<AppState>) -> Json<Vec<ScheduledTask>> {
+    Json(state.scheduler.list_tasks())
+}
+
+async fn add_scheduled_task(
+    State(state): State<AppState>,
+    Json(task): Json<ScheduledTask>,
+) -> Json<serde_json::Value> {
+    let id = state.scheduler.add_task(task);
+    Json(serde_json::json!({"id": id}))
+}
+
+async fn get_scheduled_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<ScheduledTask>, StatusCode> {
+    state.scheduler.get_task(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn remove_scheduled_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> StatusCode {
+    state.scheduler.remove_task(&id);
+    StatusCode::OK
+}
+
+#[derive(Deserialize)]
+struct ToggleRequest { enabled: bool }
+
+async fn toggle_scheduled_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ToggleRequest>,
+) -> StatusCode {
+    state.scheduler.set_enabled(&id, req.enabled);
+    StatusCode::OK
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery { task_id: Option<String>, limit: Option<usize> }
+
+async fn get_scheduler_history(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
+) -> Json<Vec<TaskRun>> {
+    Json(state.scheduler.get_run_history(query.task_id.as_deref(), query.limit.unwrap_or(50)))
+}
+
+async fn stream_scheduler_events(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.scheduler.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let data = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok(Event::default().data(data));
+                }
+                Err(_) => break,
+            }
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -4279,6 +4735,29 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Initialize pi.dev controller
+    let sandbox_base = std::env::var("IORA_SANDBOX_BASE")
+        .unwrap_or_else(|_| "/tmp/iora-sandboxes".to_string());
+    let pi_dev = Arc::new(PiDevController::new(sandbox_base));
+    info!("Pi.dev controller initialized");
+
+    // Initialize system event bus
+    let event_bus = Arc::new(SystemEventBus::new(4096));
+    event_bus.system_event("startup", "IORA Assist system event bus initialized", "info");
+    info!("System event bus initialized");
+
+    // Initialize system guard
+    let guard = Arc::new(SystemGuard::new());
+    info!("System guard initialized");
+
+    let router = Arc::new(ModelRouter::new());
+    let memory_store = Arc::new(MemoryStore::new());
+    let scheduler = Arc::new(AutonomousScheduler::new());
+    scheduler.create_default_tasks();
+    let scheduler_clone = scheduler.clone();
+    tokio::spawn(async move { scheduler_clone.start().await });
+    info!("Model router, memory store, and autonomous scheduler initialized");
+
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
         started_at: Arc::new(Instant::now()),
@@ -4302,6 +4781,12 @@ async fn main() -> anyhow::Result<()> {
         github_client,
         github_actions,
         models_registry,
+        pi_dev,
+        event_bus,
+        guard,
+        router,
+        memory_store,
+        scheduler,
     };
 
     let app = Router::new()
@@ -4461,6 +4946,45 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/github/actions", get(github_list_actions).post(github_execute_action))
         .route("/api/assist/github/actions/:id", get(github_get_action))
         .route("/api/assist/github/ratelimit", get(github_rate_limit))
+        // ─── Pi.dev Docker Sandbox & Plugin Management ───
+        .route("/api/assist/pidev/sessions", get(list_pidev_sessions).post(create_pidev_session))
+        .route("/api/assist/pidev/sessions/:id", get(get_pidev_session).delete(stop_pidev_session))
+        .route("/api/assist/pidev/sessions/:id/events", get(stream_pidev_events))
+        .route("/api/assist/pidev/sessions/:id/approve", post(approve_pidev_action))
+        .route("/api/assist/pidev/sessions/:id/deny", post(deny_pidev_action))
+        .route("/api/assist/pidev/sessions/:id/security", get(get_pidev_security_events))
+        .route("/api/assist/pidev/plugins", get(list_pidev_plugins))
+        .route("/api/assist/pidev/plugins/install", post(install_pidev_plugin))
+        // ─── System Event Stream (admin live log) ───
+        .route("/api/assist/system/events", get(stream_system_events))
+        // ─── System Guard – Protection & Control ───
+        .route("/api/assist/system/state", get(get_system_state).post(set_system_state))
+        .route("/api/assist/system/pause", post(pause_system_handler))
+        .route("/api/assist/system/resume", post(resume_system_handler))
+        .route("/api/assist/system/emergency-stop", post(emergency_stop_handler))
+        .route("/api/assist/system/agents/:id/pause", post(pause_agent_handler))
+        .route("/api/assist/system/agents/:id/resume", post(resume_agent_handler))
+        .route("/api/assist/system/agents/:id/stop", post(stop_agent_handler))
+        .route("/api/assist/system/rules", get(get_protection_rules).put(update_protection_rule))
+        .route("/api/assist/system/loops", get(get_loop_detections))
+        .route("/api/assist/system/recovery", get(get_recovery_actions).post(apply_recovery))
+        // ─── Model Router ───
+        .route("/api/assist/router/classify", post(classify_task_handler))
+        .route("/api/assist/router/route", post(route_task_handler))
+        .route("/api/assist/router/config", get(get_router_config).put(update_router_config))
+        .route("/api/assist/router/usage", get(get_router_usage))
+        // ─── Memory System ───
+        .route("/api/assist/memory/all", get(get_all_memories))
+        .route("/api/assist/memory/query", post(query_memories))
+        .route("/api/assist/memory/context", post(get_memory_context))
+        .route("/api/assist/memory/:id", axum::routing::delete(delete_memory_handler))
+        .route("/api/assist/memory/clear", post(clear_memories))
+        // ─── Autonomous Scheduler ───
+        .route("/api/assist/scheduler/tasks", get(list_scheduled_tasks).post(add_scheduled_task))
+        .route("/api/assist/scheduler/tasks/:id", get(get_scheduled_task).delete(remove_scheduled_task))
+        .route("/api/assist/scheduler/tasks/:id/toggle", post(toggle_scheduled_task))
+        .route("/api/assist/scheduler/history", get(get_scheduler_history))
+        .route("/api/assist/scheduler/events", get(stream_scheduler_events))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

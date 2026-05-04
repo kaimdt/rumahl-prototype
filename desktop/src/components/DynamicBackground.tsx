@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { useCurrentBackground } from '@/contexts/CurrentBackgroundContext'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL } from '@/lib/defaults'
 
 function normalizePosition(raw: unknown): string {
@@ -38,17 +39,14 @@ export function DynamicBackground() {
   const { background } = useConfiguration()
   const { theme } = useTheme()
   const { currentPageId, pageSettings } = usePageNavigation()
+  const { setCurrentImageUrl } = useCurrentBackground()
   const isSleep = theme === 'sleep'
 
-  // Check for per-page background override
   const ps = pageSettings[currentPageId]
   const hasPageBg = ps?.background_type === 'static' && ps?.background_config
   const pageHidesBackground = ps?.background_type === 'none'
 
-  // Per-page background: render page-specific static image instead of global
-  if (pageHidesBackground) {
-    return null
-  }
+  if (pageHidesBackground) return null
 
   if (hasPageBg) {
     const pageConfig = typeof ps.background_config === 'string' ? JSON.parse(ps.background_config) : ps.background_config
@@ -61,31 +59,18 @@ export function DynamicBackground() {
           transition: 'filter 0.6s ease, opacity 0.6s ease',
         }}
       >
-        <StaticBackground config={pageConfig} />
+        <StaticBackground config={pageConfig} onImageUrl={setCurrentImageUrl} />
       </div>
     )
   }
 
-  if (!background || !background.is_active) {
-    return null
-  }
+  if (!background || !background.is_active) return null
 
   let config: any
   try {
-    config = typeof background.config === 'string'
-      ? JSON.parse(background.config)
-      : background.config
+    config = typeof background.config === 'string' ? JSON.parse(background.config) : background.config
   } catch {
-    config = {
-      type: 'static',
-      url: DEFAULT_DASHBOARD_BACKGROUND_URL,
-      position: 'center',
-      size: 'cover',
-      fixed: true,
-      opacity: 100,
-      blur: 0,
-      brightness: 100,
-    }
+    config = { type: 'static', url: DEFAULT_DASHBOARD_BACKGROUND_URL, position: 'center', size: 'cover', fixed: true, opacity: 100, blur: 0, brightness: 100 }
   }
 
   return (
@@ -97,30 +82,21 @@ export function DynamicBackground() {
         transition: 'filter 0.6s ease, opacity 0.6s ease',
       }}
     >
-      {background.background_type === 'static' && (
-        <StaticBackground config={config} />
-      )}
-      {background.background_type === 'slideshow' && (
-        <SlideshowBackground config={config} />
-      )}
-      {background.background_type === 'video' && (
-        <VideoBackground config={config} />
-      )}
-      {background.background_type === 'gradient' && (
-        <GradientBackground config={config} />
-      )}
+      {background.background_type === 'static' && <StaticBackground config={config} onImageUrl={setCurrentImageUrl} />}
+      {background.background_type === 'slideshow' && <SlideshowBackground config={config} onImageUrl={setCurrentImageUrl} />}
+      {background.background_type === 'video' && <VideoBackground config={config} onImageUrl={setCurrentImageUrl} />}
+      {background.background_type === 'gradient' && <GradientBackground config={config} onImageUrl={setCurrentImageUrl} />}
     </div>
   )
 }
 
-function StaticBackground({ config }: { config: any }) {
+function StaticBackground({ config, onImageUrl }: { config: any; onImageUrl: (url: string) => void }) {
   const position = normalizePosition(config.position)
   const size = normalizeSize(config.size)
   const fixed = config.fixed !== false
+  const url = typeof config.url === 'string' && config.url.trim().length > 0 ? config.url : DEFAULT_DASHBOARD_BACKGROUND_URL
 
-  const url = typeof config.url === 'string' && config.url.trim().length > 0
-    ? config.url
-    : DEFAULT_DASHBOARD_BACKGROUND_URL
+  useEffect(() => { onImageUrl(url) }, [url, onImageUrl])
 
   return (
     <div
@@ -138,20 +114,20 @@ function StaticBackground({ config }: { config: any }) {
   )
 }
 
-function SlideshowBackground({ config }: { config: any }) {
+function SlideshowBackground({ config, onImageUrl }: { config: any; onImageUrl: (url: string) => void }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const urls = config.urls || []
   const interval = (config.interval || 5) * 1000
 
   useEffect(() => {
     if (urls.length === 0) return
-
-    const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % urls.length)
-    }, interval)
-
+    const timer = setInterval(() => { setCurrentIndex((prev) => (prev + 1) % urls.length) }, interval)
     return () => clearInterval(timer)
   }, [urls.length, interval])
+
+  useEffect(() => {
+    if (urls.length > 0) onImageUrl(urls[currentIndex] || urls[0])
+  }, [currentIndex, urls, onImageUrl])
 
   if (urls.length === 0) return null
 
@@ -180,10 +156,9 @@ function SlideshowBackground({ config }: { config: any }) {
   )
 }
 
-function VideoBackground({ config }: { config: any }) {
-  const videoUrl = typeof config.url === 'string' && config.url.trim().length > 0
-    ? config.url
-    : DEFAULT_DASHBOARD_BACKGROUND_URL
+function VideoBackground({ config, onImageUrl }: { config: any; onImageUrl: (url: string) => void }) {
+  const videoUrl = typeof config.url === 'string' && config.url.trim().length > 0 ? config.url : DEFAULT_DASHBOARD_BACKGROUND_URL
+  useEffect(() => { onImageUrl(videoUrl) }, [videoUrl, onImageUrl])
 
   return (
     <video
@@ -201,9 +176,10 @@ function VideoBackground({ config }: { config: any }) {
   )
 }
 
-function GradientBackground({ config }: { config: any }) {
+function GradientBackground({ config, onImageUrl }: { config: any; onImageUrl: (url: string) => void }) {
   const colors = config.colors || ['#667eea', '#764ba2']
   const angle = config.angle || 135
+  useEffect(() => { if (colors.length > 0) onImageUrl(`gradient:${colors[0]}`) }, [colors, onImageUrl])
 
   const gradientStyle = {
     background: `linear-gradient(${angle}deg, ${colors.join(', ')})`,

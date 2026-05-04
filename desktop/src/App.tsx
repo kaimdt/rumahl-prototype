@@ -8,6 +8,7 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { PageNavigationProvider } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
+import { CurrentBackgroundProvider } from '@/contexts/CurrentBackgroundContext'
 import { EntityDiscoveryProvider } from '@/contexts/EntityDiscoveryContext'
 import { DynamicOverviewProvider } from '@/contexts/DynamicOverviewContext'
 import { NotificationProvider } from '@/contexts/NotificationContext'
@@ -79,12 +80,14 @@ export default function App() {
               <ThemeProvider>
                 <PageNavigationProvider>
                   <ConfigurationProvider>
+                    <CurrentBackgroundProvider>
                     <EntityDiscoveryProvider>
                       <DynamicOverviewProvider>
                         <NotificationProvider>
                           <DashboardContent />
                         </NotificationProvider>
                         <Toaster />
+                    </CurrentBackgroundProvider>
                       </DynamicOverviewProvider>
                     </EntityDiscoveryProvider>
                   </ConfigurationProvider>

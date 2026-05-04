@@ -31,10 +31,14 @@ import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useLocalStorage } from '@/lib/storage'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { getApiBase } from '@/lib/apiBase'
+import { CodingAgent } from '@/components/CodingAgent'
+import { SystemLog } from '@/components/SystemLog'
+import { SystemControl } from '@/components/SystemControl'
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
-  const [time, setTime] = useState(new Date())
+  const [showSystemLog, setShowSystemLog] = useState(false)
+  const [showSystemControl, setShowSystemControl] = useState(false)
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | undefined
     const msToNextMinute = (60 - new Date().getSeconds()) * 1000
@@ -210,7 +214,10 @@ export function DashboardContent() {
           </main>
         </div>
       </div>
-      <NavigationMenu />
+      <NavigationMenu onSystemLogToggle={() => setShowSystemLog(true)} onSystemControlToggle={() => setShowSystemControl(true)} />
+      <CodingAgent />
+      <SystemLog isOpen={showSystemLog} onClose={() => setShowSystemLog(false)} />
+      <SystemControl isOpen={showSystemControl} onClose={() => setShowSystemControl(false)} />
     </>
   )
 }

@@ -37,6 +37,7 @@ import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ThemeLayout } from '@/components/ThemeLayout'
+import { CurrentBackgroundProvider } from '@/contexts/CurrentBackgroundContext'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
 import { useGlassSettings } from '@/hooks/useGlassSettings'
@@ -49,6 +50,7 @@ import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defau
 import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
 import { ORAAssistant } from '@/components/ORAAssistant'
+import { CodingAgent } from '@/components/CodingAgent'
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -896,6 +898,7 @@ function DashboardContent() {
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
       <ORAAssistant />
+      <CodingAgent />
     </>
   )
 }
@@ -1049,6 +1052,7 @@ function App() {
         <ThemeProvider>
           <PageNavigationProvider>
             <ConfigurationProvider>
+              <CurrentBackgroundProvider>
               <EntityDiscoveryProvider>
                 <DynamicOverviewProvider>
                   <NotificationProvider>
@@ -1057,6 +1061,7 @@ function App() {
                     </SetupWizardOverlay>
                   </NotificationProvider>
                   <Toaster />
+              </CurrentBackgroundProvider>
                 </DynamicOverviewProvider>
               </EntityDiscoveryProvider>
             </ConfigurationProvider>

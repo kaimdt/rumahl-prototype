@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IORA Forge – Unlimited Idle Village</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body oncontextmenu="return false">
+  <canvas id="game"></canvas>
+
+  <!-- Tutorial Overlay -->
+  <div class="tutorial-overlay" id="tutorialOverlay">
+    <div class="tutorial-box">
+      <h2>🏕️ Willkommen in IORA Forge!</h2>
+      <p>Du beginnst mit <b>4 Dorfbewohnern</b> in einem Camp.</p>
+      <div class="tutorial-steps">
+        <div class="tstep"><span>1</span> Klicke aufs Dorf, um Ressourcen zu sammeln</div>
+        <div class="tstep"><span>2</span> Klicke auf Bewohner → weise Jobs zu (🪓Holzfäller, 🧺Sammler)</div>
+        <div class="tstep"><span>3</span> Sammle Holz → baue Zelte & Hütten</div>
+        <div class="tstep"><span>4</span> Dein Dorf wächst → neue Berufe & Gebäude</div>
+        <div class="tstep"><span>5</span> Später: Schule, Regeln, Ziele als Bürgermeister!</div>
+      </div>
+      <p class="tutorial-hint">🖱️ <b>Rechtsklick+Ziehen</b> = Kamera | <b>Klick auf Bewohner/Haus</b> = Aktionen</p>
+      <button class="tutorial-btn" onclick="closeTutorial()">Los geht's! 🚀</button>
+    </div>
+  </div>
+
+  <!-- Parchment UI -->
+  <div class="parchment-ui" id="parchment">
+    <div class="parchment-title">⚒️ IORA Forge</div>
+    <div id="stageInfo" class="parchment-stage">🏕️ Camp</div>
+    <div id="seasonInfo" class="parchment-season">🌸 Frühling J1</div>
+    <div id="dayNightInfo" class="parchment-season" style="color:#c4956a">☀️ Tag</div>
+    <div id="parchmentStats" class="parchment-stats"></div>
+    <div id="consumptionInfo" class="parchment-consume"></div>
+    <div class="parchment-divider"></div>
+    <div id="villagerCount" class="parchment-pop">👥 4/8</div>
+    <div id="childInfo" class="parchment-child"></div>
+    <div id="autonomyLevel" class="parchment-auto">🔴 Manuell</div>
+    <div class="parchment-prestige">🌟 <span id="ppVal">0</span> ⚡×<span id="multVal">1.00</span></div>
+    <div id="happinessInfo" class="parchment-happy">😊 100%</div>
+    <div id="transportInfo" class="parchment-happy" style="color:#c4956a">🖐️ Hand</div>
+    <div class="parchment-divider"></div>
+    <div class="parchment-actions">
+      <button onclick="saveGame()">💾</button>
+      <button onclick="loadGame()">📂</button>
+      <button onclick="openMayorPanel()" title="Bürgermeister">🎖️</button>
+    </div>
+    <div class="parchment-hint">🖱️ Rechtsklick = Kamera</div>
+  </div>
+
+  <!-- Villager/House Panel -->
+  <div class="villager-panel" id="villagerPanel" style="display:none">
+    <div class="vp-header">
+      <span class="vp-name" id="vpName"></span>
+      <button class="vp-close" onclick="closePanel()">✕</button>
+    </div>
+    <div id="vpJob" class="vp-job"></div>
+    <div id="vpExtra" class="vp-extra"></div>
+    <div class="vp-label">Aktionen:</div>
+    <div id="vpJobs" class="vp-jobs"></div>
+  </div>
+
+  <!-- Mayor Panel -->
+  <div class="mayor-panel" id="mayorPanel" style="display:none">
+    <div class="mp-header">
+      <span>🎖️ Bürgermeister-Amt</span>
+      <button onclick="document.getElementById('mayorPanel').style.display='none'">✕</button>
+    </div>
+    <div class="mp-section">
+      <div class="mp-label">🏛️ Dorf-Stufe: <span id="mpStage"></span></div>
+      <div class="mp-label">😊 Zufriedenheit: <span id="mpHappy"></span></div>
+      <div class="mp-label">📋 Aktive Ziele:</div>
+      <div id="mpGoals"></div>
+    </div>
+    <div class="mp-section">
+      <div class="mp-label">Neues Ziel setzen:</div>
+      <select id="mpGoalSelect" class="mp-select"></select>
+      <button class="mp-btn" onclick="setGoal()">Ziel setzen</button>
+    </div>
+    <div class="mp-section">
+      <div class="mp-label">Verordnung erlassen:</div>
+      <select id="mpDecreeSelect" class="mp-select">
+        <option value="">-- Wählen --</option>
+        <option value="school_mandatory">Schulpflicht einführen</option>
+        <option value="work_sunday">Sonntagsruhe</option>
+        <option value="tax_low">Niedrige Steuern</option>
+        <option value="tax_high">Hohe Steuern (+Gold, -Zufriedenheit)</option>
+        <option value="festival">Fest ausrufen</option>
+      </select>
+      <button class="mp-btn" onclick="issueDecree()">Erlassen</button>
+    </div>
+  </div>
+
+  <!-- Shop Bar -->
+  <div class="shop-bar" id="shopBar"></div>
+  <div class="toast-area" id="toastArea"></div>
+
+  <script src="game.js"></script>
+</body>
+</html>

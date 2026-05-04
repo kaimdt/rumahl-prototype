@@ -357,57 +357,58 @@
 }
 
 :root[data-theme="sleep"] {
-  /* OLED black — true black background for maximum contrast & power saving */
-  --background: oklch(0.00 0 0);
-  --foreground: oklch(0.32 0.008 250);
+  /* OLED black — true black background, improved contrast for readability */
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.58 0.01 250);
 
-  --card: oklch(0.04 0.005 250);
-  --card-foreground: oklch(0.32 0.008 250);
+  --card: oklch(0.08 0.004 250);
+  --card-foreground: oklch(0.58 0.01 250);
 
-  --popover: oklch(0.04 0.005 250);
-  --popover-foreground: oklch(0.32 0.008 250);
+  --popover: oklch(0.08 0.004 250);
+  --popover-foreground: oklch(0.58 0.01 250);
 
-  --primary: oklch(0.20 0.02 250);
-  --primary-foreground: oklch(0.35 0.01 250);
+  --primary: oklch(0.35 0.03 250);
+  --primary-foreground: oklch(0.65 0.005 250);
 
-  --secondary: oklch(0.06 0.005 250);
-  --secondary-foreground: oklch(0.30 0.008 250);
+  --secondary: oklch(0.10 0.005 250);
+  --secondary-foreground: oklch(0.50 0.008 250);
 
-  --muted: oklch(0.06 0.005 250);
-  --muted-foreground: oklch(0.24 0.006 250);
+  --muted: oklch(0.10 0.004 250);
+  --muted-foreground: oklch(0.42 0.006 250);
 
-  --accent: oklch(0.30 0.06 250);
-  --accent-foreground: oklch(0.40 0.01 250);
+  --accent: oklch(0.44 0.08 250);
+  --accent-foreground: oklch(0.70 0.01 250);
 
-  --success: oklch(0.30 0.08 140);
-  --success-foreground: oklch(0.40 0.01 0);
+  --success: oklch(0.42 0.09 140);
+  --success-foreground: oklch(0.65 0.005 0);
 
-  --destructive: oklch(0.30 0.10 25);
-  --destructive-foreground: oklch(0.40 0.01 0);
+  --destructive: oklch(0.42 0.12 25);
+  --destructive-foreground: oklch(0.65 0.005 0);
 
-  --glass-blur: 12px;
-  --glass-opacity: 0.06;
-  --glass-tint: oklch(0.06 0.005 250);
-  --glass-backdrop-blur: blur(12px);
+  --glass-blur: 8px;
+  --glass-opacity: 0.10;
+  --glass-tint: oklch(0.08 0.004 250);
+  --glass-backdrop-blur: blur(8px);
   --glass-backdrop-saturate: saturate(1.0);
-  --glass-header-blur: blur(10px);
+  --glass-header-blur: blur(6px);
   --glass-header-saturate: saturate(1.0);
-  --glass-bg: oklch(0.06 0.005 250 / 0.06);
-  --glass-bg-end: oklch(0.04 0.005 250 / 0.04);
-  --glass-border-color: oklch(0.20 0.005 250 / 0.08);
+  --glass-toast-blur: blur(10px);
+  --glass-bg: oklch(0.10 0.005 250 / 0.12);
+  --glass-bg-end: oklch(0.08 0.004 250 / 0.08);
+  --glass-border-color: oklch(0.30 0.005 250 / 0.10);
   --glass-shadow-1: oklch(0 0 0 / 0.0);
   --glass-shadow-2: oklch(0 0 0 / 0.0);
 
-  --border: oklch(0.10 0.005 250);
-  --input: oklch(0.08 0.005 250);
-  --ring: oklch(0.30 0.06 250);
+  --border: oklch(0.18 0.005 250);
+  --input: oklch(0.14 0.005 250);
+  --ring: oklch(0.44 0.08 250);
 
   --transition-duration: 0.6s;
 
-  /* Strong blue light reduction */
-  --night-filter-sepia: sepia(0.15);
-  --night-filter-saturate: saturate(0.6);
-  --night-filter-brightness: brightness(0.55);
+  /* Subtle blue light reduction — milder for readability */
+  --night-filter-sepia: sepia(0.08);
+  --night-filter-saturate: saturate(0.75);
+  --night-filter-brightness: brightness(0.72);
 }
 
 @theme {
@@ -449,30 +450,66 @@
 
 /* ─── OLED Sleep Mode overrides ─── */
 :root[data-theme="sleep"] .glass-card {
-  background: oklch(0.03 0.002 250 / 0.5) !important;
-  border-color: oklch(0.14 0.005 250 / 0.06) !important;
-  box-shadow: none !important;
+  background: oklch(0.08 0.003 250 / 0.85) !important;
+  border-color: oklch(0.28 0.005 250 / 0.10) !important;
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.3) !important;
 }
 
 :root[data-theme="sleep"] .glass-header {
-  background: oklch(0.02 0.002 250 / 0.6) !important;
-  border-bottom-color: oklch(0.12 0.005 250 / 0.05) !important;
-  box-shadow: none !important;
+  background: oklch(0.06 0.003 250 / 0.90) !important;
+  border-bottom-color: oklch(0.22 0.005 250 / 0.08) !important;
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.25) !important;
 }
 
 :root[data-theme="sleep"] .glass-toast {
-  background: oklch(0.04 0.003 250 / 0.9) !important;
-  border-color: oklch(0.14 0.005 250 / 0.1) !important;
-  box-shadow: 0 4px 16px oklch(0 0 0 / 0.4) !important;
+  background: oklch(0.12 0.004 250 / 0.95) !important;
+  border-color: oklch(0.30 0.005 250 / 0.15) !important;
+  box-shadow: 0 4px 20px oklch(0 0 0 / 0.5) !important;
 }
 
 :root[data-theme="sleep"] img:not([data-no-dim]) {
-  filter: brightness(0.35) saturate(0.3);
+  filter: brightness(0.45) saturate(0.40);
   transition: filter 0.6s ease;
 }
 
 :root[data-theme="sleep"] .widget-enter {
   animation: none;
+}
+
+/* ─── OLED form element overrides for visibility ─── */
+:root[data-theme="sleep"] input:not([type="range"]),
+:root[data-theme="sleep"] textarea,
+:root[data-theme="sleep"] select,
+:root[data-theme="sleep"] [data-slot="input"],
+:root[data-theme="sleep"] [data-slot="textarea"],
+:root[data-theme="sleep"] [data-slot="select-trigger"] {
+  border-color: oklch(0.28 0.005 250 / 0.35) !important;
+  background: oklch(0.10 0.004 250 / 0.60) !important;
+}
+
+:root[data-theme="sleep"] input::placeholder,
+:root[data-theme="sleep"] textarea::placeholder {
+  color: oklch(0.38 0.006 250) !important;
+}
+
+:root[data-theme="sleep"] [data-slot="switch"][data-state="unchecked"] {
+  background: oklch(0.22 0.005 250 / 0.40) !important;
+  border-color: oklch(0.28 0.005 250 / 0.20) !important;
+}
+
+:root[data-theme="sleep"] [data-slot="checkbox"]:not([data-state="checked"]) {
+  border-color: oklch(0.28 0.005 250 / 0.30) !important;
+  background: oklch(0.10 0.004 250 / 0.50) !important;
+}
+
+:root[data-theme="sleep"] button[data-slot="button"][data-variant="outline"],
+:root[data-theme="sleep"] [data-slot="button"][data-variant="outline"] {
+  border-color: oklch(0.28 0.005 250 / 0.30) !important;
+  background: oklch(0.10 0.004 250 / 0.50) !important;
+}
+
+:root[data-theme="sleep"] [data-slot="badge"] {
+  border-color: oklch(0.28 0.005 250 / 0.15) !important;
 }
 
 /* ─── Light Mode glass overrides ─── */

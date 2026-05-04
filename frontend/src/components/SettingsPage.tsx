@@ -785,6 +785,7 @@ interface SettingsPageProps {
     setMode: (m: 'auto' | 'static') => void
     setStaticColor: (c: string) => void
     selectFromPalette: (c: string) => void
+    resetToAuto: () => void
   }
   // Glass
   glassSettings: {
@@ -1224,6 +1225,16 @@ export function SettingsPage(props: SettingsPageProps) {
                       </Tip>
                     ))}
                   </div>
+                  {/* Reset to auto button — shown when user has selected a static color */}
+                  {accentColorSettings.mode === 'static' && (
+                    <button
+                      onClick={accentColorSettings.resetToAuto}
+                      className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/15 transition-all"
+                    >
+                      <ArrowsClockwise size={14} />
+                      Zurück zu Automatisch
+                    </button>
+                  )}
                 </div>
               )}
 
