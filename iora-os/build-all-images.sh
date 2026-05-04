@@ -869,6 +869,22 @@ IORAGOMKPATCH
     log_success "go-bootstrap-stage1.mk patched"
 }
 
+# ── IORA: cmake.mk CXX flag fix ────────────────────────────────────────────
+# cmake's bootstrap C++ feature detection treats ANY compiler warning as
+# failure.  -std=gnu17 in CXXFLAGS triggers 'valid for C/ObjC but not C++'
+# which causes make_unique/unique_ptr/filesystem detection to fail.
+# Strip the flag from cmake's CXXFLAGS so detection works correctly.
+
+patch_cmake_mk_cxxflags() {
+    local cmake_mk="${BUILD_DIR}/package/cmake/cmake.mk"
+    [ -f "${cmake_mk}" ] || return 0
+    grep -q 's%-std=gnu17' "${cmake_mk}" 2>/dev/null && return 0  # already patched
+    log_info "Patching cmake.mk: stripping -std=gnu17 from HOST_CMAKE_CXXFLAGS"
+    # Append -e "s%-std=gnu17 %%g" to the existing sed command in the CXXFLAGS line
+    sed -i '/^HOST_CMAKE_CXXFLAGS/s/"s%$(HOST_CPPFLAGS)%%"/"s%$(HOST_CPPFLAGS)%%" -e "s%-std=gnu17 %%g"/' "${cmake_mk}"
+    log_success "cmake.mk patched"
+}
+
 build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
@@ -6644,6 +6660,7 @@ main() {
         patch_host_cmake_gcc15
         patch_host_m4_gcc15
         patch_host_gawk_gcc15
+        patch_cmake_mk_cxxflags
         ensure_host_go
         patch_go_bootstrap_mk
         build_base_image

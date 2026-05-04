@@ -372,6 +372,14 @@ patch_host_gawk_gcc15
 ensure_host_go
 patch_go_bootstrap_mk
 
+# Strip -std=gnu17 from cmake's CXXFLAGS — cmake bootstrap C++ feature
+# detection treats any compiler warning as a failure, and -std=gnu17 in
+# CXXFLAGS causes 'valid for C/ObjC but not C++' warnings.
+if [ -f "${BUILD_DIR}/package/cmake/cmake.mk" ] && ! grep -q 's%-std=gnu17' "${BUILD_DIR}/package/cmake/cmake.mk" 2>/dev/null; then
+    sed -i '/^HOST_CMAKE_CXXFLAGS/s/"s%$(HOST_CPPFLAGS)%%"/"s%$(HOST_CPPFLAGS)%%" -e "s%-std=gnu17 %%g"/' "${BUILD_DIR}/package/cmake/cmake.mk"
+    log_info "Patched cmake.mk: stripped -std=gnu17 from HOST_CMAKE_CXXFLAGS"
+fi
+
 # Force xz parallelism — prevent silent thread downgrades (16→3).
 export XZ_OPT="-T0 --memlimit-compress=0"
 export XZ_DEFAULTS="-T0 --memlimit-compress=0"
