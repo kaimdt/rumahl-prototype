@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -505,9 +505,12 @@ export function LightControlDialog({
       : undefined
   const isGroup = Array.isArray(childIds) && childIds.length > 0
   const availableEntities = groupEntitySnapshot ?? allEntities ?? []
-  const entitiesById = new Map(
+
+  // ⚡ Bolt: Memoized map to prevent O(N) reallocation on every render (e.g. while dragging sliders)
+  const entitiesById = useMemo(() => new Map(
     availableEntities.map((e) => [e.entity_id.trim().toLowerCase(), e])
-  )
+  ), [availableEntities])
+
   const childEntities = isGroup
     ? childIds
         .map((id) => entitiesById.get(id.trim().toLowerCase()))
