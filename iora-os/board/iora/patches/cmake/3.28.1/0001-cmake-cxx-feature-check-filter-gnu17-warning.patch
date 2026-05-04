@@ -1,0 +1,11 @@
+--- a/Source/Checks/cm_cxx_features.cmake
++++ b/Source/Checks/cm_cxx_features.cmake
+@@ -61,6 +61,10 @@ function(cm_check_cxx_feature name)
+     string(REGEX REPLACE "[^\n]*ld: warning: [^\n]*" "" check_output "${check_output}")
++    # Filter out GCC warning about -std=gnu17 being a C (not C++) flag.
++    # This warning is harmless for C++ compilations — GCC applies the
++    # C standard to C++ code and uses its own default C++ standard.
++    string(REGEX REPLACE "[^\n]*warning: command-line option .-std=gnu17. is valid for C/ObjC but not for C\\+\\+[^\n]*" "" check_output "${check_output}")
+     # If using the feature causes warnings, treat it as broken/unavailable.
+     if(check_output MATCHES "(^|[ :])[Ww][Aa][Rr][Nn][Ii][Nn][Gg]")
+       set(CMake_HAVE_CXX_${FEATURE} OFF CACHE INTERNAL "TRY_COMPILE" FORCE)
