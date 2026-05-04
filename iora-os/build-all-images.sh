@@ -860,7 +860,7 @@ define HOST_GO_BOOTSTRAP_STAGE1_INSTALL_CMDS
 		cp "$$(command -v gofmt)" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin/gofmt; \
 	fi; \
 	for sub in pkg src lib; do \
-		[ -d "$${SYS_GOROOT}/$${sub}" ] && cp -a "$${SYS_GOROOT}/$${sub}" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/ 2>/dev/null || true; \
+		[ -d "$${SYS_GOROOT}/$${sub}" ] && cp -rL "$${SYS_GOROOT}/$${sub}" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/ 2>/dev/null || true; \
 	done
 endef
 
