@@ -6,6 +6,7 @@ import {
   Rocket, PuzzlePiece, ShieldCheck, Wrench
 } from '@phosphor-icons/react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 interface DocsConfig {
@@ -125,6 +126,8 @@ export function DocsPage() {
 
   const renderMarkdown = (content: string) => {
     const html = marked(content)
+    // Sanitize the HTML to prevent XSS vulnerabilities
+    const cleanHtml = DOMPurify.sanitize(html as string)
     return (
       <div
         className="prose prose-sm max-w-none
@@ -146,7 +149,7 @@ export function DocsPage() {
           prose-blockquote:border-l-[3px] prose-blockquote:border-accent/30 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-foreground/50 prose-blockquote:my-4
           prose-img:rounded-xl prose-img:border prose-img:border-foreground/[0.06] prose-img:my-4
           prose-hr:border-foreground/[0.06] prose-hr:my-6"
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: cleanHtml }}
       />
     )
   }
