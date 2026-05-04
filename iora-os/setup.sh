@@ -160,7 +160,8 @@ fi
 # dependencies fail to link with `cc: error: unrecognized command-line option`.
 COMMON_APT=(build-essential git wget curl tar gzip xz-utils cpio unzip rsync bc
             libncurses-dev libssl-dev libelf-dev libcrypt-dev python3 python3-pip
-            pkg-config ca-certificates file jq musl-tools nodejs npm ccache sccache mold)
+            pkg-config ca-certificates file jq musl-tools nodejs npm ccache sccache mold
+            golang-go)
 
 # Extra packages when building PC-class x86 images.
 PC_APT=(qemu-utils zip xorriso grub-common grub-pc-bin grub-efi-amd64-bin mtools dosfstools parted)
@@ -179,24 +180,24 @@ OPT_APT=(virtualbox rauc)
 # Generic mapping for non-apt systems – best-effort naming.
 COMMON_DNF=(make gcc gcc-c++ git wget curl tar gzip xz cpio unzip rsync bc
             ncurses-devel openssl-devel elfutils-libelf-devel python3 python3-pip
-            pkgconf-pkg-config ca-certificates file jq musl-gcc)
+            pkgconf-pkg-config ca-certificates file jq musl-gcc golang)
 PC_DNF=(qemu-img-utils zip xorriso grub2-tools grub2-efi-x64 mtools dosfstools parted)
 ARM_DNF=(gcc-aarch64-linux-gnu gcc-arm-linux-gnu dtc uboot-tools)
 
 COMMON_PACMAN=(base-devel git wget curl tar gzip xz cpio unzip rsync bc ncurses
-               openssl libelf python python-pip pkgconf ca-certificates file jq musl)
+               openssl libelf python python-pip pkgconf ca-certificates file jq musl go)
 PC_PACMAN=(qemu-base zip xorriso grub mtools dosfstools parted)
 ARM_PACMAN=(aarch64-linux-gnu-gcc arm-none-eabi-gcc dtc uboot-tools)
 
 COMMON_ZYPPER=(gcc gcc-c++ make git wget curl tar gzip xz cpio unzip rsync bc
                ncurses-devel libopenssl-devel libelf-devel python3 python3-pip
-               pkg-config ca-certificates file jq)
+               pkg-config ca-certificates file jq go)
 PC_ZYPPER=(qemu-tools zip xorriso grub2 mtools dosfstools parted)
 ARM_ZYPPER=(cross-aarch64-gcc13 cross-arm-none-gcc13 dtc u-boot-tools)
 
 COMMON_APK=(build-base git wget curl tar gzip xz cpio unzip rsync bc
             ncurses-dev openssl-dev elfutils-dev python3 py3-pip pkgconf
-            ca-certificates file jq bash)
+            ca-certificates file jq bash go)
 PC_APK=(qemu-img zip xorriso grub grub-efi mtools dosfstools parted)
 ARM_APK=(gcc-aarch64-none-elf dtc uboot-tools)
 

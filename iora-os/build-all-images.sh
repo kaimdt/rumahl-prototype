@@ -720,6 +720,156 @@ patch_host_gawk_gcc15() {
     fi
     touch "${marker}"
 }
+
+# ── IORA: Buildroot host-compile include path fix ────────────────────────────
+# When HOST_CFLAGS is set on the make command line (as we do below with
+# -std=gnu17), GNU Make silently ignores += appends in the Makefile.
+# This drops the critical -I$(HOST_DIR)/include flag, causing host package
+# compilation failures (e.g. host-squashfs can't find lzma.h).
+# Using 'override' forces the append even with command-line overrides.
+# See: GNU Make manual §6.7 (The override Directive)
+
+patch_buildroot_makefile_in() {
+    local mk_in="${BUILD_DIR}/package/Makefile.in"
+    if [ ! -f "${mk_in}" ]; then
+        log_warn "Makefile.in not found at ${mk_in}; skipping override patch"
+        return 0
+    fi
+    # Idempotent check
+    if grep -q '^override HOST_CFLAGS   +=' "${mk_in}" 2>/dev/null; then
+        return 0
+    fi
+    log_info "Patching Buildroot Makefile.in: adding 'override' to HOST_CFLAGS/CXXFLAGS/LDFLAGS +="
+    sed -i 's/^HOST_CFLAGS   += /override HOST_CFLAGS   += /' "${mk_in}"
+    sed -i 's/^HOST_CXXFLAGS += /override HOST_CXXFLAGS += /' "${mk_in}"
+    sed -i 's/^HOST_LDFLAGS  += /override HOST_LDFLAGS  += /' "${mk_in}"
+    log_success "Buildroot Makefile.in override patch applied"
+}
+
+# ── IORA: System Go bootstrap staging ───────────────────────────────────────
+# Ensures golang-go (≥1.19) is installed on the host for the patched
+# go-bootstrap-stage1.mk (see patch_go_bootstrap_mk above).
+
+ensure_host_go() {
+    local marker="${BUILD_DIR}/.iora-go-staged"
+    [ -f "${marker}" ] && return 0
+
+    local need_install=0
+    if ! command -v go >/dev/null 2>&1; then
+        need_install=1
+    else
+        local gover
+        gover=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+' | head -1 || echo "0.0")
+        if ! awk -v v="${gover}" 'BEGIN{exit !(v+0 >= 1.19)}'; then
+            log_warn "System Go ${gover} too old (need ≥1.19); attempting upgrade"
+            need_install=1
+        fi
+    fi
+
+    if [ "${need_install}" = "1" ]; then
+        log_info "Installing golang-go (Go 1.4 C build incompatible with GCC 15+)"
+        if command -v apt-get >/dev/null 2>&1; then
+            if [ "$(id -u)" = "0" ]; then
+                apt-get update -qq >/dev/null 2>&1 || true
+                apt-get install -y --no-install-recommends golang-go >/tmp/iora-go-install.log 2>&1 || true
+            elif command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -qq >/dev/null 2>&1 || true
+                sudo apt-get install -y --no-install-recommends golang-go >/tmp/iora-go-install.log 2>&1 || true
+            fi
+        elif command -v brew >/dev/null 2>&1; then
+            brew install go >/tmp/iora-go-install.log 2>&1 || true
+        fi
+
+        if ! command -v go >/dev/null 2>&1; then
+            log_error "Failed to install Go. Go bootstrap WILL fail."
+            log_error "Install manually: sudo apt-get install golang-go"
+            touch "${marker}"
+            return 1
+        fi
+    fi
+
+    local gover
+    gover=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+    log_info "Host Go ${gover} available for bootstrap"
+    touch "${marker}"
+}
+
+# ── IORA: Go bootstrap stage1 mk patcher ─────────────────────────────────────
+# Replaces the Go 1.4 C build with a system Go copy.  Called BEFORE make
+# so that the modified .mk is in place when Buildroot evaluates the package.
+
+patch_go_bootstrap_mk() {
+    local mk_file="${BUILD_DIR}/package/go-bootstrap-stage1/go-bootstrap-stage1.mk"
+    if [ ! -f "${mk_file}" ]; then
+        log_warn "go-bootstrap-stage1.mk not found; skipping patch"
+        return 0
+    fi
+    # Idempotent check — look for the SYSGO variable name (new correct version).
+    if grep -q 'SYSGO=\' "${mk_file}" 2>/dev/null; then
+        return 0
+    fi
+    log_info "Patching go-bootstrap-stage1.mk: replacing C build/install with system Go copy"
+    # Write a modified .mk that skips the C build and copies the system Go.
+    cat > "${mk_file}" << 'IORAGOMKPATCH'
+################################################################################
+#
+# go-bootstrap-stage1
+#
+################################################################################
+
+# Use last C-based Go compiler: v1.4.x
+# See https://golang.org/doc/install/source#bootstrapFromSource
+GO_BOOTSTRAP_STAGE1_VERSION = 1.4-bootstrap-20171003
+GO_BOOTSTRAP_STAGE1_SITE = https://dl.google.com/go
+GO_BOOTSTRAP_STAGE1_SOURCE = go$(GO_BOOTSTRAP_STAGE1_VERSION).tar.gz
+
+GO_BOOTSTRAP_STAGE1_LICENSE = BSD-3-Clause
+GO_BOOTSTRAP_STAGE1_LICENSE_FILES = LICENSE
+
+HOST_GO_BOOTSTRAP_STAGE1_ROOT = $(HOST_DIR)/lib/go-$(GO_BOOTSTRAP_STAGE1_VERSION)
+
+# The go build system is not compatible with ccache, so use
+# HOSTCC_NOCCACHE. See https://github.com/golang/go/issues/11685.
+HOST_GO_BOOTSTRAP_STAGE1_MAKE_ENV = \
+	GOOS=linux \
+	GOROOT_FINAL="$(HOST_GO_BOOTSTRAP_STAGE1_ROOT)" \
+	GOROOT="$(@D)" \
+	GOBIN="$(@D)/bin" \
+	CC=$(HOSTCC_NOCCACHE) \
+	CGO_ENABLED=0
+
+# IORA: Skip the ancient C compilation; use host system Go.
+define HOST_GO_BOOTSTRAP_STAGE1_BUILD_CMDS
+	@echo "IORA: Go bootstrap stage1 provided by host system Go"
+endef
+
+# IORA: Install host system Go instead of C-built Go 1.4.
+# Requires golang-go >= 1.19 on the build host (installed by build script).
+define HOST_GO_BOOTSTRAP_STAGE1_INSTALL_CMDS
+	@echo "IORA: Installing system Go as Go bootstrap stage1"
+	@SYSGO=$$(command -v go 2>/dev/null || echo ""); \
+	if [ -z "$${SYSGO}" ] || [ ! -x "$${SYSGO}" ]; then \
+		echo "ERROR: host system Go not found — install golang-go first"; \
+		echo "       sudo apt-get install -y golang-go"; \
+		exit 1; \
+	fi; \
+	SYS_GOROOT=$$(go env GOROOT 2>/dev/null || echo ""); \
+	mkdir -p $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin; \
+	cp "$$(command -v go)" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin/go; \
+	if command -v gofmt >/dev/null 2>&1; then \
+		cp "$$(command -v gofmt)" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin/gofmt; \
+	fi; \
+	for sub in pkg src lib; do \
+		[ -d "$${SYS_GOROOT}/$${sub}" ] && cp -a "$${SYS_GOROOT}/$${sub}" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/ 2>/dev/null || true; \
+	done
+endef
+
+$(eval $(host-generic-package))
+IORAGOMKPATCH
+    log_success "go-bootstrap-stage1.mk patched"
+}
+
+build_base_image() {
     log_info "Building IORA OS base image (this may take 1-2 hours)..."
     log_info "Post-image mode: ${POST_IMAGE_MODE}"
 
@@ -6486,9 +6636,12 @@ main() {
         build_service_binaries
         download_buildroot
         configure_buildroot
+        patch_buildroot_makefile_in
         patch_host_cmake_gcc15
         patch_host_m4_gcc15
         patch_host_gawk_gcc15
+        ensure_host_go
+        patch_go_bootstrap_mk
         build_base_image
     else
         log_info "Skipping Buildroot compile steps (images-only mode)."

@@ -140,6 +140,116 @@ patch_host_gawk_gcc15() {
     touch "${marker}"
 }
 
+# ── IORA: Buildroot host-compile include path fix ────────────────────────────
+patch_buildroot_makefile_in() {
+    local mk_in="${BUILD_DIR}/package/Makefile.in"
+    [ -f "${mk_in}" ] || return 0
+    grep -q '^override HOST_CFLAGS   +=' "${mk_in}" 2>/dev/null && return 0
+    log_info "Patching Buildroot Makefile.in: adding 'override' to HOST_CFLAGS/CXXFLAGS/LDFLAGS +="
+    sed -i 's/^HOST_CFLAGS   += /override HOST_CFLAGS   += /' "${mk_in}"
+    sed -i 's/^HOST_CXXFLAGS += /override HOST_CXXFLAGS += /' "${mk_in}"
+    sed -i 's/^HOST_LDFLAGS  += /override HOST_LDFLAGS  += /' "${mk_in}"
+    log_success "Buildroot Makefile.in override patch applied"
+}
+
+# ── IORA: System Go bootstrap ───────────────────────────────────────────────
+ensure_host_go() {
+    local marker="${BUILD_DIR}/.iora-go-staged"
+    [ -f "${marker}" ] && return 0
+    local need_install=0
+    if ! command -v go >/dev/null 2>&1; then
+        need_install=1
+    else
+        local gover
+        gover=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+' | head -1 || echo "0.0")
+        if ! awk -v v="${gover}" 'BEGIN{exit !(v+0 >= 1.19)}'; then
+            need_install=1
+        fi
+    fi
+    if [ "${need_install}" = "1" ]; then
+        log_info "Installing golang-go (Go 1.4 C build incompatible with GCC 15+)"
+        if command -v apt-get >/dev/null 2>&1; then
+            if [ "$(id -u)" = "0" ]; then
+                apt-get update -qq >/dev/null 2>&1 || true
+                apt-get install -y --no-install-recommends golang-go >/tmp/iora-go-install.log 2>&1 || true
+            elif command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -qq >/dev/null 2>&1 || true
+                sudo apt-get install -y --no-install-recommends golang-go >/tmp/iora-go-install.log 2>&1 || true
+            fi
+        elif command -v brew >/dev/null 2>&1; then
+            brew install go >/tmp/iora-go-install.log 2>&1 || true
+        fi
+    fi
+    local gover
+    gover=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+' | head -1 || echo "N/A")
+    log_info "Host Go ${gover} available for bootstrap"
+    touch "${marker}"
+}
+
+patch_go_bootstrap_mk() {
+    local mk_file="${BUILD_DIR}/package/go-bootstrap-stage1/go-bootstrap-stage1.mk"
+    [ -f "${mk_file}" ] || return 0
+    grep -q 'SYSGO=\' "${mk_file}" 2>/dev/null && return 0
+    log_info "Patching go-bootstrap-stage1.mk: replacing C build/install with system Go copy"
+    cat > "${mk_file}" << 'IORAGOMKPATCH'
+################################################################################
+#
+# go-bootstrap-stage1
+#
+################################################################################
+
+# Use last C-based Go compiler: v1.4.x
+# See https://golang.org/doc/install/source#bootstrapFromSource
+GO_BOOTSTRAP_STAGE1_VERSION = 1.4-bootstrap-20171003
+GO_BOOTSTRAP_STAGE1_SITE = https://dl.google.com/go
+GO_BOOTSTRAP_STAGE1_SOURCE = go$(GO_BOOTSTRAP_STAGE1_VERSION).tar.gz
+
+GO_BOOTSTRAP_STAGE1_LICENSE = BSD-3-Clause
+GO_BOOTSTRAP_STAGE1_LICENSE_FILES = LICENSE
+
+HOST_GO_BOOTSTRAP_STAGE1_ROOT = $(HOST_DIR)/lib/go-$(GO_BOOTSTRAP_STAGE1_VERSION)
+
+# The go build system is not compatible with ccache, so use
+# HOSTCC_NOCCACHE. See https://github.com/golang/go/issues/11685.
+HOST_GO_BOOTSTRAP_STAGE1_MAKE_ENV = \
+	GOOS=linux \
+	GOROOT_FINAL="$(HOST_GO_BOOTSTRAP_STAGE1_ROOT)" \
+	GOROOT="$(@D)" \
+	GOBIN="$(@D)/bin" \
+	CC=$(HOSTCC_NOCCACHE) \
+	CGO_ENABLED=0
+
+# IORA: Skip the ancient C compilation; use host system Go.
+define HOST_GO_BOOTSTRAP_STAGE1_BUILD_CMDS
+	@echo "IORA: Go bootstrap stage1 provided by host system Go"
+endef
+
+# IORA: Install host system Go instead of C-built Go 1.4.
+# Requires golang-go >= 1.19 on the build host (installed by build script).
+define HOST_GO_BOOTSTRAP_STAGE1_INSTALL_CMDS
+	@echo "IORA: Installing system Go as Go bootstrap stage1"
+	@SYSGO=$$(command -v go 2>/dev/null || echo ""); \
+	if [ -z "$${SYSGO}" ] || [ ! -x "$${SYSGO}" ]; then \
+		echo "ERROR: host system Go not found — install golang-go first"; \
+		echo "       sudo apt-get install -y golang-go"; \
+		exit 1; \
+	fi; \
+	SYS_GOROOT=$$(go env GOROOT 2>/dev/null || echo ""); \
+	mkdir -p $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin; \
+	cp "$$(command -v go)" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin/go; \
+	if command -v gofmt >/dev/null 2>&1; then \
+		cp "$$(command -v gofmt)" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/bin/gofmt; \
+	fi; \
+	for sub in pkg src lib; do \
+		[ -d "$${SYS_GOROOT}/$${sub}" ] && cp -a "$${SYS_GOROOT}/$${sub}" $(HOST_GO_BOOTSTRAP_STAGE1_ROOT)/ 2>/dev/null || true; \
+	done
+endef
+
+$(eval $(host-generic-package))
+IORAGOMKPATCH
+    log_success "go-bootstrap-stage1.mk patched"
+}
+
 check_prereqs() {
     if [ ! -d "${BUILD_DIR}" ]; then
         log_error "Buildroot directory not found: ${BUILD_DIR}"
@@ -255,13 +365,21 @@ if [ "${CLEAN_LINUX}" = true ]; then
 fi
 
 # Apply GCC 15 compat patches before building (idempotent, safe on all distros).
+patch_buildroot_makefile_in
 patch_host_cmake_gcc15
 patch_host_m4_gcc15
 patch_host_gawk_gcc15
+ensure_host_go
+patch_go_bootstrap_mk
 
 # Force xz parallelism — prevent silent thread downgrades (16→3).
 export XZ_OPT="-T0 --memlimit-compress=0"
 export XZ_DEFAULTS="-T0 --memlimit-compress=0"
+
+# GCC 15 (Ubuntu 26.04+) defaults to -std=gnu23; force gnu17 for host packages.
+export HOST_CFLAGS="${HOST_CFLAGS:-} -std=gnu17"
+export HOST_CXXFLAGS="${HOST_CXXFLAGS:-} -std=gnu17"
+
 log_info "make -j${JOBS} (cores: ${JOBS}, xz: $(xz --version 2>/dev/null | head -1 || echo unknown))"
 
 set +e
