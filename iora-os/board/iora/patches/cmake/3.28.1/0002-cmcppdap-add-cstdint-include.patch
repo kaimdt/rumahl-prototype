@@ -1,0 +1,20 @@
+--- patch-a/Utilities/cmcppdap/include/dap/network.h	2026-05-04 14:40:51.397523056 +0200
++++ patch-b/Utilities/cmcppdap/include/dap/network.h	2026-05-04 14:40:51.400896322 +0200
+@@ -15,6 +15,7 @@
+ #ifndef dap_network_h
+ #define dap_network_h
+ 
++#include <cstdint>
+ #include <functional>
+ #include <memory>
+ 
+--- patch-a/Utilities/cmcppdap/src/socket.h	2026-05-04 14:40:51.399212913 +0200
++++ patch-b/Utilities/cmcppdap/src/socket.h	2026-05-04 14:40:51.402571167 +0200
+@@ -16,6 +16,7 @@
+ #define dap_socket_h
+ 
+ #include "dap/io.h"
++#include <cstdint>
+ 
+ #include <atomic>
+ #include <memory>
