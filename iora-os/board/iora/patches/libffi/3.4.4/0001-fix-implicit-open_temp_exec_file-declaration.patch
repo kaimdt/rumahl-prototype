@@ -1,13 +1,10 @@
---- patch-a/src/tramp.c	2026-05-04 17:44:36.291225478 +0200
-+++ patch-b/src/tramp.c	2026-05-04 17:44:36.307025935 +0200
-@@ -28,6 +28,10 @@
+--- patch-a/src/tramp.c	2026-05-04 17:58:32.309970068 +0200
++++ patch-b/src/tramp.c	2026-05-04 17:58:32.336119373 +0200
+@@ -27,6 +27,7 @@
+    ----------------------------------------------------------------------- */
  
  #include <fficonfig.h>
- 
-+#ifdef FFI_EXEC_TRAMPOLINE_TABLE
 +extern int open_temp_exec_file(void);
-+#endif
-+
+ 
  #ifdef FFI_EXEC_STATIC_TRAMP
  
- /* -------------------------- Headers and Definitions ---------------------*/
