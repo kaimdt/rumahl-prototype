@@ -717,6 +717,7 @@ export function CodingAgent() {
             </div>
               )}
             </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>
