@@ -3,7 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, CaretRight, CaretDown, MagnifyingGlass,
   List, X, ArrowLeft, FileText, Info, House,
-  Rocket, PuzzlePiece, ShieldCheck, Wrench
+  Rocket, PuzzlePiece, ShieldCheck, Wrench,
+  Code, Gear, Terminal, Lock, Cloud, Book,
+  Users, ChartLine, Database, Globe, Lightning,
+  ChatText, Robot, Key, Package, Brain,
 } from '@phosphor-icons/react'
 import { marked } from 'marked'
 
@@ -26,10 +29,28 @@ interface DocsItem {
 
 // ─── Icon map ─────────────────────────────────────────────────────────────
 const sectionIcons: Record<string, typeof BookOpen> = {
+  // PascalCase variants
   'BookOpen': BookOpen, 'Info': Info, 'House': House,
   'Rocket': Rocket, 'PuzzlePiece': PuzzlePiece,
   'ShieldCheck': ShieldCheck, 'Wrench': Wrench,
+  'Code': Code, 'Gear': Gear, 'Terminal': Terminal,
+  'Lock': Lock, 'Cloud': Cloud, 'Book': Book,
+  'Users': Users, 'ChartLine': ChartLine, 'Database': Database,
+  'Globe': Globe, 'Lightning': Lightning, 'ChatText': ChatText,
+  'Robot': Robot, 'Key': Key, 'Package': Package, 'Brain': Brain,
+  // lowercase variants (from docs-config.json)
+  'rocket': Rocket, 'code': Code, 'book': Book,
+  'gear': Gear, 'terminal': Terminal, 'lock': Lock,
+  'cloud': Cloud, 'users': Users, 'chart': ChartLine,
+  'database': Database, 'globe': Globe, 'shield': ShieldCheck,
+  'wrench': Wrench, 'puzzle': PuzzlePiece, 'house': House,
+  'info': Info, 'robot': Robot, 'key': Key,
+  'package': Package, 'brain': Brain, 'lightning': Lightning,
+  'chat': ChatText, 'book-open': BookOpen,
 }
+
+// Default icon if not found
+const DEFAULT_ICON = BookOpen
 
 // ─── Configure marked ─────────────────────────────────────────────────────
 marked.setOptions({ breaks: true, gfm: true })

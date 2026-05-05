@@ -38,3 +38,6 @@ toml = "0.8"
 notify = { version = "7", features = ["macos_kqueue"] }
 tempfile = "3.10"
 bollard = "0.16"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"

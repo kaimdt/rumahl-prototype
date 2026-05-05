@@ -43,9 +43,9 @@ interface PendingTaskAction {
 type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
 type DialogTab = 'chat' | 'tasks'
 
-import { getAssistUrl } from '@/lib/config'
+import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
-const assistBase = () => getAssistUrl() || ''
+const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
 // ─── Instant Task type badge labels ──────────────────────────────────────────
 

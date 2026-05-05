@@ -19,9 +19,9 @@ import {
 } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 
-import { getAssistUrl } from '@/lib/config'
+import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
-const assistBase = () => getAssistUrl() || ''
+const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -71,9 +71,9 @@ interface GitHubAuthState {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-import { getAssistUrl } from '@/lib/config'
+import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
-const assistBase = () => getAssistUrl() || ''
+const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
 function formatRelativeTime(ts: string): string {
   const d = new Date(ts); const now = new Date(); const diffMs = now.getTime() - d.getTime()

@@ -9,9 +9,11 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { QuestionCard } from '@/components/QuestionCard'
 import { TodoPanel, TodoItem } from '@/components/TodoPanel'
-import { getAssistUrl } from '@/lib/config'
+import { KanbanBoard, KanbanTask, KanbanColumn } from '@/components/KanbanBoard'
+import { ProviderManagement } from '@/components/ProviderManagement'
+import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
-const assistBase = () => getAssistUrl() || ''
+const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
 interface AgentMessage {
   id: string; role: 'user' | 'assistant' | 'system' | 'tool'
@@ -61,6 +63,8 @@ export function CodingAgent() {
     catch { return DEFAULT_SETTINGS }
   })
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'chat' | 'kanban' | 'providers'>('chat')
+  const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -148,8 +152,15 @@ export function CodingAgent() {
         <div className="px-4 py-3 border-b border-foreground/10 bg-gradient-to-r from-emerald-500/10 to-teal-500/5 shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center shrink-0"><Robot size={20} weight="fill" className="text-emerald-400" /></div>
-            <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground">Pi.dev Agent</h2><p className="text-[10px] text-foreground/40">{sessionStatus === 'running' ? '🟢 Aktiv' : sessionStatus === 'starting' ? '🟡 Starte...' : '⚫ Inaktiv'}</p></div>
+            <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground">Pi.dev Agent</h2><p className="text-[10px] text-foreground/40">{sessionStatus === 'running' ? <><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block mr-1" /> Aktiv</> : sessionStatus === 'starting' ? <><span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block mr-1 animate-pulse" /> Starte...</> : <><span className="w-1.5 h-1.5 rounded-full bg-foreground/20 inline-block mr-1" /> Inaktiv</>}</p></div>
             <div className="flex-1" />
+
+            <div className="flex rounded-full bg-foreground/5 p-0.5">
+              <button onClick={() => setActiveTab('chat')} className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${activeTab === 'chat' ? 'bg-emerald-500/20 text-emerald-400' : 'text-foreground/30'}`}>Chat</button>
+              <button onClick={() => setActiveTab('kanban')} className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${activeTab === 'kanban' ? 'bg-emerald-500/20 text-emerald-400' : 'text-foreground/30'}`}>Kanban</button>
+              <button onClick={() => setActiveTab('providers')} className={`px-2.5 py-1 rounded-full text-[10px] font-medium ${activeTab === 'providers' ? 'bg-emerald-500/20 text-emerald-400' : 'text-foreground/30'}`}>Provider</button>
+            </div>
+
             {sessionStatus === 'running' ? <Button variant="outline" size="sm" onClick={stopSession} className="h-8 text-[11px] gap-1 border-red-500/20 text-red-400 hover:bg-red-500/10"><Stop size={12} /> Stop</Button>
             : <Button size="sm" onClick={startSession} className="h-8 text-[11px] gap-1 bg-gradient-to-r from-emerald-500 to-teal-500"><Play size={12} /> Start</Button>}
             <button onClick={cycleSecurityLevel} className="flex items-center gap-1 px-2 py-1 rounded-full bg-foreground/5 border border-foreground/10 text-[10px]"><SecIcon size={12} className={secInfo.color} /><span className="text-foreground/50">{secInfo.label}</span></button>
@@ -171,6 +182,9 @@ export function CodingAgent() {
           </motion.div>}</AnimatePresence>
 
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            {activeTab === 'kanban' ? <KanbanBoard tasks={kanbanTasks} onTasksChange={setKanbanTasks} compact /> :
+             activeTab === 'providers' ? <ProviderManagement /> :
+            <>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
               {messages.length === 0 && <div className="text-center py-12 text-foreground/30"><Robot size={48} weight="duotone" className="mx-auto mb-3 opacity-15" /><p className="text-sm">Pi.dev Coding Agent</p><p className="text-xs mt-1">Analysiert Code, schreibt Features, fixt Bugs.</p></div>}
               <AnimatePresence mode="popLayout">{messages.map(msg => <motion.div key={msg.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -197,6 +211,7 @@ export function CodingAgent() {
               </div>
             </div>
           </div>
+          }
         </div>
       </DialogContent>
     </Dialog>

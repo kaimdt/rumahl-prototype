@@ -25,8 +25,127 @@ async function loadIORA() {
 }
 
 // ---- Constants ----
-const MAP_COLS = 40, MAP_ROWS = 30;
+const MAP_COLS = 800, MAP_ROWS = 600;
 const SEASON_DURATION = 300;
+
+// ---- Noise Map Generator ----
+function hash(x, y, seed) {
+  let h = seed + x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return (h ^ (h >> 16)) / 2147483648;
+}
+
+function smoothNoise(x, y, seed) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const n00 = hash(ix, iy, seed), n10 = hash(ix + 1, iy, seed);
+  const n01 = hash(ix, iy + 1, seed), n11 = hash(ix + 1, iy + 1, seed);
+  const nx0 = n00 + (n10 - n00) * sx;
+  const nx1 = n01 + (n11 - n01) * sx;
+  return nx0 + (nx1 - nx0) * sy;
+}
+
+function fractalNoise(x, y, seed, octaves = 4, lacunarity = 2.0, persistence = 0.5) {
+  let value = 0, amplitude = 1, frequency = 1, maxValue = 0;
+  for (let i = 0; i < octaves; i++) {
+    value += smoothNoise(x * frequency, y * frequency, seed + i * 1000) * amplitude;
+    maxValue += amplitude;
+    amplitude *= persistence;
+    frequency *= lacunarity;
+  }
+  return value / maxValue;
+}
+
+function generateWorldMap(seed) {
+  const map = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(2)); // Start all water
+  const heightMap = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(0));
+
+  // Define multiple islands
+  const islands = [
+    { cx: MAP_COLS*0.45, cy: MAP_ROWS*0.5, rx: MAP_COLS*0.40, ry: MAP_ROWS*0.35, main:true },
+    { cx: MAP_COLS*0.88, cy: MAP_ROWS*0.12, rx: MAP_COLS*0.08, ry: MAP_ROWS*0.07, main:false, rare:'gems' },
+    { cx: MAP_COLS*0.08, cy: MAP_ROWS*0.82, rx: MAP_COLS*0.07, ry: MAP_ROWS*0.06, main:false, rare:'spice' },
+    { cx: MAP_COLS*0.85, cy: MAP_ROWS*0.82, rx: MAP_COLS*0.09, ry: MAP_ROWS*0.08, main:false, rare:'ore' },
+    { cx: MAP_COLS*0.15, cy: MAP_ROWS*0.18, rx: MAP_COLS*0.06, ry: MAP_ROWS*0.05, main:false, rare:'gems' },
+  ];
+
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      let bestElevation = -999;
+      for (const isl of islands) {
+        const dx = (c - isl.cx) / isl.rx, dy = (r - isl.cy) / isl.ry;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        const coastNoise = fractalNoise(c*0.03, r*0.03, seed+isl.cx, 2, 2, 0.5)*0.25;
+        dist += coastNoise;
+        const e = 1.0 - dist;
+        if (e > bestElevation) bestElevation = e;
+      }
+
+      if (bestElevation < -0.05) { map[r][c]=2; heightMap[r][c]=0; }
+      else if (bestElevation < 0.02) { map[r][c]=7; heightMap[r][c]=0.3; }
+      else if (bestElevation < 0.08) { map[r][c]=8; heightMap[r][c]=0.8; }
+      else {
+        const terrainNoise = fractalNoise(c*0.04, r*0.04, seed+2000, 4, 2, 0.5);
+        const mountainNoise = fractalNoise(c*0.012, r*0.012, seed+5000, 2, 2, 0.5);
+        const h = 1 + bestElevation * 6 + terrainNoise * 1.5 + mountainNoise * 3;
+        heightMap[r][c] = Math.max(1, Math.min(10, h));
+        const moisture = fractalNoise(c*0.02+3000, r*0.02+3000, seed, 2, 2, 0.5);
+        if (bestElevation < 0.15) map[r][c]=0;
+        else if (bestElevation < 0.40) map[r][c]=moisture>0.4?9:5;
+        else if (bestElevation < 0.60) map[r][c]=4;
+        else if (bestElevation < 0.80) map[r][c]=11;
+        else map[r][c]=10;
+      }
+    }
+  }
+
+  const mainIsland = islands[0];
+  // Lakes
+  for (let i = 0; i < 8; i++) {
+    const lr = mainIsland.cy + (Math.random() - 0.5) * mainIsland.ry * 0.5;
+    const lc = mainIsland.cx + (Math.random() - 0.5) * mainIsland.rx * 0.5;
+    for (let rr = -2; rr <= 2; rr++) {
+      for (let cc = -2; cc <= 2; cc++) {
+        const tr = Math.floor(lr) + rr, tc = Math.floor(lc) + cc;
+        if (tr >= 0 && tr < MAP_ROWS && tc >= 0 && tc < MAP_COLS) {
+          if (map[tr][tc] !== 2 && map[tr][tc] !== 7 && heightMap[tr][tc] < 3) {
+            map[tr][tc] = 2; heightMap[tr][tc] = 0;
+          }
+        }
+      }
+    }
+  }
+
+  // Rivers: flow from high elevation to coast
+  for (let i = 0; i < 6; i++) {
+    let rr = mainIsland.cy + (Math.random() - 0.5) * mainIsland.ry * 0.4;
+    let cc = mainIsland.cx + (Math.random() - 0.5) * mainIsland.rx * 0.4;
+    for (let step = 0; step < 120; step++) {
+      const ir = Math.floor(rr), ic = Math.floor(cc);
+      if (ir < 1 || ir >= MAP_ROWS - 1 || ic < 1 || ic >= MAP_COLS - 1) break;
+      if (map[ir][ic] === 2 || map[ir][ic] === 7) break;
+      map[ir][ic] = 1; map[Math.max(0,ir-1)][ic] = map[Math.max(0,ir-1)][ic] === 0 ? 1 : map[Math.max(0,ir-1)][ic];
+      heightMap[ir][ic] = Math.max(0, heightMap[ir][ic] - 0.5);
+      // Flow downhill
+      let lowest = 99, nr = ir, nc = ic;
+      for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const tr2 = ir + dr, tc2 = ic + dc;
+        if (tr2 >= 0 && tr2 < MAP_ROWS && tc2 >= 0 && tc2 < MAP_COLS && heightMap[tr2][tc2] < lowest) {
+          lowest = heightMap[tr2][tc2]; nr = tr2; nc = tc2;
+        }
+      }
+      rr = nr; cc = nc;
+    }
+  }
+
+  // Spawn on main island
+  const spawnR = Math.floor(mainIsland.cy + mainIsland.ry*0.2);
+  const spawnC = Math.floor(mainIsland.cx + mainIsland.rx*0.1);
+
+  return { map, heightMap, spawn: { r: spawnR, c: spawnC }, islands, seed };
+}
 const PRESTIGE_THRESHOLD = 100000;
 const CHILD_GROW_TIME = 360; // 6 min to reach working age (6 years)
 const PREGNANCY_DURATION = 120; // 2 min pregnancy
@@ -119,10 +238,16 @@ const EVENT_TYPES = [
 
 // ---- State ----
 function createState() {
+  const seed = Math.floor(Math.random() * 1000000);
+  const worldData = generateWorldMap(seed);
   return {
     resources: { food: 30, wood: 20, stone: 0, gold: 0, knowledge: 0, planks: 0 },
     buildings: {},
-    houses: [], // [{id,level}] individual houses for per-house upgrades
+    houses: [],
+    worldMap: worldData.map,
+    worldHeight: worldData.heightMap,
+    worldSpawn: worldData.spawn,
+    worldSeed: seed, // [{id,level}] individual houses for per-house upgrades
     villagers: [],
     prestige: { points: 0, multiplier: 1.0 },
     stats: { totalClicks: 0, totalProd: { food:0, wood:0, stone:0, gold:0, knowledge:0 }, prestigeCount: 0, startedAt: Date.now(), lastSaved: Date.now() },
@@ -138,11 +263,18 @@ function createState() {
     stoneDeposits: {},
     transportLevel: 0,
     dayCycle: { isDay:true, timer:DAY_LENGTH/2, hour:8 },
-    version: 6,
+    exploration: { islands:0, rareResources:{gems:0,spice:0,ore:0} },
+    version: 7,
   };
 }
 
 function initNewGame(s) {
+  if (!s.worldMap || !s.worldSpawn) {
+    const wd = generateWorldMap(s.worldSeed || Math.floor(Math.random() * 1000000));
+    s.worldMap = wd.map;
+    s.worldSpawn = wd.spawn;
+    s.worldSeed = wd.seed;
+  }
   for (const [id, def] of Object.entries(BUILDING_DEFS)) s.buildings[id] = { count: 0, level: 1 };
   s.buildings.campfire.count = 1;
   s.buildings.tent.count = 2;
@@ -159,13 +291,14 @@ function initNewGame(s) {
   s.houses = [];
   s.pathWear = {};
   s.mapTrees = {};
-  // Generate initial trees (dense forests)
-  // Forest cluster 1: top-left
-  for(let r=1;r<8;r++)for(let c=1;c<10;c++){if(r<2&&c<3)continue;s.mapTrees[r+','+c]=1;}
-  // Forest cluster 2: top-right
-  for(let r=1;r<6;r++)for(let c=21;c<28;c++){s.mapTrees[r+','+c]=1;}
-  for(let r=MAP_ROWS-12;r<MAP_ROWS-1;r++)for(let c=1;c<8;c++){s.mapTrees[r+','+c]=1;}
-  for(let i=0;i<80;i++){const r=2+Math.floor(Math.random()*(MAP_ROWS-4)),c=2+Math.floor(Math.random()*(MAP_COLS-4));if(!s.mapTrees[r+','+c])s.mapTrees[r+','+c]=1;}
+  // Generate initial trees (VERY dense forests)
+  for(let r=1;r<MAP_ROWS-1;r++)for(let c=1;c<MAP_COLS-1;c++){
+    const t=s.worldMap?.[r]?.[c]||0;
+    if(t===9&&Math.random()<0.9)s.mapTrees[r+','+c]=1;
+    else if(t===5&&Math.random()<0.8)s.mapTrees[r+','+c]=1;
+    else if(t===0&&Math.random()<0.25)s.mapTrees[r+','+c]=1;
+    else if(t===4&&Math.random()<0.15)s.mapTrees[r+','+c]=1;
+  }
   // Generate stone deposits (scattered around map)
   s.stoneDeposits = {};
   for (let i = 0; i < 15; i++) {
@@ -184,7 +317,7 @@ let gs = createState();
 let lastProd = {}, pendingAch = [];
 let tickMs = parseInt(process.env.TICK_INTERVAL || '1000', 10);
 
-if (gs.version < 6) initNewGame(gs);
+if (gs.version < 7) initNewGame(gs);
 if (!gs.mapTrees) gs.mapTrees = {};
 if (gs.transportLevel === undefined) gs.transportLevel = 0;
 if (!gs.dayCycle) gs.dayCycle = { isDay:true, timer:DAY_LENGTH/2, hour:8 };
@@ -342,7 +475,7 @@ function tick() {
     gs.season.current = SEASONS[(idx+1)%4];
     gs.season.timer = SEASON_DURATION;
     if (gs.season.current==='spring') gs.season.year++;
-    console.log('[Forge] Season: '+SM[gs.season.current].desc+' (Year '+gs.season.year+')');
+    console.log('[Forge] Season: '+SEASON_MODS[gs.season.current].desc+' (Year '+gs.season.year+')');
   }
 
   // --- CHILD GROWTH ---
@@ -608,7 +741,10 @@ app.get('/api/game/state', (req, res) => {
     autonomy:gs.autonomy, season:{...gs.season,desc:SEASON_MODS[gs.season.current]?.desc||''}, dayCycle:gs.dayCycle||{isDay:true,hour:8}, stage:gs.villageStage, stageInfo:{...STAGES[gs.villageStage],name:STAGES[gs.villageStage].n,emoji:STAGES[gs.villageStage].e},
     consumption:gs.consumption, events:gs.events, pathWear:paths,
     mapTrees:gs.mapTrees||{}, transportLevel:gs.transportLevel||0,
-    mapData:{cols:MAP_COLS,rows:MAP_ROWS},
+    mapData:{cols:MAP_COLS,rows:MAP_ROWS,seed:gs.worldSeed},
+    worldMap:gs.worldMap,
+    worldHeight:gs.worldHeight,
+    worldSpawn:gs.worldSpawn,
     prestige:{...gs.prestige,availablePoints:getPP(),threshold:PRESTIGE_THRESHOLD},
     stats:gs.stats, jobs:allJobs, availJobs:availJobs,
     achievements:{unlocked:gs.achievements,all:ACHIEVEMENTS.map(a=>({...a,unlocked:gs.achievements.includes(a.id)}))},
@@ -661,14 +797,34 @@ app.post('/api/game/decree/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Exploration: discover new islands
+app.post('/api/game/explore', (req, res) => {
+  if (!gs.exploration) gs.exploration = { islands:0, rareResources:{gems:0,spice:0,ore:0} };
+  const harbor = gs.buildings.harbor?.count||0;
+  const shipyard = gs.buildings.shipyard?.count||0;
+  if (harbor === 0) return res.json({ ok:false, reason:'Baue zuerst einen Hafen!' });
+  const cost = { wood:200, planks:50, gold:100 };
+  for (const [r,a] of Object.entries(cost)) { if ((gs.resources[r]||0) < a) return res.json({ ok:false, reason:'Zu wenig '+r }); }
+  for (const [r,a] of Object.entries(cost)) gs.resources[r] -= a;
+  gs.exploration.islands++;
+  // Discover rare resources
+  gs.exploration.rareResources.gems += Math.floor(Math.random()*20)+5;
+  gs.exploration.rareResources.spice += Math.floor(Math.random()*30)+10;
+  gs.exploration.rareResources.ore += Math.floor(Math.random()*15)+5;
+  res.json({ ok:true, islands:gs.exploration.islands, rareResources:gs.exploration.rareResources });
+});
+
 // Map info: click on tile to see resources
 app.get('/api/game/map/:row/:col', (req, res) => {
   const r = parseInt(req.params.row), c = parseInt(req.params.col);
   const key = r + ',' + c;
   const trees = gs.mapTrees[key];
   const stone = gs.stoneDeposits?.[key];
+  const tile = (gs.worldMap&&gs.worldMap[r]&&gs.worldMap[r][c]!==undefined)?gs.worldMap[r][c]:-1;
+  const biomeNames={0:'🌿 Ebene',1:'💧 Fluss',2:'🌊 Meer',4:'⛰️ Hügel',5:'🌲 Wald',7:'🏖️ Küste',8:'🏝️ Strand',9:'🌳 Dichter Wald',10:'🗻 Berge',11:'⛰️ Hochland'};
   const info = {
     tile: key,
+    biome: biomeNames[tile]||'?',
     treeCount: trees === 1 ? 1 : trees === 0 ? 0 : null,
     treesNearby: 0,
     stoneDeposit: stone || 0,
@@ -695,16 +851,17 @@ app.post('/api/game/prestige', (req, res) => { res.json(prestige()); });
 app.post('/api/game/save', async (req, res) => { const d={...gs,savedAt:Date.now()}; const ok=await saveIORA(d); try{fs.writeFileSync(path.join(__dirname,SAVE_FILE),JSON.stringify(d,null,2));}catch(e){} gs.stats.lastSaved=Date.now(); res.json({success:ok}); });
 app.post('/api/game/load', async (req, res) => {
   let d=await loadIORA(); if(!d){try{if(fs.existsSync(path.join(__dirname,SAVE_FILE)))d=JSON.parse(fs.readFileSync(path.join(__dirname,SAVE_FILE),'utf-8'));}catch(e){}}
-  if(d&&d.version>=6){gs={...createState(),...d};if(!gs.buildings||Object.keys(gs.buildings).length===0)initNewGame(gs);if(!gs.houses)gs.houses=[];if(!gs.pathWear)gs.pathWear={};if(!gs.season)gs.season={current:'spring',timer:SEASON_DURATION,year:1};if(!gs.events)gs.events={active:null,cooldown:0,history:[],lastEvent:0};if(!gs.mapTrees)gs.mapTrees={};if(gs.transportLevel===undefined)gs.transportLevel=0;if(!gs.dayCycle)gs.dayCycle={isDay:true,timer:DAY_LENGTH/2,hour:8};gs.stats.lastSaved=Date.now();res.json({success:true});}
+  if(d&&d.version>=7){gs={...createState(),...d};if(!gs.buildings||Object.keys(gs.buildings).length===0)initNewGame(gs);if(!gs.houses)gs.houses=[];if(!gs.pathWear)gs.pathWear={};if(!gs.season)gs.season={current:'spring',timer:SEASON_DURATION,year:1};if(!gs.events)gs.events={active:null,cooldown:0,history:[],lastEvent:0};if(!gs.mapTrees)gs.mapTrees={};if(gs.transportLevel===undefined)gs.transportLevel=0;if(!gs.dayCycle)gs.dayCycle={isDay:true,timer:DAY_LENGTH/2,hour:8};if(!gs.exploration)gs.exploration={islands:0,rareResources:{gems:0,spice:0,ore:0}};gs.stats.lastSaved=Date.now();res.json({success:true});}
   else res.json({success:false,reason:'Kein Spielstand'});
 });
 app.post('/api/game/reset', (req, res) => { gs=createState(); initNewGame(gs); res.json({success:true}); });
+app.get('/game3d.js', (req, res) => { res.type('application/javascript'); res.sendFile(path.join(__dirname,'public','game3d.js')); });
 app.get('*', (req, res) => { if(req.path.startsWith('/api/')) return res.status(404).json({error:'Not found'}); res.sendFile(path.join(__dirname,'public','index.html')); });
 
 // ---- Startup ----
 async function init() {
   let d=await loadIORA(); if(!d){try{if(fs.existsSync(path.join(__dirname,SAVE_FILE)))d=JSON.parse(fs.readFileSync(path.join(__dirname,SAVE_FILE),'utf-8'));}catch(e){}}
-  if(d&&d.version>=6){gs={...createState(),...d};if(!gs.buildings||Object.keys(gs.buildings).length===0)initNewGame(gs);if(!gs.houses)gs.houses=[];if(!gs.pathWear)gs.pathWear={};if(!gs.season)gs.season={current:'spring',timer:SEASON_DURATION,year:1};if(!gs.events)gs.events={active:null,cooldown:0,history:[],lastEvent:0};if(!gs.mapTrees)gs.mapTrees={};if(gs.transportLevel===undefined)gs.transportLevel=0;if(!gs.dayCycle)gs.dayCycle={isDay:true,timer:DAY_LENGTH/2,hour:8};console.log('[Forge] Loaded. Pop:'+gs.villagers.length+' Stage:'+gs.villageStage);}
+  if(d&&d.version>=7){gs={...createState(),...d};if(!gs.buildings||Object.keys(gs.buildings).length===0)initNewGame(gs);if(!gs.houses)gs.houses=[];if(!gs.pathWear)gs.pathWear={};if(!gs.season)gs.season={current:'spring',timer:SEASON_DURATION,year:1};if(!gs.events)gs.events={active:null,cooldown:0,history:[],lastEvent:0};if(!gs.mapTrees)gs.mapTrees={};if(gs.transportLevel===undefined)gs.transportLevel=0;if(!gs.dayCycle)gs.dayCycle={isDay:true,timer:DAY_LENGTH/2,hour:8};if(!gs.exploration)gs.exploration={islands:0,rareResources:{gems:0,spice:0,ore:0}};console.log('[Forge] Loaded. Pop:'+gs.villagers.length+' Stage:'+gs.villageStage);}
   else { initNewGame(gs); console.log('[Forge] New game. 4 villagers ready!'); }
 
   setInterval(() => {

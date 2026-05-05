@@ -11,9 +11,10 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { QuestionCard } from '@/components/QuestionCard'
 import { TodoPanel, TodoItem } from '@/components/TodoPanel'
 import { KanbanBoard, KanbanTask, KanbanColumn } from '@/components/KanbanBoard'
-import { getAssistUrl } from '@/lib/config'
+import { ProviderManagement } from '@/components/ProviderManagement'
+import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
-const assistBase = () => getAssistUrl() || ''
+const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ export function CodingAgent() {
 
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>([])
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'chat' | 'kanban'>('chat')
+  const [activeTab, setActiveTab] = useState<'chat' | 'kanban' | 'providers'>('chat')
 
   // Kanban state
   const [kanbanTasks, setKanbanTasks] = useState<KanbanTask[]>([])
@@ -152,14 +153,14 @@ export function CodingAgent() {
     es.addEventListener('SecurityAlert', (e: any) => {
       try {
         const data = JSON.parse(e.data)
-        addLog('warn', `⚠️ Security: ${data.event?.description || 'Alert'}`)
+        addLog('warn', `[SEC] ${data.event?.description || 'Alert'}`)
       } catch {}
     })
 
     es.addEventListener('ToolExecuted', (e: any) => {
       try {
         const data = JSON.parse(e.data)
-        addLog('info', `🔧 ${data.tool}: ${data.args_summary}`)
+        addLog('info', `[${data.tool}] ${data.args_summary}`)
       } catch {}
     })
 
@@ -378,9 +379,11 @@ export function CodingAgent() {
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-foreground">Pi.dev Agent</h2>
                 <p className="text-[10px] text-foreground/40 truncate">
-                  {sessionStatus === 'running' ? '🟢 Session aktiv' :
-                   sessionStatus === 'starting' ? '🟡 Starte...' :
-                   '⚫ Inaktiv'}
+                  {sessionStatus === 'running' ?
+                    <><span className="w-2 h-2 rounded-full bg-green-400 inline-block mr-1.5" /> Session aktiv</> :
+                   sessionStatus === 'starting' ?
+                    <><span className="w-2 h-2 rounded-full bg-amber-400 inline-block mr-1.5 animate-pulse" /> Starte...</> :
+                    <><span className="w-2 h-2 rounded-full bg-foreground/20 inline-block mr-1.5" /> Inaktiv</>}
                 </p>
               </div>
 
@@ -403,6 +406,14 @@ export function CodingAgent() {
                   }`}
                 >
                   Kanban
+                </button>
+                <button
+                  onClick={() => setActiveTab('providers')}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                    activeTab === 'providers' ? 'bg-emerald-500/20 text-emerald-400' : 'text-foreground/30 hover:text-foreground/60'
+                  }`}
+                >
+                  Provider
                 </button>
               </div>
 
@@ -524,15 +535,13 @@ export function CodingAgent() {
                       tags: task.tags || [],
                     }
                     setKanbanTasks(prev => [...prev, newTask])
-                    // Optionally send to backend
                     addLog('info', `Kanban: Task "${task.title}" erstellt`)
                   }}
                   onStartTask={async (taskId) => {
-                    // Dispatch to agent
                     const task = kanbanTasks.find(t => t.id === taskId)
                     if (task) {
                       addLog('info', `Agent startet Task: ${task.title}`)
-                      await sendMessage(`Bearbeite folgenden Task: ${task.title}${task.description ? `\n\nBeschreibung: ${task.description}` : ''}`)
+                      await sendMessage(`Bearbeite folgenden Task: ${task.title}${task.description ? `\\n\\nBeschreibung: ${task.description}` : ''}`)
                     }
                   }}
                   onMoveTask={(taskId, from, to) => {
@@ -540,13 +549,14 @@ export function CodingAgent() {
                       t.id === taskId ? {
                         ...t,
                         column: to,
-                        ...(to === 'in_progress' ? { startedAt: new Date().toISOString() } : {}),
                         ...(to === 'done' ? { completedAt: new Date().toISOString() } : {}),
                       } : t
                     ))
                     addLog('info', `Task nach "${to}" verschoben`)
                   }}
                 />
+              ) : activeTab === 'providers' ? (
+                <ProviderManagement />
               ) : (
               /* Messages */
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">

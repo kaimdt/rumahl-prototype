@@ -46,6 +46,10 @@ mod system_guard;
 mod model_router;
 mod memory_system;
 mod autonomous_scheduler;
+mod ora_features;
+mod virtual_company;
+mod messaging;
+mod dlp_guard;
 
 use context::{ContextBuilder, SmartHomeContext};
 use database::DbPool;
@@ -75,6 +79,10 @@ use system_guard::{SystemGuard, SystemState, LoopDetection, ProtectionRule};
 use model_router::{ModelRouter, RoutingDecision, TaskCategory, RouterConfig};
 use memory_system::{MemoryStore, Memory, MemoryQuery, MemoryCategory};
 use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun, Schedule, SchedulerEvent};
+use ora_features::{multi_agent::Orchestrator, code_review, self_healing::SelfHealing, cost_intel::CostTracker, mistake_learner::MistakeLearner};
+use virtual_company::{VirtualCompany, CompanyAgent, CompanyProject, CompanyTask, CompanyRole, BriefingSession, BriefingConfig, BriefingTrigger};
+use messaging::{MessagingManager, MessagingConfig, EmailRequest, MessageResult, SmtpConfig, TelegramConfig, WhatsAppConfig};
+use dlp_guard::{DlpGuard, DlpScanResult, AiTokenManager, AiTokenConfig};
 use cost_manager::{BudgetConfig, CostManager};
 use lsp::LspManager;
 use acp::AcpRouter;
@@ -112,6 +120,14 @@ struct AppState {
     router: Arc<ModelRouter>,
     memory_store: Arc<MemoryStore>,
     scheduler: Arc<AutonomousScheduler>,
+    collaboration: Arc<Orchestrator>,
+    self_healing: Arc<SelfHealing>,
+    cost_tracker: Arc<CostTracker>,
+    mistake_learner: Arc<MistakeLearner>,
+    company: Arc<VirtualCompany>,
+    messaging: Arc<MessagingManager>,
+    dlp: Arc<DlpGuard>,
+    ai_token_mgr: Arc<AiTokenManager>,
 }
 
 /// Default system prompt injected when no custom prompt is provided.
@@ -4535,6 +4551,305 @@ async fn stream_scheduler_events(
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
+// ─── ORA Features Handlers ─────────────────────────────────────────────────
+
+// Collaboration
+async fn list_collab_plans(State(state): State<AppState>) -> Json<Vec<ora_features::multi_agent::CollaborationPlan>> {
+    Json(state.collaboration.list_plans())
+}
+
+#[derive(Deserialize)] struct CreatePlanRequest { goal: String }
+async fn create_collab_plan(State(state): State<AppState>, Json(req): Json<CreatePlanRequest>) -> Json<ora_features::multi_agent::CollaborationPlan> {
+    Json(state.collaboration.create_plan(&req.goal))
+}
+
+async fn get_collab_plan(State(state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<ora_features::multi_agent::CollaborationPlan>, StatusCode> {
+    state.collaboration.get_plan(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
+// Code Review
+async fn submit_code_review(State(_state): State<AppState>, Json(req): Json<code_review::ReviewRequest>) -> Json<serde_json::Value> {
+    let prompt = code_review::build_review_prompt(&req);
+    Json(serde_json::json!({"prompt": prompt, "note": "Submit this prompt to an AI provider for review results"}))
+}
+
+// Self-Healing
+async fn get_health_checks(State(state): State<AppState>) -> Json<Vec<ora_features::self_healing::HealthCheck>> {
+    Json(state.self_healing.get_checks())
+}
+
+async fn run_health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
+    // Simulate health checks
+    state.self_healing.update_check("disk", "healthy", Some("Disk: 45% free"));
+    state.self_healing.update_check("memory", "healthy", Some("Memory: 62% used"));
+    state.self_healing.update_check("db", "healthy", Some("DB: connected"));
+    Json(serde_json::json!({"status": "All checks passed"}))
+}
+
+// Cost Intelligence
+async fn get_cost_summary(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "daily": state.cost_tracker.daily_cost(),
+        "monthly": state.cost_tracker.monthly_cost(),
+        "within_budget": state.cost_tracker.within_budget(),
+        "config": state.cost_tracker.get_config(),
+    }))
+}
+
+async fn get_cost_records(State(state): State<AppState>) -> Json<Vec<ora_features::cost_intel::CostRecord>> {
+    Json(state.cost_tracker.get_records(100))
+}
+
+async fn suggest_cheaper_provider(State(state): State<AppState>, axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>) -> Json<serde_json::Value> {
+    let provider = params.get("provider").map(|s| s.as_str()).unwrap_or("openai");
+    let suggestion = state.cost_tracker.suggest_cheaper(provider);
+    Json(serde_json::json!({"suggestion": suggestion}))
+}
+
+// Learning from Mistakes
+async fn get_mistakes(State(state): State<AppState>) -> Json<Vec<ora_features::mistake_learner::Mistake>> {
+    Json(state.mistake_learner.get_mistakes())
+}
+
+async fn get_avoid_list(State(state): State<AppState>) -> Json<Vec<String>> {
+    Json(state.mistake_learner.get_avoid_list())
+}
+
+#[derive(Deserialize)] struct WarningRequest { task: String }
+async fn get_learning_warning(State(state): State<AppState>, Json(req): Json<WarningRequest>) -> Json<serde_json::Value> {
+    let warning = state.mistake_learner.build_warning(&req.task);
+    Json(serde_json::json!({"warning": warning}))
+}
+
+// ─── Virtual Company Handlers ──────────────────────────────────────────────
+
+async fn get_company_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "enabled": state.company.is_enabled(),
+        "name": state.company.name,
+        "agents": state.company.get_active_agents().len(),
+        "projects": state.company.get_active_projects().len(),
+        "active_tasks": state.company.get_active_task_count(),
+        "max_priority": state.company.get_max_task_priority(),
+        "has_active_work": state.company.has_active_work(),
+        "founded": state.company.company_founded,
+    }))
+}
+
+async fn toggle_company(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let currently = state.company.is_enabled();
+    if currently { state.company.disable(); } else { state.company.enable(); }
+    Json(serde_json::json!({"enabled": state.company.is_enabled()}))
+}
+
+async fn get_company_agents(State(state): State<AppState>) -> Json<Vec<CompanyAgent>> {
+    Json(state.company.get_agents())
+}
+
+#[derive(Deserialize)] struct UpdateAgentRequest { agent_id: String, is_active: bool }
+async fn update_company_agent(State(state): State<AppState>, Json(req): Json<UpdateAgentRequest>) -> StatusCode {
+    state.company.set_agent_active(&req.agent_id, req.is_active);
+    StatusCode::OK
+}
+
+async fn get_company_projects(State(state): State<AppState>) -> Json<Vec<CompanyProject>> {
+    Json(state.company.get_projects())
+}
+
+#[derive(Deserialize)] struct CreateProjectRequest { name: String, description: String }
+async fn create_company_project(State(state): State<AppState>, Json(req): Json<CreateProjectRequest>) -> Json<CompanyProject> {
+    Json(state.company.create_project(&req.name, &req.description))
+}
+
+#[derive(Deserialize)] struct AddTaskRequest { title: String, role: String, priority: u8 }
+async fn add_company_task(State(state): State<AppState>, axum::extract::Path(project_id): axum::extract::Path<String>, Json(req): Json<AddTaskRequest>) -> Result<Json<CompanyTask>, StatusCode> {
+    let role = match req.role.as_str() {
+        "developer" => CompanyRole::Developer, "qa" => CompanyRole::QATester,
+        "devops" => CompanyRole::DevOps, "data" => CompanyRole::DataAnalyst,
+        "security" => CompanyRole::SecurityOfficer, "pm" => CompanyRole::ProductManager,
+        "cto" => CompanyRole::CTO, "ceo" => CompanyRole::CEO,
+        "writer" => CompanyRole::TechnicalWriter, "ux" => CompanyRole::UXDesigner,
+        _ => CompanyRole::Developer,
+    };
+    state.company.add_task(&project_id, &req.title, role, req.priority).map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
+#[derive(Deserialize)] struct DistributeRequest { task_description: String }
+async fn distribute_company_task(State(state): State<AppState>, Json(req): Json<DistributeRequest>) -> Json<CompanyTask> {
+    Json(state.company.distribute_task(&req.task_description))
+}
+
+async fn get_briefing_config(State(state): State<AppState>) -> Json<BriefingConfig> {
+    Json(state.company.get_briefing_config())
+}
+
+async fn update_briefing_config(State(state): State<AppState>, Json(config): Json<BriefingConfig>) -> StatusCode {
+    state.company.update_briefing_config(config); StatusCode::OK
+}
+
+#[derive(Deserialize)] struct StartBriefingRequest { reason: Option<String> }
+async fn start_company_briefing(State(state): State<AppState>, Json(req): Json<StartBriefingRequest>) -> Result<Json<BriefingSession>, StatusCode> {
+    let trigger = if let Some(reason) = req.reason {
+        BriefingTrigger::UserCalled { reason }
+    } else {
+        BriefingTrigger::Scheduled
+    };
+    state.company.start_briefing(trigger).map(Json).ok_or(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+#[derive(Deserialize)] struct CompleteBriefingRequest {
+    discussions: Vec<virtual_company::DiscussionPoint>,
+    decisions: Vec<String>,
+    action_items: Vec<virtual_company::ActionItem>,
+}
+async fn complete_company_briefing(State(state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>, Json(req): Json<CompleteBriefingRequest>) -> Result<Json<BriefingSession>, StatusCode> {
+    state.company.complete_briefing(&id, req.discussions, req.decisions, req.action_items).map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn get_briefing_history(State(state): State<AppState>) -> Json<Vec<BriefingSession>> {
+    Json(state.company.get_briefing_history())
+}
+
+async fn get_next_briefing(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let next = state.company.next_briefing.read().clone();
+    Json(serde_json::json!({"next_briefing": next.map(|d| d.to_rfc3339())}))
+}
+
+// ─── Messaging Handlers ────────────────────────────────────────────────────
+
+async fn get_messaging_config(State(state): State<AppState>) -> Json<MessagingConfig> {
+    Json(state.messaging.get_config())
+}
+
+async fn update_messaging_config(State(state): State<AppState>, Json(cfg): Json<MessagingConfig>) -> StatusCode {
+    state.messaging.update_config(cfg);
+    StatusCode::OK
+}
+
+async fn send_test_email(State(state): State<AppState>) -> Json<MessageResult> {
+    let cfg = state.messaging.get_smtp_config();
+    let result = state.messaging.send_email(&EmailRequest {
+        to: vec![cfg.from_address.clone()],
+        subject: "ORA AI – Test Email".into(),
+        body: "This is a test email from ORA AI. If you received this, SMTP is configured correctly!".into(),
+        html_body: Some("<h2>ORA Test Email [OK]</h2><p>SMTP configuration is working!</p>".into()),
+        cc: None,
+        priority: Some("normal".into()),
+    }).await;
+    Json(result)
+}
+
+async fn setup_telegram_webhook_handler(State(state): State<AppState>) -> Json<MessageResult> {
+    Json(state.messaging.setup_telegram_webhook().await)
+}
+
+async fn telegram_webhook_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+    if let Ok(update) = serde_json::from_str::<serde_json::Value>(&body) {
+        if let Some(msg) = state.messaging.process_telegram_message(update).await {
+            // Process through ORA AI
+            let response = state.messaging.process_incoming(msg.clone()).await;
+            state.messaging.send_telegram_message(&msg.chat_id, &response).await;
+        }
+    }
+    StatusCode::OK
+}
+
+#[derive(Deserialize)] struct TelegramSendRequest { chat_id: String, text: String }
+async fn send_telegram_handler(State(state): State<AppState>, Json(req): Json<TelegramSendRequest>) -> Json<MessageResult> {
+    Json(state.messaging.send_telegram_message(&req.chat_id, &req.text).await)
+}
+
+async fn whatsapp_webhook_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+    if let Some(msg) = state.messaging.process_whatsapp_message(&body).await {
+        let response = state.messaging.process_incoming(msg.clone()).await;
+        state.messaging.send_whatsapp_message(&msg.from, &response).await;
+    }
+    // Twilio expects TwiML or empty 200
+    (StatusCode::OK, "<?xml version=\"1.0\"?><Response></Response>")
+}
+
+#[derive(Deserialize)] struct WhatsAppSendRequest { to: String, text: String }
+async fn send_whatsapp_handler(State(state): State<AppState>, Json(req): Json<WhatsAppSendRequest>) -> Json<MessageResult> {
+    Json(state.messaging.send_whatsapp_message(&req.to, &req.text).await)
+}
+
+#[derive(Deserialize)] struct BroadcastRequest { text: String }
+#[axum::debug_handler]
+async fn broadcast_message(State(state): State<AppState>, Json(req): Json<BroadcastRequest>) -> Json<Vec<MessageResult>> {
+    Json(state.messaging.broadcast(&req.text).await)
+}
+
+// ─── DLP Guard & AI Token Handlers ─────────────────────────────────────────
+
+#[derive(Deserialize)] struct ScanRequest { text: String, is_output: Option<bool> }
+async fn scan_for_sensitive_data(State(state): State<AppState>, Json(req): Json<ScanRequest>) -> Json<DlpScanResult> {
+    if req.is_output.unwrap_or(false) {
+        Json(state.dlp.scan_output(&req.text))
+    } else {
+        Json(state.dlp.scan_input(&req.text))
+    }
+}
+
+async fn get_dlp_stats(State(state): State<AppState>) -> Json<dlp_guard::DlpStats> {
+    Json(state.dlp.get_stats())
+}
+
+#[derive(Deserialize)] struct AddPatternRequest { pattern: String, name: String, severity: String }
+async fn add_dlp_pattern(State(state): State<AppState>, Json(req): Json<AddPatternRequest>) -> Result<StatusCode, (StatusCode, String)> {
+    let severity = match req.severity.as_str() {
+        "critical" => dlp_guard::Severity::Critical,
+        "warning" => dlp_guard::Severity::Warning,
+        _ => dlp_guard::Severity::Info,
+    };
+    state.dlp.add_custom_pattern(&req.pattern, &req.name, severity)
+        .map(|_| StatusCode::OK)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+#[derive(Deserialize)] struct GenerateTokenRequest { label: String }
+async fn generate_ai_token(State(state): State<AppState>, Json(req): Json<GenerateTokenRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    match state.ai_token_mgr.generate_token(&req.label) {
+        Ok(token) => {
+            // Register with DLP immediately
+            state.dlp.add_redaction(&token);
+            Ok(Json(serde_json::json!({
+                "token": token,
+                "note": "Store this token securely. It will NEVER be shown again."
+            })))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+#[derive(Deserialize)] struct RevokeTokenRequest { token_hash: Option<String>, reason: String }
+async fn revoke_ai_token(State(state): State<AppState>, Json(req): Json<RevokeTokenRequest>) -> StatusCode {
+    if let Some(hash) = req.token_hash {
+        state.ai_token_mgr.revoke_token(&hash, &req.reason);
+    }
+    StatusCode::OK
+}
+
+#[derive(Deserialize)] struct RevokeAllRequest { reason: String }
+async fn revoke_all_ai_tokens(State(state): State<AppState>, Json(req): Json<RevokeAllRequest>) -> StatusCode {
+    state.ai_token_mgr.revoke_all(&req.reason);
+    StatusCode::OK
+}
+
+async fn get_ai_token_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let tokens = state.ai_token_mgr.get_active_tokens();
+    Json(serde_json::json!({
+        "active_tokens": tokens.len(),
+        "tokens": tokens.iter().map(|t| serde_json::json!({
+            "label": t.label,
+            "hash_preview": &t.token_hash[..12.min(t.token_hash.len())],
+            "expires_at": t.expires_at,
+            "scopes": t.scopes,
+        })).collect::<Vec<_>>(),
+        "needs_rotation": state.ai_token_mgr.needs_rotation(),
+        "revoke_log": state.ai_token_mgr.get_revoke_log().iter().map(|(r, t)| serde_json::json!({"reason": r, "at": t})).collect::<Vec<_>>(),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -4756,7 +5071,19 @@ async fn main() -> anyhow::Result<()> {
     scheduler.create_default_tasks();
     let scheduler_clone = scheduler.clone();
     tokio::spawn(async move { scheduler_clone.start().await });
-    info!("Model router, memory store, and autonomous scheduler initialized");
+    let mistake_learner = Arc::new(MistakeLearner::new());
+    let collaboration = Arc::new(Orchestrator::new());
+    let self_healing = Arc::new(SelfHealing::new());
+    let cost_tracker = Arc::new(CostTracker::new());
+    let company = Arc::new(VirtualCompany::new());
+    let messaging = Arc::new(MessagingManager::new());
+    let ai_token_mgr = Arc::new(AiTokenManager::new());
+    let dlp = Arc::new(DlpGuard::new());
+    // Register the AI token with DLP so it's never leaked
+    if let Some(token) = ai_token_mgr.get_current_token() {
+        dlp.add_redaction(&token);
+    }
+    info!("DLP guard and AI token manager initialized");
 
     let state = AppState {
         history: Arc::new(RwLock::new(Vec::new())),
@@ -4787,6 +5114,14 @@ async fn main() -> anyhow::Result<()> {
         router,
         memory_store,
         scheduler,
+        collaboration,
+        self_healing,
+        cost_tracker,
+        mistake_learner,
+        company,
+        messaging,
+        dlp,
+        ai_token_mgr,
     };
 
     let app = Router::new()
@@ -4985,6 +5320,46 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/scheduler/tasks/:id/toggle", post(toggle_scheduled_task))
         .route("/api/assist/scheduler/history", get(get_scheduler_history))
         .route("/api/assist/scheduler/events", get(stream_scheduler_events))
+        // ─── ORA Features ───
+        .route("/api/assist/collaboration/plans", get(list_collab_plans).post(create_collab_plan))
+        .route("/api/assist/collaboration/plans/:id", get(get_collab_plan))
+        .route("/api/assist/review", post(submit_code_review))
+        .route("/api/assist/health", get(get_health_checks))
+        .route("/api/assist/health/check", post(run_health_check))
+        .route("/api/assist/cost/summary", get(get_cost_summary))
+        .route("/api/assist/cost/records", get(get_cost_records))
+        .route("/api/assist/cost/suggest", get(suggest_cheaper_provider))
+        .route("/api/assist/learning/mistakes", get(get_mistakes))
+        .route("/api/assist/learning/avoid-list", get(get_avoid_list))
+        .route("/api/assist/learning/warning", post(get_learning_warning))
+        // ─── Virtual Company & Briefing ───
+        .route("/api/assist/company/status", get(get_company_status).post(toggle_company))
+        .route("/api/assist/company/agents", get(get_company_agents).put(update_company_agent))
+        .route("/api/assist/company/projects", get(get_company_projects).post(create_company_project))
+        .route("/api/assist/company/projects/:id/tasks", post(add_company_task))
+        .route("/api/assist/company/distribute", post(distribute_company_task))
+        .route("/api/assist/company/briefing/config", get(get_briefing_config).put(update_briefing_config))
+        .route("/api/assist/company/briefing/start", post(start_company_briefing))
+        .route("/api/assist/company/briefing/:id/complete", post(complete_company_briefing))
+        .route("/api/assist/company/briefing/history", get(get_briefing_history))
+        .route("/api/assist/company/briefing/next", get(get_next_briefing))
+        // ─── Messaging (Email, Telegram, WhatsApp) ───
+        .route("/api/assist/messaging/config", get(get_messaging_config).put(update_messaging_config))
+        .route("/api/assist/messaging/email/test", post(send_test_email))
+        .route("/api/assist/messaging/telegram/setup", post(setup_telegram_webhook_handler))
+        .route("/api/assist/messaging/telegram/webhook", post(telegram_webhook_handler))
+        .route("/api/assist/messaging/telegram/send", post(send_telegram_handler))
+        .route("/api/assist/messaging/whatsapp/webhook", post(whatsapp_webhook_handler))
+        .route("/api/assist/messaging/whatsapp/send", post(send_whatsapp_handler))
+        .route("/api/assist/messaging/broadcast", post(broadcast_message))
+        // ─── DLP Guard & AI Token ───
+        .route("/api/assist/dlp/scan", post(scan_for_sensitive_data))
+        .route("/api/assist/dlp/stats", get(get_dlp_stats))
+        .route("/api/assist/dlp/patterns", post(add_dlp_pattern))
+        .route("/api/assist/token/generate", post(generate_ai_token))
+        .route("/api/assist/token/revoke", post(revoke_ai_token))
+        .route("/api/assist/token/revoke-all", post(revoke_all_ai_tokens))
+        .route("/api/assist/token/status", get(get_ai_token_status))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

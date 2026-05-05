@@ -5,9 +5,9 @@ import {
   X, CaretRight, CaretDown, ToggleRight, ToggleLeft,
   Clock, ArrowCounterClockwise, Info,
 } from '@phosphor-icons/react'
-import { getAssistUrl } from '@/lib/config'
+import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
-const assistBase = () => getAssistUrl() || ''
+const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 
 interface Props {
   isOpen: boolean

@@ -48,22 +48,43 @@ function browserSafeBaseUrl(url: string): string {
 
 /** Returns the current backend URL. Safe to call from anywhere. */
 export function getBackendUrl(): string {
-  return browserSafeBaseUrl(_backendUrl)
+  let url = _backendUrl;
+  // Development fallback: If running on localhost:5173 (Vite dev), use localhost:3001
+  if (!url && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    url = 'http://localhost:3001';
+  }
+  return browserSafeBaseUrl(url)
 }
 
 /** Returns the current assist/AI URL. Safe to call from anywhere. */
 export function getAssistUrl(): string {
-  if (_assistUrl && typeof window !== 'undefined') {
-    try {
-      const assist = new URL(_assistUrl, window.location.origin)
-      if (isLoopbackHost(assist.hostname) && !isLoopbackHost(window.location.hostname)) {
-        return getBackendUrl()
-      }
-    } catch {
-      return getBackendUrl()
+  // In production/desktop: assist URL may not be set separately.
+  // Fall back to backend URL, which iora-home proxies to iora-assist.
+  let url = _assistUrl;
+  if (!url) {
+    url = _backendUrl;
+  }
+  if (!url && typeof window !== 'undefined') {
+    // Last resort: derive from page origin or use localhost default
+    const origin = window.location.origin;
+    if (origin && !origin.includes('5173') && !origin.includes('localhost')) {
+      url = origin; // Production: same-origin deployment
+    } else {
+      url = 'http://localhost:3001'; // Development default
     }
   }
-  return browserSafeBaseUrl(_assistUrl)
+
+  if (url && typeof window !== 'undefined') {
+    try {
+      const assist = new URL(url, window.location.origin)
+      if (isLoopbackHost(assist.hostname) && !isLoopbackHost(window.location.hostname)) {
+        return getBackendUrl() || url
+      }
+    } catch {
+      return getBackendUrl() || url
+    }
+  }
+  return browserSafeBaseUrl(url)
 }
 
 /** Called by GlobalConfigProvider after fetching live config. */
