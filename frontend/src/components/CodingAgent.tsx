@@ -519,46 +519,34 @@ export function CodingAgent() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 min-h-0">
-              {activeTab === 'kanban' ? (
+              {activeTab === 'kanban' && (
                 <KanbanBoard
                   tasks={kanbanTasks}
                   onTasksChange={setKanbanTasks}
                   onCreateTask={async (task) => {
                     const newTask: KanbanTask = {
-                      ...task,
-                      id: crypto.randomUUID(),
-                      createdAt: new Date().toISOString(),
-                      subtasks: [],
-                      column: task.column || 'backlog',
-                      priority: task.priority || 'medium',
-                      source: 'user',
-                      tags: task.tags || [],
+                      ...task, id: crypto.randomUUID(), createdAt: new Date().toISOString(),
+                      subtasks: [], column: 'backlog', priority: task.priority || 'medium',
+                      source: 'user', tags: task.tags || [],
                     }
                     setKanbanTasks(prev => [...prev, newTask])
-                    addLog('info', `Kanban: Task "${task.title}" erstellt`)
+                    addLog('info', 'Kanban: Task ' + task.title + ' erstellt')
                   }}
                   onStartTask={async (taskId) => {
-                    const task = kanbanTasks.find(t => t.id === taskId)
-                    if (task) {
-                      addLog('info', `Agent startet Task: ${task.title}`)
-                      await sendMessage(`Bearbeite folgenden Task: ${task.title}${task.description ? `\\n\\nBeschreibung: ${task.description}` : ''}`)
-                    }
+                    const t = kanbanTasks.find(k => k.id === taskId)
+                    if (t) { addLog('info', 'Agent startet Task: ' + t.title); sendMessage('Bearbeite: ' + t.title) }
                   }}
                   onMoveTask={(taskId, from, to) => {
                     setKanbanTasks(prev => prev.map(t =>
-                      t.id === taskId ? {
-                        ...t,
-                        column: to,
-                        ...(to === 'done' ? { completedAt: new Date().toISOString() } : {}),
-                      } : t
+                      t.id === taskId ? { ...t, column: to, ...(to === 'done' ? { completedAt: new Date().toISOString() } : {}) } : t
                     ))
-                    addLog('info', `Task nach "${to}" verschoben`)
                   }}
                 />
-              ) : activeTab === 'providers' ? (
-                <ProviderManagement />
-              ) : (
-              /* Messages */
+              )}
+              {activeTab === 'providers' && <ProviderManagement />}
+              {activeTab === 'chat' && (
+                <>
+              {/* Messages */}
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                 {messages.length === 0 && !isLoading && (
                   <div className="text-center py-12 text-foreground/30">
@@ -727,6 +715,7 @@ export function CodingAgent() {
                 </div>
               </div>
             </div>
+                </>
               )}
             </div>
         </DialogContent>

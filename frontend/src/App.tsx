@@ -1061,9 +1061,9 @@ function App() {
                     </SetupWizardOverlay>
                   </NotificationProvider>
                   <Toaster />
-              </CurrentBackgroundProvider>
                 </DynamicOverviewProvider>
               </EntityDiscoveryProvider>
+              </CurrentBackgroundProvider>
             </ConfigurationProvider>
           </PageNavigationProvider>
         </ThemeProvider>
