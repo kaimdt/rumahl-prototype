@@ -184,7 +184,7 @@ export function CodingAgent() {
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {activeTab === 'kanban' && <KanbanBoard tasks={kanbanTasks} onTasksChange={setKanbanTasks} compact />}
             {activeTab === 'providers' && <ProviderManagement />}
-            {activeTab === 'chat' && <>
+            {activeTab === 'chat' && <div className="flex-1 flex flex-col min-w-0">
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
               {messages.length === 0 && <div className="text-center py-12 text-foreground/30"><Robot size={48} weight="duotone" className="mx-auto mb-3 opacity-15" /><p className="text-sm">Pi.dev Coding Agent</p><p className="text-xs mt-1">Analysiert Code, schreibt Features, fixt Bugs.</p></div>}
               <AnimatePresence mode="popLayout">{messages.map(msg => <motion.div key={msg.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -211,7 +211,7 @@ export function CodingAgent() {
               </div>
             </div>
           </div>
-          </>
+          </div>
           }
         </div>
       </DialogContent>

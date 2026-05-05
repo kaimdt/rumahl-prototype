@@ -545,7 +545,7 @@ export function CodingAgent() {
               )}
               {activeTab === 'providers' && <ProviderManagement />}
               {activeTab === 'chat' && (
-                <>
+                <div className="flex-1 flex flex-col min-w-0">
               {/* Messages */}
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                 {messages.length === 0 && !isLoading && (
@@ -715,7 +715,7 @@ export function CodingAgent() {
                 </div>
               </div>
             </div>
-                </>
+                </div>
               )}
             </div>
         </DialogContent>
