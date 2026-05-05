@@ -7,7 +7,8 @@ import {
   ListChecks, Wrench, Stop,
 } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { QuestionCard } from '@/components/QuestionCard'
 import { TodoPanel, TodoItem } from '@/components/TodoPanel'
 import { KanbanBoard, KanbanTask, KanbanColumn } from '@/components/KanbanBoard'
@@ -369,6 +370,7 @@ export function CodingAgent() {
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-[900px] h-[800px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10 overflow-hidden" hideCloseButton>
+          <VisuallyHidden><DialogTitle>Pi.dev Coding Agent</DialogTitle></VisuallyHidden>
           {/* ── Header ──────────────────────────────────────────────────── */}
           <div className="px-4 py-3 border-b border-foreground/10 bg-gradient-to-r from-emerald-500/10 to-teal-500/5 shrink-0 -mx-0 rounded-t-2xl">
             <div className="flex items-center gap-2">

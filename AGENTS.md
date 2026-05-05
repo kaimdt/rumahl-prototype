@@ -169,6 +169,7 @@ C:\tmp\home-assistant-dashb\
 - **3001** – iora-home (Dev)
 - **8126** – iora-home (Production/IORA OS)
 - **8090** – iora-core
+- **8092** – iora-assist (ORA AI)
 - **8097** – iora-supervisor
 - **8098** – iora-appstore
 
@@ -200,7 +201,42 @@ C:\tmp\home-assistant-dashb\
 }
 ```
 
-## 🚀 Schnellstart für Agenten
+## 🖥️ Deployment-Varianten
+
+### IORA OS (Appliance-Image)
+- **Alle Dienste laufen NATIV** (kein Docker!) als systemd-Services
+- Gebaut mit Buildroot → bootfähiges Image für Bare-Metal / VM
+- Ports: localhost / LAN (via iora-nginx Reverse-Proxy)
+- Build: `cd iora-os && sudo ./build.sh all --dev`
+
+### Docker Compose (Fremdinstallation)
+- Für existierende Linux-Server: alle Dienste in Docker-Containern
+- `deploy/docker-compose.yml` – vollständige Installation
+- `deploy/docker-compose.minimal.yml` – reduzierte Variante
+- Container kommunizieren via Docker-DNS (`iora-home:8126`, etc.)
+
+### Entwicklung (Lokal)
+- Frontend: `cd frontend && npm run dev` (Port 5173, Vite-Proxy zu :3001)
+- Backend: `cd iora-os/backend && cargo run -p iora-home` (Port 3001)
+- Desktop: `cd desktop && npm run tauri dev`
+- AI: `cargo run -p iora-assist` (Port 8092)
+
+## 💾 RAM-Anforderungen
+
+| Umgebung | Minimum | Empfohlen |
+|----------|---------|-----------|
+| Raspberry Pi 4 (2GB) | 512MB für IORA, Rest für OS | 1GB |
+| VM (4GB) | Standard – alle Dienste (~900MB) | – |
+| VM (8GB+) | Standard + AI-Tasks nutzen bis 2GB | – |
+
+**AI Memory:** iora-assist hat `MemoryHigh=512M MemoryMax=1500M`.
+Bei >8GB System-RAM kann MemoryMax auf 2-3GB erhöht werden:
+```bash
+mkdir -p /etc/systemd/system/iora-assist.service.d
+echo '[Service]' > /etc/systemd/system/iora-assist.service.d/override.conf
+echo 'MemoryMax=3G' >> /etc/systemd/system/iora-assist.service.d/override.conf
+systemctl daemon-reload && systemctl restart iora-assist
+```
 
 1. **Neue App-API hinzufügen**: Types in `iora-shared/src/` definieren, Handler in `iora-home/src/` schreiben, Route in `main.rs` registrieren, Migration in `migrations/` erstellen
 2. **Neue Permission**: In `permissions.rs` enum + description + risk_level + is_plugin_allowed ergänzen

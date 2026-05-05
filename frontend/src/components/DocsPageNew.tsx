@@ -83,9 +83,19 @@ export function DocsPage() {
       if (res.ok) {
         const data = await res.json()
         setConfig(data)
-        // Auto-expand first section
+        // Auto-expand first section, or show hint if empty
         if (data.navigation?.length > 0) {
           setExpandedSections(new Set([data.navigation[0].section]))
+        } else {
+          setConfig({
+            title: 'IORA OS Dokumentation',
+            description: 'Keine Dokumentationsdateien gefunden',
+            navigation: [{
+              section: 'Hinweis',
+              icon: 'Info',
+              items: [{ title: 'Platziere .md-Dateien im docs/-Ordner oder starte den Backend-Dienst neu', path: '__empty__', highlight: true }],
+            }],
+          })
         }
         return
       }

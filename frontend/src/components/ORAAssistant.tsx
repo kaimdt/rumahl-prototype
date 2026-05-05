@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { MessageContent } from '@/components/MessageContent'
 import { ActiveTasksPanel } from '@/components/ActiveTasksPanel'
 
@@ -662,6 +663,7 @@ export function ORAAssistant() {
       {/* Chat Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-[550px] h-[700px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10 overflow-hidden">
+          <VisuallyHidden><DialogTitle>ORA AI Assistant</DialogTitle></VisuallyHidden>
           {/* Header */}
           <div
             className="relative px-6 py-4 border-b border-foreground/10"

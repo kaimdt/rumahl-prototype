@@ -43,7 +43,7 @@ use tower_http::cors::CorsLayer;
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
-const DEFAULT_PORT: u16 = 8099;
+const DEFAULT_PORT: u16 = 8103;
 const SCAN_INTERVAL_SECS: u64 = 60; // Scan network every 60 seconds
 const DHCP_PORTS: [u16; 2] = [67, 68]; // DHCP server and client ports
 

@@ -2163,6 +2163,13 @@ else
 echo "IORA OS: Installing update client..."
 mkdir -p "${TARGET_DIR}/opt/iora/update"
 
+# Copy documentation from monorepo to IORA OS image
+if [ -d "${BR2_EXTERNAL_IORA_PATH}/docs" ]; then
+    echo "IORA OS: Installing documentation to /opt/iora/docs..."
+    mkdir -p "${TARGET_DIR}/opt/iora/docs"
+    cp -a "${BR2_EXTERNAL_IORA_PATH}/docs/." "${TARGET_DIR}/opt/iora/docs/"
+fi
+
 # The actual binary (`iora-updater`) is installed as /usr/bin/iora-updater
 # by the Buildroot package below.  We keep a stable wrapper at the legacy
 # path so old systemd units and documentation keep working.
@@ -3900,6 +3907,14 @@ ORA_AI_MODEL=
 # whitelist exactly that path. iora-api still mkdir -p's the parent on
 # first start as a belt-and-braces measure.
 IORA_API_DB_URL=sqlite:/var/lib/iora/iora-api/api.db?mode=rwc
+ENVEOF
+
+cat > "${TARGET_DIR}/etc/iora/iora-assist.env" <<'ENVEOF'
+PORT=8092
+RUST_LOG=iora_assist=info
+DATABASE_URL=postgres://iora:CHANGEME@localhost:5432/iora_assist
+IORA_CORE_URL=http://localhost:8090
+IORA_HOME_URL=http://localhost:8126
 ENVEOF
 
 cat > "${TARGET_DIR}/etc/iora/iora-appstore.env" <<'ENVEOF'

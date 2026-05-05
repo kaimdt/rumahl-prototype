@@ -90,6 +90,12 @@ fn generate_nginx_config(apps: Vec<AppRoute>) -> Result<String> {
 
 /// Write NGINX configuration to file
 fn write_nginx_config(config: &str) -> Result<()> {
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(NGINX_CONFIG_FILE).parent() {
+        fs::create_dir_all(parent)
+            .context("Failed to create NGINX config directory")?;
+    }
+
     // Create backup of existing config
     if Path::new(NGINX_CONFIG_FILE).exists() {
         let backup_path = format!("{}.backup", NGINX_CONFIG_FILE);

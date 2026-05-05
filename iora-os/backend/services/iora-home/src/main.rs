@@ -4470,7 +4470,7 @@ async fn forward_request_to(
         }
     }
 
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
         Ok(b) => b,
         Err(e) => {
             return (

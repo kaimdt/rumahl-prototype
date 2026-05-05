@@ -46,13 +46,17 @@ pub struct DocContent {
 ///      always renders something instead of hanging on the loading
 ///      spinner forever on shipped images that don't bundle the docs.
 pub async fn get_docs_config() -> Json<DocsConfig> {
-    let docs_path = PathBuf::from("docs/docs-config.json");
+    // Check multiple locations for docs-config.json
+    let search_paths = vec![
+        PathBuf::from("/opt/iora/docs/docs-config.json"),  // IORA OS production
+        PathBuf::from("docs/docs-config.json"),              // Development / fallback
+    ];
 
-    if let Ok(content) = fs::read_to_string(&docs_path).await {
-        if let Ok(config) = serde_json::from_str::<DocsConfig>(&content) {
-            return Json(config);
-        } else {
-            warn!("docs/docs-config.json present but failed to parse — using embedded fallback");
+    for docs_path in &search_paths {
+        if let Ok(content) = fs::read_to_string(docs_path).await {
+            if let Ok(config) = serde_json::from_str::<DocsConfig>(&content) {
+                return Json(config);
+            }
         }
     }
 
@@ -171,64 +175,48 @@ pub async fn get_doc_file(
         }));
     }
 
-    let full_path = PathBuf::from("docs").join(&doc_path);
+    // 2. Try filesystem docs — check both locations
+    let search_bases = vec!["/opt/iora/docs", "docs"];
 
-    // Ensure the path is within the docs directory
-    let canonical_docs = match std::fs::canonicalize("docs") {
-        Ok(path) => path,
-        Err(e) => {
-            error!("Failed to canonicalize docs directory: {}", e);
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to access docs directory".to_string()));
-        }
-    };
+    for base in &search_bases {
+        let full_path = PathBuf::from(base).join(&doc_path);
 
-    let canonical_file = match std::fs::canonicalize(&full_path) {
-        Ok(path) => path,
-        Err(e) => {
-            warn!("Failed to canonicalize file path {}: {}", doc_path, e);
-            return Err((StatusCode::NOT_FOUND, "Document not found".to_string()));
-        }
-    };
-
-    if !canonical_file.starts_with(&canonical_docs) {
-        warn!("Attempted directory traversal: {}", doc_path);
-        return Err((StatusCode::FORBIDDEN, "Invalid path".to_string()));
-    }
-
-    // Read the markdown file
-    match fs::read_to_string(&full_path).await {
-        Ok(content) => {
-            // Extract title from first # heading if available
+        // Check if file exists
+        if let Ok(content) = fs::read_to_string(&full_path).await {
             let title = content
                 .lines()
                 .find(|line| line.starts_with("# "))
                 .map(|line| line.trim_start_matches("# ").to_string())
                 .unwrap_or_else(|| doc_path.clone());
 
-            Ok(Json(DocContent {
+            return Ok(Json(DocContent {
                 path: doc_path,
                 content,
                 title,
-            }))
-        }
-        Err(e) => {
-            warn!("Failed to read doc file {}: {}", doc_path, e);
-            Err((StatusCode::NOT_FOUND, "Document not found".to_string()))
+            }));
         }
     }
+
+    // Not found
+    Err((StatusCode::NOT_FOUND, "Document not found".to_string()))
 }
 
 /// List all available documentation files
 pub async fn list_docs() -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    let docs_dir = PathBuf::from("docs");
+    let search_dirs = vec!["/opt/iora/docs", "docs"];
 
-    match collect_markdown_files(&docs_dir, &docs_dir).await {
-        Ok(files) => Ok(Json(files)),
-        Err(e) => {
-            error!("Failed to list docs: {}", e);
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to list docs: {}", e)))
+    for docs_dir_str in &search_dirs {
+        let docs_dir = PathBuf::from(docs_dir_str);
+        if docs_dir.exists() {
+            match collect_markdown_files(&docs_dir, &docs_dir).await {
+                Ok(files) if !files.is_empty() => return Ok(Json(files)),
+                _ => continue,
+            }
         }
     }
+
+    // No docs directory found
+    Ok(Json(vec![]))
 }
 
 /// Iteratively collect all markdown files in a directory (avoids E0733 from recursive async).

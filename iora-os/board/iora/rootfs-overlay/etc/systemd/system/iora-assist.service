@@ -12,7 +12,10 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=iora-assist
 Environment=RUST_LOG=iora_assist=info
+EnvironmentFile=-/etc/iora/iora-assist.env
 WorkingDirectory=/opt/iora
+MemoryMax=1500M
+MemoryHigh=512M
 
 # Security hardening
 NoNewPrivileges=yes

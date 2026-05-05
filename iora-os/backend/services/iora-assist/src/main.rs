@@ -5312,7 +5312,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/memory/all", get(get_all_memories))
         .route("/api/assist/memory/query", post(query_memories))
         .route("/api/assist/memory/context", post(get_memory_context))
-        .route("/api/assist/memory/:id", axum::routing::delete(delete_memory_handler))
         .route("/api/assist/memory/clear", post(clear_memories))
         // ─── Autonomous Scheduler ───
         .route("/api/assist/scheduler/tasks", get(list_scheduled_tasks).post(add_scheduled_task))
