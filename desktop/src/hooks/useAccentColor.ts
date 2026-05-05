@@ -187,10 +187,10 @@ function rgbToOklch(r: number, g: number, b: number): { l: number; c: number; h:
 
   const l = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
   const a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
-  const b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+  const bb = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
 
-  const c = Math.sqrt(a * a + b * b)
-  let h = Math.atan2(b, a) * 180 / Math.PI
+  const c = Math.sqrt(a * a + bb * bb)
+  let h = Math.atan2(bb, a) * 180 / Math.PI
   if (h < 0) h += 360
 
   return { l: Math.round(l * 100) / 100, c: Math.round(c * 100) / 100, h: Math.round(h * 100) / 100 }
