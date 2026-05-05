@@ -368,9 +368,9 @@ export function CodingAgent() {
       </motion.button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="sm:max-w-[900px] h-[800px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10" hideCloseButton>
+        <DialogContent className="sm:max-w-[900px] h-[800px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10 overflow-hidden" hideCloseButton>
           {/* ── Header ──────────────────────────────────────────────────── */}
-          <div className="px-4 py-3 border-b border-foreground/10 bg-gradient-to-r from-emerald-500/10 to-teal-500/5 shrink-0">
+          <div className="px-4 py-3 border-b border-foreground/10 bg-gradient-to-r from-emerald-500/10 to-teal-500/5 shrink-0 -mx-0 rounded-t-2xl">
             <div className="flex items-center gap-2">
               {/* Logo + Title */}
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center shrink-0">

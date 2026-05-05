@@ -1737,3 +1737,138 @@ body {
   .2xl\:grid-cols-4 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
   .2xl\:grid-cols-5 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 }
+
+/* ─── Very Small Screens (< 380px) ─────────────────────────────────── */
+@media (max-width: 380px) {
+  .glass-card { padding: 0.6rem !important; border-radius: 1rem !important; }
+  .glass-card-interactive { padding: 0.6rem !important; }
+  h1 { font-size: 1.2rem !important; }
+  h2 { font-size: 1rem !important; }
+  h3 { font-size: 0.9rem !important; }
+  .text-xl { font-size: 0.95rem !important; }
+  .text-lg { font-size: 0.85rem !important; }
+  .grid { gap: 0.4rem !important; }
+  .px-4 { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+  .px-6 { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+  button, [role="button"] { min-height: 40px; }
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* ─── iPad / Tablet Optimizations (768-1024px) ──────────────────────── */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .grid { gap: 0.75rem; }
+  .glass-card { padding: 0.85rem !important; }
+  .sm\:grid-cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .md\:grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+/* ─── App Page Sandbox Monitoring ──────────────────────────────────── */
+.app-iframe-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: oklch(from var(--card) l c h / 0.3);
+}
+
+.app-iframe-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: inherit;
+}
+
+.app-iframe-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(from var(--card) l c h / 0.5);
+  backdrop-filter: blur(8px);
+  z-index: 2;
+}
+
+.app-iframe-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: oklch(from var(--card) l c h / 0.8);
+  backdrop-filter: blur(12px);
+  z-index: 2;
+  padding: 2rem;
+  text-align: center;
+}
+
+/* ─── Touch-friendly scroll areas ──────────────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+  }
+
+  .touch-scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+
+  /* Larger drag handles for mobile */
+  [draggable="true"] {
+    touch-action: manipulation;
+  }
+}
+
+/* ─── Landscape phone optimization ─────────────────────────────────── */
+@media (max-width: 900px) and (orientation: landscape) {
+  .glass-header { padding-top: 0.25rem !important; padding-bottom: 0.25rem !important; }
+  main, .page-content { padding-top: 0.5rem !important; }
+  .landscape-compact .glass-card { padding: 0.5rem !important; }
+}
+
+/* ─── Connection status indicator animation ─────────────────────────── */
+@keyframes connection-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(from var(--accent) l c h / 0.4); }
+  50% { box-shadow: 0 0 0 8px oklch(from var(--accent) l c h / 0); }
+}
+
+.connection-indicator { animation: connection-pulse 2s infinite; }
+
+/* ─── Consistent app page container ─────────────────────────────────── */
+.app-page-container {
+  width: 100%;
+  height: 100%;
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .app-page-container { min-height: 50vh; }
+}
+
+@media (max-width: 380px) {
+  .app-page-container { min-height: 40vh; }
+}
+
+/* ─── Dialog responsive fixes ───────────────────────────────────────── */
+@media (max-width: 640px) {
+  [data-slot="dialog-content"] {
+    max-height: 88vh !important;
+    border-radius: 1.25rem 1.25rem 0 0 !important;
+  }
+}
+
+@media (max-width: 380px) {
+  [data-slot="dialog-content"] {
+    max-height: 92vh !important;
+    padding: 1rem !important;
+  }
+}

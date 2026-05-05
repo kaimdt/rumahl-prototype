@@ -63,18 +63,11 @@ export function ProviderManagement() {
   // ─── Load providers ──────────────────────────────────────────────────
   useEffect(() => {
     loadProviders()
-    checkConnection()
-  }, [])
-
-  const checkConnection = async () => {
-    setConnectionStatus('checking')
-    try {
-      const r = await fetch(`${assistBase()}/api/assist/health`)
+    // Non-blocking health check
+    fetch(`${assistBase()}/api/assist/health`).then(r => {
       setConnectionStatus(r.ok ? 'connected' : 'unreachable')
-    } catch {
-      setConnectionStatus('unreachable')
-    }
-  }
+    }).catch(() => setConnectionStatus('unreachable'))
+  }, [])
 
   const loadProviders = async () => {
     setLoading(true)
@@ -205,7 +198,7 @@ export function ProviderManagement() {
         <code className="px-4 py-2 rounded-xl bg-foreground/5 border border-foreground/10 text-xs text-foreground/60 font-mono mb-4">
           cd iora-os/backend && cargo run -p iora-assist
         </code>
-        <button onClick={checkConnection} className="px-4 py-2 rounded-xl bg-accent/20 text-accent text-xs hover:bg-accent/30 transition-all">
+        <button onClick={loadProviders} className="px-4 py-2 rounded-xl bg-accent/20 text-accent text-xs hover:bg-accent/30 transition-all">
           Erneut versuchen
         </button>
       </div>
@@ -247,6 +240,36 @@ export function ProviderManagement() {
 
       {/* Provider list */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {/* Add Provider quick-actions */}
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-[9px] text-foreground/30 uppercase tracking-wider mr-1">Schnell hinzufügen:</span>
+          {['OpenAI', 'Anthropic', 'DeepSeek', 'Mistral', 'Cohere', 'Perplexity', 'Groq'].map(name => {
+            const exists = providers.some(p => p.provider_type === name.toLowerCase())
+            return (
+              <button key={name}
+                onClick={() => {
+                  if (exists) return
+                  setProviders(prev => [...prev, {
+                    id: name.toLowerCase(), provider_type: name.toLowerCase(), display_name: name,
+                    enabled: false, api_keys: [], base_url: '', usage_categories: ['chat'],
+                    total_tokens_used: 0, total_cost: 0, is_available: false,
+                    last_checked: new Date().toISOString(),
+                    models: [{ id: 'default', name: 'Default', enabled: true, max_tokens: 4096,
+                      cost_per_1k_input: 0, cost_per_1k_output: 0, categories: ['chat'],
+                      tokens_used: 0, cost_incurred: 0 }],
+                  }])
+                }}
+                className={`px-2 py-0.5 rounded-full text-[9px] font-medium border transition-all ${
+                  exists ? 'border-green-500/20 bg-green-500/5 text-green-400/60 cursor-default' :
+                  'border-foreground/8 bg-foreground/[0.02] text-foreground/30 hover:border-accent/30 hover:text-accent hover:bg-accent/5'
+                }`}
+              >
+                {exists ? `${name} (+)` : `+ ${name}`}
+              </button>
+            )
+          })}
+        </div>
+
         <AnimatePresence mode="popLayout">
           {providers.map(provider => {
             const isExpanded = expandedProvider === provider.id

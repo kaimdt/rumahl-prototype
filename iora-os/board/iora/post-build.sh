@@ -992,6 +992,10 @@ EOF
 ln -sf /etc/systemd/system/iora-data-unlock.service \
     "${TARGET_DIR}/etc/systemd/system/local-fs.target.wants/iora-data-unlock.service"
 
+# Enable iora-assist (AI & Agent Service) — starts after iora-home
+ln -sf /etc/systemd/system/iora-assist.service \
+    "${TARGET_DIR}/etc/systemd/system/multi-user.target.wants/iora-assist.service"
+
 # Auto-mount data partition at /mnt/data.
 # `nofail` is critical: on a freshly-dd'd disk, in VMs where the iora-data
 # label is not present yet, or when the installer hasn't run, a missing

@@ -777,6 +777,8 @@ interface SettingsPageProps {
   setProfileDisplayName: (v: string) => void
   saveUserProfile: () => void
   // Design
+  aiEnabled: boolean
+  setAiEnabled: (v: boolean) => void
   accentColorSettings: {
     accentColor: string
     extractedPalette: string[]
@@ -1132,6 +1134,12 @@ export function SettingsPage(props: SettingsPageProps) {
                 checked={deviceLockMode}
                 onCheckedChange={updateDeviceLockMode}
                 disabled={lockLoading}
+              />
+              <ToggleRow
+                label="AI & Agent deaktivieren"
+                description="Schaltet ORA AI, Pi.dev Agent und alle KI-Funktionen aus"
+                checked={!props.aiEnabled}
+                onCheckedChange={(v) => props.setAiEnabled(!v)}
               />
             </div>
           </SettingsSection>

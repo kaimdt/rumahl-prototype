@@ -160,6 +160,7 @@ function DashboardContent() {
   const [pinHash, setPinHash] = useState<string | null>(null)
   const [unlockPinInput, setUnlockPinInput] = useState('')
   const [showUnlockDialog, setShowUnlockDialog] = useState(false)
+  const [aiEnabled, setAiEnabled] = useLocalStorage('ha-ai-enabled', true)
   const lastEvalRef = useRef(0)
   const hasActiveCustomBackground = Boolean(background?.is_active)
 
@@ -623,6 +624,8 @@ function DashboardContent() {
                       profileDisplayName={profileDisplayName}
                       setProfileDisplayName={setProfileDisplayName}
                       saveUserProfile={saveUserProfile}
+                      aiEnabled={aiEnabled}
+                      setAiEnabled={setAiEnabled}
                       accentColorSettings={accentColorSettings}
                       glassSettings={glassSettings}
                       nightModeSettings={nightModeSettings}
@@ -898,7 +901,7 @@ function DashboardContent() {
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
       <ORAAssistant />
-      <CodingAgent />
+      {aiEnabled && <CodingAgent />}
     </>
   )
 }

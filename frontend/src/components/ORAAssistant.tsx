@@ -661,7 +661,7 @@ export function ORAAssistant() {
 
       {/* Chat Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="sm:max-w-[550px] h-[700px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10">
+        <DialogContent className="sm:max-w-[550px] h-[700px] p-0 gap-0 flex flex-col bg-card/95 backdrop-blur-2xl border-foreground/10 overflow-hidden">
           {/* Header */}
           <div
             className="relative px-6 py-4 border-b border-foreground/10"
