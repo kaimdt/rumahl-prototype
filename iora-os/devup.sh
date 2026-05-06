@@ -229,8 +229,22 @@ get_changed_svcs() {
 #  DOCKER BUILD
 # ═══════════════════════════════════════════════════════════════════════════════
 detect_target_arch() {
-  local t; t="$(cat "${SCRIPT_DIR}/.setup-target" 2>/dev/null || echo pc)"
-  case "$t" in rpi3|rpi4|rpi5|generic-arm64) echo "aarch64" ;; *) uname -m ;; esac
+  # 1. Versuche vom Device die Architektur zu ermitteln
+  if [ -n "${HOST:-}" ] && [ -n "${TOKEN:-}" ]; then
+    local devinfo
+    devinfo="$(_device_call GET "/dev/system/info" "" 2>/dev/null)" || true
+    if is_json "$devinfo"; then
+      local arch; arch="$(echo "$devinfo" | jq -r '.arch // ""')"
+      if [ -n "$arch" ] && [ "$arch" != "null" ]; then
+        echo "$arch"; return
+      fi
+    fi
+  fi
+  # 2. Fallback: lokale .setup-target Datei (von setup.sh)
+  local t; t="$(cat "${SCRIPT_DIR}/.setup-target" 2>/dev/null || echo "")"
+  case "$t" in rpi3|rpi4|rpi5|generic-arm64) echo "aarch64"; return ;; esac
+  # 3. Letzter Fallback: lokale Architektur
+  uname -m
 }
 
 docker_build_one() {
@@ -310,25 +324,31 @@ DOCKERNATIVE
     rm -f "${BUILD_LOG_DIR}/Dockerfile.native-${svc}"
   fi
 
-  # Extraktion
-  docker create --name "iora-devup-ext-${svc}" "$tag" >/dev/null 2>&1 || {
-    error "  ${svc}: Container-Erstellung fehlgeschlagen"; docker image rm -f "$tag" >/dev/null 2>&1; return 1
-  }
+  # Extraktion: Binary aus dem Image holen (docker exec geht nicht auf stopped container!)
+  local bin_path="${BUILD_LOG_DIR}/${svc}"
   local cb=""
+  # Verwende docker run --rm zum Inspizieren (nicht docker create + exec)
   for cand in "/out/${svc}" "/app/backend/target/release/${svc}" \
     "/app/backend/target/aarch64-unknown-linux-gnu/release/${svc}" \
     "/app/backend/target/x86_64-unknown-linux-musl/release/${svc}"; do
-    if docker exec "iora-devup-ext-${svc}" test -f "$cand" 2>/dev/null; then cb="$cand"; break; fi
+    if docker run --rm --entrypoint "/bin/sh" "$tag" -c "test -f '$cand'" 2>/dev/null; then
+      cb="$cand"; break
+    fi
   done
+
   if [ -z "$cb" ]; then
-    error "  ${svc}: Binary nicht im Container gefunden (Pfade erfolglos durchsucht)"
-    warn "  Container-Inhalt /out/:"
-    docker exec "iora-devup-ext-${svc}" ls -la /out/ 2>/dev/null || echo "    (leer)"
-    docker rm -f "iora-devup-ext-${svc}" >/dev/null 2>&1
+    error "  ${svc}: Binary nicht im Container gefunden"
+    warn "  Inhalt /out/:"
+    docker run --rm --entrypoint "/bin/sh" "$tag" -c "ls -la /out/" 2>/dev/null || echo "    (leer oder Pfad nicht lesbar)"
+    warn "  Suche nach ${svc} im Image:"
+    docker run --rm --entrypoint "/bin/sh" "$tag" -c "find / -name '${svc}' -type f" 2>/dev/null | head -5 || echo "    (nichts gefunden)"
     docker image rm -f "$tag" >/dev/null 2>&1; return 1
   fi
-  docker cp "iora-devup-ext-${svc}:${cb}" "$bin_path" 2>/dev/null
-  docker rm -f "iora-devup-ext-${svc}" >/dev/null 2>&1
+
+  # Binary kopieren (docker cp funktioniert mit docker create)
+  local cid; cid=$(docker create "$tag" 2>/dev/null) || { error "  ${svc}: Container-Erstellung fehlgeschlagen"; docker image rm -f "$tag" >/dev/null 2>&1; return 1; }
+  docker cp "${cid}:${cb}" "$bin_path" 2>/dev/null
+  docker rm -f "$cid" >/dev/null 2>&1
   docker image rm -f "$tag" >/dev/null 2>&1
 
   if [ ! -f "$bin_path" ] || [ ! -s "$bin_path" ]; then
@@ -818,6 +838,7 @@ ${BOLD}CLI-Optionen:${N}
   --status              Device-Status anzeigen
   --list                Services auflisten
   --self-update         iora-dev-bridge selbst updaten
+  --clean              Alle lokalen Docker-Images & Build-Artefakte löschen
   --save                Config speichern
   --help                Diese Hilfe
 
@@ -844,6 +865,7 @@ cli_main() {
       --status) MODE="status"; shift ;;
       --list) MODE="list"; shift ;;
       --self-update) MODE="selfupdate"; shift ;;
+      --clean) MODE="clean"; shift ;;
       --save) MODE="save"; shift ;;
       --help|-h) cli_usage ;;
       *) error "Unbekannt: $1"; cli_usage ;;
@@ -897,6 +919,34 @@ IORA_DEVUP_HOST="${HOST}"
 IORA_DEVUP_TOKEN="${TOKEN}"
 EOF
       chmod 600 "$CONFIG_FILE"; success "Gespeichert: $CONFIG_FILE"
+      ;;
+    clean)
+      echo -e "${BOLD}═══ Cleanup: Docker-Images & Build-Artefakte ═══${N}"
+      echo ""
+      # Docker-Images mit iora-devup-Tag
+      local imgs; imgs=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep 'iora-devup-' || true)
+      if [ -n "$imgs" ]; then
+        echo "$imgs" | while read -r img; do
+          info "Entferne: $img"
+          docker image rm -f "$img" >/dev/null 2>&1 || true
+        done
+        echo ""
+      fi
+      # Hängende Container
+      local cons; cons=$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep 'iora-devup-' || true)
+      if [ -n "$cons" ]; then
+        echo "$cons" | while read -r c; do
+          info "Entferne Container: $c"
+          docker rm -f "$c" >/dev/null 2>&1 || true
+        done
+        echo ""
+      fi
+      # Build-Logs & Temp-Dateien
+      rm -rf "${BUILD_LOG_DIR}" 2>/dev/null || true
+      rm -f /tmp/iora-devup-* 2>/dev/null || true
+      # Docker BuildKit Cache
+      docker builder prune -f --filter "label=iora-devup" 2>/dev/null || true
+      success "Cleanup abgeschlossen"
       ;;
     deploy|all)
       [ -z "${HOST:-}" ] && { error "--host benötigt"; exit 1; }
