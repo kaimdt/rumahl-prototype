@@ -268,25 +268,34 @@ DOCKEREOF
     fi
     rm -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}"
   else
-    # Native via Dockerfile (Alpine/musl, glibc-sicher)
-    info "  ${svc}: Docker (Alpine/musl)..."
-    if ! DOCKER_BUILDKIT=1 docker build --progress=plain --target builder -t "$tag" \
-      -f "$DOCKERFILE" "$BACKEND_DIR" >> "$logfile" 2>&1; then
-      error "  ${svc}: Docker-Build fehlgeschlagen"; _show_build_error "$logfile" "$svc"
-      docker image rm -f "$tag" >/dev/null 2>&1; return 1
-    fi
+    # Native Build: Inline-Dockerfile für EINEN Service (vermeidet Cache-Probleme
+    # des Projekt-Dockerfiles, das ALLE Services in einem RUN baut)
+    info "  ${svc}: Docker (Alpine, Einzel-Build)..."
 
-    # Prüfe ob /out/ das Binary enthält (Dockerfile kann trotz exit 0 leer sein)
-    if ! docker create --name "iora-devup-chk-${svc}" "$tag" >/dev/null 2>&1; then
-      error "  ${svc}: Kann Image nicht inspizieren"; docker image rm -f "$tag" >/dev/null 2>&1; return 1
-    fi
-    if ! docker exec "iora-devup-chk-${svc}" test -f "/out/${svc}" 2>/dev/null; then
-      warn "  ${svc}: /out/${svc} fehlt – cargo-Fehler im Build?"
+    cat > "${BUILD_LOG_DIR}/Dockerfile.native-${svc}" <<DOCKERNATIVE
+FROM rust:1.90-alpine
+RUN apk add --no-cache musl-dev gcc g++ make openssl-dev openssl-libs-static \\
+    pkgconfig postgresql-dev perl cmake git curl
+WORKDIR /app/backend
+COPY . .
+ARG SVC
+RUN cargo build --release -p \${SVC} && \\
+    mkdir -p /out && \\
+    (cp target/release/\${SVC} /out/\${SVC} 2>/dev/null || \\
+     cp target/x86_64-unknown-linux-musl/release/\${SVC} /out/\${SVC} 2>/dev/null || \\
+     (echo "ERROR: binary not found after build" && find target -name \${SVC} -type f && exit 1))
+DOCKERNATIVE
+
+    if ! docker build --build-arg "SVC=${svc}" -t "$tag" \
+      -f "${BUILD_LOG_DIR}/Dockerfile.native-${svc}" \
+      "$BACKEND_DIR" >> "$logfile" 2>&1; then
+      error "  ${svc}: Build fehlgeschlagen"
       _show_build_error "$logfile" "$svc"
-      docker rm -f "iora-devup-chk-${svc}" >/dev/null 2>&1
-      docker image rm -f "$tag" >/dev/null 2>&1; return 1
+      docker image rm -f "$tag" >/dev/null 2>&1 || true
+      rm -f "${BUILD_LOG_DIR}/Dockerfile.native-${svc}"
+      return 1
     fi
-    docker rm -f "iora-devup-chk-${svc}" >/dev/null 2>&1
+    rm -f "${BUILD_LOG_DIR}/Dockerfile.native-${svc}"
   fi
 
   # Extraktion
