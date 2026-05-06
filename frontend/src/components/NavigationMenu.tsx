@@ -8,6 +8,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { getBackendUrl } from '@/lib/config'
 import { UserSwitcher } from '@/components/UserSwitcher'
 import { NotificationBell } from '@/components/NotificationCenter'
+import { WarningDetailModal } from '@/components/NotificationCenter'
 import { useNotifications } from '@/contexts/NotificationContext'
 import { useLocalStorage } from '@/lib/storage'
 import { Tip } from '@/components/ui/tip'
@@ -43,6 +44,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
   const [expandedParent, setExpandedParent] = useState<string | null>(null)
   const [showUserSwitcher, setShowUserSwitcher] = useState(false)
   const [showAppMenu, setShowAppMenu] = useState(false)
+  const [showNotifDetail, setShowNotifDetail] = useState(false)
   const subMenuRef = useRef<HTMLDivElement>(null)
   const appMenuRef = useRef<HTMLDivElement>(null)
   const [navLabels] = useLocalStorage('ha-nav-labels', true)
@@ -181,21 +183,6 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
             )}
           </AnimatePresence>
 
-          {/* Progress bar */}
-          <AnimatePresence>
-            {showingNotification && latestNotification && (
-              <motion.div
-                key={`progress-${latestNotification.id}`}
-                className="absolute bottom-0 left-0 h-[2px] bg-white/25 z-10"
-                style={{ borderRadius: 'inherit' }}
-                initial={{ width: '100%' }}
-                animate={{ width: '0%' }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 60, ease: 'linear' }}
-              />
-            )}
-          </AnimatePresence>
-
           {/* Content: notification on top + nav controls always at bottom */}
           <div className="relative z-[1] flex flex-col">
             {/* ── Notification section: expands above controls ── */}
@@ -209,7 +196,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
                   transition={{ type: 'spring', stiffness: 300, damping: 24, bounce: 0.2 }}
                   className="overflow-hidden"
                 >
-                  <div className="px-5 pt-3.5 pb-2 flex items-center gap-3 min-w-[340px]">
+                  <div className="px-5 pt-3.5 pb-1.5 flex items-center gap-3 min-w-[340px]">
                     {/* Icon */}
                     <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
                       {(latestNotification.level === 'critical' || latestNotification.level === 'emergency') ? (
@@ -232,13 +219,35 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
                       )}
                     </div>
 
-                    {/* Dismiss */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); dismissLatestNotification() }}
-                      className="p-1.5 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors flex-shrink-0"
-                    >
-                      <X size={14} />
-                    </button>
+                    {/* Actions */}
+                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                      <Tip content="Mehr Informationen">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShowNotifDetail(true) }}
+                          className="p-1.5 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+                        >
+                          <Info size={14} />
+                        </button>
+                      </Tip>
+                      <Tip content="Schließen">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); dismissLatestNotification() }}
+                          className="p-1.5 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </Tip>
+                    </div>
+                  </div>
+                  {/* Progress bar inside notification section */}
+                  <div className="mx-5 h-[2px] bg-white/10 rounded-full overflow-hidden">
+                    <motion.div
+                      key={`progress-${latestNotification.id}`}
+                      className="h-full bg-white/25"
+                      initial={{ width: '100%' }}
+                      animate={{ width: '0%' }}
+                      transition={{ duration: 60, ease: 'linear' }}
+                    />
                   </div>
                   {/* Subtle separator */}
                   <div className="mx-3 h-px bg-white/10" />
@@ -717,6 +726,20 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
           <UserSwitcher open={showUserSwitcher} onClose={() => setShowUserSwitcher(false)} />
         )}
       </AnimatePresence>
+
+      {/* Notification Detail Modal */}
+      <WarningDetailModal
+        open={showNotifDetail}
+        onClose={() => setShowNotifDetail(false)}
+        warning={latestNotification ? {
+          title: latestNotification.title,
+          message: latestNotification.message,
+          level: latestNotification.level,
+          source: latestNotification.source,
+          entity_id: latestNotification.entity_id,
+          timestamp: latestNotification.created_at,
+        } : null}
+      />
     </>
   )
 }

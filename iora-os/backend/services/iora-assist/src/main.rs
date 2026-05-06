@@ -865,6 +865,20 @@ async fn get_providers(State(state): State<AppState>) -> Json<serde_json::Value>
                 "requires_api_key": false,
                 "description": "pi.dev endpoint via OpenAI-compatible API or webhook-backed integration.",
             },
+            {
+                "name": "IORA STT (faster-whisper)",
+                "id": "iora_stt",
+                "capabilities": ["stt", "models"],
+                "requires_api_key": false,
+                "description": "Local Speech-to-Text via faster-whisper. Runs as a separate microservice on port 8110.",
+            },
+            {
+                "name": "IORA TTS (Kokoro)",
+                "id": "iora_tts",
+                "capabilities": ["tts", "models"],
+                "requires_api_key": false,
+                "description": "Local Text-to-Speech via Kokoro ONNX. Runs as a separate microservice on port 8111.",
+            },
         ],
         "configured_providers": configured_providers,
     }))
@@ -1023,6 +1037,294 @@ async fn synthesize_speech(
                 ))
                 .unwrap()
         }
+    }
+}
+
+// ─── Dedicated Local STT/TTS Handlers ───────────────────────────────────
+// These always use the local IORA STT/TTS microservices regardless of
+// which chat AI provider is currently active.
+
+/// Transcribe audio using the local IORA STT (faster-whisper) service.
+/// Falls back to the current provider if STT service is not available.
+async fn transcribe_local(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    // Try the dedicated IORA STT provider first
+    let stt_provider = {
+        let providers = state.orchestrator.list_providers().await;
+        if providers.iter().any(|p| p == "iora_stt") {
+            let stt_config = ProviderConfig {
+                base_url: Some(iora_shared::system_config::stt_service_url()),
+                ..Default::default()
+            };
+            Some(providers::create_provider(providers::ProviderType::IoraStt, stt_config))
+        } else {
+            None
+        }
+    };
+
+    // Parse multipart form data
+    let mut audio_data = None;
+    let mut format = "webm".to_string();
+    let mut language: Option<String> = None;
+
+    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "audio" => {
+                if let Ok(data) = field.bytes().await {
+                    audio_data = Some(data.to_vec());
+                }
+            }
+            "format" => {
+                if let Ok(f) = field.text().await {
+                    format = f;
+                }
+            }
+            "language" => {
+                if let Ok(l) = field.text().await {
+                    language = Some(l);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let audio_data = match audio_data {
+        Some(data) => data,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Missing audio data",
+                    "message": "No audio file uploaded",
+                })),
+            );
+        }
+    };
+
+    if let Some(ref stt) = stt_provider {
+        if stt.is_available().await {
+            match stt.transcribe_audio(audio_data.clone(), &format).await {
+                Ok(transcription) => {
+                    return (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "text": transcription.text,
+                            "language": transcription.language,
+                            "duration": transcription.duration,
+                            "provider": stt.name(),
+                            "engine": "faster-whisper",
+                        })),
+                    );
+                }
+                Err(e) => {
+                    error!("Local STT transcription error: {}", e);
+                }
+            }
+        }
+    }
+
+    // Fall back to current provider
+    let provider = state.current_provider.read().await;
+    if !provider.is_available().await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "No STT service available",
+                "message": "Neither local IORA STT nor current AI provider are available.",
+            })),
+        );
+    }
+
+    match provider.transcribe_audio(audio_data, &format).await {
+        Ok(transcription) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "text": transcription.text,
+                "language": transcription.language,
+                "duration": transcription.duration,
+                "provider": provider.name(),
+            })),
+        ),
+        Err(e) => {
+            error!("Transcription error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Transcription failed",
+                    "details": e.to_string(),
+                })),
+            )
+        }
+    }
+}
+
+/// Synthesize speech using the local IORA TTS (Kokoro) service.
+/// Falls back to the current provider if TTS service is not available.
+#[derive(Debug, Deserialize)]
+struct LocalSynthesizeRequest {
+    text: String,
+    voice: Option<String>,
+    speed: Option<f32>,
+    lang: Option<String>,
+}
+
+async fn synthesize_local(
+    State(state): State<AppState>,
+    Json(req): Json<LocalSynthesizeRequest>,
+) -> impl IntoResponse {
+    // Try the dedicated IORA TTS provider first
+    let tts_provider = {
+        let providers = state.orchestrator.list_providers().await;
+        if providers.iter().any(|p| p == "iora_tts") {
+            let tts_config = ProviderConfig {
+                base_url: Some(iora_shared::system_config::tts_service_url()),
+                model: req.voice.clone(),
+                api_version: req.lang.clone(),
+                ..Default::default()
+            };
+            Some(providers::create_provider(providers::ProviderType::IoraTts, tts_config))
+        } else {
+            None
+        }
+    };
+
+    if let Some(ref tts) = tts_provider {
+        if tts.is_available().await {
+            match tts.synthesize_speech(&req.text, req.voice.as_deref()).await {
+                Ok(synthesis) => {
+                    let content_type = match synthesis.format.as_str() {
+                        "mp3" => "audio/mpeg",
+                        "wav" => "audio/wav",
+                        "ogg" => "audio/ogg",
+                        _ => "audio/wav",
+                    };
+
+                    let mut builder = Response::builder()
+                        .status(StatusCode::OK)
+                        .header(header::CONTENT_TYPE, content_type)
+                        .header(
+                            header::CONTENT_DISPOSITION,
+                            format!("attachment; filename=\"speech.{}\"", synthesis.format),
+                        );
+
+                    if let Some(dur) = synthesis.duration {
+                        builder = builder.header("X-Audio-Duration", dur.to_string());
+                    }
+
+                    return builder
+                        .header("X-TTS-Engine", "kokoro")
+                        .body(Body::from(synthesis.audio_data))
+                        .unwrap();
+                }
+                Err(e) => {
+                    error!("Local TTS synthesis error: {}", e);
+                }
+            }
+        }
+    }
+
+    // Fall back to current provider
+    let provider = state.current_provider.read().await;
+    if !provider.is_available().await {
+        return Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "error": "No TTS service available",
+                    "message": "Neither local IORA TTS nor current AI provider are available.",
+                }).to_string(),
+            ))
+            .unwrap();
+    }
+
+    match provider.synthesize_speech(&req.text, req.voice.as_deref()).await {
+        Ok(synthesis) => {
+            let content_type = match synthesis.format.as_str() {
+                "mp3" => "audio/mpeg",
+                "wav" => "audio/wav",
+                "ogg" => "audio/ogg",
+                _ => "audio/mpeg",
+            };
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"speech.{}\"", synthesis.format),
+                )
+                .body(Body::from(synthesis.audio_data))
+                .unwrap()
+        }
+        Err(e) => {
+            error!("Speech synthesis error: {}", e);
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "error": "Speech synthesis failed",
+                        "details": e.to_string(),
+                    }).to_string(),
+                ))
+                .unwrap()
+        }
+    }
+}
+
+/// List available STT models (faster-whisper).
+async fn list_stt_models(State(state): State<AppState>) -> impl IntoResponse {
+    let stt_config = ProviderConfig {
+        base_url: Some(iora_shared::system_config::stt_service_url()),
+        ..Default::default()
+    };
+    let stt = providers::create_provider(providers::ProviderType::IoraStt, stt_config);
+
+    match stt.list_models().await {
+        Ok(models) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "models": models,
+                "provider": stt.name(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "STT models endpoint unavailable",
+                "details": e.to_string(),
+            })),
+        ),
+    }
+}
+
+/// List available TTS voices (Kokoro).
+async fn list_tts_voices(State(state): State<AppState>) -> impl IntoResponse {
+    let tts_config = ProviderConfig {
+        base_url: Some(iora_shared::system_config::tts_service_url()),
+        ..Default::default()
+    };
+    let tts = providers::create_provider(providers::ProviderType::IoraTts, tts_config);
+
+    match tts.list_models().await {
+        Ok(voices) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "voices": voices,
+                "provider": tts.name(),
+            })),
+        ),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "TTS voices endpoint unavailable",
+                "details": e.to_string(),
+            })),
+        ),
     }
 }
 
@@ -4925,6 +5227,34 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // ─── Auto-register IORA STT (faster-whisper) ───────────────────────
+    let stt_url = iora_shared::system_config::stt_service_url();
+    let stt_config = ProviderConfig {
+        base_url: Some(stt_url.clone()),
+        ..Default::default()
+    };
+    let stt_provider = providers::create_provider(providers::ProviderType::IoraStt, stt_config);
+    if stt_provider.is_available().await {
+        orchestrator.register_provider("iora_stt".to_string(), stt_provider).await;
+        info!("IORA STT (faster-whisper) registered at {}", stt_url);
+    } else {
+        info!("IORA STT not available at {} – skipping", stt_url);
+    }
+
+    // ─── Auto-register IORA TTS (Kokoro) ───────────────────────────────
+    let tts_url = iora_shared::system_config::tts_service_url();
+    let tts_config = ProviderConfig {
+        base_url: Some(tts_url.clone()),
+        ..Default::default()
+    };
+    let tts_provider = providers::create_provider(providers::ProviderType::IoraTts, tts_config);
+    if tts_provider.is_available().await {
+        orchestrator.register_provider("iora_tts".to_string(), tts_provider).await;
+        info!("IORA TTS (Kokoro) registered at {}", tts_url);
+    } else {
+        info!("IORA TTS not available at {} – skipping", tts_url);
+    }
+
     // Initialize task engine if database is available
     let task_engine = if let Some(ref db_pool) = db {
         let engine = Arc::new(TaskEngine::new(db_pool.clone(), orchestrator.clone()));
@@ -5170,6 +5500,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/providers/switch", post(switch_provider))
         .route("/api/assist/voice/transcribe", post(transcribe_audio))
         .route("/api/assist/voice/synthesize", post(synthesize_speech))
+        .route("/api/assist/voice/stt", post(transcribe_local))
+        .route("/api/assist/voice/tts", post(synthesize_local))
+        .route("/api/assist/voice/stt/models", get(list_stt_models))
+        .route("/api/assist/voice/tts/voices", get(list_tts_voices))
         .route("/api/assist/entities/discover", get(discover_entities))
         .route("/api/assist/automations/suggestions", get(get_automation_suggestions))
         .route("/api/assist/context", get(get_smart_home_context))

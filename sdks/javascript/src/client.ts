@@ -663,4 +663,135 @@ export default class IoraClient {
       return this.request('GET', '/api/core/sandbox/status');
     },
   };
+
+  /**
+   * Voice & STT/TTS API
+   *
+   * Speech-to-Text via IORA STT (faster-whisper) and Text-to-Speech via IORA TTS (Kokoro).
+   * The assistBase URL is used to reach the iora-assist service.
+   */
+  voice = {
+    /**
+     * Transcribe audio to text using local IORA STT (faster-whisper).
+     * Falls back to the current AI provider if STT service is unavailable.
+     *
+     * @param audioBlob - Audio blob (WebM, WAV, MP3, etc.)
+     * @param language - Optional language hint (e.g. 'en', 'de')
+     * @returns Transcription result with text, language, and duration
+     */
+    transcribe: async (audioBlob: Blob, language?: string): Promise<{
+      text: string;
+      language: string | null;
+      duration: number | null;
+      provider: string;
+      engine?: string;
+    }> => {
+      const formData = new FormData();
+      // Determine format from blob MIME type
+      const mimeToExt: Record<string, string> = {
+        'audio/webm': 'webm',
+        'audio/wav': 'wav',
+        'audio/wave': 'wav',
+        'audio/mpeg': 'mp3',
+        'audio/mp3': 'mp3',
+        'audio/ogg': 'ogg',
+        'audio/flac': 'flac',
+        'audio/x-m4a': 'm4a',
+        'audio/mp4': 'm4a',
+      };
+      const ext = mimeToExt[audioBlob.type] || 'webm';
+
+      formData.append('audio', audioBlob, `recording.${ext}`);
+      formData.append('format', ext);
+      if (language) {
+        formData.append('language', language);
+      }
+
+      const response = await fetch(`${this.baseUrl}/api/assist/voice/stt`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`STT Error (${response.status}): ${error}`);
+      }
+
+      return response.json();
+    },
+
+    /**
+     * Synthesize speech from text using local IORA TTS (Kokoro).
+     * Falls back to the current AI provider if TTS service is unavailable.
+     *
+     * @param text - Text to synthesize
+     * @param voice - Voice ID (e.g. 'af_nicole', 'am_adam', 'bf_emma')
+     * @param lang - Language code (e.g. 'en-us', 'de', 'fr-fr')
+     * @param speed - Playback speed (0.5 - 2.0)
+     * @returns Audio blob with WAV data
+     */
+    synthesize: async (
+      text: string,
+      voice?: string,
+      lang?: string,
+      speed?: number,
+    ): Promise<{ audioBlob: Blob; format: string; duration?: number; engine?: string }> => {
+      const response = await fetch(`${this.baseUrl}/api/assist/voice/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice, lang, speed }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`TTS Error (${response.status}): ${error}`);
+      }
+
+      const audioBlob = await response.blob();
+      const contentType = response.headers.get('Content-Type') || 'audio/wav';
+      const format = contentType.includes('wav') ? 'wav' :
+                     contentType.includes('mpeg') ? 'mp3' :
+                     contentType.includes('ogg') ? 'ogg' : 'wav';
+      const duration = parseFloat(response.headers.get('X-Audio-Duration') || '') || undefined;
+      const engine = response.headers.get('X-TTS-Engine') || undefined;
+
+      return { audioBlob, format, duration, engine };
+    },
+
+    /**
+     * List available STT models (faster-whisper model sizes).
+     */
+    listSttModels: async (): Promise<{ models: Array<{ id: string; name: string; provider: string }>; provider: string }> => {
+      return this.request('GET', '/api/assist/voice/stt/models');
+    },
+
+    /**
+     * List available TTS voices (Kokoro voices).
+     */
+    listTtsVoices: async (): Promise<{ voices: Array<{ id: string; name: string; provider: string }>; provider: string }> => {
+      return this.request('GET', '/api/assist/voice/tts/voices');
+    },
+
+    /**
+     * Convenience: synthesize and play audio via the browser's Audio API.
+     *
+     * @returns Promise that resolves when playback starts
+     */
+    speak: async (
+      text: string,
+      voice?: string,
+      lang?: string,
+      speed?: number,
+    ): Promise<void> => {
+      const { audioBlob } = await this.voice.synthesize(text, voice, lang, speed);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      return new Promise((resolve, reject) => {
+        audio.oncanplaythrough = () => {
+          audio.play().then(resolve).catch(reject);
+        };
+        audio.onerror = () => reject(new Error('Audio playback failed'));
+      });
+    },
+  };
 }

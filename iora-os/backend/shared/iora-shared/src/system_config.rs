@@ -49,6 +49,8 @@ const DEFAULT_PORTS: &[(&str, u16)] = &[
     ("iora-updater", 8106),
     ("iora-backup", 8107),
     ("iora-nginx", 8108),
+    ("iora-stt", 8110),
+    ("iora-tts", 8111),
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -374,6 +376,16 @@ pub fn postgres_admin_url() -> Option<String> {
 
 pub fn backup_service_url() -> String {
     env_or("BACKUP_SERVICE_URL", "http://localhost:8107")
+}
+
+/// STT (faster-whisper) service URL.
+pub fn stt_service_url() -> String {
+    env_or("IORA_STT_URL", "http://localhost:8110")
+}
+
+/// TTS (Kokoro) service URL.
+pub fn tts_service_url() -> String {
+    env_or("IORA_TTS_URL", "http://localhost:8111")
 }
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -109,3 +109,32 @@ export interface IframeMessage {
 }
 
 export type EventHandler = (event: IoraEvent) => void;
+
+// ─── Voice / STT / TTS Types ───────────────────────────────────────────────
+
+export interface SttTranscriptionResult {
+  text: string;
+  language: string | null;
+  duration: number | null;
+  provider: string;
+  engine?: string;  // 'faster-whisper' when using local STT
+}
+
+export interface TtsSynthesisResult {
+  audioBlob: Blob;
+  format: string;    // 'wav', 'mp3', 'ogg'
+  duration?: number;
+  engine?: string;   // 'kokoro' when using local TTS
+}
+
+export interface SttModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export interface TtsVoice {
+  id: string;
+  name: string;
+  provider: string;
+}

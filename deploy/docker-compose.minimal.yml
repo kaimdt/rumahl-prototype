@@ -122,6 +122,54 @@ networks:
       config:
         - subnet: 172.20.0.0/16
 
+  # ─── Optional: IORA STT (faster-whisper) ────────────────────────────
+  iora-stt:
+    image: ghcr.io/iora-os/iora-stt:latest
+    container_name: iora-stt
+    build:
+      context: ../iora-os/backend/services/iora-stt
+    environment:
+      IORA_STT_PORT: "8110"
+      IORA_STT_MODEL: ${IORA_STT_MODEL:-base}
+      IORA_STT_DEVICE: ${IORA_STT_DEVICE:-cpu}
+    ports:
+      - "${IORA_STT_PORT:-8110}:8110"
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - voice
+    labels:
+      iora.managed: "true"
+      iora.service: "iora-stt"
+
+  # ─── Optional: IORA TTS (Kokoro ONNX) ───────────────────────────────
+  iora-tts:
+    image: ghcr.io/iora-os/iora-tts:latest
+    container_name: iora-tts
+    build:
+      context: ../iora-os/backend/services/iora-tts
+    environment:
+      IORA_TTS_PORT: "8111"
+      IORA_TTS_VOICE: ${IORA_TTS_VOICE:-af_nicole}
+      IORA_TTS_LANG: ${IORA_TTS_LANG:-en-us}
+      IORA_TTS_MODEL_PATH: /models/kokoro-v1.0.onnx
+      IORA_TTS_VOICES_PATH: /models/voices-v1.0.bin
+    ports:
+      - "${IORA_TTS_PORT:-8111}:8111"
+    volumes:
+      - tts_models:/models
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - voice
+    labels:
+      iora.managed: "true"
+      iora.service: "iora-tts"
+
 volumes:
   postgres_data:
+    driver: local
+  tts_models:
     driver: local

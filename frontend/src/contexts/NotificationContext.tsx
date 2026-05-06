@@ -181,6 +181,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const dismissLatestNotification = useCallback(() => {
+    if (latestTimerRef.current) {
+      clearTimeout(latestTimerRef.current)
+      latestTimerRef.current = null
+    }
     setLatestNotification(null)
   }, [])
 

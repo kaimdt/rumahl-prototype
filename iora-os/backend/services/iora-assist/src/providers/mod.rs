@@ -7,6 +7,8 @@ pub mod local;
 pub mod desktop;
 pub mod pidev;
 pub mod cloud;
+pub mod iora_stt;
+pub mod iora_tts;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -105,6 +107,8 @@ pub enum ProviderType {
     Fireworks,
     Perplexity,
     CloudCustom,
+    IoraStt,
+    IoraTts,
 }
 
 impl ProviderType {
@@ -124,6 +128,8 @@ impl ProviderType {
             Self::Fireworks => "fireworks",
             Self::Perplexity => "perplexity",
             Self::CloudCustom => "cloud_custom",
+            Self::IoraStt => "iora_stt",
+            Self::IoraTts => "iora_tts",
         }
     }
 }
@@ -144,6 +150,8 @@ pub fn provider_type_from_str(value: &str) -> Option<ProviderType> {
         "fireworks" | "fireworks-ai" | "fireworks_ai" => Some(ProviderType::Fireworks),
         "perplexity" | "perplexity-ai" | "perplexity_ai" => Some(ProviderType::Perplexity),
         "cloud_custom" | "cloud-custom" => Some(ProviderType::CloudCustom),
+        "iora_stt" | "iora-stt" | "faster-whisper" | "faster_whisper" => Some(ProviderType::IoraStt),
+        "iora_tts" | "iora-tts" | "kokoro" => Some(ProviderType::IoraTts),
         _ => None,
     }
 }
@@ -167,6 +175,8 @@ pub fn create_provider(
         ProviderType::Fireworks => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Fireworks, config)),
         ProviderType::Perplexity => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Perplexity, config)),
         ProviderType::CloudCustom => Box::new(cloud::CloudAIProvider::new(cloud::CloudProviderType::Custom, config)),
+        ProviderType::IoraStt => Box::new(iora_stt::IoraSttProvider::new(config)),
+        ProviderType::IoraTts => Box::new(iora_tts::IoraTtsProvider::new(config)),
     }
 }
 

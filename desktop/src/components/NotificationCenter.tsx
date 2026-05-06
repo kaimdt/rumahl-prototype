@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bell, X, Check, Trash, Warning, Siren, CloudWarning, Info, ShieldWarning, Megaphone, CaretDown, CaretUp } from '@phosphor-icons/react'
+import { Bell, X, Check, Trash, Warning, Siren, CloudWarning, Info, ShieldWarning, Megaphone, CaretDown, CaretUp, Clock, IdentificationBadge } from '@phosphor-icons/react'
 import { useNotifications, type Notification, type EmergencyAlert } from '@/contexts/NotificationContext'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useEntityStore } from '@/hooks/useEntityStore'
 import { wsOnMessage } from '@/lib/wsConnection'
 import type { EntityState } from '@/lib/types'
@@ -288,6 +289,7 @@ function NotificationItem({
 
 export function EmergencyNavbarBar() {
   const { emergencyAlert, dismissEmergencyAlert } = useNotifications()
+  const [showDetail, setShowDetail] = useState(false)
 
   if (!emergencyAlert) return null
 
@@ -301,6 +303,7 @@ export function EmergencyNavbarBar() {
   const barColor = barColors[emergencyAlert.level] || barColors.warning
 
   return (
+    <>
     <motion.div
       initial={{ height: 0, opacity: 0 }}
       animate={{ height: 'auto', opacity: 1 }}
@@ -325,16 +328,38 @@ export function EmergencyNavbarBar() {
             <p className="text-xs text-white/70 truncate">{emergencyAlert.message}</p>
           )}
         </div>
-        <Tip content="Schließen">
-          <button
-            onClick={dismissEmergencyAlert}
-            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
-          >
-            <X size={16} />
-          </button>
-        </Tip>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <Tip content="Details">
+            <button
+              onClick={() => setShowDetail(true)}
+              className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <Info size={16} />
+            </button>
+          </Tip>
+          <Tip content="Schließen">
+            <button
+              onClick={dismissEmergencyAlert}
+              className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </Tip>
+        </div>
       </div>
     </motion.div>
+    <WarningDetailModal
+      open={showDetail}
+      onClose={() => setShowDetail(false)}
+      warning={emergencyAlert ? {
+        title: emergencyAlert.title,
+        message: emergencyAlert.message,
+        level: emergencyAlert.level,
+        source: emergencyAlert.source,
+        timestamp: emergencyAlert.created_at,
+      } : null}
+    />
+    </>
   )
 }
 
@@ -633,6 +658,7 @@ export function WarningBar() {
   const [expanded, setExpanded] = useState(false)
   const [ninaWarnings, setNinaWarnings] = useState<NinaWsWarning[]>([])
   const [emergencyDismissed, setEmergencyDismissed] = useState(false)
+  const [detailWarning, setDetailWarning] = useState<ActiveWarning | null>(null)
   // Listen for NINA warning_entity_update WebSocket events
   useEffect(() => {
     const unsub = wsOnMessage((data: unknown) => {
@@ -859,6 +885,14 @@ export function WarningBar() {
                 {expanded ? <CaretUp size={12} weight="bold" /> : <CaretDown size={12} weight="bold" />}
               </button>
             )}
+            <Tip content="Details">
+              <button
+                onClick={() => setDetailWarning(topWarning)}
+                className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <Info size={16} />
+              </button>
+            </Tip>
             <Tip content="Ausblenden">
               <button
                 onClick={() => dismissWarning(topWarning.entity_id)}
@@ -901,12 +935,21 @@ export function WarningBar() {
                         <p className="text-[11px] text-white/50 truncate mt-0.5">{w.message}</p>
                       )}
                     </div>
-                    <button
-                      onClick={() => dismissWarning(w.entity_id)}
-                      className="p-1 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-all flex-shrink-0"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                      <button
+                        onClick={() => setDetailWarning(w)}
+                        className="p-1 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
+                        title="Details"
+                      >
+                        <Info size={14} />
+                      </button>
+                      <button
+                        onClick={() => dismissWarning(w.entity_id)}
+                        className="p-1 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </motion.div>
                 )
               })}
@@ -923,6 +966,20 @@ export function WarningBar() {
           }} />
         )}
       </AnimatePresence>
+
+      {/* Warning Detail Modal */}
+      <WarningDetailModal
+        open={!!detailWarning}
+        onClose={() => setDetailWarning(null)}
+        warning={detailWarning ? {
+          title: detailWarning.title,
+          message: detailWarning.message,
+          level: detailWarning.level,
+          source: detailWarning.source,
+          entity_id: detailWarning.entity_id,
+          timestamp: detailWarning.lastChanged,
+        } : null}
+      />
     </div>
   )
 }
@@ -1065,6 +1122,108 @@ export function useWarningLevel(): ActiveWarning['level'] | null {
     }
     return highest
   }, [entities, ninaWarningLevels])
+}
+
+// ── Warning Detail Modal ────────────────────────────────────────────
+
+/** Shared props for warning details – works with both Notification and ActiveWarning */
+export interface WarningDetail {
+  title: string
+  message: string
+  level: 'info' | 'warning' | 'critical' | 'emergency'
+  source: string
+  entity_id?: string
+  timestamp: string
+}
+
+const detailLevelConfig: Record<string, { color: string; bg: string; border: string; icon: typeof Warning; label: string }> = {
+  info: { color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20', icon: CloudWarning, label: 'Info' },
+  warning: { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: Warning, label: 'Warnung' },
+  critical: { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', icon: ShieldWarning, label: 'Kritisch' },
+  emergency: { color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', icon: Siren, label: 'Notfall' },
+}
+
+export function WarningDetailModal({
+  open,
+  onClose,
+  warning,
+}: {
+  open: boolean
+  onClose: () => void
+  warning: WarningDetail | null
+}) {
+  if (!warning) return null
+
+  const config = detailLevelConfig[warning.level] || detailLevelConfig.info
+  const LIcon = config.icon
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <div className={`w-8 h-8 rounded-lg ${config.bg} ${config.border} border flex items-center justify-center`}>
+              <LIcon size={16} weight="fill" className={config.color} />
+            </div>
+            <DialogTitle className="text-base">Warnungsdetails</DialogTitle>
+          </div>
+          <DialogDescription>
+            Detaillierte Informationen zur Warnung
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 mt-2">
+          {/* Level badge */}
+          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.color} ${config.border} border`}>
+            <LIcon size={12} weight="fill" />
+            {config.label}
+          </div>
+
+          {/* Title */}
+          <div>
+            <p className="text-xs text-foreground/40 uppercase tracking-wider mb-1">Titel</p>
+            <p className="text-sm font-semibold text-foreground">{warning.title}</p>
+          </div>
+
+          {/* Message */}
+          {warning.message && (
+            <div>
+              <p className="text-xs text-foreground/40 uppercase tracking-wider mb-1">Beschreibung</p>
+              <div className="max-h-[200px] overflow-y-auto">
+                <p className="text-sm text-foreground/70 leading-relaxed whitespace-pre-wrap">{warning.message}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Source */}
+          {warning.source && (
+            <div className="flex items-center gap-2 text-xs text-foreground/50">
+              <IdentificationBadge size={14} />
+              <span>Quelle: {warning.source}</span>
+              {warning.entity_id && (
+                <>
+                  <span className="text-foreground/20">•</span>
+                  <span className="font-mono text-[11px] text-foreground/30">{warning.entity_id}</span>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Timestamp */}
+          <div className="flex items-center gap-2 text-xs text-foreground/40">
+            <Clock size={14} />
+            <span>{new Date(warning.timestamp).toLocaleString('de-DE', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}</span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 // ── Utils ────────────────────────────────────────────────────────────
