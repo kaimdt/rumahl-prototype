@@ -268,22 +268,34 @@ DOCKEREOF
     fi
     rm -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}"
   else
-    # Native Build: Inline-Dockerfile für EINEN Service (vermeidet Cache-Probleme
-    # des Projekt-Dockerfiles, das ALLE Services in einem RUN baut)
-    info "  ${svc}: Docker (Alpine, Einzel-Build)..."
+    # Native Build: Inline-Dockerfile für EINEN Service
+    info "  ${svc}: Docker (Alpine)..."
 
-    cat > "${BUILD_LOG_DIR}/Dockerfile.native-${svc}" <<DOCKERNATIVE
+    cat > "${BUILD_LOG_DIR}/Dockerfile.native-${svc}" <<'DOCKERNATIVE'
 FROM rust:1.90-alpine
-RUN apk add --no-cache musl-dev gcc g++ make openssl-dev openssl-libs-static \\
+RUN apk add --no-cache musl-dev gcc g++ make openssl-dev openssl-libs-static \
     pkgconfig postgresql-dev perl cmake git curl
 WORKDIR /app/backend
 COPY . .
 ARG SVC
-RUN cargo build --release -p \${SVC} && \\
-    mkdir -p /out && \\
-    (cp target/release/\${SVC} /out/\${SVC} 2>/dev/null || \\
-     cp target/x86_64-unknown-linux-musl/release/\${SVC} /out/\${SVC} 2>/dev/null || \\
-     (echo "ERROR: binary not found after build" && find target -name \${SVC} -type f && exit 1))
+RUN set -ex; \
+    cargo build --release -p "${SVC}"; \
+    echo "=== Build finished, searching for binary ==="; \
+    BIN=""; \
+    for d in target/release target/x86_64-unknown-linux-musl/release target/aarch64-unknown-linux-gnu/release; do \
+      if [ -x "$d/${SVC}" ]; then BIN="$d/${SVC}"; break; fi; \
+    done; \
+    if [ -z "$BIN" ]; then \
+      echo "FATAL: Binary ${SVC} not found after successful cargo build!"; \
+      echo "Searching target/ tree:"; \
+      find target -name "${SVC}" -type f -ls 2>/dev/null || echo "  (nothing found)"; \
+      ls -la target/ 2>/dev/null || echo "  target/ does not exist"; \
+      exit 1; \
+    fi; \
+    mkdir -p /out; \
+    cp "$BIN" "/out/${SVC}"; \
+    ls -la "/out/${SVC}"; \
+    echo "=== Binary ready: /out/${SVC} ==="
 DOCKERNATIVE
 
     if ! docker build --build-arg "SVC=${svc}" -t "$tag" \
