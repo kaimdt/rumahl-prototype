@@ -1201,6 +1201,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/themes/default", get(theme_handler::get_default_theme).put(theme_handler::set_default_theme))
         .route("/api/themes/install", post(handle_theme_zip_install))
         .route("/api/themes/install-from-manifest", post(theme_handler::handle_install_theme_inline))
+        .route("/api/themes/validate-manifest", post(handle_validate_manifest))
         .route("/api/themes/:theme_id", delete(theme_handler::uninstall_theme))
         .route("/api/themes/user/:profile_id/settings/:theme_id", get(theme_handler::get_user_theme_settings).put(theme_handler::update_user_theme_settings))
         .route("/api/themes/user/:profile_id", get(theme_handler::get_user_theme).post(theme_handler::set_user_theme))
@@ -15575,8 +15576,38 @@ async fn handle_theme_zip_install(
         tm.extract_zip(&bytes)
     }).await.map_err(|e| fail(StatusCode::INTERNAL_SERVER_ERROR, "extract", format!("Theme-Extraktion konnte nicht gestartet werden: {}", e)))?
     .map_err(|e| fail(StatusCode::BAD_REQUEST, "extract", format!("Theme-ZIP konnte nicht gelesen werden: {}", e)))?;
+
+    // Validate the extracted manifest
+    let manifest_json = serde_json::to_value(&def).unwrap_or_default();
+    let validation = iora_shared::manifest_validator::validate_theme_manifest(&manifest_json);
+    if !validation.is_valid() {
+        let errors: Vec<String> = validation.issues.iter()
+            .filter(|i| i.severity == iora_shared::manifest_validator::ValidationSeverity::Error)
+            .map(|i| format!("{}: {}", i.field, i.message))
+            .collect();
+        return Err(fail(StatusCode::BAD_REQUEST, "validate",
+            format!("Manifest enthält Fehler:\n{}", errors.join("\n"))));
+    }
+
     // Step 2: Store in DB (async, no non-Send types)
     let def = gs.theme_manager.store_theme(def).await
         .map_err(|e| fail(StatusCode::INTERNAL_SERVER_ERROR, "store", format!("Theme konnte nicht gespeichert werden: {}", e)))?;
     Ok(Json(json!({"success":true,"status":"ok","theme":{"id":def.id,"name":def.name,"version":def.version}})))
+}
+
+/// POST /api/themes/validate-manifest – Validate any manifest before installation
+async fn handle_validate_manifest(
+    body: String,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let json: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => return Err((StatusCode::BAD_REQUEST, Json(json!({
+            "valid": false,
+            "errors": [{"field": "manifest", "message": format!("Ungültiges JSON: {}", e)}]
+        })))),
+    };
+
+    let result = iora_shared::manifest_validator::validate_manifest(&json);
+
+    Ok(Json(serde_json::to_value(&result).unwrap_or(json!({"valid":false,"errors":[]}))))
 }

@@ -15,7 +15,8 @@ import {
   Gauge, ListChecks, Robot, Hand, Queue, CircleNotch, Bell, Code, Megaphone, Stack, Brain, ChatCircle, Microphone, MagicWand, Desktop, Monitor,
   Vault, FolderOpen, ShareNetwork, Envelope, Plug, FileArrowDown,
   Terminal, List, Sparkle,
-  Palette, TrashSimple, Check, EyeSlash, UploadSimple, Swatches, File, MapPin
+  Palette, TrashSimple, Check, EyeSlash, UploadSimple, Swatches, File, MapPin,
+  Storefront, CloudSlash, Star, DownloadSimple
 } from '@phosphor-icons/react'
 import { Tip } from '@/components/ui/tip'
 import { toast } from 'sonner'
@@ -11208,6 +11209,130 @@ function HealthIntelligenceTab({ token }: { token: string }) {
   )
 }
 
+// ── Theme Marketplace (iframe embed) ──────────────────────────────────
+
+const DEFAULT_STORE_URL = 'http://localhost:3100'
+
+function ThemeMarketplace({ token, onInstall }: { token: string; onInstall: () => void }) {
+  const [storeUrl, setStoreUrl] = useState(() => localStorage.getItem('iora-store-url') || DEFAULT_STORE_URL)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  // Listen for install messages from the store iframe
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.source !== 'iora-store') return
+
+      if (event.data.action === 'install') {
+        const { type, id, name } = event.data.payload
+        if (type === 'theme') {
+          installThemeFromStore(storeUrl, id, name, onInstall)
+        }
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [storeUrl, onInstall])
+
+  const installThemeFromStore = async (baseUrl: string, themeId: string, name: string, callback: () => void) => {
+    try {
+      toast.info(`Installiere "${name}" vom Store...`)
+      const res = await fetch(`${baseUrl}/api/proxy/themes/${themeId}/download`)
+      if (!res.ok) {
+        // Try direct store API
+        const storeApi = storeUrl.replace(/\/$/, '')
+        const directRes = await fetch(`${storeApi}/api/themes/${themeId}/download`)
+        if (!directRes.ok) throw new Error(`Download fehlgeschlagen`)
+        const blob = await directRes.blob()
+        await installFromBlob(blob, name, callback)
+        return
+      }
+      const blob = await res.blob()
+      await installFromBlob(blob, name, callback)
+    } catch (e) {
+      toast.error('Fehler: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
+  const installFromBlob = async (blob: Blob, name: string, callback: () => void) => {
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+    }
+    const base64 = btoa(binary)
+
+    const installRes = await authFetch('/api/themes/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zip_data: base64, file_name: `${name}.zip` }),
+    })
+
+    if (!installRes.ok) {
+      const err = await installRes.json().catch(() => ({ message: 'Installation fehlgeschlagen' }))
+      throw new Error(err.message || `HTTP ${installRes.status}`)
+    }
+
+    toast.success(`Theme "${name}" installiert!`)
+    callback()
+  }
+
+  return (
+    <AdminCard icon={Storefront} title="Theme-Marktplatz">
+      <p className="text-xs text-foreground/50 mb-4">
+        Entdecke und installiere Themes direkt aus dem IORA Store.
+      </p>
+
+      {/* Store URL config */}
+      <div className="flex items-center gap-2 mb-4">
+        <input
+          type="text"
+          value={storeUrl}
+          onChange={(e) => {
+            setStoreUrl(e.target.value)
+            localStorage.setItem('iora-store-url', e.target.value)
+          }}
+          placeholder="Store URL (z.B. http://localhost:3100)"
+          className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-foreground/[0.04] border border-foreground/10 text-foreground focus:outline-none focus:border-accent"
+        />
+        <button
+          onClick={() => iframeRef.current?.contentWindow?.location.reload()}
+          className="px-3 py-1.5 rounded-lg text-xs bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-all"
+        >
+          Neu laden
+        </button>
+      </div>
+
+      {/* Iframe */}
+      <div className="relative rounded-xl overflow-hidden border border-foreground/10 bg-background" style={{ height: '600px' }}>
+        <iframe
+          ref={iframeRef}
+          src={storeUrl}
+          className="w-full h-full"
+          style={{ border: 'none' }}
+          title="IORA Store"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        />
+        {/* Fallback if iframe fails */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center bg-background/80" style={{ zIndex: -1 }}>
+          <div className="text-center">
+            <Storefront size={32} className="mx-auto text-foreground/20 mb-2" />
+            <p className="text-xs text-foreground/40">Store wird geladen...</p>
+            <p className="text-[10px] text-foreground/30 mt-1">
+              Stelle sicher, dass der Store unter {storeUrl} erreichbar ist
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-[10px] text-foreground/30 mt-3 flex items-center gap-1.5">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+        Store URL: <code className="text-foreground/40">{storeUrl}</code>
+      </p>
+    </AdminCard>
+  )
+}
+
 // ── Themes Tab ────────────────────────────────────────────────────────
 function ThemesTab({ token }: { token: string }) {
   const [themes, setThemes] = useState<{ builtin: ThemeDef[]; installed: InstalledThemeDef[] } | null>(null)
@@ -11252,11 +11377,103 @@ function ThemesTab({ token }: { token: string }) {
     }
   }
 
+  // Export theme as ZIP
+  const exportTheme = async (themeId: string) => {
+    try {
+      // For file-based themes: download all assets as ZIP
+      const res = await authFetch(`/api/themes/assets/${themeId}`)
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${themeId}.zip`
+        a.click()
+        URL.revokeObjectURL(url)
+        toast.success(`Theme "${themeId}" exportiert`)
+        return
+      }
+      // Fallback: download from assets
+      toast.info('Theme wird als manifest.json exportiert')
+    } catch (e) {
+      toast.error('Export fehlgeschlagen: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
+  // Clone/duplicate a theme
+  const cloneTheme = async (themeId: string, themeName: string) => {
+    const newName = prompt('Name für das geklonte Theme:', `${themeName} (Kopie)`)
+    if (!newName) return
+    const newId = prompt('ID für das geklonte Theme:', `${themeId}-clone`)
+    if (!newId) return
+
+    try {
+      // Fetch current theme data and re-install with new ID
+      const themesRes = await authFetch('/api/themes')
+      const data = await themesRes.json()
+      const installed: any[] = data.installed || []
+      const theme = installed.find((t: any) => t.id === themeId)
+      if (!theme) { toast.error('Theme nicht gefunden'); return }
+
+      // Build new inline theme manifest
+      let cssVars: Record<string, string> = {}
+      try { cssVars = JSON.parse(theme.css_variables || '{}') } catch {}
+
+      const manifest = {
+        id: newId,
+        name: newName,
+        version: '1.0.0',
+        developer: theme.developer || 'IORA',
+        description: `Klon von ${themeName}`,
+        parent_theme: themeId,
+        css_variables: cssVars,
+      }
+
+      const r = await authFetch('/api/themes/install-from-manifest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(manifest),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ message: 'Klonen fehlgeschlagen' }))
+        throw new Error(err.message)
+      }
+      toast.success(`Theme "${newName}" erstellt`)
+      load()
+      refreshThemes()
+    } catch (e) {
+      toast.error('Klonen fehlgeschlagen: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
     try {
+      // Quick client-side validation by reading the ZIP's manifest.json
+      if (file.name.endsWith('.zip')) {
+        try {
+          const { extractManifestFromZip } = await import('../lib/zip')
+          const manifest = await extractManifestFromZip(file)
+          const { quickValidateManifest, formatValidationIssues } = await import('@/lib/manifestValidation')
+          const issues = quickValidateManifest(manifest as Record<string, unknown>)
+          const errors = issues.filter(i => i.severity === 'error')
+          if (errors.length > 0) {
+            toast.error(formatValidationIssues(errors), { duration: 8000 })
+            setUploading(false)
+            e.target.value = ''
+            return
+          }
+          const warnings = issues.filter(i => i.severity === 'warning')
+          if (warnings.length > 0) {
+            toast.warning(formatValidationIssues(warnings), { duration: 5000 })
+          }
+        } catch {
+          // No manifest found or parse error – let the backend handle it
+        }
+      }
+
       const buf = await file.arrayBuffer()
       const bytes = new Uint8Array(buf)
       let binary = ''
@@ -11275,13 +11492,17 @@ function ThemesTab({ token }: { token: string }) {
         let err: any = null
         try { err = text ? JSON.parse(text) : null } catch { err = null }
         const stage = err?.stage ? `[${err.stage}] ` : ''
-        throw new Error(`${stage}${err?.message || err?.error || text || 'Installation fehlgeschlagen'}`)
+        const msg = `${stage}${err?.message || err?.error || text || 'Installation fehlgeschlagen'}`
+        toast.error(msg, { duration: 8000 })
+        throw new Error(msg)
       }
       toast.success(`Theme „${file.name.replace(/\.zip$/i, '')}“ installiert`)
       load()
       refreshThemes()
     } catch (e) {
-      toast.error('Fehler: ' + (e instanceof Error ? e.message : String(e)))
+      if (!(e instanceof Error && e.message.includes('Manifest enthält Fehler'))) {
+        toast.error('Fehler: ' + (e instanceof Error ? e.message : String(e)), { duration: 6000 })
+      }
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -11414,7 +11635,11 @@ function ThemesTab({ token }: { token: string }) {
                       {t.enabled ? <Check size={10} /> : <EyeSlash size={10} />} {t.enabled ? 'Aktiv' : 'Inaktiv'}
                     </span>
                     {!t.system && (
-                      <button onClick={() => uninstallTheme(t.id)} className="p-2 rounded-lg text-foreground/30 hover:text-red-400 hover:bg-red-500/10 transition-all" title="Deinstallieren"><TrashSimple size={16} /></button>
+                      <>
+                        <button onClick={() => cloneTheme(t.id, t.name)} className="p-2 rounded-lg text-foreground/30 hover:text-accent hover:bg-accent/10 transition-all" title="Klonen"><Copy size={14} /></button>
+                        <button onClick={() => exportTheme(t.id)} className="p-2 rounded-lg text-foreground/30 hover:text-accent hover:bg-accent/10 transition-all" title="Exportieren"><DownloadSimple size={14} /></button>
+                        <button onClick={() => uninstallTheme(t.id)} className="p-2 rounded-lg text-foreground/30 hover:text-red-400 hover:bg-red-500/10 transition-all" title="Deinstallieren"><TrashSimple size={16} /></button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -11422,6 +11647,14 @@ function ThemesTab({ token }: { token: string }) {
             })}
           </div>
         )}
+      </AdminCard>
+
+      {/* ─── Theme Marketplace (iframe) ─────────────────────── */}
+      <AdminCard icon={Storefront} title="Theme-Marktplatz">
+        <p className="text-xs text-foreground/50 mb-4">
+          Durchstöbere und installiere Themes direkt aus dem IORA Store.
+        </p>
+        <ThemeMarketplace token={token} onInstall={() => { load(); refreshThemes() }} />
       </AdminCard>
 
       {/* Built-in themes */}

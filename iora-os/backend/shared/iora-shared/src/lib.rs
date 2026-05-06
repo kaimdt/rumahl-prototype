@@ -4,6 +4,7 @@ pub mod api_gateway;
 pub mod app_manifest;
 pub mod env;
 pub mod heartbeat;
+pub mod manifest_validator;
 pub mod plugin;
 pub mod port_manager;
 pub mod registration;

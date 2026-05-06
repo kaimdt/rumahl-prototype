@@ -81,6 +81,65 @@ pub struct ThemeIconConfig {
     pub icon_map: HashMap<String, String>,
 }
 
+// ════════════════════════════════════════════════════════════════
+// Widget Template System – Theme-Defined Widget Rendering
+// ════════════════════════════════════════════════════════════════
+
+/// A single variant of a widget template.
+/// Themes can provide multiple visual variants per widget type
+/// (e.g. "default", "compact", "detailed", "minimal").
+/// Responsive variants adapt to screen size automatically.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WidgetTemplateVariant {
+    /// Variant name (e.g. "default", "compact", "detailed")
+    pub name: String,
+    /// Path to the HTML template file within the theme
+    pub template: String,
+    /// Optional CSS file for this variant (scoped to the widget)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css: Option<String>,
+    /// Optional JavaScript file for interactive behavior
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub js: Option<String>,
+    /// Human-readable label for the variant picker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Icon name for the variant picker (Phosphor icon)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Whether this is the default variant
+    #[serde(default)]
+    pub is_default: bool,
+    /// Responsive breakpoint: "all" (default), "mobile" (<768px),
+    /// "tablet" (768-1024px), "desktop" (>1024px).
+    /// When multiple variants match, the most specific one wins.
+    #[serde(default = "default_responsive")]
+    pub responsive: String,
+}
+
+fn default_responsive() -> String { "all".to_string() }
+
+/// Widget template collection for a single widget type.
+/// Maps widget types ("light", "switch", "climate", etc.) to their theme templates.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WidgetTemplate {
+    /// The widget type this template applies to (e.g. "light", "switch")
+    pub widget_type: String,
+    /// Available variants for this widget type
+    #[serde(default)]
+    pub variants: Vec<WidgetTemplateVariant>,
+    /// Custom CSS properties exposed to this widget's template
+    #[serde(default)]
+    pub css_variables: HashMap<String, String>,
+    /// Whether this widget template completely replaces the default rendering
+    #[serde(default = "default_replace")]
+    pub replace_default: bool,
+}
+
+fn default_replace() -> bool { true }
+
+// ════════════════════════════════════════════════════════════════
+
 /// A complete file-based theme definition (from manifest.json inside ZIP).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeDefinition {
@@ -167,6 +226,12 @@ pub struct ThemeDefinition {
     /// Theme capabilities: design modes, auto, accent, glass, custom settings
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ThemeCapabilities>,
+
+    /// Widget templates provided by the theme.
+    /// Each entry maps a widget type to one or more template variants.
+    /// When present, these completely replace the default React widget rendering.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub widget_templates: Vec<WidgetTemplate>,
 }
 
 fn default_theme_source() -> String { "inline".to_string() }
@@ -211,6 +276,9 @@ pub struct InstalledTheme {
     /// JSON serialized ThemeCapabilities
     #[serde(default)]
     pub capabilities_json: Option<String>,
+    /// JSON serialized WidgetTemplate[]
+    #[serde(default)]
+    pub widget_templates_json: Option<String>,
 }
 
 /// Per-user theme selection stored in the profile.
@@ -261,6 +329,10 @@ pub struct ThemeCssResponse {
     /// Theme capabilities (design modes, auto, accent, glass, settings)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ThemeCapabilities>,
+
+    /// Widget template definitions with resolved asset URLs
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub widget_templates: Vec<WidgetTemplate>,
 }
 
 // ════════════════════════════════════════════════════════════════

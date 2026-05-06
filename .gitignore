@@ -51,3 +51,4 @@ nul
 
 # Python cache
 __pycache__/
+/store/.next

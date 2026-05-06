@@ -210,6 +210,48 @@
           "default_value": false
         }
       ]
-    }
+    },
+
+    "widget_templates": [
+      {
+        "widget_type": "light",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/light.html",
+            "label": "Gaslamp",
+            "icon": "Lightbulb",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "switch",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/switch.html",
+            "label": "Lever Control",
+            "icon": "Power",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "climate",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/climate.html",
+            "label": "Thermometer Gauge",
+            "icon": "Thermometer",
+            "is_default": true
+          }
+        ]
+      }
+    ]
   }
 }

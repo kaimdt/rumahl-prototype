@@ -146,7 +146,22 @@ function DashboardContent() {
     }
   }, [currentPageId, currentPage?.pageSource?.kind])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
-  const [showSplash, setShowSplash] = useState(true)
+
+  // Skip splash screen when opening in a new tab or navigating directly to a page
+  const [showSplash, setShowSplash] = useState(() => {
+    // Check if opened in a new tab from IORA itself
+    const isNewTab = typeof window !== 'undefined' && (
+      window.opener !== null ||
+      document.referrer.includes(window.location.hostname)
+    )
+    // Check if navigating directly to a specific page (not the dashboard home)
+    const isDirectPage = typeof window !== 'undefined' && (
+      window.location.pathname.startsWith('/app-settings/') ||
+      window.location.pathname.startsWith('/streaming') ||
+      window.location.pathname.startsWith('/docs')
+    )
+    return !isNewTab && !isDirectPage
+  })
   const [showPageDesigner, setShowPageDesigner] = useState(false)
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState('')

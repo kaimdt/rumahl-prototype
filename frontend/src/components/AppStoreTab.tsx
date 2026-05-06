@@ -75,7 +75,7 @@ interface AppManifest {
 // ── Enhanced App Store Tab ──────────────────────────────────────────────────
 
 export function AppStoreTab({ token }: { token: string }) {
-  const [view, setView] = useState<'installed' | 'store' | 'upload'>('installed')
+  const [view, setView] = useState<'installed' | 'store' | 'upload'>('store')
   const [apps, setApps] = useState<AppInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -210,14 +210,14 @@ export function AppStoreTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-3">
-      {/* View Switcher */}
-      <div className="flex gap-2 p-1 bg-foreground/5 rounded-lg">
+      {/* View Switcher – Play Store style tabs */}
+      <div className="flex gap-1 p-1 glass-card rounded-2xl">
         <button
           onClick={() => setView('installed')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
             view === 'installed'
-              ? 'bg-accent text-white shadow-sm'
-              : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5'
+              ? 'bg-accent text-white shadow-lg shadow-accent/25'
+              : 'text-foreground/50 hover:text-foreground hover:bg-foreground/[0.04]'
           }`}
         >
           <Package size={14} /> Installierte Apps
@@ -373,19 +373,21 @@ function InstalledAppsView({
   }
 
   return (
-    <AdminCard title={`Installierte Apps (${apps.length})`} icon={Package}>
+    <div className="space-y-3">
       {apps.length === 0 ? (
-        <div className="text-center py-8">
-          <Cube size={48} className="mx-auto mb-3 text-foreground/20" />
-          <p className="text-xs text-foreground/50 mb-1">Keine Apps installiert</p>
-          <p className="text-[10px] text-foreground/30">Installiere Apps aus dem Store oder lade eine ZIP-Datei hoch</p>
+        <div className="text-center py-16">
+          <div className="w-20 h-20 rounded-3xl bg-foreground/[0.04] flex items-center justify-center mx-auto mb-4">
+            <Package size={36} className="text-foreground/20" weight="thin" />
+          </div>
+          <p className="text-sm font-medium text-foreground/40 mb-1">Keine Apps installiert</p>
+          <p className="text-[11px] text-foreground/25">Apps aus dem Store oder per ZIP installieren</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2">
           {apps.map((app) => (
             <div
               key={app.id}
-              className="p-3 rounded-lg bg-foreground/3 hover:bg-foreground/5 hover:border-accent/30 border border-transparent transition-all cursor-pointer"
+              className="glass-card rounded-2xl p-4 hover:border-accent/20 transition-all cursor-pointer"
               onClick={() => onAppClick(app.id)}
             >
               <div className="flex items-start gap-3 mb-3">
@@ -449,31 +451,60 @@ function InstalledAppsView({
                 </div>
               )}
 
-              {/* Status badge */}
-              <div className="mb-2 flex items-center gap-2">
+              {/* Status badge – enhanced with detailed info */}
+              <div className="mb-2 flex items-center gap-2 flex-wrap">
                 {app.status === 'running' ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold">
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-green-500/15 text-green-400 rounded-lg text-[10px] font-semibold border border-green-500/20">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Läuft
                   </span>
                 ) : app.status === 'starting' ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/15 text-amber-300 rounded text-[10px] font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" /> Startet
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 text-amber-300 rounded-lg text-[10px] font-semibold border border-amber-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-spin" /> Startet...
                   </span>
                 ) : app.status === 'installing' ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/15 text-blue-300 rounded text-[10px] font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" /> Verarbeitet
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/15 text-blue-300 rounded-lg text-[10px] font-semibold border border-blue-500/20">
+                    <div className="animate-spin w-3 h-3 border-2 border-blue-300 border-t-transparent rounded-full" /> Wird installiert
                   </span>
                 ) : app.status === 'error' ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 bg-red-500/15 text-red-300 rounded text-[10px] font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-300" /> Fehler
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-red-500/15 text-red-300 rounded-lg text-[10px] font-semibold border border-red-500/20 cursor-help"
+                    title={app.error_message || 'Unbekannter Fehler'}>
+                    <Warning size={12} weight="fill" /> Fehler{app.error_message ? ': ' + app.error_message.substring(0, 60) + (app.error_message.length > 60 ? '...' : '') : ''}
+                  </span>
+                ) : app.status === 'crashed' ? (
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-red-500/20 text-red-400 rounded-lg text-[10px] font-semibold border border-red-500/30">
+                    <Warning size={12} weight="fill" /> Abgestürzt{app.restart_count ? ` (${app.restart_count}x)` : ''}
                   </span>
                 ) : app.status === 'stopped' ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 bg-foreground/10 text-foreground/50 rounded text-[10px] font-semibold">
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-foreground/10 text-foreground/50 rounded-lg text-[10px] font-semibold border border-foreground/10">
                     <span className="w-1.5 h-1.5 rounded-full bg-foreground/30" /> Gestoppt
                   </span>
+                ) : app.status === 'unhealthy' ? (
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 text-amber-400 rounded-lg text-[10px] font-semibold border border-amber-500/20">
+                    <Warning size={12} weight="fill" /> Unhealthy
+                  </span>
                 ) : null}
+
+                {/* Container uptime */}
+                {app.docker?.uptime && (
+                  <span className="text-[9px] text-foreground/30 font-mono" title="Container-Uptime">
+                    ⏱ {app.docker.uptime}
+                  </span>
+                )}
+
+                {/* Resource usage */}
+                {app.docker?.cpu_percent !== undefined && (
+                  <span className="text-[9px] text-foreground/30 font-mono" title="CPU-Auslastung">
+                    CPU {app.docker.cpu_percent}%
+                  </span>
+                )}
+                {app.docker?.memory_mb !== undefined && (
+                  <span className="text-[9px] text-foreground/30 font-mono" title="Speicher">
+                    RAM {app.docker.memory_mb}MB
+                  </span>
+                )}
+
                 {(app.custom_pages?.length ?? 0) > 0 && (
-                  <span className="text-[10px] text-foreground/40">
+                  <span className="text-[10px] text-foreground/40 ml-auto">
                     {app.custom_pages!.length} Seite{(app.custom_pages!.length !== 1) ? 'n' : ''}
                   </span>
                 )}
@@ -580,7 +611,7 @@ function InstalledAppsView({
           ))}
         </div>
       )}
-    </AdminCard>
+    </div>
   )
 }
 
@@ -595,29 +626,138 @@ function AppStoreView({
   searchQuery: string
   setSearchQuery: (q: string) => void
 }) {
+  const [activeCategory, setActiveCategory] = useState('Alle')
+
+  const categories = [
+    { id: 'Alle', label: 'Für dich', icon: '✨' },
+    { id: 'Widgets', label: 'Widgets', icon: '🧩' },
+    { id: 'Automation', label: 'Automation', icon: '⚡' },
+    { id: 'Media', label: 'Media', icon: '🎵' },
+    { id: 'Security', label: 'Security', icon: '🛡️' },
+    { id: 'Energy', label: 'Energy', icon: '⚡' },
+    { id: 'Monitoring', label: 'Monitoring', icon: '📊' },
+  ]
+
+  // Featured apps (hardcoded for now, will come from store API)
+  const featuredApps = [
+    { id: 'weather', name: 'Wetter Pro', dev: 'IORA Labs', rating: 4.8, icon: '🌤️', color: 'from-blue-500/20 to-cyan-500/10' },
+    { id: 'energy', name: 'Energy Monitor', dev: 'IORA Labs', rating: 4.6, icon: '⚡', color: 'from-amber-500/20 to-yellow-500/10' },
+    { id: 'security', name: 'Security Cam', dev: 'IORA Labs', rating: 4.9, icon: '📹', color: 'from-red-500/20 to-rose-500/10' },
+  ]
+
+  const popularApps = [
+    { id: 'vacuum', name: 'Vacuum Control', dev: 'Community', rating: 4.5, downloads: '2.3k', icon: '🧹' },
+    { id: 'lights', name: 'Light Scenes', dev: 'IORA', rating: 4.7, downloads: '5.1k', icon: '💡' },
+    { id: 'calendar', name: 'Family Calendar', dev: 'Community', rating: 4.3, downloads: '1.8k', icon: '📅' },
+    { id: 'music', name: 'Multiroom Audio', dev: 'IORA', rating: 4.4, downloads: '3.2k', icon: '🔊' },
+    { id: 'garden', name: 'Garden Planner', dev: 'Community', rating: 4.2, downloads: '980', icon: '🌱' },
+    { id: 'notify', name: 'Notify Me', dev: 'IORA Labs', rating: 4.6, downloads: '4.1k', icon: '🔔' },
+  ]
+
   return (
-    <AdminCard title="App Store" icon={Cube}>
-      <div className="text-center py-12">
-        <Cube size={64} className="mx-auto mb-4 text-foreground/20" />
-        <p className="text-sm font-semibold text-foreground mb-1">App Store Integration</p>
-        <p className="text-xs text-foreground/50 mb-4 max-w-md mx-auto">
-          Die Integration mit appstore.kaimdt.com wird in Kürze verfügbar sein.
-          <br />
-          Bis dahin können Apps per ZIP-Upload installiert werden.
-        </p>
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 max-w-md mx-auto">
-          <div className="text-blue-400">
-            <Lightning size={20} weight="fill" />
-          </div>
-          <div className="text-left flex-1">
-            <div className="text-xs font-semibold text-blue-400">Coming Soon</div>
-            <div className="text-[10px] text-blue-400/70">
-              Durchsuche tausende Apps, direkt aus IORA installierbar
+    <div className="space-y-6">
+      {/* ─── Search Bar ──────────────────────────────────── */}
+      <div className="relative">
+        <MagnifyingGlass size={16} weight="bold" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground/30" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Nach Apps, Widgets & Plugins suchen..."
+          className="w-full pl-10 pr-4 py-3 rounded-xl glass-card text-sm text-foreground placeholder:text-foreground/25 focus:outline-none focus:ring-2 focus:ring-accent/30 transition-all"
+        />
+      </div>
+
+      {/* ─── Category Pills ──────────────────────────────── */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {categories.map(cat => (
+          <button
+            key={cat.id}
+            onClick={() => setActiveCategory(cat.id)}
+            className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium transition-all ${
+              activeCategory === cat.id
+                ? 'bg-accent text-white shadow-lg shadow-accent/25'
+                : 'glass-card text-foreground/60 hover:text-foreground hover:border-foreground/15'
+            }`}
+          >
+            <span className="text-sm">{cat.icon}</span>
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── Featured Banner ─────────────────────────────── */}
+      <div>
+        <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
+          <span className="w-1 h-4 rounded-full bg-accent" />
+          Empfohlen
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {featuredApps.map(app => (
+            <div
+              key={app.id}
+              className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${app.color} border border-foreground/5 hover:border-accent/30 transition-all cursor-pointer group`}
+              style={{ backdropFilter: 'blur(20px)' }}
+            >
+              <div className="text-3xl mb-3">{app.icon}</div>
+              <h4 className="text-sm font-bold text-foreground">{app.name}</h4>
+              <p className="text-[10px] text-foreground/50 mt-0.5">{app.dev}</p>
+              <div className="flex items-center gap-1 mt-3">
+                <span className="text-[10px] text-amber-400">★</span>
+                <span className="text-[10px] font-medium text-foreground/70">{app.rating}</span>
+              </div>
+              {/* Glass shimmer on hover */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-          </div>
+          ))}
         </div>
       </div>
-    </AdminCard>
+
+      {/* ─── Popular Apps Grid ───────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <span className="w-1 h-4 rounded-full bg-accent" />
+            Beliebt
+          </h3>
+          <button className="text-[10px] font-medium text-accent hover:text-accent/80 transition-colors">
+            Alle anzeigen →
+          </button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          {popularApps.map(app => (
+            <div
+              key={app.id}
+              className="glass-card rounded-2xl p-4 hover:scale-[1.02] transition-all cursor-pointer group text-center"
+            >
+              <div className="text-3xl mb-2.5 mx-auto w-14 h-14 rounded-2xl bg-foreground/[0.04] flex items-center justify-center group-hover:bg-foreground/[0.08] transition-colors">
+                {app.icon}
+              </div>
+              <h4 className="text-xs font-semibold text-foreground truncate">{app.name}</h4>
+              <p className="text-[10px] text-foreground/40 mt-0.5">{app.dev}</p>
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <span className="text-[10px] text-amber-400">★ {app.rating}</span>
+                <span className="text-[9px] text-foreground/25">{app.downloads}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── Coming Soon Banner ──────────────────────────── */}
+      <div className="glass-card rounded-2xl p-5 flex items-center gap-4">
+        <div className="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center shrink-0">
+          <Cube size={24} className="text-accent" weight="fill" />
+        </div>
+        <div className="flex-1">
+          <h4 className="text-xs font-semibold text-foreground">Vollständiger App Store kommt bald</h4>
+          <p className="text-[10px] text-foreground/40 mt-0.5">
+            Integration mit appstore.kaimdt.com – tausende Apps, Widgets & Plugins direkt installierbar.
+          </p>
+        </div>
+        <span className="text-[10px] px-2 py-1 rounded-full bg-accent/10 text-accent font-medium">Coming Soon</span>
+      </div>
+    </div>
   )
 }
 
@@ -645,6 +785,21 @@ function ZipUploadView({
 
     try {
       const extractedManifest = await extractManifestFromZip(selectedFile)
+
+      // Validate manifest before setting it
+      const { quickValidateManifest, formatValidationIssues } = await import('@/lib/manifestValidation')
+      const issues = quickValidateManifest(extractedManifest as Record<string, unknown>)
+      const errors = issues.filter(i => i.severity === 'error')
+      if (errors.length > 0) {
+        setManifestError(formatValidationIssues(errors))
+        toast.error(`Manifest ungültig – ${errors.length} Fehler`, { duration: 6000 })
+        return
+      }
+      const warnings = issues.filter(i => i.severity === 'warning')
+      if (warnings.length > 0) {
+        toast.warning(formatValidationIssues(warnings), { duration: 5000 })
+      }
+
       setManifest(extractedManifest)
       toast.success('manifest.json erfolgreich gelesen')
     } catch (err) {

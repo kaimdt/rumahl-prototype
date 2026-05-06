@@ -51,6 +51,7 @@ import {
   BookOpen,
   ArrowSquareOut,
   PaintBrush,
+  BracketsCurly,
 } from '@phosphor-icons/react'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
@@ -59,6 +60,8 @@ import { CssSettingsSection } from '@/components/CssSettings'
 import { useLocalStorage } from '@/lib/storage'
 import { useTheme } from '@/contexts/ThemeContext'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
+import { ThemeEditor } from '@/components/ThemeEditor'
+import { YamlPageEditor } from '@/components/YamlPageEditor'
 import type { ThemeMode } from '@/lib/types'
 import type { ThemeDefinition } from '@/contexts/ThemeContext'
 
@@ -364,6 +367,7 @@ const THEME_OPTIONS: { value: string; label: string; description: string; icon: 
 
 function ThemePickerSection() {
   const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
+  const [editorOpen, setEditorOpen] = useState(false)
 
   // Combine builtin THEME_OPTIONS with custom installed themes
   const allThemeOptions = useMemo(() => {
@@ -411,6 +415,17 @@ function ThemePickerSection() {
         <Info size={12} className="shrink-0" />
         <span>Aktiv: <span className="font-medium text-foreground/60 capitalize">{activeTheme}</span> — Einstellung wird pro Benutzer gespeichert</span>
       </div>
+
+      {/* Theme Editor Button */}
+      <button
+        onClick={() => setEditorOpen(true)}
+        className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/10 transition-all"
+      >
+        <Palette size={14} weight="fill" />
+        Theme-Editor öffnen
+      </button>
+
+      <ThemeEditor open={editorOpen} onOpenChange={setEditorOpen} />
     </SettingsSection>
   )
 }
@@ -1003,6 +1018,7 @@ export function SettingsPage(props: SettingsPageProps) {
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'dashboard' | 'system'>('general')
+  const [yamlEditorOpen, setYamlEditorOpen] = useState(false)
   const { stats, haInfo, loading: statsLoading, refresh: refreshStats } = useSystemStats(settingsTab === 'system')
 
   return (
@@ -1370,6 +1386,20 @@ export function SettingsPage(props: SettingsPageProps) {
                 </div>
                 <Sparkle size={18} weight="fill" className="group-hover:rotate-12 transition-transform" />
               </button>
+
+              <button
+                onClick={() => setYamlEditorOpen(true)}
+                className="w-full px-4 py-3.5 rounded-xl bg-foreground/[0.04] hover:bg-foreground/[0.08] text-foreground/70 transition-colors flex items-center justify-between group border border-foreground/10"
+              >
+                <div className="flex items-center gap-3">
+                  <BracketsCurly size={20} weight="fill" />
+                  <div className="text-left">
+                    <p className="font-medium text-sm">Seite programmieren (YAML)</p>
+                    <p className="text-[11px] text-foreground/50">Per Code definieren, importieren & exportieren</p>
+                  </div>
+                </div>
+                <ArrowSquareOut size={18} className="group-hover:translate-x-0.5 transition-transform" />
+              </button>
             </SettingsSection>
 
             {/* Dynamic Overview */}
@@ -1600,6 +1630,17 @@ export function SettingsPage(props: SettingsPageProps) {
           </div>
         </TabsContent>
       </Tabs>
+
+      {yamlEditorOpen && (
+        <YamlPageEditor
+          onClose={() => setYamlEditorOpen(false)}
+          onSave={(yaml, page) => {
+            console.log('YAML page saved:', page)
+            toast.success(`Seite "${page.name}" gespeichert`)
+            setYamlEditorOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

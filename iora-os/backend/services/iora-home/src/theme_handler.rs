@@ -129,6 +129,7 @@ pub struct InstalledThemeRow {
     pub fonts_json: Option<String>,
     pub icon_font_json: Option<String>,
     pub capabilities_json: Option<String>,
+    pub widget_templates_json: Option<String>,
     pub system: bool, pub enabled: bool,
     pub installed_at: String, pub source_app_id: Option<String>,
     pub updated_at: String,
@@ -152,6 +153,7 @@ fn map_theme_row(row: &sqlx::postgres::PgRow) -> InstalledThemeRow {
         fonts_json: row.get("fonts_json"),
         icon_font_json: row.get("icon_font_json"),
         capabilities_json: row.get("capabilities_json"),
+        widget_templates_json: row.get("widget_templates_json"),
         system: row.get("system"), enabled: row.get("enabled"),
         installed_at: installed_at.to_rfc3339(),
         source_app_id: row.get("source_app_id"),
@@ -273,19 +275,20 @@ impl ThemeState {
         let fonts_json = serde_json::to_string(&def.fonts)?;
         let icon_font_json = def.icon_font.as_ref().map(|f| serde_json::to_string(f).unwrap_or_default());
         let capabilities_json = def.capabilities.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
+        let widget_templates_json = if !def.widget_templates.is_empty() { Some(serde_json::to_string(&def.widget_templates)?) } else { None };
 
         sqlx::query(
             "INSERT INTO installed_themes \
              (id,name,version,developer,description,icon,preview_image,parent_theme,\
              source,css_variables,additional_css,css_files_json,js_files_json,\
              html_templates_json,fonts_json,icon_font_json,capabilities_json,\
-             system,enabled,installed_at,source_app_id,updated_at) \
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) \
+             widget_templates_json,system,enabled,installed_at,source_app_id,updated_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) \
              ON CONFLICT(id) DO UPDATE SET \
              name=$2,version=$3,developer=$4,description=$5,icon=$6,preview_image=$7,\
              parent_theme=$8,source=$9,css_variables=$10,additional_css=$11,\
              css_files_json=$12,js_files_json=$13,html_templates_json=$14,\
-             fonts_json=$15,icon_font_json=$16,capabilities_json=$17,updated_at=$22"
+             fonts_json=$15,icon_font_json=$16,capabilities_json=$17,widget_templates_json=$18,updated_at=$23"
         )
         .bind(&def.id).bind(&def.name).bind(&def.version)
         .bind(&def.developer).bind(&def.description)
@@ -293,6 +296,7 @@ impl ThemeState {
         .bind(&def.source).bind(&css_vars_json).bind(&def.additional_css)
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
         .bind(&fonts_json).bind(&icon_font_json).bind(&capabilities_json)
+        .bind(&widget_templates_json)
         .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
@@ -311,19 +315,20 @@ impl ThemeState {
         let fonts_json = serde_json::to_string(&def.fonts)?;
         let icon_font_json = def.icon_font.as_ref().map(|f| serde_json::to_string(f).unwrap_or_default());
         let capabilities_json = def.capabilities.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
+        let widget_templates_json = if !def.widget_templates.is_empty() { Some(serde_json::to_string(&def.widget_templates)?) } else { None };
 
         sqlx::query(
             "INSERT INTO installed_themes \
              (id,name,version,developer,description,icon,preview_image,parent_theme,\
              source,css_variables,additional_css,css_files_json,js_files_json,\
              html_templates_json,fonts_json,icon_font_json,capabilities_json,\
-             system,enabled,installed_at,source_app_id,updated_at) \
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) \
+             widget_templates_json,system,enabled,installed_at,source_app_id,updated_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) \
              ON CONFLICT(id) DO UPDATE SET \
              name=$2,version=$3,developer=$4,description=$5,icon=$6,preview_image=$7,\
              parent_theme=$8,source=$9,css_variables=$10,additional_css=$11,\
              css_files_json=$12,js_files_json=$13,html_templates_json=$14,\
-             fonts_json=$15,icon_font_json=$16,capabilities_json=$17,updated_at=$22"
+             fonts_json=$15,icon_font_json=$16,capabilities_json=$17,widget_templates_json=$18,updated_at=$23"
         )
         .bind(&def.id).bind(&def.name).bind(&def.version)
         .bind(&def.developer).bind(&def.description)
@@ -331,6 +336,7 @@ impl ThemeState {
         .bind(&def.source).bind(&css_vars_json).bind(&def.additional_css)
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
         .bind(&fonts_json).bind(&icon_font_json).bind(&capabilities_json)
+        .bind(&widget_templates_json)
         .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
@@ -399,6 +405,7 @@ impl ThemeState {
                 assets_base_url: None, fonts: vec![], icon_font: None,
                 html_templates: HashMap::new(),
                 capabilities: None,
+                widget_templates: vec![],
             });
         }
 
@@ -407,8 +414,40 @@ impl ThemeState {
             let mut vars: HashMap<String, String> = serde_json::from_str(&row.css_variables).unwrap_or_default();
             if let Some(ref sel) = selection { vars.extend(sel.overrides.clone()); }
 
+            // ─── Parent Theme Inheritance ──────────────────────────────
+            // If this theme has a parent, merge parent's data first
+            if let Some(ref parent_id) = row.parent_theme {
+                if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
+                    if let Some(parent_row) = cache.get(parent_id) {
+                        // Merge parent CSS variables (child wins)
+                        let parent_vars: HashMap<String, String> = serde_json::from_str(&parent_row.css_variables).unwrap_or_default();
+                        for (k, v) in parent_vars {
+                            vars.entry(k).or_insert(v);
+                        }
+                    }
+                }
+            }
+            // ─── End parent inheritance ───────────────────────────────
+
             let fonts: Vec<iora_shared::theme::ThemeFont> = row.fonts_json.as_ref()
                 .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+
+            // Merge parent fonts (child fonts with same name override parent)
+            let mut merged_fonts = fonts.clone();
+            if let Some(ref parent_id) = row.parent_theme {
+                if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
+                    if let Some(parent_row) = cache.get(parent_id) {
+                        let parent_fonts: Vec<iora_shared::theme::ThemeFont> = parent_row.fonts_json.as_ref()
+                            .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                        for pf in parent_fonts {
+                            if !merged_fonts.iter().any(|f| f.name == pf.name) {
+                                merged_fonts.push(pf);
+                            }
+                        }
+                    }
+                }
+            }
+            let fonts = merged_fonts;
             let icon_font: Option<iora_shared::theme::ThemeIconConfig> = row.icon_font_json.as_ref()
                 .and_then(|j| serde_json::from_str(j).ok());
             let css_files: Vec<String> = row.css_files_json.as_ref()
@@ -464,6 +503,39 @@ impl ThemeState {
             let capabilities: Option<iora_shared::theme::ThemeCapabilities> = row.capabilities_json.as_ref()
                 .and_then(|j| serde_json::from_str(j).ok());
 
+            // Parse and resolve widget templates
+            let mut widget_templates: Vec<iora_shared::theme::WidgetTemplate> = row.widget_templates_json.as_ref()
+                .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+
+            // Merge parent widget templates (child wins for same widget_type)
+            if let Some(ref parent_id) = row.parent_theme {
+                if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
+                    if let Some(parent_row) = cache.get(parent_id) {
+                        let parent_wts: Vec<iora_shared::theme::WidgetTemplate> = parent_row.widget_templates_json.as_ref()
+                            .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                        for pwt in parent_wts {
+                            if !widget_templates.iter().any(|w| w.widget_type == pwt.widget_type) {
+                                widget_templates.push(pwt);
+                            }
+                        }
+                    }
+                }
+            }
+            // Resolve asset paths in widget templates (same logic as css/js files)
+            for wt in &mut widget_templates {
+                for variant in &mut wt.variants {
+                    if let Some(ref base) = assets_base {
+                        variant.template = format!("{}/{}", base, variant.template);
+                        if let Some(ref css) = variant.css {
+                            variant.css = Some(format!("{}/{}", base, css));
+                        }
+                        if let Some(ref js) = variant.js {
+                            variant.js = Some(format!("{}/{}", base, js));
+                        }
+                    }
+                }
+            }
+
             return Ok(iora_shared::theme::ThemeCssResponse {
                 theme_id: theme_id.to_string(), source: row.source.clone(),
                 css_variables: vars, additional_css: row.additional_css.clone(),
@@ -472,6 +544,7 @@ impl ThemeState {
                 fonts: resolved_fonts, icon_font: resolved_icon_font,
                 html_templates: html_resolved,
                 capabilities,
+                widget_templates,
             });
         }
 
@@ -482,6 +555,7 @@ impl ThemeState {
             assets_base_url: None, fonts: vec![], icon_font: None,
             html_templates: HashMap::new(),
             capabilities: None,
+            widget_templates: vec![],
         })
     }
 
@@ -534,7 +608,7 @@ fn builtin_themes() -> Vec<iora_shared::theme::ThemeDefinition> {
                 css_files: vec![], js_files: vec![], html_templates: HashMap::new(),
                 fonts: vec![], icon_font: None, additional_css: None,
                 system: true, order: $order,
-                capabilities: None,
+                capabilities: None, widget_templates: vec![],
             }
         };
     }
@@ -590,6 +664,7 @@ pub async fn list_themes(
             css_files_json: r.css_files_json, js_files_json: r.js_files_json,
             html_templates_json: r.html_templates_json,
             capabilities_json: r.capabilities_json,
+            widget_templates_json: r.widget_templates_json,
         }
     }).collect();
     Ok(Json(iora_shared::theme::ThemeListResponse { builtin, installed }))

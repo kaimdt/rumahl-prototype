@@ -127,6 +127,28 @@ export interface ThemeCapabilities {
   custom_settings?: ThemeSetting[]
 }
 
+// ─── Widget Template Types (v2.4) ──────────────────────────────
+
+export interface WidgetTemplateVariant {
+  name: string
+  template: string
+  css?: string
+  js?: string
+  label?: string
+  icon?: string
+  is_default?: boolean
+  responsive?: string  // "all" | "mobile" | "tablet" | "desktop"
+}
+
+export interface WidgetTemplate {
+  widget_type: string
+  variants: WidgetTemplateVariant[]
+  css_variables?: Record<string, string>
+  replace_default?: boolean
+}
+
+// ─── Theme Response Types ──────────────────────────────────────
+
 export interface ThemeCssResponse {
   theme_id: string
   source: string
@@ -145,6 +167,8 @@ export interface ThemeCssResponse {
   html_templates: Record<string, string>
   /** Theme capabilities */
   capabilities?: ThemeCapabilities
+  /** Widget templates for theme-defined widget rendering */
+  widget_templates?: WidgetTemplate[]
 }
 
 export type ThemeOption = ThemeMode | 'auto' | string
@@ -167,6 +191,8 @@ interface ThemeContextType {
   themeResponse: ThemeCssResponse | null
   /** HTML template URLs from the active theme (name → URL) */
   activeTemplates: Record<string, string>
+  /** Widget templates from the active theme (widget_type → WidgetTemplate) */
+  widgetTemplates: WidgetTemplate[]
   /** Theme capabilities: design modes, auto, accent, glass, settings */
   capabilities: ThemeCapabilities | null
   /** Custom design modes from the active theme */
@@ -819,6 +845,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return themeResponse?.html_templates || {}
   }, [themeResponse?.html_templates])
 
+  const widgetTemplates = useMemo(() => {
+    return themeResponse?.widget_templates || []
+  }, [themeResponse?.widget_templates])
+
   const designModes = useMemo(() => {
     return capabilities?.design_modes || []
   }, [capabilities])
@@ -829,7 +859,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     selectedTheme, setSelectedTheme,
     availableThemes, installedThemes, loading, refreshThemes,
     activeCssVariables, themeResponse,
-    activeTemplates,
+    activeTemplates, widgetTemplates,
     capabilities, designModes,
     activeDesignMode, setActiveDesignMode,
     customSettings, updateCustomSetting,
@@ -841,7 +871,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     selectedTheme, setSelectedTheme,
     availableThemes, installedThemes, loading, refreshThemes,
     activeCssVariables, themeResponse,
-    activeTemplates,
+    activeTemplates, widgetTemplates,
     capabilities, designModes,
     activeDesignMode, setActiveDesignMode,
     customSettings, updateCustomSetting,
