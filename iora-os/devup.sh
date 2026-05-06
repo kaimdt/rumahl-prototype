@@ -118,12 +118,27 @@ _device_call() {
 # Auth: Login gegen iora-home via /dev/auth, oder statischen Token nutzen
 # Gibt 0 zurück wenn auth ok, sonst 1.
 ensure_auth() {
+  local base_url; base_url="$(normalize_url "${HOST}")"
+
+  # 0. Quick-Check: Ist das Device überhaupt erreichbar?
+  local health_check health_url="${base_url}/dev/health"
+  health_check="$(curl -s --connect-timeout 3 --max-time 5 "$health_url" 2>/dev/null || true)"
+  if ! is_json "$health_check"; then
+    error "Device ${base_url} nicht erreichbar (keine JSON-Antwort auf /dev/health)"
+    error "→ Prüfe: curl -s ${health_url}"
+    error "→ Läuft iora-dev-bridge? systemctl status iora-dev-bridge"
+    error "→ IP korrekt? Port 8101 offen?"
+    return 1
+  fi
+
   # 1. Versuche existierenden Token
   if [ -n "${TOKEN:-}" ]; then
     local r; r="$(_device_call GET "/dev/status" "" 2>/dev/null)" || true
     if is_json "$r" && echo "$r" | jq -e '.dev_mode == true' >/dev/null 2>&1; then
+      info "Token gültig – Device OK"
       return 0
     fi
+    warn "Gespeicherter Token ungültig – interaktiver Login nötig"
   fi
 
   # 2. Interaktiver Login
@@ -133,12 +148,30 @@ ensure_auth() {
   [ -z "$username" ] || [ -z "$password" ] && { error "Username/Passwort benötigt"; return 1; }
 
   local body; body="$(jq -n --arg u "$username" --arg p "$password" '{username:$u,password:$p}')"
-  info "Login..."
-  local resp; resp="$(_device_call POST "/dev/auth" "$body" 2>/dev/null)" || true
+  info "Sende Login an ${base_url}/dev/auth ..."
+
+  # Direkt curl verwenden (nicht _device_call) damit wir HTTP-Codes sauber sehen
+  local tmp http_code
+  tmp="$(mktemp /tmp/iora-devup-auth.XXXXXX)"
+  http_code=$(curl -s --connect-timeout 5 --max-time 10 \
+    -X POST -H "Content-Type: application/json" \
+    -d "$body" -o "$tmp" -w '%{http_code}' \
+    "${base_url}/dev/auth" 2>/dev/null) || true
+
+  local resp; resp="$(cat "$tmp" 2>/dev/null)"; rm -f "$tmp"
+
+  if [ -z "$resp" ]; then
+    error "Keine Antwort von /dev/auth (HTTP ${http_code:-?})"
+    error "→ Läuft iora-home auf Port 3001 oder 8126?"
+    error "→ Die Dev-Bridge fragt iora-home nach der Auth an"
+    return 1
+  fi
 
   if ! is_json "$resp"; then
-    error "Ungültige Antwort vom Device (kein JSON)"; return 1
+    error "Ungültige Antwort (HTTP ${http_code:-?}): ${resp:0:300}"
+    return 1
   fi
+
   local tok; tok="$(echo "$resp" | jq -r '.token // empty')"
   if [ -n "$tok" ] && [ "$tok" != "null" ]; then
     TOKEN="$tok"
@@ -148,8 +181,15 @@ ensure_auth() {
     success "Angemeldet als ${username} (${method}, ${role})"
     return 0
   fi
-  local err; err="$(echo "$resp" | jq -r '.error // "Unbekannter Fehler"')"
-  error "Auth fehlgeschlagen: ${err}"; return 1
+
+  local err; err="$(echo "$resp" | jq -r '.error // ""')"
+  [ -z "$err" ] && err="$(echo "$resp" | jq -r '.message // "Kein Token in Antwort"')"
+  error "Auth fehlgeschlagen (HTTP ${http_code:-?}): ${err}"
+  info "Tipp: Das sind die gleichen Login-Daten wie im IORA Webinterface"
+  if [ "$http_code" = "502" ] || [ "$http_code" = "000" ]; then
+    error "→ iora-home scheint nicht zu laufen. Starte: systemctl start iora-home"
+  fi
+  return 1
 }
 
 device_status_json() {
