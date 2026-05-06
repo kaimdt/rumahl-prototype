@@ -13,6 +13,7 @@
  * Accessible from: Settings → Appearance → "Theme bearbeiten" button
  */
 
+import { useTranslation } from 'react-i18next'
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -506,6 +507,7 @@ export interface ThemeEditorProps {
 }
 
 export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
+  const { t } = useTranslation()
   const {
     selectedTheme, setSelectedTheme,
     theme, activeCssVariables,

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { Power, PlugsConnected } from '@phosphor-icons/react'
 import type { SwitchEntity } from '@/lib/types'
@@ -13,6 +14,7 @@ interface SwitchWidgetProps {
 }
 
 export const SwitchWidget = memo(function SwitchWidget({ entity, onUpdate, config }: SwitchWidgetProps) {
+  const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [optimisticOn, setOptimisticOn] = useState<boolean | null>(null)
   const isOn = optimisticOn !== null ? optimisticOn : entity.state === 'on'
@@ -89,7 +91,7 @@ export const SwitchWidget = memo(function SwitchWidget({ entity, onUpdate, confi
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground truncate">{name}</span>
             <span className={`text-sm font-mono shrink-0 ml-2 ${isOn ? 'text-accent' : 'text-foreground/40'}`}>
-              {isOn ? 'An' : 'Aus'}
+              {isOn ? t('common.on') : t('common.off')}
             </span>
           </div>
         </div>
@@ -134,7 +136,7 @@ export const SwitchWidget = memo(function SwitchWidget({ entity, onUpdate, confi
               <div className="min-w-0 flex-1">
                 <h3 className="font-medium text-sm truncate">{name}</h3>
                 <p className="text-xs text-muted-foreground font-mono">
-                  {isOn ? 'Eingeschaltet' : 'Ausgeschaltet'}
+                  {isOn ? t('widgets.switch.on') : t('widgets.switch.off')}
                 </p>
               </div>
             </div>

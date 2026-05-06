@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { usePageNavigation, iconMap } from '@/contexts/PageNavigationContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTranslation } from 'react-i18next'
 import { Moon, Sun, DotsThree, DotsNine, CaretUp, UserCircle, ShieldCheck, X, Warning, Siren, CloudWarning, Info, Bell } from '@phosphor-icons/react'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { getBackendUrl } from '@/lib/config'
@@ -25,6 +26,7 @@ const defaultStyle = { bg: 'from-foreground/10 via-foreground/8 to-foreground/10
 
 
 export function NavigationMenu({ hidden }: { hidden?: boolean }) {
+  const { t } = useTranslation()
   const { currentPageId, setCurrentPageId, pages, getSubPages, openModalPage } = usePageNavigation()
   const { sleepMode, setSleepMode, theme } = useTheme()
   const { user } = useAuth()

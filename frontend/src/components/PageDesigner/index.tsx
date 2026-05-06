@@ -23,6 +23,8 @@ import {
   ArrowsOutSimple,
   Copy,
   Sliders,
+  Download,
+  Upload,
 } from '@phosphor-icons/react'
 import {
   DndContext,
@@ -616,6 +618,55 @@ export function PageDesigner({
     setSelectedWidgetId(newWidget.id)
     toast.success('Widget dupliziert')
   }, [selectedPageId, pages, currentGridCols, gridRows, setPages, snapshot])
+
+  // ─── YAML Export/Import ─────────────────────────────────────
+  const handleYamlExport = useCallback(async () => {
+    if (!selectedPage) { toast.error('Keine Seite ausgewählt'); return }
+    const { pageToYaml } = await import('@/lib/yamlConverter')
+    const yaml = pageToYaml(selectedPage)
+    const blob = new Blob([yaml], { type: 'text/yaml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedPage.id}.yaml`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Seite "${selectedPage.name}" als YAML exportiert`)
+  }, [selectedPage])
+
+  const handleYamlImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const { yamlToPage } = await import('@/lib/yamlConverter')
+      const { page, errors, warnings } = yamlToPage(text)
+      
+      if (errors.length > 0) {
+        toast.error(`YAML-Fehler: ${errors.join(', ')}`, { duration: 8000 })
+        if (warnings.length > 0) toast.warning(warnings.join(', '), { duration: 4000 })
+        e.target.value = ''
+        return
+      }
+      
+      if (!page) { toast.error('Konnte Seite nicht parsen'); e.target.value = ''; return }
+      
+      if (warnings.length > 0) toast.warning(warnings.join(', '), { duration: 4000 })
+      
+      const pageExists = pages.some(p => p.id === page.id)
+      if (pageExists) {
+        const updatedPages = pages.map(p => p.id === page.id ? page : p)
+        setPages(updatedPages)
+        toast.success(`Seite "${page.name}" aktualisiert`)
+      } else {
+        setPages([...pages, { ...page, id: page.id || `page_${Date.now()}` }])
+        toast.success(`Seite "${page.name}" importiert`)
+      }
+    } catch (err) {
+      toast.error('YAML konnte nicht gelesen werden: ' + (err instanceof Error ? err.message : String(err)))
+    }
+    e.target.value = ''
+  }, [pages, setPages])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1241,6 +1292,17 @@ export function PageDesigner({
                           <Swatches size={11} weight="bold" />
                           <span className="hidden xl:inline">Vorlage</span>
                         </button>
+
+                        {/* YAML Import/Export */}
+                        <button onClick={handleYamlExport} className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-foreground/4 border border-foreground/6 text-foreground/50 hover:bg-foreground/8 hover:text-foreground transition-colors" title="Als YAML exportieren">
+                          <Download size={11} weight="bold" />
+                          <span className="hidden xl:inline">YAML</span>
+                        </button>
+                        <label className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-foreground/4 border border-foreground/6 text-foreground/50 hover:bg-foreground/8 hover:text-foreground transition-colors cursor-pointer" title="YAML importieren">
+                          <Upload size={11} weight="bold" />
+                          <span className="hidden xl:inline">Import</span>
+                          <input type="file" accept=".yaml,.yml" className="hidden" onChange={handleYamlImport} />
+                        </label>
                       </div>
                     </div>
 

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { motion } from 'framer-motion'
 import { ThermometerSimple, Flame, Snowflake, Fan, Wind } from '@phosphor-icons/react'
@@ -15,6 +16,7 @@ interface ClimateWidgetProps {
 }
 
 export const ClimateWidget = memo(function ClimateWidget({ entity, onUpdate, config, widgetSize }: ClimateWidgetProps) {
+  const { t } = useTranslation()
   const [isUpdating, setIsUpdating] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragTemp, setDragTemp] = useState<number | null>(null)
@@ -194,7 +196,7 @@ export const ClimateWidget = memo(function ClimateWidget({ entity, onUpdate, con
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground truncate">{name}</span>
             <span className={`text-sm font-mono shrink-0 ml-2 ${displayIsActive ? 'text-accent' : 'text-foreground/40'}`}>
-              {displayIsActive ? `${displayTemp.toFixed(1)}°C` : 'Aus'}
+              {displayIsActive ? `${displayTemp.toFixed(1)}°C` : t('common.off')}
             </span>
           </div>
         </div>
@@ -269,7 +271,7 @@ export const ClimateWidget = memo(function ClimateWidget({ entity, onUpdate, con
                 <p className="text-xs text-muted-foreground font-mono number-display">
                   {displayIsActive
                     ? `${displayTemp.toFixed(1)}°C`
-                    : 'Aus'}
+                    : t('common.off')}
                 </p>
               </div>
             </div>

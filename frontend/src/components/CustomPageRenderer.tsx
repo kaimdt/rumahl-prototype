@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useEffect, useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { GridFour } from '@phosphor-icons/react'
@@ -292,7 +293,7 @@ function WidgetPlaceholder({ widget }: { widget: DashboardWidget }) {
     <div className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center gap-3 min-h-[120px]">
       <GridFour size={32} weight="light" className="text-foreground/30" />
       <p className="text-sm text-foreground/50">
-        {widget.type === 'media_player' ? 'Media Player' : 'Widget'}
+        {widget.type === 'media_player' ? t('widgets.mediaPlayer.playing') : t('common.default')}
       </p>
       {widget.entity_id && (
         <p className="text-xs text-foreground/30 truncate max-w-full">{widget.entity_id}</p>

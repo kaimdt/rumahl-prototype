@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState, useRef, useCallback, memo } from 'react'
 import { motion } from 'framer-motion'
 import { Thermometer, Drop, Lightning, Gauge, Clock, Calendar } from '@phosphor-icons/react'
@@ -14,6 +15,7 @@ interface SensorWidgetProps {
 }
 
 export const SensorWidget = memo(function SensorWidget({ entity, config, widgetSize }: SensorWidgetProps) {
+  const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const name = entity.attributes.friendly_name || entity.entity_id
   const value = entity.state

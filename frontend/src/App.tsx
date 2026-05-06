@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import '@/i18n'
+import { useTranslation } from 'react-i18next'
 import { getBackendUrl } from '@/lib/config'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
@@ -103,6 +105,7 @@ async function hashPin(pin: string): Promise<string> {
 }
 
 function DashboardContent() {
+  const { t } = useTranslation()
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile, token } = useAuth()
@@ -433,7 +436,7 @@ function DashboardContent() {
           >
             <Sparkle className="text-foreground/60" size={28} weight="fill" />
           </motion.div>
-          <p className="text-xs text-foreground/40 tracking-wider font-light">Authentifiziere...</p>
+          <p className="text-xs text-foreground/40 tracking-wider font-light">{t('dashboard.authenticating')}</p>
         </div>
       </div>
     )
@@ -486,13 +489,13 @@ function DashboardContent() {
                   <Wrench size={40} weight="duotone" className="text-amber-400" />
                 </motion.div>
                 <div className="space-y-2">
-                  <h2 className="text-xl font-semibold text-white">Wartungsmodus</h2>
+                  <h2 className="text-xl font-semibold text-white">{t('dashboard.maintenanceMode')}</h2>
                   <p className="text-sm text-white/60 leading-relaxed">
-                    {maintenanceMessage || 'IORA befindet sich im Wartungsmodus.'}
+                    {maintenanceMessage || t('dashboard.maintenanceMessage')}
                   </p>
                 </div>
                 <p className="text-xs text-white/30">
-                  Bitte warten Sie, bis der Administrator den Wartungsmodus beendet.
+                  {t('dashboard.maintenanceWait')}
                 </p>
               </div>
             </motion.div>
@@ -567,12 +570,12 @@ function DashboardContent() {
                 <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
                 <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
                 <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
-                  {currentPageId === 'settings' ? 'Core' : currentPageId === 'admin' ? 'Core' : currentPageId === 'docs' ? 'Docs' : currentPageId === 'streaming' ? 'Stream' : 'Home'}
+                  {currentPageId === 'settings' ? 'Home' : currentPageId === 'admin' ? 'Home' : currentPageId === 'docs' ? 'Docs' : currentPageId === 'streaming' ? 'Stream' : 'Home'}
                 </span>
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-[11px] text-foreground/40 font-light tracking-wider hidden sm:block">
-                  {entities.length > 0 ? `${entities.length} Entitäten` : ''}
+                  {entities.length > 0 ? `${entities.length} ${t('dashboard.entities')}` : ''}
                 </span>
                 <HeaderClock />
               </div>
@@ -670,9 +673,9 @@ function DashboardContent() {
               return (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-foreground/60">
                   <span className="text-7xl font-bold text-foreground/10">404</span>
-                  <p className="text-lg font-medium">Seite nicht gefunden</p>
+                  <p className="text-lg font-medium">{t('errors.notFound')}</p>
                   <p className="text-sm">
-                    Die Seite <code className="px-1.5 py-0.5 rounded bg-foreground/10">{currentPageId}</code> existiert nicht.
+                    {t('dashboard.pageNotFoundDesc')}
                   </p>
                 </div>
               )

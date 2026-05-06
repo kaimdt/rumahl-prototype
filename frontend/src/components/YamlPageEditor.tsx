@@ -26,6 +26,7 @@
  * ```
  */
 
+import { useTranslation } from 'react-i18next'
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -240,6 +241,7 @@ interface YamlPageEditorProps {
 }
 
 export function YamlPageEditor({ initialYaml, onSave, onClose, embedded }: YamlPageEditorProps) {
+  const { t } = useTranslation()
   const defaultYaml = initialYaml || `name: Neue Seite
 icon: House
 description: Meine custom Seite

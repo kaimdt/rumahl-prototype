@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -136,6 +137,7 @@ function PinPad({ onSubmit, onBack, userName, isLoading }: {
 }
 
 export function LoginModal({ open, onOpenChange }: LoginModalProps) {
+  const { t } = useTranslation()
   const { login, loginWithPin, register } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'pin'>('login')
@@ -189,7 +191,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     e.preventDefault()
 
     if (!loginUsername.trim() || !loginPassword) {
-      toast.error('Bitte Benutzername und Passwort eingeben')
+      toast.error(t('auth.enterCredentials'))
       return
     }
 
@@ -213,7 +215,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     e.preventDefault()
 
     if (!registerUsername.trim() || !registerPassword) {
-      toast.error('Bitte Benutzername und Passwort eingeben')
+      toast.error(t('auth.enterCredentials'))
       return
     }
 

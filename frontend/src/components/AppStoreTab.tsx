@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState, useCallback, useEffect } from 'react'
 import {
   Cube, Lightning, Plus, Play, Pause, TrashSimple, ShieldCheck,

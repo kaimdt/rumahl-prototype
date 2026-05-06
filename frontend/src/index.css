@@ -1872,3 +1872,53 @@ body {
     padding: 1rem !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   RTL Support (Right-to-Left)
+   Uses CSS logical properties for automatic direction handling
+   ════════════════════════════════════════════════════════════════ */
+
+/* Base RTL overrides via dir attribute */
+[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Mirror layout for RTL */
+[dir="rtl"] .space-x-reverse > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+}
+
+[dir="rtl"] .flex-row {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .mr-auto { margin-right: 0; margin-left: auto; }
+
+[dir="rtl"] .left-0 { left: auto; right: 0; }
+[dir="rtl"] .right-0 { right: auto; left: 0; }
+
+[dir="rtl"] .text-left { text-align: right; }
+[dir="rtl"] .text-right { text-align: left; }
+
+[dir="rtl"] .rounded-l-none { border-radius: 0 var(--radius) var(--radius) 0; }
+[dir="rtl"] .rounded-r-none { border-radius: var(--radius) 0 0 var(--radius); }
+
+[dir="rtl"] .border-l { border-left: none; border-right-width: 1px; }
+[dir="rtl"] .border-r { border-right: none; border-left-width: 1px; }
+
+/* RTL scrollbar */
+[dir="rtl"] * {
+  direction: rtl;
+}
+[dir="rtl"] input,
+[dir="rtl"] textarea {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Mirror icons that indicate direction */
+[dir="rtl"] .rtl-mirror {
+  transform: scaleX(-1);
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
@@ -62,6 +63,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { YamlPageEditor } from '@/components/YamlPageEditor'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import type { ThemeMode } from '@/lib/types'
 import type { ThemeDefinition } from '@/contexts/ThemeContext'
 
@@ -989,6 +991,7 @@ function ScreensaverScheduleEditor({
 }
 
 export function SettingsPage(props: SettingsPageProps) {
+  const { t } = useTranslation()
   const {
     user,
     userName,
@@ -1035,12 +1038,12 @@ export function SettingsPage(props: SettingsPageProps) {
         <TabsList className="grid grid-cols-4 w-full rounded-xl bg-foreground/5 p-1 h-auto">
           <TabsTrigger value="general" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
             <User size={15} weight="fill" />
-            <span className="hidden sm:inline">Allgemein</span>
-            <span className="sm:hidden">Profil</span>
+            <span className="hidden sm:inline">{t('settings.general')}</span>
+            <span className="sm:hidden">{t('settings.profile')}</span>
           </TabsTrigger>
           <TabsTrigger value="appearance" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
             <Palette size={15} weight="fill" />
-            <span>Darstellung</span>
+            <span>{t('settings.appearance')}</span>
           </TabsTrigger>
           <TabsTrigger value="dashboard" className="gap-1.5 rounded-lg text-[11px] sm:text-xs px-1.5 sm:px-3 py-2.5 data-[state=active]:bg-accent/15 data-[state=active]:text-accent transition-all">
             <Layout size={15} weight="fill" />
@@ -1189,7 +1192,12 @@ export function SettingsPage(props: SettingsPageProps) {
             {/* Theme Mode */}
             <ThemePickerSection />
 
-            {/* Theme Custom Settings (never hides the theme switcher above) */}
+            {/* Language Switcher */}
+            <SettingsSection icon="🌐" title="Sprache" description="Wähle deine bevorzugte Sprache für die gesamte Oberfläche" accentIcon>
+              <LanguageSwitcher />
+            </SettingsSection>
+
+            {/* Theme Custom Settings */}
             <ThemeSettingsPanelWrapper />
 
             {/* Accent Color */}

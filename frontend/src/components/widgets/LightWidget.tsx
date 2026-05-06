@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { Lightbulb } from '@phosphor-icons/react'
 import type { EntityState, LightEntity } from '@/lib/types'
@@ -15,6 +16,7 @@ interface LightWidgetProps {
 }
 
 export const LightWidget = memo(function LightWidget({ entity, onUpdate, allEntities, config, widgetSize }: LightWidgetProps) {
+  const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dragBrightness, setDragBrightness] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -104,24 +105,24 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 // ═══ End Design Components ═══
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
-  { id: 'services', label: 'Dienste', icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
-  { id: 'health-intelligence', label: 'Health Intelligence', icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
-  { id: 'themes', label: 'Themes', icon: Palette, description: 'Installierte Themes verwalten — eigene Farbschemas installieren, aktivieren/deaktivieren und löschen' },
-  { id: 'developer-mode', label: 'Developer Mode', icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
-  { id: 'documentation', label: 'Dokumentation', icon: BookOpen, description: 'IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation' },
-  { id: 'protocols', label: 'Protokoll-Übersicht', icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
-  { id: 'ha-tools', label: 'HA Developer Tools', icon: Code, description: 'Home Assistant Templates rendern, Events feuern und Entity-/Device-/Area-Registries durchsuchen' },
-  { id: 'global-alert', label: 'Globaler Alarm', icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
-  { id: 'notifications', label: 'Benachrichtigungen', icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
-  { id: 'tasks', label: 'Aufgaben', icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
-  { id: 'control-mode', label: 'Betriebsmodus', icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
-  { id: 'system', label: 'System', icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
-  { id: 'system-info', label: 'System Info', icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
+  { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+  { id: 'health-intelligence', label: t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
+  { id: 'themes', label: t('admin.themes'), icon: Palette, description: 'Installierte Themes verwalten — eigene Farbschemas installieren, aktivieren/deaktivieren und löschen' },
+  { id: 'developer-mode', label: t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
+  { id: 'documentation', label: t('admin.documentation'), icon: BookOpen, description: 'IORA OS Bedienungsanleitung, Admin-Referenz und API-Dokumentation' },
+  { id: 'protocols', label: t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
+  { id: 'ha-tools', label: t('admin.haTools'), icon: Code, description: 'Home Assistant Templates rendern, Events feuern und Entity-/Device-/Area-Registries durchsuchen' },
+  { id: 'global-alert', label: t('admin.globalAlert'), icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
+  { id: 'notifications', label: t('admin.notifications'), icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
+  { id: 'tasks', label: t('admin.tasks'), icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
+  { id: 'control-mode', label: t('admin.controlMode'), icon: Robot, description: 'Zwischen autonomem, manuellem und überwachtem Betriebsmodus wechseln' },
+  { id: 'system', label: t('admin.system'), icon: Cpu, description: 'CPU, RAM, Speicher, Uptime und System-Auslastung überwachen' },
+  { id: 'system-info', label: t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
   { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
   { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
   { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
-  { id: 'apps', label: 'Apps', icon: Cube, description: 'Docker-basierte Apps verwalten — installieren, starten, stoppen und deinstallieren' },
-  { id: 'plugins', label: 'Plugins', icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
+  { id: 'apps', label: t('admin.apps'), icon: Cube, description: 'Docker-basierte Apps verwalten — installieren, starten, stoppen und deinstallieren' },
+  { id: 'plugins', label: t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
   { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
   { id: 'security-monitor', label: 'Sicherheit', icon: ShieldWarning, description: 'Sicherheitswarnungen, Ressourcennutzung und Anomalie-Erkennung überwachen' },
   { id: 'updates', label: 'Updates', icon: CloudArrowUp, description: 'Verfügbare Updates prüfen, installieren oder zurückrollen' },
@@ -885,7 +886,7 @@ interface SettingValueDto extends SettingDefDto {
 }
 
 const CATEGORY_LABELS: Record<SettingDefDto['category'], string> = {
-  system: 'System',
+  system: t('admin.system'),
   home_assistant: 'Home Assistant',
   integrations: 'Integrationen',
   appearance: 'Darstellung',
@@ -5709,7 +5710,7 @@ function RealtimeTab({ token }: { token: string }) {
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                         wsNamespace === ns ? 'bg-accent text-white shadow-sm' : 'bg-foreground/10 text-foreground/60 border border-foreground/10'
                       } disabled:opacity-50`}>
-                      {ns === 'entities' ? 'Entities' : ns === 'system' ? 'System' : 'Notifications'}
+                      {ns === 'entities' ? 'Entities' : ns === 'system' ? t('admin.system') : 'Notifications'}
                     </button>
                   ))}
                 </div>

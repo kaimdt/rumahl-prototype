@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowsDownUp } from '@phosphor-icons/react'

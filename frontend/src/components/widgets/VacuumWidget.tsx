@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Robot } from '@phosphor-icons/react'
