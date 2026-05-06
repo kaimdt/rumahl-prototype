@@ -13,6 +13,9 @@
 }
 set -euo pipefail
 
+# ── Signal Handling: STRG+C = sauberer Abbruch ──────────────────────────────
+trap 'echo -e "\n${Y}[ ABBRUCH ]${N} Durch Benutzer abgebrochen."; exit 130' INT TERM
+
 # ── Metadaten ────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="${SCRIPT_DIR}/backend"
@@ -243,7 +246,6 @@ docker_build_one() {
   # ARM-Cross: Docker mit QEMU-Emulation
   if [ "$host_arch" = "x86_64" ] && [ "$target_arch" = "aarch64" ]; then
     info "  ${svc}: Docker x86_64→aarch64 (QEMU)..."
-    # QEMU registrieren falls nötig
     docker run --rm --privileged tonistiigi/binfmt:latest --install arm64 >> "$logfile" 2>&1 || true
 
     cat > "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}" <<DOCKEREOF
@@ -258,20 +260,33 @@ RUN cargo build --release -p \${SVC} && mkdir -p /out && \\
     for d in target/release target/aarch64-unknown-linux-gnu/release; do \\
       [ -x "\$d/\${SVC}" ] && cp "\$d/\${SVC}" "/out/\${SVC}" && break; done
 DOCKEREOF
-    docker build --platform linux/arm64 --build-arg "SVC=${svc}" -t "$tag" \
-      -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}" "$BACKEND_DIR" >> "$logfile" 2>&1 || {
-      error "  ${svc}: Build fehlgeschlagen"; tail -20 "$logfile" | while read -r l; do echo "    ${R}${l}${N}"; done
-      docker image rm -f "$tag" >/dev/null 2>&1; rm -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}"; return 1
-    }
+    if ! docker build --platform linux/arm64 --build-arg "SVC=${svc}" -t "$tag" \
+      -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}" "$BACKEND_DIR" >> "$logfile" 2>&1; then
+      error "  ${svc}: Build fehlgeschlagen"; _show_build_error "$logfile" "$svc"
+      docker image rm -f "$tag" >/dev/null 2>&1 || true
+      rm -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}"; return 1
+    fi
     rm -f "${BUILD_LOG_DIR}/Dockerfile.arm64-${svc}"
   else
     # Native via Dockerfile (Alpine/musl, glibc-sicher)
     info "  ${svc}: Docker (Alpine/musl)..."
-    DOCKER_BUILDKIT=1 docker build --progress=plain --target builder -t "$tag" \
-      -f "$DOCKERFILE" "$BACKEND_DIR" >> "$logfile" 2>&1 || {
-      error "  ${svc}: Build fehlgeschlagen"; tail -20 "$logfile" | while read -r l; do echo "    ${R}${l}${N}"; done
+    if ! DOCKER_BUILDKIT=1 docker build --progress=plain --target builder -t "$tag" \
+      -f "$DOCKERFILE" "$BACKEND_DIR" >> "$logfile" 2>&1; then
+      error "  ${svc}: Docker-Build fehlgeschlagen"; _show_build_error "$logfile" "$svc"
       docker image rm -f "$tag" >/dev/null 2>&1; return 1
-    }
+    fi
+
+    # Prüfe ob /out/ das Binary enthält (Dockerfile kann trotz exit 0 leer sein)
+    if ! docker create --name "iora-devup-chk-${svc}" "$tag" >/dev/null 2>&1; then
+      error "  ${svc}: Kann Image nicht inspizieren"; docker image rm -f "$tag" >/dev/null 2>&1; return 1
+    fi
+    if ! docker exec "iora-devup-chk-${svc}" test -f "/out/${svc}" 2>/dev/null; then
+      warn "  ${svc}: /out/${svc} fehlt – cargo-Fehler im Build?"
+      _show_build_error "$logfile" "$svc"
+      docker rm -f "iora-devup-chk-${svc}" >/dev/null 2>&1
+      docker image rm -f "$tag" >/dev/null 2>&1; return 1
+    fi
+    docker rm -f "iora-devup-chk-${svc}" >/dev/null 2>&1
   fi
 
   # Extraktion
@@ -282,21 +297,40 @@ DOCKEREOF
   for cand in "/out/${svc}" "/app/backend/target/release/${svc}" \
     "/app/backend/target/aarch64-unknown-linux-gnu/release/${svc}" \
     "/app/backend/target/x86_64-unknown-linux-musl/release/${svc}"; do
-    docker exec "iora-devup-ext-${svc}" test -f "$cand" 2>/dev/null && { cb="$cand"; break; }
+    if docker exec "iora-devup-ext-${svc}" test -f "$cand" 2>/dev/null; then cb="$cand"; break; fi
   done
-  [ -z "$cb" ] && {
-    error "  ${svc}: Binary nicht im Container gefunden"
-    docker exec "iora-devup-ext-${svc}" find / -name "${svc}" -type f 2>/dev/null | head -3
-    docker rm -f "iora-devup-ext-${svc}" >/dev/null 2>&1; docker image rm -f "$tag" >/dev/null 2>&1; return 1
-  }
+  if [ -z "$cb" ]; then
+    error "  ${svc}: Binary nicht im Container gefunden (Pfade erfolglos durchsucht)"
+    warn "  Container-Inhalt /out/:"
+    docker exec "iora-devup-ext-${svc}" ls -la /out/ 2>/dev/null || echo "    (leer)"
+    docker rm -f "iora-devup-ext-${svc}" >/dev/null 2>&1
+    docker image rm -f "$tag" >/dev/null 2>&1; return 1
+  fi
   docker cp "iora-devup-ext-${svc}:${cb}" "$bin_path" 2>/dev/null
-  docker rm -f "iora-devup-ext-${svc}" >/dev/null 2>&1; docker image rm -f "$tag" >/dev/null 2>&1
-  [ ! -f "$bin_path" ] || [ ! -s "$bin_path" ] && { error "  ${svc}: Binary-Extraktion fehlgeschlagen"; return 1;
-}
+  docker rm -f "iora-devup-ext-${svc}" >/dev/null 2>&1
+  docker image rm -f "$tag" >/dev/null 2>&1
+
+  if [ ! -f "$bin_path" ] || [ ! -s "$bin_path" ]; then
+    error "  ${svc}: Binary-Extraktion fehlgeschlagen"; return 1
+  fi
   chmod +x "$bin_path"
   local sz ft; sz="$(du -h "$bin_path" | cut -f1)"; ft="$(file "$bin_path" 2>/dev/null | cut -d: -f2-)"
   success "  ${svc} (${sz}) [${ft## }]"
   return 0
+}
+
+# Zeigt Build-Fehler aus dem Log
+_show_build_error() {
+  local log="$1" svc="$2"
+  warn "  Build-Log Auszug (${svc}):"
+  # Zeige cargo-Fehler und die letzten 15 Zeilen
+  grep -E '(^error|WARNING.*did not compile|BUILD FAILURES)' "$log" 2>/dev/null | head -10 | while read -r l; do
+    echo -e "    ${R}${l}${N}"
+  done
+  echo -e "    ${DIM}... letzte 15 Zeilen:${N}"
+  tail -15 "$log" 2>/dev/null | while read -r l; do
+    echo -e "    ${DIM}${l}${N}"
+  done
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
