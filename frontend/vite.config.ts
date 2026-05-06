@@ -6,9 +6,14 @@ import { resolve } from 'path'
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname
 const backendTarget = process.env.VITE_IORA_BACKEND_URL || 'http://iora.local:3001'
 const backendWsTarget = backendTarget.replace(/^http/, 'ws')
+// Read version from package.json for APP_VERSION define
+const pkg = require('./package.json')
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    APP_VERSION: JSON.stringify(pkg.version || '2.0.0'),
+  },
   plugins: [
     react(),
     tailwindcss(),

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -105,24 +106,24 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 // ═══ End Design Components ═══
 
 const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
-  { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
-  { id: 'health-intelligence', label: t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
-  { id: 'themes', label: t('admin.themes'), icon: Palette, description: t('admin.themesDesc') },
-  { id: 'developer-mode', label: t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
-  { id: 'documentation', label: t('admin.documentation'), icon: BookOpen, description: t('admin.docsDesc') },
-  { id: 'protocols', label: t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
-  { id: 'ha-tools', label: t('admin.haTools'), icon: Code, description: t('admin.haToolsDesc') },
-  { id: 'global-alert', label: t('admin.globalAlert'), icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
-  { id: 'notifications', label: t('admin.notifications'), icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
-  { id: 'tasks', label: t('admin.tasks'), icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
-  { id: 'control-mode', label: t('admin.controlMode'), icon: Robot, description: t('admin.controlModeDesc') },
-  { id: 'system', label: t('admin.system'), icon: Cpu, description: t('admin.systemDesc') },
-  { id: 'system-info', label: t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
+  { id: 'services', label: i18n.t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+  { id: 'health-intelligence', label: i18n.t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
+  { id: 'themes', label: i18n.t('admin.themes'), icon: Palette, description: i18n.t('admin.themesDesc') },
+  { id: 'developer-mode', label: i18n.t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
+  { id: 'documentation', label: i18n.t('admin.documentation'), icon: BookOpen, description: i18n.t('admin.docsDesc') },
+  { id: 'protocols', label: i18n.t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
+  { id: 'ha-tools', label: i18n.t('admin.haTools'), icon: Code, description: i18n.t('admin.haToolsDesc') },
+  { id: 'global-alert', label: i18n.t('admin.globalAlert'), icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
+  { id: 'notifications', label: i18n.t('admin.notifications'), icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
+  { id: 'tasks', label: i18n.t('admin.tasks'), icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
+  { id: 'control-mode', label: i18n.t('admin.controlMode'), icon: Robot, description: i18n.t('admin.controlModeDesc') },
+  { id: 'system', label: i18n.t('admin.system'), icon: Cpu, description: i18n.t('admin.systemDesc') },
+  { id: 'system-info', label: i18n.t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
   { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
   { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
   { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
-  { id: 'apps', label: t('admin.apps'), icon: Cube, description: t('admin.appsDesc') },
-  { id: 'plugins', label: t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
+  { id: 'apps', label: i18n.t('admin.apps'), icon: Cube, description: i18n.t('admin.appsDesc') },
+  { id: 'plugins', label: i18n.t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
   { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
   { id: 'security-monitor', label: 'Sicherheit', icon: ShieldWarning, description: 'Sicherheitswarnungen, Ressourcennutzung und Anomalie-Erkennung überwachen' },
   { id: 'updates', label: 'Updates', icon: CloudArrowUp, description: 'Verfügbare Updates prüfen, installieren oder zurückrollen' },
@@ -531,6 +532,7 @@ function tabToAdminPath(tab: Tab): string {
 }
 
 export function AdminPanel() {
+  const { t } = useTranslation()
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>(() => adminPathToTab(window.location.pathname))
   // Persist expanded group across page reloads via localStorage
@@ -886,7 +888,7 @@ interface SettingValueDto extends SettingDefDto {
 }
 
 const CATEGORY_LABELS: Record<SettingDefDto['category'], string> = {
-  system: t('admin.system'),
+  system: i18n.t('admin.system'),
   home_assistant: 'Home Assistant',
   integrations: 'Integrationen',
   appearance: 'Darstellung',
@@ -5710,7 +5712,7 @@ function RealtimeTab({ token }: { token: string }) {
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                         wsNamespace === ns ? 'bg-accent text-white shadow-sm' : 'bg-foreground/10 text-foreground/60 border border-foreground/10'
                       } disabled:opacity-50`}>
-                      {ns === 'entities' ? 'Entities' : ns === 'system' ? t('admin.system') : 'Notifications'}
+                      {ns === 'entities' ? 'Entities' : ns === 'system' ? i18n.t('admin.system') : 'Notifications'}
                     </button>
                   ))}
                 </div>

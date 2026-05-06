@@ -14,7 +14,7 @@ interface Props {
 export function AppHealthMonitor({ src, appName, timeoutMs = 15000, onRetry, children }: Props) {
   const [state, setState] = useState<'loading' | 'loaded' | 'error' | 'timeout'>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const retryCount = useRef(0)
 
   const startTimeout = useCallback(() => {

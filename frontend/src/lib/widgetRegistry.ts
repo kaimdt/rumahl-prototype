@@ -74,6 +74,7 @@ export interface WidgetDefinition {
   entityDomain?: string
   defaultSize: { w: number; h: number }
   variants?: { key: string; label: string }[]
+  description?: string
 }
 
 export const WIDGET_DEFINITIONS: WidgetDefinition[] = [

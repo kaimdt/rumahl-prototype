@@ -184,7 +184,12 @@
     "maintenanceMessage": "IORA is in maintenance mode. Please wait.",
     "pageNotFound": "Page not found",
     "pageNotFoundDesc": "The page does not exist.",
-    "greeting_hello": "Hello"
+    "greeting_hello": "Hello",
+    "message_morning": "Have a great start to the day! The weather in {{location}} invites a productive morning.",
+    "message_afternoon": "Enjoy your afternoon. No upcoming appointments or notifications.",
+    "message_evening": "Time to relax. Lighting has been optimized for the evening.",
+    "message_sleep": "Sleep mode active. Good night.",
+    "message_night": "Quiet night. All systems in standby mode."
   },
   "widgets": {
     "light": {
@@ -406,7 +411,8 @@
     "forgotPassword": "Forgot password?",
     "enterCredentials": "Please enter username and password",
     "pinFor": "PIN for",
-    "orUsePin": "or login with PIN"
+    "orUsePin": "or login with PIN",
+    "passwordMinLength": "Password must be at least 8 characters"
   },
   "errors": {
     "notFound": "Page not found",

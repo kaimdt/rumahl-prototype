@@ -73,7 +73,7 @@ export function KanbanBoard({ tasks, onTasksChange, onCreateTask, onStartTask, o
   }
 
   // Drag handlers
-  const onDragStart = (e: React.DragEvent, taskId: string) => {
+  const onDragStart = (e: any, taskId: string) => {
     e.dataTransfer.setData('taskId', taskId)
     e.dataTransfer.effectAllowed = 'move'
   }

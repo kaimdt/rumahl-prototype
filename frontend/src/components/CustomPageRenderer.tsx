@@ -289,6 +289,7 @@ interface CustomPageRendererProps {
 }
 
 function WidgetPlaceholder({ widget }: { widget: DashboardWidget }) {
+  const { t } = useTranslation()
   return (
     <div className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center gap-3 min-h-[120px]">
       <GridFour size={32} weight="light" className="text-foreground/30" />

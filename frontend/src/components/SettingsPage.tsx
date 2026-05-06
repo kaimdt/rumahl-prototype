@@ -53,6 +53,7 @@ import {
   ArrowSquareOut,
   PaintBrush,
   BracketsCurly,
+  Globe,
 } from '@phosphor-icons/react'
 import { ConfigurationSettings } from '@/components/ConfigurationSettings'
 import { LightEnhancementsSettings } from '@/components/LightEnhancementsSettings'
@@ -369,6 +370,7 @@ const THEME_OPTIONS: { value: string; label: string; description: string; icon: 
 ]
 
 function ThemePickerSection() {
+  const { t } = useTranslation()
   const { selectedTheme, setSelectedTheme, theme: activeTheme, availableThemes, installedThemes } = useTheme()
   const [editorOpen, setEditorOpen] = useState(false)
 
@@ -435,6 +437,7 @@ function ThemePickerSection() {
 
 // ─── Login PIN Section ─────────────────────────────────────────────────
 function LoginPinSection() {
+  const { t } = useTranslation()
   const [loginPin, setLoginPin] = useState('')
   const [loginPinConfirm, setLoginPinConfirm] = useState('')
   const [hasLoginPin, setHasLoginPin] = useState(false)
@@ -579,6 +582,7 @@ function LoginPinSection() {
 }
 
 function TwoFactorPasskeySection() {
+  const { t } = useTranslation()
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [passkeyEnabled, setPasskeyEnabled] = useState(false)
   const [passkeyAs2FA, setPasskeyAs2FA] = useState(false)
@@ -1201,7 +1205,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <ThemePickerSection />
 
             {/* Language Switcher */}
-            <SettingsSection icon="🌐" title="Sprache" description="Wähle deine bevorzugte Sprache für die gesamte Oberfläche" accentIcon>
+            <SettingsSection icon={Globe} title="Sprache" description="Wähle deine bevorzugte Sprache für die gesamte Oberfläche" accentIcon>
               <LanguageSwitcher />
             </SettingsSection>
 
@@ -1663,6 +1667,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
 // ─── Additional Settings Component ─────────────────────────────────
 function AdditionalSettings() {
+  const { t } = useTranslation()
   const [hapticEnabled, setHapticEnabled] = useLocalStorage('ha-haptic-feedback', true)
   const [navLabels, setNavLabels] = useLocalStorage('ha-nav-labels', true)
   const [navStyle, setNavStyle] = useLocalStorage<'pill' | 'classic' | 'minimal'>('ha-nav-style', 'pill')

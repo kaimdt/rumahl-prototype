@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 import { useLocalStorage } from '@/lib/storage'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -53,11 +54,11 @@ const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 // ─── Instant Task type badge labels ──────────────────────────────────────────
 
 const INSTANT_TASK_LABELS: Record<string, string> = {
-  search:  t('ai.search'),
-  weather: t('ai.weather'),
-  news:    t('ai.news'),
-  music:   t('ai.music'),
-  generic: t('ai.search'),
+  search:  i18n.t('ai.search'),
+  weather: i18n.t('ai.weather'),
+  news:    i18n.t('ai.news'),
+  music:   i18n.t('ai.music'),
+  generic: i18n.t('ai.search'),
 }
 
 export function ORAAssistant() {

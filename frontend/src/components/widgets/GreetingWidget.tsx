@@ -1,4 +1,6 @@
 import { motion } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { WeatherEntity, ThemeMode } from '@/lib/types'
 import { CloudRain, CloudSun, Sun, MoonStars } from '@phosphor-icons/react'
 
@@ -9,7 +11,7 @@ interface GreetingWidgetProps {
   config?: Record<string, unknown>
 }
 
-function getGreeting() {
+function getGreeting(t: TFunction) {
   const hour = new Date().getHours()
   
   if (hour >= 5 && hour < 12) return t('dashboard.greeting_morning')
@@ -18,24 +20,25 @@ function getGreeting() {
   return t('dashboard.greeting_night')
 }
 
-function getTimeSpecificMessage(theme?: ThemeMode, location?: string) {
+function getTimeSpecificMessage(t: TFunction, theme?: ThemeMode, location?: string) {
   const hour = new Date().getHours()
   
   if (hour >= 5 && hour < 12) {
-    return `Einen schönen Start in den Tag! Das Wetter in ${location} lädt zu einem produktiven Morgen ein.`
+    return t('dashboard.message_morning', { location: location || '' })
   } else if (hour >= 12 && hour < 18) {
-    return `Einen angenehmen Nachmittag. Keine anstehenden Termine oder Benachrichtigungen.`
+    return t('dashboard.message_afternoon')
   } else if (hour >= 18 && hour < 22) {
-    return `Zeit zum Entspannen. Die Beleuchtung wurde für den Abend optimiert.`
+    return t('dashboard.message_evening')
   } else if (theme === 'sleep') {
-    return `Schlafmodus aktiv. Gute Nacht.`
+    return t('dashboard.message_sleep')
   } else {
-    return `Ruhige Nacht. Alle Systeme im Standby-Modus.`
+    return t('dashboard.message_night')
   }
 }
 
 export function GreetingWidget({ userName = 'Kai', weatherEntity, theme, config }: GreetingWidgetProps) {
-  const greeting = getGreeting()
+  const { t } = useTranslation()
+  const greeting = getGreeting(t)
   const temperature = weatherEntity?.attributes.temperature || 20
   const location = weatherEntity?.attributes.friendly_name || 'Kissing'
   const hour = new Date().getHours()
@@ -108,7 +111,7 @@ export function GreetingWidget({ userName = 'Kai', weatherEntity, theme, config 
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4, duration: 0.5 }}
             >
-              {getTimeSpecificMessage(theme, location)}
+              {getTimeSpecificMessage(t, theme, location)}
             </motion.p>
           )}
         </div>

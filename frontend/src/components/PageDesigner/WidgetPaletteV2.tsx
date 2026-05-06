@@ -7,7 +7,7 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MagnifyingGlass, CaretDown, CaretRight, Plus, DotsSixVertical, Lightbulb, PuzzlePiece, Ruler } from '@phosphor-icons/react'
 import { useDraggable } from '@dnd-kit/core'
-import { getWidgetDef, WIDGET_CATEGORIES, WIDGET_DEFINITIONS } from '@/lib/widgetRegistry'
+import { getWidgetDef, WIDGET_CATEGORIES, WIDGET_DEFINITIONS, type WidgetDefinition } from '@/lib/widgetRegistry'
 
 // Convert categories object to array for iteration
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
@@ -35,9 +35,10 @@ import type { WidgetType } from '@/lib/types'
 function PaletteItem({ type, label, icon, description }: {
   type: WidgetType
   label: string
-  icon: string
+  icon: React.ElementType
   description?: string
 }) {
+  const Icon = icon
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `palette-${type}`,
     data: { origin: 'palette', widgetType: type },
@@ -60,7 +61,7 @@ function PaletteItem({ type, label, icon, description }: {
       className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-grab active:cursor-grabbing hover:bg-foreground/[0.06] transition-all group"
     >
       <div className="w-8 h-8 rounded-lg bg-foreground/[0.06] flex items-center justify-center text-sm shrink-0 group-hover:bg-accent/15 transition-colors">
-        {icon}
+        <Icon />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[11px] font-medium text-foreground truncate">{label}</p>
@@ -94,10 +95,10 @@ export function WidgetPaletteV2() {
     if (!search.trim()) return null // show all by category
 
     const q = search.toLowerCase()
-    const results: Array<{ type: WidgetType; label: string; icon: string; description?: string; category: string }> = []
+    const results: Array<{ type: WidgetType; label: string; icon: typeof Lightbulb; description?: string; category: string }> = []
 
-    for (const cat of WIDGET_CATEGORIES) {
-      const widgets = getWidgetsForCategory(cat.id)
+    for (const [catId, cat] of Object.entries(WIDGET_CATEGORIES)) {
+      const widgets = getWidgetsForCategory(catId)
       for (const w of widgets) {
         if (
           w.label.toLowerCase().includes(q) ||

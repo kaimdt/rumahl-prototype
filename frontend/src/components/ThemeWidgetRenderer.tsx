@@ -118,9 +118,9 @@ function resolveDataProp(
   if (!entity) return ''
 
   if (path === 'entity.state') return entity.state
-  if (path === 'entity.name') return entity.attributes?.friendly_name || entity.entity_id
+  if (path === 'entity.name') return String(entity.attributes?.friendly_name ?? entity.entity_id)
   if (path === 'entity.is_on') return entity.state === 'on' ? 'true' : 'false'
-  if (path === 'entity.unit') return entity.attributes?.unit_of_measurement || ''
+  if (path === 'entity.unit') return String(entity.attributes?.unit_of_measurement ?? '')
 
   // Nested attribute access
   if (path.startsWith('entity.attr.')) {

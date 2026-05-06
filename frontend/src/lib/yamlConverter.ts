@@ -280,7 +280,7 @@ export function parseCustomWidgetYaml(yaml: string): { widget: YamlCustomWidget 
       const value = trimmed.substring(colonIdx + 1).trim()
 
       if (['template', 'css', 'js'].includes(key) && (value === '|' || value === '>-')) {
-        inSection = key as typeof inSection
+        inSection = key as unknown as typeof inSection
         sectionContent = ''
         continue
       }

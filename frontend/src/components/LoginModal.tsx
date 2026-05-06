@@ -36,6 +36,7 @@ function PinPad({ onSubmit, onBack, userName, isLoading }: {
   userName: string
   isLoading: boolean
 }) {
+  const { t } = useTranslation()
   const [pin, setPin] = useState('')
 
   const addDigit = useCallback((digit: string) => {
@@ -180,7 +181,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
       onOpenChange(false)
       setSelectedUser(null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : '{t("auth.wrongPin")}'
+      const message = error instanceof Error ? error.message : t('auth.wrongPin')
       toast.error(message)
     } finally {
       setIsLoading(false)
@@ -225,7 +226,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     }
 
     if (registerPassword.length < 8) {
-      toast.error('{t("auth.password")} muss mindestens 8 Zeichen lang sein')
+      toast.error(t('auth.passwordMinLength'))
       return
     }
 

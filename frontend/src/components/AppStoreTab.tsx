@@ -28,6 +28,16 @@ interface AppInfo {
   kind?: 'app' | 'plugin' | 'system'
   system?: boolean
   source?: string
+  error_message?: string
+  restart_count?: number
+  docker?: {
+    container_id?: string
+    image?: string
+    state?: string
+    cpu_percent?: number
+    memory_mb?: number
+    uptime?: string
+  }
   open_url?: string
   custom_pages?: CustomPage[]
   is_bundle?: boolean
