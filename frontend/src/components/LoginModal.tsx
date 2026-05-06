@@ -363,7 +363,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   <Input
                     id="login-username"
                     type="text"
-                    placeholder="Ihr {t("auth.username")}"
+                    placeholder={`Ihr ${t("auth.username")}`}
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
                     disabled={isLoading}
@@ -377,7 +377,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   <Input
                     id="login-password"
                     type="password"
-                    placeholder="Ihr {t("auth.password")}"
+                    placeholder={`Ihr ${t("auth.password")}`}
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     disabled={isLoading}
@@ -404,7 +404,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                       <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
                       Anmeldung...
                     </span>
-                  ) : '{t("auth.login")}'}
+                  ) : t("auth.login")}
                 </Button>
               </motion.form>
             </TabsContent>
@@ -422,7 +422,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   <Input
                     id="register-username"
                     type="text"
-                    placeholder="Wählen Sie einen {t("auth.username")}n"
+                    placeholder={`Wählen Sie einen ${t("auth.username")}n`}
                     value={registerUsername}
                     onChange={(e) => setRegisterUsername(e.target.value)}
                     disabled={isLoading}
@@ -467,7 +467,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   <Input
                     id="register-password-confirm"
                     type="password"
-                    placeholder="{t("auth.password")} wiederholen"
+                    placeholder={`${t("auth.password")} wiederholen`}
                     value={registerPasswordConfirm}
                     onChange={(e) => setRegisterPasswordConfirm(e.target.value)}
                     disabled={isLoading}
