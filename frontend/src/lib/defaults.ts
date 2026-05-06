@@ -39,21 +39,38 @@ export interface CardStylePreset {
 }
 
 export const CARD_STYLE_PRESETS: CardStylePreset[] = [
-	{ id: 'default',    label: 'Standard',      description: 'Glass-Morphismus Standard' },
-	{ id: 'subtle',     label: 'Dezent',         description: 'Leichterer Glass-Effekt' },
-	{ id: 'solid',      label: 'Solide',         description: 'Undurchsichtiger Hintergrund' },
-	{ id: 'outline',    label: 'Umriss',         description: 'Nur Rahmen, kein Hintergrund' },
-	{ id: 'neon',       label: 'Neon',           description: 'Leuchtender Akzent-Rand' },
-	{ id: 'minimal',    label: 'Minimal',        description: 'Ultra-clean, kaum sichtbar' },
-	{ id: 'elevated',   label: 'Erhaben',        description: 'Stärkerer Schatten, leichter Lift' },
-	{ id: 'frosted',    label: 'Frost',          description: 'Starker Blur, milchig' },
-	{ id: 'gradient',   label: 'Gradient',       description: 'Sanfter Akzent-Verlauf' },
-	{ id: 'flat',       label: 'Flach',          description: 'Kein Schatten, kein Blur' },
-	{ id: 'aurora',     label: 'Aurora',         description: 'Schimmernder Akzent-Hintergrund' },
-	{ id: 'dark-glass', label: 'Dunkles Glas',   description: 'Dunkler getöntes Glas' },
-	{ id: 'metallic',   label: 'Metallic',       description: 'Metallischer Schimmer-Effekt' },
-	{ id: 'soft-glow',  label: 'Sanftes Leuchten', description: 'Dezenter Lichtschein rundherum' },
-	{ id: 'bordered',   label: 'Gerahmt',        description: 'Doppelter Rahmen, elegant' },
+	// ─── Glass & Frosted ───────────────────────────────────
+	{ id: 'default',    label: 'Standard',      description: 'Classic IORA glass-morphism' },
+	{ id: 'frosted',    label: 'Frosted',       description: 'Heavy blur, milky white' },
+	{ id: 'crystal',    label: 'Crystal',       description: 'Ultra-clear, sharp glass edges' },
+	{ id: 'dark-glass', label: 'Dark Glass',    description: 'Deep tinted glass overlay' },
+	{ id: 'ice',        label: 'Ice',           description: 'Frozen glass, blue-white tint' },
+	// ─── Solid & Flat ────────────────────────────────────
+	{ id: 'solid',      label: 'Solid',         description: 'Opaque, clean background' },
+	{ id: 'flat',       label: 'Flat',          description: 'No shadow, no blur, modern flat' },
+	{ id: 'minimal',    label: 'Minimal',       description: 'Ultra-clean, barely visible' },
+	{ id: 'subtle',     label: 'Subtle',        description: 'Very light glass presence' },
+	// ─── Outlined ────────────────────────────────────────
+	{ id: 'outline',    label: 'Outline',       description: 'Border only, transparent bg' },
+	{ id: 'bordered',   label: 'Bordered',      description: 'Double border, elegant frame' },
+	{ id: 'dashed',     label: 'Dashed',        description: 'Dashed border, blueprint style' },
+	// ─── Glowing ─────────────────────────────────────────
+	{ id: 'neon',       label: 'Neon',          description: 'Vibrant glowing accent edge' },
+	{ id: 'soft-glow',  label: 'Soft Glow',     description: 'Gentle ambient light aura' },
+	{ id: 'pulse',      label: 'Pulse',         description: 'Slow pulsing glow animation' },
+	// ─── Gradient ────────────────────────────────────────
+	{ id: 'gradient',   label: 'Gradient',      description: 'Subtle accent gradient wash' },
+	{ id: 'aurora',     label: 'Aurora',        description: 'Shimmering multi-tone accent' },
+	{ id: 'sunset',     label: 'Sunset',        description: 'Warm orange-to-pink gradient' },
+	{ id: 'ocean',      label: 'Ocean',         description: 'Deep blue-to-teal gradient' },
+	// ─── Material ────────────────────────────────────────
+	{ id: 'elevated',   label: 'Elevated',      description: 'Strong shadow, floating card' },
+	{ id: 'metallic',   label: 'Metallic',      description: 'Brushed metal shimmer' },
+	{ id: 'paper',      label: 'Paper',         description: 'Paper-like texture & shadow' },
+	{ id: 'velvet',     label: 'Velvet',        description: 'Soft, matte, luxurious feel' },
+	// ─── Retro ───────────────────────────────────────────
+	{ id: 'retro',      label: 'Retro',         description: '80s synthwave vibes' },
+	{ id: 'noir',       label: 'Noir',          description: 'Film noir, high contrast' },
 ]
 
 export function getCardStyleClass(style?: string): string {

@@ -244,3 +244,26 @@ systemctl daemon-reload && systemctl restart iora-assist
 4. **SDK erweitern**: Neue Methoden in `sdks/javascript/src/client.ts` hinzufügen
 5. **Rust bauen**: `cargo build -p iora-home` (oder `cargo build` für alles)
 6. **Frontend bauen**: `cd frontend && npm run build`
+
+## 🎨 Design-Regeln (CRITICAL)
+
+### Keine Emojis in der UI
+- **NIEMALS** dekorative Emojis (🎨💡🔌🌡️📊🌤️👋🕐🎵📹🗺️⬜) in UI-Komponenten verwenden
+- Stattdessen **Phosphor-Icons** (`@phosphor-icons/react`) oder **Lucide-Icons** (im NextJS Store) nutzen
+- Für Kategorie-Indikatoren: Phosphor-Icons wie `<Lightbulb>`, `<PuzzlePiece>`, `<Ruler>`
+- Für Widget-Icons: Die entsprechenden Phosphor-Icons aus der Icon-Map
+- Unicode-Symbole für Richtungsindikatoren (⬇️⬅️➡️⬆️) und Status (✓, ★, ◆) sind erlaubt
+- Im NextJS Store (`store/`): Lucide-Icons (`lucide-react`) statt Emojis
+
+### Icon-Registry
+- Widget-Icons werden über `WIDGET_ICON_MAP` in `widgetRegistry.ts` zugeordnet
+- Neue Widgets registrieren ihr Icon dort – niemals als Emoji-String hartkodieren
+- Theme-Kategorien verwenden Phosphor-Icons, keine Emojis
+
+### Sprache & i18n
+- **ALLE** sichtbaren Strings müssen `t('key.path')` verwenden
+- Fallback ist immer Englisch (`en.json`)
+- Deutsche Übersetzungen in `de.json`
+- Neue Keys in BEIDEN Sprachdateien anlegen
+- Backend-Nachrichten auf Englisch, Übersetzung im Frontend
+- AI-Prompts immer auf Englisch (bessere Qualität), Antwort-Sprache via `language`-Parameter

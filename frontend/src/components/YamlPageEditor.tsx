@@ -531,11 +531,11 @@ function YamlPreview({ page }: { page: YamlPage | null }) {
 
 function getWidgetIcon(type: string): string {
   const icons: Record<string, string> = {
-    light: '💡', switch: '🔌', climate: '🌡️', sensor: '📊',
-    weather: '🌤️', greeting: '👋', clock: '🕐', calendar: '📅',
-    media_player: '🎵', camera: '📹', cover: '🪟', fan: '🌀',
-    lock: '🔒', vacuum: '🧹', button: '🔘', scene: '🎬',
-    iframe: '🖼️', map: '🗺️', spacer: '⬜', group: '📦',
+    light: 'L', switch: 'S', climate: 'C', sensor: 'Se',
+    weather: 'W', greeting: 'G', clock: 'T', calendar: 'Ca',
+    media_player: 'M', camera: 'Cm', cover: 'Co', fan: 'F',
+    lock: 'Lk', vacuum: 'V', button: 'B', scene: 'Sc',
+    iframe: 'If', map: 'Mp', spacer: 'Sp', group: 'Gr',
   }
-  return icons[type] || '📦'
+  return icons[type] || '?'
 }

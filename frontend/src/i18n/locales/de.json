@@ -462,5 +462,34 @@
     "tasks": "Aufgaben",
     "instructionsSaved": "AI-Anweisungen gespeichert",
     "instructionsReset": "AI-Anweisungen zurückgesetzt"
+  },
+  "styles": {
+    "card": {
+      "crystal": "Kristall",
+      "ice": "Eis",
+      "dashed": "Gestrichelt",
+      "pulse": "Pulsierend",
+      "sunset": "Sonnenuntergang",
+      "ocean": "Ozean",
+      "paper": "Papier",
+      "velvet": "Samt",
+      "retro": "Retro",
+      "noir": "Noir",
+      "standard": "Standard",
+      "frosted": "Frost",
+      "dark-glass": "Dunkles Glas",
+      "solid": "Solide",
+      "flat": "Flach",
+      "minimal": "Minimal",
+      "subtle": "Dezent",
+      "outline": "Umriss",
+      "bordered": "Gerahmt",
+      "neon": "Neon",
+      "soft-glow": "Sanftes Leuchten",
+      "gradient": "Gradient",
+      "aurora": "Aurora",
+      "elevated": "Erhaben",
+      "metallic": "Metallisch"
+    }
   }
 }

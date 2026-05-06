@@ -461,5 +461,34 @@
     "tasks": "Tasks",
     "instructionsSaved": "AI instructions saved",
     "instructionsReset": "AI instructions reset"
+  },
+  "styles": {
+    "card": {
+      "crystal": "Crystal",
+      "ice": "Ice",
+      "dashed": "Dashed",
+      "pulse": "Pulse",
+      "sunset": "Sunset",
+      "ocean": "Ocean",
+      "paper": "Paper",
+      "velvet": "Velvet",
+      "retro": "Retro",
+      "noir": "Noir",
+      "standard": "Standard",
+      "frosted": "Frosted",
+      "dark-glass": "Dark Glass",
+      "solid": "Solid",
+      "flat": "Flat",
+      "minimal": "Minimal",
+      "subtle": "Subtle",
+      "outline": "Outline",
+      "bordered": "Bordered",
+      "neon": "Neon",
+      "soft-glow": "Soft Glow",
+      "gradient": "Gradient",
+      "aurora": "Aurora",
+      "elevated": "Elevated",
+      "metallic": "Metallic"
+    }
   }
 }

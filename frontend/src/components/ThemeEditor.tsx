@@ -93,7 +93,7 @@ const NAV_POSITIONS = [
 ]
 
 const HEADER_STYLES = [
-  { value: 'glass', label: 'Glass', icon: '🪟' },
+  { value: 'glass', label: 'Glass', icon: '⊞' },
   { value: 'compact', label: 'Kompakt', icon: '📏' },
   { value: 'hidden', label: 'Versteckt', icon: '🙈' },
   { value: 'floating', label: 'Schwebend', icon: '🎈' },
@@ -103,7 +103,7 @@ const HEADER_STYLES = [
 
 function PreviewWidget({ label, icon, accentColor, bgColor, fgColor, cardColor, borderColor }: {
   label: string
-  icon: string
+  icon: React.ReactNode
   accentColor: string
   bgColor: string
   fgColor: string
@@ -751,7 +751,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
                 {/* Light Widget Preview */}
                 <PreviewWidget
                   label="Wohnzimmer Licht"
-                  icon="💡"
+                  icon={<Lightbulb size={18} />}
                   accentColor={previewColors.accent || '#6366f1'}
                   bgColor={previewColors.background || '#1a1d2e'}
                   fgColor={previewColors.foreground || '#ffffff'}
@@ -762,7 +762,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
                 {/* Switch Widget Preview */}
                 <PreviewWidget
                   label="Steckdose Küche"
-                  icon="🔌"
+                  icon={<Power size={18} />}
                   accentColor={previewColors.accent || '#6366f1'}
                   bgColor={previewColors.background || '#1a1d2e'}
                   fgColor={previewColors.foreground || '#ffffff'}
@@ -773,7 +773,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
                 {/* Climate Widget Preview */}
                 <PreviewWidget
                   label="Thermostat Bad"
-                  icon="🌡️"
+                  icon={<Thermometer size={18} />}
                   accentColor={previewColors.accent || '#6366f1'}
                   bgColor={previewColors.background || '#1a1d2e'}
                   fgColor={previewColors.foreground || '#ffffff'}
@@ -784,7 +784,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
                 {/* Sensor Widget Preview */}
                 <PreviewWidget
                   label="Temperatur Außen"
-                  icon="📊"
+                  icon={<Gauge size={18} />}
                   accentColor={previewColors.success || '#22c55e'}
                   bgColor={previewColors.background || '#1a1d2e'}
                   fgColor={previewColors.foreground || '#ffffff'}
@@ -795,7 +795,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
                 {/* Media Player Preview */}
                 <PreviewWidget
                   label="Lautsprecher Wohnzimmer"
-                  icon="🎵"
+                  icon={<SpeakerHifi size={18} />}
                   accentColor={previewColors.accent || '#6366f1'}
                   bgColor={previewColors.background || '#1a1d2e'}
                   fgColor={previewColors.foreground || '#ffffff'}
@@ -806,7 +806,7 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
                 {/* Weather Preview */}
                 <PreviewWidget
                   label="Wetter Berlin"
-                  icon="☁️"
+                  icon={<Cloud size={18} />}
                   accentColor={previewColors.ring || '#6366f1'}
                   bgColor={previewColors.background || '#1a1d2e'}
                   fgColor={previewColors.foreground || '#ffffff'}
