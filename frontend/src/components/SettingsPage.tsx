@@ -64,6 +64,7 @@ import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { YamlPageEditor } from '@/components/YamlPageEditor'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { AiInstructionsSettings } from '@/components/AiInstructionsSettings'
 import type { ThemeMode } from '@/lib/types'
 import type { ThemeDefinition } from '@/contexts/ThemeContext'
 
@@ -387,7 +388,7 @@ function ThemePickerSection() {
   }, [installedThemes])
 
   return (
-    <SettingsSection icon={Palette} title="Design-Modus" description="Farbschema pro Benutzer wählen" accentIcon>
+    <SettingsSection icon={Palette} title={t("settings.themeMode")} description={t("settings.themeModeDesc")} accentIcon>
       <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
         {allThemeOptions.map(opt => {
           const Icon = opt.icon
@@ -517,7 +518,7 @@ function LoginPinSection() {
   }
 
   return (
-    <SettingsSection icon={NumberCircleOne} title="Schnell-Anmeldung" description="PIN für schnelles Benutzerwechseln auf geteilten Geräten">
+    <SettingsSection icon={NumberCircleOne} title={t("settings.quickLogin")} description={t("settings.quickLoginDesc")}>
       {hasLoginPin && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-emerald-400">
@@ -618,23 +619,23 @@ function TwoFactorPasskeySection() {
 
   return (
     <>
-      <SettingsSection icon={Key} title="Passkey & 2FA" description="FIDO Passkeys direkt anmelden oder als zweiten Faktor verwenden">
+      <SettingsSection icon={Key} title={t("settings.passkey")} description={t("settings.passkeyDesc")}>
         <div className="grid gap-3">
           <ToggleRow
             label="2-Faktor-Authentifizierung aktivieren"
-            description="Erfordert einen zweiten Authentifizierungsfaktor beim Login"
+            description={t("settings.twoFactorDesc")}
             checked={twoFactorEnabled}
             onCheckedChange={setTwoFactorEnabled}
           />
           <ToggleRow
             label="Passkey Login aktivieren"
-            description="Direkte Anmeldung mit biometrischen oder Hardware-Passkeys"
+            description={t("settings.passkeyLoginDesc")}
             checked={passkeyEnabled}
             onCheckedChange={setPasskeyEnabled}
           />
           <ToggleRow
             label="Passkey als 2FA nutzen"
-            description="Verwendet deinen Passkey zusätzlich als zweiten Faktor"
+            description={t("settings.passkey2FADesc")}
             checked={passkeyAs2FA}
             onCheckedChange={setPasskeyAs2FA}
             disabled={!twoFactorEnabled}
@@ -1059,7 +1060,7 @@ export function SettingsPage(props: SettingsPageProps) {
         <TabsContent value="general" className="space-y-4 mt-5">
 
           {/* Profile */}
-          <SettingsSection icon={User} title="Benutzerprofil" description="Name und Anmeldedaten verwalten" accentIcon>
+          <SettingsSection icon={User} title={t("settings.profile")} description={t("settings.profileDesc")} accentIcon>
             <div className="flex items-center gap-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
               <div className="w-12 h-12 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
                 <User size={22} weight="fill" className="text-accent" />
@@ -1104,7 +1105,7 @@ export function SettingsPage(props: SettingsPageProps) {
           </SettingsSection>
 
           {/* Security */}
-          <SettingsSection icon={Shield} title="Sicherheit" description="PIN-Schutz und Gerätesperre">
+          <SettingsSection icon={Shield} title={t("settings.security")} description={t("settings.securityDesc")}>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-medium text-foreground/55 block mb-1.5">
@@ -1149,14 +1150,14 @@ export function SettingsPage(props: SettingsPageProps) {
             <div className="border-t border-foreground/8 pt-3">
               <ToggleRow
                 label="Geräte-Modus"
-                description="Sperrt Einstellungen auf diesem Gerät – PIN zum Entsperren"
+                description={t("settings.deviceLockDesc")}
                 checked={deviceLockMode}
                 onCheckedChange={updateDeviceLockMode}
                 disabled={lockLoading}
               />
               <ToggleRow
                 label="AI & Agent deaktivieren"
-                description="Schaltet ORA AI, Pi.dev Agent und alle KI-Funktionen aus"
+                description={t("settings.aiDisableDesc")}
                 checked={!props.aiEnabled}
                 onCheckedChange={(v) => props.setAiEnabled(!v)}
               />
@@ -1165,6 +1166,13 @@ export function SettingsPage(props: SettingsPageProps) {
 
           {/* Quick Login PIN */}
           <LoginPinSection />
+
+          {/* AI Instructions */}
+          {props.aiEnabled && (
+            <SettingsSection icon={Sparkle} title="AI-Persönlichkeit" description="Passe an, wie ORA AI antworten soll" accentIcon>
+              <AiInstructionsSettings />
+            </SettingsSection>
+          )}
 
           {/* 2FA / Passkey */}
           <TwoFactorPasskeySection />
@@ -1175,7 +1183,7 @@ export function SettingsPage(props: SettingsPageProps) {
             className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-2xl bg-red-500/8 hover:bg-red-500/15 text-red-400 border border-red-500/15 transition-colors"
           >
             <SignOut size={18} weight="bold" />
-            <span className="text-sm font-medium">Abmelden</span>
+            <span className="text-sm font-medium">{t("settings.logout")}</span>
           </button>
         </TabsContent>
 
@@ -1201,7 +1209,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <ThemeSettingsPanelWrapper />
 
             {/* Accent Color */}
-            <SettingsSection icon={Drop} title="Akzentfarbe" description="Automatisch aus Hintergrund oder manuell festlegen" accentIcon>
+            <SettingsSection icon={Drop} title={t("settings.accentColor")} description={t("settings.accentColorDesc")} accentIcon>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => accentColorSettings.setMode('auto')}
@@ -1233,7 +1241,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <div className="flex items-center gap-3 p-3 rounded-xl bg-foreground/[0.04] border border-foreground/8">
                 <div className="w-9 h-9 rounded-lg border-2 border-foreground/10 shrink-0" style={{ backgroundColor: accentColorSettings.accentColor }} />
                 <div>
-                  <p className="text-[11px] text-foreground/50">Aktuelle Akzentfarbe</p>
+                  <p className="text-[11px] text-foreground/50">{t("settings.currentAccent")}</p>
                   <p className="text-xs font-mono font-medium text-foreground">{accentColorSettings.accentColor}</p>
                 </div>
               </div>
@@ -1241,7 +1249,7 @@ export function SettingsPage(props: SettingsPageProps) {
               {/* Extracted palette */}
               {accentColorSettings.extractedPalette.length > 0 && (
                 <div>
-                  <p className="text-[11px] text-foreground/50 mb-2">Extrahierte Farbpalette</p>
+                  <p className="text-[11px] text-foreground/50 mb-2">{t("settings.extractedPalette")}</p>
                   <div className="flex flex-wrap gap-2">
                     {accentColorSettings.extractedPalette.map((color, i) => (
                       <Tip content={color} key={`${color}-${i}`}>
@@ -1264,7 +1272,7 @@ export function SettingsPage(props: SettingsPageProps) {
                       className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 text-accent hover:bg-accent/15 transition-all"
                     >
                       <ArrowsClockwise size={14} />
-                      Zurück zu Automatisch
+                      {t("settings.resetToAuto")}
                     </button>
                   )}
                 </div>
@@ -1288,10 +1296,10 @@ export function SettingsPage(props: SettingsPageProps) {
             </SettingsSection>
 
             {/* Glass Effect */}
-            <SettingsSection icon={Eye} title="Glaseffekt" description="Transparenz, Unschärfe und Kartenradius">
+            <SettingsSection icon={Eye} title={t("settings.glassEffects")} description={t("settings.glassEffectsDesc")}>
               <ToggleRow
                 label="Glaseffekt aktivieren"
-                description="Frosted-Glass-Optik für Karten und Menüs"
+                description={t("settings.frostedGlassDesc")}
                 checked={glassSettings.enabled}
                 onCheckedChange={glassSettings.setEnabled}
               />
@@ -1326,10 +1334,10 @@ export function SettingsPage(props: SettingsPageProps) {
             </SettingsSection>
 
             {/* Night Mode */}
-            <SettingsSection icon={Moon} title="Nachtmodus" description="Blaulichtfilter und Abdunkelung">
+            <SettingsSection icon={Moon} title={t("settings.nightMode")} description={t("settings.nightModeDesc")}>
               <ToggleRow
                 label="Nachtfilter"
-                description="Sepia- und Abdunkelungseffekt bei Nacht-/Schlafmodus"
+                description={t("settings.nightFilterDesc")}
                 checked={nightModeSettings.nightFilterEnabled}
                 onCheckedChange={nightModeSettings.setNightFilterEnabled}
               />
@@ -1345,7 +1353,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   />
                   <ToggleRow
                     label="Auto-Helligkeit"
-                    description="Helligkeit an Blaulichtfilter anpassen"
+                    description={t("settings.brightnessAdjustDesc")}
                     checked={nightModeSettings.autoBrightness}
                     onCheckedChange={nightModeSettings.setAutoBrightness}
                   />
@@ -1414,7 +1422,7 @@ export function SettingsPage(props: SettingsPageProps) {
             <OverviewConfiguration />
 
             {/* CSS Settings */}
-            <SettingsSection icon={Code} title="CSS Anpassung" description="Globales und Benutzer-CSS bearbeiten, CSS-Referenz" accentIcon>
+            <SettingsSection icon={Code} title={t("settings.cssCustomization")} description={t("settings.cssCustomizationDesc")} accentIcon>
               <CssSettingsSection />
             </SettingsSection>
 
@@ -1434,7 +1442,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <div className={`space-y-4 ${deviceLockMode ? 'opacity-50 pointer-events-none select-none' : ''}`}>
 
             {/* Backend System Stats */}
-            <SettingsSection icon={Cpu} title="Backend-Auslastung" description="CPU, Arbeitsspeicher und Datenbank" accentIcon>
+            <SettingsSection icon={Cpu} title={t("settings.backendUsage")} description={t("settings.backendUsageDesc")} accentIcon>
               {stats ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1512,7 +1520,7 @@ export function SettingsPage(props: SettingsPageProps) {
             </SettingsSection>
 
             {/* Home Assistant Info */}
-            <SettingsSection icon={WifiHigh} title="Home Assistant" description="Verbindung, Entitäten und Domänen" accentIcon>
+            <SettingsSection icon={WifiHigh} title={t("settings.homeAssistant")} description={t("settings.homeAssistantDesc")} accentIcon>
               {haInfo ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1568,10 +1576,10 @@ export function SettingsPage(props: SettingsPageProps) {
             </SettingsSection>
 
             {/* Screensaver */}
-            <SettingsSection icon={Moon} title="Bildschirmschoner" description="Uhr-Anzeige bei Inaktivität">
+            <SettingsSection icon={Moon} title={t("settings.screensaver")} description={t("settings.screensaverDesc")}>
               <ToggleRow
-                label="Bildschirmschoner aktivieren"
-                description="Zeigt eine Uhr nach einer Zeit ohne Eingabe"
+                label={t("settings.screensaverEnable")}
+                description={t("settings.screensaverTimeoutDesc")}
                 checked={screensaverSettings.enabled}
                 onCheckedChange={screensaverSettings.setEnabled}
               />
@@ -1667,14 +1675,14 @@ function AdditionalSettings() {
       {/* Haptic & Interactions */}
       <SettingsSection icon={Vibrate} title="Haptik & Interaktion" description="Vibrationsrückmeldung und Touch-Feedback">
         <ToggleRow
-          label="Haptisches Feedback"
+          label={t("settings.hapticFeedback")}
           description="Vibrationsrückmeldung bei Interaktionen (Touch-Geräte)"
           checked={hapticEnabled}
           onCheckedChange={setHapticEnabled}
         />
         <ToggleRow
-          label="Animationen reduzieren"
-          description="Weniger Animationen und Übergänge für bessere Performance"
+          label={t("settings.reduceAnimations")}
+          description={t("settings.reduceAnimationsDesc")}
           checked={reducedAnimations}
           onCheckedChange={setReducedAnimations}
         />
@@ -1714,9 +1722,9 @@ function AdditionalSettings() {
       </SettingsSection>
 
       {/* Typography & Display */}
-      <SettingsSection icon={TextAa} title="Anzeige & Schrift" description="Schriftgröße und Widget-Darstellung">
+      <SettingsSection icon={TextAa} title={t("settings.displayFont")} description={t("settings.displayFontDesc")}>
         <div className="space-y-2">
-          <p className="text-[11px] font-medium text-foreground/55">Schriftgröße</p>
+          <p className="text-[11px] font-medium text-foreground/55">{t("settings.fontSize")}</p>
           <div className="grid grid-cols-3 gap-2">
             {([
               { id: 'small' as const, label: 'Klein', sample: 'Aa', size: 'text-xs' },

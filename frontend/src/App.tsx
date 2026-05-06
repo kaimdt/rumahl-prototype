@@ -570,7 +570,7 @@ function DashboardContent() {
                 <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
                 <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
                 <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
-                  {currentPageId === 'settings' ? 'Home' : currentPageId === 'admin' ? 'Home' : currentPageId === 'docs' ? 'Docs' : currentPageId === 'streaming' ? 'Stream' : 'Home'}
+                  {currentPageId === 'settings' ? 'Home' : currentPageId === 'admin' ? 'Home' : currentPageId === 'docs' ? t('navigation.docs') : currentPageId === 'streaming' ? t('navigation.streaming') : 'Home'}
                 </span>
               </div>
               <div className="flex items-center gap-4">

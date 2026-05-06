@@ -79,7 +79,7 @@ function PinPad({ onSubmit, onBack, userName, isLoading }: {
         >
           <ArrowLeft size={18} />
         </button>
-        <span className="text-sm text-foreground/70">PIN für <strong className="text-foreground">{userName}</strong></span>
+        <span className="text-sm text-foreground/70">{t("auth.pinFor")} <strong className="text-foreground">{userName}</strong></span>
       </div>
 
       <div className="flex justify-center gap-2.5 py-4">
@@ -180,7 +180,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
       onOpenChange(false)
       setSelectedUser(null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'PIN falsch'
+      const message = error instanceof Error ? error.message : '{t("auth.wrongPin")}'
       toast.error(message)
     } finally {
       setIsLoading(false)
@@ -225,7 +225,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     }
 
     if (registerPassword.length < 8) {
-      toast.error('Passwort muss mindestens 8 Zeichen lang sein')
+      toast.error('{t("auth.password")} muss mindestens 8 Zeichen lang sein')
       return
     }
 
@@ -290,7 +290,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               </TabsTrigger>
               <TabsTrigger value="login" className="rounded-xl py-2.5 text-xs font-medium data-[state=active]:bg-accent/15 data-[state=active]:text-accent data-[state=active]:shadow-sm transition-all">
                 <Lock size={15} weight="bold" className="mr-1" />
-                Anmelden
+                {t("auth.login")}
               </TabsTrigger>
               <TabsTrigger value="register" className="rounded-xl py-2.5 text-xs font-medium data-[state=active]:bg-accent/15 data-[state=active]:text-accent data-[state=active]:shadow-sm transition-all">
                 <UserPlus size={15} weight="bold" className="mr-1" />
@@ -359,11 +359,11 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 transition={{ duration: 0.2 }}
               >
                 <div className="space-y-2 rounded-2xl bg-foreground/4 p-4 border border-foreground/5">
-                  <Label htmlFor="login-username" className="text-xs font-medium text-foreground/60">Benutzername</Label>
+                  <Label htmlFor="login-username" className="text-xs font-medium text-foreground/60">{t("auth.username")}</Label>
                   <Input
                     id="login-username"
                     type="text"
-                    placeholder="Ihr Benutzername"
+                    placeholder="Ihr {t("auth.username")}"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
                     disabled={isLoading}
@@ -373,11 +373,11 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 </div>
 
                 <div className="space-y-2 rounded-2xl bg-foreground/4 p-4 border border-foreground/5">
-                  <Label htmlFor="login-password" className="text-xs font-medium text-foreground/60">Passwort</Label>
+                  <Label htmlFor="login-password" className="text-xs font-medium text-foreground/60">{t("auth.password")}</Label>
                   <Input
                     id="login-password"
                     type="password"
-                    placeholder="Ihr Passwort"
+                    placeholder="Ihr {t("auth.password")}"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     disabled={isLoading}
@@ -388,7 +388,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
                 <div className="flex items-center justify-between rounded-2xl bg-foreground/4 px-4 py-3 border border-foreground/5">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Angemeldet bleiben</p>
+                    <p className="text-sm font-medium text-foreground">{t("auth.rememberMe")}</p>
                     <p className="text-[11px] text-foreground/50">Sitzung bleibt über Browserschließung hinaus aktiv</p>
                   </div>
                   <Switch checked={rememberMe} onCheckedChange={setRememberMe} disabled={isLoading} />
@@ -404,7 +404,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                       <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
                       Anmeldung...
                     </span>
-                  ) : 'Anmelden'}
+                  ) : '{t("auth.login")}'}
                 </Button>
               </motion.form>
             </TabsContent>
@@ -418,11 +418,11 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 transition={{ duration: 0.2 }}
               >
                 <div className="space-y-2 rounded-2xl bg-foreground/4 p-4 border border-foreground/5">
-                  <Label htmlFor="register-username" className="text-xs font-medium text-foreground/60">Benutzername</Label>
+                  <Label htmlFor="register-username" className="text-xs font-medium text-foreground/60">{t("auth.username")}</Label>
                   <Input
                     id="register-username"
                     type="text"
-                    placeholder="Wählen Sie einen Benutzernamen"
+                    placeholder="Wählen Sie einen {t("auth.username")}n"
                     value={registerUsername}
                     onChange={(e) => setRegisterUsername(e.target.value)}
                     disabled={isLoading}
@@ -447,7 +447,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 </div>
 
                 <div className="space-y-2 rounded-2xl bg-foreground/4 p-4 border border-foreground/5">
-                  <Label htmlFor="register-password" className="text-xs font-medium text-foreground/60">Passwort</Label>
+                  <Label htmlFor="register-password" className="text-xs font-medium text-foreground/60">{t("auth.password")}</Label>
                   <Input
                     id="register-password"
                     type="password"
@@ -462,12 +462,12 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
                 <div className="space-y-2 rounded-2xl bg-foreground/4 p-4 border border-foreground/5">
                   <Label htmlFor="register-password-confirm" className="text-xs font-medium text-foreground/60">
-                    Passwort bestätigen
+                    {t("auth.password")} bestätigen
                   </Label>
                   <Input
                     id="register-password-confirm"
                     type="password"
-                    placeholder="Passwort wiederholen"
+                    placeholder="{t("auth.password")} wiederholen"
                     value={registerPasswordConfirm}
                     onChange={(e) => setRegisterPasswordConfirm(e.target.value)}
                     disabled={isLoading}

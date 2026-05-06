@@ -75,16 +75,16 @@ impl TaskResolver {
     /// tasks exist and can reason about modification requests.
     pub fn summarize_tasks(tasks: &[AutonomousTask]) -> String {
         if tasks.is_empty() {
-            return String::from("Der Nutzer hat momentan keine aktiven Aufgaben.");
+            return String::from("The user currently has no active tasks.");
         }
 
-        let mut out = String::from("### Aktive Aufgaben des Nutzers\n");
+        let mut out = String::from("### Active User Tasks\n");
         for t in tasks {
             let recur = match t.recurrence_type.as_str() {
-                "hourly"   => "stündlich".to_string(),
+                "hourly"   => "hourly".to_string(),
                 "weekdays" => "Mo–Fr".to_string(),
-                "daily"    => "täglich".to_string(),
-                "weekly"   => format!("wöchentlich (Tage: {:?})", t.recurrence_days),
+                "daily"    => "daily".to_string(),
+                "weekly"   => format!("weekly (days: {:?})", t.recurrence_days),
                 "custom"   => format!("Tage: {:?}", t.recurrence_days),
                 _          => "einmalig".to_string(),
             };
@@ -122,8 +122,8 @@ impl TaskResolver {
 {task_list}
 
 ### Aufgaben-Steuerung durch die AI
-Wenn der Nutzer eine bestehende Aufgabe ändern möchte (deaktivieren, pausieren,
-fortsetzen, löschen), gib am **Ende** deiner Antwort einen Befehlsblock aus:
+Wenn der Nutzer eine bestehende Aufgabe ändern möchte (disable, pausen,
+fortsetzen, deleten), gib am **Ende** deiner Antwort einen Befehlsblock aus:
 
 Wenn du **sicher** bist, was der Nutzer meint:
 [TASK_ACTION: {{"action":"pause_until","task_id":"UUID","resume_at":"ISO8601","reason":"..."}}]
@@ -131,11 +131,11 @@ Wenn du **sicher** bist, was der Nutzer meint:
 Wenn du **unsicher** bist, stelle eine Rückfrage und füge einen Bestätigungsblock an:
 [TASK_CONFIRM: {{"action":"pause_until","task_id":"UUID","resume_at":"ISO8601","question":"Soll ich …?"}}]
 
-Unterstützte Aktionen: "pause_until", "disable", "resume", "delete"
-- "pause_until": Temporäre Deaktivierung bis "resume_at" (ISO 8601 Datum)
-- "disable": Dauerhaft deaktivieren
-- "resume": Wieder aktivieren
-- "delete": Dauerhaft löschen
+Supported actions: "pause_until", "disable", "resume", "delete"
+- "pause_until": Temporarily disable until "resume_at" (ISO 8601 date)
+- "disable": Dauerhaft disable
+- "resume": Wieder enable
+- "delete": Permanently delete
 
 Nur wenn eine Aufgabe eindeutig gemeint ist, gib einen solchen Block aus.
 Wenn der Nutzer keinen Bezug auf bestehende Aufgaben nimmt, lass den Block weg.
@@ -187,7 +187,7 @@ Füge diesen Block immer am **Ende** der Antwort ein, und **nur einmal**.
                 action: None,
                 confidence: 0.0,
                 confirmation_question: Some(
-                    "Du hast noch keine aktiven Aufgaben, die ich ändern könnte.".into()
+                    "You have no active tasks that I could modify.".into()
                 ),
             };
         }
@@ -272,8 +272,8 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
                 || lower.contains("wochentag") || lower.contains("unter der woche")
                 || lower.contains("werktag") || lower.contains("weekday")
         }
-        "daily" => lower.contains("täglich") || lower.contains("daily"),
-        "weekly" => lower.contains("wöchentlich") || lower.contains("weekly"),
+        "daily" => lower.contains("daily") || lower.contains("daily"),
+        "weekly" => lower.contains("weekly") || lower.contains("weekly"),
         _ => false,
     };
     if recur_match { score += 0.20; }
@@ -318,8 +318,8 @@ fn detect_modification_action(lower: &str, task: &AutonomousTask) -> TaskModific
     // Temporary pause with explicit duration
     if days > 0 {
         let disable_words = [
-            "deaktiviere", "deaktivieren", "deaktiviert",
-            "pausiere", "pausieren", "pause",
+            "deaktiviere", "disable", "deaktiviert",
+            "pause", "pausen", "pause",
             "disable", "turn off", "ausschalten", "abschalten",
         ];
         let vacation_words = [
@@ -334,7 +334,7 @@ fn detect_modification_action(lower: &str, task: &AutonomousTask) -> TaskModific
 
     // Permanent disable
     let perm_disable = [
-        "deaktiviere", "deaktivieren", "disable",
+        "deaktiviere", "disable", "disable",
         "ausschalten", "abschalten", "turn off",
         "stoppe", "stopp", "stop",
     ];
@@ -344,7 +344,7 @@ fn detect_modification_action(lower: &str, task: &AutonomousTask) -> TaskModific
 
     // Resume / enable
     let resume_words = [
-        "aktiviere", "aktivieren", "enable",
+        "aktiviere", "enable", "enable",
         "einschalten", "wieder an", "fortsetzen",
         "resume", "reactivate", "reaktiviere",
     ];
@@ -354,7 +354,7 @@ fn detect_modification_action(lower: &str, task: &AutonomousTask) -> TaskModific
 
     // Delete
     let delete_words = [
-        "lösche", "löschen", "delete", "entferne", "entfernen",
+        "delete", "deleten", "delete", "remove", "removen",
         "remove", "cancel",
     ];
     if delete_words.iter().any(|w| lower.contains(w)) {
@@ -382,7 +382,7 @@ fn build_confirmation_question(task: &AutonomousTask, action: &TaskModificationA
         .unwrap_or_default();
     let recur_str = match task.recurrence_type.as_str() {
         "weekdays" => " (Mo–Fr)".to_string(),
-        "daily"    => " (täglich)".to_string(),
+        "daily"    => " (daily)".to_string(),
         _ => String::new(),
     };
 
@@ -390,20 +390,20 @@ fn build_confirmation_question(task: &AutonomousTask, action: &TaskModificationA
         TaskModificationAction::PauseUntil(until) => {
             let days = (*until - Utc::now()).num_days().max(1);
             format!(
-                "Soll ich deinen Wecker{}{} für {} {} deaktivieren?",
+                "Should I disable your alarm{}{} für {} {} disable?",
                 time_str, recur_str, days,
                 if days == 1 { "Tag" } else { "Tage" }
             )
         }
         TaskModificationAction::Disable => {
-            format!("Soll ich \"{}\" dauerhaft deaktivieren?", task.name)
+            format!("Soll ich \"{}\" dauerhaft disable?", task.name)
         }
         TaskModificationAction::Resume => {
-            format!("Soll ich \"{}\" wieder aktivieren?", task.name)
+            format!("Soll ich \"{}\" wieder enable?", task.name)
         }
         TaskModificationAction::Delete => {
             format!(
-                "Soll ich \"{}\" endgültig löschen? Das kann nicht rückgängig gemacht werden.",
+                "Soll ich \"{}\" endgültig deleten? Das kann nicht rückgängig gemacht werden.",
                 task.name
             )
         }

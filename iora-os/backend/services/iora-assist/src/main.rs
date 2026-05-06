@@ -133,38 +133,40 @@ struct AppState {
 /// Default system prompt injected when no custom prompt is provided.
 const DEFAULT_SYSTEM_PROMPT: &str =
     "You are IORA Assist, an AI assistant integrated into the IORA smart home system. \
-     You help users manage their home automation, answer questions, and provide insights.";
+     You help users manage their home automation, answer questions, and provide insights.\n\
+     CRITICAL: Always respond in exactly ONE language. Never mix German and English\n\
+     in the same response. The response language is specified below.\n\
+     Keep responses concise and helpful.";
 
 /// System-prompt section that teaches the AI when and how to emit Instant Tasks.
 const INSTANT_TASK_PROMPT_SECTION: &str = r#"
 
-### Instant Tasks (Echtzeit-Aufgaben)
-Wenn du eine Frage **nicht direkt** aus deinem Wissen beantworten kannst, weil du aktuelle
-Daten benötigst (Wetter, Nachrichten, Musik, aktuelle Preise, …), erstelle einen Instant Task.
-Füge am **Ende** deiner Antwort genau einen Instant-Task-Block ein:
+### Instant Tasks (Real-time Tasks)
+When you CANNOT directly answer a question from your knowledge because you need
+current data (weather, news, music, prices, ...), create an Instant Task.
+Add exactly ONE Instant-Task block at the END of your response:
 
 [INSTANT_TASK: {"type":"search","query":"...","params":{}}]
 
-Unterstützte Typen:
-- "search"  – allgemeine Internetsuche
-- "weather" – aktuelles Wetter (params: {"location":"Berlin"})
-- "news"    – aktuelle Nachrichten
-- "music"   – Musik / Charts / neue Releases
-- "generic" – alles andere
+Supported types:
+- "search"  – general web search
+- "weather" – current weather (params: {"location":"Berlin"})
+- "news"    – current news
+- "music"   – music / charts / new releases
+- "generic" – everything else
 
-Verwende KEINEN Instant Task, wenn du die Frage direkt beantworten kannst.
-Füge NIEMALS mehr als einen [INSTANT_TASK:] Block ein.
-Sage dem Nutzer kurz (1–2 Sätze), dass du gerade Informationen abrufst, bevor du den Block
-anhängst. Beispiel: "Ich rufe gerade die aktuellen Wetterdaten für dich ab."
+Do NOT use an Instant Task if you can answer directly from your knowledge.
+NEVER include more than one [INSTANT_TASK:] block.
+Briefly tell the user (1-2 sentences) that you're fetching information before the block.
+Example: "Let me check the current weather for you."
 "#;
 
 /// Additional instructions injected when the request comes from the voice assistant.
-/// The AI's holding sentence will be read aloud – it must be exactly 1 short sentence.
 const VOICE_MODE_PROMPT_SUFFIX: &str = "\n\n\
-### Sprach-Modus (Voice Mode)\n\
-Der Nutzer interagiert per Sprachassistent. Halte alle Antworten kurz und natürlich klingend.\n\
-Wenn du einen Instant Task erstellst, sage GENAU EINEN kurzen Satz wie:\
-\"Einen Moment, ich suche das für dich.\" – keine Listen, keine Markdown-Formatierung.\n";
+### Voice Mode\n\
+The user is interacting via voice assistant. Keep all responses short and natural.\n\
+When creating an Instant Task, say EXACTLY ONE short sentence like:\
+\"One moment, let me look that up for you.\" – no lists, no markdown formatting.\n";
 
 // ─── Instant Task marker helpers ─────────────────────────────────────────────
 
@@ -244,9 +246,14 @@ struct ChatRequest {
     #[serde(default)]
     system_prompt: Option<String>,
     /// True when the request comes from the voice assistant (microphone).
-    /// Instructs the AI to keep its holding sentence very brief and natural-sounding.
     #[serde(default)]
     voice_mode: bool,
+    /// User's preferred language (e.g. "en", "de"). AI responds in this language.
+    #[serde(default)]
+    language: Option<String>,
+    /// Custom AI instructions/personality from user settings.
+    #[serde(default)]
+    instructions: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -375,6 +382,32 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     system_prompt.push_str(INSTANT_TASK_PROMPT_SECTION);
     if req.voice_mode {
         system_prompt.push_str(VOICE_MODE_PROMPT_SUFFIX);
+    }
+
+    // Language instruction: strict single-language response
+    let user_lang = req.language.as_deref().unwrap_or("en");
+    let lang_name = match user_lang {
+        "de" => "German",
+        _ => "English",
+    };
+    system_prompt.push_str(&format!(
+        "\n\n### Response Language (CRITICAL)\n\
+        The user's language is: {lang}. \n\
+        - ALWAYS respond in {lang} ONLY. Never mix languages in sentences.\n\
+        - EXCEPTION: Keep these in English even in {lang} responses:\n\
+          • Technical terms: Dashboard, Widget, Smart Home, Backend, Token, API, CPU, RAM, RGB, OLED, YAML, JSON, CSS, JS, Docker, Bundle, Plugin, iFrame\n\
+          • Entity/device names: light.wohnzimmer, sensor.temperatur (keep original IDs)\n\
+          • Colloquial terms: OK, cool, nice, wow (if the user uses them)\n\
+          • Words with no good translation: Use the English term\n\
+        - Only switch language entirely if the user explicitly asks.\n",
+        lang = lang_name
+    ));
+
+    // Inject custom AI instructions (personality/style) from user settings
+    if let Some(ref instructions) = req.instructions {
+        if !instructions.trim().is_empty() {
+            system_prompt.push_str(&format!("\n\n### Custom Instructions from User\n{}\n", instructions));
+        }
     }
 
     // Check economy mode and inject token-saving instructions

@@ -65,10 +65,10 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
 
   // Built-in app menu entries (always visible even if not yet in pages array)
   const builtInAppEntries: Array<{ id: string; name: string; icon: string }> = [
-    { id: 'ai-agent', name: 'Agent', icon: 'Robot' },
-    { id: 'streaming', name: 'Streaming', icon: 'VideoCamera' },
-    { id: 'docs', name: 'Dokumentation', icon: 'BookOpen' },
-    { id: 'share', name: 'Share', icon: 'ShareNetwork' },
+    { id: 'ai-agent', name: t('navigation.agent'), icon: 'Robot' },
+    { id: 'streaming', name: t('navigation.streaming'), icon: 'VideoCamera' },
+    { id: 'docs', name: t('navigation.docs'), icon: 'BookOpen' },
+    { id: 'share', name: t('navigation.share'), icon: 'ShareNetwork' },
   ]
 
   // Filter pages: show in nav, not settings, not app-menu pages, and only top-level

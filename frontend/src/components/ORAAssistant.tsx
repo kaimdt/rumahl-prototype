@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { useLocalStorage } from '@/lib/storage'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass } from '@phosphor-icons/react'
@@ -51,14 +53,16 @@ const assistBase = () => getAssistUrl() || getBackendUrl() || ''
 // ─── Instant Task type badge labels ──────────────────────────────────────────
 
 const INSTANT_TASK_LABELS: Record<string, string> = {
-  search:  'Suche',
-  weather: 'Wetter',
-  news:    'Nachrichten',
-  music:   'Musik',
-  generic: 'Suche',
+  search:  t('ai.search'),
+  weather: t('ai.weather'),
+  news:    t('ai.news'),
+  music:   t('ai.music'),
+  generic: t('ai.search'),
 }
 
 export function ORAAssistant() {
+  const { t, i18n } = useTranslation()
+  const [aiInstructions] = useLocalStorage('iora-ai-instructions', '')
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<DialogTab>('chat')
   const [state, setState] = useState<ORAState>('idle')
@@ -180,7 +184,7 @@ export function ORAAssistant() {
     const task = voiceInstantTask.current
     if (!task) return
     task.phase = 'slow-talking'
-    setVoiceTaskBanner(INSTANT_TASK_LABELS[task.taskType] ?? 'Suche')
+    setVoiceTaskBanner(INSTANT_TASK_LABELS[task.taskType] ?? t('ai.search'))
 
     // Speak the AI's holding sentence, then start listening for conversation
     speak(task.holdingMsg, () => {
@@ -408,7 +412,7 @@ export function ORAAssistant() {
       const response = await fetch(`${assistBase()}/api/assist/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, context: null, voice_mode: fromVoice }),
+        body: JSON.stringify({ message: text, context: null, voice_mode: fromVoice, language: i18n.language, instructions: aiInstructions || undefined }),
       })
 
       if (!response.ok) {
@@ -873,7 +877,7 @@ export function ORAAssistant() {
                           <div className="flex items-center gap-1.5 text-xs text-foreground/50">
                             <MagnifyingGlass size={12} className="animate-pulse" />
                             <span>
-                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? 'Suche'} läuft…
+                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? t('ai.search')} läuft…
                             </span>
                           </div>
                         )}
