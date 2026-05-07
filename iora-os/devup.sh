@@ -13,8 +13,16 @@
 }
 set -euo pipefail
 
-# ── Signal Handling: STRG+C = sauberer Abbruch ──────────────────────────────
-trap 'echo -e "\n${Y}[ ABBRUCH ]${N} Durch Benutzer abgebrochen."; exit 130' INT TERM
+# ── Signal Handling: STRG+C = sauberer Abbruch mit Resume ──────────────────
+_cleanup_on_interrupt() {
+  echo -e "\n${Y}[ ABBRUCH ]${N} Fortschritt gespeichert – läuft beim nächsten Mal weiter."
+  exit 130
+}
+trap '_cleanup_on_interrupt' INT TERM
+
+# ── Resume / Checkpoint ──────────────────────────────────────────────────────
+_load_state() { [ -f "$STATE_FILE" ] && is_json "$(cat "$STATE_FILE")"; }
+_clear_state() { rm -f "$STATE_FILE"; }
 
 # ── Metadaten ────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +32,13 @@ CONFIG_DIR="${HOME}/.config/iora-devup"
 CONFIG_FILE="${CONFIG_DIR}/config"
 LAST_BUILD_FILE="${CONFIG_DIR}/lastbuild"
 BUILD_LOG_DIR="/tmp/iora-devup-logs"
+STATE_FILE="/tmp/iora-devup-state.json"
+
+# ── Unterstützte Ziel-Architekturen ──────────────────────────────────────
+declare -A SUPPORTED_ARCHS
+SUPPORTED_ARCHS[x86_64]="PC / VM (Intel/AMD, Standard)"
+SUPPORTED_ARCHS[aarch64]="ARM 64-bit (Raspberry Pi 3/4/5, andere ARM64-Boards)"
+TARGET_ARCH=""  # leer = auto-detect
 
 # ── Farben ───────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -204,7 +219,7 @@ device_status_json() {
 #  GIT CHANGE DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 get_local_version() {
-  cd "$SCRIPT_DIR"; git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown"
 }
 get_last_build() { cat "$LAST_BUILD_FILE" 2>/dev/null || echo ""; }
 save_last_build() { mkdir -p "$CONFIG_DIR"; get_local_version > "$LAST_BUILD_FILE"; }
@@ -212,8 +227,8 @@ save_last_build() { mkdir -p "$CONFIG_DIR"; get_local_version > "$LAST_BUILD_FIL
 get_changed_svcs() {
   local last="$1"
   [ -z "$last" ] && { svc_list; return; }
-  cd "$SCRIPT_DIR"
-  git cat-file -e "$last" 2>/dev/null || { svc_list; return; }
+  pushd "$SCRIPT_DIR" >/dev/null || return
+  git cat-file -e "$last" 2>/dev/null || { svc_list; popd >/dev/null; return; }
   local c=()
   while IFS= read -r svc; do
     [ -z "$svc" ] && continue
@@ -222,6 +237,7 @@ get_changed_svcs() {
       c+=("$svc")
     fi
   done <<< "$(svc_list)"
+  popd >/dev/null
   printf '%s\n' "${c[@]}"
 }
 
@@ -229,6 +245,8 @@ get_changed_svcs() {
 #  DOCKER BUILD
 # ═══════════════════════════════════════════════════════════════════════════════
 detect_target_arch() {
+  # 0. Explizit gesetzte Architektur (via --target)
+  [ -n "${TARGET_ARCH:-}" ] && { echo "$TARGET_ARCH"; return; }
   # 1. Versuche vom Device die Architektur zu ermitteln
   if [ -n "${HOST:-}" ] && [ -n "${TOKEN:-}" ]; then
     local devinfo
@@ -325,7 +343,7 @@ DOCKERNATIVE
   fi
 
   # Extraktion: Binary aus dem Image holen (docker exec geht nicht auf stopped container!)
-  local bin_path="${BUILD_LOG_DIR}/${svc}"
+  bin_path="${BUILD_LOG_DIR}/${svc}"
   local cb=""
   # Verwende docker run --rm zum Inspizieren (nicht docker create + exec)
   for cand in "/out/${svc}" "/app/backend/target/release/${svc}" \
@@ -341,7 +359,7 @@ DOCKERNATIVE
     warn "  Inhalt /out/:"
     docker run --rm --entrypoint "/bin/sh" "$tag" -c "ls -la /out/" 2>/dev/null || echo "    (leer oder Pfad nicht lesbar)"
     warn "  Suche nach ${svc} im Image:"
-    docker run --rm --entrypoint "/bin/sh" "$tag" -c "find / -name '${svc}' -type f" 2>/dev/null | head -5 || echo "    (nichts gefunden)"
+    docker run --rm --entrypoint "/bin/sh" "$tag" -c "find /out /app -name '${svc}' -type f 2>/dev/null" | head -5 || echo "    (nichts gefunden)"
     docker image rm -f "$tag" >/dev/null 2>&1; return 1
   fi
 
@@ -559,7 +577,8 @@ tui_main() {
       while IFS= read -r s; do [ -n "$s" ] && changed+=("$s"); done <<< "$(get_changed_svcs "$last")"
     fi
 
-    local menu_header="Device: ${dev_host}  |  Build: ${dev_build}\nLokal:  ${local_ver}  |  Letzter Deploy: ${last:-keiner}\nGeändert: ${#changed[@]} Services\n\nAktion wählen:"
+    local target_arch; target_arch="$(detect_target_arch)"
+    local menu_header="Device: ${dev_host}  |  Build: ${dev_build}\nLokal:  ${local_ver}  |  Ziel: ${target_arch}  |  Letzter Deploy: ${last:-keiner}\nGeändert: ${#changed[@]} Services\n\nAktion wählen:"
 
     local choice
     choice=$(whiptail --title "IORA OS Dev – devup.sh" \
@@ -612,8 +631,7 @@ tui_select_and_deploy() {
     local last; last="$(get_last_build)"
     local is_changed="OFF"
     if [ -n "$last" ]; then
-      cd "$SCRIPT_DIR"
-      if ! git diff --quiet "$last"..HEAD -- "backend/${s}/" "backend/iora-shared/" \
+      if ! git -C "$SCRIPT_DIR" diff --quiet "$last"..HEAD -- "backend/${s}/" "backend/iora-shared/" \
         "backend/Cargo.toml" "backend/Cargo.lock" "backend/Dockerfile" 2>/dev/null; then
         is_changed="ON"
       fi
@@ -716,25 +734,91 @@ EOF
 #  BUILD & DEPLOY Pipeline
 # ═══════════════════════════════════════════════════════════════════════════════
 build_and_deploy() {
-  local svcs=("$@")
-  [ ${#svcs[@]} -eq 0 ] && { warn "Keine Services angegeben."; return; }
-
-  echo ""
-  echo -e "${BOLD}═══ Build & Deploy: ${#svcs[@]} Services ═══${N}"
-  echo ""
+  local svcs_all=("$@")
+  [ ${#svcs_all[@]} -eq 0 ] && { warn "Keine Services angegeben."; return; }
 
   # Sortiere nach Priorität (kritische zuerst)
-  IFS=$'\n' svcs=($(for s in "${svcs[@]}"; do printf '%s\t%s\n' "${SVC_PRIO[$s]:-99}" "$s"; done | sort -n | cut -f2)); unset IFS
+  IFS=$'\n' svcs_all=($(for s in "${svcs_all[@]}"; do printf '%s\t%s\n' "${SVC_PRIO[$s]:-99}" "$s"; done | sort -n | cut -f2)); unset IFS
+
+  local built=() failed=() deployed=() deploy_failed=() dev_bridge_updated=false
+  local total=${#svcs_all[@]} phase="build"
+
+  # ── Resume-Check: vorherigen Run fortsetzen? ───────────────────
+  if _load_state; then
+    local prev_phase prev_total
+    prev_phase="$(jq -r '.phase // ""' "$STATE_FILE")"
+    prev_total="$(jq -r '.total // 0' "$STATE_FILE")"
+    # Nur fortführen wenn gleiche Anzahl Services
+    if [ "$prev_total" = "$total" ] && [ -n "$prev_phase" ] && [ "$prev_phase" != "done" ]; then
+      local prev_built prev_deployed
+      prev_built="$(jq -r '.built | length' "$STATE_FILE")"
+      prev_deployed="$(jq -r '.deployed | length' "$STATE_FILE")"
+      echo ""
+      warn "Vorheriger Run abgebrochen! (Phase: ${prev_phase}, Gebaut: ${prev_built}/${prev_total}, Deployed: ${prev_deployed}/${prev_total})"
+      read -r -p "  Fortsetzen? [Y/n]: " ans
+      if [ "$ans" != "n" ] && [ "$ans" != "N" ]; then
+        # Lade fertige Services aus State
+        local tmp
+        tmp="$(jq -r '.built[]?' "$STATE_FILE" 2>/dev/null)" || true
+        while IFS= read -r s; do [ -n "$s" ] && built+=("$s"); done <<< "$tmp"
+        tmp="$(jq -r '.deployed[]?' "$STATE_FILE" 2>/dev/null)" || true
+        while IFS= read -r s; do [ -n "$s" ] && deployed+=("$s"); done <<< "$tmp"
+        tmp="$(jq -r '.failed_build[]?' "$STATE_FILE" 2>/dev/null)" || true
+        while IFS= read -r s; do [ -n "$s" ] && failed+=("$s"); done <<< "$tmp"
+        tmp="$(jq -r '.failed_deploy[]?' "$STATE_FILE" 2>/dev/null)" || true
+        while IFS= read -r s; do [ -n "$s" ] && deploy_failed+=("$s"); done <<< "$tmp"
+        phase="$prev_phase"
+        info "Resume: ${#built[@]} gebaut, ${#deployed[@]} deployed – mache weiter..."
+      else
+        _clear_state
+      fi
+    else
+      _clear_state
+    fi
+  fi
+
+  echo ""
+  echo -e "${BOLD}═══ Build & Deploy: ${total} Services ═══${N}"
+  echo ""
+
+  _save_step() {
+    local ph="$1"
+    printf '%s\n' "${svcs_all[@]:-}" | jq -R . | jq -s . >/dev/null  # validate arrays
+    jq -n \
+      --arg phase "$ph" --arg total "$total" \
+      --argjson svcs "$(printf '%s\n' "${svcs_all[@]:-}" | jq -R . | jq -s .)" \
+      --argjson built "$(printf '%s\n' "${built[@]:-}" | jq -R . | jq -s .)" \
+      --argjson deployed "$(printf '%s\n' "${deployed[@]:-}" | jq -R . | jq -s .)" \
+      --argjson failed_build "$(printf '%s\n' "${failed[@]:-}" | jq -R . | jq -s .)" \
+      --argjson failed_deploy "$(printf '%s\n' "${deploy_failed[@]:-}" | jq -R . | jq -s .)" \
+      --arg started "$(date -Iseconds)" \
+      '{phase:$phase,total:($total|tonumber),services:$svcs,built:$built,deployed:$deployed,failed_build:$failed_build,failed_deploy:$failed_deploy,started:$started}' \
+      > "$STATE_FILE" 2>/dev/null || true
+  }
 
   # ── Phase 1: Build ──────────────────────────────────────────────────────
-  local built=() failed=()
-  mkdir -p "$BUILD_LOG_DIR"
-  for s in "${svcs[@]}"; do
-    docker_build_one "$s" && built+=("$s") || failed+=("$s")
-  done
+  if [ "$phase" = "build" ]; then
+    mkdir -p "$BUILD_LOG_DIR"
+    local current=0
+    for s in "${svcs_all[@]}"; do
+      [ -z "$s" ] && continue
+      # Überspringe bereits gebaute (aus Resume)
+      local already=false
+      for b in "${built[@]}"; do [ "$b" = "$s" ] && already=true && break; done
+      $already && continue
+      # Überspringe bereits failed
+      for f in "${failed[@]}"; do [ "$f" = "$s" ] && already=true && break; done
+      $already && continue
+
+      current=$((current + 1))
+      echo -e "${B}[build ${current}/${total}]${N} ${s}"
+      docker_build_one "$s" && built+=("$s") || failed+=("$s")
+      _save_step "build"  # Checkpoint nach JEDEM Build
+    done
+  fi
 
   if [ ${#built[@]} -eq 0 ]; then
-    error "Kein Service erfolgreich gebaut!"; return 1
+    error "Kein Service erfolgreich gebaut!"; _clear_state; return 1
   fi
 
   echo ""
@@ -745,19 +829,30 @@ build_and_deploy() {
   echo ""
 
   # ── Phase 2: Deploy ─────────────────────────────────────────────────────
-  local deployed=() deploy_failed=()
-  local dev_bridge_updated=false
+  phase="deploy"; _save_step "deploy"
+  local current=0
   for s in "${built[@]}"; do
+    [ -z "$s" ] && continue
+    # Überspringe bereits deployed (aus Resume)
+    local already=false
+    for d in "${deployed[@]}"; do [ "$d" = "$s" ] && already=true && break; done
+    $already && continue
+    # Überspringe bereits deploy-failed
+    for f in "${deploy_failed[@]}"; do [ "$f" = "$s" ] && already=true && break; done
+    $already && continue
+
+    current=$((current + 1))
+    echo -e "${B}[deploy ${current}/${#built[@]}]${N} ${s}"
     if [ "$s" = "iora-dev-bridge" ]; then
-      # Bridge-Update erfordert Spezialbehandlung
       warn "iora-dev-bridge wird als letztes aktualisiert (nach allen anderen Services)"
       dev_bridge_updated=true
       continue
     fi
     deploy_one "$s" && deployed+=("$s") || deploy_failed+=("$s")
+    _save_step "deploy"  # Checkpoint nach JEDEM Deploy
   done
 
-  # ── Phase 3: Bridge Self-Update (falls im Build-Set) ────────────────────
+  # ── Phase 3: Bridge Self-Update ────────────────────────────────────
   if [ "$dev_bridge_updated" = true ]; then
     echo ""
     warn "═══ iora-dev-bridge Self-Update ═══"
@@ -787,14 +882,17 @@ build_and_deploy() {
     [ $w -ge 20 ] && deploy_failed+=("iora-dev-bridge")
   fi
 
-  # ── Phase 4: Abhängige Services neustarten ──────────────────────────────
+  # ── Phase 4: Abhängige Services neustarten ──────────────────────────
   echo ""
   info "Prüfe abhängige Services..."
   for s in "${deployed[@]}"; do
     restart_dependents "$s"
   done
 
-  # ── Zusammenfassung ─────────────────────────────────────────────────────
+  # ── Fertig: State löschen ────────────────────────────────────────────
+  _clear_state
+
+  # ── Zusammenfassung ─────────────────────────────────────────────────
   echo ""
   echo -e "${BOLD}══════ Zusammenfassung ══════${N}"
   echo -e "  Gebaut:      ${G}${#built[@]}${N}"
@@ -831,14 +929,16 @@ ${BOLD}Verwendung:${N}
 ${BOLD}CLI-Optionen:${N}
   --host HOST[:PORT]    Device-Adresse
   --token HEX           Dev-Token
+  -t, --target ARCH     Ziel-Architektur: x86_64, aarch64 (Default: auto)
   -s, --service NAME    Nur diesen Service deployen
   -a, --all             Alle Services deployen
   -n, --no-restart      Nur uploaden, nicht neustarten
   --dry-run             Vorschau
   --status              Device-Status anzeigen
   --list                Services auflisten
+  --list-archs          Verfügbare Ziel-Architekturen anzeigen
   --self-update         iora-dev-bridge selbst updaten
-  --clean              Alle lokalen Docker-Images & Build-Artefakte löschen
+  --clean               Alle lokalen Docker-Images & Build-Artefakte löschen
   --save                Config speichern
   --help                Diese Hilfe
 
@@ -858,12 +958,14 @@ cli_main() {
     case "$1" in
       --host) HOST="$2"; shift 2 ;;
       --token) TOKEN="$2"; shift 2 ;;
+      -t|--target) TARGET_ARCH="$2"; shift 2 ;;
       -s|--service) SEL+=("$2"); shift 2 ;;
       -a|--all) MODE="all"; shift ;;
       -n|--no-restart) NO_RESTART=true; shift ;;
       --dry-run) DRY=true; shift ;;
       --status) MODE="status"; shift ;;
       --list) MODE="list"; shift ;;
+      --list-archs) MODE="list-archs"; shift ;;
       --self-update) MODE="selfupdate"; shift ;;
       --clean) MODE="clean"; shift ;;
       --save) MODE="save"; shift ;;
@@ -905,6 +1007,19 @@ cli_main() {
         printf "%-28s %-6s %-8s %s\n" "$s" "${SVC_PORT[$s]:-?}" "${SVC_PRIO[$s]:-?}" "${SVC_DESC[$s]:-?}"
       done <<< "$(svc_list)"
       ;;
+    list-archs)
+      echo -e "${BOLD}Unterstützte Ziel-Architekturen:${N}"
+      echo ""
+      local detected; detected="$(detect_target_arch)"
+      for arch in "${!SUPPORTED_ARCHS[@]}"; do
+        local marker=" "; [ "$arch" = "$detected" ] && marker="${G}*${N}"
+        printf "  %b %-10s %s\n" "$marker" "$arch" "${SUPPORTED_ARCHS[$arch]}"
+      done
+      echo ""
+      echo -e "  ${G}*${N} = aktuell erkannt/gesetzt"
+      echo -e "  Setzen mit: ${BOLD}--target aarch64${N}"
+      echo -e "  Oder Datei: echo 'rpi4' > .setup-target"
+      ;;
     selfupdate)
       [ -z "${HOST:-}" ] && { error "--host benötigt"; exit 1; }
       ensure_auth || exit 1
@@ -944,6 +1059,7 @@ EOF
       # Build-Logs & Temp-Dateien
       rm -rf "${BUILD_LOG_DIR}" 2>/dev/null || true
       rm -f /tmp/iora-devup-* 2>/dev/null || true
+      _clear_state
       # Docker BuildKit Cache
       docker builder prune -f --filter "label=iora-devup" 2>/dev/null || true
       success "Cleanup abgeschlossen"
@@ -974,7 +1090,7 @@ EOF
 if [ $# -eq 0 ]; then
   # Kein Argument → TUI starten
   if command -v whiptail >/dev/null 2>&1; then
-    tui_main
+    tui_main || exit 1
   else
     echo -e "${Y}[WARN] whiptail nicht installiert – starte CLI-Modus.${N}"
     echo -e "${Y}       Installiere whiptail mit: sudo apt-get install whiptail${N}"

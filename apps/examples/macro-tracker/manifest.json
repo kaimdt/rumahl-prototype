@@ -1,0 +1,128 @@
+{
+  "id": "macro-tracker",
+  "name": "Macro Tracker",
+  "version": "1.0.0",
+  "developer": "IORA Community",
+  "description": "Protein-, Kalorien- und Fett-Rechner für Kraftsportler. Verfolge deine täglichen Makros, plane Mahlzeiten und sieh auf einen Blick, was du noch essen solltest.",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "AppDatabaseSqlite",
+    "AppDatabaseManage"
+  ],
+  "database": {
+    "backend": "sqlite",
+    "sqlite": {
+      "init_sql": [
+        "CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY AUTOINCREMENT, protein_g REAL NOT NULL DEFAULT 180, fat_g REAL NOT NULL DEFAULT 70, carbs_g REAL NOT NULL DEFAULT 250, calories REAL NOT NULL DEFAULT 2500, updated_at TEXT DEFAULT (datetime('now')))",
+        "CREATE TABLE IF NOT EXISTS food_items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, brand TEXT DEFAULT '', protein_g REAL NOT NULL DEFAULT 0, fat_g REAL NOT NULL DEFAULT 0, carbs_g REAL NOT NULL DEFAULT 0, calories REAL NOT NULL DEFAULT 0, serving_size_g REAL NOT NULL DEFAULT 100, category TEXT DEFAULT 'Sonstiges', is_favorite INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))",
+        "CREATE TABLE IF NOT EXISTS meals (id INTEGER PRIMARY KEY AUTOINCREMENT, food_item_id INTEGER, food_name TEXT NOT NULL, protein_g REAL NOT NULL DEFAULT 0, fat_g REAL NOT NULL DEFAULT 0, carbs_g REAL NOT NULL DEFAULT 0, calories REAL NOT NULL DEFAULT 0, amount_g REAL NOT NULL DEFAULT 100, meal_type TEXT NOT NULL DEFAULT 'snack', log_date TEXT NOT NULL DEFAULT (date('now')), logged_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (food_item_id) REFERENCES food_items(id))",
+        "CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(log_date)",
+        "CREATE INDEX IF NOT EXISTS idx_food_category ON food_items(category)",
+        "INSERT OR IGNORE INTO goals (id, protein_g, fat_g, carbs_g, calories) VALUES (1, 180, 70, 250, 2500)",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Hähnchenbrust', '', 31, 3.6, 0, 165, 100, 'Fleisch & Fisch')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Lachs', '', 20, 13, 0, 208, 100, 'Fleisch & Fisch')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Rinderhack (mager)', '', 21, 10, 0, 176, 100, 'Fleisch & Fisch')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Eier (ganz)', '', 13, 11, 1.1, 155, 100, 'Eier & Milch')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Magerquark', '', 12, 0.3, 4.2, 68, 100, 'Eier & Milch')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Skyr', '', 11, 0.2, 4, 64, 100, 'Eier & Milch')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Reis (gekocht)', '', 2.7, 0.3, 28, 130, 100, 'Beilagen')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Haferflocken', '', 13, 7, 59, 370, 100, 'Frühstück')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Vollkornbrot', '', 8, 1.5, 43, 220, 100, 'Frühstück')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Süßkartoffel', '', 1.6, 0.1, 20, 86, 100, 'Beilagen')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Nudeln (gekocht)', '', 5, 1, 31, 160, 100, 'Beilagen')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Brokkoli', '', 2.8, 0.4, 7, 34, 100, 'Gemüse')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Whey Protein', '', 80, 5, 5, 390, 30, 'Supplements')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Erdnussbutter', '', 25, 50, 20, 620, 100, 'Fette & Nüsse')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Mandeln', '', 21, 50, 22, 610, 100, 'Fette & Nüsse')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Olivenöl', '', 0, 100, 0, 884, 100, 'Fette & Nüsse')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Banane', '', 1.1, 0.3, 23, 96, 100, 'Obst')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Apfel', '', 0.3, 0.2, 14, 52, 100, 'Obst')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Quinoa (gekocht)', '', 4.4, 1.9, 21, 120, 100, 'Beilagen')",
+        "INSERT OR IGNORE INTO food_items (name, brand, protein_g, fat_g, carbs_g, calories, serving_size_g, category) VALUES ('Thunfisch (Dose, im Wasser)', '', 26, 1, 0, 116, 100, 'Fleisch & Fisch')"
+      ],
+      "wal_mode": true,
+      "max_size_bytes": 52428800,
+      "auto_backup": true,
+      "backup_interval_minutes": 1440
+    }
+  },
+  "custom_pages": [
+    {
+      "id": "macro-tracker-dashboard",
+      "title": "Makro Tracker",
+      "icon": "Barbell",
+      "url": "/",
+      "show_in_nav": true,
+      "order": 50
+    }
+  ],
+  "settings_schema": {
+    "title": "Makro Tracker Einstellungen",
+    "description": "Passe deine täglichen Makro-Ziele an",
+    "fields": [
+      {
+        "key": "default_protein",
+        "label": "Protein-Ziel (g/Tag)",
+        "description": "Empfohlen: 1.6-2.2g pro kg Körpergewicht",
+        "type": "number",
+        "default": 180,
+        "validation": { "min": 50, "max": 400 }
+      },
+      {
+        "key": "default_fat",
+        "label": "Fett-Ziel (g/Tag)",
+        "description": "Empfohlen: 0.8-1.0g pro kg Körpergewicht",
+        "type": "number",
+        "default": 70,
+        "validation": { "min": 20, "max": 200 }
+      },
+      {
+        "key": "default_carbs",
+        "label": "Kohlenhydrate-Ziel (g/Tag)",
+        "description": "Fülle den Rest deiner Kalorien mit Carbs",
+        "type": "number",
+        "default": 250,
+        "validation": { "min": 50, "max": 600 }
+      },
+      {
+        "key": "default_calories",
+        "label": "Kalorien-Ziel (kcal/Tag)",
+        "description": "Dein täglicher Kalorienbedarf",
+        "type": "number",
+        "default": 2500,
+        "validation": { "min": 1200, "max": 6000 }
+      }
+    ]
+  },
+  "docker": {
+    "auto_build": true,
+    "base_image": "node:20-alpine",
+    "working_dir": "/app",
+    "install_cmd": "npm install",
+    "start_cmd": "node server.js",
+    "internal_ports": [
+      {
+        "port": 3000,
+        "protocol": "tcp",
+        "assignment_mode": "random",
+        "description": "Macro Tracker Web UI"
+      }
+    ],
+    "environment": {
+      "NODE_ENV": "production"
+    },
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "store_metadata": {
+    "category": "Gesundheit & Fitness",
+    "tags": ["ernährung", "fitness", "makros", "protein", "kalorien", "muskelaufbau", "bodybuilding"],
+    "min_iora_version": "2.1.0",
+    "license": "MIT"
+  }
+}

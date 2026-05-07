@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macro Tracker</title>
+  <style>
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0c12;
+      --bg-card: #131720;
+      --bg-card-hover: #1a1f2e;
+      --bg-input: #1c2232;
+      --bg-elevated: #1a1f2e;
+      --border: #252b3d;
+      --border-light: #2f3650;
+      --text: #e8eaef;
+      --text-secondary: #9ca0b0;
+      --text-muted: #686c7e;
+      --text-dim: #45495a;
+      --protein: #5ba8f0;
+      --protein-bg: rgba(91, 168, 240, 0.12);
+      --fat: #f5a623;
+      --fat-bg: rgba(245, 166, 35, 0.12);
+      --carbs: #66bb6a;
+      --carbs-bg: rgba(102, 187, 106, 0.12);
+      --kcal: #ef5350;
+      --kcal-bg: rgba(239, 83, 80, 0.12);
+      --water: #42a5f5;
+      --water-bg: rgba(66, 165, 245, 0.12);
+      --accent: #7c5cfc;
+      --accent-hover: #8f74ff;
+      --success: #66bb6a;
+      --danger: #ef5350;
+      --warning: #f5a623;
+      --radius-sm: 8px;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-lg: 0 4px 16px rgba(0,0,0,0.4);
+      --transition: 0.2s ease;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+    /* ===== Layout ===== */
+    .app-container { max-width: 1280px; margin: 0 auto; padding: 0 20px 40px; }
+
+    /* ===== Sticky Header ===== */
+    header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10, 12, 18, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 0; margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      font-size: 1.35rem; font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--protein));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header .header-right {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .date-nav {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+    }
+    .date-nav button {
+      background: transparent; border: none;
+      color: var(--text-secondary); padding: 5px 10px;
+      border-radius: 5px; cursor: pointer; font-size: 0.85rem;
+      transition: var(--transition);
+    }
+    .date-nav button:hover { background: var(--bg-card-hover); color: var(--text); }
+    .date-nav .current-date {
+      font-weight: 600; font-size: 0.9rem; min-width: 110px;
+      text-align: center; color: var(--text);
+      padding: 0 6px;
+    }
+    .btn-header {
+      background: var(--bg-card); border: 1px solid var(--border);
+      color: var(--text-secondary); padding: 6px 14px;
+      border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 0.82rem; transition: var(--transition); white-space: nowrap;
+    }
+    .btn-header:hover { background: var(--bg-card-hover); color: var(--text); border-color: var(--border-light); }
+
+    /* ===== Macro Progress Cards ===== */
+    .macro-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) { .macro-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px) { .macro-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 380px) { .macro-grid { grid-template-columns: 1fr 1fr; } }
+
+    .macro-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 16px 14px;
+      position: relative;
+      overflow: hidden;
+      transition: var(--transition);
+      cursor: default;
+    }
+    .macro-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-light);
+      box-shadow: var(--shadow-lg);
+    }
+    .macro-card .macro-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .macro-card .macro-label {
+      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-muted); font-weight: 600;
+    }
+    .macro-card .macro-badge {
+      font-size: 0.65rem; padding: 2px 7px; border-radius: 10px;
+      font-weight: 600;
+    }
+    .macro-card .macro-values {
+      display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;
+    }
+    .macro-card .macro-current { font-size: 1.8rem; font-weight: 700; line-height: 1; }
+    .macro-card .macro-divider { color: var(--text-dim); font-size: 1rem; }
+    .macro-card .macro-goal { font-size: 0.9rem; color: var(--text-muted); }
+    .macro-card .macro-unit { font-size: 0.7rem; color: var(--text-dim); margin-left: 1px; }
+    .macro-card .macro-remaining {
+      font-size: 0.75rem; margin-bottom: 8px; font-weight: 500;
+    }
+    .macro-card .macro-remaining.over { color: var(--danger); }
+    .macro-card .macro-remaining.under { color: var(--success); }
+
+    .progress-bar {
+      height: 5px; background: var(--bg-input); border-radius: 3px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; border-radius: 3px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+    .progress-fill::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+      animation: shimmer 2s infinite;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .card-protein .progress-fill { background: var(--protein); }
+    .card-fat .progress-fill { background: var(--fat); }
+    .card-carbs .progress-fill { background: var(--carbs); }
+    .card-kcal .progress-fill { background: var(--kcal); }
+    .card-protein { border-left: 3px solid var(--protein); }
+    .card-fat { border-left: 3px solid var(--fat); }
+    .card-carbs { border-left: 3px solid var(--carbs); }
+    .card-kcal { border-left: 3px solid var(--kcal); }
+    .card-water { border-left: 3px solid var(--water); }
+    .card-water .progress-fill { background: var(--water); }
+
+    .macro-card .macro-current.protein { color: var(--protein); }
+    .macro-card .macro-current.fat { color: var(--fat); }
+    .macro-card .macro-current.carbs { color: var(--carbs); }
+    .macro-card .macro-current.kcal { color: var(--kcal); }
+    .macro-card .macro-current.water { color: var(--water); }
+
+    /* ===== Distribution Chart ===== */
+    .dist-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      transition: var(--transition);
+    }
+    .dist-section:hover { border-color: var(--border-light); }
+    .dist-section .dist-title {
+      font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 600; margin-bottom: 8px;
+    }
+    .dist-chart {
+      display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;
+    }
+    .dist-chart .dist-protein { background: var(--protein); transition: width 0.6s ease; }
+    .dist-chart .dist-fat { background: var(--fat); transition: width 0.6s ease; }
+    .dist-chart .dist-carbs { background: var(--carbs); transition: width 0.6s ease; }
+    .dist-legend {
+      display: flex; gap: 20px; font-size: 0.72rem; color: var(--text-muted); flex-wrap: wrap;
+    }
+    .dist-legend span { display: flex; align-items: center; gap: 5px; }
+    .dist-legend .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot-protein { background: var(--protein); }
+    .dot-fat { background: var(--fat); }
+    .dot-carbs { background: var(--carbs); }
+
+    /* ===== Content Grid ===== */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 860px) { .content-grid { grid-template-columns: 1fr; } }
+
+    /* ===== Panels ===== */
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: var(--transition);
+    }
+    .panel:hover { border-color: var(--border-light); }
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+    }
+    .panel-header h3 { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+    .panel-body { padding: 14px 18px; }
+
+    /* ===== Meal Log ===== */
+    .meal-type-group { margin-bottom: 14px; }
+    .meal-type-header {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-muted);
+      padding: 6px 0; border-bottom: 1px solid var(--border);
+      margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .meal-type-header .type-sum {
+      font-weight: 400; font-size: 0.7rem; letter-spacing: normal;
+      text-transform: none; color: var(--text-dim);
+    }
+    .meal-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 10px; border-radius: var(--radius-sm);
+      margin-bottom: 3px; background: var(--bg-input);
+      font-size: 0.85rem; transition: var(--transition);
+      border: 1px solid transparent;
+    }
+    .meal-item:hover { border-color: var(--border-light); background: rgba(28, 34, 50, 0.8); }
+    .meal-item .meal-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meal-item .meal-name .amount { color: var(--text-muted); font-size: 0.8rem; }
+    .meal-item .meal-macros {
+      display: flex; gap: 8px; font-size: 0.74rem; color: var(--text-secondary);
+      white-space: nowrap; margin: 0 8px;
+    }
+    .meal-item .meal-macros span { white-space: nowrap; }
+    .meal-item .meal-actions {
+      display: flex; gap: 2px; opacity: 0.3; transition: var(--transition);
+    }
+    .meal-item:hover .meal-actions { opacity: 1; }
+    .meal-item .meal-action-btn {
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      padding: 3px 5px; font-size: 0.85rem; border-radius: 4px;
+      transition: var(--transition);
+    }
+    .meal-item .meal-action-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+    .meal-item .meal-action-btn.danger:hover { color: var(--danger); background: rgba(239,83,80,0.15); }
+    .meal-item .meal-action-btn.dup:hover { color: var(--success); background: rgba(102,187,106,0.15); }
+    .meal-empty {
+      text-align: center; padding: 30px 20px; color: var(--text-dim);
+      font-size: 0.85rem; line-height: 1.8;
+    }
+
+    /* ===== Food Database ===== */
+    .food-search {
+      display: flex; gap: 8px; margin-bottom: 12px;
+    }
+    .food-search input {
+      flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+      color: var(--text); padding: 9px 12px; border-radius: var(--radius-sm);
+      font-size: 0.85rem; outline: none; transition: var(--transition);
+    }
+    .food-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,92,252,0.15); }
+    .food-search input::placeholder { color: var(--text-dim); }
+    .food-search select {
+      background: var(--bg-input); border: 1px solid var(--border);
+      color: var(--text-secondary); padding: 9px 12px;
+      border-radius: var(--radius-sm); font-size: 0.82rem;
+      outline: none; cursor: pointer; max-width: 150px;
+    }
+    .food-list { max-height: 380px; overflow-y: auto; }
+    .food-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-radius: var(--radius-sm);
+      margin-bottom: 3px; border: 1px solid transparent;
+      cursor: pointer; transition: var(--transition);
+    }
+    .food-item:hover { background: var(--bg-card-hover); border-color: var(--border); }
+    .food-item .food-info { flex: 1; min-width: 0; }
+    .food-item .food-name {
+      font-size: 0.85rem; font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .food-item .food-name .brand { color: var(--text-muted); font-size: 0.75rem; font-weight: 400; }
+    .food-item .food-name .category-tag {
+      font-size: 0.65rem; padding: 1px 6px; border-radius: 8px;
+      background: var(--bg-input); color: var(--text-muted);
+      margin-left: 6px; font-weight: 400;
+    }
+    .food-item .food-macros {
+      font-size: 0.72rem; color: var(--text-muted);
+      display: flex; gap: 8px; margin-top: 2px;
+    }
+    .food-item .food-macros span { white-space: nowrap; }
+    .food-item .food-actions {
+      display: flex; gap: 3px; align-items: center;
+    }
+    .btn-icon {
+      background: transparent; border: 1px solid transparent;
+      color: var(--text-dim); padding: 4px 8px; border-radius: 5px;
+      cursor: pointer; font-size: 0.8rem; transition: var(--transition);
+    }
+    .btn-icon:hover { background: var(--bg-card-hover); border-color: var(--border); color: var(--text); }
+    .btn-icon.fav.active { color: var(--warning); background: rgba(245,166,35,0.12); }
+    .btn-icon.fav:not(.active):hover { color: var(--warning); }
+    .btn-icon.danger:hover { color: var(--danger); background: rgba(239,83,80,0.12); border-color: rgba(239,83,80,0.2); }
+
+    /* ===== Buttons ===== */
+    .btn {
+      background: var(--accent); color: #fff; border: none;
+      padding: 9px 20px; border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 0.85rem; font-weight: 500; transition: var(--transition);
+    }
+    .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn-secondary {
+      background: var(--bg-input); border: 1px solid var(--border); color: var(--text-secondary);
+    }
+    .btn-secondary:hover { background: var(--bg-card-hover); color: var(--text); }
+    .btn-sm { padding: 5px 12px; font-size: 0.78rem; }
+    .btn-xs { padding: 3px 8px; font-size: 0.7rem; }
+    .btn-danger { background: var(--danger); }
+    .btn-danger:hover { background: #e53935; }
+    .btn-success { background: var(--success); }
+    .btn-success:hover { background: #57b85c; }
+
+    /* ===== Forms ===== */
+    .form-group { margin-bottom: 12px; }
+    .form-group label {
+      display: block; font-size: 0.78rem; color: var(--text-muted);
+      margin-bottom: 4px; font-weight: 500;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+      color: var(--text); padding: 9px 12px; border-radius: var(--radius-sm);
+      font-size: 0.85rem; outline: none; transition: var(--transition);
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,92,252,0.15);
+    }
+    .form-group input::placeholder { color: var(--text-dim); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .form-row-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+    @media (max-width: 600px) {
+      .form-row-4 { grid-template-columns: 1fr 1fr; }
+      .form-row-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ===== Water Section ===== */
+    .water-section {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .water-label {
+      font-size: 0.82rem; color: var(--text-muted);
+      white-space: nowrap; font-weight: 500;
+    }
+    .water-btn {
+      padding: 5px 12px; border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 0.78rem; font-weight: 500; transition: var(--transition);
+      background: var(--water-bg); border: 1px solid rgba(66,165,245,0.25);
+      color: var(--water);
+    }
+    .water-btn:hover { background: rgba(66,165,245,0.2); border-color: var(--water); transform: translateY(-1px); }
+    .water-input {
+      width: 70px; background: var(--bg-input);
+      border: 1px solid var(--border); color: var(--text);
+      padding: 5px 8px; border-radius: var(--radius-sm);
+      font-size: 0.82rem; outline: none;
+    }
+    .water-input:focus { border-color: var(--water); }
+    .water-total {
+      font-size: 0.82rem; color: var(--water); font-weight: 600;
+    }
+
+    /* ===== Modals ===== */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      z-index: 100; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-overlay.in { animation: fadeIn 0.15s ease; }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .modal {
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg); padding: 28px;
+      width: 100%; max-width: 480px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: slideUp 0.2s ease;
+      max-height: 90vh; overflow-y: auto;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .modal h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; }
+    .modal .modal-actions {
+      display: flex; gap: 10px; margin-top: 20px;
+    }
+    .modal-actions .btn { flex: 1; }
+
+    /* ===== Tabs ===== */
+    .tabs {
+      display: flex; gap: 0; border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      padding: 10px 16px; cursor: pointer; font-size: 0.82rem; font-weight: 500;
+      color: var(--text-muted); border-bottom: 3px solid transparent;
+      transition: var(--transition); white-space: nowrap; user-select: none;
+    }
+    .tab:hover { color: var(--text-secondary); background: rgba(124,92,231,0.04); }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); background: rgba(124,92,231,0.06); }
+    .tab-content { display: none; padding: 14px 18px; }
+    .tab-content.active { display: block; animation: fadeIn 0.2s ease; }
+
+    /* ===== Calculator ===== */
+    .calc-result-box {
+      background: var(--bg-input); border-radius: var(--radius-sm);
+      padding: 16px; margin-top: 4px;
+      animation: fadeIn 0.2s ease;
+    }
+    .calc-result-box h4 {
+      font-size: 0.82rem; margin-bottom: 10px;
+      color: var(--text-muted); font-weight: 600;
+    }
+    .calc-macros {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    }
+    .calc-macro-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 10px; background: var(--bg-card);
+      border-radius: var(--radius-sm); font-size: 0.82rem;
+    }
+    .calc-macro-item .val { font-weight: 600; }
+    .calc-macro-item .tag { font-size: 0.65rem; }
+
+    /* ===== Tags ===== */
+    .tag {
+      display: inline-block; padding: 2px 7px; border-radius: 8px;
+      font-size: 0.68rem; font-weight: 500;
+    }
+    .tag-protein { background: var(--protein-bg); color: var(--protein); }
+    .tag-fat { background: var(--fat-bg); color: var(--fat); }
+    .tag-carbs { background: var(--carbs-bg); color: var(--carbs); }
+    .tag-kcal { background: var(--kcal-bg); color: var(--kcal); }
+
+    /* ===== Toast ===== */
+    /* ===== Import Dropzone ===== */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: var(--transition);
+      background: var(--bg-input);
+    }
+    .dropzone:hover, .dropzone.drag-over {
+      border-color: var(--accent);
+      background: rgba(124,92,252,0.06);
+    }
+    .dropzone .dz-icon {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      color: var(--text-dim);
+    }
+    .dropzone .dz-text {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+    .dropzone .dz-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .dropzone .dz-hint strong {
+      color: var(--accent);
+    }
+    .import-preview {
+      margin-top: 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+    .import-preview .preview-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .import-preview .preview-item:last-child {
+      border-bottom: none;
+    }
+    .import-preview .preview-section {
+      font-weight: 600;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 8px 0 4px;
+    }
+    .import-result {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+    }
+    .import-result.success {
+      background: rgba(102,187,106,0.1);
+      border: 1px solid rgba(102,187,106,0.2);
+      color: var(--success);
+    }
+    .import-result.error {
+      background: rgba(239,83,80,0.1);
+      border: 1px solid rgba(239,83,80,0.2);
+      color: var(--danger);
+    }
+
+    .toast-container {
+      position: fixed; bottom: 24px; right: 24px; z-index: 200;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast {
+      background: var(--bg-elevated); border: 1px solid var(--border-light);
+      color: var(--text); padding: 12px 20px;
+      border-radius: var(--radius-sm); font-size: 0.85rem;
+      box-shadow: var(--shadow-lg);
+      animation: toastIn 0.25s ease;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .toast .toast-icon { font-size: 1.1rem; }
+    .toast .toast-close {
+      background: none; border: none; color: var(--text-muted);
+      cursor: pointer; padding: 0 4px; font-size: 1rem;
+    }
+    .toast.removing { animation: toastOut 0.2s ease forwards; }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(30px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes toastOut {
+      from { opacity: 1; transform: translateX(0); }
+      to { opacity: 0; transform: translateX(30px); }
+    }
+
+    /* ===== Charts ===== */
+    .chart-container {
+      position: relative; width: 100%; margin-top: 4px;
+    }
+    .chart-container canvas {
+      width: 100% !important;
+      border-radius: var(--radius-sm);
+    }
+    .chart-empty {
+      text-align: center; padding: 30px; color: var(--text-dim);
+      font-size: 0.82rem;
+    }
+    .chart-legend {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      font-size: 0.72rem; color: var(--text-muted); margin-top: 8px;
+    }
+    .chart-legend span { display: flex; align-items: center; gap: 4px; }
+    .chart-legend .clr {
+      width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+    }
+
+    /* ===== Week Overview ===== */
+    .week-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; }
+    .week-table thead th {
+      padding: 8px 10px; text-align: left; color: var(--text-muted);
+      font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.04em; border-bottom: 1px solid var(--border);
+    }
+    .week-table tbody td { padding: 10px 10px; border-bottom: 1px solid var(--border); }
+    .week-table tbody tr { transition: var(--transition); }
+    .week-table tbody tr:hover { background: var(--bg-card-hover); }
+    .week-table tbody tr.today { background: rgba(124,92,252,0.06); }
+    .week-table .bar-cell { min-width: 120px; }
+    .week-table .bar-track {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .week-table .bar-fill {
+      height: 6px; border-radius: 3px; transition: width 0.4s ease;
+      background: var(--accent);
+    }
+    .week-table .bar-fill.over { background: var(--danger); }
+
+    /* ===== Body Weight ===== */
+    .weight-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 5px 12px;
+      font-size: 0.82rem; cursor: pointer; transition: var(--transition);
+    }
+    .weight-badge:hover { border-color: var(--border-light); background: var(--bg-card-hover); }
+    .weight-badge .weight-val { font-weight: 700; color: var(--accent); }
+    .weight-badge .weight-unit { color: var(--text-muted); font-size: 0.75rem; }
+
+    /* ===== Quick Add ===== */
+    .quick-grid {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: end;
+    }
+    .quick-grid .form-group { flex: 1; min-width: 100px; margin-bottom: 0; }
+
+    /* ===== Loading Skeleton ===== */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg-input) 25%, var(--bg-card-hover) 50%, var(--bg-input) 75%);
+      background-size: 200% 100%;
+      animation: skeleton 1.5s infinite;
+      border-radius: 4px;
+    }
+    @keyframes skeleton {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ===== Utilities ===== */
+    .text-success { color: var(--success); }
+    .text-danger { color: var(--danger); }
+    .text-muted { color: var(--text-muted); }
+    .text-accent { color: var(--accent); }
+    .fw-600 { font-weight: 600; }
+    .mt-2 { margin-top: 8px; }
+    .mt-3 { margin-top: 12px; }
+    .mb-2 { margin-bottom: 8px; }
+    .mb-3 { margin-bottom: 12px; }
+    .gap-2 { gap: 8px; }
+    .flex { display: flex; }
+    .flex-center { display: flex; align-items: center; }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; }
+    .flex-wrap { flex-wrap: wrap; }
+
+    @media (max-width: 640px) {
+      .app-container { padding: 0 12px 24px; }
+      header { flex-direction: column; gap: 10px; }
+      header .header-right { width: 100%; justify-content: center; flex-wrap: wrap; }
+      .macro-card .macro-current { font-size: 1.5rem; }
+      .panel-body { padding: 10px 12px; }
+      .modal { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header>
+      <h1>Macro Tracker</h1>
+      <div class="header-right">
+        <div class="weight-badge" id="weightBadge" onclick="openWeightModal()" title="Körpergewicht erfassen">
+          <span class="weight-val" id="weightDisplay">--</span>
+          <span class="weight-unit">kg</span>
+        </div>
+        <div class="date-nav">
+          <button onclick="changeDate(-1)" title="Vorheriger Tag">&#8592;</button>
+          <span class="current-date" id="currentDate"></span>
+          <button onclick="changeDate(1)" title="Nächster Tag">&#8594;</button>
+          <button onclick="changeDate(0)" style="font-weight:600;color:var(--accent);">Heute</button>
+        </div>
+        <button class="btn-header" onclick="openGoalsModal()" title="Tagesziele anpassen">Ziele</button>
+        <button class="btn-header" onclick="openCopyDayModal()" title="Mahlzeiten von einem anderen Tag kopieren">Kopieren</button>
+        <button class="btn-header" onclick="exportData()" title="Daten exportieren (CSV/JSON)">Export</button>
+        <button class="btn-header" onclick="openImportModal()" title="Daten importieren (JSON)">Import</button>
+      </div>
+    </header>
+
+    <!-- Macro Progress Cards -->
+    <div class="macro-grid" id="macroGrid"></div>
+
+    <!-- Distribution (shown when data exists) -->
+    <div id="distributionSection"></div>
+
+    <!-- Water Quick-Add -->
+    <div class="water-section">
+      <span class="water-label">Wasser:</span>
+      <button class="water-btn" onclick="addWater(200)">+200ml</button>
+      <button class="water-btn" onclick="addWater(250)">+250ml</button>
+      <button class="water-btn" onclick="addWater(330)">+330ml</button>
+      <button class="water-btn" onclick="addWater(500)">+500ml</button>
+      <button class="water-btn" onclick="addWater(750)">+750ml</button>
+      <input type="number" id="waterCustomMl" value="300" min="50" max="2000" step="50" class="water-input">
+      <button class="water-btn" onclick="addWater(parseInt(document.getElementById('waterCustomMl').value)||300)">+ml</button>
+      <span class="water-total" id="waterTotalDisplay"></span>
+    </div>
+
+    <!-- Main Content -->
+    <div class="content-grid">
+      <!-- Left: Meal Log -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Mahlzeiten</h3>
+          <span id="mealCount" style="font-size:0.78rem;color:var(--text-muted);"></span>
+        </div>
+        <div class="panel-body" id="mealLog">
+          <div class="meal-empty" id="mealEmpty">
+            <div style="font-size:1.5rem;margin-bottom:8px;color:var(--text-dim);">&#9742;</div>
+            Noch keine Mahlzeiten eingetragen.<br>
+            W&auml;hle ein Lebensmittel aus der Datenbank oder nutze den Schnell-Eintrag unten.
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Multi-Tab Panel -->
+      <div class="panel">
+        <div class="panel-header" style="padding:0;">
+          <div class="tabs">
+            <div class="tab active" onclick="switchTab('foods')">Lebensmittel</div>
+            <div class="tab" onclick="switchTab('calculator')">Rechner</div>
+            <div class="tab" onclick="switchTab('charts')">Charts</div>
+            <div class="tab" onclick="switchTab('ai-import')">KI-Import</div>
+          </div>
+        </div>
+
+        <!-- Tab: Food Database -->
+        <div class="tab-content active" id="tab-foods">
+          <div class="food-search">
+            <input type="text" id="foodSearch" placeholder="Suchen..." oninput="debounceSearch()">
+            <select id="foodCategory" onchange="loadFoods()">
+              <option value="Alle">Alle</option>
+            </select>
+          </div>
+          <button class="btn btn-sm" onclick="openAddFoodModal()" style="margin-bottom:10px;">+ Neues Lebensmittel</button>
+          <div class="food-list" id="foodList"></div>
+        </div>
+
+        <!-- Tab: Macro Calculator -->
+        <div class="tab-content" id="tab-calculator">
+          <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+            Berechne deinen t&auml;glichen Kalorienbedarf und die optimale Makro-Verteilung (Mifflin-St Jeor).
+          </p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Geschlecht</label>
+              <select id="calcGender">
+                <option value="male">M&auml;nnlich</option>
+                <option value="female">Weiblich</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Alter</label>
+              <input type="number" id="calcAge" value="30" min="15" max="100" step="1">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Gr&ouml;&szlig;e (cm)</label>
+              <input type="number" id="calcHeight" value="180" min="130" max="250" step="1">
+            </div>
+            <div class="form-group">
+              <label>Gewicht (kg)</label>
+              <input type="number" id="calcWeight" value="80" min="40" max="200" step="0.1">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Aktivit&auml;tslevel</label>
+              <select id="calcActivity">
+                <option value="1.2">Wenig aktiv (B&uuml;rojob, kaum Sport)</option>
+                <option value="1.375">Leicht aktiv (1-2x/Woche)</option>
+                <option value="1.55" selected>Moderat aktiv (3-4x/Woche)</option>
+                <option value="1.725">Sehr aktiv (5-6x/Woche)</option>
+                <option value="1.9">Extrem aktiv (t&auml;glich)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Ziel</label>
+              <select id="calcGoal">
+                <option value="muscle">Muskelaufbau (+300 kcal)</option>
+                <option value="moderate_gain">Leichter Aufbau (+150 kcal)</option>
+                <option value="maintenance">Gewicht halten</option>
+                <option value="fat_loss">Fettabbau (-400 kcal)</option>
+                <option value="aggressive_cut">Starker Fettabbau (-700 kcal)</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn" onclick="calculateMacros()" style="width:100%;">Berechnen</button>
+          <div class="calc-result-box" id="calcResultBox" style="display:none;"></div>
+        </div>
+
+        <!-- Tab: Charts -->
+        <div class="tab-content" id="tab-charts">
+          <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+            Visualisiere deine Fortschritte &uuml;ber die Zeit.
+          </p>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <button class="btn btn-sm" id="chartWeekBtn" onclick="setChartPeriod('week')" style="flex:1;">Woche</button>
+            <button class="btn btn-sm btn-secondary" id="chartMonthBtn" onclick="setChartPeriod('month')" style="flex:1;">Monat</button>
+          </div>
+          <div class="chart-container">
+            <canvas id="chartCanvas"></canvas>
+          </div>
+          <div class="chart-legend" id="chartLegend"></div>
+          <div id="chartStats" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:0.78rem;color:var(--text-muted);"></div>
+        </div>
+
+        <!-- Tab: KI Import -->
+        <div class="tab-content" id="tab-ai-import">
+          <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:10px;">
+            Zwei Modi: <strong>Tagesplan</strong> erstellen lassen oder eine <strong>gegessene Mahlzeit</strong> analysieren.
+          </p>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="btn btn-sm" id="btnPromptDay" onclick="setPromptMode('day')" style="flex:1;">Tagesplan</button>
+            <button class="btn btn-sm btn-secondary" id="btnPromptMeal" onclick="setPromptMode('meal')" style="flex:1;">Mahlzeit analysieren</button>
+          </div>
+          <div id="promptDaySection">
+            <div class="form-group">
+              <label>Ern&auml;hrungsstil / W&uuml;nsche</label>
+              <input type="text" id="promptPreferences" placeholder="z.B. mediterran, vegetarisch, meal-prep...">
+            </div>
+          </div>
+          <div id="promptMealSection" style="display:none;">
+            <div class="form-group">
+              <label>Beschreibung (optional)</label>
+              <textarea id="promptMealDescription" placeholder="Optional: 'Hähnchen mit Reis und Brokkoli' oder leer lassen wenn Fotos alles zeigen..." style="width:100%;min-height:60px;background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:var(--radius-sm);font-size:0.82rem;resize:vertical;"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Mahlzeit-Typ</label>
+              <select id="promptMealType">
+                <option>Fr&uuml;hst&uuml;ck</option>
+                <option>Mittagessen</option>
+                <option>Abendessen</option>
+                <option>Snack</option>
+                <option>Pre-Workout</option>
+                <option>Post-Workout</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-sm" onclick="generatePrompt()">Prompt generieren</button>
+          <div class="prompt-box" id="promptBox" style="display:none;"></div>
+          <hr style="border-color:var(--border);margin:16px 0;">
+          <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px;">
+            <strong>Antwort der KI hier einf&uuml;gen</strong> und importieren:
+          </p>
+          <textarea class="import-textarea" id="importData" placeholder="JSON-Antwort der KI einf&uuml;gen..."></textarea>
+          <button class="btn" onclick="importMeals()" style="margin-top:8px;width:100%;">Mahlzeiten importieren</button>
+          <div id="importResult" style="margin-top:10px;font-size:0.82rem;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Add -->
+    <div class="panel quick-add" style="margin-top:16px;">
+      <div class="panel-header">
+        <h3>Schnell-Eintrag</h3>
+        <span style="font-size:0.75rem;color:var(--text-muted);">oder aus Lebensmittelliste klicken</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-row" style="grid-template-columns:2fr 1fr 1fr;">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="quickName" placeholder="z.B. Protein Shake">
+          </div>
+          <div class="form-group">
+            <label>Menge (g/ml)</label>
+            <input type="number" id="quickAmount" value="100" min="1" step="1">
+          </div>
+          <div class="form-group">
+            <label>Mahlzeit-Typ</label>
+            <select id="quickMealType">
+              <option value="Frühstück">Fr&uuml;hst&uuml;ck</option>
+              <option value="Mittagessen">Mittagessen</option>
+              <option value="Abendessen">Abendessen</option>
+              <option value="Snack">Snack</option>
+              <option value="Pre-Workout">Pre-Workout</option>
+              <option value="Post-Workout">Post-Workout</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row-4" style="margin-bottom:10px;">
+          <div class="form-group">
+            <label>Protein (g)</label>
+            <input type="number" id="quickProtein" value="0" min="0" step="0.1" oninput="autoCalcQuick()">
+          </div>
+          <div class="form-group">
+            <label>Fett (g)</label>
+            <input type="number" id="quickFat" value="0" min="0" step="0.1" oninput="autoCalcQuick()">
+          </div>
+          <div class="form-group">
+            <label>Carbs (g)</label>
+            <input type="number" id="quickCarbs" value="0" min="0" step="0.1" oninput="autoCalcQuick()">
+          </div>
+          <div class="form-group">
+            <label>Kalorien</label>
+            <input type="number" id="quickKcal" value="0" min="0" step="1" oninput="onQuickKcalManual()">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn" onclick="addQuickMeal()">Eintragen</button>
+          <span id="quickCalcHint" style="font-size:0.75rem;color:var(--text-muted);"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Week Overview + Weight Chart -->
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-header">
+        <h3>7-Tage &Uuml;bersicht</h3>
+      </div>
+      <div class="panel-body" id="weekOverview"></div>
+    </div>
+  </div>
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- Goals Modal -->
+  <div class="modal-overlay" id="goalsModal">
+    <div class="modal">
+      <h3>T&auml;gliche Makro-Ziele</h3>
+      <div class="form-group">
+        <label>Protein (g)</label>
+        <input type="number" id="goalProtein" min="50" max="400" step="1">
+      </div>
+      <div class="form-group">
+        <label>Fett (g)</label>
+        <input type="number" id="goalFat" min="20" max="300" step="1">
+      </div>
+      <div class="form-group">
+        <label>Kohlenhydrate (g)</label>
+        <input type="number" id="goalCarbs" min="50" max="600" step="1">
+      </div>
+      <div class="form-group">
+        <label>Kalorien (kcal)</label>
+        <input type="number" id="goalKcal" min="1200" max="6000" step="50">
+      </div>
+      <div class="form-group">
+        <label>Wasser / Fl&uuml;ssigkeit (ml)</label>
+        <input type="number" id="goalWater" min="500" max="8000" step="100">
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="saveGoals()">Speichern</button>
+        <button class="btn btn-secondary" onclick="closeGoalsModal()">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Food Modal -->
+  <div class="modal-overlay" id="addFoodModal">
+    <div class="modal">
+      <h3 id="addFoodModalTitle">Neues Lebensmittel</h3>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="newFoodName" placeholder="z.B. Rindersteak">
+      </div>
+      <div class="form-group">
+        <label>Marke (optional)</label>
+        <input type="text" id="newFoodBrand" placeholder="z.B. Alnatura">
+      </div>
+      <div class="form-group">
+        <label>Kategorie</label>
+        <select id="newFoodCategory">
+          <option>Fleisch & Fisch</option>
+          <option>Eier & Milch</option>
+          <option>Beilagen</option>
+          <option>Fr&uuml;hst&uuml;ck</option>
+          <option>Gem&uuml;se</option>
+          <option>Obst</option>
+          <option>Fette & N&uuml;sse</option>
+          <option>Supplements</option>
+          <option>Snacks & S&uuml;&szlig;es</option>
+          <option>Getr&auml;nke</option>
+          <option>Sonstiges</option>
+        </select>
+      </div>
+      <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:12px;">
+        N&auml;hrwerte pro <strong id="servingLabel">100g</strong>:
+      </p>
+      <div class="form-group">
+        <label>Portionsgr&ouml;&szlig;e (g)</label>
+        <input type="number" id="newFoodServing" value="100" min="1" step="1" oninput="document.getElementById('servingLabel').textContent=this.value+'g'">
+      </div>
+      <div class="form-row-4">
+        <div class="form-group">
+          <label>Protein (g)</label>
+          <input type="number" id="newFoodProtein" value="0" min="0" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Fett (g)</label>
+          <input type="number" id="newFoodFat" value="0" min="0" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Carbs (g)</label>
+          <input type="number" id="newFoodCarbs" value="0" min="0" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Kalorien (kcal)</label>
+          <input type="number" id="newFoodKcal" value="0" min="0" step="1">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="addFoodBtn" onclick="addFood()">Hinzuf&uuml;gen</button>
+        <button class="btn btn-secondary" onclick="closeAddFoodModal()">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Meal Modal -->
+  <div class="modal-overlay" id="addMealModal">
+    <div class="modal">
+      <h3 id="addMealModalTitle">Mahlzeit hinzuf&uuml;gen</h3>
+      <p id="addMealFoodName" style="font-weight:600;margin-bottom:4px;"></p>
+      <p id="addMealFoodInfo" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:14px;"></p>
+      <input type="hidden" id="editMealId" value="">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Menge (g)</label>
+          <input type="number" id="addMealAmount" value="100" min="1" step="1">
+        </div>
+        <div class="form-group">
+          <label>Mahlzeit-Typ</label>
+          <select id="addMealType">
+            <option value="Frühstück">Fr&uuml;hst&uuml;ck</option>
+            <option value="Mittagessen">Mittagessen</option>
+            <option value="Abendessen">Abendessen</option>
+            <option value="Snack">Snack</option>
+            <option value="Pre-Workout">Pre-Workout</option>
+            <option value="Post-Workout">Post-Workout</option>
+          </select>
+        </div>
+      </div>
+      <p id="addMealPreview" style="font-size:0.82rem;color:var(--text-muted);margin-bottom:14px;"></p>
+      <div class="modal-actions">
+        <button class="btn" id="confirmMealBtn" onclick="confirmAddMeal()">Hinzuf&uuml;gen</button>
+        <button class="btn btn-secondary" onclick="closeAddMealModal()">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copy Day Modal -->
+  <div class="modal-overlay" id="copyDayModal">
+    <div class="modal">
+      <h3>Mahlzeiten kopieren</h3>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:14px;">
+        Kopiere alle Mahlzeiten von einem Tag zu einem anderen Datum.
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Von Datum</label>
+          <input type="date" id="copyFromDate">
+        </div>
+        <div class="form-group">
+          <label>Zu Datum</label>
+          <input type="date" id="copyToDate">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="executeCopyDay()">Kopieren</button>
+        <button class="btn btn-secondary" onclick="closeCopyDayModal()">Abbrechen</button>
+      </div>
+      <div id="copyResult" style="margin-top:10px;font-size:0.82rem;"></div>
+    </div>
+  </div>
+
+  <!-- Body Weight Modal -->
+  <div class="modal-overlay" id="weightModal">
+    <div class="modal">
+      <h3>K&ouml;rpergewicht erfassen</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Gewicht (kg)</label>
+          <input type="number" id="weightInput" value="80" min="30" max="250" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Datum</label>
+          <input type="date" id="weightDate">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="saveWeight()">Speichern</button>
+        <button class="btn btn-secondary" onclick="closeWeightModal()">Abbrechen</button>
+      </div>
+      <div id="weightHistory" style="margin-top:14px;max-height:200px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" id="importModal">
+    <div class="modal">
+      <h3>Daten importieren</h3>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:14px;">
+        Importiere Mahlzeiten, Lebensmittel, Körpergewicht und Ziele aus einer zuvor exportierten JSON-Datei.
+      </p>
+
+      <div class="dropzone" id="importDropzone" onclick="document.getElementById('importFileInput').click()">
+        <div class="dz-icon">&#128196;</div>
+        <div class="dz-text">JSON-Datei hier ablegen oder klicken</div>
+        <div class="dz-hint">Unterstützt: <strong>meals</strong>, <strong>foods</strong>, <strong>bodyweight</strong>, <strong>goals</strong></div>
+        <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="handleImportFile(event)">
+      </div>
+
+      <div id="importPreviewContainer"></div>
+      <div id="importResultContainer"></div>
+
+      <div class="modal-actions" id="importActions" style="display:none;">
+        <button class="btn btn-success" id="importConfirmBtn" onclick="executeImport()">Importieren</button>
+        <button class="btn btn-secondary" onclick="closeImportModal()">Abbrechen</button>
+      </div>
+      <div class="modal-actions" id="importEmptyActions">
+        <button class="btn btn-secondary" onclick="closeImportModal()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
