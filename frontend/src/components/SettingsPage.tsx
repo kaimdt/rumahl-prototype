@@ -1694,7 +1694,7 @@ function AdditionalSettings() {
       </SettingsSection>
 
       {/* Navigation */}
-      <SettingsSection icon={NavigationArrow} title="Navigation" description="Darstellung der Navigationsleiste anpassen">
+      <SettingsSection icon={NavigationArrow} title={t('settings.navigation')} description={t('settings.navigationDesc')}>
         <ToggleRow
           label="Beschriftungen anzeigen"
           description="Text-Labels unter den Navigations-Icons"

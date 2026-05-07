@@ -148,6 +148,8 @@
     "screensaverEnable": "Enable screensaver",
     "reduceAnimations": "Reduce animations",
     "reduceAnimationsDesc": "Less animations and transitions for better performance",
+    "navigation": "Navigation",
+    "navigationDesc": "Customize the navigation bar layout",
     "displayFont": "Display & Font",
     "displayFontDesc": "Font size and widget display",
     "quickLogin": "Quick Login",
