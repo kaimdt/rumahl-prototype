@@ -28,6 +28,9 @@
     "on": "An",
     "off": "Aus",
     "yes": "Ja",
+    "yesDelete": "Ja, löschen",
+    "yesEnable": "Ja, aktivieren",
+    "yesDisable": "Ja, deaktivieren",
     "no": "Nein",
     "all": "Alle",
     "none": "Keine",
@@ -55,6 +58,7 @@
     "start": "Starten",
     "stop": "Stoppen",
     "restart": "Neustarten",
+    "update": "Aktualisieren",
     "clone": "Klonen",
     "duplicate": "Duplizieren",
     "apply": "Anwenden",
@@ -79,7 +83,7 @@
     "sensors": "Sensoren",
     "music": "Musik",
     "settings": "Einstellungen",
-    "admin": "Admin",
+    "admin": "Administration",
     "docs": "Dokumentation",
     "apps": "Apps",
     "themes": "Themes",
@@ -144,6 +148,8 @@
     "screensaverEnable": "Bildschirmschoner aktivieren",
     "reduceAnimations": "Animationen reduzieren",
     "reduceAnimationsDesc": "Weniger Animationen und Übergänge für bessere Performance",
+    "navigation": "Navigation",
+    "navigationDesc": "Darstellung der Navigationsleiste anpassen",
     "displayFont": "Anzeige & Schrift",
     "displayFontDesc": "Schriftgröße und Widget-Darstellung",
     "quickLogin": "Schnell-Anmeldung",
@@ -171,19 +177,19 @@
     "screensaverTimeoutDesc": "Zeigt eine Uhr nach einer Zeit ohne Eingabe"
   },
   "dashboard": {
-    "noEntities": "No entities found",
-    "allOff": "All off",
-    "entities": "entities",
-    "weather": "Weather",
-    "greeting_morning": "Good Morning",
-    "greeting_afternoon": "Good Afternoon",
-    "greeting_evening": "Good Evening",
-    "greeting_night": "Good Night",
-    "authenticating": "Authenticating...",
-    "maintenanceMode": "Maintenance Mode",
-    "maintenanceMessage": "IORA is in maintenance mode. Please wait.",
-    "pageNotFound": "Page not found",
-    "pageNotFoundDesc": "The page does not exist.",
+    "noEntities": "Keine Entitäten gefunden",
+    "allOff": "Alle aus",
+    "entities": "Entitäten",
+    "weather": "Wetter",
+    "greeting_morning": "Guten Morgen",
+    "greeting_afternoon": "Guten Tag",
+    "greeting_evening": "Guten Abend",
+    "greeting_night": "Gute Nacht",
+    "authenticating": "Authentifizierung...",
+    "maintenanceMode": "Wartungsmodus",
+    "maintenanceMessage": "IORA befindet sich im Wartungsmodus. Bitte warten.",
+    "pageNotFound": "Seite nicht gefunden",
+    "pageNotFoundDesc": "Diese Seite existiert nicht.",
     "maintenanceWait": "Bitte warten Sie, bis der Administrator den Wartungsmodus beendet.",
     "greeting_hello": "Hallo",
     "message_morning": "Einen schönen Start in den Tag! Das Wetter in {{location}} lädt zu einem produktiven Morgen ein.",
@@ -192,64 +198,91 @@
     "message_sleep": "Schlafmodus aktiv. Gute Nacht.",
     "message_night": "Ruhige Nacht. Alle Systeme im Standby-Modus."
   },
+  "scenes": {
+    "title": "Farbszenen",
+    "newScene": "Neue Szene",
+    "newColorScene": "Neue Farbszene",
+    "sceneName": "Szenenname",
+    "sceneNamePlaceholder": "z.B. Gemütlicher Abend",
+    "icon": "Icon",
+    "lights": "{{count}} Licht",
+    "lights_other": "{{count}} Lichter",
+    "noLights": "Keine Licht-Entitäten verfügbar",
+    "noLightsDesc": "Schalten Sie mindestens ein Licht ein, um Szenen zu erstellen",
+    "noneSaved": "Keine Szenen gespeichert",
+    "noneSavedDesc": "Erstellen Sie Ihre erste Farbszene",
+    "currentStatusSaved": "Aktueller Status wird gespeichert:",
+    "currentStatusOverrides": "Aktueller Status überschreibt die Szene:",
+    "lightsOnOfTotal": "{{on}} von {{total}} Lichter eingeschaltet",
+    "editScene": "Szene bearbeiten",
+    "saved": "Szene \"{{name}}\" gespeichert",
+    "updated": "Szene \"{{name}}\" aktualisiert",
+    "applied": "Szene \"{{name}}\" angewendet",
+    "deleted": "Szene \"{{name}}\" gelöscht",
+    "errors": {
+      "enterName": "Bitte geben Sie einen Namen ein",
+      "turnOnLight": "Schalten Sie mindestens ein Licht ein",
+      "applyFailed": "Fehler beim Anwenden der Szene"
+    }
+  },
   "widgets": {
     "light": {
-      "on": "On",
-      "off": "Off",
-      "brightness": "Brightness",
-      "color": "Color",
-      "temperature": "Temperature"
+      "on": "An",
+      "off": "Aus",
+      "brightness": "Helligkeit",
+      "color": "Farbe",
+      "temperature": "Temperatur"
     },
     "climate": {
-      "current": "Current",
-      "target": "Target",
-      "heating": "Heating",
-      "cooling": "Cooling",
+      "current": "Aktuell",
+      "target": "Ziel",
+      "heating": "Heizen",
+      "cooling": "Kühlen",
       "auto": "Auto",
-      "off": "Off"
+      "off": "Aus"
     },
     "switch": {
-      "on": "On",
-      "off": "Off"
+      "on": "An",
+      "off": "Aus"
     },
     "sensor": {
-      "value": "Value",
-      "unit": "Unit"
+      "value": "Wert",
+      "unit": "Einheit"
     },
     "weather": {
-      "temperature": "Temperature",
-      "humidity": "Humidity",
+      "temperature": "Temperatur",
+      "humidity": "Luftfeuchtigkeit",
       "wind": "Wind",
-      "pressure": "Pressure"
+      "pressure": "Luftdruck"
     },
     "mediaPlayer": {
-      "playing": "Playing",
-      "paused": "Paused",
-      "stopped": "Stopped"
+      "playing": "Wiedergabe",
+      "paused": "Pausiert",
+      "stopped": "Gestoppt"
     },
     "camera": {
       "live": "Live",
       "offline": "Offline"
     },
     "lock": {
-      "locked": "Locked",
-      "unlocked": "Unlocked"
+      "locked": "Verriegelt",
+      "unlocked": "Entriegelt"
     },
     "vacuum": {
-      "cleaning": "Cleaning",
-      "docked": "Docked",
-      "returning": "Returning"
+      "cleaning": "Reinigt",
+      "docked": "Gedockt",
+      "returning": "Rückkehr"
     },
     "cover": {
-      "open": "Open",
-      "closed": "Closed",
-      "opening": "Opening",
-      "closing": "Closing"
+      "open": "Offen",
+      "closed": "Geschlossen",
+      "opening": "Öffnet",
+      "closing": "Schließt"
     },
     "fan": {
-      "on": "On",
-      "off": "Off",
-      "speed": "Speed"
+      "on": "An",
+      "off": "Aus",
+      "speed": "Geschwindigkeit"
     }
   },
   "admin": {
@@ -354,7 +387,7 @@
     "defaultThemeDesc": "Set the default theme for all users",
     "clonePrompt": "Name for the cloned theme",
     "cloneIdPrompt": "ID for the cloned theme",
-    "themeSettings": "Theme Settings",
+    "themeSettings": "Theme-Einstellungen",
     "steamParticles": "Steam Particles",
     "gearSpeed": "Gear Speed",
     "vignette": "Vignette Effect",
@@ -396,20 +429,20 @@
     "forceUninstall": "Force Uninstall"
   },
   "auth": {
-    "login": "Login",
-    "logout": "Logout",
+    "login": "Anmelden",
+    "logout": "Abmelden",
     "pin": "PIN",
-    "enterPin": "Enter your PIN",
+    "enterPin": "PIN eingeben",
     "wrongPin": "PIN falsch",
-    "pinTooShort": "PIN must be at least 4 digits",
-    "pinsDontMatch": "PINs do not match",
-    "setLoginPin": "Set a login PIN",
-    "loginWithPin": "Login with PIN",
-    "orUsePassword": "or use password",
-    "username": "Username",
-    "password": "Password",
-    "rememberMe": "Remember me",
-    "forgotPassword": "Forgot password?",
+    "pinTooShort": "PIN muss mindestens 4 Ziffern haben",
+    "pinsDontMatch": "PINs stimmen nicht überein",
+    "setLoginPin": "Login-PIN festlegen",
+    "loginWithPin": "Mit PIN anmelden",
+    "orUsePassword": "oder Passwort verwenden",
+    "username": "Benutzername",
+    "password": "Passwort",
+    "rememberMe": "Angemeldet bleiben",
+    "forgotPassword": "Passwort vergessen?",
     "enterCredentials": "Bitte Benutzername und Passwort eingeben",
     "pinFor": "PIN für",
     "orUsePin": "oder mit PIN anmelden",
@@ -467,7 +500,12 @@
     "chat": "Chat",
     "tasks": "Aufgaben",
     "instructionsSaved": "AI-Anweisungen gespeichert",
-    "instructionsReset": "AI-Anweisungen zurückgesetzt"
+    "instructionsReset": "AI-Anweisungen zurückgesetzt",
+    "noAnswer": "Keine Antwort erhalten.",
+    "instantResult": "ORA hat die Antwort gefunden:\n\n{{text}}",
+    "instantFailed": "Die Suche ist leider fehlgeschlagen.",
+    "searching": "ORA sucht",
+    "keepSpeaking": "du kannst weiter sprechen"
   },
   "styles": {
     "card": {

@@ -428,6 +428,9 @@ fn default_glass_mode() -> String { "user".to_string() }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeSettingOption {
     pub label: String,
+    /// Optional i18n key inside the theme namespace (served from theme assets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_key: Option<String>,
     pub value: String,
 }
 
@@ -439,9 +442,15 @@ pub struct ThemeSetting {
     pub id: String,
     /// Display label
     pub name: String,
+    /// Optional i18n key inside the theme namespace (served from theme assets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name_key: Option<String>,
     /// Help text / description
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Optional i18n key inside the theme namespace (served from theme assets).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description_key: Option<String>,
     /// Input type: "toggle", "select", "slider", "color", "text"
     pub setting_type: String,
     /// Default value (JSON: bool, string, number)

@@ -45,6 +45,9 @@ Theme ZIP-Paket:
   ├── theme.css                  ← Haupt-Stylesheet
   ├── components.css             ← Weitere Stylesheets (optional)
   ├── theme.js                   ← Client-seitige Interaktivität
+  ├── i18n/                      ← Optional: Übersetzungen (Frontend lädt automatisch)
+  │   ├── en.json
+  │   └── de.json
   ├── html/
   │   └── layout.html            ← HTML-Seitenlayout (Slots)
   ├── fonts/                     ← Selbst gehostete Fonts (optional)
@@ -76,6 +79,60 @@ Theme-Aktivierung (Frontend):
   → JS-Dateien via <script> geladen
   → HTML-Templates via fetch() + TemplateRenderer
   → Fonts & Icons injiziert
+```
+
+## Übersetzungen (i18n) für Themes
+
+Themes können eigene Sprachdateien mitliefern, wenn sie **eigene Texte** (z.B. für `capabilities.custom_settings`) hinzufügen.
+
+### Dateikonvention
+
+Lege im ZIP-Verzeichnis einen Ordner `i18n/` an:
+
+- `i18n/en.json`
+- `i18n/de.json`
+
+Diese Dateien werden vom Frontend automatisch geladen, sobald das Theme aktiv ist.
+Die Dateien werden unter dem Namespace `theme-<theme_id>` registriert.
+
+### i18n-Keys in `capabilities.custom_settings`
+
+Für Custom Settings können optional Übersetzungs-Keys angegeben werden:
+
+- `name_key` statt `name`
+- `description_key` statt `description`
+- `options[].label_key` statt `options[].label`
+
+Beispiel (Ausschnitt):
+
+```json
+{
+  "capabilities": {
+    "custom_settings": [
+      {
+        "id": "steam_particles",
+        "name": "Steam Particles",
+        "name_key": "settings.steamParticles.name",
+        "description_key": "settings.steamParticles.desc",
+        "setting_type": "toggle",
+        "default_value": true
+      }
+    ]
+  }
+}
+```
+
+In `i18n/en.json`:
+
+```json
+{
+  "settings": {
+    "steamParticles": {
+      "name": "Steam particles",
+      "desc": "Adds subtle animated steam effects."
+    }
+  }
+}
 ```
 
 ## Theme für eine App/Plugin definieren

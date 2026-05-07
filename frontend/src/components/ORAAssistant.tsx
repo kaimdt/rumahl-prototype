@@ -350,7 +350,7 @@ export function ORAAssistant() {
           if (!task) return
           if (task.status === 'completed' || task.status === 'failed') {
             sessionStorage.removeItem('ora_deferred_task')
-            const resultText = task.result_text ?? task.error_message ?? 'Keine Antwort erhalten.'
+            const resultText = task.result_text ?? task.error_message ?? t('ai.noAnswer')
             const status = task.status === 'completed' ? 'completed' : 'failed'
             // Inject as a notification-style message into the chat
             setMessages(prev => [
@@ -358,8 +358,8 @@ export function ORAAssistant() {
               {
                 role: 'assistant' as const,
                 content: status === 'completed'
-                  ? `📬 ORA hat die Antwort gefunden:\n\n${resultText}`
-                  : `❌ Die Suche ist leider fehlgeschlagen.`,
+                  ? t('ai.instantResult', { text: resultText })
+                  : t('ai.instantFailed'),
                 timestamp: new Date().toISOString(),
               }
             ])
@@ -787,7 +787,7 @@ export function ORAAssistant() {
               >
                 <MagnifyingGlass size={13} weight="bold" className="animate-pulse shrink-0" />
                 <span>
-                  ORA sucht: <strong>{voiceTaskBanner}</strong> – du kannst weiter sprechen 🎙
+                  {t('ai.searching')}: <strong>{voiceTaskBanner}</strong> — {t('ai.keepSpeaking')}
                 </span>
               </motion.div>
             )}
@@ -812,9 +812,9 @@ export function ORAAssistant() {
                     className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-colors"
                   >
                     <Check size={11} weight="bold" />
-                    {pendingTaskAction?.action === 'delete' ? 'Ja, löschen'
-                      : pendingTaskAction?.action === 'resume' ? 'Ja, aktivieren'
-                      : 'Ja, deaktivieren'}
+                    {pendingTaskAction?.action === 'delete' ? t('common.yesDelete')
+                      : pendingTaskAction?.action === 'resume' ? t('common.yesEnable')
+                      : t('common.yesDisable')}
                   </button>
                   <button
                     onClick={() => handleTaskConfirmation(false)}

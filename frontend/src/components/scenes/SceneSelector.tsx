@@ -3,6 +3,7 @@ import { useLocalStorage } from '@/lib/storage'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useTranslation } from 'react-i18next'
 import { 
   Sparkle, Plus, FloppyDisk, Trash, X, Pencil,
   Moon, Lightbulb, Confetti, Sun, CloudSun, Buildings, 
@@ -48,6 +49,7 @@ const getIconComponent = (iconKey: string) => {
 }
 
 export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
+  const { t } = useTranslation()
   const [scenes, setScenes] = useLocalStorage<ColorScene[]>('color-scenes', [])
   const [isApplying, setIsApplying] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -73,14 +75,14 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
 
   const handleCreateScene = () => {
     if (!newSceneName.trim()) {
-      toast.error('Bitte geben Sie einen Namen ein')
+      toast.error(t('scenes.errors.enterName'))
       return
     }
 
     const settings = captureCurrentState()
     
     if (Object.keys(settings).length === 0) {
-      toast.error('Schalten Sie mindestens ein Licht ein')
+      toast.error(t('scenes.errors.turnOnLight'))
       return
     }
 
@@ -93,7 +95,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
     }
 
     setScenes([...(scenes || []), newScene])
-    toast.success(`Szene "${newSceneName}" gespeichert`)
+    toast.success(t('scenes.saved', { name: newSceneName }))
     haptics.notification('success')
     
     setNewSceneName('')
@@ -107,7 +109,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
     const settings = captureCurrentState()
     
     if (Object.keys(settings).length === 0) {
-      toast.error('Schalten Sie mindestens ein Licht ein')
+      toast.error(t('scenes.errors.turnOnLight'))
       return
     }
 
@@ -119,7 +121,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
       )
     )
     
-    toast.success(`Szene "${newSceneName}" aktualisiert`)
+    toast.success(t('scenes.updated', { name: newSceneName }))
     haptics.notification('success')
     
     setEditingScene(null)
@@ -138,11 +140,11 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
 
       await Promise.all(promises)
       
-      toast.success(`Szene "${scene.name}" angewendet`)
+      toast.success(t('scenes.applied', { name: scene.name }))
       haptics.notification('success')
       onUpdate?.()
     } catch (error) {
-      toast.error('Fehler beim Anwenden der Szene')
+      toast.error(t('scenes.errors.applyFailed'))
       haptics.notification('error')
     } finally {
       setIsApplying(false)
@@ -151,7 +153,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
 
   const handleDeleteScene = (sceneId: string, sceneName: string) => {
     setScenes((scenes || []).filter(s => s.id !== sceneId))
-    toast.success(`Szene "${sceneName}" gelöscht`)
+    toast.success(t('scenes.deleted', { name: sceneName }))
     haptics.impact('light')
   }
 
@@ -173,13 +175,13 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
         <div className="flex items-center justify-between px-1">
           <h3 className="text-sm font-medium text-foreground/60 flex items-center gap-2">
             <Sparkle size={16} weight="fill" className="text-accent" />
-            Farbszenen
+            {t('scenes.title')}
           </h3>
         </div>
         <div className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center gap-2 text-center">
           <Lightbulb size={32} className="text-foreground/20" />
-          <p className="text-xs text-foreground/40">Keine Licht-Entitäten verfügbar</p>
-          <p className="text-[10px] text-foreground/30">Schalten Sie mindestens ein Licht ein, um Szenen zu erstellen</p>
+          <p className="text-xs text-foreground/40">{t('scenes.noLights')}</p>
+          <p className="text-[10px] text-foreground/30">{t('scenes.noLightsDesc')}</p>
         </div>
       </div>
     )
@@ -190,7 +192,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
       <div className="flex items-center justify-between px-1">
         <h3 className="text-sm font-medium text-foreground/60 flex items-center gap-2">
           <Sparkle size={16} weight="fill" className="text-accent" />
-          Farbszenen
+          {t('scenes.title')}
         </h3>
         <Button
           onClick={() => setCreateDialogOpen(true)}
@@ -199,7 +201,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
           className="gap-2 h-8"
         >
           <Plus size={16} weight="bold" />
-          Neue Szene
+          {t('scenes.newScene')}
         </Button>
       </div>
 
@@ -229,7 +231,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
                         <div>
                           <div className="text-sm font-medium truncate">{scene.name}</div>
                           <div className="text-xs text-muted-foreground">
-                            {Object.keys(scene.settings).length} {Object.keys(scene.settings).length === 1 ? 'Licht' : 'Lichter'}
+                            {t('scenes.lights', { count: Object.keys(scene.settings).length })}
                           </div>
                         </div>
                       </button>
@@ -259,10 +261,10 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
         <div className="glass-card rounded-xl p-6 text-center">
           <Sparkle size={32} weight="fill" className="mx-auto text-muted-foreground/40 mb-2" />
           <p className="text-sm text-muted-foreground">
-            Keine Szenen gespeichert
+            {t('scenes.noneSaved')}
           </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
-            Erstellen Sie Ihre erste Farbszene
+            {t('scenes.noneSavedDesc')}
           </p>
         </div>
       )}
@@ -272,24 +274,24 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkle size={20} weight="fill" className="text-accent" />
-              Neue Farbszene
+              {t('scenes.newColorScene')}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="scene-name">Szenenname</Label>
+              <Label htmlFor="scene-name">{t('scenes.sceneName')}</Label>
               <Input
                 id="scene-name"
                 value={newSceneName}
                 onChange={(e) => setNewSceneName(e.target.value)}
-                placeholder="z.B. Gemütlicher Abend"
+                placeholder={t('scenes.sceneNamePlaceholder')}
                 maxLength={30}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Icon</Label>
+              <Label>{t('scenes.icon')}</Label>
               <div className="grid grid-cols-6 gap-2">
                 {ICON_OPTIONS.map(({ key, Icon }) => (
                   <button
@@ -308,9 +310,9 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
             </div>
 
             <div className="glass-card rounded-lg p-3 space-y-1">
-              <p className="text-xs font-medium text-foreground/80">Aktueller Status wird gespeichert:</p>
+              <p className="text-xs font-medium text-foreground/80">{t('scenes.currentStatusSaved')}</p>
               <p className="text-xs text-muted-foreground">
-                {lightEntities.filter(l => l.state === 'on').length} von {lightEntities.length} Lichter eingeschaltet
+                {t('scenes.lightsOnOfTotal', { on: lightEntities.filter(l => l.state === 'on').length, total: lightEntities.length })}
               </p>
             </div>
 
@@ -320,13 +322,13 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
                 className="flex-1 gap-2"
               >
                 <FloppyDisk size={16} weight="bold" />
-                Speichern
+                {t('common.save')}
               </Button>
               <Button
                 onClick={() => setCreateDialogOpen(false)}
                 variant="outline"
               >
-                Abbrechen
+                {t('common.cancel')}
               </Button>
             </div>
           </div>
@@ -338,24 +340,24 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil size={20} weight="bold" className="text-accent" />
-              Szene bearbeiten
+              {t('scenes.editScene')}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-scene-name">Szenenname</Label>
+              <Label htmlFor="edit-scene-name">{t('scenes.sceneName')}</Label>
               <Input
                 id="edit-scene-name"
                 value={newSceneName}
                 onChange={(e) => setNewSceneName(e.target.value)}
-                placeholder="z.B. Gemütlicher Abend"
+                placeholder={t('scenes.sceneNamePlaceholder')}
                 maxLength={30}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Icon</Label>
+              <Label>{t('scenes.icon')}</Label>
               <div className="grid grid-cols-6 gap-2">
                 {ICON_OPTIONS.map(({ key, Icon }) => (
                   <button
@@ -374,9 +376,9 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
             </div>
 
             <div className="glass-card rounded-lg p-3 space-y-1">
-              <p className="text-xs font-medium text-foreground/80">Aktueller Status überschreibt die Szene:</p>
+              <p className="text-xs font-medium text-foreground/80">{t('scenes.currentStatusOverrides')}</p>
               <p className="text-xs text-muted-foreground">
-                {lightEntities.filter(l => l.state === 'on').length} von {lightEntities.length} Lichter eingeschaltet
+                {t('scenes.lightsOnOfTotal', { on: lightEntities.filter(l => l.state === 'on').length, total: lightEntities.length })}
               </p>
             </div>
 
@@ -386,7 +388,7 @@ export function SceneSelector({ lightEntities, onUpdate }: SceneSelectorProps) {
                 className="flex-1 gap-2"
               >
                 <FloppyDisk size={16} weight="bold" />
-                Aktualisieren
+                {t('common.update')}
               </Button>
               <Button
                 onClick={cancelEdit}

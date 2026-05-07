@@ -3,6 +3,7 @@ import { useLocalStorage } from '@/lib/storage'
 import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
 import type { ThemeMode } from '@/lib/types'
+import { loadTranslationBundlesFromAssets } from '@/i18n/external'
 
 // ─── Type definitions ──────────────────────────────────────────────
 
@@ -103,13 +104,19 @@ export interface ThemeGlassControl {
 
 export interface ThemeSettingOption {
   label: string
+  /** Optional i18n key inside the theme namespace */
+  label_key?: string
   value: string
 }
 
 export interface ThemeSetting {
   id: string
   name: string
+  /** Optional i18n key inside the theme namespace */
+  name_key?: string
   description?: string
+  /** Optional i18n key inside the theme namespace */
+  description_key?: string
   setting_type: 'toggle' | 'select' | 'slider' | 'color' | 'text'
   default_value: unknown
   options?: ThemeSettingOption[]
@@ -684,6 +691,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       injectedThemeRef.current = null
     }
   }, [themeResponse])
+
+  // Load theme-provided translation bundles (optional).
+  // Themes can ship `/i18n/en.json`, `/i18n/de.json` inside their ZIP.
+  useEffect(() => {
+    if (!themeResponse?.assets_base_url) return
+    if (!themeResponse.theme_id || themeResponse.theme_id === 'auto') return
+
+    const namespace = `theme-${themeResponse.theme_id}`
+    void loadTranslationBundlesFromAssets({
+      assetsBaseUrl: themeResponse.assets_base_url,
+      namespace,
+      fetcher: authFetch,
+    })
+  }, [themeResponse?.assets_base_url, themeResponse?.theme_id])
 
   // ─── Capabilities & Custom Settings ────────────────────────────
   useEffect(() => {
