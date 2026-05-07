@@ -4693,13 +4693,35 @@ ln -sf /usr/share/plymouth/themes/iora/iora.plymouth \
     "${THEMES_DIR}/default.plymouth"
 
 # 4. Enable the plymouth-start service so Plymouth launches during boot.
-#    On Buildroot this unit comes from the plymouth package itself.
-WANTS_DIR="${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
-mkdir -p "${WANTS_DIR}"
-PLYMOUTH_UNIT="/usr/lib/systemd/system/plymouth-start.service"
-if [ -f "${TARGET_DIR}${PLYMOUTH_UNIT}" ]; then
-    ln -sf "${PLYMOUTH_UNIT}" "${WANTS_DIR}/plymouth-start.service"
-fi
+#    Unit files come from BR2_PACKAGE_PLYMOUTH; we only symlink them here.
+#
+#    plymouth-start.service        — starts plymouthd at sysinit
+#    plymouth-read-write.service   — re-mounts rootfs r/w so plymouthd can
+#                                    write its socket; must run at sysinit
+#    plymouth-quit.service         — quits plymouthd at multi-user.target
+#    plymouth-quit-wait.service    — holds multi-user.target until Plymouth
+#                                    has fully exited (prevents getty race)
+
+SYSINIT_WANTS="${TARGET_DIR}/etc/systemd/system/sysinit.target.wants"
+MULTIUSER_WANTS="${TARGET_DIR}/etc/systemd/system/multi-user.target.wants"
+mkdir -p "${SYSINIT_WANTS}" "${MULTIUSER_WANTS}"
+
+_link_unit() {
+    local unit="$1"
+    local wants_dir="$2"
+    local unit_file="/usr/lib/systemd/system/${unit}"
+    if [ -f "${TARGET_DIR}${unit_file}" ]; then
+        ln -sf "${unit_file}" "${wants_dir}/${unit}"
+        echo "IORA OS: Plymouth — enabled ${unit}"
+    else
+        echo "IORA OS: WARNING: Plymouth unit not found: ${unit_file} (skipping)"
+    fi
+}
+
+_link_unit "plymouth-start.service"      "${SYSINIT_WANTS}"
+_link_unit "plymouth-read-write.service" "${SYSINIT_WANTS}"
+_link_unit "plymouth-quit.service"       "${MULTIUSER_WANTS}"
+_link_unit "plymouth-quit-wait.service"  "${MULTIUSER_WANTS}"
 
 echo "IORA OS: Plymouth boot splash configured (theme: iora)."
 

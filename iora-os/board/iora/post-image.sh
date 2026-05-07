@@ -264,8 +264,16 @@ set default=0
 set timeout=3
 
 # IORA OS cmdline notes:
-#   quiet splash plymouth.enable=1 : suppress kernel log scrolling and hand
-#     over the display to Plymouth for a branded boot splash screen.
+#   quiet splash                   : suppress kernel log, hand framebuffer
+#     to Plymouth for the branded boot animation.
+#   plymouth.enable=1              : explicitly enable Plymouth daemon.
+#   plymouth.ignore-serial-consoles: prevents Plymouth from trying to render
+#     on the serial console (ttyS0) — Plymouth only owns tty0/framebuffer.
+#     Without this, dual console= params cause Plymouth to pick the wrong
+#     output and nothing is displayed.
+#   vt.handoff=1                   : smooth VT/framebuffer handoff between
+#     the GRUB/kernel decompressor screen and Plymouth. Tells Plymouth which
+#     virtual terminal to take over (VT1 = tty1, the default getty VT).
 #   systemd.show_status=auto : systemd reports starting/failed units in the
 #     journal but not on the console (Plymouth owns that during boot; after
 #     Plymouth quits the normal getty prompt appears cleanly).
@@ -277,11 +285,11 @@ set timeout=3
 #     is useful for iora scripts that want to log boot progress.
 
 menuentry "IORA OS" {
-    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
+    linux /vmlinuz root=${ROOT_A} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1 plymouth.ignore-serial-consoles vt.handoff=1
 }
 
 menuentry "IORA OS (Partition B)" {
-    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1
+    linux /vmlinuz root=${ROOT_B} rootwait ro rootfstype=ext4 console=tty0 console=ttyS0,115200n8 quiet splash loglevel=4 systemd.show_status=auto printk.devkmsg=on plymouth.enable=1 plymouth.ignore-serial-consoles vt.handoff=1
 }
 
 menuentry "IORA OS (verbose)" {

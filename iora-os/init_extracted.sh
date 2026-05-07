@@ -121,38 +121,44 @@ IORA_NETWORK="dhcp"
 # ── Modern dialog color theme ─────────────────────────────────────
 setup_dialog_theme() {
     cat > /tmp/.dialogrc <<'DLGRC'
+# IORA OS installer -- IORA brand theme (cyan/yellow on blue)
+aspect = 0
+separate_widget = ""
+tab_len = 4
+visit_items = ON
 use_shadow = ON
 use_colors = ON
-screen_color = (BLACK,CYAN,ON)
-dialog_color = (BLACK,WHITE,OFF)
-title_color = (WHITE,BLACK,ON)
-border_color = (CYAN,WHITE,ON)
-button_active_color = (WHITE,BLACK,ON)
-button_inactive_color = (BLACK,WHITE,OFF)
-button_key_active_color = (YELLOW,BLACK,ON)
-button_key_inactive_color = (BLUE,WHITE,OFF)
-button_label_active_color = (WHITE,BLACK,ON)
-button_label_inactive_color = (BLACK,WHITE,ON)
-inputbox_color = (BLACK,WHITE,OFF)
-inputbox_border_color = (CYAN,WHITE,ON)
-searchbox_color = (BLACK,WHITE,OFF)
-searchbox_title_color = (WHITE,BLACK,ON)
-searchbox_border_color = (CYAN,WHITE,ON)
-position_indicator_color = (WHITE,BLACK,ON)
-menubox_color = (BLACK,WHITE,OFF)
-menubox_border_color = (CYAN,WHITE,ON)
-item_color = (BLACK,WHITE,OFF)
-item_selected_color = (WHITE,BLACK,ON)
-tag_color = (BLUE,WHITE,ON)
-tag_selected_color = (YELLOW,BLACK,ON)
-tag_key_color = (BLUE,WHITE,OFF)
-tag_key_selected_color = (YELLOW,BLACK,ON)
-check_color = (BLACK,WHITE,OFF)
-check_selected_color = (WHITE,BLACK,ON)
-uarrow_color = (BLACK,WHITE,ON)
-darrow_color = (BLACK,WHITE,ON)
-gauge_color = (WHITE,BLACK,ON)
-border2_color = (CYAN,WHITE,ON)
+screen_color               = (WHITE,BLUE,ON)
+shadow_color               = (BLACK,BLACK,ON)
+dialog_color               = (BLACK,WHITE,OFF)
+title_color                = (YELLOW,BLUE,ON)
+border_color               = (CYAN,WHITE,ON)
+border2_color              = (CYAN,WHITE,ON)
+button_active_color        = (WHITE,BLACK,ON)
+button_inactive_color      = (BLACK,WHITE,OFF)
+button_key_active_color    = (YELLOW,BLACK,ON)
+button_key_inactive_color  = (BLUE,WHITE,OFF)
+button_label_active_color  = (YELLOW,BLACK,ON)
+button_label_inactive_color= (BLACK,WHITE,ON)
+inputbox_color             = (BLACK,WHITE,OFF)
+inputbox_border_color      = (CYAN,WHITE,ON)
+searchbox_color            = (BLACK,WHITE,OFF)
+searchbox_title_color      = (YELLOW,BLUE,ON)
+searchbox_border_color     = (CYAN,WHITE,ON)
+position_indicator_color   = (YELLOW,BLUE,ON)
+menubox_color              = (BLACK,WHITE,OFF)
+menubox_border_color       = (CYAN,WHITE,ON)
+item_color                 = (BLACK,WHITE,OFF)
+item_selected_color        = (WHITE,BLUE,ON)
+tag_color                  = (BLUE,WHITE,ON)
+tag_selected_color         = (YELLOW,BLUE,ON)
+tag_key_color              = (BLUE,WHITE,ON)
+tag_key_selected_color     = (YELLOW,BLUE,ON)
+check_color                = (BLACK,WHITE,OFF)
+check_selected_color       = (WHITE,BLUE,ON)
+uarrow_color               = (GREEN,BLUE,ON)
+darrow_color               = (GREEN,BLUE,ON)
+gauge_color                = (YELLOW,BLUE,ON)
 DLGRC
     export DIALOGRC=/tmp/.dialogrc
 }
@@ -900,32 +906,100 @@ LOGEOF
 
 # ── Wizard screens ─────────────────────────────────────────────────
 
+# Installation mode selected at the main menu
+INSTALLER_MODE="quick"   # quick | custom
+
 screen_welcome() {
     if [ -n "$DIALOG_BIN" ]; then
-                dlg --title " IORA OS Setup " --msgbox "\
- Ready to deploy IORA OS.
+        local choice
+        choice=$(dlg --title " IORA OS Installer " --menu "\
+ Welcome to IORA OS!\n\n\
+ Choose an installation mode:\n" 22 72 4 \
+            "quick"   "Quick Install    (recommended -- just timezone + password + disk)" \
+            "custom"  "Custom Install   (full wizard -- hostname, network, locale, ...)" \
+            "shell"   "Recovery Shell   (expert troubleshooting)" \
+            "reboot"  "Reboot / Shutdown" \
+            3>&1 1>&2 2>&3)
 
- This guided setup will:
-     1. Inspect this system
-     2. Configure hostname and domain
-     3. Configure timezone
-     4. Detect hardware drivers (optional)
-     5. Configure network settings
-     6. Set the root password
-     7. Write the image to the selected drive
-
- Expect the installation itself to take a few minutes.
- All data on the selected target drive will be erased.
-
+        case "$choice" in
+            quick)
+                INSTALLER_MODE="quick"
+                dlg --title " Quick Install " --msgbox "\
+ IORA OS will be installed using smart defaults:\n\n\
+   Hostname:    iora\n\
+   Network:     Automatic (DHCP)\n\
+   Locale:      English (en_US.UTF-8)\n\n\
+ You will only need to:\n\
+   1.  Choose your timezone\n\
+   2.  Set a root password\n\
+   3.  Select the target disk\n\
+   4.  Confirm to start\n\n\
+ ALL data on the selected disk will be erased.\n\n\
+ Select OK to continue." 22 64
+                return 0
+                ;;
+            custom)
+                INSTALLER_MODE="custom"
+                dlg --title " Custom Install " --msgbox "\
+ The full setup wizard will walk you through:\n\n\
+   1.  System inspection (CPU, RAM, disks, firmware)\n\
+   2.  Hostname and domain name\n\
+   3.  Timezone\n\
+   4.  Hardware driver detection\n\
+   5.  Network configuration (DHCP or static IPv4)\n\
+   6.  Root password\n\
+   7.  Disk and partitioning options\n\n\
  Select OK to continue." 20 68
+                return 0
+                ;;
+            shell)
+                clear 2>/dev/null || true
+                echo ""
+                echo "  IORA Recovery Shell.  Type 'exit' to return to the installer."
+                echo "  Commands: install, sysinfo, netsetup, reboot, poweroff, help"
+                echo ""
+                sh -i || true
+                screen_welcome
+                return 1
+                ;;
+            reboot)
+                local act
+                act=$(dlg --title " Reboot / Shutdown " --menu \
+                    "\n Choose action:\n" 12 60 2 \
+                    "reboot"   "Reboot the machine" \
+                    "poweroff" "Power off the machine" \
+                    3>&1 1>&2 2>&3)
+                case "$act" in
+                    reboot)   sync; reboot -f ;;
+                    poweroff) sync; poweroff -f ;;
+                esac
+                screen_welcome
+                return 1
+                ;;
+            *)
+                INSTALLER_MODE="quick"
+                return 0
+                ;;
+        esac
     else
         clear 2>/dev/null || true
         echo ""
-                echo "  IORA OS Setup"
-                echo "  ============="
+        echo "  IORA OS Installer"
+        echo "  ================="
         echo ""
-        echo "  Press ENTER to begin..."
-        read _
+        echo "  How would you like to install IORA OS?"
+        echo ""
+        echo "    1) Quick Install   -- Just timezone + password + disk (recommended)"
+        echo "    2) Custom Install  -- Full setup wizard"
+        echo "    3) Recovery Shell"
+        echo ""
+        printf "  Choice [1]: "
+        read _ch
+        case "${_ch:-1}" in
+            2) INSTALLER_MODE="custom" ;;
+            3) sh -i || true; screen_welcome; return 1 ;;
+            *) INSTALLER_MODE="quick" ;;
+        esac
     fi
 }
 
@@ -1056,18 +1130,46 @@ screen_timezone() {
 
     local tz
     tz=$(dlg --title " Timezone " --menu \
-        "\n Select the system timezone.\n" 20 60 10 \
-        "Europe/Berlin"    "Germany" \
-        "Europe/Vienna"    "Austria" \
-        "Europe/Zurich"    "Switzerland" \
-        "Europe/London"    "United Kingdom" \
-        "Europe/Paris"     "France" \
-        "Europe/Amsterdam" "Netherlands" \
-        "Europe/Rome"      "Italy" \
-        "Europe/Madrid"    "Spain" \
-        "US/Eastern"       "US East Coast" \
-        "US/Pacific"       "US West Coast" \
-        "UTC"              "Coordinated Universal Time" \
+        "\n Select the system timezone.  Use arrow keys to scroll.\n" 22 72 14 \
+        "Europe/Berlin"        "Germany (Berlin, Munich, Hamburg)" \
+        "Europe/Vienna"        "Austria (Vienna, Graz, Salzburg)" \
+        "Europe/Zurich"        "Switzerland (Zurich, Geneva, Bern)" \
+        "Europe/London"        "United Kingdom" \
+        "Europe/Paris"         "France (Paris, Lyon)" \
+        "Europe/Amsterdam"     "Netherlands" \
+        "Europe/Rome"          "Italy (Rome, Milan)" \
+        "Europe/Madrid"        "Spain (Madrid, Barcelona)" \
+        "Europe/Lisbon"        "Portugal" \
+        "Europe/Warsaw"        "Poland" \
+        "Europe/Prague"        "Czech Republic / Slovakia" \
+        "Europe/Stockholm"     "Sweden / Norway / Denmark" \
+        "Europe/Helsinki"      "Finland" \
+        "Europe/Athens"        "Greece" \
+        "Europe/Bucharest"     "Romania / Bulgaria" \
+        "Europe/Istanbul"      "Turkey" \
+        "Europe/Moscow"        "Russia (Moscow)" \
+        "Asia/Dubai"           "UAE / Qatar / Oman" \
+        "Asia/Kolkata"         "India" \
+        "Asia/Bangkok"         "Thailand / Vietnam" \
+        "Asia/Singapore"       "Singapore / Malaysia" \
+        "Asia/Shanghai"        "China / Taiwan" \
+        "Asia/Tokyo"           "Japan" \
+        "Asia/Seoul"           "South Korea" \
+        "Australia/Sydney"     "Australia (East)" \
+        "Australia/Perth"      "Australia (West)" \
+        "Pacific/Auckland"     "New Zealand" \
+        "US/Eastern"           "USA East (New York, Miami)" \
+        "US/Central"           "USA Central (Chicago, Dallas)" \
+        "US/Mountain"          "USA Mountain (Denver, Phoenix)" \
+        "US/Pacific"           "USA West (Los Angeles, Seattle)" \
+        "America/Toronto"      "Canada East" \
+        "America/Vancouver"    "Canada West" \
+        "America/Sao_Paulo"    "Brazil (East)" \
+        "America/Buenos_Aires" "Argentina" \
+        "Africa/Cairo"         "Egypt" \
+        "Africa/Nairobi"       "East Africa" \
+        "Africa/Johannesburg"  "South Africa" \
+        "UTC"                  "UTC -- Coordinated Universal Time" \
         3>&1 1>&2 2>&3)
     [ $? -eq 0 ] && [ -n "$tz" ] && IORA_TIMEZONE="$tz"
 }
@@ -1570,12 +1672,175 @@ screen_complete() {
     fi
 }
 
-# ── Main wizard flow ───────────────────────────────────────────────
-run_wizard() {
-    # Step 0: Welcome
-    screen_welcome
+# ── Quick Install wizard ───────────────────────────────────────────
+# Simplified 4-step install for non-technical users.
+# Uses smart defaults; only asks timezone, password, disk, confirm.
+run_express_wizard() {
+    local BACKTITLE_BASE="IORA OS Installer  |  Quick Install"
 
     # Mount media with retries
+    BACKTITLE="${BACKTITLE_BASE} -- Step 1/4: Loading"
+    dlg_info " Scanning " "  Searching for installation media..."
+    sleep 1
+
+    local mounted=false attempt=0
+    while [ "$attempt" -lt 5 ]; do
+        if mount_iso; then mounted=true; break; fi
+        attempt=$((attempt + 1))
+        dlg_info " Scanning " "  Scanning for devices... (${attempt}/5)"
+        sleep 2
+    done
+
+    if [ "$mounted" = false ]; then
+        dlg_msg " Media Not Found " "\
+ Could not find the IORA OS image.\n\n\
+ Make sure the installer ISO or USB\n\
+ is connected and contains '${ISO_IMAGE}'.\n\n\
+ Type 'install' to retry."
+        return 1
+    fi
+
+    img_size=$(ls -lh "${ISO_MOUNT}/${ISO_IMAGE}" 2>/dev/null | awk '{print $5}')
+
+    # Integrity check
+    if [ -f "${ISO_MOUNT}/${ISO_IMAGE}.sha256" ]; then
+        dlg_info " Integrity Check " "  Verifying image integrity..."
+        if ! (cd "${ISO_MOUNT}" && sha256sum -c "${ISO_IMAGE}.sha256" >/dev/null 2>&1); then
+            dlg_msg " Checksum Error " "\
+ Image checksum verification FAILED!\n\n\
+ The installation image may be corrupted.\n\
+ Re-download or re-create the installer.\n\n\
+ Installation will not continue."
+            return 1
+        fi
+        dlg_info " Verified " "  Image integrity: OK  [${img_size}]"
+        sleep 1
+    fi
+
+    # Step 1: Timezone (simplified list)
+    BACKTITLE="${BACKTITLE_BASE} -- Step 1/4: Timezone"
+    local tz
+    tz=$(dlg --title " Step 1/4 -- Timezone " --menu \
+        "\n Select your timezone.  Use arrow keys to scroll.\n" 22 72 12 \
+        "Europe/Berlin"        "Germany (Berlin, Munich, Hamburg)" \
+        "Europe/Vienna"        "Austria" \
+        "Europe/Zurich"        "Switzerland" \
+        "Europe/London"        "United Kingdom" \
+        "Europe/Paris"         "France" \
+        "Europe/Amsterdam"     "Netherlands" \
+        "Europe/Rome"          "Italy" \
+        "Europe/Madrid"        "Spain" \
+        "Europe/Warsaw"        "Poland" \
+        "Europe/Stockholm"     "Sweden / Norway / Denmark" \
+        "Europe/Helsinki"      "Finland" \
+        "Europe/Moscow"        "Russia (Moscow)" \
+        "Asia/Dubai"           "UAE / Qatar / Oman" \
+        "Asia/Kolkata"         "India" \
+        "Asia/Bangkok"         "Thailand / Vietnam" \
+        "Asia/Singapore"       "Singapore / Malaysia" \
+        "Asia/Shanghai"        "China / Taiwan" \
+        "Asia/Tokyo"           "Japan" \
+        "Asia/Seoul"           "South Korea" \
+        "Australia/Sydney"     "Australia (East)" \
+        "Australia/Perth"      "Australia (West)" \
+        "Pacific/Auckland"     "New Zealand" \
+        "US/Eastern"           "USA East (New York, Miami)" \
+        "US/Central"           "USA Central (Chicago, Dallas)" \
+        "US/Mountain"          "USA Mountain (Denver, Phoenix)" \
+        "US/Pacific"           "USA West (Los Angeles, Seattle)" \
+        "America/Toronto"      "Canada East" \
+        "America/Vancouver"    "Canada West" \
+        "America/Sao_Paulo"    "Brazil (East)" \
+        "America/Buenos_Aires" "Argentina" \
+        "Africa/Cairo"         "Egypt" \
+        "Africa/Johannesburg"  "South Africa" \
+        "UTC"                  "UTC -- Coordinated Universal Time" \
+        3>&1 1>&2 2>&3)
+    [ $? -eq 0 ] && [ -n "$tz" ] && IORA_TIMEZONE="$tz"
+
+    # Step 2: Root password (required)
+    BACKTITLE="${BACKTITLE_BASE} -- Step 2/4: Password"
+    while true; do
+        local pw1 pw2 pw_rc
+        pw1=$(dlg --title " Step 2/4 -- Root Password " --insecure --passwordbox \
+            "\n Set a root password for this device.\n\n\
+ A password is REQUIRED -- the root account\n\
+ has full system access and must be protected.\n" \
+            13 64 3>&1 1>&2 2>&3)
+        pw_rc=$?
+        if [ $pw_rc -ne 0 ]; then
+            if dlg_yesno " Skip Password? " "\
+ WARNING: Skipping leaves root with the DEFAULT\n\
+ password, which is a serious security risk!\n\n\
+ Yes  -> Continue without a password (not recommended)\n\
+ No   -> Go back and set a secure password"; then
+                break
+            fi
+            continue
+        fi
+
+        if [ -z "$pw1" ]; then
+            dlg_msg " Password Required " "\
+ A root password is required.\n\n\
+ Leaving it blank is a serious security risk.\n\
+ Please enter a secure password to continue."
+            continue
+        fi
+
+        pw2=$(dlg --title " Step 2/4 -- Confirm Password " --insecure --passwordbox \
+            "\n Enter the password again for verification.\n" \
+            10 64 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && continue
+
+        if [ "$pw1" = "$pw2" ]; then
+            IORA_ROOT_PW="$pw1"
+            break
+        fi
+
+        dlg_msg " Mismatch " "\
+ The passwords do not match.\n\
+ Please try again."
+    done
+
+    # Step 3: Disk selection
+    BACKTITLE="${BACKTITLE_BASE} -- Step 3/4: Target Disk"
+    if ! screen_select_disk; then
+        dlg_msg " Cancelled " "Installation cancelled."
+        return 1
+    fi
+
+    # Step 4: Confirm
+    BACKTITLE="${BACKTITLE_BASE} -- Step 4/4: Confirm"
+    if ! screen_confirm; then
+        dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
+        return 1
+    fi
+
+    # Install
+    BACKTITLE="${BACKTITLE_BASE} -- Installing..."
+    if ! screen_install; then
+        return 1
+    fi
+
+    screen_complete
+}
+
+# ── Main wizard flow ───────────────────────────────────────────────
+run_wizard() {
+    # Step 0: Welcome / mode selection
+    if ! screen_welcome; then
+        return 0
+    fi
+
+    # Route to Quick Install
+    if [ "$INSTALLER_MODE" = "quick" ]; then
+        run_express_wizard
+        return $?
+    fi
+
+    # ── Custom Install (full wizard) ───────────────────────────────
+    # Mount media with retries
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Loading"
     dlg_info " Scanning " "  Searching for installation media..."
     sleep 1
 
@@ -1615,61 +1880,69 @@ run_wizard() {
         fi
     fi
 
+    local _TOTAL=9
+
     # Step 1: System info
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 1/${_TOTAL}: System Info"
     screen_sysinfo
 
     # Step 2: Hostname
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 2/${_TOTAL}: Hostname"
     screen_hostname
 
     # Step 3: Domain (optional)
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 3/${_TOTAL}: Domain"
     screen_domain
 
     # Step 4: Timezone
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 4/${_TOTAL}: Timezone"
     screen_timezone
 
     # Step 5: Driver detection (optional)
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 5/${_TOTAL}: Drivers"
     screen_drivers
 
     # Step 6: Network
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 6/${_TOTAL}: Network"
     screen_network
 
-    # Step 7: Root password.  A password is now REQUIRED.
-    # If the user cancels, offer to go back.  We do NOT allow skipping
-    # with an empty password because that would leave root accessible
-    # without authentication.
+    # Step 7: Root password
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 7/${_TOTAL}: Password"
     while true; do
         if screen_password; then
             break
         fi
-        # User pressed Cancel on the password dialog
         if dlg_yesno " Skip password? " "\
  You cancelled the root password step.\n\n\
  WARNING: Skipping leaves the root account with\n\
  its DEFAULT password, which is a security risk!\n\n\
- Yes  -> skip (keep default password — NOT recommended)\n\
+ Yes  -> skip (keep default password -- NOT recommended)\n\
  No   -> go back and set a secure password"; then
             break
         fi
     done
 
     # Step 8: Disk selection
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 8/${_TOTAL}: Target Disk"
     if ! screen_select_disk; then
         dlg_msg " Cancelled " "Installation cancelled."
         return 1
     fi
 
     # Step 9: Confirmation summary
+    BACKTITLE="IORA OS Installer  |  Custom Install -- Step 9/${_TOTAL}: Confirm & Install"
     if ! screen_confirm; then
         dlg_msg " Cancelled " "Installation cancelled.\nNo changes were made."
         return 1
     fi
 
-    # Step 10: Install
+    # Install
+    BACKTITLE="IORA OS Installer  |  Installing..."
     if ! screen_install; then
         return 1
     fi
 
-    # Step 11: Done
+    # Done
     screen_complete
 }
 
