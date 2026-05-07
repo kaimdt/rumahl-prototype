@@ -16,7 +16,12 @@ export default defineConfig({
   },
   plugins: [
     react(),
-    tailwindcss(),
+    tailwindcss({
+      // Lightning CSS currently emits warnings for valid Tailwind selectors
+      // like `.text-white\\/90` and `2xl:grid-cols-*`. Disable optimization
+      // to preserve correct CSS output.
+      optimize: false,
+    }),
   ],
   resolve: {
     alias: {
@@ -25,6 +30,10 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 1000,
+    // CSS minifiers currently warn (and can mis-handle) valid Tailwind selectors
+    // like `.text-white\\/90` and `2xl:grid-cols-*`. Keep CSS unminified to
+    // preserve correctness.
+    cssMinify: false,
     rollupOptions: {
       output: {
         manualChunks: {
