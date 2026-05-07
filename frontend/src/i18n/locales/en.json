@@ -28,6 +28,9 @@
     "on": "On",
     "off": "Off",
     "yes": "Yes",
+    "yesDelete": "Yes, delete",
+    "yesEnable": "Yes, enable",
+    "yesDisable": "Yes, disable",
     "no": "No",
     "all": "All",
     "none": "None",
@@ -55,6 +58,7 @@
     "start": "Start",
     "stop": "Stop",
     "restart": "Restart",
+    "update": "Update",
     "clone": "Clone",
     "duplicate": "Duplicate",
     "apply": "Apply",
@@ -144,6 +148,8 @@
     "screensaverEnable": "Enable screensaver",
     "reduceAnimations": "Reduce animations",
     "reduceAnimationsDesc": "Less animations and transitions for better performance",
+    "navigation": "Navigation",
+    "navigationDesc": "Customize the navigation bar layout",
     "displayFont": "Display & Font",
     "displayFontDesc": "Font size and widget display",
     "quickLogin": "Quick Login",
@@ -190,6 +196,33 @@
     "message_evening": "Time to relax. Lighting has been optimized for the evening.",
     "message_sleep": "Sleep mode active. Good night.",
     "message_night": "Quiet night. All systems in standby mode."
+  },
+  "scenes": {
+    "title": "Color Scenes",
+    "newScene": "New Scene",
+    "newColorScene": "New Color Scene",
+    "sceneName": "Scene name",
+    "sceneNamePlaceholder": "e.g. Cozy evening",
+    "icon": "Icon",
+    "lights": "{{count}} light",
+    "lights_other": "{{count}} lights",
+    "noLights": "No light entities available",
+    "noLightsDesc": "Turn on at least one light to create scenes",
+    "noneSaved": "No scenes saved",
+    "noneSavedDesc": "Create your first color scene",
+    "currentStatusSaved": "Current state will be saved:",
+    "currentStatusOverrides": "Current state will overwrite the scene:",
+    "lightsOnOfTotal": "{{on}} of {{total}} lights on",
+    "editScene": "Edit scene",
+    "saved": "Scene \"{{name}}\" saved",
+    "updated": "Scene \"{{name}}\" updated",
+    "applied": "Scene \"{{name}}\" applied",
+    "deleted": "Scene \"{{name}}\" deleted",
+    "errors": {
+      "enterName": "Please enter a name",
+      "turnOnLight": "Turn on at least one light",
+      "applyFailed": "Failed to apply scene"
+    }
   },
   "widgets": {
     "light": {
@@ -466,7 +499,12 @@
     "chat": "Chat",
     "tasks": "Tasks",
     "instructionsSaved": "AI instructions saved",
-    "instructionsReset": "AI instructions reset"
+    "instructionsReset": "AI instructions reset",
+    "noAnswer": "No response received.",
+    "instantResult": "ORA found the answer:\n\n{{text}}",
+    "instantFailed": "Search failed.",
+    "searching": "ORA is searching",
+    "keepSpeaking": "you can keep speaking"
   },
   "styles": {
     "card": {

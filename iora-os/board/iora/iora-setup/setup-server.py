@@ -131,6 +131,7 @@ def get_all_lan_ips() -> list:
 class ProgressTracker:
     # Canonical phases and their relative weights (must sum to 100).
     PHASES = [
+        ("disk_expand",    "Expanding disk partitions",          5),
         ("init",          "Initialising data directory",          5),
         ("recovery_pin",  "Generating Recovery PIN",              5),
         ("luks",          "Encrypting data partition",           15),
@@ -2100,6 +2101,38 @@ body {
       <span class="slider"></span>
     </label>
   </div>
+
+  <!-- Disk Expansion -->
+  <div style="margin:20px 0; padding:16px; background:var(--bg-elev); border-radius:10px; border:1px solid var(--border)">
+    <h3 style="font-size:0.9rem; margin-bottom:8px; color:var(--text2)">Disk Layout</h3>
+    <div id="diskInfo" style="font-size:0.82rem; color:var(--text3); margin-bottom:10px">
+      Loading disk information…
+    </div>
+    <!-- Mode: Production vs Development -->
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px">
+      <label style="flex:1; padding:10px 14px; border:2px solid var(--primary); border-radius:8px; cursor:pointer; text-align:center; background:var(--bg)" id="label-mode-prod">
+        <input type="radio" name="disk-mode" value="production" id="disk-mode-production" style="display:none">
+        <div style="font-weight:600; font-size:0.9rem; color:var(--text)">Production</div>
+        <div style="font-size:0.72rem; color:var(--text3); margin-top:2px">Root A = Root B (A/B ready)</div>
+      </label>
+      <label style="flex:1; padding:10px 14px; border:2px solid var(--border); border-radius:8px; cursor:pointer; text-align:center; background:var(--bg)" id="label-mode-dev">
+        <input type="radio" name="disk-mode" value="development" id="disk-mode-development" style="display:none">
+        <div style="font-weight:600; font-size:0.9rem; color:var(--text)">Development</div>
+        <div style="font-size:0.72rem; color:var(--text3); margin-top:2px">Root A large, B = 1 GiB</div>
+      </label>
+    </div>
+    <!-- Manual root size for advanced users -->
+    <div id="manualDiskOpts" style="display:none; margin-top:8px">
+      <div class="form-group">
+        <label>Root A partition size (MiB)</label>
+        <input type="number" id="cfg-disk-root-mb" value="4096" min="2048" max="65536" step="256" style="width:100%">
+      </div>
+      <div id="diskManualPreview" style="font-size:0.78rem; color:var(--text2); padding:8px; background:var(--surface2); border-radius:6px"></div>
+    </div>
+    <!-- Target preview (updates on mode change) -->
+    <div id="diskTargetPreview" style="font-size:0.82rem; color:var(--primary-light); padding:8px; margin-top:8px; background:var(--bg); border-radius:6px; border:1px solid var(--surface2)"></div>
+  </div>
+
   <div class="btn-row">
     <button class="btn btn-secondary" onclick="goStep(2)">Back</button>
     <button class="btn btn-primary" onclick="doInstall()">Finish Setup</button>
@@ -2234,6 +2267,9 @@ function goStep(n) {
 }
 
 function gatherConfig() {
+  const diskModeEl = document.querySelector('input[name="disk-mode"]:checked');
+  const diskMode = diskModeEl?.value || 'production';
+  const manualSize = document.getElementById('cfg-disk-root-mb').style.display !== 'none';
   return {
     hostname:       document.getElementById('cfg-hostname').value || 'iora',
     language:       document.getElementById('cfg-language').value,
@@ -2249,8 +2285,94 @@ function gatherConfig() {
     enable_ssh:     document.getElementById('cfg-ssh').checked,
     admin_username: (document.getElementById('cfg-admin-user').value || '').trim(),
     admin_password: document.getElementById('cfg-admin-pass').value || '',
+    disk_layout:    diskMode,
+    disk_root_mb:   parseInt(document.getElementById('cfg-disk-root-mb').value) || 0,
   };
 }
+
+// ── Disk Layout helpers ─────────────────────────────────────────────────
+let _diskData = null;
+
+async function loadDiskInfo() {
+  try {
+    const r = await fetch('/api/disk-info');
+    if (r.ok) {
+      _diskData = await r.json();
+      renderDiskInfo();
+    }
+  } catch(e) { /* ignore — disk expansion optional */ }
+}
+
+function renderDiskInfo() {
+  const d = _diskData;
+  if (!d) return;
+  const gb = (mb) => mb >= 1024 ? (mb/1024).toFixed(1) + ' GiB' : mb + ' MiB';
+  const el = document.getElementById('diskInfo');
+  if (d.already_expanded) {
+    el.innerHTML = '<span style="color:var(--success)">✓ Already expanded</span> — ' +
+      'Root A: ' + gb(d.current.root_a_mb) + ', ' +
+      'Root B: ' + gb(d.current.root_b_mb) + ', ' +
+      'Data: ' + gb(d.current.data_mb);
+    document.querySelectorAll('input[name="disk-mode"]').forEach(i => i.disabled = true);
+    document.getElementById('cfg-disk-root-mb').disabled = true;
+  } else if (d.expansion_needed) {
+    el.innerHTML = '<span style="color:var(--warn)">⚠ Not yet expanded</span> — ' +
+      'Disk: ' + gb(d.disk_size_mb) + ', Image: ' + gb(d.image_size_mb);
+  } else {
+    el.innerHTML = '<span style="color:var(--success)">✓ No expansion needed</span> — ' +
+      'Root A: ' + gb(d.current.root_a_mb) + ', ' +
+      'Data: ' + gb(d.current.data_mb);
+  }
+
+  // Pre-select development if we're on a dev image
+  if (d.is_dev_mode && !d.already_expanded) {
+    document.getElementById('disk-mode-development').checked = true;
+    document.getElementById('disk-mode-production').checked = false;
+  }
+  updateDiskPreview();
+}
+
+function getActiveMode() {
+  const el = document.querySelector('input[name="disk-mode"]:checked');
+  return el ? el.value : 'production';
+}
+
+function updateDiskPreview() {
+  const d = _diskData;
+  if (!d) return;
+  const mode = getActiveMode();
+  const gb = (mb) => mb >= 1024 ? (mb/1024).toFixed(1) + ' GiB' : mb + ' MiB';
+  const target = mode === 'development' ? d.dev_target : d.production_target;
+  const el = document.getElementById('diskTargetPreview');
+  if (el && target) {
+    const icon = mode === 'development' ? '🛠' : '🔄';
+    el.textContent = icon + ' ' + target.description +
+      '  |  ' + 'Root A: ' + gb(target.root_a_mb) +
+      ', Root B: ' + gb(target.root_b_mb) +
+      ', Data: ' + gb(target.data_mb);
+  }
+}
+
+// Toggle production/development + highlight active
+(function() {
+  document.querySelectorAll('input[name="disk-mode"]').forEach(r => {
+    r.addEventListener('change', function() {
+      const labels = document.querySelectorAll('label[id^="label-mode-"]');
+      labels.forEach(l => {
+        l.style.borderColor = 'var(--border)';
+        l.style.background = 'var(--bg)';
+      });
+      const activeLabel = this.closest('label');
+      if (activeLabel) {
+        activeLabel.style.borderColor = 'var(--primary)';
+        activeLabel.style.background = 'var(--bg-elev)';
+      }
+      updateDiskPreview();
+    });
+  });
+  // Highlight initial selection
+  loadDiskInfo();
+})();
 
 async function doInstall() {
   // Validate the web-admin credentials BEFORE switching to the install
@@ -2628,6 +2750,9 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/network":
             # Read current network config via iora-netctl.
             self._send_json(self._call_netctl(["status"]))
+        elif path == "/api/disk-info":
+            # Disk layout preview for the setup wizard.
+            self._send_json(self._disk_info())
         else:
             self.send_error(404)
 
@@ -2697,6 +2822,58 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "iora-netctl timed out"}
 
+    def _disk_info(self):
+        """Return disk layout info from the first-boot expansion script.
+
+        Calls /usr/lib/iora/iora-disk-expand.sh --preview for a JSON
+        snapshot of the current partition layout and auto-expand target.
+        Returns a fallback dict if the script is unavailable.
+        """
+        script = "/usr/lib/iora/iora-disk-expand.sh"
+        if not os.path.isfile(script):
+            return {"error": "Disk expansion script not installed",
+                    "disk_size_mb": 0, "already_expanded": True}
+        try:
+            r = subprocess.run(
+                [script, "--preview"],
+                capture_output=True, text=True, timeout=15
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return json.loads(r.stdout)
+        except (json.JSONDecodeError, Exception):
+            pass
+        return {"error": "Could not read disk info",
+                "disk_size_mb": 0, "already_expanded": True}
+
+    def _expand_disk(self, root_mb=0, dev_mode=False):
+        """Run the disk expansion script.
+
+        Args:
+            root_mb: Manual root partition A size in MiB (0 = auto).
+            dev_mode: If True, uses dev sizing (A large, B = 1 GiB).
+        Returns (ok: bool, message: str).
+        """
+        script = "/usr/lib/iora/iora-disk-expand.sh"
+        if not os.path.isfile(script):
+            return False, "Disk expansion script not installed"
+        try:
+            cmd = [script]
+            if dev_mode:
+                cmd.append("--dev")
+            if root_mb > 0:
+                cmd.extend(["--root", str(root_mb)])
+            r = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120
+            )
+            if r.returncode == 0:
+                return True, r.stdout.strip()[-500:]
+            else:
+                return False, (r.stderr or r.stdout or "Unknown error")[:500]
+        except subprocess.TimeoutExpired:
+            return False, "Disk expansion timed out after 120s"
+        except Exception as e:
+            return False, f"Disk expansion failed: {e}"
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
 
@@ -2744,6 +2921,29 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             save_config(config)
+
+            # ── Disk expansion (before everything else) ──────────────────
+            disk_layout = config.get("disk_layout", "production")
+            disk_root_mb = int(config.get("disk_root_mb", 0) or 0)
+            # Already-expanded check is done by the script itself
+            # (idempotent via /etc/iora/.disk-expanded sentinel).
+            if IS_IORA_OS and not os.path.exists("/etc/iora/.disk-expanded"):
+                PROGRESS.start()
+                PROGRESS.set_phase("disk_expand")
+                is_dev = disk_layout == "development"
+                PROGRESS.log(
+                    f"Expanding disk partitions (mode={disk_layout},"
+                    f" dev={is_dev}, root_mb={disk_root_mb or 'auto'})…"
+                )
+                ok, msg = self._expand_disk(
+                    root_mb=disk_root_mb,
+                    dev_mode=is_dev
+                )
+                if ok:
+                    PROGRESS.log("Disk expansion complete")
+                    PROGRESS.set_percent(5)
+                else:
+                    PROGRESS.add_error(f"Disk expansion failed: {msg}")
 
             def runner():
                 try:

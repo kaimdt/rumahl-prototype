@@ -24,9 +24,9 @@ const resources = {
 export const supportedLngs = ['en', 'de'] as const
 export type SupportedLanguage = (typeof supportedLngs)[number]
 
-export const languageNames: Record<SupportedLanguage, { native: string; english: string; dir: 'ltr' | 'rtl'; flag: string }> = {
-  en: { native: 'English', english: 'English', dir: 'ltr', flag: '🇬🇧' },
-  de: { native: 'Deutsch', english: 'German', dir: 'ltr', flag: '🇩🇪' },
+export const languageNames: Record<SupportedLanguage, { native: string; english: string; dir: 'ltr' | 'rtl' }> = {
+  en: { native: 'English', english: 'English', dir: 'ltr' },
+  de: { native: 'Deutsch', english: 'German', dir: 'ltr' },
 }
 
 // Future RTL languages:

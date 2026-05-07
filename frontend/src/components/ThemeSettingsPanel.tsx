@@ -11,9 +11,13 @@
 import { useTheme } from '@/contexts/ThemeContext'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { useTranslation } from 'react-i18next'
+import { Palette } from '@phosphor-icons/react'
 
 export function ThemeSettingsPanel() {
-  const { capabilities, customSettings, updateCustomSetting } = useTheme()
+  const { capabilities, customSettings, updateCustomSetting, themeResponse } = useTheme()
+  const { t } = useTranslation()
+  const themeNamespace = themeResponse?.theme_id ? `theme-${themeResponse.theme_id}` : undefined
 
   if (!capabilities?.custom_settings || capabilities.custom_settings.length === 0) {
     return null
@@ -23,16 +27,22 @@ export function ThemeSettingsPanel() {
     <div className="space-y-4">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-6 h-6 rounded-lg bg-accent/15 flex items-center justify-center">
-          <span className="text-accent text-xs font-bold">🎨</span>
+          <Palette size={14} weight="fill" className="text-accent" />
         </div>
         <h3 className="text-sm font-semibold text-foreground">
-          Theme-Einstellungen
+          {t('themes.themeSettings')}
         </h3>
       </div>
 
       <div className="space-y-3">
         {capabilities.custom_settings.map((setting) => {
           const value = customSettings[setting.id] ?? setting.default_value
+          const settingName = setting.name_key && themeNamespace
+            ? t(setting.name_key, { ns: themeNamespace })
+            : setting.name
+          const settingDescription = setting.description_key && themeNamespace
+            ? t(setting.description_key, { ns: themeNamespace })
+            : setting.description
 
           return (
             <div
@@ -41,11 +51,11 @@ export function ThemeSettingsPanel() {
             >
               <div className="flex-1 min-w-0">
                 <Label className="text-sm font-medium text-foreground cursor-pointer">
-                  {setting.name}
+                  {settingName}
                 </Label>
-                {setting.description && (
+                {settingDescription && (
                   <p className="text-[11px] text-foreground/40 mt-0.5">
-                    {setting.description}
+                    {settingDescription}
                   </p>
                 )}
               </div>
@@ -66,7 +76,7 @@ export function ThemeSettingsPanel() {
                   >
                     {setting.options.map((opt) => (
                       <option key={opt.value} value={opt.value}>
-                        {opt.label}
+                        {opt.label_key && themeNamespace ? t(opt.label_key, { ns: themeNamespace }) : opt.label}
                       </option>
                     ))}
                   </select>

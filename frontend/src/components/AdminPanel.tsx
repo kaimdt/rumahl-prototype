@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import i18n from '@/i18n'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import '@/i18n' // side-effect: initializes i18next
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -105,77 +105,98 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 
 // ═══ End Design Components ═══
 
-const tabs: { id: Tab; label: string; icon: typeof ShieldCheck; description: string }[] = [
-  { id: 'services', label: i18n.t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
-  { id: 'health-intelligence', label: i18n.t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
-  { id: 'themes', label: i18n.t('admin.themes'), icon: Palette, description: i18n.t('admin.themesDesc') },
-  { id: 'developer-mode', label: i18n.t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
-  { id: 'documentation', label: i18n.t('admin.documentation'), icon: BookOpen, description: i18n.t('admin.docsDesc') },
-  { id: 'protocols', label: i18n.t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
-  { id: 'ha-tools', label: i18n.t('admin.haTools'), icon: Code, description: i18n.t('admin.haToolsDesc') },
-  { id: 'global-alert', label: i18n.t('admin.globalAlert'), icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
-  { id: 'notifications', label: i18n.t('admin.notifications'), icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
-  { id: 'tasks', label: i18n.t('admin.tasks'), icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
-  { id: 'control-mode', label: i18n.t('admin.controlMode'), icon: Robot, description: i18n.t('admin.controlModeDesc') },
-  { id: 'system', label: i18n.t('admin.system'), icon: Cpu, description: i18n.t('admin.systemDesc') },
-  { id: 'system-info', label: i18n.t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
-  { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
-  { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
-  { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
-  { id: 'apps', label: i18n.t('admin.apps'), icon: Cube, description: i18n.t('admin.appsDesc') },
-  { id: 'plugins', label: i18n.t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
-  { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
-  { id: 'security-monitor', label: 'Sicherheit', icon: ShieldWarning, description: 'Sicherheitswarnungen, Ressourcennutzung und Anomalie-Erkennung überwachen' },
-  { id: 'updates', label: 'Updates', icon: CloudArrowUp, description: 'Verfügbare Updates prüfen, installieren oder zurückrollen' },
-  { id: 'widgets', label: 'Widgets', icon: Cube, description: 'Registrierte Widgets von Apps und Plugins verwalten' },
-  { id: 'api-keys', label: 'API Keys', icon: Key, description: 'API-Schlüssel erstellen und verwalten für externe Zugriffe' },
-  { id: 'webhooks', label: 'Webhooks', icon: WebhooksLogo, description: 'Ausgehende Webhooks registrieren für Echtzeit-Event-Zustellung mit HMAC-Signaturen' },
-  { id: 'ha-config', label: 'HA Config', icon: Gear, description: 'Home Assistant URL und Token konfigurieren' },
-  { id: 'ha-connection', label: 'HA Status', icon: Pulse, description: 'Verbindungsstatus zu Home Assistant, erkannte Integrationen und Ereignis-Log' },
-  { id: 'integrations', label: 'Integrationen', icon: Cube, description: 'Alle in Home Assistant installierten Integrationen anzeigen' },
-  { id: 'entities', label: 'Entities', icon: MagnifyingGlassPlus, description: 'Alle Entitäten durchsuchen, filtern und Details mit Verlaufsdaten anzeigen' },
-  { id: 'mqtt', label: 'MQTT', icon: WifiHigh, description: 'MQTT-Broker verbinden, Topics abonnieren und Nachrichten senden/empfangen' },
-  { id: 'zigbee', label: 'Zigbee', icon: Tree, description: 'Zigbee-Netzwerk verwalten (Zigbee2MQTT / ZHA), Geräte und Signalqualität' },
-  { id: 'zwave', label: 'Z-Wave', icon: LinkSimple, description: 'Z-Wave Nodes und Netzwerk-Topologie über Z-Wave JS überwachen' },
-  { id: 'matter', label: 'Matter', icon: HardDrive, description: 'Matter-Bridge konfigurieren, Geräte und Fabrics verwalten' },
-  { id: 'ble', label: 'Bluetooth', icon: Bluetooth, description: 'Bluetooth/BLE-Geräte, Adapter und Signalstärke überwachen' },
-  { id: 'homekit', label: 'HomeKit', icon: AppleLogo, description: 'HomeKit-Bridge konfigurieren und Zubehör-Zuordnungen verwalten' },
-  { id: 'scenes', label: 'Szenen', icon: FilmSlate, description: 'Home Assistant Szenen anzeigen und aktivieren' },
-  { id: 'automations', label: 'Automationen', icon: Power, description: 'Alle Automationen anzeigen, Status prüfen und letzte Auslösung sehen' },
-  { id: 'scheduler', label: 'Scheduler', icon: Timer, description: 'Zeitpläne und Watchdogs für automatisierte Aktionen verwalten' },
-  { id: 'analytics', label: 'Analytics', icon: ChartLine, description: 'Dashboard-Statistiken, Entity-Nutzung und System-Gesundheit überwachen' },
-  { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
-  { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
-  { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
-  { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
-  { id: 'calendars', label: 'Kalender', icon: CalendarBlank, description: 'Home Assistant Kalender-Entitäten und anstehende Termine anzeigen' },
-  { id: 'realtime', label: 'Realtime', icon: Broadcast, description: 'SSE Event-Streams und Socket.IO-Namespace-WebSocket für Echtzeit-Daten testen und überwachen' },
-  { id: 'database', label: 'Datenbank', icon: Database, description: 'SQLite-Datenbank verwalten, bereinigen und Statistiken anzeigen' },
-  { id: 'warnings', label: 'Warnungen', icon: ShieldWarning, description: 'Protokoll aller Wetter- und Zivilschutzwarnungen mit Zeitstempeln' },
-  { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
-  { id: 'ai-overview', label: 'AI Übersicht', icon: Brain, description: 'IORA Assist Status, aktiver Provider, Verbrauch und Health — zentrale AI-Übersicht' },
-  { id: 'ai-providers', label: 'AI Provider', icon: MagicWand, description: 'AI Provider verwalten — OpenAI, Anthropic, lokale Modelle und Desktop-Bridges konfigurieren' },
-  { id: 'ai-conversations', label: 'AI Konversationen', icon: ChatCircle, description: 'Konversations-Threads, Verlauf und proaktive Benachrichtigungen verwalten' },
-  { id: 'ai-tasks', label: 'AI Aufgaben', icon: Robot, description: 'Autonome AI-Aufgaben — Zeitpläne, Trigger und Status der Hintergrund-Agenten' },
-  { id: 'ai-tools', label: 'AI Tools', icon: Hand, description: 'Internet-Suche, Web-Scraping und Screenshot-Tools des Assistenten testen und ausführen' },
-  { id: 'ai-voice', label: 'AI Stimme', icon: Microphone, description: 'Spracheingabe (STT) und Sprachausgabe (TTS) testen — Voice-Modelle und Latenz prüfen' },
-  { id: 'ai-agent', label: 'Agent', icon: Robot, description: 'Vollständiger Agent-Arbeitsbereich mit Chat, Aufgaben und Verlauf — wie GitHub Agent Tab' },
-  { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten IORA Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
-  { id: 'secrets', label: 'Secrets', icon: Vault, description: 'Verschlüsselter Tresor für API-Keys, Tokens und Passwörter — verwalten, rotieren und Audit-Log einsehen (iora-secrets)' },
-  { id: 'files', label: 'Dateien', icon: FolderOpen, description: 'Datei-Verwaltung mit Versionierung, Freigabe-Links, Berechtigungen und Quotas (iora-files)' },
-  { id: 'gateway', label: 'Gateway', icon: Envelope, description: 'Externe Gateway-Operationen — E-Mail-Versand, Web-Suche, HTTP-Proxy und Update-Verifikation (iora-gateway)' },
-  { id: 'watchdog', label: 'Watchdog', icon: Dog, description: 'Service-Health-Monitoring, Heartbeats, Auto-Recovery und Event-Stream (iora-watchdog)' },
-  { id: 'connector', label: 'Connector / Tunnel', icon: ShareNetwork, description: 'Cloud-Tunnel, exponierte Dienste, Pairing-Tokens und IP-Blocklist (iora-connector)' },
-  { id: 'domain-validator', label: 'Domain Validator', icon: ShieldCheck, description: 'App-Zugriffsrichtlinien für externe Domains und Audit-Log (iora-domain-validator)' },
-  { id: 'resources', label: 'Ressourcen', icon: HardDrive, description: 'Container-Ressourcenverwaltung, CPU-/RAM-Allokation und Reallokation (iora-resource-manager)' },
-  { id: 'api-bridge', label: 'API Bridge', icon: Code, description: 'GraphQL, WebDAV, CalDAV und MQTT-Bridge — externe Schnittstellen der iora-api' },
-  { id: 'dev-bridge', label: 'Dev Bridge', icon: Terminal, description: 'IORA OS Dev Bridge — Service-Logs, System-Info, Filesystem, Build & Replace und Live-Streaming aller Dienste auf Entwickler-Images' },
-  { id: 'os-ssh', label: 'SSH-Zugang', icon: Terminal, description: 'SSH-Server aktivieren/deaktivieren, autorisierte Schlüssel und SSH-Benutzer verwalten — nur auf IORA OS' },
-  { id: 'os-network-config', label: 'IP-Konfiguration', icon: Globe, description: 'Netzwerk-Interfaces auflisten und IP/Gateway/DNS pro Interface konfigurieren — nur auf IORA OS' },
-  { id: 'os-disks', label: 'Festplatten', icon: HardDrive, description: 'Alle gemounteten Datenträger, Belegung, Dateisysteme und entfernbare Medien — nur auf IORA OS' },
-  { id: 'os-processes', label: 'Prozesse', icon: Pulse, description: 'Top-Prozesse mit CPU- und RAM-Verbrauch, sortiert nach Auslastung — nur auf IORA OS' },
-  { id: 'os-power', label: 'Power & Hostname', icon: Power, description: 'Hostname ändern, IORA OS neu starten oder herunterfahren — nur auf IORA OS' },
-]
+// Static tab IDs for quick lookup (used by adminPathToTab before component mounts)
+const TAB_IDS = new Set<Tab>([
+  'services', 'health-intelligence', 'themes', 'developer-mode', 'documentation',
+  'protocols', 'ha-tools', 'global-alert', 'notifications', 'tasks', 'control-mode',
+  'system', 'system-info', 'network', 'infrastructure', 'users', 'apps', 'plugins',
+  'registrations', 'security-monitor', 'updates', 'widgets', 'api-keys', 'webhooks',
+  'ha-config', 'ha-connection', 'integrations', 'entities', 'mqtt', 'zigbee', 'zwave',
+  'matter', 'ble', 'homekit', 'scenes', 'automations', 'scheduler', 'analytics',
+  'backups', 'cloud-settings', 'logs', 'logbook', 'calendars', 'realtime', 'database',
+  'warnings', 'system-notifications', 'ai-overview', 'ai-providers', 'ai-conversations',
+  'ai-tasks', 'ai-tools', 'ai-voice', 'ai-agent', 'devices', 'secrets', 'files',
+  'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge',
+  'dev-bridge', 'os-ssh', 'os-network-config', 'os-disks', 'os-processes', 'os-power',
+])
+
+type TabEntry = { id: Tab; label: string; icon: typeof ShieldCheck; description: string }
+
+/** Factory: creates the tabs array using the given translation function.
+ *  Must not call i18n.t at module level — the bundler mangles it to bare t(). */
+function getTabs(t: (key: string) => string): TabEntry[] {
+  return [
+    { id: 'services', label: t('admin.services'), icon: Gauge, description: 'Alle IORA-Dienste überwachen — Status, Erreichbarkeit und Uptime aller Microservices' },
+    { id: 'health-intelligence', label: t('admin.healthIntelligence'), icon: Heartbeat, description: 'KI-gestützte Systemanalyse — Health Scores, Vorhersagen, Anomalien und Smart Suggestions' },
+    { id: 'themes', label: t('admin.themes'), icon: Palette, description: t('admin.themesDesc') },
+    { id: 'developer-mode', label: t('admin.developerMode'), icon: Wrench, description: 'Debug-Funktionen aktivieren — erweiterte Logs, Render-Counter, rohe JSON-Antworten, SSE/WS-Frame-Inspektor' },
+    { id: 'documentation', label: t('admin.documentation'), icon: BookOpen, description: t('admin.docsDesc') },
+    { id: 'protocols', label: t('admin.protocols'), icon: Stack, description: 'Kombinierte Live-Übersicht aller IoT-Protokolle (HA, MQTT, Zigbee, Z-Wave, Matter, BLE, HomeKit) auf einen Blick' },
+    { id: 'ha-tools', label: t('admin.haTools'), icon: Code, description: t('admin.haToolsDesc') },
+    { id: 'global-alert', label: t('admin.globalAlert'), icon: Megaphone, description: 'System-weiten Banner-Alarm setzen oder zurücknehmen — wird allen verbundenen Clients per WebSocket zugestellt' },
+    { id: 'notifications', label: t('admin.notifications'), icon: Bell, description: 'Alle vom Backend erzeugten Benachrichtigungen einsehen, als gelesen markieren oder löschen' },
+    { id: 'tasks', label: t('admin.tasks'), icon: ListChecks, description: 'Hintergrund-Aufgaben und Warteschlangen überwachen, Aufgaben manuell auslösen oder deaktivieren' },
+    { id: 'control-mode', label: t('admin.controlMode'), icon: Robot, description: t('admin.controlModeDesc') },
+    { id: 'system', label: t('admin.system'), icon: Cpu, description: t('admin.systemDesc') },
+    { id: 'system-info', label: t('admin.systemInfo'), icon: Heartbeat, description: 'Detaillierte Systeminformationen von IORA OS — CPU, RAM, Festplatten und Netzwerk' },
+    { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
+    { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
+    { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
+    { id: 'apps', label: t('admin.apps'), icon: Cube, description: t('admin.appsDesc') },
+    { id: 'plugins', label: t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
+    { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
+    { id: 'security-monitor', label: 'Sicherheit', icon: ShieldWarning, description: 'Sicherheitswarnungen, Ressourcennutzung und Anomalie-Erkennung überwachen' },
+    { id: 'updates', label: 'Updates', icon: CloudArrowUp, description: 'Verfügbare Updates prüfen, installieren oder zurückrollen' },
+    { id: 'widgets', label: 'Widgets', icon: Cube, description: 'Registrierte Widgets von Apps und Plugins verwalten' },
+    { id: 'api-keys', label: 'API Keys', icon: Key, description: 'API-Schlüssel erstellen und verwalten für externe Zugriffe' },
+    { id: 'webhooks', label: 'Webhooks', icon: WebhooksLogo, description: 'Ausgehende Webhooks registrieren für Echtzeit-Event-Zustellung mit HMAC-Signaturen' },
+    { id: 'ha-config', label: 'HA Config', icon: Gear, description: 'Home Assistant URL und Token konfigurieren' },
+    { id: 'ha-connection', label: 'HA Status', icon: Pulse, description: 'Verbindungsstatus zu Home Assistant, erkannte Integrationen und Ereignis-Log' },
+    { id: 'integrations', label: 'Integrationen', icon: Cube, description: 'Alle in Home Assistant installierten Integrationen anzeigen' },
+    { id: 'entities', label: 'Entities', icon: MagnifyingGlassPlus, description: 'Alle Entitäten durchsuchen, filtern und Details mit Verlaufsdaten anzeigen' },
+    { id: 'mqtt', label: 'MQTT', icon: WifiHigh, description: 'MQTT-Broker verbinden, Topics abonnieren und Nachrichten senden/empfangen' },
+    { id: 'zigbee', label: 'Zigbee', icon: Tree, description: 'Zigbee-Netzwerk verwalten (Zigbee2MQTT / ZHA), Geräte und Signalqualität' },
+    { id: 'zwave', label: 'Z-Wave', icon: LinkSimple, description: 'Z-Wave Nodes und Netzwerk-Topologie über Z-Wave JS überwachen' },
+    { id: 'matter', label: 'Matter', icon: HardDrive, description: 'Matter-Bridge konfigurieren, Geräte und Fabrics verwalten' },
+    { id: 'ble', label: 'Bluetooth', icon: Bluetooth, description: 'Bluetooth/BLE-Geräte, Adapter und Signalstärke überwachen' },
+    { id: 'homekit', label: 'HomeKit', icon: AppleLogo, description: 'HomeKit-Bridge konfigurieren und Zubehör-Zuordnungen verwalten' },
+    { id: 'scenes', label: 'Szenen', icon: FilmSlate, description: 'Home Assistant Szenen anzeigen und aktivieren' },
+    { id: 'automations', label: 'Automationen', icon: Power, description: 'Alle Automationen anzeigen, Status prüfen und letzte Auslösung sehen' },
+    { id: 'scheduler', label: 'Scheduler', icon: Timer, description: 'Zeitpläne und Watchdogs für automatisierte Aktionen verwalten' },
+    { id: 'analytics', label: 'Analytics', icon: ChartLine, description: 'Dashboard-Statistiken, Entity-Nutzung und System-Gesundheit überwachen' },
+    { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
+    { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
+    { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
+    { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
+    { id: 'calendars', label: 'Kalender', icon: CalendarBlank, description: 'Home Assistant Kalender-Entitäten und anstehende Termine anzeigen' },
+    { id: 'realtime', label: 'Realtime', icon: Broadcast, description: 'SSE Event-Streams und Socket.IO-Namespace-WebSocket für Echtzeit-Daten testen und überwachen' },
+    { id: 'database', label: 'Datenbank', icon: Database, description: 'SQLite-Datenbank verwalten, bereinigen und Statistiken anzeigen' },
+    { id: 'warnings', label: 'Warnungen', icon: ShieldWarning, description: 'Protokoll aller Wetter- und Zivilschutzwarnungen mit Zeitstempeln' },
+    { id: 'system-notifications', label: 'System-Meldungen', icon: Siren, description: 'Systemmeldungen zu Sync-Status, Datenlücken und Backend-Warnungen – nur für Admins sichtbar' },
+    { id: 'ai-overview', label: 'AI Übersicht', icon: Brain, description: 'IORA Assist Status, aktiver Provider, Verbrauch und Health — zentrale AI-Übersicht' },
+    { id: 'ai-providers', label: 'AI Provider', icon: MagicWand, description: 'AI Provider verwalten — OpenAI, Anthropic, lokale Modelle und Desktop-Bridges konfigurieren' },
+    { id: 'ai-conversations', label: 'AI Konversationen', icon: ChatCircle, description: 'Konversations-Threads, Verlauf und proaktive Benachrichtigungen verwalten' },
+    { id: 'ai-tasks', label: 'AI Aufgaben', icon: Robot, description: 'Autonome AI-Aufgaben — Zeitpläne, Trigger und Status der Hintergrund-Agenten' },
+    { id: 'ai-tools', label: 'AI Tools', icon: Hand, description: 'Internet-Suche, Web-Scraping und Screenshot-Tools des Assistenten testen und ausführen' },
+    { id: 'ai-voice', label: 'AI Stimme', icon: Microphone, description: 'Spracheingabe (STT) und Sprachausgabe (TTS) testen — Voice-Modelle und Latenz prüfen' },
+    { id: 'ai-agent', label: 'Agent', icon: Robot, description: 'Vollständiger Agent-Arbeitsbereich mit Chat, Aufgaben und Verlauf — wie GitHub Agent Tab' },
+    { id: 'devices', label: 'Verbundene Geräte', icon: Desktop, description: 'Alle registrierten IORA Desktop, Browser- und Kiosk-Clients sehen — Online-Status, letzter Heartbeat, aktive WebSocket-Sitzungen' },
+    { id: 'secrets', label: 'Secrets', icon: Vault, description: 'Verschlüsselter Tresor für API-Keys, Tokens und Passwörter — verwalten, rotieren und Audit-Log einsehen (iora-secrets)' },
+    { id: 'files', label: 'Dateien', icon: FolderOpen, description: 'Datei-Verwaltung mit Versionierung, Freigabe-Links, Berechtigungen und Quotas (iora-files)' },
+    { id: 'gateway', label: 'Gateway', icon: Envelope, description: 'Externe Gateway-Operationen — E-Mail-Versand, Web-Suche, HTTP-Proxy und Update-Verifikation (iora-gateway)' },
+    { id: 'watchdog', label: 'Watchdog', icon: Dog, description: 'Service-Health-Monitoring, Heartbeats, Auto-Recovery und Event-Stream (iora-watchdog)' },
+    { id: 'connector', label: 'Connector / Tunnel', icon: ShareNetwork, description: 'Cloud-Tunnel, exponierte Dienste, Pairing-Tokens und IP-Blocklist (iora-connector)' },
+    { id: 'domain-validator', label: 'Domain Validator', icon: ShieldCheck, description: 'App-Zugriffsrichtlinien für externe Domains und Audit-Log (iora-domain-validator)' },
+    { id: 'resources', label: 'Ressourcen', icon: HardDrive, description: 'Container-Ressourcenverwaltung, CPU-/RAM-Allokation und Reallokation (iora-resource-manager)' },
+    { id: 'api-bridge', label: 'API Bridge', icon: Code, description: 'GraphQL, WebDAV, CalDAV und MQTT-Bridge — externe Schnittstellen der iora-api' },
+    { id: 'dev-bridge', label: 'Dev Bridge', icon: Terminal, description: 'IORA OS Dev Bridge — Service-Logs, System-Info, Filesystem, Build & Replace und Live-Streaming aller Dienste auf Entwickler-Images' },
+    { id: 'os-ssh', label: 'SSH-Zugang', icon: Terminal, description: 'SSH-Server aktivieren/deaktivieren, autorisierte Schlüssel und SSH-Benutzer verwalten — nur auf IORA OS' },
+    { id: 'os-network-config', label: 'IP-Konfiguration', icon: Globe, description: 'Netzwerk-Interfaces auflisten und IP/Gateway/DNS pro Interface konfigurieren — nur auf IORA OS' },
+    { id: 'os-disks', label: 'Festplatten', icon: HardDrive, description: 'Alle gemounteten Datenträger, Belegung, Dateisysteme und entfernbare Medien — nur auf IORA OS' },
+    { id: 'os-processes', label: 'Prozesse', icon: Pulse, description: 'Top-Prozesse mit CPU- und RAM-Verbrauch, sortiert nach Auslastung — nur auf IORA OS' },
+    { id: 'os-power', label: 'Power & Hostname', icon: Power, description: 'Hostname ändern, IORA OS neu starten oder herunterfahren — nur auf IORA OS' },
+  ]
+}
 
 type TabGroup = {
   id: string
@@ -521,7 +542,7 @@ function adminPathToTab(path: string): Tab {
   const sub = segments[1]
   if (!sub) return 'services'
   if (sub === 'cloud') return 'cloud-settings'
-  if (tabs.some((t) => t.id === sub)) return sub as Tab
+  if (TAB_IDS.has(sub as Tab)) return sub as Tab
   return 'services'
 }
 
@@ -533,6 +554,7 @@ function tabToAdminPath(tab: Tab): string {
 
 export function AdminPanel() {
   const { t } = useTranslation()
+  const tabs = useMemo(() => getTabs(t), [t])
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>(() => adminPathToTab(window.location.pathname))
   // Persist expanded group across page reloads via localStorage
@@ -887,14 +909,18 @@ interface SettingValueDto extends SettingDefDto {
   is_set: boolean
 }
 
-const CATEGORY_LABELS: Record<SettingDefDto['category'], string> = {
-  system: i18n.t('admin.system'),
-  home_assistant: 'Home Assistant',
-  integrations: 'Integrationen',
-  appearance: 'Darstellung',
-  privacy: 'Privatsphäre',
-  developer: 'Entwickler',
-  other: 'Sonstiges',
+/** Factory: creates category labels using the given translation function.
+ *  Must not call i18n.t at module level — the bundler mangles it to bare t(). */
+function getCategoryLabels(t: (key: string) => string): Record<SettingDefDto['category'], string> {
+  return {
+    system: t('admin.system'),
+    home_assistant: 'Home Assistant',
+    integrations: 'Integrationen',
+    appearance: 'Darstellung',
+    privacy: 'Privatsphäre',
+    developer: 'Entwickler',
+    other: 'Sonstiges',
+  }
 }
 
 const CATEGORY_DESCRIPTIONS: Record<SettingDefDto['category'], string> = {
@@ -908,6 +934,8 @@ const CATEGORY_DESCRIPTIONS: Record<SettingDefDto['category'], string> = {
 }
 
 function GlobalConfigTab({ token }: { token: string }) {
+  const { t } = useTranslation()
+  const categoryLabels = useMemo(() => getCategoryLabels(t), [t])
   const [items, setItems] = useState<SettingValueDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1009,7 +1037,7 @@ function GlobalConfigTab({ token }: { token: string }) {
                 : 'bg-foreground/5 text-foreground/70 hover:bg-foreground/10'
             }`}
           >
-            {CATEGORY_LABELS[cat]}
+            {categoryLabels[cat]}
           </button>
         ))}
       </div>
@@ -5337,6 +5365,7 @@ interface MetricsSnapshot {
 }
 
 function RealtimeTab({ token }: { token: string }) {
+  const { t } = useTranslation()
   const [activeSection, setActiveSection] = useState<'metrics' | 'sse' | 'ws'>('metrics')
 
   // ── Metrics state ──
@@ -5712,7 +5741,7 @@ function RealtimeTab({ token }: { token: string }) {
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                         wsNamespace === ns ? 'bg-accent text-white shadow-sm' : 'bg-foreground/10 text-foreground/60 border border-foreground/10'
                       } disabled:opacity-50`}>
-                      {ns === 'entities' ? 'Entities' : ns === 'system' ? i18n.t('admin.system') : 'Notifications'}
+                      {ns === 'entities' ? 'Entities' : ns === 'system' ? t('admin.system') : 'Notifications'}
                     </button>
                   ))}
                 </div>

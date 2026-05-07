@@ -2042,6 +2042,20 @@ else
     echo "IORA OS: WARN: nginx template not found at ${NGINX_TPL_SRC}"
 fi
 
+# ── First-boot disk expansion (called by setup wizard) ──────────────────
+# The expansion script is installed via rootfs-overlay. It is NOT started
+# as a systemd service automatically — the setup wizard calls it during
+# apply_config with the user's chosen disk layout (auto or manual).
+# This lets the user decide how much space Root A / Root B / Data get.
+#
+# Invocation modes:
+#   iora-disk-expand.sh              → auto mode (smart defaults)
+#   iora-disk-expand.sh --preview    → JSON preview (disk info, sizes)
+#   iora-disk-expand.sh --root N     → manual root size in MiB
+
+# Ensure the expansion script is executable (overlay coppes permissions as-is).
+chmod +x "${TARGET_DIR}/usr/lib/iora/iora-disk-expand.sh" 2>/dev/null || true
+
 # Create iora-setup.service (first-boot setup wizard)
 cat > "${TARGET_DIR}/etc/systemd/system/iora-setup.service" <<'EOF'
 [Unit]

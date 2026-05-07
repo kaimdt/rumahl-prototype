@@ -15,22 +15,22 @@ export interface ColorScene {
 export const DEFAULT_SCENES: ColorScene[] = [
   {
     id: 'relax',
-    name: 'Entspannen',
-    icon: '🌙',
+    name: 'Relax',
+    icon: 'moon',
     settings: {},
     createdAt: new Date().toISOString(),
   },
   {
     id: 'focus',
-    name: 'Fokus',
-    icon: '💡',
+    name: 'Focus',
+    icon: 'lightbulb',
     settings: {},
     createdAt: new Date().toISOString(),
   },
   {
     id: 'party',
     name: 'Party',
-    icon: '🎉',
+    icon: 'confetti',
     settings: {},
     createdAt: new Date().toISOString(),
   },

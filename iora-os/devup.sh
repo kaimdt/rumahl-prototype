@@ -122,7 +122,7 @@ _device_call() {
   local method="$1" ep="$2" data="${3:-}" tmp http_code
   tmp="$(mktemp /tmp/iora-devup.XXXXXX)"
   local copts=(-s --connect-timeout 5 --max-time 30 -o "$tmp" -w '%{http_code}')
-  [ -n "${TOKEN:-}" ] && copts+=(-H "X-IORA-Dev-Token: ${TOKEN}")
+  [ -n "${TOKEN:-}" ] && copts+=(-H "X-IORA-Dev-Token: ${TOKEN}" -H "Authorization: Bearer ${TOKEN}")
   local url="$(normalize_url "${HOST}")${ep}"
   if [ -n "$data" ]; then
     http_code=$(curl "${copts[@]}" -X "$method" -H "Content-Type: application/json" -d "$data" "$url" 2>/dev/null) || true
@@ -151,8 +151,8 @@ ensure_auth() {
 
   # 1. Versuche existierenden Token
   if [ -n "${TOKEN:-}" ]; then
-    local r; r="$(_device_call GET "/dev/status" "" 2>/dev/null)" || true
-    if is_json "$r" && echo "$r" | jq -e '.dev_mode == true' >/dev/null 2>&1; then
+    local r; r="$(_device_call GET "/dev/services" "" 2>/dev/null)" || true
+    if is_json "$r" && echo "$r" | jq -e '.services' >/dev/null 2>&1; then
       info "Token gültig – Device OK"
       return 0
     fi
@@ -378,6 +378,138 @@ DOCKERNATIVE
   return 0
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  BATCH BUILD: Alle Services in EINEM cargo-Lauf (massiv paralleler)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Gibt 0 zurück wenn Batch erfolgreich (auch partiell), 2 wenn komplett
+# gescheitert (→ Fallback auf Einzelbuilds). Ergebnisse in den globalen
+# Arrays BATCH_BUILT und BATCH_FAILED.
+docker_build_batch() {
+  local svcs=("$@")
+  local host_arch target_arch
+  host_arch="$(uname -m)"
+  target_arch="$(detect_target_arch 2>/dev/null || uname -m)"
+
+  local logfile="${BUILD_LOG_DIR}/batch.log"
+  mkdir -p "$BUILD_LOG_DIR"
+  echo "==> $(date) BATCH: ${svcs[*]} (host=${host_arch} target=${target_arch})" > "$logfile"
+
+  local tag="iora-devup-batch:$(date +%s)"
+
+  # Cargo-Args bauen: -p svc1 -p svc2 -p svc3 ...
+  local cargo_args=""
+  for s in "${svcs[@]}"; do
+    cargo_args="${cargo_args} -p ${s}"
+  done
+
+  info "Batch-Build: ${#svcs[@]} Services in EINEM cargo-Lauf (spart ~15-20 min)..."
+
+  # ═══ ARM64 Cross-Compile ═══
+  if [ "$host_arch" = "x86_64" ] && [ "$target_arch" = "aarch64" ]; then
+    docker run --rm --privileged tonistiigi/binfmt:latest --install arm64 >> "$logfile" 2>&1 || true
+
+    cat > "${BUILD_LOG_DIR}/Dockerfile.batch" <<DOCKERBATCH
+FROM rust:1.90
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    build-essential pkg-config libssl-dev libpq-dev perl cmake git curl ca-certificates \\
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/backend
+COPY . .
+ARG CARGO_ARGS
+RUN cargo build --release \${CARGO_ARGS} && \\
+    mkdir -p /out && \\
+    for d in target/release target/aarch64-unknown-linux-gnu/release; do \\
+      if [ -d "\$d" ]; then \\
+        for f in "\$d"/*; do [ -f "\$f" ] && [ -x "\$f" ] && cp "\$f" /out/; done; \\
+        break; \\
+      fi; \\
+    done && \\
+    ls -la /out/
+DOCKERBATCH
+
+    if ! docker build --platform linux/arm64 --build-arg "CARGO_ARGS=${cargo_args}" -t "$tag" \
+      -f "${BUILD_LOG_DIR}/Dockerfile.batch" \
+      "$BACKEND_DIR" >> "$logfile" 2>&1; then
+      error "Batch-Build (ARM64) fehlgeschlagen → Fallback auf Einzelbuilds"
+      _show_build_error "$logfile" "batch"
+      docker image rm -f "$tag" >/dev/null 2>&1 || true
+      rm -f "${BUILD_LOG_DIR}/Dockerfile.batch"
+      return 2
+    fi
+
+  # ═══ Native x86_64 (Alpine/musl) ═══
+  else
+    cat > "${BUILD_LOG_DIR}/Dockerfile.batch" <<'DOCKERBATCH'
+FROM rust:1.90-alpine
+RUN apk add --no-cache musl-dev gcc g++ make openssl-dev openssl-libs-static \
+    pkgconfig postgresql-dev perl cmake git curl
+WORKDIR /app/backend
+COPY . .
+ARG CARGO_ARGS
+RUN set -ex; \
+    cargo build --release ${CARGO_ARGS}; \
+    echo "=== Build finished, collecting binaries ==="; \
+    mkdir -p /out; \
+    for d in target/release target/x86_64-unknown-linux-musl/release target/aarch64-unknown-linux-gnu/release; do \
+      if [ -d "$d" ]; then \
+        for f in "$d"/*; do [ -f "$f" ] && [ -x "$f" ] && cp "$f" /out/; done; \
+        break; \
+      fi; \
+    done; \
+    ls -la /out/
+DOCKERBATCH
+
+    if ! docker build --build-arg "CARGO_ARGS=${cargo_args}" -t "$tag" \
+      -f "${BUILD_LOG_DIR}/Dockerfile.batch" \
+      "$BACKEND_DIR" >> "$logfile" 2>&1; then
+      error "Batch-Build fehlgeschlagen → Fallback auf Einzelbuilds"
+      _show_build_error "$logfile" "batch"
+      docker image rm -f "$tag" >/dev/null 2>&1 || true
+      rm -f "${BUILD_LOG_DIR}/Dockerfile.batch"
+      return 2
+    fi
+  fi
+
+  rm -f "${BUILD_LOG_DIR}/Dockerfile.batch"
+  success "Batch-Build erfolgreich – extrahiere Binaries..."
+
+  # Extrahiere jedes Binary aus dem Image
+  local cid
+  cid=$(docker create "$tag" 2>/dev/null) || {
+    error "Batch: Container-Erstellung fehlgeschlagen"
+    docker image rm -f "$tag" >/dev/null 2>&1
+    return 2
+  }
+
+  BATCH_BUILT=()
+  BATCH_FAILED=()
+  for s in "${svcs[@]}"; do
+    local bin_path="${BUILD_LOG_DIR}/${s}"
+    if docker cp "${cid}:/out/${s}" "$bin_path" 2>/dev/null && [ -s "$bin_path" ]; then
+      chmod +x "$bin_path"
+      local sz ft
+      sz="$(du -h "$bin_path" | cut -f1)"
+      ft="$(file "$bin_path" 2>/dev/null | cut -d: -f2-)"
+      success "  ${s} (${sz}) [${ft## }]"
+      BATCH_BUILT+=("$s")
+    else
+      warn "  ${s}: Binary nicht in /out/ gefunden – Einzelbuild nötig"
+      BATCH_FAILED+=("$s")
+    fi
+  done
+
+  docker rm -f "$cid" >/dev/null 2>&1
+  docker image rm -f "$tag" >/dev/null 2>&1
+
+  if [ ${#BATCH_BUILT[@]} -gt 0 ]; then
+    info "Batch: ${#BATCH_BUILT[@]} erfolgreich, ${#BATCH_FAILED[@]} fehlend"
+    return 0
+  else
+    error "Batch: Kein Binary gefunden"
+    return 2
+  fi
+}
+
 # Zeigt Build-Fehler aus dem Log
 _show_build_error() {
   local log="$1" svc="$2"
@@ -396,7 +528,8 @@ _show_build_error() {
 #  DEPLOY + RESTART mit Health-Check
 # ═══════════════════════════════════════════════════════════════════════════════
 deploy_one() {
-  local svc="$1" no_restart="${2:-false}" bin_path="${BUILD_LOG_DIR}/${svc}"
+  local svc="$1" no_restart="${2:-false}" bin_path
+  bin_path="${BUILD_LOG_DIR}/${svc}"
   local target="${SVC_BIN[$svc]:-/usr/bin/${svc}}" unit="${svc}.service"
 
   [ ! -f "$bin_path" ] && { error "  ${svc}: Binary fehlt: ${bin_path}"; return 1; }
@@ -409,6 +542,7 @@ deploy_one() {
   local http_code
   http_code=$(curl -s --connect-timeout 10 --max-time 120 \
     -H "X-IORA-Dev-Token: ${TOKEN}" \
+    -H "Authorization: Bearer ${TOKEN}" \
     -F "target=${target}" -F "sha256=${sha}" -F "unit=${unit}" \
     -F "file=@${bin_path};filename=${svc}" \
     -o "$tmp" -w '%{http_code}' \
@@ -441,7 +575,7 @@ deploy_one() {
   while [ $waited -lt $max_wait ]; do
     local svc_json; svc_json="$(_device_call GET "/dev/services" "" 2>/dev/null)" || true
     if is_json "$svc_json"; then
-      local status; status="$(echo "$svc_json" | jq -r --arg u "$unit" '.services[$u].status // "unknown"')"
+      local status; status="$(echo "$svc_json" | jq -r --arg name "${svc}" '.services[]? | select(.name == $name) | .effective_status // "unknown"')"
       if [ "$status" = "healthy" ] || [ "$status" = "active" ]; then
         success "  ${svc}: ${status} (nach ${waited}s)"
         return 0
@@ -458,11 +592,13 @@ deploy_one() {
 
 # Manueller Restart ohne vorherigen Build (für abhängige Services)
 restart_dependents() {
-  local svc="$1"
+  local svc="$1" already_deployed=" ${2:-} "
   # Services finden, die von diesem Service abhängen
   local deps=()
   while IFS= read -r s; do
     [ -z "$s" ] && continue
+    # Überspringe Services, die bereits deployed wurden
+    [[ "$already_deployed" == *" $s "* ]] && continue
     local after="${SVC_AFTER[$s]:-}"
     if [[ " $after " == *" ${svc} "* ]]; then
       deps+=("$s")
@@ -506,6 +642,7 @@ self_update_bridge() {
   local http_code
   http_code=$(curl -s --connect-timeout 10 --max-time 120 \
     -H "X-IORA-Dev-Token: ${TOKEN}" \
+    -H "Authorization: Bearer ${TOKEN}" \
     -F "target=/usr/bin/iora-dev-bridge" -F "sha256=${sha}" \
     -F "unit=iora-dev-bridge.service" \
     -F "file=@${bin_path};filename=iora-dev-bridge" \
@@ -707,7 +844,7 @@ tui_status() {
     out+="\n── Live Status ──\n"
     while IFS= read -r s; do
       [ -z "$s" ] && continue
-      local st; st="$(echo "$svc_json" | jq -r --arg u "${s}.service" '.services[$u].status // "?"' 2>/dev/null)"
+      local st; st="$(echo "$svc_json" | jq -r --arg name "${s}" '.services[]? | select(.name == $name) | .effective_status // "?"' 2>/dev/null)"
       local icon=" "; case "$st" in healthy|active) icon="${G}●${N}" ;; failed|error) icon="${R}●${N}" ;; *) icon="${Y}○${N}" ;; esac
       out+="$(printf "%-4s %-23s %s\n" "$icon" "$s" "$st")\n"
     done <<< "$(svc_list)"
@@ -799,22 +936,42 @@ build_and_deploy() {
   # ── Phase 1: Build ──────────────────────────────────────────────────────
   if [ "$phase" = "build" ]; then
     mkdir -p "$BUILD_LOG_DIR"
-    local current=0
+
+    # Überspringe bereits gebaute / failed Services aus Resume
+    local svcs_to_build=()
     for s in "${svcs_all[@]}"; do
       [ -z "$s" ] && continue
-      # Überspringe bereits gebaute (aus Resume)
       local already=false
       for b in "${built[@]}"; do [ "$b" = "$s" ] && already=true && break; done
       $already && continue
-      # Überspringe bereits failed
       for f in "${failed[@]}"; do [ "$f" = "$s" ] && already=true && break; done
       $already && continue
-
-      current=$((current + 1))
-      echo -e "${B}[build ${current}/${total}]${N} ${s}"
-      docker_build_one "$s" && built+=("$s") || failed+=("$s")
-      _save_step "build"  # Checkpoint nach JEDEM Build
+      svcs_to_build+=("$s")
     done
+
+    # Batch-Build: Alle Services in EINEM Docker-Lauf (massiv paralleler)
+    if [ ${#svcs_to_build[@]} -ge 2 ]; then
+      docker_build_batch "${svcs_to_build[@]}" || true
+      [ ${#BATCH_BUILT[@]} -gt 0 ] && built+=("${BATCH_BUILT[@]}")
+
+      if [ ${#BATCH_FAILED[@]} -gt 0 ]; then
+        warn "Batch: ${#BATCH_FAILED[@]} Services im Einzelbuild nachholen..."
+        for s in "${BATCH_FAILED[@]}"; do
+          docker_build_one "$s" && built+=("$s") || failed+=("$s")
+        done
+      elif [ ${#built[@]} -eq 0 ]; then
+        # Batch komplett gescheitert → alle einzeln bauen
+        for s in "${svcs_to_build[@]}"; do
+          docker_build_one "$s" && built+=("$s") || failed+=("$s")
+        done
+      fi
+    else
+      # Nur ein Service (oder alle schon gebaut via Resume) → direkt Einzelbuild
+      for s in "${svcs_to_build[@]}"; do
+        docker_build_one "$s" && built+=("$s") || failed+=("$s")
+      done
+    fi
+    _save_step "build"
   fi
 
   if [ ${#built[@]} -eq 0 ]; then
@@ -861,6 +1018,7 @@ build_and_deploy() {
     local tmp; tmp="$(mktemp /tmp/iora-devup-self2.XXXXXX)"
     curl -s --connect-timeout 10 --max-time 120 \
       -H "X-IORA-Dev-Token: ${TOKEN}" \
+      -H "Authorization: Bearer ${TOKEN}" \
       -F "target=/usr/bin/iora-dev-bridge" -F "sha256=${sha}" \
       -F "unit=iora-dev-bridge.service" \
       -F "file=@${bbin};filename=iora-dev-bridge" \
@@ -886,7 +1044,7 @@ build_and_deploy() {
   echo ""
   info "Prüfe abhängige Services..."
   for s in "${deployed[@]}"; do
-    restart_dependents "$s"
+    restart_dependents "$s" "${deployed[*]}"
   done
 
   # ── Fertig: State löschen ────────────────────────────────────────────
