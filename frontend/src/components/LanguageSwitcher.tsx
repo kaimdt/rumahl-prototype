@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { supportedLngs, languageNames, type SupportedLanguage } from '@/i18n'
+import { Globe } from '@phosphor-icons/react'
 
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation()
@@ -8,7 +9,7 @@ export function LanguageSwitcher() {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-lg">🌐</span>
+        <Globe size={18} className="text-foreground/70" />
         <h3 className="text-sm font-semibold text-foreground">{t('settings.language')}</h3>
       </div>
       <p className="text-xs text-foreground/50 mb-4">{t('settings.languageDesc')}</p>
@@ -27,7 +28,11 @@ export function LanguageSwitcher() {
                   : 'border-foreground/10 bg-foreground/[0.03] hover:border-foreground/20 hover:bg-foreground/[0.06]'
               }`}
             >
-              <span className="text-2xl">{info.flag}</span>
+              <span className="w-10 h-10 rounded-xl bg-foreground/[0.04] border border-foreground/[0.08] flex items-center justify-center">
+                <span className="text-xs font-semibold tracking-wider text-foreground/70">
+                  {lng.toUpperCase()}
+                </span>
+              </span>
               <div className="flex-1">
                 <p className={`text-sm font-medium ${isActive ? 'text-accent' : 'text-foreground'}`}>
                   {info.native}
