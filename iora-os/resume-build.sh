@@ -43,6 +43,8 @@ OPTIONS:
     --force-fallback-image Always use rootfs.ext2 fallback for iora-os.img
     --with-images       After successful resume, generate release image formats
     --unattended        Forward non-interactive mode to image generation
+    --ram               Resume with output directory in RAM (tmpfs)
+    --ram-size SIZE     tmpfs size limit (e.g. 32G)
     --jobs N            Override parallel jobs (default: nproc)
     --log FILE          Write build log to custom file path
     -h, --help          Show this help
@@ -84,6 +86,261 @@ show_progress_stream() {
             printf "\n" > "/dev/stderr"
         }
     }'
+}
+
+# ── RAM Build Support (lightweight variant for resume) ──────────────────────
+IORA_RAM_MIN_MB=16384
+
+_parse_size_to_kb() {
+    local val="$1"
+    local num unit
+    num=$(echo "${val}" | sed 's/[^0-9.]//g')
+    unit=$(echo "${val}" | sed 's/[0-9.]//g' | tr '[:lower:]' '[:upper:]')
+    case "${unit}" in
+        G|GB)  echo $(awk "BEGIN { printf \"%.0f\", ${num} * 1024 * 1024 }" 2>/dev/null || echo 0) ;;
+        M|MB)  echo $(awk "BEGIN { printf \"%.0f\", ${num} * 1024 }" 2>/dev/null || echo 0) ;;
+        K|KB)  echo $(awk "BEGIN { printf \"%.0f\", ${num} }" 2>/dev/null || echo 0) ;;
+        *)     echo 0 ;;
+    esac
+}
+
+_kb_to_human() {
+    local kb="$1"
+    if [ "${kb}" -ge 1048576 ]; then
+        awk "BEGIN { printf \"%.1fG\", ${kb} / 1048576 }"
+    elif [ "${kb}" -ge 1024 ]; then
+        awk "BEGIN { printf \"%.0fM\", ${kb} / 1024 }"
+    else
+        echo "${kb}K"
+    fi
+}
+
+setup_ram_build() {
+    [ "${IORA_RAM_BUILD}" = "1" ] || return 0
+
+    log_info "RAM BUILD: Mounting output/ on tmpfs for resume..."
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        log_info "  MODE: aggressive — dl/ + ccaches also in tmpfs"
+    fi
+
+    if [ "$(uname -s)" != "Linux" ]; then
+        log_error "RAM build (tmpfs) is only supported on Linux."
+        exit 1
+    fi
+
+    # Determine mount command
+    local _mount_cmd=""
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        _mount_cmd="mount"
+    elif command -v sudo >/dev/null 2>&1; then
+        _mount_cmd="sudo mount"
+    else
+        log_error "RAM build requires root privileges to mount tmpfs."
+        exit 1
+    fi
+    _UMOUNT_CMD="${_mount_cmd//mount/umount}"
+
+    # ── /tmp check ───────────────────────────────────────────────────────
+    if ! mountpoint -q /tmp 2>/dev/null || ! df -t tmpfs /tmp >/dev/null 2>&1; then
+        log_warn "  /tmp is NOT tmpfs — temp files will hit disk."
+    fi
+
+    # Check available RAM
+    local _total_ram_kb _avail_ram_kb
+    _total_ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    _avail_ram_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    local _total_ram_gb=$(( _total_ram_kb / 1048576 ))
+    local _avail_ram_gb=$(( _avail_ram_kb / 1048576 ))
+
+    log_info "  System RAM: ${_total_ram_gb} GB total, ${_avail_ram_gb} GB available"
+
+    if [ "${_total_ram_kb}" -lt $(( IORA_RAM_MIN_MB * 1024 )) ]; then
+        log_warn "  Less than ${IORA_RAM_MIN_MB} MB RAM — RAM build may OOM."
+    fi
+
+    # Auto fast-build for < 32 GB
+    if [ "${_total_ram_kb}" -lt $(( 32 * 1024 * 1024 )) ] && [ "${IORA_FAST_BUILD:-0}" != "1" ]; then
+        log_info "  RAM < 32 GB → auto-enabling IORA_FAST_BUILD=1"
+        IORA_FAST_BUILD=1
+    fi
+
+    # Calculate tmpfs size
+    local _tmpfs_size_kb=0
+    if [ -n "${IORA_RAM_SIZE}" ]; then
+        _tmpfs_size_kb=$(_parse_size_to_kb "${IORA_RAM_SIZE}")
+        [ "${_tmpfs_size_kb}" -le 0 ] && { log_error "Invalid --ram-size: ${IORA_RAM_SIZE}"; exit 1; }
+    else
+        _tmpfs_size_kb=$(( _avail_ram_kb * 80 / 100 ))
+        local _min_kb=$(( 16 * 1024 * 1024 ))
+        [ "${_tmpfs_size_kb}" -lt "${_min_kb}" ] && _tmpfs_size_kb=${_min_kb}
+        [ "${_tmpfs_size_kb}" -gt "${_total_ram_kb}" ] && _tmpfs_size_kb=${_total_ram_kb}
+    fi
+    log_info "  tmpfs size: $(_kb_to_human ${_tmpfs_size_kb})"
+
+    local _output_dir="${BUILD_DIR}/output"
+    mkdir -p "${_output_dir}"
+
+    # Already mounted?
+    if mountpoint -q "${_output_dir}" 2>/dev/null; then
+        log_info "  output/ is already a tmpfs mount — reusing it."
+        _IORA_RAM_ALREADY_MOUNTED=1
+        _setup_persistent_caches
+        return 0
+    fi
+
+    # Backup existing output
+    local _output_backup="${BUILD_DIR}/output.disk-backup"
+    if [ -n "$(ls -A "${_output_dir}" 2>/dev/null)" ]; then
+        log_info "  Moving existing output/ to backup..."
+        rm -rf "${_output_backup}" 2>/dev/null || true
+        mv "${_output_dir}" "${_output_backup}"
+        mkdir -p "${_output_dir}"
+        _IORA_RAM_HAD_PREVIOUS_OUTPUT=1
+    fi
+
+    # Mount
+    log_info "  Mounting tmpfs at ${_output_dir}..."
+    if ! ${_mount_cmd} -t tmpfs -o "size=${_tmpfs_size_kb}k,mode=0755" tmpfs "${_output_dir}"; then
+        log_error "  Failed to mount tmpfs."
+        [ "${_IORA_RAM_HAD_PREVIOUS_OUTPUT:-0}" = "1" ] && mv "${_output_backup}" "${_output_dir}"
+        exit 1
+    fi
+    _IORA_RAM_MOUNTED=1
+
+    # Restore previously built output if available (so make can resume where it left off)
+    if [ "${_IORA_RAM_HAD_PREVIOUS_OUTPUT:-0}" = "1" ] && [ -d "${_output_backup}" ]; then
+        log_info "  Restoring previous build state from disk backup..."
+        cp -a "${_output_backup}/." "${_output_dir}/" 2>/dev/null || \
+            log_warn "  Could not restore build state — starting fresh in RAM."
+        log_success "  Build state restored to tmpfs."
+        rm -rf "${_output_backup}"
+        _IORA_RAM_HAD_PREVIOUS_OUTPUT=0
+    fi
+
+    _setup_persistent_caches
+    log_success "RAM build ready for resume."
+}
+
+_setup_persistent_caches() {
+    local _output_dir="${BUILD_DIR}/output"
+
+    # ── dl/ ──────────────────────────────────────────────────────────────
+    if [ -n "${IORA_PERSISTENT_DL_DIR:-}" ]; then
+        :
+    else
+        IORA_PERSISTENT_DL_DIR="${SCRIPT_DIR}/.iora-dl-cache"
+    fi
+
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        export BR2_DL_DIR="${_output_dir}/dl"
+        mkdir -p "${BR2_DL_DIR}"
+        log_info "  dl/ → tmpfs (aggressive)"
+    else
+        mkdir -p "${IORA_PERSISTENT_DL_DIR}"
+        export BR2_DL_DIR="${IORA_PERSISTENT_DL_DIR}"
+        local _dl_link="${_output_dir}/dl"
+        if [ -L "${_dl_link}" ] && [ "$(readlink -f "${_dl_link}" 2>/dev/null)" = "$(readlink -f "${IORA_PERSISTENT_DL_DIR}" 2>/dev/null)" ]; then
+            :
+        else
+            [ -e "${_dl_link}" ] && [ ! -L "${_dl_link}" ] && { cp -a "${_dl_link}/." "${IORA_PERSISTENT_DL_DIR}/" 2>/dev/null || true; rm -rf "${_dl_link}"; }
+            [ ! -e "${_dl_link}" ] && ln -sfn "${IORA_PERSISTENT_DL_DIR}" "${_dl_link}"
+        fi
+    fi
+
+    # ── ccache → tmpfs ───────────────────────────────────────────────────
+    local _ram_ccache="${_output_dir}/.ccache"
+    local _disk_ccache="${HOME}/.iora-cache/ccache"
+    mkdir -p "${_ram_ccache}"
+    export BR2_CCACHE_DIR="${_ram_ccache}"
+    if [ -d "${_disk_ccache}" ] && [ -z "$(ls -A "${_ram_ccache}" 2>/dev/null)" ]; then
+        cp -a "${_disk_ccache}/." "${_ram_ccache}/" 2>/dev/null || true
+    fi
+    _IORA_RAM_CCACHE_DISK="${_disk_ccache}"
+
+    # ── sccache → tmpfs ──────────────────────────────────────────────────
+    local _ram_sccache="${_output_dir}/.sccache"
+    local _disk_sccache="${HOME}/.iora-cache/sccache"
+    mkdir -p "${_ram_sccache}"
+    export SCCACHE_DIR="${_ram_sccache}"
+    if [ -d "${_disk_sccache}" ] && [ -z "$(ls -A "${_ram_sccache}" 2>/dev/null)" ]; then
+        cp -a "${_disk_sccache}/." "${_ram_sccache}/" 2>/dev/null || true
+    fi
+    _IORA_RAM_SCCACHE_DISK="${_disk_sccache}"
+
+    # ── cargo target → tmpfs ─────────────────────────────────────────────
+    local _ram_cargo="${_output_dir}/.cargo-target"
+    mkdir -p "${_ram_cargo}"
+    export CARGO_TARGET_DIR="${_ram_cargo}"
+}
+
+teardown_ram_build() {
+    [ "${IORA_RAM_BUILD}" = "1" ] || return 0
+
+    local _output_dir="${BUILD_DIR}/output"
+
+    if [ "${IORA_RAM_KEEP}" = "1" ]; then
+        log_warn "  --ram-keep: output/ remains in tmpfs (will be lost on reboot)."
+        return 0
+    fi
+
+    local _persist="${IORA_RAM_PERSIST_DIR:-${BUILD_DIR}/output.persistent}"
+
+    # Save ccache → disk
+    local _ram_ccache="${_output_dir}/.ccache"
+    if [ -d "${_ram_ccache}" ] && [ -n "$(ls -A "${_ram_ccache}" 2>/dev/null)" ]; then
+        local _disk="${_IORA_RAM_CCACHE_DISK:-${HOME}/.iora-cache/ccache}"
+        mkdir -p "${_disk}"
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete "${_ram_ccache}/" "${_disk}/" 2>/dev/null || true
+        else
+            cp -a "${_ram_ccache}/." "${_disk}/" 2>/dev/null || true
+        fi
+    fi
+
+    # Save sccache → disk
+    local _ram_sccache="${_output_dir}/.sccache"
+    if [ -d "${_ram_sccache}" ] && [ -n "$(ls -A "${_ram_sccache}" 2>/dev/null)" ]; then
+        local _disk="${_IORA_RAM_SCCACHE_DISK:-${HOME}/.iora-cache/sccache}"
+        mkdir -p "${_disk}"
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete "${_ram_sccache}/" "${_disk}/" 2>/dev/null || true
+        else
+            cp -a "${_ram_sccache}/." "${_disk}/" 2>/dev/null || true
+        fi
+    fi
+
+    # Save images
+    if [ -d "${_output_dir}/images" ] && [ -n "$(ls -A "${_output_dir}/images" 2>/dev/null)" ]; then
+        mkdir -p "${_persist}/images"
+        cp -a "${_output_dir}/images/." "${_persist}/images/" 2>/dev/null || true
+    fi
+
+    # Save host/ if requested
+    if [ -d "${_output_dir}/host" ] && [ "${IORA_RAM_KEEP_HOST:-0}" = "1" ]; then
+        mkdir -p "${_persist}/host"
+        cp -a "${_output_dir}/host/." "${_persist}/host/" 2>/dev/null || true
+    fi
+
+    if [ -f "${BUILD_DIR}/.config" ]; then
+        cp -a "${BUILD_DIR}/.config" "${_persist}/.config" 2>/dev/null || true
+    fi
+
+    if [ -L "${_output_dir}/dl" ]; then
+        local _dl_target
+        _dl_target=$(readlink -f "${_output_dir}/dl" 2>/dev/null || echo "")
+        [ -n "${_dl_target}" ] && echo "${_dl_target}" > "${_persist}/.dl-target"
+    fi
+
+    log_success "  Build artefacts saved to ${_persist}/"
+
+    # Unmount
+    if [ "${_IORA_RAM_MOUNTED:-0}" = "1" ]; then
+        log_info "  Unmounting tmpfs from ${_output_dir}..."
+        ${_UMOUNT_CMD} "${_output_dir}" 2>/dev/null || \
+            log_warn "  Could not unmount — may be busy. Run: sudo umount ${_output_dir}"
+    fi
+
+    log_success "RAM build teardown complete — disk spared."
 }
 
 # ── GCC 15 compatibility fixes ──────────────────────────────────────────────
@@ -275,6 +532,10 @@ LOG_FILE=""
 POST_IMAGE_MODE="auto"
 WITH_IMAGES=false
 UNATTENDED=false
+IORA_RAM_BUILD="${IORA_RAM_BUILD:-0}"
+IORA_RAM_SIZE="${IORA_RAM_SIZE:-}"
+IORA_RAM_KEEP="${IORA_RAM_KEEP:-0}"
+IORA_RAM_AGGRESSIVE="${IORA_RAM_AGGRESSIVE:-0}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -312,6 +573,16 @@ while [ $# -gt 0 ]; do
             ;;
         --unattended|--non-interactive|--unattachment)
             UNATTENDED=true
+            ;;
+        --ram)
+            IORA_RAM_BUILD=1
+            ;;
+        --ram-size)
+            shift
+            IORA_RAM_SIZE="${1:-}"
+            ;;
+        --ram-size=*)
+            IORA_RAM_SIZE="${1#*=}"
             ;;
         --log)
             shift
@@ -392,6 +663,13 @@ export HOST_CXXFLAGS="${HOST_CXXFLAGS:-} -std=gnu17"
 # Clean stale cmake CMakeCache.txt from previous failed runs.
 rm -f "${BUILD_DIR}/output/build/host-cmake-"*/CMakeCache.txt 2>/dev/null || true
 
+# ── RAM build setup ─────────────────────────────────────────────────────
+setup_ram_build
+if [ "${IORA_RAM_BUILD}" = "1" ]; then
+    trap teardown_ram_build EXIT
+    echo ""
+fi
+
 log_info "make -j${JOBS} (cores: ${JOBS}, xz: $(xz --version 2>/dev/null | head -1 || echo unknown))"
 
 set +e
@@ -430,6 +708,9 @@ if [ ${BUILD_RC} -ne 0 ]; then
 fi
 
 log_success "Build resume finished successfully."
+
+# Tear down RAM build (save artefacts, unmount tmpfs)
+teardown_ram_build
 
 if [ "${WITH_IMAGES}" = true ]; then
     log_info "Generating release image formats from current build output..."

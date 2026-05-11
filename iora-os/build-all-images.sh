@@ -38,6 +38,10 @@ REQUIRE_ALL_ARTIFACTS=false
 ARTIFACT_FILTER="all"
 BUILD_JOBS=""
 XZ_PRESET="${XZ_PRESET:-9}"
+IORA_RAM_BUILD="${IORA_RAM_BUILD:-0}"
+IORA_RAM_SIZE="${IORA_RAM_SIZE:-}"
+IORA_RAM_KEEP="${IORA_RAM_KEEP:-0}"
+IORA_RAM_AGGRESSIVE="${IORA_RAM_AGGRESSIVE:-0}"
 
 CREATED_ARTIFACTS=()
 SKIPPED_ARTIFACTS=()
@@ -563,6 +567,22 @@ parse_args() {
             --unattended|--non-interactive|--unattachment)
                 UNATTENDED=true
                 ;;
+            --ram)
+                IORA_RAM_BUILD=1
+                ;;
+            --ram-size)
+                shift
+                IORA_RAM_SIZE="${1:-}"
+                ;;
+            --ram-size=*)
+                IORA_RAM_SIZE="${1#*=}"
+                ;;
+            --ram-keep)
+                IORA_RAM_KEEP=1
+                ;;
+            --ram-aggressive)
+                IORA_RAM_AGGRESSIVE=1
+                ;;
             --publish)
                 PUBLISH_RELEASE=true
                 ;;
@@ -582,6 +602,10 @@ OPTIONS:
     --xz-preset N          xz compression preset 0-9 (default: 9; quick uses 6)
     --require-all-artifacts Fail build if any optional artifact is skipped
     --unattended           No interactive prompts; auto-attempt install and continue when optional tooling is missing
+    --ram                  Build with output directory in RAM (tmpfs) to reduce SSD/disk wear
+    --ram-size SIZE        tmpfs size limit (e.g. 32G, 16G; default: 80% of available RAM)
+    --ram-keep             Keep output in tmpfs after build (skip copy-back to disk)
+    --ram-aggressive       Also put dl/ (downloads) in tmpfs — maximum disk protection
     --publish              Publish release to IORA update server (requires IORA_UPDATE_API_KEY)
     -h, --help             Show this help
 EOF
@@ -6977,6 +7001,425 @@ publish_to_update_server() {
     log_success "Update server publish complete"
 }
 
+# =============================================================================
+# RAM Build Support – tmpfs output directory to reduce SSD/disk wear
+# =============================================================================
+# Buildroot's output/ directory can see hundreds of GB of writes during a
+# full build (package extraction, compilation, staging).  Mounting it on
+# tmpfs keeps those writes in RAM, extending the life of SSDs and SD cards.
+#
+# Lifecycle:
+#   1. setup_ram_build()   – check RAM, mount tmpfs at output/, set BR2_DL_DIR
+#   2. build runs entirely in RAM
+#   3. teardown_ram_build() – if --ram-keep: leave tmpfs; else copy images
+#                              to persistent storage and unmount
+#
+# Persistent paths (always on disk, never in tmpfs):
+#   dl/          →  ${SCRIPT_DIR}/.iora-dl-cache/  (downloaded source tarballs)
+#   ccache dir   →  set via BR2_CCACHE_DIR           (compiler cache)
+#   ~/.iora-cache/  cargo/sccache                   (Rust build cache)
+
+IORA_RAM_MIN_MB=16384     # minimum recommended RAM for RAM build (16 GB)
+IORA_RAM_OUTPUT_GB=30     # estimated output/ size for a full build
+IORA_RAM_AGGRESSIVE="${IORA_RAM_AGGRESSIVE:-0}"  # --ram-aggressive: dl/ + caches in tmpfs too
+
+# ── Human-readable size conversion ─────────────────────────────────────────
+_parse_size_to_kb() {
+    local val="$1"
+    local num unit
+    num=$(echo "${val}" | sed 's/[^0-9.]//g')
+    unit=$(echo "${val}" | sed 's/[0-9.]//g' | tr '[:lower:]' '[:upper:]')
+    case "${unit}" in
+        G|GB)  echo $(awk "BEGIN { printf \"%.0f\", ${num} * 1024 * 1024 }" 2>/dev/null || echo 0) ;;
+        M|MB)  echo $(awk "BEGIN { printf \"%.0f\", ${num} * 1024 }" 2>/dev/null || echo 0) ;;
+        K|KB)  echo $(awk "BEGIN { printf \"%.0f\", ${num} }" 2>/dev/null || echo 0) ;;
+        *)     echo 0 ;;
+    esac
+}
+
+_kb_to_human() {
+    local kb="$1"
+    if [ "${kb}" -ge 1048576 ]; then
+        awk "BEGIN { printf \"%.1fG\", ${kb} / 1048576 }"
+    elif [ "${kb}" -ge 1024 ]; then
+        awk "BEGIN { printf \"%.0fM\", ${kb} / 1024 }"
+    else
+        echo "${kb}K"
+    fi
+}
+
+setup_ram_build() {
+    [ "${IORA_RAM_BUILD}" = "1" ] || return 0
+
+    log_info "═══════════════════════════════════════════════════════"
+    log_info "RAM BUILD: Mounting output/ on tmpfs"
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        log_info "  MODE: aggressive — dl/ + ccaches also in tmpfs"
+    fi
+    log_info "═══════════════════════════════════════════════════════"
+
+    # ── Check we're on Linux ──────────────────────────────────────────────
+    if [ "$(uname -s)" != "Linux" ]; then
+        log_error "RAM build (tmpfs) is only supported on Linux."
+        log_error "On macOS/BSD, use the normal disk build."
+        exit 1
+    fi
+
+    # ── Check we have root or sudo ────────────────────────────────────────
+    local _mount_cmd=""
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        _mount_cmd="mount"
+    elif command -v sudo >/dev/null 2>&1; then
+        _mount_cmd="sudo mount"
+    else
+        log_error "RAM build requires root privileges to mount tmpfs."
+        log_error "Run with sudo or as root."
+        exit 1
+    fi
+    _UMOUNT_CMD="${_mount_cmd//mount/umount}"
+
+    # ── Check /tmp is tmpfs (warn if not — many tools write temp files) ─
+    if ! mountpoint -q /tmp 2>/dev/null || ! df -t tmpfs /tmp >/dev/null 2>&1; then
+        log_warn "  /tmp is NOT a tmpfs mount — temporary files will hit the disk."
+        log_warn "  Consider adding to /etc/fstab:  tmpfs /tmp tmpfs defaults,noatime 0 0"
+        if [ "${UNATTENDED}" != true ] && [ "${_IORA_RAM_TMP_WARNED:-0}" = "0" ]; then
+            _IORA_RAM_TMP_WARNED=1
+        fi
+    else
+        log_info "  /tmp is tmpfs ✓"
+    fi
+
+    # ── Check available RAM ───────────────────────────────────────────────
+    local _total_ram_kb _avail_ram_kb
+    _total_ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    _avail_ram_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    local _total_ram_gb=$(( _total_ram_kb / 1048576 ))
+    local _avail_ram_gb=$(( _avail_ram_kb / 1048576 ))
+
+    log_info "  System RAM: ${_total_ram_gb} GB total, ${_avail_ram_gb} GB available"
+
+    if [ "${_total_ram_kb}" -lt $(( IORA_RAM_MIN_MB * 1024 )) ]; then
+        log_warn "  Less than ${IORA_RAM_MIN_MB} MB RAM detected."
+        log_warn "  RAM build may run out of memory and fail or trigger OOM killer."
+        if [ "${UNATTENDED}" != true ]; then
+            if ! prompt_yes_no "  Continue with RAM build anyway?" "N"; then
+                log_info "  Aborted. Re-run without --ram for disk-based build."
+                exit 0
+            fi
+        fi
+    fi
+
+    # ── Auto-enable fast build when RAM is tight (< 32 GB) ────────────────
+    if [ "${_total_ram_kb}" -lt $(( 32 * 1024 * 1024 )) ] && [ "${IORA_FAST_BUILD:-0}" != "1" ]; then
+        log_info "  RAM < 32 GB → auto-enabling IORA_FAST_BUILD=1 (lto=off, faster compilation)"
+        log_info "    This reduces peak memory usage and build time."
+        IORA_FAST_BUILD=1
+        _IORA_RAM_AUTO_FAST=1
+    fi
+
+    # ── Calculate tmpfs size ──────────────────────────────────────────────
+    local _tmpfs_size_kb=0
+    if [ -n "${IORA_RAM_SIZE}" ]; then
+        _tmpfs_size_kb=$(_parse_size_to_kb "${IORA_RAM_SIZE}")
+        if [ "${_tmpfs_size_kb}" -le 0 ]; then
+            log_error "Invalid --ram-size: ${IORA_RAM_SIZE} (expected e.g. 32G, 16G, 48G)"
+            exit 1
+        fi
+        log_info "  tmpfs size (user-specified): ${IORA_RAM_SIZE}"
+    else
+        # Default: 80% of available RAM, clamped to [16G, total_ram]
+        _tmpfs_size_kb=$(( _avail_ram_kb * 80 / 100 ))
+        local _min_kb=$(( 16 * 1024 * 1024 ))   # 16G floor
+        [ "${_tmpfs_size_kb}" -lt "${_min_kb}" ] && _tmpfs_size_kb=${_min_kb}
+        [ "${_tmpfs_size_kb}" -gt "${_total_ram_kb}" ] && _tmpfs_size_kb=${_total_ram_kb}
+        log_info "  tmpfs size (80% of available): $(_kb_to_human ${_tmpfs_size_kb})"
+    fi
+
+    if [ "${_tmpfs_size_kb}" -lt "${_total_ram_kb}" ]; then
+        log_info "  tmpfs limit capped at $(_kb_to_human ${_tmpfs_size_kb}) (prevents OOM)"
+    fi
+
+    # ── Ensure output/ directory exists ───────────────────────────────────
+    local _output_dir="${BUILD_DIR}/output"
+    mkdir -p "${_output_dir}"
+
+    # ── Handle existing output/ content ───────────────────────────────────
+    local _output_backup="${BUILD_DIR}/output.disk-backup"
+    if [ -n "$(ls -A "${_output_dir}" 2>/dev/null)" ]; then
+        # Check if already a tmpfs mount
+        if mountpoint -q "${_output_dir}" 2>/dev/null; then
+            log_info "  output/ is already a tmpfs mount — reusing it."
+            _IORA_RAM_ALREADY_MOUNTED=1
+            _setup_persistent_caches
+            return 0
+        fi
+
+        log_info "  Moving existing output/ to ${_output_backup}..."
+        rm -rf "${_output_backup}" 2>/dev/null || true
+        mv "${_output_dir}" "${_output_backup}"
+        mkdir -p "${_output_dir}"
+        _IORA_RAM_HAD_PREVIOUS_OUTPUT=1
+    fi
+
+    # ── Mount tmpfs ──────────────────────────────────────────────────────
+    log_info "  Mounting tmpfs (size=$(_kb_to_human ${_tmpfs_size_kb})) at ${_output_dir}..."
+    if ! ${_mount_cmd} -t tmpfs -o "size=${_tmpfs_size_kb}k,mode=0755" tmpfs "${_output_dir}"; then
+        log_error "  Failed to mount tmpfs at ${_output_dir}."
+        if [ "${_IORA_RAM_HAD_PREVIOUS_OUTPUT:-0}" = "1" ]; then
+            rm -rf "${_output_dir}" 2>/dev/null || true
+            mv "${_output_backup}" "${_output_dir}"
+        fi
+        exit 1
+    fi
+    _IORA_RAM_MOUNTED=1
+    log_success "  tmpfs mounted at ${_output_dir}"
+
+    # ── Set up persistent caches (dl, ccache, cargo) ─────────────────────
+    _setup_persistent_caches
+
+    # ── Restore host/ tools from backup (avoids recompiling host tools) ──
+    if [ "${_IORA_RAM_HAD_PREVIOUS_OUTPUT:-0}" = "1" ] && [ -d "${_output_backup}/host" ]; then
+        log_info "  Restoring host/ tools from disk backup (avoids recompilation)..."
+        cp -a "${_output_backup}/host" "${_output_dir}/" 2>/dev/null || \
+            log_warn "  Could not restore host/ — host tools will be rebuilt."
+    fi
+
+    # ── Summary ──────────────────────────────────────────────────────────
+    log_success "RAM build ready — all compilation I/O goes to tmpfs."
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        log_info "  dl/        → tmpfs (aggressive mode)"
+        log_info "  ccache     → tmpfs"
+        log_info "  sccache    → tmpfs"
+        log_info "  cargo      → tmpfs"
+    else
+        log_info "  dl/        → ${IORA_PERSISTENT_DL_DIR:-${SCRIPT_DIR}/.iora-dl-cache} (disk)"
+        log_info "  ccache     → tmpfs (auto)"
+        log_info "  sccache    → tmpfs (auto)"
+        log_info "  cargo      → tmpfs (auto)"
+    fi
+    echo ""
+}
+
+# ── Set up all caches: dl (persistent or tmpfs), ccache, sccache, cargo ─────
+_setup_persistent_caches() {
+    local _output_dir="${BUILD_DIR}/output"
+
+    # ── Download directory ────────────────────────────────────────────────
+    if [ -n "${IORA_PERSISTENT_DL_DIR:-}" ]; then
+        : # user-specified
+    else
+        IORA_PERSISTENT_DL_DIR="${SCRIPT_DIR}/.iora-dl-cache"
+    fi
+
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        # Aggressive: dl/ lives inside the tmpfs-mounted output/.
+        # Nothing to symlink — downloads go to output/dl inside tmpfs.
+        log_info "  dl/ → tmpfs (aggressive: downloads also in RAM)"
+        export BR2_DL_DIR="${_output_dir}/dl"
+        mkdir -p "${BR2_DL_DIR}"
+    else
+        # Normal: dl/ symlinked to persistent on-disk storage.
+        mkdir -p "${IORA_PERSISTENT_DL_DIR}"
+        export BR2_DL_DIR="${IORA_PERSISTENT_DL_DIR}"
+
+        local _dl_link="${_output_dir}/dl"
+        if [ -L "${_dl_link}" ] && [ "$(readlink -f "${_dl_link}" 2>/dev/null)" = "$(readlink -f "${IORA_PERSISTENT_DL_DIR}" 2>/dev/null)" ]; then
+            : # already correct
+        else
+            if [ -e "${_dl_link}" ] && [ ! -L "${_dl_link}" ]; then
+                log_info "  Moving existing dl/ contents to persistent storage..."
+                cp -a "${_dl_link}/." "${IORA_PERSISTENT_DL_DIR}/" 2>/dev/null || true
+                rm -rf "${_dl_link}"
+            fi
+            if [ ! -e "${_dl_link}" ]; then
+                ln -sfn "${IORA_PERSISTENT_DL_DIR}" "${_dl_link}"
+            fi
+        fi
+    fi
+
+    # ── Buildroot ccache → tmpfs (inside output/) ─────────────────────────
+    # Move ccache into the tmpfs so compiler cache hits don't touch disk.
+    # Saved back to disk in teardown_ram_build().
+    local _ram_ccache="${_output_dir}/.ccache"
+    local _disk_ccache="${HOME}/.iora-cache/ccache"
+    mkdir -p "${_ram_ccache}"
+    export BR2_CCACHE_DIR="${_ram_ccache}"
+
+    # Pre-populate from disk cache if it exists (warm cache = faster first build).
+    if [ -d "${_disk_ccache}" ] && [ -z "$(ls -A "${_ram_ccache}" 2>/dev/null)" ]; then
+        local _disk_ccache_size
+        _disk_ccache_size=$(du -sh "${_disk_ccache}" 2>/dev/null | cut -f1 || echo "?")
+        log_info "  ccache: pre-loading ${_disk_ccache_size} from disk → tmpfs..."
+        cp -a "${_disk_ccache}/." "${_ram_ccache}/" 2>/dev/null || \
+            log_warn "  ccache pre-load skipped (will start cold)."
+    fi
+    _IORA_RAM_CCACHE_DISK="${_disk_ccache}"
+    log_info "  Buildroot ccache → tmpfs (${_ram_ccache})"
+
+    # ── Rust sccache → tmpfs ──────────────────────────────────────────────
+    local _ram_sccache="${_output_dir}/.sccache"
+    local _disk_sccache="${HOME}/.iora-cache/sccache"
+    mkdir -p "${_ram_sccache}"
+    export SCCACHE_DIR="${_ram_sccache}"
+
+    if [ -d "${_disk_sccache}" ] && [ -z "$(ls -A "${_ram_sccache}" 2>/dev/null)" ]; then
+        local _disk_sccache_size
+        _disk_sccache_size=$(du -sh "${_disk_sccache}" 2>/dev/null | cut -f1 || echo "?")
+        log_info "  sccache: pre-loading ${_disk_sccache_size} from disk → tmpfs..."
+        cp -a "${_disk_sccache}/." "${_ram_sccache}/" 2>/dev/null || true
+    fi
+    _IORA_RAM_SCCACHE_DISK="${_disk_sccache}"
+    log_info "  Rust sccache  → tmpfs (${_ram_sccache})"
+
+    # ── Rust cargo target dir → tmpfs ─────────────────────────────────────
+    local _ram_cargo="${_output_dir}/.cargo-target"
+    mkdir -p "${_ram_cargo}"
+    export CARGO_TARGET_DIR="${_ram_cargo}"
+    log_info "  cargo target  → tmpfs (${_ram_cargo})"
+}
+
+teardown_ram_build() {
+    [ "${IORA_RAM_BUILD}" = "1" ] || return 0
+
+    local _output_dir="${BUILD_DIR}/output"
+    local _output_backup="${BUILD_DIR}/output.disk-backup"
+
+    log_info ""
+    log_info "═══════════════════════════════════════════════════════"
+    log_info "RAM BUILD: Saving caches + tearing down tmpfs"
+    log_info "═══════════════════════════════════════════════════════"
+
+    # ── If --ram-keep: leave everything in tmpfs ────────────────────────
+    if [ "${IORA_RAM_KEEP}" = "1" ]; then
+        log_warn "  --ram-keep: output/ remains in tmpfs."
+        log_warn "  Contents will be LOST on reboot or explicit unmount."
+        log_warn "  To persist: cp -a ${_output_dir}/.ccache ${HOME}/.iora-cache/ccache"
+        log_warn "  To clean:   sudo umount ${_output_dir}"
+        return 0
+    fi
+
+    # ── Determine persistent save location ────────────────────────────────
+    local _persist="${IORA_RAM_PERSIST_DIR:-${BUILD_DIR}/output.persistent}"
+
+    # ── Save Buildroot ccache back to disk (for next build) ──────────────
+    local _ram_ccache="${_output_dir}/.ccache"
+    if [ -d "${_ram_ccache}" ] && [ -n "$(ls -A "${_ram_ccache}" 2>/dev/null)" ]; then
+        local _ccache_disk="${_IORA_RAM_CCACHE_DISK:-${HOME}/.iora-cache/ccache}"
+        mkdir -p "${_ccache_disk}"
+        local _ccache_size
+        _ccache_size=$(du -sh "${_ram_ccache}" 2>/dev/null | cut -f1 || echo "?")
+        log_info "  Saving ccache (${_ccache_size}) → ${_ccache_disk}..."
+        # rsync preserves hardlinks which ccache uses heavily
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete "${_ram_ccache}/" "${_ccache_disk}/" 2>/dev/null || \
+                cp -a "${_ram_ccache}/." "${_ccache_disk}/" 2>/dev/null || true
+        else
+            cp -a "${_ram_ccache}/." "${_ccache_disk}/" 2>/dev/null || true
+        fi
+        log_success "  ccache saved to disk."
+    fi
+
+    # ── Save Rust sccache back to disk ──────────────────────────────────
+    local _ram_sccache="${_output_dir}/.sccache"
+    if [ -d "${_ram_sccache}" ] && [ -n "$(ls -A "${_ram_sccache}" 2>/dev/null)" ]; then
+        local _sccache_disk="${_IORA_RAM_SCCACHE_DISK:-${HOME}/.iora-cache/sccache}"
+        mkdir -p "${_sccache_disk}"
+        local _sccache_size
+        _sccache_size=$(du -sh "${_ram_sccache}" 2>/dev/null | cut -f1 || echo "?")
+        log_info "  Saving sccache (${_sccache_size}) → ${_sccache_disk}..."
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete "${_ram_sccache}/" "${_sccache_disk}/" 2>/dev/null || \
+                cp -a "${_ram_sccache}/." "${_sccache_disk}/" 2>/dev/null || true
+        else
+            cp -a "${_ram_sccache}/." "${_sccache_disk}/" 2>/dev/null || true
+        fi
+        log_success "  sccache saved to disk."
+    fi
+
+    # ── Save cargo target dir (for faster rebuilds) ─────────────────────
+    local _ram_cargo="${_output_dir}/.cargo-target"
+    if [ -d "${_ram_cargo}" ] && [ -n "$(ls -A "${_ram_cargo}" 2>/dev/null)" ] && [ "${IORA_RAM_KEEP_CARGO:-0}" = "1" ]; then
+        local _cargo_disk="${HOME}/.iora-cache/cargo-target"
+        mkdir -p "${_cargo_disk}"
+        log_info "  Saving cargo target to disk (for faster rebuilds)..."
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete "${_ram_cargo}/" "${_cargo_disk}/" 2>/dev/null || true
+        else
+            cp -a "${_ram_cargo}/." "${_cargo_disk}/" 2>/dev/null || true
+        fi
+    fi
+
+    # ── Save images to persistent storage ────────────────────────────────
+    if [ -d "${_output_dir}/images" ] && [ -n "$(ls -A "${_output_dir}/images" 2>/dev/null)" ]; then
+        log_info "  Saving images/ to ${_persist}/images/..."
+        mkdir -p "${_persist}/images"
+        cp -a "${_output_dir}/images/." "${_persist}/images/" 2>/dev/null || \
+            log_warn "  Could not copy images/."
+        log_success "  images/ saved."
+    fi
+
+    # ── Save build/ configs for faster resume ───────────────────────────
+    if [ -d "${_output_dir}/build" ] && [ "${IORA_RAM_SAVE_BUILD:-0}" = "1" ]; then
+        log_info "  Saving build/ to ${_persist}/build/ (for faster resume)..."
+        mkdir -p "${_persist}/build"
+        cp -a "${_output_dir}/build/." "${_persist}/build/" 2>/dev/null || \
+            log_warn "  Could not copy build/."
+    fi
+
+    # ── Save host/ for faster resume ────────────────────────────────────
+    if [ -d "${_output_dir}/host" ] && [ "${IORA_RAM_KEEP_HOST:-0}" = "1" ]; then
+        log_info "  Saving host/ to ${_persist}/host/ (for faster resume)..."
+        mkdir -p "${_persist}/host"
+        cp -a "${_output_dir}/host/." "${_persist}/host/" 2>/dev/null || \
+            log_warn "  Could not copy host/."
+    fi
+
+    # ── Save .config for resume ─────────────────────────────────────────
+    if [ -f "${BUILD_DIR}/.config" ]; then
+        cp -a "${BUILD_DIR}/.config" "${_persist}/.config" 2>/dev/null || true
+    fi
+
+    # ── Save dl/ symlink info ───────────────────────────────────────────
+    if [ -L "${_output_dir}/dl" ]; then
+        local _dl_target
+        _dl_target=$(readlink -f "${_output_dir}/dl" 2>/dev/null || echo "")
+        if [ -n "${_dl_target}" ]; then
+            echo "${_dl_target}" > "${_persist}/.dl-target"
+        fi
+    fi
+
+    log_success "  Build artefacts saved to ${_persist}/"
+
+    # ── Unmount tmpfs ────────────────────────────────────────────────────
+    if [ "${_IORA_RAM_MOUNTED:-0}" = "1" ]; then
+        log_info "  Unmounting tmpfs from ${_output_dir}..."
+        if ! ${_UMOUNT_CMD} "${_output_dir}" 2>/dev/null; then
+            log_warn "  Could not unmount ${_output_dir} — may be busy."
+            log_warn "  Run manually: sudo umount ${_output_dir}"
+        else
+            log_success "  tmpfs unmounted."
+        fi
+        _IORA_RAM_MOUNTED=0
+    elif [ "${_IORA_RAM_ALREADY_MOUNTED:-0}" = "1" ]; then
+        log_info "  tmpfs was pre-existing — leaving it mounted."
+    fi
+
+    # ── Restore previous output/ if it existed ───────────────────────────
+    if [ "${_IORA_RAM_HAD_PREVIOUS_OUTPUT:-0}" = "1" ] && [ -d "${_output_backup}" ]; then
+        log_info "  Restoring previous output/ from backup..."
+        rm -rf "${_output_dir}" 2>/dev/null || true
+        mv "${_output_backup}" "${_output_dir}"
+    fi
+
+    # ── Summary ──────────────────────────────────────────────────────────
+    log_info "  Disk writes saved:  output/ (+ ccache + sccache) were in RAM."
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        log_info "  dl/ was also in RAM (aggressive mode)."
+    fi
+    log_success "RAM build teardown complete — disk spared."
+    echo ""
+}
+
 # Main build process
 main() {
     parse_args "$@"
@@ -6990,6 +7433,12 @@ main() {
     log_info "Artifacts: ${ARTIFACT_FILTER}"
     log_info "xz preset: -${XZ_PRESET}"
     log_info "Require all artifacts: ${REQUIRE_ALL_ARTIFACTS}"
+    if [ "${IORA_RAM_BUILD}" = "1" ]; then
+        log_info "RAM build: ENABLED"
+        log_info "  RAM size limit: ${IORA_RAM_SIZE:-80% of available}"
+        log_info "  RAM keep: $([ "${IORA_RAM_KEEP}" = "1" ] && echo yes || echo no)"
+        log_info "  Aggressive: $([ "${IORA_RAM_AGGRESSIVE}" = "1" ] && echo yes || echo no)"
+    fi
     echo ""
 
     # Create release directory
@@ -6998,6 +7447,12 @@ main() {
     # Run build steps
     check_dependencies
     if [ "${IMAGES_ONLY}" = false ]; then
+        # Set up RAM build (tmpfs mount) BEFORE any heavy disk I/O
+        setup_ram_build
+        # Ensure tmpfs is cleaned up even if build fails
+        if [ "${IORA_RAM_BUILD}" = "1" ]; then
+            trap teardown_ram_build EXIT
+        fi
         # Build the React/Vite dashboard bundle and stage it in the rootfs overlay
         # so iora-home (port 8126) can serve it instead of the embedded fallback.
         build_frontend_bundle
@@ -7042,6 +7497,9 @@ main() {
     if [ "${PUBLISH_RELEASE}" = true ]; then
         publish_to_update_server
     fi
+
+    # Tear down RAM build (copy artefacts to persistent storage, unmount tmpfs)
+    teardown_ram_build
 
     print_summary
 }

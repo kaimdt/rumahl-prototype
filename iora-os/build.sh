@@ -47,6 +47,12 @@ OPTIONS:
         --require-all-artifacts
         --unattended | --non-interactive | --unattachment
 
+    RAM build options (forwarded to build-all-images.sh / resume-build.sh):
+        --ram               Build with output directory in RAM (tmpfs) to reduce SSD wear
+        --ram-size SIZE     tmpfs size limit (e.g. 32G, 16G; default: 80% of available RAM)
+        --ram-keep          Keep output in tmpfs after build (don't copy back to disk)
+        --ram-aggressive    Also put dl/ (downloads) in tmpfs — maximum disk protection
+
     resume options (forwarded to resume-build.sh):
         --progress
         --clean-glibc
@@ -59,6 +65,8 @@ OPTIONS:
         --unattended | --non-interactive | --unattachment
         --jobs N
         --log FILE
+        --ram               RAM-based resume (requires existing tmpfs or re-mounts it)
+        --ram-size SIZE     tmpfs size for resume
 
 EXAMPLES:
     $(basename $0)
@@ -97,9 +105,13 @@ if [ -r "${TARGET_FILE}" ]; then
 fi
 IORA_TARGET="${IORA_TARGET:-${TARGET_DEFAULT}}"
 
-# Pull --target / --dev out of the argument list early so they apply to
+# Pull --target / --dev / --ram* out of the argument list early so they apply to
 # every subcommand below.  Any other flags pass through unchanged.
 IORA_OS_DEV="${IORA_OS_DEV:-0}"
+IORA_RAM_BUILD="${IORA_RAM_BUILD:-0}"
+IORA_RAM_SIZE="${IORA_RAM_SIZE:-}"
+IORA_RAM_KEEP="${IORA_RAM_KEEP:-0}"
+IORA_RAM_AGGRESSIVE="${IORA_RAM_AGGRESSIVE:-0}"
 FILTERED_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -119,6 +131,31 @@ while [ $# -gt 0 ]; do
             IORA_OS_DEV=0
             shift
             ;;
+        --ram)
+            IORA_RAM_BUILD=1
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+        --ram-size)
+            IORA_RAM_SIZE="${2:-}"
+            FILTERED_ARGS+=("$1" "${2:-}")
+            shift 2 || true
+            ;;
+        --ram-size=*)
+            IORA_RAM_SIZE="${1#*=}"
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+        --ram-keep)
+            IORA_RAM_KEEP=1
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+        --ram-aggressive)
+            IORA_RAM_AGGRESSIVE=1
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
         *)
             FILTERED_ARGS+=("$1")
             shift
@@ -133,6 +170,27 @@ else
 fi
 
 export IORA_TARGET
+export IORA_RAM_BUILD
+export IORA_RAM_SIZE
+export IORA_RAM_KEEP
+export IORA_RAM_AGGRESSIVE
+
+# ── RAM build notice ────────────────────────────────────────────────────────
+if [ "${IORA_RAM_BUILD}" = "1" ]; then
+    echo "[IORA] RAM BUILD ENABLED – output will be mounted on tmpfs"
+    if [ -n "${IORA_RAM_SIZE}" ]; then
+        echo "[IORA]   tmpfs size limit: ${IORA_RAM_SIZE}"
+    else
+        echo "[IORA]   tmpfs size: 80% of available RAM (override with --ram-size)"
+    fi
+    if [ "${IORA_RAM_KEEP}" = "1" ]; then
+        echo "[IORA]   --ram-keep: output remains in tmpfs after build"
+    fi
+    if [ "${IORA_RAM_AGGRESSIVE}" = "1" ]; then
+        echo "[IORA]   --ram-aggressive: dl/ + all caches also in tmpfs (max disk protection)"
+    fi
+fi
+
 case "${IORA_TARGET}" in
     pc)
         export IORA_DEFCONFIG="iora_defconfig"
