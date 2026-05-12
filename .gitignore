@@ -53,4 +53,4 @@ nul
 __pycache__/
 /store/.next
 /iora-os/board
-/iora-os
+/iora-os/.cache
