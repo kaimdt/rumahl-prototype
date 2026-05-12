@@ -1,10 +1,17 @@
+# ============================================================================
+# IORA – Docker Compose (Minimal)
+# ============================================================================
+# Nur die kritischen Kern-Dienste: Postgres + Core + Secrets + Home.
+# Für Raspberry Pi, low-resource VMs oder schnelles lokales Testen.
+#
+# Verwendung:
+#   docker compose -f docker-compose.minimal.yml up -d
+# ============================================================================
+
 version: '3.8'
 
-# IORA Minimal Configuration
-# Only critical services required for basic smart home functionality
-
 services:
-  # PostgreSQL Database (REQUIRED)
+  # ── PostgreSQL ─────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: iora-postgres
@@ -25,82 +32,68 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    labels:
-      iora.managed: "true"
-      iora.service: "postgres"
-      iora.critical: "true"
 
-  # IORA Core - Central orchestrator (REQUIRED)
+  # ── iora-core ──────────────────────────────────────────────────────────
   iora-core:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-core
-    container_name: iora-core
     image: iora/core:latest
+    container_name: iora-core
     ports:
       - "${CORE_PORT:-8090}:8090"
     environment:
-      - PORT=8090
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_core
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8090"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_core"
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      iora.managed: "true"
-      iora.service: "core"
-      iora.critical: "true"
 
-  # IORA Secrets - Encrypted secrets storage (REQUIRED)
+  # ── iora-secrets ───────────────────────────────────────────────────────
   iora-secrets:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-secrets
-    container_name: iora-secrets
     image: iora/secrets:latest
+    container_name: iora-secrets
     ports:
       - "${SECRETS_PORT:-8093}:8093"
     environment:
-      - PORT=8093
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets
-      - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY}
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8093"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets"
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-changeme}
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    security_opt:
-      - apparmor=iora-secrets
-    labels:
-      iora.managed: "true"
-      iora.service: "secrets"
-      iora.critical: "true"
 
-  # IORA Home - Smart Home server (REQUIRED)
+  # ── iora-home ──────────────────────────────────────────────────────────
   iora-home:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-home
-    container_name: iora-home
     image: iora/home:latest
+    container_name: iora-home
     ports:
-      - "${HOME_PORT:-8080}:8080"
+      - "${HOME_PORT:-8126}:8126"
     environment:
-      - PORT=8080
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home
-      - HA_URL=${HA_URL}
-      - HA_TOKEN=${HA_TOKEN}
-      - JWT_SECRET=${JWT_SECRET}
-      - IORA_CORE_URL=http://iora-core:8090
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8126"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home"
+      HA_URL: ${HA_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      IORA_CORE_URL: "http://iora-core:8090"
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
@@ -109,10 +102,46 @@ services:
         condition: service_healthy
       iora-core:
         condition: service_started
-    labels:
-      iora.managed: "true"
-      iora.service: "home"
-      iora.critical: "true"
+
+  # ── Optional: STT (faster-whisper) ─────────────────────────────────────
+  iora-stt:
+    build:
+      context: ../iora-os/backend/services/iora-stt
+    image: iora/stt:latest
+    container_name: iora-stt
+    ports:
+      - "${STT_PORT:-8110}:8110"
+    environment:
+      IORA_STT_PORT: "8110"
+      IORA_STT_MODEL: ${IORA_STT_MODEL:-base}
+      IORA_STT_DEVICE: ${IORA_STT_DEVICE:-cpu}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - voice
+
+  # ── Optional: TTS (Kokoro ONNX) ────────────────────────────────────────
+  iora-tts:
+    build:
+      context: ../iora-os/backend/services/iora-tts
+    image: iora/tts:latest
+    container_name: iora-tts
+    ports:
+      - "${TTS_PORT:-8111}:8111"
+    environment:
+      IORA_TTS_PORT: "8111"
+      IORA_TTS_VOICE: ${IORA_TTS_VOICE:-af_nicole}
+      IORA_TTS_LANG: ${IORA_TTS_LANG:-en-us}
+      IORA_TTS_MODEL_PATH: /models/kokoro-v1.0.onnx
+      IORA_TTS_VOICES_PATH: /models/voices-v1.0.bin
+    volumes:
+      - tts_models:/models
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - voice
 
 networks:
   iora-network:
@@ -121,52 +150,6 @@ networks:
       driver: default
       config:
         - subnet: 172.20.0.0/16
-
-  # ─── Optional: IORA STT (faster-whisper) ────────────────────────────
-  iora-stt:
-    image: ghcr.io/iora-os/iora-stt:latest
-    container_name: iora-stt
-    build:
-      context: ../iora-os/backend/services/iora-stt
-    environment:
-      IORA_STT_PORT: "8110"
-      IORA_STT_MODEL: ${IORA_STT_MODEL:-base}
-      IORA_STT_DEVICE: ${IORA_STT_DEVICE:-cpu}
-    ports:
-      - "${IORA_STT_PORT:-8110}:8110"
-    networks:
-      - iora-network
-    restart: unless-stopped
-    profiles:
-      - voice
-    labels:
-      iora.managed: "true"
-      iora.service: "iora-stt"
-
-  # ─── Optional: IORA TTS (Kokoro ONNX) ───────────────────────────────
-  iora-tts:
-    image: ghcr.io/iora-os/iora-tts:latest
-    container_name: iora-tts
-    build:
-      context: ../iora-os/backend/services/iora-tts
-    environment:
-      IORA_TTS_PORT: "8111"
-      IORA_TTS_VOICE: ${IORA_TTS_VOICE:-af_nicole}
-      IORA_TTS_LANG: ${IORA_TTS_LANG:-en-us}
-      IORA_TTS_MODEL_PATH: /models/kokoro-v1.0.onnx
-      IORA_TTS_VOICES_PATH: /models/voices-v1.0.bin
-    ports:
-      - "${IORA_TTS_PORT:-8111}:8111"
-    volumes:
-      - tts_models:/models
-    networks:
-      - iora-network
-    restart: unless-stopped
-    profiles:
-      - voice
-    labels:
-      iora.managed: "true"
-      iora.service: "iora-tts"
 
 volumes:
   postgres_data:

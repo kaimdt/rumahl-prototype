@@ -1267,9 +1267,33 @@ build_service_binaries() {
         local RUST_TRIPLE="${IORA_RUST_TRIPLE:-x86_64-unknown-linux-gnu}"
         case "${IORA_ARCH:-x86_64}" in
             aarch64|rpi3|rpi4|rpi5|generic-arm64)
-                RUST_TRIPLE="aarch64-unknown-linux-gnu" ;;
+                RUST_TRIPLE="aarch64-unknown-linux-gnu"
+                # Configure cross-compilation linker and CC
+                # cargo uses <triple>-gcc as the linker for C dependencies.
+                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
+                export CC_aarch64_unknown_linux_gnu="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
+                export CXX_aarch64_unknown_linux_gnu="${CROSS_COMPILE:-aarch64-linux-gnu-}g++"
+                export PKG_CONFIG_ALLOW_CROSS=1
+                export OPENSSL_STATIC=1
+                log_info "  Cross-compiling Rust → aarch64 (linker: ${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER})"
+                # Verify cross-compiler is available
+                if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+                    log_warn "  aarch64-linux-gnu-gcc NOT FOUND — C dependencies will fail to link."
+                    log_warn "  Install: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+                fi
+                ;;
             armhf)
-                RUST_TRIPLE="armv7-unknown-linux-gnueabihf" ;;
+                RUST_TRIPLE="armv7-unknown-linux-gnueabihf"
+                export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER="${CROSS_COMPILE:-arm-linux-gnueabihf-}gcc"
+                export CC_armv7_unknown_linux_gnueabihf="${CROSS_COMPILE:-arm-linux-gnueabihf-}gcc"
+                export PKG_CONFIG_ALLOW_CROSS=1
+                export OPENSSL_STATIC=1
+                log_info "  Cross-compiling Rust → armv7 (linker: ${CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER})"
+                if ! command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1; then
+                    log_warn "  arm-linux-gnueabihf-gcc NOT FOUND — C dependencies will fail."
+                    log_warn "  Install: sudo apt-get install -y gcc-arm-linux-gnueabihf"
+                fi
+                ;;
         esac
         if [ "${_IORA_AUTO_MUSL}" = "1" ]; then
             RUST_TRIPLE="x86_64-unknown-linux-musl"

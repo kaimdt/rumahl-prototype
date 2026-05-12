@@ -197,19 +197,19 @@ case "${IORA_TARGET}" in
         export IORA_ARCH="x86_64"
         ;;
     rpi3)
-        export IORA_DEFCONFIG="raspberrypi3_64_defconfig"
+        export IORA_DEFCONFIG="iora_rpi3_64_defconfig"
         export IORA_ARCH="aarch64"
         ;;
     rpi4)
-        export IORA_DEFCONFIG="raspberrypi4_64_defconfig"
+        export IORA_DEFCONFIG="iora_rpi4_64_defconfig"
         export IORA_ARCH="aarch64"
         ;;
     rpi5)
-        export IORA_DEFCONFIG="raspberrypi5_defconfig"
+        export IORA_DEFCONFIG="iora_rpi5_defconfig"
         export IORA_ARCH="aarch64"
         ;;
     generic-arm64)
-        export IORA_DEFCONFIG="generic_arm64_defconfig"
+        export IORA_DEFCONFIG="iora_generic_arm64_defconfig"
         export IORA_ARCH="aarch64"
         ;;
     *)

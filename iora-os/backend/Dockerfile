@@ -244,3 +244,101 @@ EXPOSE 8101
 HEALTHCHECK --interval=30s --timeout=3s --start-period=2s --retries=3 \
     CMD curl -f http://localhost:8101/dev/health || exit 1
 CMD ["/app/iora-dev-bridge", "--listen", "0.0.0.0:8101"]
+
+# ═══════════════════════════════════════════════════════════════════
+# Additional IORA services
+# ═══════════════════════════════════════════════════════════════════
+
+# iora-appstore – App marketplace and local store
+FROM runtime-base AS iora-appstore
+COPY --from=builder /out/iora-appstore /app/iora-appstore
+RUN chown -R iora:iora /app
+USER iora
+EXPOSE 8098
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8098/health || exit 1
+CMD ["/app/iora-appstore"]
+
+# iora-backup – Backup & Restore
+FROM runtime-base AS iora-backup
+COPY --from=builder /out/iora-backup /app/iora-backup
+RUN mkdir -p /var/lib/iora/backups && chown -R iora:iora /var/lib/iora /app
+USER iora
+EXPOSE 8100
+VOLUME ["/var/lib/iora/backups"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8100/health || exit 1
+CMD ["/app/iora-backup"]
+
+# iora-api – REST + WebSocket API Gateway
+FROM runtime-base AS iora-api
+COPY --from=builder /out/iora-api /app/iora-api
+RUN chown -R iora:iora /app
+USER iora
+EXPOSE 8101
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8101/health || exit 1
+CMD ["/app/iora-api"]
+
+# iora-files – File sharing service
+FROM runtime-base AS iora-files
+COPY --from=builder /out/iora-files /app/iora-files
+RUN mkdir -p /var/lib/iora/files && chown -R iora:iora /var/lib/iora /app
+USER iora
+EXPOSE 8102
+VOLUME ["/var/lib/iora/files"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8102/health || exit 1
+CMD ["/app/iora-files"]
+
+# iora-updater – Update manager (RAUC integration)
+FROM runtime-base AS iora-updater
+COPY --from=builder /out/iora-updater /app/iora-updater
+RUN chown -R iora:iora /app
+USER iora
+EXPOSE 8103
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8103/health || exit 1
+CMD ["/app/iora-updater"]
+
+# iora-connector – Remote connectivity (Tailscale/ZeroTier)
+FROM runtime-base AS iora-connector
+COPY --from=builder /out/iora-connector /app/iora-connector
+# Needs network capabilities for VPN/tunnel setup
+USER root
+EXPOSE 8104
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8104/health || exit 1
+CMD ["/app/iora-connector"]
+
+# iora-nginx – Reverse proxy
+FROM runtime-base AS iora-nginx
+COPY --from=builder /out/iora-nginx /app/iora-nginx
+RUN mkdir -p /etc/nginx/certs && chown -R iora:iora /app
+USER iora
+EXPOSE 80 443
+VOLUME ["/etc/nginx/certs"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
+CMD ["/app/iora-nginx"]
+
+# iora-network-monitor – Network scanner
+FROM runtime-base AS iora-network-monitor
+COPY --from=builder /out/iora-network-monitor /app/iora-network-monitor
+# Network scanner needs raw socket access
+USER root
+EXPOSE 8105
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8105/health || exit 1
+CMD ["/app/iora-network-monitor"]
+
+# iora-intelligence – AI-powered system analysis
+FROM runtime-base AS iora-intelligence
+COPY --from=builder /out/iora-intelligence /app/iora-intelligence
+RUN mkdir -p /var/lib/iora && chown -R iora:iora /var/lib/iora /app
+USER iora
+EXPOSE 8099
+VOLUME ["/var/lib/iora"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8099/health || exit 1
+CMD ["/app/iora-intelligence"]

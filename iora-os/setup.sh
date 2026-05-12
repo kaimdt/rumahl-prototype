@@ -455,6 +455,21 @@ install_rust() {
                 rustup target add x86_64-unknown-linux-musl >/dev/null 2>&1 || true
             fi
         fi
+
+        # ── ARM64 / Raspberry Pi cross-compilation targets ────────────────
+        # Install aarch64 target when building for ARM from x86_64.
+        # Idempotent – no-op if already installed.
+        if [ "${TARGET}" != "pc" ]; then
+            log_info "Installing Rust cross-compilation target for ${TARGET} (aarch64)..."
+            if [ -n "$real_user" ] && [ "$real_user" != root ] && command -v sudo >/dev/null 2>&1; then
+                sudo -u "$real_user" rustup target add aarch64-unknown-linux-gnu >/dev/null 2>&1 || \
+                    log_warn "Could not install aarch64-unknown-linux-gnu target – cross-compilation may fail."
+            else
+                rustup target add aarch64-unknown-linux-gnu >/dev/null 2>&1 || \
+                    log_warn "Could not install aarch64-unknown-linux-gnu target – cross-compilation may fail."
+            fi
+            log_info "Rust cross-compilation targets ready."
+        fi
     else
         warn "Rust installation completed but cargo is not on PATH."
         warn "Open a new shell (or run: source \"${user_home}/.cargo/env\") and retry."

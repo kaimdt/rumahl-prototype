@@ -1,23 +1,27 @@
+# ============================================================================
+# IORA – Docker Compose (Full Stack)
+# ============================================================================
+# Alle IORA-Dienste für Entwicklung, Test und Fremdinstallation.
+#
+# PRODUKTION: IORA OS verwenden (buildroot-basiertes Image)
+# Dieses Compose-File ist für Nicht-IORA-OS-Umgebungen gedacht.
+#
+# Verwendung:
+#   cp .env.example .env          # Umgebungsvariablen anpassen
+#   docker compose up -d          # Alle Dienste starten
+#   docker compose up -d postgres iora-core iora-home  # Nur Kern-Dienste
+#   docker compose down           # Alle Dienste stoppen
+#   docker compose logs -f        # Live-Logs
+#
+# Build-Kontext: deploy/ → ../iora-os/backend/
+# ============================================================================
+
 version: '3.8'
 
-# IORA - Docker Compose Installation
-# For standard Docker Compose installations (not IORA OS)
-#
-# RECOMMENDED: Use IORA OS for production deployments
-# IORA OS provides additional features:
-#   - iora-supervisor for automatic container management
-#   - AppArmor security profiles
-#   - RAUC atomic updates with rollback
-#   - Optimized minimal OS footprint
-#
-# This configuration provides all core IORA functionality
-# Services are managed manually via docker compose commands
-#
-# Note: iora-supervisor is ONLY available on IORA OS
-# See docker-compose.iora-os.yml for IORA OS specific services
-
 services:
-  # PostgreSQL Database
+  # ═══════════════════════════════════════════════════════════════════════
+  # PostgreSQL – Zentrale Datenbank für alle IORA-Dienste
+  # ═══════════════════════════════════════════════════════════════════════
   postgres:
     image: postgres:16-alpine
     container_name: iora-postgres
@@ -38,169 +42,50 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    labels:
-      iora.managed: "true"
-      iora.service: "postgres"
 
-  # IORA Core - Central orchestrator
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-core – Zentraler Orchestrator (Service Discovery, Plugin-Registry)
+  # ═══════════════════════════════════════════════════════════════════════
   iora-core:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-core
-    container_name: iora-core
     image: iora/core:latest
+    container_name: iora-core
     ports:
       - "${CORE_PORT:-8090}:8090"
     environment:
-      - PORT=8090
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_core
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8090"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_core"
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      iora.managed: "true"
-      iora.service: "core"
-      iora.critical: "true"
 
-  # IORA Security - Security monitoring and PostgreSQL management
-  iora-security:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: iora-security
-    container_name: iora-security
-    image: iora/security:latest
-    ports:
-      - "${SECURITY_PORT:-8095}:8095"
-    environment:
-      - PORT=8095
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_security
-      - POSTGRES_ADMIN_URL=postgres://postgres:${POSTGRES_PASSWORD:-changeme}@postgres:5432/postgres
-      - SECURITY_DB_PATH=/var/lib/iora/security.db
-      - SECURITY_DB_KEY=${SECURITY_DB_KEY}
-      - RUST_LOG=${RUST_LOG:-info}
-      - AUTO_LOCKDOWN_ENABLED=true
-      - THREAT_LEVEL_THRESHOLD=7
-    volumes:
-      - security_data:/var/lib/iora
-    networks:
-      - iora-network
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    security_opt:
-      - apparmor=iora-security
-    labels:
-      iora.managed: "true"
-      iora.service: "security"
-      iora.critical: "true"
-
-  # IORA Watchdog - Health monitoring
-  iora-watchdog:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: iora-watchdog
-    container_name: iora-watchdog
-    image: iora/watchdog:latest
-    ports:
-      - "${WATCHDOG_PORT:-8094}:8094"
-    environment:
-      - PORT=8094
-      - IORA_CORE_URL=http://iora-core:8090
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    restart: unless-stopped
-    depends_on:
-      - iora-core
-    labels:
-      iora.managed: "true"
-      iora.service: "watchdog"
-      iora.critical: "true"
-
-  # IORA Secrets - Encrypted secrets storage
-  iora-secrets:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: iora-secrets
-    container_name: iora-secrets
-    image: iora/secrets:latest
-    ports:
-      - "${SECRETS_PORT:-8093}:8093"
-    environment:
-      - PORT=8093
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets
-      - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY}
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - iora-network
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    security_opt:
-      - apparmor=iora-secrets
-    labels:
-      iora.managed: "true"
-      iora.service: "secrets"
-      iora.critical: "true"
-
-  # IORA Gateway - Sandboxed external integrations
-  iora-gateway:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: iora-gateway
-    container_name: iora-gateway
-    image: iora/gateway:latest
-    ports:
-      - "${GATEWAY_PORT:-8096}:8096"
-    environment:
-      - PORT=8096
-      - GATEWAY_DB_PATH=/var/lib/iora/gateway.db
-      - SMTP_SERVER=${SMTP_SERVER}
-      - SMTP_USERNAME=${SMTP_USERNAME}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - ENABLE_SANDBOXING=true
-      - REQUEST_TIMEOUT_SECS=30
-      - RUST_LOG=${RUST_LOG:-info}
-    volumes:
-      - gateway_data:/var/lib/iora
-    networks:
-      - iora-network
-    restart: unless-stopped
-    security_opt:
-      - apparmor=iora-gateway
-    labels:
-      iora.managed: "true"
-      iora.service: "gateway"
-
-  # IORA Home - Smart Home server
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-home – Dashboard-Backend, API, Auth, Streaming (Port 8126)
+  # ═══════════════════════════════════════════════════════════════════════
   iora-home:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-home
-    container_name: iora-home
     image: iora/home:latest
+    container_name: iora-home
     ports:
-      - "${HOME_PORT:-8080}:8080"
+      - "${HOME_PORT:-8126}:8126"
     environment:
-      - PORT=8080
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home
-      - HA_URL=${HA_URL}
-      - HA_TOKEN=${HA_TOKEN}
-      - JWT_SECRET=${JWT_SECRET}
-      - IORA_CORE_URL=http://iora-core:8090
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8126"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_home"
+      HA_URL: ${HA_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      IORA_CORE_URL: "http://iora-core:8090"
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
@@ -209,116 +94,463 @@ services:
         condition: service_healthy
       iora-core:
         condition: service_started
-    labels:
-      iora.managed: "true"
-      iora.service: "home"
-      iora.critical: "true"
 
-  # IORA Control - Admin panel backend
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-security – Security Monitoring, PostgreSQL-Verwaltung
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-security:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-security
+    image: iora/security:latest
+    container_name: iora-security
+    ports:
+      - "${SECURITY_PORT:-8095}:8095"
+    environment:
+      PORT: "8095"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_security"
+      POSTGRES_ADMIN_URL: "postgres://postgres:${POSTGRES_PASSWORD:-changeme}@postgres:5432/postgres"
+      SECURITY_DB_PATH: "/var/lib/iora/security.db"
+      SECURITY_DB_KEY: ${SECURITY_DB_KEY:-changeme}
+      AUTO_LOCKDOWN_ENABLED: "true"
+      THREAT_LEVEL_THRESHOLD: "7"
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - security_data:/var/lib/iora
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-watchdog – Health Monitoring
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-watchdog:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-watchdog
+    image: iora/watchdog:latest
+    container_name: iora-watchdog
+    ports:
+      - "${WATCHDOG_PORT:-8094}:8094"
+    environment:
+      PORT: "8094"
+      IORA_CORE_URL: "http://iora-core:8090"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      - iora-core
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-secrets – Verschlüsselte Secrets-Verwaltung
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-secrets:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-secrets
+    image: iora/secrets:latest
+    container_name: iora-secrets
+    ports:
+      - "${SECRETS_PORT:-8093}:8093"
+    environment:
+      PORT: "8093"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_secrets"
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-changeme}
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-gateway – Sandboxed externe Integrationen (E-Mail, Webhooks)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-gateway:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-gateway
+    image: iora/gateway:latest
+    container_name: iora-gateway
+    ports:
+      - "${GATEWAY_PORT:-8096}:8096"
+    environment:
+      PORT: "8096"
+      GATEWAY_DB_PATH: "/var/lib/iora/gateway.db"
+      SMTP_SERVER: ${SMTP_SERVER:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ENABLE_SANDBOXING: "true"
+      REQUEST_TIMEOUT_SECS: "30"
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - gateway_data:/var/lib/iora
+    networks:
+      - iora-network
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-control – Admin-Panel Backend
+  # ═══════════════════════════════════════════════════════════════════════
   iora-control:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-control
-    container_name: iora-control
     image: iora/control:latest
+    container_name: iora-control
     ports:
       - "${CONTROL_PORT:-8091}:8091"
     environment:
-      - PORT=8091
-      - IORA_CORE_URL=http://iora-core:8090
-      - IORA_HOME_URL=http://iora-home:8080
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8091"
+      IORA_CORE_URL: "http://iora-core:8090"
+      IORA_HOME_URL: "http://iora-home:8126"
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       - iora-core
       - iora-home
-    labels:
-      iora.managed: "true"
-      iora.service: "control"
 
-  # IORA Assist - AI assistant
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-assist – AI-Assistant (ORA)
+  # ═══════════════════════════════════════════════════════════════════════
   iora-assist:
     build:
-      context: ./backend
+      context: ../iora-os/backend
       dockerfile: Dockerfile
       target: iora-assist
-    container_name: iora-assist
     image: iora/assist:latest
+    container_name: iora-assist
     ports:
       - "${ASSIST_PORT:-8092}:8092"
     environment:
-      - PORT=8092
-      - ASSIST_AI_BACKEND_URL=${ASSIST_AI_BACKEND_URL}
-      - ASSIST_AI_API_KEY=${ASSIST_AI_API_KEY}
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8092"
+      ASSIST_AI_BACKEND_URL: ${ASSIST_AI_BACKEND_URL:-}
+      ASSIST_AI_API_KEY: ${ASSIST_AI_API_KEY:-}
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       - iora-core
-    labels:
-      iora.managed: "true"
-      iora.service: "assist"
 
-  # IORA App Store - App marketplace and management
-  # Note: Without iora-supervisor, app installation/management features are limited
-  # Use IORA OS for full app management capabilities
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-appstore – App-Marktplatz (lokaler Store)
+  # ═══════════════════════════════════════════════════════════════════════
   iora-appstore:
     build:
-      context: .
-      dockerfile: backend/iora-appstore/Dockerfile
-    container_name: iora-appstore
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-appstore
     image: iora/appstore:latest
+    container_name: iora-appstore
     ports:
       - "${APPSTORE_PORT:-8098}:8098"
     environment:
-      - PORT=8098
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_appstore
-      - SUPERVISOR_URL=${SUPERVISOR_URL:-}
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8098"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_appstore"
+      SUPERVISOR_URL: ${SUPERVISOR_URL:-}
+      RUST_LOG: ${RUST_LOG:-info}
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      iora.managed: "true"
-      iora.service: "appstore"
 
-  # IORA Backup - Backup and restore for IORA OS
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-backup – Backup & Restore
+  # ═══════════════════════════════════════════════════════════════════════
   iora-backup:
     build:
-      context: .
-      dockerfile: backend/iora-backup/Dockerfile
-    container_name: iora-backup
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-backup
     image: iora/backup:latest
+    container_name: iora-backup
     ports:
       - "${BACKUP_PORT:-8100}:8100"
     environment:
-      - PORT=8100
-      - DATABASE_URL=postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_backup
-      - POSTGRES_HOST=postgres
-      - POSTGRES_USER=${POSTGRES_USER:-iora}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-      - BACKUP_DIR=/var/lib/iora/backups
-      - RUST_LOG=${RUST_LOG:-info}
+      PORT: "8100"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-iora}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/iora_backup"
+      POSTGRES_HOST: "postgres"
+      POSTGRES_USER: ${POSTGRES_USER:-iora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      BACKUP_DIR: "/var/lib/iora/backups"
+      RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - backup_data:/var/lib/iora/backups
-      - /var/run/docker.sock:/var/run/docker.sock # For backing up Docker volumes
-      - postgres_data:/backup-postgres:ro # Read-only access to postgres data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - postgres_data:/backup-postgres:ro
     networks:
       - iora-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      iora.managed: "true"
-      iora.service: "backup"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-api – API Gateway (REST + WebSocket)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-api:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-api
+    image: iora/api:latest
+    container_name: iora-api
+    ports:
+      - "${API_PORT:-8101}:8101"
+    environment:
+      PORT: "8101"
+      IORA_CORE_URL: "http://iora-core:8090"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      - iora-core
+    profiles:
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-files – Datei-Sharing
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-files:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-files
+    image: iora/files:latest
+    container_name: iora-files
+    ports:
+      - "${FILES_PORT:-8102}:8102"
+    environment:
+      PORT: "8102"
+      FILES_DATA_DIR: "/var/lib/iora/files"
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - files_data:/var/lib/iora/files
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-updater – Update-Manager (RAUC-Integration auf IORA OS)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-updater:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-updater
+    image: iora/updater:latest
+    container_name: iora-updater
+    ports:
+      - "${UPDATER_PORT:-8103}:8103"
+    environment:
+      PORT: "8103"
+      IORA_CORE_URL: "http://iora-core:8090"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      - iora-core
+    profiles:
+      - iora-os
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-connector – Remote-Verbindung (Tailscale/ZeroTier)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-connector:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-connector
+    image: iora/connector:latest
+    container_name: iora-connector
+    ports:
+      - "${CONNECTOR_PORT:-8104}:8104"
+    environment:
+      PORT: "8104"
+      IORA_CORE_URL: "http://iora-core:8090"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      - iora-core
+    profiles:
+      - full
+      - remote
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-nginx – Reverse Proxy (nur IORA OS)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-nginx:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-nginx
+    image: iora/nginx:latest
+    container_name: iora-nginx
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+      - "443:443"
+    environment:
+      IORA_HOME_URL: "http://iora-home:8126"
+      IORA_CORE_URL: "http://iora-core:8090"
+    volumes:
+      - nginx_certs:/etc/nginx/certs
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      - iora-home
+      - iora-core
+    profiles:
+      - iora-os
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-network-monitor – Netzwerk-Scanner
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-network-monitor:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-network-monitor
+    image: iora/network-monitor:latest
+    container_name: iora-network-monitor
+    network_mode: host
+    environment:
+      PORT: "${NETWORK_MONITOR_PORT:-8105}"
+      RUST_LOG: ${RUST_LOG:-info}
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-supervisor – Docker-Container-Management (IORA OS ONLY)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-supervisor:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-supervisor
+    image: iora/supervisor:latest
+    container_name: iora-supervisor
+    ports:
+      - "${SUPERVISOR_PORT:-8097}:8097"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - supervisor_data:/var/lib/iora
+    environment:
+      PORT: "8097"
+      IORA_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    privileged: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iora-core:
+        condition: service_started
+    profiles:
+      - iora-os
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-intelligence – KI-gestützte Systemanalyse (IORA OS)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-intelligence:
+    build:
+      context: ../iora-os/backend
+      dockerfile: Dockerfile
+      target: iora-intelligence
+    image: iora/intelligence:latest
+    container_name: iora-intelligence
+    ports:
+      - "${INTELLIGENCE_PORT:-8099}:8099"
+    volumes:
+      - intelligence_data:/var/lib/iora
+    environment:
+      PORT: "8099"
+      IORA_HOME_URL: "http://iora-home:8126"
+      CORE_URL: "http://iora-core:8090"
+      IORA_OS: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    depends_on:
+      iora-core:
+        condition: service_started
+    profiles:
+      - iora-os
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-stt – Speech-to-Text (faster-whisper)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-stt:
+    build:
+      context: ../iora-os/backend/services/iora-stt
+    image: iora/stt:latest
+    container_name: iora-stt
+    ports:
+      - "${STT_PORT:-8110}:8110"
+    environment:
+      IORA_STT_PORT: "8110"
+      IORA_STT_MODEL: ${IORA_STT_MODEL:-base}
+      IORA_STT_DEVICE: ${IORA_STT_DEVICE:-cpu}
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - voice
+      - full
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # iora-tts – Text-to-Speech (Kokoro ONNX)
+  # ═══════════════════════════════════════════════════════════════════════
+  iora-tts:
+    build:
+      context: ../iora-os/backend/services/iora-tts
+    image: iora/tts:latest
+    container_name: iora-tts
+    ports:
+      - "${TTS_PORT:-8111}:8111"
+    environment:
+      IORA_TTS_PORT: "8111"
+      IORA_TTS_VOICE: ${IORA_TTS_VOICE:-af_nicole}
+      IORA_TTS_LANG: ${IORA_TTS_LANG:-en-us}
+      IORA_TTS_MODEL_PATH: /models/kokoro-v1.0.onnx
+      IORA_TTS_VOICES_PATH: /models/voices-v1.0.bin
+    volumes:
+      - tts_models:/models
+    networks:
+      - iora-network
+    restart: unless-stopped
+    profiles:
+      - voice
+      - full
 
 networks:
   iora-network:
@@ -336,4 +568,14 @@ volumes:
   gateway_data:
     driver: local
   backup_data:
+    driver: local
+  files_data:
+    driver: local
+  supervisor_data:
+    driver: local
+  intelligence_data:
+    driver: local
+  nginx_certs:
+    driver: local
+  tts_models:
     driver: local
