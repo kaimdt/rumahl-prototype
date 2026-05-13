@@ -442,7 +442,7 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 8)) {
     $qemuAccel = "tcg"
     # Rebuild args from scratch (exact match of working manual test)
     $qemuArgs = @(
-        "-m", "4G",
+        "-m", "2G",
         "-smp", "2",
         "-machine", "q35,accel=tcg",
         "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
