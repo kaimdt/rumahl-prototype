@@ -407,9 +407,13 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
     # Wait for WHPX process to fully release disk/ISO locks
     if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 2 }
     $qemuAccel = "tcg"
+    # TCG with many CPUs is slower - cap at 4
+    $tcgCpus = [Math]::Min($VM_CPUS, 4)
     $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
+    $qemuArgs = $qemuArgs -replace '-smp [0-9]+', "-smp $tcgCpus"
     # Remove -cpu max for TCG compatibility
     $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-cpu') { $null } elseif ($_ -eq 'max') { $null } else { $_ } } | Where-Object { $_ -ne $null }
+    Write-Info "TCG: using $tcgCpus CPUs (capped for performance)"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
@@ -422,7 +426,6 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
 Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
 
 $maxWait = if ($qemuAccel -eq "tcg") { 600 } else { 600 }
-Write-Info "Waiting for cloud-init to finish (first boot may take 5-10 min)..."
 
 $waited = 0
 $ready = $false
