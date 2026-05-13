@@ -252,7 +252,7 @@ QEMU_ARGS=(
     -name "IORA-Dev" -cpu host
     -machine "$QEMU_MACHINE,accel=hvf"
     -device virtio-gpu
-    -serial stdio
+    -serial none
     -display cocoa,show-cursor=on
 )
 

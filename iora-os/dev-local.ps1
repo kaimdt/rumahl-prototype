@@ -360,7 +360,7 @@ $qemuArgs = @(
     "-cpu", "max",
     "-machine", "${VM_MACHINE},accel=whpx",
     "-device", "virtio-gpu",
-    "-serial", "stdio",
+    "-serial", "none",
     "-display", "gtk,show-cursor=on"
 )
 
