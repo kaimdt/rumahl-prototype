@@ -71,22 +71,23 @@ EOF
 # iora-* app service template (matches what post-build.sh generates)
 _iora_service() {
     local name="$1" port="${2:-}" after="${3:-}"
+    local workdir="/opt/iora/build/${name}"
+    mkdir -p "$workdir/data" 2>/dev/null || true
     cat > "${SVC_DIR}/${name}.service" <<EOF
 [Unit]
 Description=IORA ${name} Service
 Documentation=https://iora-os.dev/services/${name}
 ${after:+After=${after}}
+ConditionPathExists=/opt/iora/build/${name}/bin/${name}
 
 [Service]
 Type=simple
 User=root
+WorkingDirectory=${workdir}
 ExecStart=/opt/iora/build/${name}/bin/${name}
 Restart=always
 RestartSec=5
-StartLimitBurst=10
-StartLimitIntervalSec=60
 ${port:+Environment=PORT=${port}}
-ConditionPathExists=/opt/iora/build/${name}/bin/${name}
 StandardOutput=journal
 StandardError=journal
 

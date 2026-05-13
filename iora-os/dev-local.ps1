@@ -272,29 +272,9 @@ chpasswd:
 
 datasource_list: [ NoCloud ]
 
-packages:
-  - curl
-  - git
-  - build-essential
-  - pkg-config
-  - libssl-dev
-  - nodejs
-  - npm
-  - docker.io
-  - postgresql
-  - postgresql-client
-  - rsync
-  - python3
-  - python3-pip
-  - htop
-  - vim
+packages: []
 
 runcmd:
-  - usermod -aG docker iora
-  - systemctl enable docker --now
-  - systemctl enable postgresql --now
-  - su - postgres -c "psql -c \"CREATE USER iora WITH PASSWORD 'iora' CREATEDB\"" 2>/dev/null || true
-  - su - iora -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
 
 final_message: "IORA Dev VM ready. SSH: ssh -p $SshPort root@localhost (pw: iora)"
@@ -347,13 +327,19 @@ if (-not (Test-Path $SEED_ISO)) {
 }
 
 # ── Step 4: Start QEMU ──────────────────────────────────────────────────────
+# Clean up old SSH host keys for our port
+$prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
+ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
+$ErrorActionPreference = $prevEA
+
 Write-Info "Starting QEMU..."
 
 $qemuArgs = @(
     "-m", $VM_RAM,
     "-smp", $VM_CPUS,
     "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
-    "-drive", "file=$SEED_ISO,format=raw,if=virtio,readonly=on",
+    "-cdrom", "$SEED_ISO",
     "-netdev", "user,id=n0,hostfwd=tcp::8126-:8126,hostfwd=tcp::8101-:8101,hostfwd=tcp::${SshPort}-:22",
     "-device", "virtio-net-pci,netdev=n0",
     "-name", "IORA-Dev",
@@ -423,9 +409,8 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
 # ── Step 5: Wait for cloud-init to finish ───────────────────────────────────
 Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
 
-$maxWait = if ($qemuAccel -eq "tcg") { 600 } else { 300 }
-$waitMsg = if ($qemuAccel -eq "tcg") { "TCG is slow - first boot may take 5-10 min" } else { "first boot may take 2-5 min" }
-Write-Info "Waiting for cloud-init to finish ($waitMsg)..."
+$maxWait = if ($qemuAccel -eq "tcg") { 600 } else { 600 }
+Write-Info "Waiting for cloud-init to finish (first boot may take 5-10 min)..."
 
 $waited = 0
 $ready = $false
@@ -441,7 +426,7 @@ while ($waited -lt $maxWait) {
         Write-Info "If WHPX keeps crashing, disable Hyper-V: bcdedit /set hypervisorlaunchtype off && reboot"
         exit 1
     }
-    $result = & $SSH_BIN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 -i $SSH_KEY -p $SshPort root@localhost "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
+    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o ConnectTimeout=3 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
     if ($result -match "READY") {
         $ready = $true
         break
@@ -449,6 +434,9 @@ while ($waited -lt $maxWait) {
     Start-Sleep -Seconds 5
     $waited += 5
     Write-Host -NoNewline "."
+    if ($waited % 60 -eq 0 -and $waited -gt 0) {
+        Write-Host -NoNewline "[${waited}s]"
+    }
 }
 $ErrorActionPreference = $prevEA
 Write-Host ""
@@ -467,8 +455,12 @@ Write-Success "SSH ready! (cloud-init configured everything)"
 # ── Step 6: Setup IORA via SSH ──────────────────────────────────────────────
 function Invoke-SSH {
     param([string] $Command)
-    & $SSH_BIN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -i $SSH_KEY -p $SshPort root@localhost $Command 2>&1
+    & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $Command 2>&1
 }
+
+# Install rsync first (needed for project upload)
+Write-Info "Installing rsync in VM..."
+Invoke-SSH "apt-get update -qq && apt-get install -y -qq rsync 2>&1" 2>$null | Select-Object -Last 3
 
 Write-Info "Uploading project via rsync..."
 $repoWsl = wsl wslpath -a "$($REPO_ROOT.Replace('\', '/'))"
@@ -478,17 +470,25 @@ wsl rsync -az --delete `
     --exclude='.git' --exclude='target' --exclude='node_modules' `
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
     --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
-    -e "ssh -o StrictHostKeyChecking=accept-new -i $keyWsl -p $SshPort" `
-    "$repoWsl/" "root@localhost:/home/iora/iora/" 2>&1 | Select-Object -Last 3
+    -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o AddressFamily=inet -i $keyWsl -p $SshPort" `
+    "$repoWsl/" "root@127.0.0.1:/home/iora/iora/" 2>&1 | Select-Object -Last 3
+if ($LASTEXITCODE -ne 0) {
+    Write-ErrorMsg "rsync failed! Check SSH connectivity."
+    $ErrorActionPreference = $prevEA
+    exit 1
+}
 $ErrorActionPreference = $prevEA
 Write-Success "Project uploaded"
 
 Write-Info "Setting permissions..."
 Invoke-SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>$null | Out-Null
 
-Write-Info "Installing build deps in VM..."
-Invoke-SSH "apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io rsync python3 2>&1" 2>$null | Select-Object -Last 3
-Invoke-SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' 2>&1" 2>$null | Select-Object -Last 3
+Write-Info "Installing system packages (curl, git, rust, docker, postgresql)..."
+Invoke-SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim 2>&1" 2>$null | Select-Object -Last 5
+Invoke-SSH "systemctl enable docker --now && systemctl enable postgresql --now 2>&1" 2>$null | Select-Object -Last 3
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE USER iora WITH PASSWORD '\''iora'\'' CREATEDB\"' 2>/dev/null || true" 2>$null | Out-Null
+Invoke-SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable' 2>&1" 2>$null | Select-Object -Last 5
+Write-Success "Packages installed"
 
 Write-Info "Setting up IORA OS compatibility..."
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" 2>$null | Select-Object -Last 5
@@ -532,9 +532,44 @@ systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
 # Write deploy script to temp file and execute via SSH
 $deployPath = Join-Path $CACHE "deploy.sh"
 $deployScript | Set-Content -Path $deployPath -NoNewline
-& $SCP_BIN -o StrictHostKeyChecking=accept-new -i $SSH_KEY -P $SshPort $deployPath "root@localhost:/tmp/deploy.sh" 2>$null
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o AddressFamily=inet -i $SSH_KEY -P $SshPort $deployPath "root@127.0.0.1:/tmp/deploy.sh" 2>$null
 Invoke-SSH "bash /tmp/deploy.sh" 2>&1
 Remove-Item $deployPath -Force -ErrorAction SilentlyContinue
+
+# Ensure iora-home uses PostgreSQL (binary may lack sqlite feature)
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_home OWNER root\"' 2>/dev/null || true" 2>$null | Out-Null
+Invoke-SSH "mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data" 2>$null | Out-Null
+$dbConf = @'
+[Service]
+Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
+WorkingDirectory=/opt/iora/build/iora-home
+'@
+$dbConfPath = Join-Path $CACHE "db.conf"
+$dbConf | Set-Content -Path $dbConfPath -NoNewline
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $dbConfPath "root@127.0.0.1:/etc/systemd/system/iora-home.service.d/db.conf" 2>$null
+Remove-Item $dbConfPath -Force -ErrorAction SilentlyContinue
+Invoke-SSH "systemctl daemon-reload && systemctl restart iora-home" 2>$null | Out-Null
+
+# ── Frontend: Build + Deploy ─────────────────────────────────────────────
+$frontendDir = Join-Path $REPO_ROOT "frontend"
+if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
+    Write-Info "Building frontend..."
+    Push-Location $frontendDir
+    try {
+        npm install --silent 2>&1 | Select-Object -Last 3
+        npm run build 2>&1 | Select-Object -Last 5
+        if (Test-Path (Join-Path $frontendDir "dist")) {
+            Write-Info "Deploying frontend to VM..."
+            Invoke-SSH "mkdir -p /opt/iora/build/dist" 2>$null | Out-Null
+            & $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -r -i $SSH_KEY -P $SshPort "$frontendDir\dist\*" "root@127.0.0.1:/opt/iora/build/dist/" 2>$null
+            Write-Success "Frontend deployed"
+        }
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Warn "npm not found - skipping frontend build"
+}
 
 # ── Done ────────────────────────────────────────────────────────────────────
 Write-Host ""
@@ -542,7 +577,7 @@ Write-Success "IORA Dev VM ready!"
 Write-Host ""
 Write-Host "  Dashboard:  http://localhost:8126" -ForegroundColor Cyan
 Write-Host "  Dev Bridge:  http://localhost:8101/dev/health" -ForegroundColor Cyan
-Write-Host "  SSH:        ssh -i $SSH_KEY -p $SshPort root@localhost" -ForegroundColor Cyan
+Write-Host "  SSH:        ssh -i $SSH_KEY -p $SshPort root@127.0.0.1" -ForegroundColor Cyan
 Write-Host ""
 Write-Info "Press Ctrl+C to stop. Closing window also kills QEMU."
 Write-Info "To keep VM running: close QEMU window first, then Ctrl+C here."

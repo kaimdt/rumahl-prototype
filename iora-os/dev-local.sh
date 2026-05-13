@@ -89,6 +89,12 @@ else
 fi
 VM_DISK="$CACHE/iora-dev-vm.qcow2"
 
+# ── Cleanup stale SSH host keys ───────────────────────────────────────────
+if [ -f "$HOME/.ssh/known_hosts" ]; then
+    ssh-keygen -R "[127.0.0.1]:$VM_SSH" 2>/dev/null || true
+    ssh-keygen -R "[localhost]:$VM_SSH" 2>/dev/null || true
+fi
+
 # ── Cleanup ────────────────────────────────────────────────────────────────
 cleanup() {
     [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || true
@@ -153,29 +159,9 @@ chpasswd:
 # Only use the local seed ISO – don't reach out to any metadata service
 datasource_list: [ NoCloud ]
 
-packages:
-  - curl
-  - git
-  - build-essential
-  - pkg-config
-  - libssl-dev
-  - nodejs
-  - npm
-  - docker.io
-  - postgresql
-  - postgresql-client
-  - rsync
-  - python3
-  - python3-pip
-  - htop
-  - vim
+packages: []
 
 runcmd:
-  - usermod -aG docker iora
-  - systemctl enable docker --now
-  - systemctl enable postgresql --now
-  - su - postgres -c "psql -c \"CREATE USER iora WITH PASSWORD 'iora' CREATEDB\"" 2>/dev/null || true
-  - su - iora -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
 
 final_message: "IORA Dev VM ready. SSH: ssh -p 2222 root@localhost (pw: iora)"
@@ -242,11 +228,22 @@ if [ ! -f "$SEED_ISO" ]; then
 fi
 
 # ── Step 4: Start QEMU ────────────────────────────────────────────────────
+# Clean up old SSH host keys for our port (VM key changes every --clean)
+if [ -f "$HOME/.ssh/known_hosts" ]; then
+    ssh-keygen -R "[127.0.0.1]:$VM_SSH" 2>/dev/null || true
+    ssh-keygen -R "[localhost]:$VM_SSH" 2>/dev/null || true
+fi
+# Check if SSH port is already in use (stale QEMU from previous run?)
+if lsof -i ":$VM_SSH" >/dev/null 2>&1; then
+    warn "Port $VM_SSH is in use! Killing stale processes..."
+    lsof -ti ":$VM_SSH" | xargs kill -9 2>/dev/null || true
+    sleep 1
+fi
 log "Starting QEMU..."
 QEMU_ARGS=(
     -m "$VM_RAM" -smp "$VM_CPUS"
     -drive "file=$VM_DISK,format=qcow2,if=virtio"
-    -drive "file=$SEED_ISO,format=raw,if=virtio,readonly=on"
+    -cdrom "$SEED_ISO"
     -netdev "user,id=n0,hostfwd=tcp::$VM_HOME-:8126,hostfwd=tcp::$VM_BRIDGE-:8101,hostfwd=tcp::$VM_SSH-:22"
     -device "virtio-net-pci,netdev=n0"
     -name "IORA-Dev" -cpu host
@@ -275,35 +272,59 @@ fi
 QEMU_PID=$!
 log "QEMU PID: $QEMU_PID"
 
+# Quick sanity: is QEMU still alive after 5 seconds?
+sleep 5
+if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+    err "QEMU died immediately after start!"
+    err "  Check if another process is using port $VM_SSH."
+    err "  Try: lsof -i :$VM_SSH"
+    exit 1
+fi
+
 # ── Step 5: Wait for cloud-init to finish ─────────────────────────────────
-log "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
+log "Waiting for cloud-init to finish (first boot may take 5-10 min)..."
 W_CLOUD=0
-while [ $W_CLOUD -lt 300 ]; do
-    if ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 \
-         -i "$SSH_KEY" -p "$VM_SSH" root@localhost \
+CLOUD_TIMEOUT=600
+while [ $W_CLOUD -lt $CLOUD_TIMEOUT ]; do
+    # After 30s, do one diagnostic SSH to see what's happening
+    if [ $W_CLOUD -eq 35 ]; then
+        log "Diagnostic SSH (should show 'SSH_OK' or error):"
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=5 -o AddressFamily=inet \
+            -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1 "echo SSH_OK" 2>&1
+        echo ""
+    fi
+    if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=3 -o AddressFamily=inet \
+         -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1 \
          "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
         ok "Cloud-init completed"
         break
     fi
     sleep 5; W_CLOUD=$((W_CLOUD+5))
     echo -n "."
+    # Show elapsed time every 60 seconds
+    if [ $((W_CLOUD % 60)) -eq 0 ] && [ $W_CLOUD -gt 0 ]; then
+        echo -n "[${W_CLOUD}s]"
+    fi
 done
 echo ""
 
-if [ $W_CLOUD -ge 300 ]; then
-    err "Cloud-init did not finish within 5 minutes."
-    err "  Check the QEMU console for errors (cloud-init, network, disk)."
-    err "  You can also wait for the VM login prompt and check manually:"
-    err "    ssh -p $VM_SSH root@localhost  (pw: iora)"
-    err "  Then re-run this script."
+if [ $W_CLOUD -ge $CLOUD_TIMEOUT ]; then
+    err "Cloud-init did not finish within $((CLOUD_TIMEOUT/60)) minutes."
+    err "  The VM might still be installing packages. Wait 2 more minutes and try:"
+    err "    ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
+    err "  Then re-run this script (it will skip cloud-init and resume)."
     exit 1
 fi
 
 ok "SSH ready! (cloud-init configured everything)"
 
 # ── Step 6: Setup IORA via SSH ────────────────────────────────────────────
-SSH="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -i $SSH_KEY -p $VM_SSH root@localhost"
-SCP="scp -o StrictHostKeyChecking=accept-new -i $SSH_KEY -P $VM_SSH"
+SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
+SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o AddressFamily=inet -i $SSH_KEY -P $VM_SSH"
+
+# Install rsync first (needed for project upload)
+log "Installing rsync in VM..."
+$SSH "apt-get update -qq && apt-get install -y -qq rsync" 2>&1 | tail -3
 
 log "Uploading project via rsync..."
 $SSH "mkdir -p /home/iora/iora" 2>/dev/null
@@ -311,14 +332,26 @@ rsync -az --delete \
     --exclude='.git' --exclude='target' --exclude='node_modules' \
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' \
     --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' \
-    -e "ssh -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $VM_SSH" \
-    "$REPO_ROOT/" "root@localhost:/home/iora/iora/" 2>&1 | tail -3
+    -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o AddressFamily=inet -i $SSH_KEY -p $VM_SSH" \
+    "$REPO_ROOT/" "root@127.0.0.1:/home/iora/iora/" 2>&1 | tail -3
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    err "rsync failed! Check: ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
+    exit 1
+fi
 $SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>/dev/null
 ok "Project uploaded"
 
-log "Installing build deps in VM..."
-$SSH "apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io rsync python3 2>&1" | tail -3
-$SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' 2>&1" | tail -3
+log "Installing system packages (curl, git, rust, docker, postgresql)..."
+$SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim" 2>&1 | tail -5
+$SSH "systemctl enable docker --now && systemctl enable postgresql --now" 2>&1 | tail -3
+# PostgreSQL: create roles + dev mode marker
+$SSH 'bash -s' <<'PGEOF'
+su - postgres -c "psql -c 'CREATE ROLE root WITH LOGIN SUPERUSER PASSWORD '\''iora'\'''" 2>/dev/null || true
+su - postgres -c "psql -c 'CREATE USER iora WITH PASSWORD '\''iora'\'' CREATEDB'" 2>/dev/null || true
+mkdir -p /etc/iora && touch /etc/iora/os-dev-mode
+PGEOF
+$SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'" 2>&1 | tail -5
+ok "Packages installed"
 
 log "Setting up IORA OS compatibility..."
 $SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | tail -5
@@ -354,11 +387,39 @@ systemctl daemon-reload
 systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
 EOF
 
+# Ensure iora-home uses PostgreSQL (binary may lack sqlite feature)
+$SSH 'bash -s' <<'DBEOF'
+su - postgres -c "psql -c 'CREATE DATABASE iora_home OWNER root'" 2>/dev/null || true
+mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
+cat > /etc/systemd/system/iora-home.service.d/db.conf <<'CFG'
+[Service]
+Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
+WorkingDirectory=/opt/iora/build/iora-home
+CFG
+systemctl daemon-reload
+systemctl restart iora-home 2>/dev/null || true
+DBEOF
+
+# ── Frontend: Build + Deploy ─────────────────────────────────────────────
+FRONTEND_DIR="$REPO_ROOT/frontend"
+if [ -f "$FRONTEND_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
+    log "Building frontend..."
+    (cd "$FRONTEND_DIR" && npm install --silent && npm run build) 2>&1 | tail -5 || warn "Frontend build had warnings"
+    if [ -d "$FRONTEND_DIR/dist" ]; then
+        log "Deploying frontend to VM..."
+        $SSH "mkdir -p /opt/iora/build/dist" 2>/dev/null
+        $SCP -r "$FRONTEND_DIR/dist/" "root@127.0.0.1:/opt/iora/build/dist/" 2>&1 | tail -3
+        ok "Frontend deployed"
+    fi
+else
+    warn "npm not found – skipping frontend build (install Node.js for the dashboard UI)"
+fi
+
 ok "IORA Dev VM ready!"
 echo ""
 echo "  Dashboard:  http://localhost:$VM_HOME"
 echo "  Dev Bridge:  http://localhost:$VM_BRIDGE/dev/health"
-echo "  SSH:        ssh -i $SSH_KEY -p $VM_SSH root@localhost"
+echo "  SSH:        ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
 echo ""
 echo "Press Ctrl+C to stop. VM stays running in background."
 wait
