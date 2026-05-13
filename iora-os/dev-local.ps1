@@ -571,7 +571,8 @@ if ($vmRamNum -lt 8) {
     $buildTargets = "--workspace"
     $cargoOpts = ""
 }
-$buildCmd = "su - iora -c `". ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $cargoOpts cargo build --release $buildTargets`""
+# Use full cargo path (avoids ~ expansion issues in su -c)
+$buildCmd = "su - iora -c 'cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $cargoOpts /home/iora/.cargo/bin/cargo build --release $buildTargets'"
 try {
     $buildOutput = Invoke-SSH $buildCmd
     $buildOutput | Select-Object -Last 20
@@ -599,7 +600,9 @@ systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
 # Write deploy script to temp file and execute via SSH
 $deployPath = Join-Path $CACHE "deploy.sh"
 $deployScript | Set-Content -Path $deployPath -NoNewline
-& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o AddressFamily=inet -i $SSH_KEY -P $SshPort $deployPath "root@127.0.0.1:/tmp/deploy.sh" 2>$null
+$prevEA3 = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $deployPath "root@127.0.0.1:/tmp/deploy.sh" *>$null
+$ErrorActionPreference = $prevEA3
 Invoke-SSH "bash /tmp/deploy.sh" 2>&1
 Remove-Item $deployPath -Force -ErrorAction SilentlyContinue
 
@@ -613,7 +616,9 @@ WorkingDirectory=/opt/iora/build/iora-home
 '@
 $dbConfPath = Join-Path $CACHE "db.conf"
 $dbConf | Set-Content -Path $dbConfPath -NoNewline
-& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $dbConfPath "root@127.0.0.1:/etc/systemd/system/iora-home.service.d/db.conf" 2>$null
+$prevEA4 = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $dbConfPath "root@127.0.0.1:/etc/systemd/system/iora-home.service.d/db.conf" *>$null
+$ErrorActionPreference = $prevEA4
 Remove-Item $dbConfPath -Force -ErrorAction SilentlyContinue
 Invoke-SSH "systemctl daemon-reload && systemctl restart iora-home" 2>$null | Out-Null
 
