@@ -178,18 +178,21 @@ $VM_MACHINE = if ($HOST_ARCH -eq "ARM64") { "virt" } else { "q35" }
 
 # Find UEFI firmware (Debian cloud image requires UEFI)
 $FW = $null
+$FW_CACHED = $null
 if ($HOST_ARCH -eq "ARM64") {
     $fwPaths = @(
         (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
         (Join-Path $QEMU_DIR "..\share\edk2-aarch64-code.fd"),
         (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
     )
+    $fwIsFlash = $false
 } else {
     $fwPaths = @(
         (Join-Path $QEMU_DIR "share\edk2-x86_64-code.fd"),
         (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
         (Join-Path $QEMU_DIR "OVMF_CODE.fd")
     )
+    $fwIsFlash = $true  # x86_64 OVMF needs if=pflash, not -bios
 }
 foreach ($f in $fwPaths) {
     if (Test-Path $f) { $FW = $f; break }
@@ -202,6 +205,12 @@ if (-not $FW) {
     Write-Info "Option 2: Download from https://github.com/tianocore/edk2/releases"
     Write-Info "         Place OVMF_CODE.fd next to qemu-system-x86_64.exe"
     exit 1
+}
+# Copy OVMF to cache (Program Files may be read-locked by Windows Defender)
+if ($fwIsFlash) {
+    $FW_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
+    if (-not (Test-Path $FW_CACHED)) { Copy-Item $FW $FW_CACHED -Force }
+    $FW = $FW_CACHED
 }
 Write-Success "UEFI firmware: $FW"
 
@@ -227,7 +236,7 @@ if ($Clean -or $CleanAll) {
     Get-Process qemu-system-aarch64 -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 2
     Write-Info "Cleaning cache..."
-    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" } | Remove-Item -Force
+    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" -and $_.Name -notlike "OVMF_CODE.fd" } | Remove-Item -Force
     if ($CleanAll) {
         Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
     }
@@ -372,16 +381,17 @@ $ErrorActionPreference = $prevEA
 
 Write-Info "Starting QEMU..."
 
+$fwDrive = if ($fwIsFlash) { @("-drive", "if=pflash,format=raw,readonly=on,file=$FW") } else { @("-bios", $FW) }
+
 $qemuArgs = @(
     "-m", $VM_RAM,
-    "-smp", $VM_CPUS,
-    "-bios", $FW,
+    "-smp", $VM_CPUS
+) + $fwDrive + @(
     "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
     "-cdrom", "$SEED_ISO",
     "-netdev", "user,id=n0,hostfwd=tcp::8126-:8126,hostfwd=tcp::8101-:8101,hostfwd=tcp::${SshPort}-:22",
-    "-device", "virtio-net-pci,netdev=n0",
+    "-device", "e1000,netdev=n0",
     "-name", "IORA-Dev",
-    "-cpu", "max",
     "-machine", "${VM_MACHINE},accel=whpx",
     "-device", "virtio-gpu",
     "-serial", "none",
@@ -391,12 +401,6 @@ $qemuArgs = @(
 # ARM64-specific adjustments
 if ($HOST_ARCH -eq "ARM64") {
     $qemuArgs += @("-boot", "order=d,menu=off")
-    # Replace virtio-net-pci with virtio-net-device
-    for ($i = 0; $i -lt $qemuArgs.Count; $i++) {
-        if ($qemuArgs[$i] -eq "virtio-net-pci,netdev=n0") {
-            $qemuArgs[$i] = "virtio-net-device,netdev=n0"
-        }
-    }
 }
 
 function Start-QemuVM {
@@ -427,13 +431,14 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
     # Wait for WHPX process to fully release disk/ISO locks
     if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 2 }
     $qemuAccel = "tcg"
-    # TCG with many CPUs is slower - cap at 4
+    # TCG with many CPUs is slower - cap at 4, no GUI display (gtk can crash)
     $tcgCpus = [Math]::Min($VM_CPUS, 4)
     $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
     $qemuArgs = $qemuArgs -replace '-smp [0-9]+', "-smp $tcgCpus"
-    # Remove -cpu max for TCG compatibility
-    $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-cpu') { $null } elseif ($_ -eq 'max') { $null } else { $_ } } | Where-Object { $_ -ne $null }
-    Write-Info "TCG: using $tcgCpus CPUs (capped for performance)"
+    # Replace gtk display with nographic (gtk+TCG can crash on some Windows builds)
+    $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-display' -or $_ -eq 'gtk,show-cursor=on') { $null } else { $_ } } | Where-Object { $_ -ne $null }
+    $qemuArgs += @("-nographic")
+    Write-Info "TCG: using $tcgCpus CPUs, headless mode (TCG+GUI unstable on Windows)"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
