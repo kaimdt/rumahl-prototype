@@ -10,6 +10,10 @@ set -euo pipefail
 # Allow pipelines to fail without killing script (grep may return empty)
 set +o pipefail
 
+# Kill any stale QEMU from previous crashed runs
+pkill -9 -f qemu-system 2>/dev/null || true
+sleep 1
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CACHE="$SCRIPT_DIR/.cache"

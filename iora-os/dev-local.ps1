@@ -32,6 +32,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Kill any stale QEMU processes from previous crashed runs
+Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process qemu-system-aarch64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
 # ── Friendly error for Linux-style double-dash arguments ──────────────────
 $doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
 if ($doubleDashArgs) {
@@ -189,6 +193,10 @@ $SEED_ISO = Join-Path $CACHE "iora-dev-seed.iso"
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 if ($Clean -or $CleanAll) {
+    Write-Info "Killing stale QEMU processes..."
+    Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process qemu-system-aarch64 -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
     Write-Info "Cleaning cache..."
     Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" } | Remove-Item -Force
     if ($CleanAll) {
@@ -394,10 +402,14 @@ $qemuAccel = "whpx"
 $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
 $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
 
-if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
-    Write-Warn "QEMU/WHPX crashed (exit: $($qemuProc.ExitCode)). Retrying with TCG..."
+if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
+    Write-Warn "QEMU/WHPX crashed. Retrying with TCG..."
+    # Wait for WHPX process to fully release disk/ISO locks
+    if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 2 }
     $qemuAccel = "tcg"
     $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
+    # Remove -cpu max for TCG compatibility
+    $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-cpu') { $null } elseif ($_ -eq 'max') { $null } else { $_ } } | Where-Object { $_ -ne $null }
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
