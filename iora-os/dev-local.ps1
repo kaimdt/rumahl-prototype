@@ -20,6 +20,7 @@
 param(
     [switch] $Clean,
     [switch] $CleanAll,
+    [switch] $SkipWhpx,
     [ValidatePattern('^\d+GB$')]
     [string] $Ram = "",
     [ValidateRange(1, 64)]
@@ -421,26 +422,31 @@ function Test-QemuAlive {
     return $true
 }
 
-# Try WHPX first
-$qemuAccel = "whpx"
-$qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
-$qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
+# Try WHPX first (skip if -SkipWhpx or overlay is freshly created)
+$useWhpx = (-not $SkipWhpx)
+if ($useWhpx) {
+    $qemuAccel = "whpx"
+    $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
+    $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
+    $whpxAlive = Test-QemuAlive -Proc $qemuProc -WaitSec 8
+} else {
+    $whpxAlive = $false
+    $qemuAccel = "tcg"
+    Write-Info "Skipping WHPX (--SkipWhpx active)"
+}
 
-if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 8)) {
-    Write-Warn "QEMU/WHPX crashed."
-    # WHPX is unstable on this machine - go straight to TCG
-    # Also re-download cloud image (may be corrupted from repeated WHPX crashes)
-    Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
-    Remove-Item $IMG_CACHE -Force -ErrorAction SilentlyContinue
-    Write-Info "Re-downloading cloud image (one-time)..."
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $IMG_URL -OutFile $IMG_CACHE -TimeoutSec 600
-    $ProgressPreference = 'Continue'
-    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
-    Write-Info "Cloud image re-downloaded and overlay recreated."
+if (-not $whpxAlive) {
+    if ($useWhpx) {
+        Write-Warn "QEMU/WHPX crashed."
+        if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 2 }
+        # WHPX may have corrupted the overlay - recreate it
+        Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
+        & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+        Write-Info "Overlay recreated after WHPX crash."
+    }
     
     $qemuAccel = "tcg"
-    # Rebuild args from scratch (exact match of working manual test)
+    # Build TCG args from scratch (exact match of verified working manual test)
     $qemuArgs = @(
         "-m", "2G",
         "-smp", "2",
@@ -452,7 +458,7 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 8)) {
         "-device", "e1000,netdev=n0",
         "-nographic"
     )
-    Write-Info "TCG: 4GB, 2 CPUs, headless"
+    Write-Info "TCG: 2GB, 2 CPUs, headless"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 20)) {
