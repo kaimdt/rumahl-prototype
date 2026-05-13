@@ -212,7 +212,7 @@ if ($fwIsFlash) {
     Copy-Item $FW $FW_CACHED -Force -ErrorAction SilentlyContinue
     $FW = $FW_CACHED
 }
-Write-Success "UEFI firmware: $FW"
+Write-Success "UEFI firmware: $FW (flash=$fwIsFlash)"
 
 Write-Info "Host: ${hostRamGB}GB RAM, ${HOST_CPUS} CPUs"
 Write-Info "VM: ${VM_RAM}, ${VM_CPUS} CPUs, cargo -j${CARGO_JOBS}"
@@ -427,20 +427,23 @@ $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
 $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
 
 if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
-    Write-Warn "QEMU/WHPX crashed. Retrying with TCG..."
+    Write-Warn "QEMU/WHPX crashed. Retrying with exact manual-test config (TCG)..."
     # Wait for WHPX process to fully release disk/ISO locks
-    if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 2 }
+    if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 3 }
     $qemuAccel = "tcg"
-    # TCG needs less RAM and fewer CPUs (emulation can't handle large allocations)
-    $tcgCpus = [Math]::Min($VM_CPUS, 4)
-    $tcgRam = [Math]::Min([int]($VM_RAM -replace 'G', ''), 4)
-    $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
-    $qemuArgs = $qemuArgs -replace '-smp [0-9]+', "-smp $tcgCpus"
-    $qemuArgs = $qemuArgs -replace '-m [0-9]+G', "-m ${tcgRam}G"
-    # Replace gtk display with nographic
-    $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-display' -or $_ -match 'gtk') { $null } else { $_ } } | Where-Object { $_ -ne $null }
-    $qemuArgs += @("-nographic")
-    Write-Info "TCG: ${tcgRam}GB RAM, $tcgCpus CPUs, headless"
+    # Rebuild args from scratch (regex replace doesn't work on PowerShell arrays)
+    $qemuArgs = @(
+        "-m", "4G",
+        "-smp", "2",
+        "-machine", "q35,accel=tcg",
+        "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
+        "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
+        "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
+        "-netdev", "user,id=n0,hostfwd=tcp::${SshPort}-:22",
+        "-device", "e1000,netdev=n0",
+        "-nographic"
+    )
+    Write-Info "TCG: 4GB, 2 CPUs, headless"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
