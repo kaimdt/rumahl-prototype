@@ -386,10 +386,10 @@ if ($HOST_ARCH -eq "ARM64") {
 }
 
 function Start-QemuVM {
-    param([string[]] $Args, [string] $AccelType)
+    param([string[]] $QemuArgs, [string] $AccelType)
     Write-Info "QEMU ($AccelType): $QEMU_BIN"
     $nullFile = Join-Path $CACHE "qemu-stderr.log"
-    $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -NoNewWindow -RedirectStandardError $nullFile
+    $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $QemuArgs -PassThru -NoNewWindow -RedirectStandardError $nullFile
     Write-Success "QEMU PID: $($proc.Id)"
     return $proc
 }
@@ -405,12 +405,12 @@ function Test-QemuAlive {
 
 # Try WHPX first
 $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
-$qemuProc = Start-QemuVM -Args $qemuArgs -AccelType "WHPX"
+$qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
 
 if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
     Write-Warn "QEMU/WHPX crashed (exit: $($qemuProc.ExitCode)). Retrying with TCG..."
     $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
-    $qemuProc = Start-QemuVM -Args $qemuArgs -AccelType "TCG"
+    $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
         Write-ErrorMsg "QEMU/TCG also crashed. Check QEMU installation."
