@@ -518,7 +518,10 @@ Write-Success "SSH ready! (cloud-init configured everything)"
 # ── Step 6: Setup IORA via SSH ──────────────────────────────────────────────
 function Invoke-SSH {
     param([string] $Command)
-    & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $Command 2>&1
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $Command 2>&1
+    $ErrorActionPreference = $prev
+    return $result
 }
 
 # Install rsync first (needed for project upload)
