@@ -322,7 +322,8 @@ chpasswd:
 
 datasource_list: [ NoCloud ]
 
-packages: []
+packages:
+  - rsync
 
 runcmd:
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
@@ -523,10 +524,6 @@ function Invoke-SSH {
     $ErrorActionPreference = $prev
     return $result
 }
-
-# Install rsync first (needed for project upload)
-Write-Info "Installing rsync in VM..."
-Invoke-SSH "apt-get update -qq && apt-get install -y -qq rsync 2>&1" 2>$null | Select-Object -Last 3
 
 Write-Info "Uploading project via rsync..."
 $repoWsl = wsl wslpath -a "$($REPO_ROOT.Replace('\', '/'))"

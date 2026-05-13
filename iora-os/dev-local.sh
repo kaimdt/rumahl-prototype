@@ -163,7 +163,8 @@ chpasswd:
 # Only use the local seed ISO – don't reach out to any metadata service
 datasource_list: [ NoCloud ]
 
-packages: []
+packages:
+  - rsync
 
 runcmd:
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
@@ -325,10 +326,6 @@ ok "SSH ready! (cloud-init configured everything)"
 # ── Step 6: Setup IORA via SSH ────────────────────────────────────────────
 SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
 SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o AddressFamily=inet -i $SSH_KEY -P $VM_SSH"
-
-# Install rsync first (needed for project upload)
-log "Installing rsync in VM..."
-$SSH "apt-get update -qq && apt-get install -y -qq rsync" 2>&1 | tail -3
 
 log "Uploading project via rsync..."
 $SSH "mkdir -p /home/iora/iora" 2>/dev/null
