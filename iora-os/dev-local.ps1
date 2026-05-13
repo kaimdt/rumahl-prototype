@@ -305,23 +305,25 @@ local-hostname: iora-dev
     $seedIsoWsl = wsl wslpath -a "$($SEED_ISO.Replace('\', '/'))"
 
     $isoCreated = $false
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     if (wsl bash -c 'command -v genisoimage' 2>$null) {
-        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>$null
+        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
         $isoCreated = ($LASTEXITCODE -eq 0)
     }
     if (-not $isoCreated) {
         if (wsl bash -c 'command -v mkisofs' 2>$null) {
-            wsl mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>$null
+            wsl mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
             $isoCreated = ($LASTEXITCODE -eq 0)
         }
     }
     if (-not $isoCreated) {
-        # Install genisoimage in WSL and retry
-        wsl sudo apt-get update -qq 2>$null
-        wsl sudo apt-get install -y -qq genisoimage 2>$null
-        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>$null
+        wsl sudo apt-get update -qq 2>&1 | Out-Null
+        wsl sudo apt-get install -y -qq genisoimage 2>&1 | Out-Null
+        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
         $isoCreated = ($LASTEXITCODE -eq 0)
     }
+    $ErrorActionPreference = $prevErrorAction
 
     Remove-Item -Recurse -Force $seedDir -ErrorAction SilentlyContinue
 
@@ -431,12 +433,14 @@ function Invoke-SSH {
 Write-Info "Uploading project via rsync..."
 $repoWsl = wsl wslpath -a "$($REPO_ROOT.Replace('\', '/'))"
 $keyWsl = wsl wslpath -a "$($SSH_KEY.Replace('\', '/'))"
+$prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
 wsl rsync -az --delete `
     --exclude='.git' --exclude='target' --exclude='node_modules' `
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
     --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
     -e "ssh -o StrictHostKeyChecking=accept-new -i $keyWsl -p $SshPort" `
     "$repoWsl/" "root@localhost:/home/iora/iora/" 2>&1 | Select-Object -Last 3
+$ErrorActionPreference = $prevEA
 Write-Success "Project uploaded"
 
 Write-Info "Setting permissions..."
