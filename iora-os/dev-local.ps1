@@ -404,11 +404,13 @@ function Test-QemuAlive {
 }
 
 # Try WHPX first
+$qemuAccel = "whpx"
 $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
 $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
 
 if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
     Write-Warn "QEMU/WHPX crashed (exit: $($qemuProc.ExitCode)). Retrying with TCG..."
+    $qemuAccel = "tcg"
     $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
@@ -421,7 +423,10 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
 # ── Step 5: Wait for cloud-init to finish ───────────────────────────────────
 Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
 
-$maxWait = 300
+$maxWait = if ($qemuAccel -eq "tcg") { 600 } else { 300 }
+$waitMsg = if ($qemuAccel -eq "tcg") { "TCG is slow — first boot may take 5-10 min" } else { "first boot may take 2-5 min" }
+Write-Info "Waiting for cloud-init to finish ($waitMsg)..."
+
 $waited = 0
 $ready = $false
 $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
@@ -449,7 +454,8 @@ $ErrorActionPreference = $prevEA
 Write-Host ""
 
 if (-not $ready) {
-    Write-ErrorMsg "Cloud-init did not finish within 5 minutes."
+$timeoutMsg = if ($qemuAccel -eq "tcg") { "10 minutes" } else { "5 minutes" }
+    Write-ErrorMsg "Cloud-init did not finish within $timeoutMsg."
     Write-Info "Check the QEMU console for errors."
     Write-Info "Manually: ssh -i $SSH_KEY -p $SshPort root@localhost (pw: iora)"
     Write-Info "Then re-run this script."
@@ -491,12 +497,14 @@ Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" 2>$null | Se
 Write-Info "Building IORA workspace (10-30 min first time)..."
 $vmRamNum = [int]($VM_RAM -replace 'G', '')
 if ($vmRamNum -lt 8) {
-    Write-Info "RAM <8GB: building only core services (iora-core, iora-home, iora-dev-bridge, iora-cli)"
+    Write-Info "RAM <8GB: LTO off, building only core services"
     $buildTargets = "-p iora-core -p iora-home -p iora-dev-bridge -p iora-cli"
+    $cargoOpts = "CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=4"
 } else {
     $buildTargets = "--workspace"
+    $cargoOpts = ""
 }
-$buildCmd = "su - iora -c `". ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --release $buildTargets`""
+$buildCmd = "su - iora -c `". ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $cargoOpts cargo build --release $buildTargets`""
 try {
     $buildOutput = Invoke-SSH $buildCmd
     $buildOutput | Select-Object -Last 20

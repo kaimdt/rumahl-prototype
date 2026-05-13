@@ -326,13 +326,15 @@ $SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | tail -5
 
 VM_RAM_NUM=${VM_RAM%G}
 if [ "$VM_RAM_NUM" -lt 8 ]; then
-    log "Building IORA essentials (RAM <8GB: only core services)..."
+    log "Building IORA essentials (RAM <8GB: LTO off, only core services)..."
     BUILD_TARGETS="-p iora-core -p iora-home -p iora-dev-bridge -p iora-cli"
+    CARGO_OPTS="CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=4"
 else
     log "Building IORA workspace (10-30 min first time)..."
     BUILD_TARGETS="--workspace"
+    CARGO_OPTS=""
 fi
-$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --release $BUILD_TARGETS\"" 2>&1 | tail -20 || warn "Build had warnings"
+$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $CARGO_OPTS cargo build --release $BUILD_TARGETS\"" 2>&1 | tail -20 || warn "Build had warnings"
 
 log "Deploying binaries..."
 $SSH 'bash -s' <<'EOF'
