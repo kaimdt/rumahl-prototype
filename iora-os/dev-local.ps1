@@ -280,6 +280,9 @@ if (-not (Test-Path $SSH_KEY)) {
         Write-ErrorMsg "Failed to generate SSH key. Check WSL."
         exit 1
     }
+    # Fix Windows permissions (WSL creates world-readable keys, SSH rejects them)
+    icacls $SSH_KEY /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
+    icacls "$SSH_KEY.pub" /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
     Write-Success "SSH key created: $SSH_KEY"
 }
 
@@ -486,7 +489,7 @@ while ($waited -lt $maxWait) {
         Write-Info "If WHPX keeps crashing, disable Hyper-V: bcdedit /set hypervisorlaunchtype off && reboot"
         exit 1
     }
-    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=3 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
+    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
     if ($result -match "READY") {
         $ready = $true
         break
