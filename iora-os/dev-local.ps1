@@ -525,22 +525,24 @@ function Invoke-SSH {
     return $result
 }
 
-Write-Info "Uploading project via rsync..."
-$repoWsl = wsl wslpath -a "$($REPO_ROOT.Replace('\', '/'))"
-$keyWsl = wsl wslpath -a "$($SSH_KEY.Replace('\', '/'))"
+Write-Info "Uploading project via tar+scp (WSL cannot reach Windows localhost)..."
+# Create tar archive, scp to VM, extract (avoids WSL2 network isolation)
+$projectTar = Join-Path $CACHE "iora-project.tar.gz"
 $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-wsl rsync -az --delete `
-    --exclude='.git' --exclude='target' --exclude='node_modules' `
-    --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
-    --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
-    -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o AddressFamily=inet -i $keyWsl -p $SshPort" `
-    "$repoWsl/" "root@127.0.0.1:/home/iora/iora/" 2>&1 | Select-Object -Last 3
-if ($LASTEXITCODE -ne 0) {
-    Write-ErrorMsg "rsync failed! Check SSH connectivity."
-    $ErrorActionPreference = $prevEA
+Push-Location $REPO_ROOT
+tar -czf $projectTar --exclude='.git' --exclude='target' --exclude='node_modules' --exclude='.cache' --exclude='buildroot-*' --exclude='releases' --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' --exclude='*.tar.gz' . 2>$null
+Pop-Location
+$ErrorActionPreference = $prevEA
+
+if (-not (Test-Path $projectTar)) {
+    Write-ErrorMsg "Failed to create project archive."
     exit 1
 }
-$ErrorActionPreference = $prevEA
+Write-Info "  Uploading $(($((Get-Item $projectTar).Length) / 1MB)) MB archive..."
+Invoke-SSH "mkdir -p /home/iora/iora" 2>$null | Out-Null
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $projectTar "root@127.0.0.1:/home/iora/iora/" 2>$null
+Invoke-SSH "cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz" 2>$null | Out-Null
+Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
 Write-Success "Project uploaded"
 
 Write-Info "Setting permissions..."
