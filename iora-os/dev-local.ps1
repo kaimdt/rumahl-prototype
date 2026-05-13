@@ -186,16 +186,10 @@ if ($HOST_ARCH -eq "ARM64") {
     )
 } else {
     $fwPaths = @(
-        (Join-Path $QEMU_DIR "..\share\edk2-x86_64-code.fd"),
-        (Join-Path $QEMU_DIR "..\share\qemu\edk2-x86_64-code.fd"),
-        (Join-Path $QEMU_DIR "..\share\edk2-ovmf\OVMF_CODE.fd"),
-        (Join-Path $QEMU_DIR "OVMF_CODE.fd"),
-        (Join-Path $QEMU_DIR "edk2-x86_64-code.fd")
+        (Join-Path $QEMU_DIR "share\edk2-x86_64-code.fd"),
+        (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
+        (Join-Path $QEMU_DIR "OVMF_CODE.fd")
     )
-    # Also search entire QEMU directory for OVMF files
-    $found = Get-ChildItem -Path (Split-Path $QEMU_DIR -Parent) -Recurse -Filter "*OVMF*CODE*.fd" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($found) { $fwPaths = @($found.FullName) + $fwPaths }
-}
 foreach ($f in $fwPaths) {
     if (Test-Path $f) { $FW = $f; break }
 }
