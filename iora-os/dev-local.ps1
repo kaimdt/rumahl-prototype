@@ -350,7 +350,7 @@ $qemuArgs = @(
     "-netdev", "user,id=n0,hostfwd=tcp::8126-:8126,hostfwd=tcp::8101-:8101,hostfwd=tcp::${SshPort}-:22",
     "-device", "virtio-net-pci,netdev=n0",
     "-name", "IORA-Dev",
-    "-cpu", "host",
+    "-cpu", "max",
     "-machine", "${VM_MACHINE},accel=whpx",
     "-device", "virtio-gpu",
     "-serial", "stdio",
@@ -400,9 +400,18 @@ Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
 $maxWait = 300
 $waited = 0
 $ready = $false
+$prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
 
 # Wait for SSH + cloud-init to finish
 while ($waited -lt $maxWait) {
+    # Check if QEMU is still running
+    if ($qemuProc.HasExited) {
+        $ErrorActionPreference = $prevEA
+        Write-ErrorMsg "QEMU exited unexpectedly (exit code: $($qemuProc.ExitCode))."
+        Write-Info "Check the QEMU console window for errors (WHPX/Hyper-V conflicts)."
+        Write-Info "Try: bcdedit /set hypervisorlaunchtype off && reboot"
+        exit 1
+    }
     $result = & $SSH_BIN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 -i $SSH_KEY -p $SshPort root@localhost "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
     if ($result -match "READY") {
         $ready = $true
@@ -412,6 +421,7 @@ while ($waited -lt $maxWait) {
     $waited += 5
     Write-Host -NoNewline "."
 }
+$ErrorActionPreference = $prevEA
 Write-Host ""
 
 if (-not $ready) {
