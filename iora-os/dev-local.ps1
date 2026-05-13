@@ -181,22 +181,31 @@ $FW = $null
 if ($HOST_ARCH -eq "ARM64") {
     $fwPaths = @(
         (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
+        (Join-Path $QEMU_DIR "..\share\edk2-aarch64-code.fd"),
         (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
     )
 } else {
     $fwPaths = @(
-        (Join-Path $QEMU_DIR "..\share\qemu\edk2-x86_64-code.fd"),
         (Join-Path $QEMU_DIR "..\share\edk2-x86_64-code.fd"),
+        (Join-Path $QEMU_DIR "..\share\qemu\edk2-x86_64-code.fd"),
+        (Join-Path $QEMU_DIR "..\share\edk2-ovmf\OVMF_CODE.fd"),
+        (Join-Path $QEMU_DIR "OVMF_CODE.fd"),
         (Join-Path $QEMU_DIR "edk2-x86_64-code.fd")
     )
+    # Also search entire QEMU directory for OVMF files
+    $found = Get-ChildItem -Path (Split-Path $QEMU_DIR -Parent) -Recurse -Filter "*OVMF*CODE*.fd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $fwPaths = @($found.FullName) + $fwPaths }
 }
 foreach ($f in $fwPaths) {
     if (Test-Path $f) { $FW = $f; break }
 }
 if (-not $FW) {
-    Write-ErrorMsg "UEFI firmware not found. Debian cloud image requires UEFI."
-    Write-Info "Expected at: $($fwPaths[0])"
-    Write-Info "Reinstall QEMU or download OVMF from https://github.com/tianocore/tianocore.github.io"
+    Write-ErrorMsg "UEFI firmware not found. QEMU directory: $QEMU_DIR"
+    Write-Info "Searched: $($fwPaths -join ', ')"
+    Write-Info ""
+    Write-Info "Option 1: winget install QEMU.QEMU  (reinstall)"
+    Write-Info "Option 2: Download from https://github.com/tianocore/edk2/releases"
+    Write-Info "         Place OVMF_CODE.fd next to qemu-system-x86_64.exe"
     exit 1
 }
 Write-Success "UEFI firmware: $FW"
