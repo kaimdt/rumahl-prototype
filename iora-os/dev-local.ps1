@@ -217,11 +217,13 @@ if (-not (Test-Path $VM_DISK)) {
 # ── Step 3: Generate SSH key & cloud-init seed ISO ──────────────────────────
 if (-not (Test-Path $SSH_KEY)) {
     Write-Info "Generating SSH key for VM access..."
-    # Use WSL's ssh-keygen for reliable key generation
-    $sshKeyWsl = wsl wslpath -a "$SSH_KEY"
-    wsl ssh-keygen -t ed25519 -f "$sshKeyWsl" -N "" -C "iora-dev-vm" 2>$null
+    # Convert Windows path to WSL path (forward slashes)
+    $sshKeyWin = $SSH_KEY.Replace('\', '/')
+    $sshKeyWsl = wsl wslpath -a "$sshKeyWin"
+    # Use bash -c to properly handle empty passphrase
+    wsl bash -c "ssh-keygen -t ed25519 -f '$sshKeyWsl' -N '' -C 'iora-dev-vm'" 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Write-ErrorMsg "Failed to generate SSH key. Check WSL ssh-keygen."
+        Write-ErrorMsg "Failed to generate SSH key. Check WSL."
         exit 1
     }
     Write-Success "SSH key created: $SSH_KEY"
@@ -299,8 +301,8 @@ local-hostname: iora-dev
     $metaData | Set-Content -Path (Join-Path $seedDir "meta-data") -NoNewline
 
     # Use WSL to create the ISO (genisoimage or mkisofs)
-    $seedDirWsl = wsl wslpath -a "$seedDir"
-    $seedIsoWsl = wsl wslpath -a "$SEED_ISO"
+    $seedDirWsl = wsl wslpath -a "$($seedDir.Replace('\', '/'))"
+    $seedIsoWsl = wsl wslpath -a "$($SEED_ISO.Replace('\', '/'))"
 
     $isoCreated = $false
     if (wsl bash -c 'command -v genisoimage' 2>$null) {
@@ -427,8 +429,8 @@ function Invoke-SSH {
 }
 
 Write-Info "Uploading project via rsync..."
-$repoWsl = wsl wslpath -a "$REPO_ROOT"
-$keyWsl = wsl wslpath -a "$SSH_KEY"
+$repoWsl = wsl wslpath -a "$($REPO_ROOT.Replace('\', '/'))"
+$keyWsl = wsl wslpath -a "$($SSH_KEY.Replace('\', '/'))"
 wsl rsync -az --delete `
     --exclude='.git' --exclude='target' --exclude='node_modules' `
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
@@ -484,8 +486,7 @@ systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
 # Write deploy script to temp file and execute via SSH
 $deployPath = Join-Path $CACHE "deploy.sh"
 $deployScript | Set-Content -Path $deployPath -NoNewline
-$deployPathWsl = wsl wslpath -a "$deployPath"
-& $SCP_BIN -o StrictHostKeyChecking=no -i $SSH_KEY -P $SshPort $deployPath "root@localhost:/tmp/deploy.sh" 2>$null
+& $SCP_BIN -o StrictHostKeyChecking=accept-new -i $SSH_KEY -P $SshPort $deployPath "root@localhost:/tmp/deploy.sh" 2>$null
 Invoke-SSH "bash /tmp/deploy.sh" 2>&1
 Remove-Item $deployPath -Force -ErrorAction SilentlyContinue
 
