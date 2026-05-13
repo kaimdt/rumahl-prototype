@@ -426,12 +426,16 @@ $qemuAccel = "whpx"
 $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
 $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
 
-if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
+if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 8)) {
     Write-Warn "QEMU/WHPX crashed. Retrying with exact manual-test config (TCG)..."
     # Wait for WHPX process to fully release disk/ISO locks
     if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 3 }
     $qemuAccel = "tcg"
-    # Rebuild args from scratch (regex replace doesn't work on PowerShell arrays)
+    # WHPX kernel panic may have corrupted the overlay - recreate it
+    Write-Info "Recreating VM disk (WHPX may have corrupted it)..."
+    Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
+    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+    # Rebuild args from scratch (exact match of working manual test)
     $qemuArgs = @(
         "-m", "4G",
         "-smp", "2",
@@ -446,7 +450,7 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
     Write-Info "TCG: 4GB, 2 CPUs, headless"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
-    if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
+    if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 20)) {
         Write-ErrorMsg "QEMU/TCG also crashed. Check QEMU installation."
         exit 1
     }
