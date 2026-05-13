@@ -540,7 +540,9 @@ if (-not (Test-Path $projectTar)) {
 }
 Write-Info "  Uploading $(($((Get-Item $projectTar).Length) / 1MB)) MB archive..."
 Invoke-SSH "mkdir -p /home/iora/iora" 2>$null | Out-Null
-& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $projectTar "root@127.0.0.1:/home/iora/iora/" 2>$null
+$prevEA2 = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $projectTar "root@127.0.0.1:/home/iora/iora/" *>$null
+$ErrorActionPreference = $prevEA2
 Invoke-SSH "cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz" 2>$null | Out-Null
 Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
 Write-Success "Project uploaded"
