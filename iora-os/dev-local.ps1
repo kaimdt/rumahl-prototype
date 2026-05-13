@@ -190,6 +190,7 @@ if ($HOST_ARCH -eq "ARM64") {
         (Join-Path $QEMU_DIR "edk2-x86_64-code.fd"),
         (Join-Path $QEMU_DIR "OVMF_CODE.fd")
     )
+}
 foreach ($f in $fwPaths) {
     if (Test-Path $f) { $FW = $f; break }
 }
