@@ -471,7 +471,7 @@ while ($waited -lt $maxWait) {
         Write-Info "If WHPX keeps crashing, disable Hyper-V: bcdedit /set hypervisorlaunchtype off && reboot"
         exit 1
     }
-    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o ConnectTimeout=3 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
+    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=3 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
     if ($result -match "READY") {
         $ready = $true
         break

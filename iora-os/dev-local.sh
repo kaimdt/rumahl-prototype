@@ -297,7 +297,7 @@ while [ $W_CLOUD -lt $CLOUD_TIMEOUT ]; do
             -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1 "echo SSH_OK" 2>&1
         echo ""
     fi
-    if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=3 -o AddressFamily=inet \
+    if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=3 -o AddressFamily=inet \
          -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1 \
          "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
         ok "Cloud-init completed"
