@@ -18,7 +18,6 @@
 # ============================================================================
 
 param(
-    [Parameter(Position=0)]
     [switch] $Clean,
     [switch] $CleanAll,
     [ValidatePattern('^\d+GB$')]
@@ -32,6 +31,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# ── Friendly error for Linux-style double-dash arguments ──────────────────
+$doubleDashArgs = $MyInvocation.Line -split '\s+' | Where-Object { $_ -match '^--' }
+if ($doubleDashArgs) {
+    Write-Host "[X] PowerShell uses single-dash arguments: -Clean not --clean" -ForegroundColor Red
+    Write-Host "    Try: .\dev-local.ps1 -Clean" -ForegroundColor Yellow
+    exit 1
+}
 
 # ── Help ────────────────────────────────────────────────────────────────────
 if ($Help) {
@@ -378,21 +385,38 @@ if ($HOST_ARCH -eq "ARM64") {
     }
 }
 
-# Check for WHPX acceleration; fall back to TCG if not available
-try {
-    $hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
-    if ($hyperv.State -ne "Enabled") {
-        Write-Warn "Hyper-V/WHPX not enabled. Using TCG (slow). Enable Hyper-V for better performance."
-        $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
-    }
-} catch {
-    Write-Warn "Cannot check Hyper-V status. Using TCG acceleration may be slow."
-    $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
+function Start-QemuVM {
+    param([string[]] $Args, [string] $AccelType)
+    Write-Info "QEMU ($AccelType): $QEMU_BIN"
+    $nullFile = Join-Path $CACHE "qemu-stderr.log"
+    $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -NoNewWindow -RedirectStandardError $nullFile
+    Write-Success "QEMU PID: $($proc.Id)"
+    return $proc
 }
 
-Write-Info "QEMU: $QEMU_BIN"
-$qemuProc = Start-Process -FilePath $QEMU_BIN -ArgumentList $qemuArgs -PassThru -NoNewWindow
-Write-Success "QEMU PID: $($qemuProc.Id)"
+function Test-QemuAlive {
+    param($Proc, [int] $WaitSec = 15)
+    for ($i = 0; $i -lt $WaitSec; $i++) {
+        Start-Sleep -Seconds 1
+        if ($Proc.HasExited) { return $false }
+    }
+    return $true
+}
+
+# Try WHPX first
+$qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
+$qemuProc = Start-QemuVM -Args $qemuArgs -AccelType "WHPX"
+
+if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
+    Write-Warn "QEMU/WHPX crashed (exit: $($qemuProc.ExitCode)). Retrying with TCG..."
+    $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
+    $qemuProc = Start-QemuVM -Args $qemuArgs -AccelType "TCG"
+    
+    if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
+        Write-ErrorMsg "QEMU/TCG also crashed. Check QEMU installation."
+        exit 1
+    }
+}
 
 # ── Step 5: Wait for cloud-init to finish ───────────────────────────────────
 Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
@@ -408,8 +432,8 @@ while ($waited -lt $maxWait) {
     if ($qemuProc.HasExited) {
         $ErrorActionPreference = $prevEA
         Write-ErrorMsg "QEMU exited unexpectedly (exit code: $($qemuProc.ExitCode))."
-        Write-Info "Check the QEMU console window for errors (WHPX/Hyper-V conflicts)."
-        Write-Info "Try: bcdedit /set hypervisorlaunchtype off && reboot"
+        Write-Info "Check the QEMU console window for boot errors."
+        Write-Info "If WHPX keeps crashing, disable Hyper-V: bcdedit /set hypervisorlaunchtype off && reboot"
         exit 1
     }
     $result = & $SSH_BIN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 -i $SSH_KEY -p $SshPort root@localhost "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
