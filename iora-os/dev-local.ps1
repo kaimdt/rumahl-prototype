@@ -209,7 +209,7 @@ if (-not $FW) {
 # Copy OVMF to cache (Program Files may be read-locked by Windows Defender)
 if ($fwIsFlash) {
     $FW_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
-    if (-not (Test-Path $FW_CACHED)) { Copy-Item $FW $FW_CACHED -Force }
+    Copy-Item $FW $FW_CACHED -Force -ErrorAction SilentlyContinue
     $FW = $FW_CACHED
 }
 Write-Success "UEFI firmware: $FW"
@@ -236,7 +236,7 @@ if ($Clean -or $CleanAll) {
     Get-Process qemu-system-aarch64 -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 2
     Write-Info "Cleaning cache..."
-    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" -and $_.Name -notlike "OVMF_CODE.fd" } | Remove-Item -Force
+    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" } | Remove-Item -Force
     if ($CleanAll) {
         Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
     }
@@ -431,14 +431,16 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
     # Wait for WHPX process to fully release disk/ISO locks
     if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 2 }
     $qemuAccel = "tcg"
-    # TCG with many CPUs is slower - cap at 4, no GUI display (gtk can crash)
+    # TCG needs less RAM and fewer CPUs (emulation can't handle large allocations)
     $tcgCpus = [Math]::Min($VM_CPUS, 4)
+    $tcgRam = [Math]::Min([int]($VM_RAM -replace 'G', ''), 4)
     $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
     $qemuArgs = $qemuArgs -replace '-smp [0-9]+', "-smp $tcgCpus"
-    # Replace gtk display with nographic (gtk+TCG can crash on some Windows builds)
-    $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-display' -or $_ -eq 'gtk,show-cursor=on') { $null } else { $_ } } | Where-Object { $_ -ne $null }
+    $qemuArgs = $qemuArgs -replace '-m [0-9]+G', "-m ${tcgRam}G"
+    # Replace gtk display with nographic
+    $qemuArgs = $qemuArgs | ForEach-Object { if ($_ -eq '-display' -or $_ -match 'gtk') { $null } else { $_ } } | Where-Object { $_ -ne $null }
     $qemuArgs += @("-nographic")
-    Write-Info "TCG: using $tcgCpus CPUs, headless mode (TCG+GUI unstable on Windows)"
+    Write-Info "TCG: ${tcgRam}GB RAM, $tcgCpus CPUs, headless"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 10)) {
