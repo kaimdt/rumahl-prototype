@@ -427,14 +427,19 @@ $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=whpx'
 $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "WHPX"
 
 if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 8)) {
-    Write-Warn "QEMU/WHPX crashed. Retrying with exact manual-test config (TCG)..."
-    # Wait for WHPX process to fully release disk/ISO locks
-    if (-not $qemuProc.HasExited) { $qemuProc.Kill(); Start-Sleep -Seconds 3 }
-    $qemuAccel = "tcg"
-    # WHPX kernel panic may have corrupted the overlay - recreate it
-    Write-Info "Recreating VM disk (WHPX may have corrupted it)..."
+    Write-Warn "QEMU/WHPX crashed."
+    # WHPX is unstable on this machine - go straight to TCG
+    # Also re-download cloud image (may be corrupted from repeated WHPX crashes)
     Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
+    Remove-Item $IMG_CACHE -Force -ErrorAction SilentlyContinue
+    Write-Info "Re-downloading cloud image (one-time)..."
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri $IMG_URL -OutFile $IMG_CACHE -TimeoutSec 600
+    $ProgressPreference = 'Continue'
     & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+    Write-Info "Cloud image re-downloaded and overlay recreated."
+    
+    $qemuAccel = "tcg"
     # Rebuild args from scratch (exact match of working manual test)
     $qemuArgs = @(
         "-m", "4G",
