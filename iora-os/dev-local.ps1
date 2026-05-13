@@ -83,12 +83,12 @@ function Write-Success { Write-Host "[OK]    $args" -ForegroundColor Green }
 function Write-Warn    { Write-Host "[WARN]  $args" -ForegroundColor Yellow }
 function Write-ErrorMsg { Write-Host "[ERROR] $args" -ForegroundColor Red }
 
-# ── Banner ──────────────────────────────────────────────────────────────────
+# ── Banner (ASCII only – no UTF-8 box chars for Windows console compat) ───
 Write-Host ""
-Write-Host "  ╔══════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "  ║     IORA OS – Local Dev Environment             ║" -ForegroundColor Cyan
-Write-Host "  ║     Platform: Windows / Hyper-V                 ║" -ForegroundColor Cyan
-Write-Host "  ╚══════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "  ==================================================" -ForegroundColor Cyan
+Write-Host "    IORA OS - Local Dev Environment" -ForegroundColor Cyan
+Write-Host "    Platform: Windows / Hyper-V" -ForegroundColor Cyan
+Write-Host "  ==================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Admin check ─────────────────────────────────────────────────────────────
@@ -412,15 +412,15 @@ if ($reachable) {
 
 # ── Status dashboard ────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "  ║  IORA OS Dev Environment – Status                       ║" -ForegroundColor Cyan
-Write-Host "  ╠══════════════════════════════════════════════════════════╣" -ForegroundColor Cyan
-Write-Host "  ║  VM:    Hyper-V $VM_NAME (IP: $vmIp)" -ForegroundColor White
-Write-Host "  ╠══════════════════════════════════════════════════════════╣" -ForegroundColor Cyan
-Write-Host "  ║  Dashboard:  http://localhost:${IORA_HOME_PORT}" -ForegroundColor Cyan
-Write-Host "  ║  Dev Bridge:  http://localhost:${DEV_BRIDGE_PORT}/dev/health" -ForegroundColor Cyan
-Write-Host "  ║  SSH:        ssh -p ${SshPort} root@localhost  (pass: iora)" -ForegroundColor Cyan
-Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "  ==================================================" -ForegroundColor Cyan
+Write-Host "    IORA OS Dev Environment - Status" -ForegroundColor Cyan
+Write-Host "  ==================================================" -ForegroundColor Cyan
+Write-Host "    VM:    Hyper-V $VM_NAME (IP: $vmIp)" -ForegroundColor White
+Write-Host "  --------------------------------------------------" -ForegroundColor Cyan
+Write-Host "    Dashboard:  http://localhost:${IORA_HOME_PORT}" -ForegroundColor Cyan
+Write-Host "    Dev Bridge:  http://localhost:${DEV_BRIDGE_PORT}/dev/health" -ForegroundColor Cyan
+Write-Host "    SSH:        ssh -p ${SshPort} root@localhost  (pass: iora)" -ForegroundColor Cyan
+Write-Host "  ==================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Start Rust watcher (optional) ───────────────────────────────────────────

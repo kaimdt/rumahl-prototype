@@ -210,9 +210,9 @@ export function CodingAgent() {
                 <Button onClick={() => sendMessage()} disabled={!input.trim() || isLoading} size="icon" className="h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500"><PaperPlaneRight size={18} weight="fill" /></Button>
               </div>
             </div>
+            </div>
+            }
           </div>
-          </div>
-          }
         </div>
       </DialogContent>
     </Dialog>

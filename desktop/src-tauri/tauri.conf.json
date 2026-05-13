@@ -10,6 +10,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "settings",
@@ -20,9 +21,11 @@
         "minHeight": 600,
         "resizable": true,
         "visible": false,
-        "decorations": false,
+        "decorations": true,
         "center": true,
         "closable": true,
+        "shadow": true,
+        "transparent": true,
         "titleBarStyle": "Overlay"
       }
     ],

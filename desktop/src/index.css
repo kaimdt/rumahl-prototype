@@ -1425,3 +1425,33 @@ body {
 @media (max-width: 380px) {
   [data-slot="dialog-content"] { max-height: 92vh !important; padding: 1rem !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Shared: rounded window corners + desktop/remote distinction
+   Platform-specific design systems load dynamically (cupertino.css on macOS etc.)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.platform-windows html, .platform-macos html, .platform-linux html {
+  border-radius: var(--window-radius, 10px); overflow: hidden;
+}
+.platform-windows body, .platform-macos body, .platform-linux body {
+  border-radius: var(--window-radius, 10px); overflow: hidden;
+}
+.platform-windows #root, .platform-macos #root, .platform-linux #root {
+  border-radius: var(--window-radius, 10px); overflow: hidden;
+}
+
+.desktop-settings-banner {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.75rem 1rem; margin-bottom: 1rem;
+  font-size: 12px; font-weight: 500;
+  border-radius: 8px;
+}
+
+.platform-macos .desktop-settings-banner {
+  background: rgba(0,122,255,0.08); border: 1px solid rgba(0,122,255,0.15); color: #007aff;
+}
+
+.iora-remote-view {
+  border-radius: 16px; overflow: hidden;
+}

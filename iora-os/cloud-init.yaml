@@ -1,20 +1,17 @@
 #cloud-config
-# Minimal Cloud-Init – nur SSH + Basis-Pakete.
-# Der eigentliche IORA-Build läuft per SSH von dev-local.sh aus.
-datasource_list: [ NoCloud ]
+# Cloud-Init config passed via QEMU fw_cfg (no ISO needed on aarch64!)
+ssh_pwauth: true
+disable_root: false
 network:
   config: disabled
-ssh_pwauth: true
+
 hostname: iora-dev
-manage_etc_hosts: true
 
 users:
   - name: iora
-    gecos: IORA Developer
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    passwd: "$6$rounds=4096$DummySalt$DummyHash"
 
 chpasswd:
   list: |
@@ -23,30 +20,24 @@ chpasswd:
   expire: false
 
 packages:
-  - build-essential
   - curl
-  - wget
   - git
-  - ca-certificates
+  - build-essential
   - pkg-config
   - libssl-dev
-  - musl-tools
-  - ccache
-  - sccache
-  - mold
   - nodejs
   - npm
+  - docker.io
+  - rsync
   - python3
   - python3-pip
-  - docker.io
-  - docker-compose-v2
-  - rsync
   - htop
   - vim
-  - tmux
 
 runcmd:
   - usermod -aG docker iora
-  - su - iora -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
   - systemctl enable docker --now
+  - su - iora -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
   - touch /etc/iora/ssh-ready
+
+final_message: "IORA Dev VM ready. SSH: ssh -p 2222 root@localhost (pw: iora)"

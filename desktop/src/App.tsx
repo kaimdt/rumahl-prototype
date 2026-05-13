@@ -16,11 +16,31 @@ import { TitleBar } from "./components/TitleBar"
 import { DashboardContent } from "./components/DashboardContent"
 import { ORAOverlay } from "./ORAOverlay"
 import { Toaster } from '@/components/ui/sonner'
+import { getPlatform, applyPlatformClass } from '@/hooks/usePlatform'
+import { useWindowPersistence } from '@/hooks/useWindowPersistence'
+import type { Platform } from '@/lib/tauri'
+
+// ─── Apply Liquid Glass on macOS ───────────────────────────────────────
+async function initLiquidGlass() {
+  try {
+    const { isGlassSupported, setLiquidGlassEffect } = await import('tauri-plugin-liquid-glass-api')
+    const supported = await isGlassSupported()
+    if (supported) {
+      await setLiquidGlassEffect()
+      console.log('[App] Liquid Glass effect enabled')
+    }
+  } catch {
+    // Plugin not available or not on macOS
+  }
+}
 
 export default function App() {
   const [ready, setReady] = useState(false)
   const stopPollerRef = useRef<(() => void) | null>(null)
   const [windowLabel, setWindowLabel] = useState<string>('')
+
+  // Persist window position and size across restarts
+  useWindowPersistence()
 
   // Detect which window we're in based on URL or window label
   useEffect(() => {
@@ -31,6 +51,11 @@ export default function App() {
       return
     }
     setWindowLabel('main')
+
+    // Apply platform class and data attribute
+    const platform = getPlatform()
+    applyPlatformClass(platform)
+    document.documentElement.setAttribute('data-platform', platform)
   }, [])
 
   // Load the remote IORA Home URL from Tauri config, then check the server
@@ -69,34 +94,31 @@ export default function App() {
   // Render main dashboard window
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <div className="flex flex-col h-screen overflow-hidden">
-        {/* Tauri Custom Titlebar */}
-        <TitleBar />
-
-        {/* Dashboard Content with all providers */}
-        <div className="flex-1 overflow-hidden flex flex-col">
-          <ConnectionProvider>
-            <AuthProvider>
-              <ThemeProvider>
-                <PageNavigationProvider>
+      <AuthProvider>
+        <div className="flex flex-col h-screen overflow-hidden">
+          <PageNavigationProvider>
+            <TitleBar />
+            <div className="flex-1 overflow-hidden flex flex-col">
+              <ConnectionProvider>
+                <ThemeProvider>
                   <ConfigurationProvider>
                     <CurrentBackgroundProvider>
-                    <EntityDiscoveryProvider>
-                      <DynamicOverviewProvider>
-                        <NotificationProvider>
-                          <DashboardContent />
-                        </NotificationProvider>
-                        <Toaster />
+                      <EntityDiscoveryProvider>
+                        <DynamicOverviewProvider>
+                          <NotificationProvider>
+                            <DashboardContent />
+                          </NotificationProvider>
+                          <Toaster />
+                        </DynamicOverviewProvider>
+                      </EntityDiscoveryProvider>
                     </CurrentBackgroundProvider>
-                      </DynamicOverviewProvider>
-                    </EntityDiscoveryProvider>
                   </ConfigurationProvider>
-                </PageNavigationProvider>
-              </ThemeProvider>
-            </AuthProvider>
-          </ConnectionProvider>
+                </ThemeProvider>
+              </ConnectionProvider>
+            </div>
+          </PageNavigationProvider>
         </div>
-      </div>
+      </AuthProvider>
     </ErrorBoundary>
   );
 }

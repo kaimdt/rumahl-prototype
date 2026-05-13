@@ -8,6 +8,9 @@ use crate::commands::AppState;
 
 /// Set up or remove autostart functionality
 pub fn configure_autostart(app_name: &str, app_path: &str, enabled: bool) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let auto = AutoLaunch::new(app_name, app_path, true, &[] as &[&str]);
+    #[cfg(not(target_os = "macos"))]
     let auto = AutoLaunch::new(app_name, app_path, &[] as &[&str]);
 
     if enabled {
@@ -23,6 +26,9 @@ pub fn configure_autostart(app_name: &str, app_path: &str, enabled: bool) -> Res
 
 /// Check if autostart is currently enabled
 pub fn is_autostart_enabled(app_name: &str, app_path: &str) -> Result<bool> {
+    #[cfg(target_os = "macos")]
+    let auto = AutoLaunch::new(app_name, app_path, true, &[] as &[&str]);
+    #[cfg(not(target_os = "macos"))]
     let auto = AutoLaunch::new(app_name, app_path, &[] as &[&str]);
     Ok(auto.is_enabled()?)
 }

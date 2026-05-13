@@ -31,6 +31,8 @@ export interface AppConfig {
   always_on_top: boolean;
   kiosk_mode: boolean;
   send_diagnostics: boolean;
+  network_profiles: NetworkProfile[];
+  network_auto_switch: boolean;
 }
 
 export interface Model {
@@ -73,6 +75,8 @@ export interface IoraHomeStatus {
   url: string;
 }
 
+export type Platform = "windows" | "macos" | "linux";
+
 export interface SystemMetrics {
   timestamp: string;
   hostname: string;
@@ -93,6 +97,33 @@ export interface SystemMetrics {
   battery_state: string | null;
   is_charging: boolean | null;
   screen_on: boolean;
+}
+
+// ─── Network profile types ──────────────────────────────────────────
+
+export type NetworkType = "ethernet" | "wifi" | "mobile" | "vpn" | "unknown";
+
+export interface NetworkProfile {
+  name: string;
+  network_type: NetworkType;
+  iora_home_url: string;
+  iora_backend_url?: string;
+  priority: number;
+}
+
+export interface NetworkInfo {
+  interface_name: string;
+  network_type: NetworkType;
+  local_ip: string | null;
+  is_active: boolean;
+}
+
+export interface NetworkStatus {
+  active: NetworkInfo;
+  interfaces: NetworkInfo[];
+  matched_profile: NetworkProfile | null;
+  current_home_url: string;
+  fingerprint: string | null;
 }
 
 export const tauriApi = {
@@ -128,4 +159,41 @@ export const tauriApi = {
   getIoraHomeStatus: () => invoke<IoraHomeStatus>("get_iora_home_status"),
   /** Collect local system metrics (CPU, RAM, disk, battery). */
   getSystemMetrics: () => invoke<SystemMetrics>("get_system_metrics"),
+  // ── Network profile commands ──────────────────────────────────────
+  /** Get full network status: active interface, profiles, current URL. */
+  getNetworkStatus: () => invoke<NetworkStatus>("get_network_status"),
+  /** Detect current network type and IP. */
+  detectCurrentNetwork: () => invoke<NetworkInfo>("detect_current_network"),
+  /** List all detected network interfaces. */
+  listNetworkInterfaces: () => invoke<NetworkInfo[]>("list_network_interfaces_cmd"),
+  /** Get configured network profiles. */
+  getNetworkProfiles: () => invoke<NetworkProfile[]>("get_network_profiles"),
+  /** Save network profiles. */
+  saveNetworkProfiles: (profiles: NetworkProfile[]) =>
+    invoke<void>("save_network_profiles", { profiles }),
+  /** Enable/disable automatic network switching. */
+  setNetworkAutoSwitch: (enabled: boolean) =>
+    invoke<void>("set_network_auto_switch", { enabled }),
+  /** Manually switch to a network profile by index. */
+  switchToProfile: (profileIndex: number) =>
+    invoke<void>("switch_to_profile", { profileIndex }),
+  /** Get the current OS platform. */
+  getPlatform: () => invoke<Platform>("get_platform"),
+  // ── Window control commands ──────────────────────────────────────
+  /** Tile the window (left, right, top, bottom, maximize, center). */
+  tileWindow: (direction: string) => invoke<void>("tile_window", { direction }),
+  /** Enable window shadow (rounded corners on Windows 11). */
+  applyWindowShadow: () => invoke<void>("apply_window_shadow"),
+  /** Start window dragging. */
+  startWindowDrag: () => invoke<void>("start_window_drag"),
+  /** Show tile/snap menu at given coordinates. */
+  showTileMenu: (x: number, y: number) => invoke<void>("show_tile_menu", { x, y }),
+  /** Save window position and size for persistence. */
+  saveWindowState: (x: number | null, y: number | null, width: number | null, height: number | null) =>
+    invoke<void>("save_window_state", { x, y, width, height }),
+  /** Trigger native Windows 11 snap layout at window-relative position. */
+  triggerWindowsSnap: (x: number, y: number) =>
+    invoke<void>("trigger_windows_snap", { x, y }),
+  /** Trigger native macOS window constraints menu (macOS 15+ only). */
+  triggerNativeWindowMenu: () => invoke<void>("trigger_native_window_menu"),
 };

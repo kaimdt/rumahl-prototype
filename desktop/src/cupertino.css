@@ -1,0 +1,172 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   macOS Cupertino Design System
+   Klassischer macOS-Look (Big Sur → Sequoia):
+   Vibrant Blur, SF Pro, runde Ecken, subtile Trenner.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Design tokens – scoped to the desktop-native wrapper via data-platform */
+.desktop-native[data-platform="macos"] {
+  --cupertino-bg: rgba(255, 255, 255, 0.55);
+  --cupertino-bg-card: rgba(255, 255, 255, 0.62);
+  --cupertino-bg-input: rgba(255, 255, 255, 0.78);
+  --cupertino-border: rgba(0, 0, 0, 0.07);
+  --cupertino-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.03);
+  --cupertino-blur: saturate(1.9) blur(50px);
+  --cupertino-radius: 14px;
+  --cupertino-radius-sm: 9px;
+  --cupertino-accent: #6366f1;
+  --cupertino-green: #34c759;
+  --cupertino-text: #1d1d1f;
+  --cupertino-text-secondary: #6e6e73;
+  --cupertino-text-tertiary: #aeaeb2;
+  --cupertino-font: -apple-system, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+  font-family: var(--cupertino-font);
+  color: var(--cupertino-text);
+  /* IORA-inspired gradient overlay */
+  background: linear-gradient(180deg, rgba(99,102,241,0.03) 0%, transparent 40%) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .desktop-native[data-platform="macos"] {
+    --cupertino-bg: rgba(22, 22, 28, 0.65);
+    --cupertino-bg-card: rgba(36, 36, 44, 0.62);
+    --cupertino-bg-input: rgba(50, 50, 58, 0.78);
+    --cupertino-border: rgba(255, 255, 255, 0.09);
+    --cupertino-shadow: 0 1px 4px rgba(0,0,0,0.2), 0 0 0 0.5px rgba(255,255,255,0.04);
+    --cupertino-accent: #818cf8;
+    --cupertino-green: #30d158;
+    --cupertino-text: #f5f5f7;
+    --cupertino-text-secondary: #98989d;
+    --cupertino-text-tertiary: #636366;
+  }
+  .desktop-native[data-platform="macos"] {
+    background: linear-gradient(180deg, rgba(99,102,241,0.04) 0%, transparent 40%) !important;
+  }
+}
+
+/* ── Banner ────────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] .desktop-settings-banner {
+  background: rgba(0, 122, 255, 0.08) !important;
+  border: 1px solid rgba(0, 122, 255, 0.15) !important;
+  color: #007aff !important;
+  border-radius: 8px !important;
+}
+
+/* ── Header card ───────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] > div:first-of-type {
+  background: var(--cupertino-bg-card) !important;
+  backdrop-filter: var(--cupertino-blur) !important;
+  -webkit-backdrop-filter: var(--cupertino-blur) !important;
+  border: 1px solid var(--cupertino-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--cupertino-shadow) !important;
+}
+
+/* ── Tab list ──────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] [role="tablist"] {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-radius: 10px !important;
+  padding: 3px !important;
+}
+.desktop-native[data-platform="macos"] [role="tab"][data-state="active"] {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+}
+
+/* ── Settings cards (SettingsSection) ───────────────────────────────── */
+.desktop-native[data-platform="macos"] section,
+.desktop-native[data-platform="macos"] .glass-card {
+  background: var(--cupertino-bg-card) !important;
+  backdrop-filter: var(--cupertino-blur) !important;
+  -webkit-backdrop-filter: var(--cupertino-blur) !important;
+  border: 1px solid var(--cupertino-border) !important;
+  border-radius: var(--cupertino-radius) !important;
+  box-shadow: var(--cupertino-shadow) !important;
+}
+
+/* ── Toggle rows ───────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] .rounded-3xl {
+  background: var(--cupertino-bg-card) !important;
+  border-color: var(--cupertino-border) !important;
+  border-radius: 10px !important;
+}
+
+/* ── Section headers ───────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] h2 {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--cupertino-text-tertiary) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+
+/* ── Labels ────────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] label {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--cupertino-text-secondary) !important;
+}
+
+/* ── Inputs ────────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] input[type="text"],
+.desktop-native[data-platform="macos"] input[type="url"],
+.desktop-native[data-platform="macos"] input[type="number"],
+.desktop-native[data-platform="macos"] input[type="password"],
+.desktop-native[data-platform="macos"] input[type="search"],
+.desktop-native[data-platform="macos"] textarea {
+  font-family: var(--cupertino-font) !important;
+  font-size: 13px !important;
+  color: var(--cupertino-text) !important;
+  background: var(--cupertino-bg-input) !important;
+  border: 1px solid var(--cupertino-border) !important;
+  border-radius: 8px !important;
+  padding: 7px 10px !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.desktop-native[data-platform="macos"] input:focus,
+.desktop-native[data-platform="macos"] textarea:focus {
+  border-color: var(--cupertino-accent) !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+}
+.desktop-native[data-platform="macos"] input::placeholder,
+.desktop-native[data-platform="macos"] textarea::placeholder {
+  color: var(--cupertino-text-tertiary) !important;
+}
+
+/* ── Select ────────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] select {
+  font-family: var(--cupertino-font) !important;
+  font-size: 13px !important;
+  color: var(--cupertino-text) !important;
+  background-color: var(--cupertino-bg-input) !important;
+  border: 1px solid var(--cupertino-border) !important;
+  border-radius: 8px !important;
+  padding: 7px 28px 7px 10px !important;
+  outline: none !important;
+}
+.desktop-native[data-platform="macos"] select:focus {
+  border-color: var(--cupertino-accent) !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] button[type="submit"] {
+  font-family: var(--cupertino-font) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  background: var(--cupertino-accent) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 7px 18px !important;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+.desktop-native[data-platform="macos"] ::-webkit-scrollbar { width: 6px; }
+.desktop-native[data-platform="macos"] ::-webkit-scrollbar-track { background: transparent; }
+.desktop-native[data-platform="macos"] ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.12);
+  border-radius: 100px;
+}

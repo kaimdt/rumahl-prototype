@@ -5,5 +5,8 @@ pub mod config;
 pub mod ha_commands;
 pub mod ha_integration;
 pub mod lm_studio;
+pub mod network_commands;
+pub mod network_detection;
 pub mod system_commands;
 pub mod system_info;
+pub mod window_controls;

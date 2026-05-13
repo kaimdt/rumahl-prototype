@@ -55,6 +55,12 @@ pub struct ClientInfo {
 
 // ─── Config commands ─────────────────────────────────────────────────────────
 
+/// Return the current OS platform ("windows", "macos", "linux").
+#[tauri::command]
+pub fn get_platform() -> &'static str {
+    std::env::consts::OS
+}
+
 /// Load current settings.
 #[tauri::command]
 pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {

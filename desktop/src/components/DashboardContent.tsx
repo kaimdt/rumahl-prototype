@@ -35,33 +35,12 @@ import { CodingAgent } from '@/components/CodingAgent'
 import { SystemLog } from '@/components/SystemLog'
 import { SystemControl } from '@/components/SystemControl'
 
-// Isolated clock component – only re-renders per minute in the header
-function HeaderClock() {
-  const [showSystemLog, setShowSystemLog] = useState(false)
-  const [showSystemControl, setShowSystemControl] = useState(false)
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | undefined
-    const msToNextMinute = (60 - new Date().getSeconds()) * 1000
-    const boot = setTimeout(() => {
-      setTime(new Date())
-      intervalId = setInterval(() => setTime(new Date()), 60_000)
-    }, msToNextMinute)
-    const fastTick = setInterval(() => setTime(new Date()), 1000)
-    return () => {
-      clearTimeout(boot)
-      clearInterval(fastTick)
-      if (intervalId) clearInterval(intervalId)
-    }
-  }, [])
-  return (
-    <span className="text-sm font-medium tabular-nums tracking-wide">
-      {time.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-    </span>
-  )
-}
+// (clock removed – header bar redesigned)
 
 export function DashboardContent() {
   const { background } = useConfiguration()
+  const [showSystemLog, setShowSystemLog] = useState(false)
+  const [showSystemControl, setShowSystemControl] = useState(false)
   const { theme } = useTheme()
   const { user } = useAuth()
   const { currentPageId, setCurrentPageId } = usePageNavigation()
@@ -76,6 +55,7 @@ export function DashboardContent() {
   const hasActiveCustomBackground = Boolean(background?.is_active)
   const remoteHomeUrl = getApiBase()
   const isRemoteHome = currentPageId === 'home' && Boolean(remoteHomeUrl)
+  const isDesktopSettings = currentPageId === 'settings' || currentPageId === 'connection'
 
   // Apply global card style class on <html>
   useEffect(() => {
@@ -107,7 +87,11 @@ export function DashboardContent() {
 
   // If RemoteHome is configured and we're on home page, show the remote view
   if (isRemoteHome) {
-    return <RemoteHomeView />
+    return (
+      <div className="iora-remote-view h-full">
+        <RemoteHomeView />
+      </div>
+    )
   }
 
   return (
@@ -115,8 +99,8 @@ export function DashboardContent() {
       <div
         className={`flex-1 min-h-0 relative theme-transition overflow-x-hidden overflow-y-auto font-size-${fontSize}${reducedAnimations ? ' reduce-animations' : ''}${compactWidgets ? ' compact-widgets' : ''}`}
       >
-        {/* Background layer */}
-        {!hasActiveCustomBackground && (
+        {/* Background layer – hidden on Desktop Settings */}
+        {!hasActiveCustomBackground && !isDesktopSettings && (
           <div
             className="fixed inset-0 bg-cover bg-center bg-no-repeat theme-transition z-0 pointer-events-none"
             style={{
@@ -167,31 +151,29 @@ export function DashboardContent() {
         <div
           className="relative z-20"
           style={{
-            overflow: 'scroll',
-            height: '100vh',
+            ...(isDesktopSettings
+              ? {}
+              : { overflow: 'scroll', height: '100vh' }),
             filter: theme === 'sleep' ? 'saturate(0.25) brightness(0.65)' : 'none',
             transition: 'filter var(--transition-duration) ease',
           }}
         >
-          <header
-            className="glass-header theme-transition"
-            style={{ transition: 'background 0.5s ease, border-bottom 0.5s ease' }}
-          >
-            <div className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px oklch(from var(--accent) l c h / 0.5)' }} />
-                <h1 className="text-sm font-medium tracking-[0.15em] uppercase">IORA</h1>
-                <span className="text-[9px] font-medium tracking-[0.1em] uppercase text-foreground/25 hidden sm:block">
-                  {currentPageId === 'settings' ? 'Desktop' : currentPageId === 'admin' ? 'Admin' : currentPageId === 'docs' ? 'Docs' : currentPageId === 'streaming' ? 'Stream' : 'Desktop'}
-                </span>
+          {!isDesktopSettings && (
+            <header className="glass-header theme-transition">
+              <div className="max-w-[1500px] mx-auto px-4 md:px-6 lg:px-8 py-2.5 flex items-center">
+                <div className="flex items-center gap-3">
+                  <div className="w-1.5 h-5 rounded-full bg-accent/70" />
+                  <h1 className="text-[13px] font-semibold tracking-tight text-foreground/90">IORA</h1>
+                  <span className="text-[10px] font-medium text-foreground/25 tracking-wider">
+                    {currentPageId === 'admin' ? 'Control Center' : currentPageId === 'docs' ? 'Dokumentation' : currentPageId === 'streaming' ? 'Streaming' : currentPageId === 'connection' ? 'Verbindung' : 'Dashboard'}
+                  </span>
+                </div>
+                <div className="flex-1" />
               </div>
-              <div className="flex items-center gap-4">
-                <HeaderClock />
-              </div>
-            </div>
-          </header>
+            </header>
+          )}
 
-          <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32">
+          <main className={`max-w-[1500px] mx-auto ${isDesktopSettings ? 'px-0 pt-0 pb-0' : 'px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32'}`}>
             <div className="space-y-6">
               {currentPageId === 'settings' && (
                 <SettingsPage theme={theme} />
@@ -214,7 +196,7 @@ export function DashboardContent() {
           </main>
         </div>
       </div>
-      <NavigationMenu onSystemLogToggle={() => setShowSystemLog(true)} onSystemControlToggle={() => setShowSystemControl(true)} />
+      {!isDesktopSettings && <NavigationMenu />}
       <CodingAgent />
       <SystemLog isOpen={showSystemLog} onClose={() => setShowSystemLog(false)} />
       <SystemControl isOpen={showSystemControl} onClose={() => setShowSystemControl(false)} />

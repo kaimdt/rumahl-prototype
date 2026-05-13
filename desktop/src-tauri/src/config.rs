@@ -1,6 +1,7 @@
 //! Persistent settings stored in the OS app-data directory.
 
 use anyhow::Result;
+use crate::network_detection::NetworkType;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -107,6 +108,42 @@ pub struct AppConfig {
     /// ORA AI Allow Control - if true, AI is allowed to control the system
     #[serde(default)]
     pub ora_allow_control: bool,
+    /// Network profiles for different connection environments
+    #[serde(default)]
+    pub network_profiles: Vec<NetworkProfile>,
+    /// Automatically switch IORA Home URL based on current network
+    #[serde(default)]
+    pub network_auto_switch: bool,
+    /// Last saved window X position (None = center)
+    #[serde(default)]
+    pub window_x: Option<f64>,
+    /// Last saved window Y position (None = center)
+    #[serde(default)]
+    pub window_y: Option<f64>,
+    /// Last saved window width (None = default 1280)
+    #[serde(default)]
+    pub window_width: Option<f64>,
+    /// Last saved window height (None = default 800)
+    #[serde(default)]
+    pub window_height: Option<f64>,
+}
+
+/// A network-specific connection profile.
+/// Users can define different IORA Home URLs for LAN, WiFi, Mobile, etc.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkProfile {
+    /// Human-readable name for this profile (e.g. "Home LAN", "Mobile 5G")
+    pub name: String,
+    /// The network type this profile is meant for
+    pub network_type: NetworkType,
+    /// IORA Home URL to use when connected to this network
+    pub iora_home_url: String,
+    /// Optional IORA Backend (iora-assist) URL for this network
+    #[serde(default)]
+    pub iora_backend_url: Option<String>,
+    /// Priority when multiple profiles could match (lower = higher priority)
+    #[serde(default)]
+    pub priority: u8,
 }
 
 impl Default for AppConfig {
@@ -143,6 +180,12 @@ impl Default for AppConfig {
             ora_privacy_mode: false,
             ora_autopilot: false,
             ora_allow_control: false,
+            network_profiles: Vec::new(),
+            network_auto_switch: false,
+            window_x: None,
+            window_y: None,
+            window_width: None,
+            window_height: None,
         }
     }
 }

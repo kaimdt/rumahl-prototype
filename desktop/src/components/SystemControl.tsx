@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Pause, Play, Stop, Shield, Warning, Robot, Activity,
+  Pause, Play, Stop, Shield, Warning, Robot, Heartbeat,
   X, CaretRight, CaretDown, ToggleRight, ToggleLeft,
   Clock, ArrowCounterClockwise, Info,
 } from '@phosphor-icons/react'
@@ -165,7 +165,7 @@ export function SystemControl({ isOpen, onClose }: Props) {
                     {loopDetections.slice(-10).map((d, i) => (
                       <div key={i} className="px-3 py-2 rounded-lg bg-red-500/[0.06] border border-red-500/15">
                         <p className="text-[11px] text-red-400/80 flex items-center gap-1.5">
-                          <Activity size={11} /> Agent {d.agent_id?.slice(0, 8)}…
+                          <Heartbeat size={11} /> Agent {d.agent_id?.slice(0, 8)}…
                         </p>
                         <p className="text-[10px] text-red-400/40 mt-0.5">
                           Pattern: {d.pattern?.join(' → ')} ({d.repetitions}x)
@@ -199,7 +199,7 @@ export function SystemControl({ isOpen, onClose }: Props) {
             <div className="px-5 py-2.5 border-t border-foreground/8 flex items-center gap-3 text-[10px] text-foreground/25">
               <Clock size={11} /> Uptime: {uptimeStr}
               <span>·</span>
-              <Activity size={11} /> Rules: {rules.filter(r => r.enabled).length}/{rules.length} aktiv
+              <Heartbeat size={11} /> Rules: {rules.filter(r => r.enabled).length}/{rules.length} aktiv
               <span className="ml-auto">IORA System Guard v1.0</span>
             </div>
           </motion.div>

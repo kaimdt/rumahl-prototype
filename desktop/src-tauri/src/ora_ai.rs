@@ -161,7 +161,7 @@ pub async fn ora_show_overlay(app: AppHandle, state: State<'_, AppState>) -> Res
         .inner_size(400.0, 600.0)
         .position(0.0, 0.0) // Will be positioned by JS
         .decorations(false)
-        .transparent(true)
+        // .transparent(true) // Removed: not available in Tauri v2, use CSS instead
         .always_on_top(true)
         .resizable(false)
         .shadow(false)

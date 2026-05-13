@@ -9,9 +9,12 @@ mod ha_commands;
 mod ha_integration;
 mod iora_notifications;
 mod lm_studio;
+mod network_commands;
+mod network_detection;
 mod ora_ai;
 mod system_commands;
 mod system_info;
+mod window_controls;
 
 use commands::AppState;
 use ha_integration::{HaClient, HaConfig};
@@ -23,6 +26,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+use tauri_plugin_liquid_glass::LiquidGlassExt;
 use tokio::time::{interval, Duration};
 
 fn main() {
@@ -36,6 +40,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_liquid_glass::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcuts(["ctrl+shift+space"])
@@ -59,6 +64,30 @@ fn main() {
         )
         .manage(AppState::new())
         .setup(|app| {
+            // ── Platform-specific window setup ───────────────────────────────
+            // macOS: keep native decorations (traffic lights, titlebar)
+            // Windows/Linux: hide decorations for custom titlebar
+            #[cfg(not(target_os = "macos"))]
+            if let Some(window) = app.get_webview_window("settings") {
+                let _ = window.set_decorations(false);
+            }
+
+            // ── macOS Liquid Glass effect (native NSGlassEffectView) ─────────
+            #[cfg(target_os = "macos")]
+            {
+                let lg = app.liquid_glass();
+                if lg.is_supported() {
+                    if let Some(window) = app.get_webview_window("settings") {
+                        use tauri_plugin_liquid_glass::LiquidGlassConfig;
+                        if let Err(e) = lg.set_effect(&window, LiquidGlassConfig::default()) {
+                            tracing::warn!("Failed to apply Liquid Glass effect: {}", e);
+                        } else {
+                            tracing::info!("Liquid Glass effect applied to window");
+                        }
+                    }
+                }
+            }
+
             // ── Tray menu ────────────────────────────────────────────────────
             let show_item =
                 MenuItem::with_id(app, "show", "Einstellungen öffnen", true, None::<&str>)?;
@@ -71,6 +100,15 @@ fn main() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("settings") {
+                            // Restore saved window position on first show
+                            let state = app.state::<AppState>();
+                            let cfg = state.config.blocking_lock().clone();
+                            if let (Some(x), Some(y)) = (cfg.window_x, cfg.window_y) {
+                                let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+                            }
+                            if let (Some(w), Some(h)) = (cfg.window_width, cfg.window_height) {
+                                let _ = window.set_size(tauri::LogicalSize::new(w, h));
+                            }
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -233,6 +271,10 @@ fn main() {
                 }
             });
 
+            // ── Network profile auto-switch monitor ────────────────
+            let app_handle_network = app.handle().clone();
+            network_commands::start_network_monitor(app_handle_network);
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -245,6 +287,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_platform,
             commands::get_config,
             commands::save_config,
             commands::apply_window_settings,
@@ -274,6 +317,20 @@ fn main() {
             ora_ai::ora_capture_screenshot,
             ora_ai::ora_highlight_screen,
             ora_ai::ora_execute_desktop_action,
+            network_commands::get_network_status,
+            network_commands::detect_current_network,
+            network_commands::list_network_interfaces_cmd,
+            network_commands::get_network_profiles,
+            network_commands::save_network_profiles,
+            network_commands::set_network_auto_switch,
+            network_commands::switch_to_profile,
+            window_controls::tile_window,
+            window_controls::apply_window_shadow,
+            window_controls::start_window_drag,
+            window_controls::show_tile_menu,
+            window_controls::save_window_state,
+            window_controls::trigger_native_window_menu,
+            window_controls::trigger_windows_snap,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IORA Desktop");

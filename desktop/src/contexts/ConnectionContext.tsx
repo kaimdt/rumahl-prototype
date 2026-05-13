@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 
-import { getApiBase } from '@/lib/apiBase'
+import { getApiBase, setApiBase } from '@/lib/apiBase'
+import type { NetworkProfile } from '@/lib/tauri'
 
 interface ConnectionStatus {
   backend: 'connected' | 'disconnected' | 'error'
@@ -60,6 +61,41 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     checkBackend()
     const interval = setInterval(checkBackend, 30000) // Check every 30 seconds
     return () => clearInterval(interval)
+  }, [checkBackend])
+
+  // Listen for network profile changes from the Tauri backend.
+  // When the network monitor auto-switches a profile, update apiBase
+  // so the WebSocket and HTTP connections reconnect to the new URL.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+
+    import('@tauri-apps/api/event')
+      .then(({ listen }) => {
+        const promise = listen<NetworkProfile>('network-profile-changed', (event) => {
+          const profile = event.payload
+          if (profile?.iora_home_url) {
+            console.log(
+              '[ConnectionContext] Network profile changed:',
+              profile.name,
+              '→',
+              profile.iora_home_url
+            )
+            setApiBase(profile.iora_home_url)
+            // Re-check connection against the new URL
+            checkBackend()
+          }
+        })
+        promise.then((fn) => {
+          unlisten = fn
+        })
+      })
+      .catch(() => {
+        // Not in Tauri context – ignore
+      })
+
+    return () => {
+      unlisten?.()
+    }
   }, [checkBackend])
 
   const contextValue = useMemo(() => ({

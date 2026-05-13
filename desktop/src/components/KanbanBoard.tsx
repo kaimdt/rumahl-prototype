@@ -160,7 +160,7 @@ export function KanbanBoard({ tasks, onTasksChange, onCreateTask, onStartTask, o
                       <motion.div key={task.id} layout
                         initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
                         draggable
-                        onDragStart={e => onDragStart(e, task.id)}
+                        onDragStart={(e: any) => onDragStart(e, task.id)}
                         className="group p-2 rounded-lg border border-foreground/8 bg-card/60 backdrop-blur-sm cursor-grab active:cursor-grabbing hover:border-foreground/15"
                       >
                         <div className="flex items-center gap-1 mb-0.5">
