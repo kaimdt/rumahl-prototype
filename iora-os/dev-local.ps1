@@ -237,7 +237,7 @@ if ($Clean -or $CleanAll) {
     Get-Process qemu-system-aarch64 -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 2
     Write-Info "Cleaning cache..."
-    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" } | Remove-Item -Force
+    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" } | Remove-Item -Force -ErrorAction SilentlyContinue
     if ($CleanAll) {
         Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
     }
