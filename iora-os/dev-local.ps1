@@ -424,7 +424,7 @@ if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 15)) {
 Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
 
 $maxWait = if ($qemuAccel -eq "tcg") { 600 } else { 300 }
-$waitMsg = if ($qemuAccel -eq "tcg") { "TCG is slow — first boot may take 5-10 min" } else { "first boot may take 2-5 min" }
+$waitMsg = if ($qemuAccel -eq "tcg") { "TCG is slow - first boot may take 5-10 min" } else { "first boot may take 2-5 min" }
 Write-Info "Waiting for cloud-init to finish ($waitMsg)..."
 
 $waited = 0
