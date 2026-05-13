@@ -1,475 +1,490 @@
 # ============================================================================
-# dev-local.ps1 – IORA OS Dev Environment for Windows (Hyper-V)
+# dev-local.ps1 – IORA OS Local Dev VM (Windows)
 # ============================================================================
-# Startet IORA OS in einer lokalen Hyper-V-VM mit Hot Reload.
+# Startet Debian 12 x86_64/ARM64 Cloud-VM via QEMU.
+# Verwendet cloud-init seed ISO für automatische Konfiguration (SSH, User, Pakete).
+# Dann: SSH → rsync Projekt → bauen → starten.
 #
 # Voraussetzungen:
-#   - Windows 10/11 Pro oder Enterprise (Hyper-V)
-#   - Hyper-V aktiviert (Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All)
-#   - Administrator-Rechte (für Hyper-V VM-Erstellung)
-#   - Rust + cargo (via rustup)
-#   - Node.js + npm
+#   - QEMU (winget install QEMU.QEMU  oder  choco install qemu)
+#   - WSL2 (wsl --install) für rsync & ISO-Generierung
+#   - OpenSSH-Client (Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0)
 #
-# Verwendung (PowerShell als Administrator):
+# Verwendung (PowerShell als Admin NICHT nötig):
 #   .\dev-local.ps1
-#   .\dev-local.ps1 -BuildFirst
-#   .\dev-local.ps1 -Ram 8GB -CpuCount 8 -DiskPath "C:\VMs\iora-os.img"
-#   .\dev-local.ps1 -NoFrontend -NoBackend  # Nur VM starten
+#   .\dev-local.ps1 -Clean
+#   .\dev-local.ps1 -CleanAll
+#   .\dev-local.ps1 -Ram 8GB -CpuCount 4
 # ============================================================================
 
 param(
-    [switch] $BuildFirst,
-    [switch] $NoFrontend,
-    [switch] $NoBackend,
-    [switch] $Headless,
-    [switch] $KeepVM,
-    [string] $Ram = "4GB",
+    [switch] $Clean,
+    [switch] $CleanAll,
+    [ValidatePattern('^\d+GB$')]
+    [string] $Ram = "",
+    [ValidateRange(1, 64)]
     [int]    $CpuCount = 0,
-    [string] $DiskPath = "",
+    [ValidateRange(1024, 65535)]
     [int]    $SshPort = 2222,
+    [string] $QemuPath = "",
     [switch] $Help
 )
 
-# ── Constants ───────────────────────────────────────────────────────────────
-$VM_NAME       = "IORA-OS-Dev"
-$VM_SWITCH     = "IORA-Dev-NAT"
-$DEV_BRIDGE_PORT = 8101
-$IORA_HOME_PORT  = 8126
-$SCRIPT_DIR    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$REPO_ROOT     = Split-Path -Parent $SCRIPT_DIR
+$ErrorActionPreference = "Stop"
 
 # ── Help ────────────────────────────────────────────────────────────────────
 if ($Help) {
     @"
-IORA OS – Local Dev Environment for Windows (Hyper-V)
+IORA OS – Local Dev VM for Windows (QEMU)
 
 Usage: .\dev-local.ps1 [OPTIONS]
 
 OPTIONS:
-    -BuildFirst     Build the dev image before starting the VM (requires WSL/Linux)
-    -NoFrontend     Skip Vite dev server (backend-only hot reload)
-    -NoBackend      Skip Rust watcher (frontend-only hot reload)
-    -Headless       No VM window (VM runs in background)
-    -KeepVM         Don't delete the VM after exiting
-    -Ram SIZE       VM RAM (default: 4GB)
-    -CpuCount N     VM CPUs (default: host-CPUs/2)
-    -DiskPath PATH  Path to IORA OS image (.img or .vhdx)
-    -SshPort PORT   SSH port forwarding (default: 2222)
+    -Clean          Remove VM cache (disk overlay, seed ISO, SSH key)
+    -CleanAll       Also remove downloaded Debian cloud image
+    -Ram SIZE       VM RAM (e.g. 8GB). Default: auto (60% of host RAM, 4-12GB)
+    -CpuCount N     VM CPUs. Default: host-CPUs / 2
+    -SshPort PORT   SSH port on localhost (default: 2222)
+    -QemuPath PATH  Custom QEMU installation path
     -Help           This help
 
 REQUIREMENTS:
-    - Windows 10/11 Pro or Enterprise
-    - Hyper-V enabled (run as Admin):
-      Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All
-    - Administrator privileges
+    - QEMU:        winget install QEMU.QEMU  (or choco install qemu)
+    - WSL2:        wsl --install  (for rsync + ISO creation)
+    - OpenSSH:     Already included in Windows 10/11
 
 EXAMPLES:
     .\dev-local.ps1
     .\dev-local.ps1 -Ram 8GB -CpuCount 8
-    .\dev-local.ps1 -DiskPath "C:\VMs\iora-os.img"
-    .\dev-local.ps1 -Headless -KeepVM
-
-ALTERNATIVE (recommended for most users):
-    Use WSL2 + dev-local.sh for a simpler cross-platform experience.
-    Install WSL2: wsl --install
-    Then inside WSL2: ./iora-os/dev-local.sh
+    .\dev-local.ps1 -CleanAll
 "@
     exit 0
 }
 
 # ── Colors ──────────────────────────────────────────────────────────────────
-function Write-Info    { Write-Host "[INFO]  $args" -ForegroundColor Cyan }
-function Write-Success { Write-Host "[OK]    $args" -ForegroundColor Green }
-function Write-Warn    { Write-Host "[WARN]  $args" -ForegroundColor Yellow }
-function Write-ErrorMsg { Write-Host "[ERROR] $args" -ForegroundColor Red }
+function Write-Info    { Write-Host "[*] $args" -ForegroundColor Cyan }
+function Write-Success { Write-Host "[+] $args" -ForegroundColor Green }
+function Write-Warn    { Write-Host "[!] $args" -ForegroundColor Yellow }
+function Write-ErrorMsg { Write-Host "[X] $args" -ForegroundColor Red }
 
-# ── Banner (ASCII only – no UTF-8 box chars for Windows console compat) ───
+# ── Banner ──────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "  ==================================================" -ForegroundColor Cyan
-Write-Host "    IORA OS - Local Dev Environment" -ForegroundColor Cyan
-Write-Host "    Platform: Windows / Hyper-V" -ForegroundColor Cyan
-Write-Host "  ==================================================" -ForegroundColor Cyan
+Write-Host "  IORA OS – Local Dev VM (Windows / QEMU)" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Admin check ─────────────────────────────────────────────────────────────
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-ErrorMsg "Administrator privileges required for Hyper-V."
-    Write-Info "Restart PowerShell as Administrator and re-run."
+# ── Paths ───────────────────────────────────────────────────────────────────
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$REPO_ROOT  = Split-Path -Parent $SCRIPT_DIR
+$CACHE      = Join-Path $SCRIPT_DIR ".cache"
+New-Item -ItemType Directory -Force -Path $CACHE | Out-Null
+
+# ── Platform detection ──────────────────────────────────────────────────────
+$HOST_ARCH = (Get-WmiObject Win32_Processor).Architecture
+if ($HOST_ARCH -eq 12) { $HOST_ARCH = "ARM64" } else { $HOST_ARCH = "x86_64" }
+$HOST_CPUS = [Environment]::ProcessorCount
+
+# ── QEMU detection ──────────────────────────────────────────────────────────
+function Find-Qemu {
+    if ($QemuPath -and (Test-Path $QemuPath)) { return $QemuPath }
+
+    $qemuBin = if ($HOST_ARCH -eq "ARM64") { "qemu-system-aarch64.exe" } else { "qemu-system-x86_64.exe" }
+
+    $paths = @(
+        (Get-Command $qemuBin -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
+        (Join-Path $env:ProgramFiles "qemu\$qemuBin"),
+        (Join-Path ${env:ProgramFiles(x86)} "qemu\$qemuBin"),
+        (Join-Path $env:LOCALAPPDATA "Programs\qemu\$qemuBin"),
+        "C:\Program Files\qemu\$qemuBin"
+    )
+    foreach ($p in $paths) {
+        if ($p -and (Test-Path $p)) {
+            Write-Success "QEMU found: $p"
+            return $p
+        }
+    }
+    Write-ErrorMsg "QEMU not found."
+    Write-Info "Install: winget install QEMU.QEMU"
+    Write-Info "Or: choco install qemu"
     exit 1
 }
 
-# ── Prerequisites ───────────────────────────────────────────────────────────
-Write-Info "Checking prerequisites..."
+$QEMU_BIN = Find-Qemu
+$QEMU_DIR = Split-Path -Parent $QEMU_BIN
+$QEMU_IMG = Join-Path $QEMU_DIR "qemu-img.exe"
 
-# Hyper-V
-$hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
-if ($hyperv.State -ne "Enabled") {
-    Write-ErrorMsg "Hyper-V is not enabled."
-    Write-Info "Run as Administrator: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All"
+# ── WSL detection ───────────────────────────────────────────────────────────
+$WSL_AVAILABLE = $false
+try {
+    $wslCheck = wsl --status 2>&1
+    if ($LASTEXITCODE -eq 0) { $WSL_AVAILABLE = $true }
+} catch { }
+if (-not $WSL_AVAILABLE) {
+    Write-ErrorMsg "WSL2 is required for ISO generation and rsync."
+    Write-Info "Install: wsl --install"
     Write-Info "Then reboot and re-run this script."
     exit 1
 }
-Write-Success "Hyper-V is enabled"
+Write-Success "WSL2 available"
 
-# Hyper-V PowerShell module
-if (-not (Get-Command Get-VM -ErrorAction SilentlyContinue)) {
-    Write-Warn "Hyper-V PowerShell module not loaded. Enabling..."
-    Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-Management-PowerShell -ErrorAction SilentlyContinue
+# ── SSH detection ───────────────────────────────────────────────────────────
+$SSH_BIN = Get-Command ssh.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+if (-not $SSH_BIN) {
+    Write-ErrorMsg "OpenSSH Client not found."
+    Write-Info "Install: Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"
+    exit 1
+}
+$SCP_BIN = Get-Command scp.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+
+# ── Config ───────────────────────────────────────────────────────────────────
+# Dynamische RAM-Berechnung
+if ($Ram) {
+    $VM_RAM = $Ram
+} else {
+    $totalRamMB = (Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory / 1MB
+    $hostRamGB = [Math]::Round($totalRamMB / 1024)
+    $vmRamGB = [Math]::Max(4, [Math]::Min(12, [Math]::Floor($hostRamGB * 0.6)))
+    $VM_RAM = "${vmRamGB}G"
 }
 
-# CPU count
+# CPU
 if ($CpuCount -eq 0) {
-    $CpuCount = [Environment]::ProcessorCount
-    $CpuCount = [Math]::Max(2, [Math]::Floor($CpuCount / 2))
+    $VM_CPUS = [Math]::Max(2, [Math]::Floor($HOST_CPUS / 2))
+} else {
+    $VM_CPUS = $CpuCount
 }
-Write-Info "VM CPUs: $CpuCount"
-Write-Info "VM RAM:  $Ram"
 
-# ── Find or prepare disk image ──────────────────────────────────────────────
-function Find-DiskImage {
-    if ($DiskPath -and (Test-Path $DiskPath)) {
-        Write-Success "Using disk image: $DiskPath"
-        return $DiskPath
+# Cargo build jobs: 1 Job pro ~2.5GB VM-RAM
+$vmRamNum = [int]($VM_RAM -replace 'G', '')
+$CARGO_JOBS = [Math]::Max(1, [Math]::Min($VM_CPUS, [Math]::Floor($vmRamNum * 10 / 25)))
+
+$VM_MACHINE = if ($HOST_ARCH -eq "ARM64") { "virt" } else { "q35" }
+
+Write-Info "Host: ${hostRamGB}GB RAM, ${HOST_CPUS} CPUs"
+Write-Info "VM: ${VM_RAM}, ${VM_CPUS} CPUs, cargo -j${CARGO_JOBS}"
+
+# ── Arch-specific cloud image ────────────────────────────────────────────────
+if ($HOST_ARCH -eq "ARM64") {
+    $IMG_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-arm64.qcow2"
+    $IMG_CACHE = Join-Path $CACHE "debian-12-cloud-arm64.qcow2"
+} else {
+    $IMG_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+    $IMG_CACHE = Join-Path $CACHE "debian-12-cloud-amd64.qcow2"
+}
+$VM_DISK  = Join-Path $CACHE "iora-dev-vm.qcow2"
+$SSH_KEY  = Join-Path $CACHE "iora-dev-key"
+$SEED_ISO = Join-Path $CACHE "iora-dev-seed.iso"
+
+# ── Cleanup ──────────────────────────────────────────────────────────────────
+if ($Clean -or $CleanAll) {
+    Write-Info "Cleaning cache..."
+    Get-ChildItem -Path $CACHE -File | Where-Object { $_.Name -notlike "debian-12-cloud-*.qcow2" } | Remove-Item -Force
+    if ($CleanAll) {
+        Remove-Item -Path $IMG_CACHE -Force -ErrorAction SilentlyContinue
     }
+    Write-Success "Done. Run again without -Clean to start."
+    exit 0
+}
 
-    # Search for existing images
-    $searchDirs = @(
-        (Join-Path $SCRIPT_DIR "releases"),
-        (Join-Path $SCRIPT_DIR "buildroot-2024.02\output\images")
-    )
-    $found = @()
-    foreach ($dir in $searchDirs) {
-        if (Test-Path $dir) {
-            $found += Get-ChildItem -Path $dir -Filter "iora-os*.img" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-        }
-    }
-
-    if ($found.Count -gt 0) {
-        Write-Info "Found existing image(s):"
-        for ($i = 0; $i -lt $found.Count; $i++) {
-            $size = (Get-Item $found[$i]).Length / 1GB
-            Write-Host "  [$($i+1)] $($found[$i]) ($([Math]::Round($size, 1)) GB)"
-        }
-        $choice = Read-Host "Use image [1] or type 'b' to build"
-        if ($choice -eq 'b') {
-            $script:BuildFirst = $true
-        } elseif ([int]$choice -ge 1 -and [int]$choice -le $found.Count) {
-            $script:DiskPath = $found[[int]$choice - 1]
-            Write-Success "Using: $($script:DiskPath)"
-            return $script:DiskPath
-        }
-    }
-
-    # Need to build
-    if ($BuildFirst) {
-        Write-ErrorMsg "Buildroot build requires Linux or WSL2."
-        Write-Info "Option 1: Build on Linux/WSL2 and copy the .img file to Windows."
-        Write-Info "Option 2: Use WSL2: wsl --install; then inside WSL: ./iora-os/dev-local.sh --build-first"
-        Write-Info "Option 3: Download a pre-built IORA OS Dev image."
-        Write-Info ""
-        Write-Info "Once you have the image, run:"
-        Write-Info "  .\dev-local.ps1 -DiskPath C:\path\to\iora-os.img"
+# ── Step 1: Download cloud image ────────────────────────────────────────────
+if (-not (Test-Path $IMG_CACHE)) {
+    Write-Info "Downloading Debian cloud image (one-time, ~400MB)..."
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri $IMG_URL -OutFile "$IMG_CACHE.tmp" -TimeoutSec 600
+    $sz = (Get-Item "$IMG_CACHE.tmp").Length
+    if ($sz -gt 1048576) {
+        Move-Item "$IMG_CACHE.tmp" $IMG_CACHE -Force
+        Write-Success "Downloaded ($([Math]::Round($sz/1048576)) MB)"
+    } else {
+        Remove-Item "$IMG_CACHE.tmp" -Force
+        Write-ErrorMsg "Download failed."
         exit 1
     }
+    $ProgressPreference = 'Continue'
+}
 
-    Write-ErrorMsg "No IORA OS image found."
-    Write-Info "Build one first (on Linux/WSL2) or specify: -DiskPath PATH"
+# ── Step 2: Create VM disk ──────────────────────────────────────────────────
+if (-not (Test-Path $VM_DISK)) {
+    Write-Info "Creating VM disk..."
+    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+}
+
+# ── Step 3: Generate SSH key & cloud-init seed ISO ──────────────────────────
+if (-not (Test-Path $SSH_KEY)) {
+    Write-Info "Generating SSH key for VM access..."
+    # Use WSL's ssh-keygen for reliable key generation
+    $sshKeyWsl = wsl wslpath -a "$SSH_KEY"
+    wsl ssh-keygen -t ed25519 -f "$sshKeyWsl" -N "" -C "iora-dev-vm" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorMsg "Failed to generate SSH key. Check WSL ssh-keygen."
+        exit 1
+    }
+    Write-Success "SSH key created: $SSH_KEY"
+}
+
+$pubkey = Get-Content "$SSH_KEY.pub" -Raw
+$pubkey = $pubkey.Trim()
+
+function Generate-SeedIso {
+    Write-Info "Generating cloud-init seed ISO..."
+    $seedDir = Join-Path $CACHE "seed"
+    Remove-Item -Recurse -Force $seedDir -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+
+    $userData = @"
+#cloud-config
+ssh_pwauth: true
+disable_root: false
+
+hostname: iora-dev
+
+users:
+  - name: root
+    ssh_authorized_keys:
+      - $pubkey
+  - name: iora
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    groups: sudo, docker
+    ssh_authorized_keys:
+      - $pubkey
+
+chpasswd:
+  list: |
+    root:iora
+    iora:iora
+  expire: false
+
+datasource_list: [ NoCloud ]
+
+packages:
+  - curl
+  - git
+  - build-essential
+  - pkg-config
+  - libssl-dev
+  - nodejs
+  - npm
+  - docker.io
+  - postgresql
+  - postgresql-client
+  - rsync
+  - python3
+  - python3-pip
+  - htop
+  - vim
+
+runcmd:
+  - usermod -aG docker iora
+  - systemctl enable docker --now
+  - systemctl enable postgresql --now
+  - su - postgres -c "psql -c \"CREATE USER iora WITH PASSWORD 'iora' CREATEDB\"" 2>/dev/null || true
+  - su - iora -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+  - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
+
+final_message: "IORA Dev VM ready. SSH: ssh -p $SshPort root@localhost (pw: iora)"
+"@
+
+    $userData | Set-Content -Path (Join-Path $seedDir "user-data") -NoNewline
+    $metaData = @"
+instance-id: iora-dev-vm
+local-hostname: iora-dev
+"@
+    $metaData | Set-Content -Path (Join-Path $seedDir "meta-data") -NoNewline
+
+    # Use WSL to create the ISO (genisoimage or mkisofs)
+    $seedDirWsl = wsl wslpath -a "$seedDir"
+    $seedIsoWsl = wsl wslpath -a "$SEED_ISO"
+
+    $isoCreated = $false
+    if (wsl bash -c 'command -v genisoimage' 2>$null) {
+        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>$null
+        $isoCreated = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $isoCreated) {
+        if (wsl bash -c 'command -v mkisofs' 2>$null) {
+            wsl mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>$null
+            $isoCreated = ($LASTEXITCODE -eq 0)
+        }
+    }
+    if (-not $isoCreated) {
+        # Install genisoimage in WSL and retry
+        wsl sudo apt-get update -qq 2>$null
+        wsl sudo apt-get install -y -qq genisoimage 2>$null
+        wsl genisoimage -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>$null
+        $isoCreated = ($LASTEXITCODE -eq 0)
+    }
+
+    Remove-Item -Recurse -Force $seedDir -ErrorAction SilentlyContinue
+
+    if ($isoCreated) {
+        Write-Success "Seed ISO created: $SEED_ISO"
+    } else {
+        Write-ErrorMsg "Failed to create seed ISO. Install genisoimage in WSL."
+        exit 1
+    }
+}
+
+if (-not (Test-Path $SEED_ISO)) {
+    Generate-SeedIso
+}
+
+# ── Step 4: Start QEMU ──────────────────────────────────────────────────────
+Write-Info "Starting QEMU..."
+
+$qemuArgs = @(
+    "-m", $VM_RAM,
+    "-smp", $VM_CPUS,
+    "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
+    "-drive", "file=$SEED_ISO,format=raw,if=virtio,readonly=on",
+    "-netdev", "user,id=n0,hostfwd=tcp::8126-:8126,hostfwd=tcp::8101-:8101,hostfwd=tcp::${SshPort}-:22",
+    "-device", "virtio-net-pci,netdev=n0",
+    "-name", "IORA-Dev",
+    "-cpu", "host",
+    "-machine", "${VM_MACHINE},accel=whpx",
+    "-device", "virtio-gpu",
+    "-serial", "stdio",
+    "-display", "gtk,show-cursor=on"
+)
+
+# ARM64-specific adjustments
+if ($HOST_ARCH -eq "ARM64") {
+    # Find UEFI firmware
+    $fwSearch = @(
+        (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
+        (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
+    )
+    $fw = $null
+    foreach ($f in $fwSearch) {
+        if (Test-Path $f) { $fw = $f; break }
+    }
+    if ($fw) { $qemuArgs = @("-bios", $fw) + $qemuArgs }
+    $qemuArgs += @("-boot", "order=d,menu=off")
+    # Replace virtio-net-pci with virtio-net-device
+    for ($i = 0; $i -lt $qemuArgs.Count; $i++) {
+        if ($qemuArgs[$i] -eq "virtio-net-pci,netdev=n0") {
+            $qemuArgs[$i] = "virtio-net-device,netdev=n0"
+        }
+    }
+}
+
+# Check for WHPX acceleration; fall back to TCG if not available
+try {
+    $hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
+    if ($hyperv.State -ne "Enabled") {
+        Write-Warn "Hyper-V/WHPX not enabled. Using TCG (slow). Enable Hyper-V for better performance."
+        $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
+    }
+} catch {
+    Write-Warn "Cannot check Hyper-V status. Using TCG acceleration may be slow."
+    $qemuArgs = $qemuArgs -replace 'accel=whpx', 'accel=tcg'
+}
+
+Write-Info "QEMU: $QEMU_BIN"
+$qemuProc = Start-Process -FilePath $QEMU_BIN -ArgumentList $qemuArgs -PassThru -NoNewWindow
+Write-Success "QEMU PID: $($qemuProc.Id)"
+
+# ── Step 5: Wait for cloud-init to finish ───────────────────────────────────
+Write-Info "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
+
+$maxWait = 300
+$waited = 0
+$ready = $false
+
+# Wait for SSH + cloud-init to finish
+while ($waited -lt $maxWait) {
+    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i $SSH_KEY -p $SshPort root@localhost "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
+    if ($result -match "READY") {
+        $ready = $true
+        break
+    }
+    Start-Sleep -Seconds 5
+    $waited += 5
+    Write-Host -NoNewline "."
+}
+Write-Host ""
+
+if (-not $ready) {
+    Write-ErrorMsg "Cloud-init did not finish within 5 minutes."
+    Write-Info "Check the QEMU console for errors."
+    Write-Info "Manually: ssh -i $SSH_KEY -p $SshPort root@localhost (pw: iora)"
+    Write-Info "Then re-run this script."
     exit 1
 }
 
-$DiskPath = Find-DiskImage
+Write-Success "SSH ready! (cloud-init configured everything)"
 
-# ── Convert to VHDX if needed ───────────────────────────────────────────────
-function Convert-ToVhdx {
-    param([string] $SourcePath)
-    
-    $ext = [System.IO.Path]::GetExtension($SourcePath).ToLower()
-    if ($ext -eq ".vhdx") {
-        return $SourcePath
-    }
-    
-    $vhdxPath = [System.IO.Path]::ChangeExtension($SourcePath, ".vhdx")
-    if (Test-Path $vhdxPath) {
-        Write-Info "VHDX already exists: $vhdxPath"
-        return $vhdxPath
-    }
-    
-    Write-Info "Converting .img to .vhdx (one-time)..."
-    Write-Info "  Source: $SourcePath"
-    Write-Info "  Target: $vhdxPath"
-    
-    # Use Convert-VHD or qemu-img
-    $qemuImg = Get-Command qemu-img -ErrorAction SilentlyContinue
-    if ($qemuImg) {
-        & qemu-img convert -f raw -O vhdx "$SourcePath" "$vhdxPath"
-    } else {
-        # Fallback: Hyper-V's Convert-VHD (requires .vhd first)
-        Write-Warn "qemu-img not found. Install QEMU for Windows or convert manually."
-        Write-Warn "  qemu-img convert -f raw -O vhdx iora-os.img iora-os.vhdx"
-        return $SourcePath  # Try raw .img directly
-    }
-    
-    if (Test-Path $vhdxPath) {
-        Write-Success "VHDX created: $vhdxPath"
-        return $vhdxPath
-    }
-    return $SourcePath
+# ── Step 6: Setup IORA via SSH ──────────────────────────────────────────────
+function Invoke-SSH {
+    param([string] $Command)
+    & $SSH_BIN -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i $SSH_KEY -p $SshPort root@localhost $Command 2>&1
 }
 
-$DiskPath = Convert-ToVhdx -SourcePath $DiskPath
+Write-Info "Uploading project via rsync..."
+$repoWsl = wsl wslpath -a "$REPO_ROOT"
+$keyWsl = wsl wslpath -a "$SSH_KEY"
+wsl rsync -az --delete `
+    --exclude='.git' --exclude='target' --exclude='node_modules' `
+    --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
+    --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
+    -e "ssh -o StrictHostKeyChecking=no -i $keyWsl -p $SshPort" `
+    "$repoWsl/" "root@localhost:/home/iora/iora/" 2>&1 | Select-Object -Last 3
+Write-Success "Project uploaded"
 
-# ── Create/configure Hyper-V VM ─────────────────────────────────────────────
-function Setup-HyperVVM {
-    # Remove existing VM if present
-    $existing = Get-VM -Name $VM_NAME -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Warn "VM '$VM_NAME' already exists. Removing..."
-        Stop-VM -Name $VM_NAME -Force -ErrorAction SilentlyContinue
-        Remove-VM -Name $VM_NAME -Force -ErrorAction SilentlyContinue
-    }
+Write-Info "Setting permissions..."
+Invoke-SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>$null | Out-Null
 
-    # Remove existing VHDX copy if present
-    $vmDir = Join-Path $env:USERPROFILE "IORA-VMs"
-    New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
-    $vmDisk = Join-Path $vmDir "$VM_NAME.vhdx"
-    
-    Write-Info "Copying disk to VM directory..."
-    Copy-Item $DiskPath $vmDisk -Force
+Write-Info "Installing build deps in VM..."
+Invoke-SSH "apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io rsync python3 2>&1" 2>$null | Select-Object -Last 3
+Invoke-SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' 2>&1" 2>$null | Select-Object -Last 3
 
-    # Create NAT switch if needed
-    $natSwitch = Get-VMSwitch -Name $VM_SWITCH -ErrorAction SilentlyContinue
-    if (-not $natSwitch) {
-        Write-Info "Creating Hyper-V NAT switch '$VM_SWITCH'..."
-        New-VMSwitch -SwitchName $VM_SWITCH -SwitchType Internal | Out-Null
-        
-        # Configure NAT
-        $natAdapter = Get-NetAdapter | Where-Object { $_.Name -like "*$VM_SWITCH*" } | Select-Object -First 1
-        if ($natAdapter) {
-            $natIp = "192.168.200.1"
-            New-NetIPAddress -IPAddress $natIp -PrefixLength 24 -InterfaceIndex $natAdapter.InterfaceIndex -ErrorAction SilentlyContinue | Out-Null
-            New-NetNat -Name "${VM_SWITCH}-NAT" -InternalIPInterfaceAddressPrefix "192.168.200.0/24" -ErrorAction SilentlyContinue | Out-Null
-            Write-Success "NAT switch created (192.168.200.0/24)"
-        }
-    }
+Write-Info "Setting up IORA OS compatibility..."
+Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" 2>$null | Select-Object -Last 5
+Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" 2>$null | Select-Object -Last 5
 
-    # Create VM
-    Write-Info "Creating Hyper-V VM: $VM_NAME"
-    $vm = New-VM -Name $VM_NAME `
-        -MemoryStartupBytes (Invoke-Expression $Ram) `
-        -Generation 2 `
-        -VHDPath $vmDisk `
-        -SwitchName $VM_SWITCH `
-        -ErrorAction Stop
-
-    # Configure VM
-    Set-VM -Name $VM_NAME -ProcessorCount $CpuCount -StaticMemory -CheckpointType Disabled
-    Set-VMProcessor -VMName $VM_NAME -ExposeVirtualizationExtensions $true
-    
-    # Disable Secure Boot (required for custom Linux kernel)
-    Set-VMFirmware -VMName $VM_NAME -EnableSecureBoot Off
-
-    # Enable nested virtualization for Docker inside the VM
-    Set-VMProcessor -VMName $VM_NAME -ExposeVirtualizationExtensions $true
-
-    Write-Success "VM created: $VM_NAME"
-    Write-Info "  RAM:      $Ram"
-    Write-Info "  CPUs:     $CpuCount"
-    Write-Info "  Disk:     $vmDisk"
-    Write-Info "  Switch:   $VM_SWITCH"
+Write-Info "Building IORA workspace (10-30 min first time)..."
+$buildCmd = "su - iora -c `". ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --workspace --release`""
+try {
+    $buildOutput = Invoke-SSH $buildCmd
+    $buildOutput | Select-Object -Last 20
+} catch {
+    Write-Warn "Build had warnings (check output above)"
 }
 
-Setup-HyperVVM
+Write-Info "Deploying binaries..."
+$deployScript = @'
+for s in iora-core iora-home iora-control iora-assist iora-secrets \
+         iora-watchdog iora-security iora-gateway iora-supervisor \
+         iora-api iora-appstore iora-backup iora-connector iora-dev-bridge \
+         iora-files iora-network-monitor iora-nginx iora-resource-manager iora-updater; do
+  src="/home/iora/iora/iora-os/backend/target/release/$s"
+  [ -f "$src" ] && { mkdir -p "/opt/iora/build/$s/bin"; cp "$src" "/opt/iora/build/$s/bin/$s"; chmod 755 "/opt/iora/build/$s/bin/$s"; echo "  $s"; }
+done
+# Install ora CLI
+ORA_BIN="/home/iora/iora/iora-os/backend/target/release/ora"
+if [ -f "$ORA_BIN" ]; then
+  cp "$ORA_BIN" /usr/local/bin/ora && chmod 755 /usr/local/bin/ora && echo "  ora CLI"
+fi
+systemctl daemon-reload
+systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
+'@
+$deployScript | Invoke-SSH "bash -s" 2>&1
 
-# ── Port forwarding (Windows Firewall + netsh) ──────────────────────────────
-function Setup-PortForwarding {
-    Write-Info "Setting up port forwarding..."
-
-    # Get VM IP (will be assigned after boot, but we configure forwarding now)
-    # For Hyper-V Internal switch, the VM typically gets DHCP from the NAT
-    # We'll set up port forwarding via netsh once we know the VM IP
-    
-    # For now, just ensure the Windows Firewall allows inbound on these ports
-    $ports = @($IORA_HOME_PORT, $DEV_BRIDGE_PORT, 8090, 8091, 8092, 8093, 8094, 8095, 8096, 8097, 8098, $SshPort)
-    foreach ($port in $ports) {
-        $ruleName = "IORA-Dev-Port-$port"
-        $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        if (-not $existingRule) {
-            New-NetFirewallRule -DisplayName $ruleName `
-                -Direction Inbound -Protocol TCP -LocalPort $port `
-                -Action Allow -Profile Any | Out-Null
-        }
-    }
-    
-    Write-Success "Firewall rules configured"
-}
-
-Setup-PortForwarding
-
-# ── Start VM ────────────────────────────────────────────────────────────────
-Write-Info "Starting VM..."
-Start-VM -Name $VM_NAME
-
-if (-not $Headless) {
-    # Open VMConnect (Hyper-V's built-in viewer)
-    Start-Process "vmconnect.exe" -ArgumentList "localhost", $VM_NAME -WindowStyle Normal
-}
-
-Write-Info "Waiting for VM to boot (this may take 30-90 seconds)..."
-Write-Info "You can watch the boot in the Hyper-V console window."
-
-# ── Wait for VM to be reachable ─────────────────────────────────────────────
-$maxWait = 180
-$waited = 0
-$reachable = $false
-
-# Get VM IP address
-Write-Info "Detecting VM IP..."
-$vmIp = ""
-for ($i = 0; $i -lt 30; $i++) {
-    $vmInfo = Get-VMNetworkAdapter -VMName $VM_NAME | Select-Object -ExpandProperty IPAddresses
-    foreach ($ip in $vmInfo) {
-        if ($ip -like "192.168.200.*" -or $ip -like "172.*" -or $ip -like "10.*") {
-            $vmIp = $ip
-            break
-        }
-    }
-    if ($vmIp) { break }
-    Start-Sleep -Seconds 2
-}
-
-if ($vmIp) {
-    Write-Success "VM IP: $vmIp"
-    
-    # Set up port forwarding via netsh
-    Write-Info "Configuring port forwarding to VM..."
-    $natAdapter = Get-NetAdapter | Where-Object { $_.Name -like "*$VM_SWITCH*" } | Select-Object -First 1
-    $hostIp = "0.0.0.0"
-    
-    # Use netsh for port forwarding
-    $ports = @{
-        $IORA_HOME_PORT = "8126"
-        $DEV_BRIDGE_PORT = "8101"
-        8090 = "8090"
-        8091 = "8091"
-        8092 = "8092"
-        8093 = "8093"
-        8094 = "8094"
-        8095 = "8095"
-        8096 = "8096"
-        8097 = "8097"
-        8098 = "8098"
-        $SshPort = "22"
-    }
-    
-    foreach ($hostPort in $ports.Keys) {
-        $vmPort = $ports[$hostPort]
-        $ruleName = "IORA-Dev-Fwd-${hostPort}"
-        # Remove existing
-        netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=$hostIp 2>$null | Out-Null
-        # Add new
-        netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=$hostIp connectport=$vmPort connectaddress=$vmIp 2>$null
-    }
-    Write-Success "Port forwarding configured"
-    
-    # Wait for service
-    Write-Info "Waiting for IORA OS services..."
-    while ($waited -lt $maxWait) {
-        try {
-            $response = Invoke-WebRequest -Uri "http://localhost:${DEV_BRIDGE_PORT}/dev/health" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-            if ($response.StatusCode -eq 200) {
-                $reachable = $true
-                break
-            }
-        } catch {}
-        Start-Sleep -Seconds 2
-        $waited += 2
-        if ($waited % 10 -eq 0) { Write-Host -NoNewline "." }
-    }
-    Write-Host ""
-} else {
-    Write-Warn "Could not detect VM IP. Using localhost port forwarding (assumes QEMU user-mode networking)."
-    # Fallback: if using QEMU instead of Hyper-V, ports are forwarded to localhost
-    while ($waited -lt $maxWait) {
-        try {
-            $response = Invoke-WebRequest -Uri "http://localhost:${DEV_BRIDGE_PORT}/dev/health" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-            if ($response.StatusCode -eq 200) {
-                $reachable = $true
-                break
-            }
-        } catch {}
-        Start-Sleep -Seconds 2
-        $waited += 2
-    }
-}
-
-if ($reachable) {
-    Write-Success "IORA OS is running!"
-} else {
-    Write-Warn "IORA OS not reachable within ${maxWait}s."
-    Write-Warn "Check the Hyper-V console window for boot progress."
-}
-
-# ── Status dashboard ────────────────────────────────────────────────────────
+# ── Done ────────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "  ==================================================" -ForegroundColor Cyan
-Write-Host "    IORA OS Dev Environment - Status" -ForegroundColor Cyan
-Write-Host "  ==================================================" -ForegroundColor Cyan
-Write-Host "    VM:    Hyper-V $VM_NAME (IP: $vmIp)" -ForegroundColor White
-Write-Host "  --------------------------------------------------" -ForegroundColor Cyan
-Write-Host "    Dashboard:  http://localhost:${IORA_HOME_PORT}" -ForegroundColor Cyan
-Write-Host "    Dev Bridge:  http://localhost:${DEV_BRIDGE_PORT}/dev/health" -ForegroundColor Cyan
-Write-Host "    SSH:        ssh -p ${SshPort} root@localhost  (pass: iora)" -ForegroundColor Cyan
-Write-Host "  ==================================================" -ForegroundColor Cyan
+Write-Success "IORA Dev VM ready!"
 Write-Host ""
-
-# ── Start Rust watcher (optional) ───────────────────────────────────────────
-if (-not $NoBackend) {
-    $deployBin = Join-Path $SCRIPT_DIR "tools\iora-dev-deploy\target\release\iora-dev-deploy.exe"
-    if (Test-Path $deployBin) {
-        Write-Info "Starting Rust backend watcher..."
-        Start-Process -FilePath $deployBin -ArgumentList "connect", "localhost:${DEV_BRIDGE_PORT}", "--token", "dev" -WindowStyle Hidden
-        Start-Process -FilePath $deployBin -ArgumentList "watch", "--auto", "--debounce-ms", "2000" -WindowStyle Hidden
-        Write-Success "Rust watcher started (check Task Manager for iora-dev-deploy.exe)"
-    } else {
-        Write-Warn "iora-dev-deploy.exe not found. Build it first: cargo build -p iora-dev-deploy --release"
-    }
-}
-
-# ── Start Vite dev server (optional) ────────────────────────────────────────
-if (-not $NoFrontend) {
-    $frontendDir = Join-Path $REPO_ROOT "frontend"
-    if (Test-Path $frontendDir) {
-        Write-Info "Starting Vite dev server..."
-        Start-Process -FilePath "npm" -ArgumentList "run", "dev" -WorkingDirectory $frontendDir -WindowStyle Normal
-        Write-Success "Frontend HMR: http://localhost:5173"
-    } else {
-        Write-Warn "Frontend directory not found: $frontendDir"
-    }
-}
-
-# ── Keep running ────────────────────────────────────────────────────────────
+Write-Host "  Dashboard:  http://localhost:8126" -ForegroundColor Cyan
+Write-Host "  Dev Bridge:  http://localhost:8101/dev/health" -ForegroundColor Cyan
+Write-Host "  SSH:        ssh -i $SSH_KEY -p $SshPort root@localhost" -ForegroundColor Cyan
 Write-Host ""
-Write-Info "Dev environment running. Press Ctrl+C to stop."
-Write-Info "Or close this window (VM will keep running if -KeepVM was used)."
+Write-Info "Press Ctrl+C to stop. Closing window also kills QEMU."
+Write-Info "To keep VM running: close QEMU window first, then Ctrl+C here."
 
 try {
     while ($true) { Start-Sleep -Seconds 1 }
 } finally {
-    if (-not $KeepVM) {
-        Write-Info "Cleaning up..."
-        Stop-VM -Name $VM_NAME -Force -ErrorAction SilentlyContinue
-        Remove-VM -Name $VM_NAME -Force -ErrorAction SilentlyContinue
-        Write-Success "VM removed."
-    } else {
-        Write-Info "VM '$VM_NAME' kept running (--KeepVM)."
-        Write-Info "To stop: Stop-VM -Name $VM_NAME -Force"
-        Write-Info "To remove: Remove-VM -Name $VM_NAME -Force"
-    }
-    
-    # Clean up port forwarding
-    Write-Info "Removing port forwarding..."
-    netsh interface portproxy reset 2>$null | Out-Null
-    
-    Write-Success "Cleanup complete."
+    Write-Info "Stopping QEMU..."
+    Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue
+    Write-Success "Done."
 }
