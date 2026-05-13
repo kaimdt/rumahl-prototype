@@ -18,6 +18,7 @@
 # ============================================================================
 
 param(
+    [Parameter(Position=0)]
     [switch] $Clean,
     [switch] $CleanAll,
     [ValidatePattern('^\d+GB$')]
@@ -69,7 +70,7 @@ function Write-ErrorMsg { Write-Host "[X] $args" -ForegroundColor Red }
 
 # ── Banner ──────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "  IORA OS – Local Dev VM (Windows / QEMU)" -ForegroundColor Cyan
+Write-Host "  IORA OS - Local Dev VM (Windows / QEMU)" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Paths ───────────────────────────────────────────────────────────────────
