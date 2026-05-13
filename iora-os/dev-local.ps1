@@ -176,6 +176,31 @@ $CARGO_JOBS = [Math]::Max(1, [Math]::Min($VM_CPUS, [Math]::Floor($vmRamNum * 10 
 
 $VM_MACHINE = if ($HOST_ARCH -eq "ARM64") { "virt" } else { "q35" }
 
+# Find UEFI firmware (Debian cloud image requires UEFI)
+$FW = $null
+if ($HOST_ARCH -eq "ARM64") {
+    $fwPaths = @(
+        (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
+        (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
+    )
+} else {
+    $fwPaths = @(
+        (Join-Path $QEMU_DIR "..\share\qemu\edk2-x86_64-code.fd"),
+        (Join-Path $QEMU_DIR "..\share\edk2-x86_64-code.fd"),
+        (Join-Path $QEMU_DIR "edk2-x86_64-code.fd")
+    )
+}
+foreach ($f in $fwPaths) {
+    if (Test-Path $f) { $FW = $f; break }
+}
+if (-not $FW) {
+    Write-ErrorMsg "UEFI firmware not found. Debian cloud image requires UEFI."
+    Write-Info "Expected at: $($fwPaths[0])"
+    Write-Info "Reinstall QEMU or download OVMF from https://github.com/tianocore/tianocore.github.io"
+    exit 1
+}
+Write-Success "UEFI firmware: $FW"
+
 Write-Info "Host: ${hostRamGB}GB RAM, ${HOST_CPUS} CPUs"
 Write-Info "VM: ${VM_RAM}, ${VM_CPUS} CPUs, cargo -j${CARGO_JOBS}"
 
@@ -346,6 +371,7 @@ Write-Info "Starting QEMU..."
 $qemuArgs = @(
     "-m", $VM_RAM,
     "-smp", $VM_CPUS,
+    "-bios", $FW,
     "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
     "-cdrom", "$SEED_ISO",
     "-netdev", "user,id=n0,hostfwd=tcp::8126-:8126,hostfwd=tcp::8101-:8101,hostfwd=tcp::${SshPort}-:22",
@@ -360,16 +386,6 @@ $qemuArgs = @(
 
 # ARM64-specific adjustments
 if ($HOST_ARCH -eq "ARM64") {
-    # Find UEFI firmware
-    $fwSearch = @(
-        (Join-Path $QEMU_DIR "..\share\qemu\edk2-aarch64-code.fd"),
-        (Join-Path $QEMU_DIR "edk2-aarch64-code.fd")
-    )
-    $fw = $null
-    foreach ($f in $fwSearch) {
-        if (Test-Path $f) { $fw = $f; break }
-    }
-    if ($fw) { $qemuArgs = @("-bios", $fw) + $qemuArgs }
     $qemuArgs += @("-boot", "order=d,menu=off")
     # Replace virtio-net-pci with virtio-net-device
     for ($i = 0; $i -lt $qemuArgs.Count; $i++) {
