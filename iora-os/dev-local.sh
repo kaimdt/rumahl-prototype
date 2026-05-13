@@ -41,13 +41,16 @@ else
 fi
 HOST_RAM_GB=$(( (HOST_RAM_MB + 512) / 1024 ))
 
-# VM bekommt ~60% des Host-RAMs, gecapped auf 12G (damit Host nicht erstickt)
+# VM bekommt ~60% des Host-RAMs (bzw. 70% bei <16GB), gecapped auf 12G
 if [ -n "${IORA_DEV_RAM:-}" ]; then
-    # User hat expliziten Wert gesetzt
     VM_RAM="$IORA_DEV_RAM"
 else
-    VM_RAM_GB=$(( HOST_RAM_GB * 60 / 100 ))
-    [ "$VM_RAM_GB" -lt 4 ] && VM_RAM_GB=4
+    if [ "$HOST_RAM_GB" -lt 16 ]; then
+        VM_RAM_GB=$(( HOST_RAM_GB * 70 / 100 ))  # 70% for small hosts
+    else
+        VM_RAM_GB=$(( HOST_RAM_GB * 60 / 100 ))  # 60% for 16GB+ hosts
+    fi
+    [ "$VM_RAM_GB" -lt 6 ] && VM_RAM_GB=6
     [ "$VM_RAM_GB" -gt 12 ] && VM_RAM_GB=12
     VM_RAM="${VM_RAM_GB}G"
 fi
@@ -276,7 +279,7 @@ log "QEMU PID: $QEMU_PID"
 log "Waiting for cloud-init to finish (first boot may take 2-5 min)..."
 W_CLOUD=0
 while [ $W_CLOUD -lt 300 ]; do
-    if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
+    if ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 \
          -i "$SSH_KEY" -p "$VM_SSH" root@localhost \
          "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>/dev/null | grep -q READY; then
         ok "Cloud-init completed"
@@ -299,8 +302,8 @@ fi
 ok "SSH ready! (cloud-init configured everything)"
 
 # ── Step 6: Setup IORA via SSH ────────────────────────────────────────────
-SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i $SSH_KEY -p $VM_SSH root@localhost"
-SCP="scp -o StrictHostKeyChecking=no -i $SSH_KEY -P $VM_SSH"
+SSH="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -i $SSH_KEY -p $VM_SSH root@localhost"
+SCP="scp -o StrictHostKeyChecking=accept-new -i $SSH_KEY -P $VM_SSH"
 
 log "Uploading project via rsync..."
 $SSH "mkdir -p /home/iora/iora" 2>/dev/null
@@ -308,7 +311,7 @@ rsync -az --delete \
     --exclude='.git' --exclude='target' --exclude='node_modules' \
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' \
     --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' \
-    -e "ssh -o StrictHostKeyChecking=no -i $SSH_KEY -p $VM_SSH" \
+    -e "ssh -o StrictHostKeyChecking=accept-new -i $SSH_KEY -p $VM_SSH" \
     "$REPO_ROOT/" "root@localhost:/home/iora/iora/" 2>&1 | tail -3
 $SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>/dev/null
 ok "Project uploaded"
@@ -321,8 +324,15 @@ log "Setting up IORA OS compatibility..."
 $SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | tail -5
 $SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | tail -5
 
-log "Building IORA workspace (10-30 min first time)..."
-$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --workspace --release\"" 2>&1 | tail -20 || warn "Build had warnings"
+VM_RAM_NUM=${VM_RAM%G}
+if [ "$VM_RAM_NUM" -lt 8 ]; then
+    log "Building IORA essentials (RAM <8GB: only core services)..."
+    BUILD_TARGETS="-p iora-core -p iora-home -p iora-dev-bridge -p iora-cli"
+else
+    log "Building IORA workspace (10-30 min first time)..."
+    BUILD_TARGETS="--workspace"
+fi
+$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --release $BUILD_TARGETS\"" 2>&1 | tail -20 || warn "Build had warnings"
 
 log "Deploying binaries..."
 $SSH 'bash -s' <<'EOF'

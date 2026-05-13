@@ -143,7 +143,12 @@ if ($Ram) {
 } else {
     $totalRamMB = (Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory / 1MB
     $hostRamGB = [Math]::Round($totalRamMB / 1024)
-    $vmRamGB = [Math]::Max(4, [Math]::Min(12, [Math]::Floor($hostRamGB * 0.6)))
+    if ($hostRamGB -lt 16) {
+        $pct = 0.70  # 70% for small hosts
+    } else {
+        $pct = 0.60  # 60% for 16GB+ hosts
+    }
+    $vmRamGB = [Math]::Max(6, [Math]::Min(12, [Math]::Floor($hostRamGB * $pct)))
     $VM_RAM = "${vmRamGB}G"
 }
 
@@ -394,7 +399,7 @@ $ready = $false
 
 # Wait for SSH + cloud-init to finish
 while ($waited -lt $maxWait) {
-    $result = & $SSH_BIN -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i $SSH_KEY -p $SshPort root@localhost "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
+    $result = & $SSH_BIN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3 -i $SSH_KEY -p $SshPort root@localhost "test -f /var/lib/cloud/instance/boot-finished && echo READY" 2>$null
     if ($result -match "READY") {
         $ready = $true
         break
@@ -418,7 +423,7 @@ Write-Success "SSH ready! (cloud-init configured everything)"
 # ── Step 6: Setup IORA via SSH ──────────────────────────────────────────────
 function Invoke-SSH {
     param([string] $Command)
-    & $SSH_BIN -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i $SSH_KEY -p $SshPort root@localhost $Command 2>&1
+    & $SSH_BIN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -i $SSH_KEY -p $SshPort root@localhost $Command 2>&1
 }
 
 Write-Info "Uploading project via rsync..."
@@ -428,7 +433,7 @@ wsl rsync -az --delete `
     --exclude='.git' --exclude='target' --exclude='node_modules' `
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' `
     --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' `
-    -e "ssh -o StrictHostKeyChecking=no -i $keyWsl -p $SshPort" `
+    -e "ssh -o StrictHostKeyChecking=accept-new -i $keyWsl -p $SshPort" `
     "$repoWsl/" "root@localhost:/home/iora/iora/" 2>&1 | Select-Object -Last 3
 Write-Success "Project uploaded"
 
@@ -444,7 +449,14 @@ Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" 2>$null | Sele
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" 2>$null | Select-Object -Last 5
 
 Write-Info "Building IORA workspace (10-30 min first time)..."
-$buildCmd = "su - iora -c `". ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --workspace --release`""
+$vmRamNum = [int]($VM_RAM -replace 'G', '')
+if ($vmRamNum -lt 8) {
+    Write-Info "RAM <8GB: building only core services (iora-core, iora-home, iora-dev-bridge, iora-cli)"
+    $buildTargets = "-p iora-core -p iora-home -p iora-dev-bridge -p iora-cli"
+} else {
+    $buildTargets = "--workspace"
+}
+$buildCmd = "su - iora -c `". ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS cargo build --release $buildTargets`""
 try {
     $buildOutput = Invoke-SSH $buildCmd
     $buildOutput | Select-Object -Last 20
@@ -469,7 +481,13 @@ fi
 systemctl daemon-reload
 systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
 '@
-$deployScript | Invoke-SSH "bash -s" 2>&1
+# Write deploy script to temp file and execute via SSH
+$deployPath = Join-Path $CACHE "deploy.sh"
+$deployScript | Set-Content -Path $deployPath -NoNewline
+$deployPathWsl = wsl wslpath -a "$deployPath"
+& $SCP_BIN -o StrictHostKeyChecking=no -i $SSH_KEY -P $SshPort $deployPath "root@localhost:/tmp/deploy.sh" 2>$null
+Invoke-SSH "bash /tmp/deploy.sh" 2>&1
+Remove-Item $deployPath -Force -ErrorAction SilentlyContinue
 
 # ── Done ────────────────────────────────────────────────────────────────────
 Write-Host ""
