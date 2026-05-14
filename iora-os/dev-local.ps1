@@ -160,7 +160,7 @@ if ($Ram) {
     } else {
         $pct = 0.60  # 60% for 16GB+ hosts
     }
-    $vmRamGB = [Math]::Max(6, [Math]::Min(12, [Math]::Floor($hostRamGB * $pct)))
+    $vmRamGB = [Math]::Max(6, [Math]::Min(16, [Math]::Floor($hostRamGB * $pct)))
     $VM_RAM = "${vmRamGB}G"
 }
 
@@ -450,9 +450,9 @@ if (-not $whpxAlive) {
     }
     
     $qemuAccel = "tcg"
-    # TCG: use dynamic RAM but cap at 6GB (higher RAM causes TCG instability)
-    $tcgRam = [Math]::Max(2, [Math]::Min([int]($VM_RAM -replace 'G', ''), 6))
-    $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 4))
+    # TCG: use dynamic RAM/CPUs (same-arch TCG is efficient enough)
+    $tcgRam = [Math]::Max(4, [Math]::Min([int]($VM_RAM -replace 'G', ''), 8))
+    $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 8))
     # Build TCG args from scratch
     $qemuArgs = @(
         "-m", "${tcgRam}G",
@@ -580,7 +580,7 @@ try {
     Write-Info "Build starting... (output below)"
     # Stream build output in real-time (don't buffer until end)
     $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $buildCmd 2>&1 | ForEach-Object { Write-Host $_; $_ }
+    & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $buildCmd 2>&1 | ForEach-Object { Write-Host $_ }
     $ErrorActionPreference = $prevEA
 } catch {
     Write-Warn "Build had warnings (check output above)"

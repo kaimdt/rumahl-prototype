@@ -55,7 +55,7 @@ else
         VM_RAM_GB=$(( HOST_RAM_GB * 60 / 100 ))  # 60% for 16GB+ hosts
     fi
     [ "$VM_RAM_GB" -lt 6 ] && VM_RAM_GB=6
-    [ "$VM_RAM_GB" -gt 12 ] && VM_RAM_GB=12
+    [ "$VM_RAM_GB" -gt 16 ] && VM_RAM_GB=16
     VM_RAM="${VM_RAM_GB}G"
 fi
 
