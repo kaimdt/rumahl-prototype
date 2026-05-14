@@ -368,7 +368,8 @@ else
     BUILD_TARGETS="--workspace"
     CARGO_OPTS=""
 fi
-$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $CARGO_OPTS cargo build --release $BUILD_TARGETS\"" 2>&1 | tail -20 || warn "Build had warnings"
+log "Build starting (output below)..."
+$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $CARGO_OPTS cargo build --release $BUILD_TARGETS\"" 2>&1 || warn "Build had warnings"
 
 log "Deploying binaries..."
 $SSH 'bash -s' <<'EOF'

@@ -574,8 +574,11 @@ if ($vmRamNum -lt 8) {
 # Use full cargo path (avoids ~ expansion issues in su -c)
 $buildCmd = "su - iora -c 'cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $cargoOpts /home/iora/.cargo/bin/cargo build --release $buildTargets'"
 try {
-    $buildOutput = Invoke-SSH $buildCmd
-    $buildOutput | Select-Object -Last 20
+    Write-Info "Build starting... (output below)"
+    # Stream build output in real-time (don't buffer until end)
+    $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $buildCmd 2>&1 | ForEach-Object { Write-Host $_; $_ }
+    $ErrorActionPreference = $prevEA
 } catch {
     Write-Warn "Build had warnings (check output above)"
 }
