@@ -450,10 +450,13 @@ if (-not $whpxAlive) {
     }
     
     $qemuAccel = "tcg"
-    # Build TCG args from scratch (exact match of verified working manual test)
+    # TCG: use dynamic RAM but cap at 6GB (higher RAM causes TCG instability)
+    $tcgRam = [Math]::Max(2, [Math]::Min([int]($VM_RAM -replace 'G', ''), 6))
+    $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 4))
+    # Build TCG args from scratch
     $qemuArgs = @(
-        "-m", "2G",
-        "-smp", "2",
+        "-m", "${tcgRam}G",
+        "-smp", "$tcgCpus",
         "-machine", "q35,accel=tcg",
         "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
         "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
@@ -462,7 +465,7 @@ if (-not $whpxAlive) {
         "-device", "e1000,netdev=n0",
         "-nographic"
     )
-    Write-Info "TCG: 2GB, 2 CPUs, headless"
+    Write-Info "TCG: ${tcgRam}GB RAM (capped), $tcgCpus CPUs, headless"
     $qemuProc = Start-QemuVM -QemuArgs $qemuArgs -AccelType "TCG"
     
     if (-not (Test-QemuAlive -Proc $qemuProc -WaitSec 20)) {
