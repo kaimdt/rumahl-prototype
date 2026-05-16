@@ -19,6 +19,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CACHE="$SCRIPT_DIR/.cache"
 mkdir -p "$CACHE"
 
+# ── IORA Dev-Loop Shared Folder (host ↔ VM via 9p) ────────────────────
+IORA_DEV="$REPO_ROOT/.iora-dev"
+IORA_BINS="$IORA_DEV/binaries"
+IORA_SCC="$IORA_DEV/sccache"
+mkdir -p "$IORA_BINS" "$IORA_SCC"
+log "Dev shared folder: $IORA_DEV"
+
 # ── Platform ───────────────────────────────────────────────────────────────
 HOST_ARCH=$(uname -m)
 IS_MACOS=false; IS_LINUX=false
@@ -155,9 +162,9 @@ users:
       - $PUBKEY
 
 chpasswd:
-  list: |
-    root:iora
-    iora:iora
+  list:
+    - root:iora
+    - iora:iora
   expire: false
 
 # Only use the local seed ISO – don't reach out to any metadata service
@@ -249,7 +256,7 @@ QEMU_ARGS=(
     -m "$VM_RAM" -smp "$VM_CPUS"
     -drive "file=$VM_DISK,format=qcow2,if=virtio"
     -cdrom "$SEED_ISO"
-    -netdev "user,id=n0,hostfwd=tcp::$VM_HOME-:8126,hostfwd=tcp::$VM_BRIDGE-:8101,hostfwd=tcp::$VM_SSH-:22"
+    -netdev "user,id=n0,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::$VM_BRIDGE-:8101,hostfwd=tcp::$VM_HOME-:8126,hostfwd=tcp::$VM_SSH-:22"
     -device "virtio-net-pci,netdev=n0"
     -name "IORA-Dev" -cpu host
     -machine "$QEMU_MACHINE,accel=hvf"
@@ -342,8 +349,8 @@ fi
 $SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>/dev/null
 ok "Project uploaded"
 
-log "Installing system packages (curl, git, rust, docker, postgresql)..."
-$SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim" 2>&1 | tail -5
+log "Installing system packages (curl, git, rust, docker, postgresql, mold linker)..."
+$SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim mold" 2>&1 | tail -5
 $SSH "systemctl enable docker --now && systemctl enable postgresql --now" 2>&1 | tail -3
 # PostgreSQL: create roles + dev mode marker
 $SSH 'bash -s' <<'PGEOF'
@@ -354,41 +361,39 @@ PGEOF
 $SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'" 2>&1 | tail -5
 ok "Packages installed"
 
+# ── Cargo config: mold linker (5-10x faster linking) + sparse registry ──
+log "Configuring Cargo for fast builds (mold linker, sparse registry)..."
+$SSH "su - iora -c 'mkdir -p ~/.cargo && cat > ~/.cargo/config.toml <<\"CEOF\"
+[target.x86_64-unknown-linux-gnu]
+rustflags = [\"-C\", \"link-arg=-fuse-ld=mold\"]
+
+[registries.crates-io]
+protocol = \"sparse\"
+
+[net]
+retry = 2
+git-fetch-with-cli = true
+CEOF
+'" 2>&1 | tail -3
+ok "Cargo config: mold linker + sparse registry"
+
 log "Setting up IORA OS compatibility..."
 $SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | tail -5
 $SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | tail -5
 
-VM_RAM_NUM=${VM_RAM%G}
-if [ "$VM_RAM_NUM" -lt 8 ]; then
-    log "Building IORA essentials (RAM <8GB: LTO off, only core services)..."
-    BUILD_TARGETS="-p iora-core -p iora-home -p iora-dev-bridge -p iora-cli"
-    CARGO_OPTS="CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=4"
-else
-    log "Building IORA workspace (10-30 min first time)..."
-    BUILD_TARGETS="--workspace"
-    CARGO_OPTS=""
-fi
-log "Build starting (output below)..."
-$SSH "su - iora -c \"source ~/.cargo/env && cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $CARGO_OPTS cargo build --release $BUILD_TARGETS\"" 2>&1 || warn "Build had warnings"
+# Re-run DB init (may have failed at boot with old config)
+log "Initializing databases..."
+$SSH "systemctl reset-failed iora-db-init 2>/dev/null || true" 2>/dev/null || true
+$SSH "su - postgres -c 'createuser -s root 2>/dev/null || true'" 2>/dev/null || true
+$SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_home OWNER iora\" 2>/dev/null || true'" 2>/dev/null || true
+$SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_core OWNER iora\" 2>/dev/null || true'" 2>/dev/null || true
+$SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_security OWNER iora\" 2>/dev/null || true'" 2>/dev/null || true
+$SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_secrets OWNER iora\" 2>/dev/null || true'" 2>/dev/null || true
+$SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_appstore OWNER iora\" 2>/dev/null || true'" 2>/dev/null || true
+ok "Databases initialized"
 
-log "Deploying binaries..."
-$SSH 'bash -s' <<'EOF'
-for s in iora-core iora-home iora-control iora-assist iora-secrets \
-         iora-watchdog iora-security iora-gateway iora-supervisor \
-         iora-api iora-appstore iora-backup iora-connector iora-dev-bridge \
-         iora-files iora-network-monitor iora-nginx iora-resource-manager iora-updater; do
-  src="/home/iora/iora/iora-os/backend/target/release/$s"
-  [ -f "$src" ] && { mkdir -p "/opt/iora/build/$s/bin"; cp "$src" "/opt/iora/build/$s/bin/$s"; chmod 755 "/opt/iora/build/$s/bin/$s"; echo "  $s"; }
-done
-# Install ora CLI
-ORA_BIN="/home/iora/iora/iora-os/backend/target/release/ora"
-if [ -f "$ORA_BIN" ]; then
-  cp "$ORA_BIN" /usr/local/bin/ora && chmod 755 /usr/local/bin/ora && echo "  ora CLI"
-fi
-systemctl daemon-reload
-systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
-EOF
-
+log "Skipping in-VM Rust build - host cross-compile + SCP deploy"
+log "The dev-watch window handles compilation and auto-deploys via SCP."
 # Ensure iora-home uses PostgreSQL (binary may lack sqlite feature)
 $SSH 'bash -s' <<'DBEOF'
 su - postgres -c "psql -c 'CREATE DATABASE iora_home OWNER root'" 2>/dev/null || true
@@ -417,11 +422,34 @@ else
     warn "npm not found – skipping frontend build (install Node.js for the dashboard UI)"
 fi
 
+# ── Launch Dev-Loop in second terminal ────────────────────────────────
+WATCH_SCRIPT="$SCRIPT_DIR/dev-watch.sh"
+if [ -f "$WATCH_SCRIPT" ]; then
+    log "Launching dev-watch.sh in new terminal..."
+    TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+    [ "$HOST_ARCH" = "arm64" ] && TARGET_TRIPLE="aarch64-unknown-linux-gnu"
+    if $IS_MACOS; then
+        osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE\"" 2>/dev/null
+    else
+        # Linux: try gnome-terminal, xterm, or fallback
+        if command -v gnome-terminal >/dev/null 2>&1; then
+            gnome-terminal -- bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+        elif command -v xterm >/dev/null 2>&1; then
+            xterm -e "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE" &
+        else
+            warn "No terminal emulator found. Start manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+        fi
+    fi
+else
+    warn "dev-watch.sh not found at $WATCH_SCRIPT. Place it in the repo root."
+fi
+
 ok "IORA Dev VM ready!"
 echo ""
 echo "  Dashboard:  http://localhost:$VM_HOME"
 echo "  Dev Bridge:  http://localhost:$VM_BRIDGE/dev/health"
 echo "  SSH:        ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
+echo "  Dev-Loop:   Press B in the dev-watch window for initial build"
 echo ""
 echo "Press Ctrl+C to stop. VM stays running in background."
 wait

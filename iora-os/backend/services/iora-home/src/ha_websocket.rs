@@ -162,10 +162,15 @@ async fn run_connection(
     // Build the WebSocket connection, with TLS support for wss://
     // Accept self-signed certificates (common with HA installations)
     let ws_stream = if is_wss {
-        let tls_connector = native_tls::TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()?;
-        let connector = tokio_tungstenite::Connector::NativeTls(tls_connector);
+        // Use rustls with native root certificates
+        let mut root_store = rustls::RootCertStore::empty();
+        if let Ok(certs) = rustls_native_certs::load_native_certs() {
+            for cert in certs { root_store.add(cert).ok(); }
+        }
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let connector = tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config));
         let (stream, _) = tokio_tungstenite::connect_async_tls_with_config(
             ws_url,
             None,

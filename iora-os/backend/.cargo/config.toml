@@ -1,5 +1,19 @@
-# Cross-compilation configuration for IORA
-# This file is picked up by cargo in Docker cross-compile builds.
+# ═══════════════════════════════════════════════════════════════════
+# Cross-compilation config for IORA OS
+# ═══════════════════════════════════════════════════════════════════
+# The dev-watch scripts auto-detect the cross-compiler and set
+# CC_<target> and CARGO_TARGET_<target>_LINKER env vars dynamically.
+# This file provides sensible build defaults.
 
-[target.aarch64-unknown-linux-gnu]
-linker = "aarch64-linux-gnu-gcc"
+[profile.dev]
+opt-level = 0
+debug = 1
+incremental = true
+codegen-units = 256
+
+[registries.crates-io]
+protocol = "sparse"
+
+[net]
+retry = 2
+git-fetch-with-cli = true

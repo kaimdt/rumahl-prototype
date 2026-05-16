@@ -148,9 +148,9 @@ if command -v psql >/dev/null 2>&1; then
     systemctl start postgresql 2>/dev/null || true
     success "postgresql.service"
     
-    # iora-db-init: Creates IORA databases
+    # iora-db-init: Creates root role + IORA databases
     _full_service iora-db-init "IORA Database Initialisation" "postgresql.service" \
-        "/bin/sh -c 'su - postgres -c \"psql -c \\\"CREATE DATABASE iora_home OWNER iora\\\" \" 2>/dev/null || true; su - postgres -c \"psql -c \\\"CREATE DATABASE iora_core OWNER iora\\\" \" 2>/dev/null || true; su - postgres -c \"psql -c \\\"CREATE DATABASE iora_security OWNER iora\\\" \" 2>/dev/null || true; su - postgres -c \"psql -c \\\"CREATE DATABASE iora_secrets OWNER iora\\\" \" 2>/dev/null || true; su - postgres -c \"psql -c \\\"CREATE DATABASE iora_appstore OWNER iora\\\" \" 2>/dev/null || true'"
+        "/bin/sh -c 'su - postgres -c \"createuser -s root 2>/dev/null || true\"; su - postgres -c \"psql -c 'CREATE DATABASE iora_home OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_core OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_security OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_secrets OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_appstore OWNER iora'\" 2>/dev/null || true'"
     _enable iora-db-init
     success "iora-db-init.service (creates IORA databases)"
 else

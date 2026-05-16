@@ -91,6 +91,14 @@ $REPO_ROOT  = Split-Path -Parent $SCRIPT_DIR
 $CACHE      = Join-Path $SCRIPT_DIR ".cache"
 New-Item -ItemType Directory -Force -Path $CACHE | Out-Null
 
+# ── IORA Dev-Loop Shared Folder (host ↔ VM via 9p) ────────────────────
+$IORA_DEV   = Join-Path $REPO_ROOT ".iora-dev"
+$IORA_BINS  = Join-Path $IORA_DEV "binaries"
+$IORA_SCC   = Join-Path $IORA_DEV "sccache"
+New-Item -ItemType Directory -Force -Path $IORA_BINS | Out-Null
+New-Item -ItemType Directory -Force -Path $IORA_SCC | Out-Null
+Write-Info "Dev shared folder: $IORA_DEV"
+
 # ── Platform detection ──────────────────────────────────────────────────────
 $HOST_ARCH = (Get-WmiObject Win32_Processor).Architecture
 if ($HOST_ARCH -eq 12) { $HOST_ARCH = "ARM64" } else { $HOST_ARCH = "x86_64" }
@@ -149,31 +157,47 @@ if (-not $SSH_BIN) {
 $SCP_BIN = Get-Command scp.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 
 # ── Config ───────────────────────────────────────────────────────────────────
+# VM-Idealwerte: Wieviel braucht die VM zum flüssigen Entwickeln?
+$VM_IDEAL_CPU = 16   # 12-16 Threads reichen f�r paralleles Compilieren
+$VM_IDEAL_RAM = 16   # 16 GB reichen f�r release-Builds mit LTO
+
 # Dynamische RAM-Berechnung
 if ($Ram) {
     $VM_RAM = $Ram
 } else {
     $totalRamMB = (Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory / 1MB
     $hostRamGB = [Math]::Round($totalRamMB / 1024)
-    if ($hostRamGB -lt 16) {
-        $pct = 0.70  # 70% for small hosts
-    } else {
-        $pct = 0.60  # 60% for 16GB+ hosts
-    }
-    $vmRamGB = [Math]::Max(6, [Math]::Min(16, [Math]::Floor($hostRamGB * $pct)))
+    # Logik: VM-Ideal = 16GB. Wenn Host genug hat (>= 22GB) -> VM = 16, Host = Rest.
+    # Wenn Host knapp ist -> Host beh�lt mindestens 6GB, VM bekommt Rest.
+    # Formel: Min(16GB, Max(6GB, Host-RAM - 6GB))
+    #  32GB Host: Min(16, 26) = 16 GB VM  (Host: 16 GB)  f�r Host + IDE + Browser
+    #  24GB Host: Min(16, 18) = 16 GB VM  (Host:  8 GB)
+    #  16GB Host: Min(16, 10) = 10 GB VM  (Host:  6 GB)
+    #  12GB Host: Min(16,  6) =  6 GB VM  (Host:  6 GB)
+    #   8GB Host: Min(16,  2) =  6 GB VM  (Host:  2 GB)  Minimum
+    $vmRamGB = [Math]::Min($VM_IDEAL_RAM, [Math]::Max(6, $hostRamGB - 6))
     $VM_RAM = "${vmRamGB}G"
 }
 
 # CPU
 if ($CpuCount -eq 0) {
-    $VM_CPUS = [Math]::Max(2, [Math]::Floor($HOST_CPUS / 2))
+    # Logik: VM-Ideal = 16 Threads. Wenn Host genug hat (>= 18) -> VM = 16, Host = Rest.
+    # Wenn Host knapp ist -> Host beh�lt mindestens 2 Threads, VM bekommt Rest.
+    # Formel: Min(16, Max(2, Host-Threads - 2))
+    #  32 Threads: Min(16, 30) = 16 VM  (Host: 16)  f�r Host-OS + IDE
+    #  16 Threads: Min(16, 14) = 14 VM  (Host:  2)  close to ideal
+    #  12 Threads: Min(16, 10) = 10 VM  (Host:  2)
+    #   8 Threads: Min(16,  6) =  6 VM  (Host:  2)
+    #   4 Threads: Min(16,  2) =  2 VM  (Host:  2)  Minimum
+    $VM_CPUS = [Math]::Min($VM_IDEAL_CPU, [Math]::Max(2, $HOST_CPUS - 2))
 } else {
     $VM_CPUS = $CpuCount
 }
 
-# Cargo build jobs: 1 Job pro ~2.5GB VM-RAM
+# Cargo parallel jobs: RAM/2.5 ist sicher f�r release-profile (~1.5-2GB/prozess)
+# und locker f�r release-fast (~0.5-0.8GB/prozess). Mindestens 6GB f�r OS bleiben.
 $vmRamNum = [int]($VM_RAM -replace 'G', '')
-$CARGO_JOBS = [Math]::Max(1, [Math]::Min($VM_CPUS, [Math]::Floor($vmRamNum * 10 / 25)))
+$CARGO_JOBS = [Math]::Max(1, [Math]::Min($VM_CPUS, [Math]::Floor($vmRamNum / 2.5)))
 
 $VM_MACHINE = if ($HOST_ARCH -eq "ARM64") { "virt" } else { "q35" }
 
@@ -315,9 +339,9 @@ users:
       - $pubkey
 
 chpasswd:
-  list: |
-    root:iora
-    iora:iora
+  list:
+    - root:iora
+    - iora:iora
   expire: false
 
 datasource_list: [ NoCloud ]
@@ -394,7 +418,7 @@ $qemuArgs = @(
 ) + $fwDrive + @(
     "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
     "-cdrom", "$SEED_ISO",
-    "-netdev", "user,id=n0,hostfwd=tcp::8126-:8126,hostfwd=tcp::8101-:8101,hostfwd=tcp::${SshPort}-:22",
+    "-netdev", "user,id=n0,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::8101-:8101,hostfwd=tcp::8126-:8126,hostfwd=tcp::${SshPort}-:22",
     "-device", "e1000,netdev=n0",
     "-name", "IORA-Dev",
     "-machine", "${VM_MACHINE},accel=whpx",
@@ -461,7 +485,7 @@ if (-not $whpxAlive) {
         "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
         "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
         "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
-        "-netdev", "user,id=n0,hostfwd=tcp::${SshPort}-:22",
+        "-netdev", "user,id=n0,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::8101-:8101,hostfwd=tcp::8126-:8126,hostfwd=tcp::${SshPort}-:22",
         "-device", "e1000,netdev=n0",
         "-nographic"
     )
@@ -553,67 +577,58 @@ Write-Success "Project uploaded"
 Write-Info "Setting permissions..."
 Invoke-SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>$null | Out-Null
 
-Write-Info "Installing system packages (curl, git, rust, docker, postgresql)..."
-Invoke-SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim 2>&1" 2>$null | Select-Object -Last 5
+Write-Info "Installing system packages (curl, git, rust, docker, postgresql, mold linker)..."
+Invoke-SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim mold 2>&1" 2>$null | Select-Object -Last 5
 Invoke-SSH "systemctl enable docker --now && systemctl enable postgresql --now 2>&1" 2>$null | Select-Object -Last 3
 Invoke-SSH "su - postgres -c 'psql -c \"CREATE USER iora WITH PASSWORD '\''iora'\'' CREATEDB\"' 2>/dev/null || true" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'createuser -s root 2>/dev/null || true'" 2>$null | Out-Null
 Invoke-SSH "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable' 2>&1" 2>$null | Select-Object -Last 5
 Write-Success "Packages installed"
+
+# ── Cargo config: mold linker (5-10x faster linking) + sparse registry ──
+Write-Info "Configuring Cargo for fast builds (mold linker, sparse registry)..."
+$cargoConfig = @'
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[registries.crates-io]
+protocol = "sparse"
+
+[net]
+retry = 2
+git-fetch-with-cli = true
+'@
+$cargoConfigPath = Join-Path $CACHE "cargo-config.toml"
+$cargoConfig | Set-Content -Path $cargoConfigPath -NoNewline
+$prevEAX = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $cargoConfigPath "root@127.0.0.1:/tmp/cargo-config.toml" *>$null
+$ErrorActionPreference = $prevEAX
+Invoke-SSH "su - iora -c 'mkdir -p ~/.cargo && cp /tmp/cargo-config.toml ~/.cargo/config.toml'" 2>$null | Out-Null
+Remove-Item $cargoConfigPath -Force -ErrorAction SilentlyContinue
+Write-Success "Cargo config: mold linker + sparse registry"
 
 Write-Info "Setting up IORA OS compatibility..."
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" 2>$null | Select-Object -Last 5
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" 2>$null | Select-Object -Last 5
 
-Write-Info "Building IORA workspace (10-30 min first time)..."
-$vmRamNum = [int]($VM_RAM -replace 'G', '')
-if ($vmRamNum -lt 8) {
-    Write-Info "RAM <8GB: LTO off, building only core services"
-    $buildTargets = "-p iora-core -p iora-home -p iora-dev-bridge -p iora-cli"
-    $cargoOpts = "CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=4"
-} else {
-    $buildTargets = "--workspace"
-    $cargoOpts = ""
-}
-# Use full cargo path (avoids ~ expansion issues in su -c)
-$buildCmd = "su - iora -c 'cd /home/iora/iora/iora-os/backend && CARGO_BUILD_JOBS=$CARGO_JOBS $cargoOpts /home/iora/.cargo/bin/cargo build --release $buildTargets'"
-try {
-    Write-Info "Build starting... (output below)"
-    # Stream build output in real-time (don't buffer until end)
-    $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    & $SSH_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o AddressFamily=inet -i $SSH_KEY -p $SshPort root@127.0.0.1 $buildCmd 2>&1 | ForEach-Object { Write-Host $_ }
-    $ErrorActionPreference = $prevEA
-} catch {
-    Write-Warn "Build had warnings (check output above)"
-}
+# Re-run DB init (may have failed at boot with old config)
+Write-Info "Initializing databases..."
+Invoke-SSH "systemctl reset-failed iora-db-init 2>/dev/null || true" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'createuser -s root 2>/dev/null || true'" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_home OWNER iora\" 2>/dev/null || true'" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_core OWNER iora\" 2>/dev/null || true'" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_security OWNER iora\" 2>/dev/null || true'" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_secrets OWNER iora\" 2>/dev/null || true'" 2>$null | Out-Null
+Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_appstore OWNER iora\" 2>/dev/null || true'" 2>$null | Out-Null
+Write-Success "Databases initialized"
 
-Write-Info "Deploying binaries..."
-$deployScript = @'
-for s in iora-core iora-home iora-control iora-assist iora-secrets \
-         iora-watchdog iora-security iora-gateway iora-supervisor \
-         iora-api iora-appstore iora-backup iora-connector iora-dev-bridge \
-         iora-files iora-network-monitor iora-nginx iora-resource-manager iora-updater; do
-  src="/home/iora/iora/iora-os/backend/target/release/$s"
-  [ -f "$src" ] && { mkdir -p "/opt/iora/build/$s/bin"; cp "$src" "/opt/iora/build/$s/bin/$s"; chmod 755 "/opt/iora/build/$s/bin/$s"; echo "  $s"; }
-done
-# Install ora CLI
-ORA_BIN="/home/iora/iora/iora-os/backend/target/release/ora"
-if [ -f "$ORA_BIN" ]; then
-  cp "$ORA_BIN" /usr/local/bin/ora && chmod 755 /usr/local/bin/ora && echo "  ora CLI"
-fi
-systemctl daemon-reload
-systemctl start iora-core iora-home iora-dev-bridge 2>/dev/null || true
-'@
-# Write deploy script to temp file and execute via SSH
-$deployPath = Join-Path $CACHE "deploy.sh"
-$deployScript | Set-Content -Path $deployPath -NoNewline
-$prevEA3 = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-& $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $deployPath "root@127.0.0.1:/tmp/deploy.sh" *>$null
-$ErrorActionPreference = $prevEA3
-Invoke-SSH "bash /tmp/deploy.sh" 2>&1
-Remove-Item $deployPath -Force -ErrorAction SilentlyContinue
+Write-Info "Skipping in-VM Rust build – host cross-compile + SCP deploy"
+Write-Info "The dev-watch window handles compilation and auto-deploys via SCP."
 
 # Ensure iora-home uses PostgreSQL (binary may lack sqlite feature)
-Invoke-SSH "su - postgres -c 'psql -c \"CREATE DATABASE iora_home OWNER root\"' 2>/dev/null || true" 2>$null | Out-Null
+Invoke-SSH @'
+su - postgres -c "psql -c 'CREATE DATABASE iora_home OWNER root'" 2>/dev/null || true
+'@ 2>$null | Out-Null
 Invoke-SSH "mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data" 2>$null | Out-Null
 $dbConf = @'
 [Service]
@@ -626,27 +641,63 @@ $prevEA4 = $ErrorActionPreference; $ErrorActionPreference = "Continue"
 & $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o BatchMode=yes -o AddressFamily=inet -i $SSH_KEY -P $SshPort $dbConfPath "root@127.0.0.1:/etc/systemd/system/iora-home.service.d/db.conf" *>$null
 $ErrorActionPreference = $prevEA4
 Remove-Item $dbConfPath -Force -ErrorAction SilentlyContinue
-Invoke-SSH "systemctl daemon-reload && systemctl restart iora-home" 2>$null | Out-Null
+Invoke-SSH "systemctl daemon-reload" 2>$null | Out-Null
+Invoke-SSH "systemctl restart iora-home" 2>$null | Out-Null
 
 # ── Frontend: Build + Deploy ─────────────────────────────────────────────
 $frontendDir = Join-Path $REPO_ROOT "frontend"
-if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
-    Write-Info "Building frontend..."
-    Push-Location $frontendDir
-    try {
-        npm install --silent 2>&1 | Select-Object -Last 3
-        npm run build 2>&1 | Select-Object -Last 5
-        if (Test-Path (Join-Path $frontendDir "dist")) {
-            Write-Info "Deploying frontend to VM..."
-            Invoke-SSH "mkdir -p /opt/iora/build/dist" 2>$null | Out-Null
-            & $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -r -i $SSH_KEY -P $SshPort "$frontendDir\dist\*" "root@127.0.0.1:/opt/iora/build/dist/" 2>$null
-            Write-Success "Frontend deployed"
-        }
-    } finally {
-        Pop-Location
-    }
-} else {
+if (-not (Test-Path (Join-Path $frontendDir "package.json"))) {
+    Write-Warn "Frontend package.json not found - skipping frontend build"
+} elseif (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     Write-Warn "npm not found - skipping frontend build"
+} else {
+    # Check Node.js availability
+    $nodeOk = $true
+    try {
+        $null = node --version 2>&1
+        Write-Info "Node.js: $(node --version)"
+    } catch {
+        Write-Warn "Node.js not found - skipping frontend build"
+        $nodeOk = $false
+    }
+    if ($nodeOk) {
+        Write-Info "Building frontend..."
+        Push-Location $frontendDir
+        try {
+            $installResult = npm install 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "npm install failed:"
+                $installResult | ForEach-Object { Write-Warn "  $_" }
+            } else {
+                Write-Success "npm install ok"
+                $buildResult = npm run build 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warn "npm run build failed:"
+                    $buildResult | ForEach-Object { Write-Warn "  $_" }
+                } elseif (Test-Path (Join-Path $frontendDir "dist")) {
+                    Write-Info "Deploying frontend to VM..."
+                    Invoke-SSH "mkdir -p /opt/iora/build/dist" 2>$null | Out-Null
+                    & $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -r -i $SSH_KEY -P $SshPort "$frontendDir\dist\*" "root@127.0.0.1:/opt/iora/build/dist/" 2>$null
+                    Write-Success "Frontend deployed"
+                }
+            }
+        } catch {
+            Write-Warn "Frontend build error: $_"
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
+# ── Launch Dev-Loop in second window ────────────────────────────────────────
+$watchScript = Join-Path $SCRIPT_DIR "dev-watch.ps1"
+if (Test-Path $watchScript) {
+    Write-Info "Launching dev-watch.ps1 in new terminal..."
+    $targetArg = if ($HOST_ARCH -eq "ARM64") { "aarch64-unknown-linux-musl" } else { "x86_64-unknown-linux-musl" }
+    Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$watchScript`"", "-Target", $targetArg
+} else {
+    Write-Warn "dev-watch.ps1 not found at $watchScript"
+    Write-Warn "Place it in the repo root and re-run."
 }
 
 # ── Done ────────────────────────────────────────────────────────────────────
@@ -656,6 +707,7 @@ Write-Host ""
 Write-Host "  Dashboard:  http://localhost:8126" -ForegroundColor Cyan
 Write-Host "  Dev Bridge:  http://localhost:8101/dev/health" -ForegroundColor Cyan
 Write-Host "  SSH:        ssh -i $SSH_KEY -p $SshPort root@127.0.0.1" -ForegroundColor Cyan
+Write-Host "  Dev-Loop:   Press B in the dev-watch window for initial build" -ForegroundColor Cyan
 Write-Host ""
 Write-Info "Press Ctrl+C to stop. Closing window also kills QEMU."
 Write-Info "To keep VM running: close QEMU window first, then Ctrl+C here."
