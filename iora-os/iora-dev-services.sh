@@ -3,10 +3,11 @@
 # iora-dev-services.sh – IORA OS Service-Äquivalente für die Dev-VM
 # ============================================================================
 # Erstellt systemd-Service-Units die 1:1 den IORA OS Services entsprechen.
-# Teilt sich in drei Kategorien:
-#   - FULL:    Voll funktionsfähig (Netzwerk, Docker, DB, Watchdog)
-#   - STUB:    Platzhalter (existiert, aber no-op – für Code der sie erwartet)
-#   - SKIP:    Nicht nötig in Dev (Recovery, Integrity, TPM)
+# EXAKT gleiche Struktur wie IORA OS / IORA OS Dev:
+#   - Binaries: /usr/bin/iora-*
+#   - Data:     /opt/iora/data
+#   - Config:   /etc/iora/
+#   - Logs:     journalctl -u iora-*
 #
 # Usage: sudo ./iora-dev-services.sh
 # ============================================================================
@@ -22,11 +23,58 @@ warn()   { echo -e "${YELLOW}[svc]${NC} $*"; }
 
 SVC_DIR="/etc/systemd/system"
 mkdir -p "$SVC_DIR" "$SVC_DIR/multi-user.target.wants" "$SVC_DIR/timers.target.wants"
-mkdir -p /usr/lib/iora /var/log
+mkdir -p /usr/lib/iora /var/log /var/log/iora
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HELPER: service unit templates
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# IORA app service – EXAKT wie IORA OS post-build.sh generiert
+# Binary liegt unter /usr/bin/iora-*, Data unter /opt/iora/data
+_iora_service() {
+    local name="$1" port="${2:-}" after="${3:-}" memory_max="${4:-}"
+    local binary="/usr/bin/${name}"
+    local datadir="/opt/iora/data/${name}"
+    mkdir -p "$datadir" 2>/dev/null || true
+
+    local mem_limit=""
+    [ -n "$memory_max" ] && mem_limit="MemoryMax=${memory_max}"
+
+    cat > "${SVC_DIR}/${name}.service" <<EOF
+[Unit]
+Description=IORA ${name} Service
+Documentation=https://iora-os.dev/services/${name}
+${after:+After=${after}}
+${after:+Wants=${after}}
+ConditionPathExists=${binary}
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${datadir}
+ExecStart=${binary}
+Restart=always
+RestartSec=5
+${port:+Environment=PORT=${port}}
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${name}
+Environment=RUST_LOG=${name//-/_}=info
+EnvironmentFile=-/etc/iora/${name}.env
+${mem_limit}
+
+# Security hardening (same as IORA OS)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/iora/data /opt/iora/docs /tmp/iora-sandboxes /var/lib/iora /mnt/data/iora
+ReadOnlyPaths=/usr/bin /etc/iora
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
 
 # FULL service: actually does something useful
 _full_service() {
@@ -60,34 +108,6 @@ Description=${desc} (Dev-VM stub – IORA OS compatibility)
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/true
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-}
-
-# iora-* app service template (matches what post-build.sh generates)
-_iora_service() {
-    local name="$1" port="${2:-}" after="${3:-}"
-    local workdir="/opt/iora/build/${name}"
-    mkdir -p "$workdir/data" 2>/dev/null || true
-    cat > "${SVC_DIR}/${name}.service" <<EOF
-[Unit]
-Description=IORA ${name} Service
-Documentation=https://iora-os.dev/services/${name}
-${after:+After=${after}}
-ConditionPathExists=/opt/iora/build/${name}/bin/${name}
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=${workdir}
-ExecStart=/opt/iora/build/${name}/bin/${name}
-Restart=always
-RestartSec=5
-${port:+Environment=PORT=${port}}
 StandardOutput=journal
 StandardError=journal
 
@@ -150,7 +170,7 @@ if command -v psql >/dev/null 2>&1; then
     
     # iora-db-init: Creates root role + IORA databases
     _full_service iora-db-init "IORA Database Initialisation" "postgresql.service" \
-        "/bin/sh -c 'su - postgres -c \"createuser -s root 2>/dev/null || true\"; su - postgres -c \"psql -c 'CREATE DATABASE iora_home OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_core OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_security OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_secrets OWNER iora'\" 2>/dev/null || true; su - postgres -c \"psql -c 'CREATE DATABASE iora_appstore OWNER iora'\" 2>/dev/null || true'"
+        "/bin/sh -c 'su - postgres -c \"createuser -s root 2>/dev/null || true\"; su - postgres -c \"psql -c '\''CREATE DATABASE iora_home OWNER iora'\''\" 2>/dev/null || true; su - postgres -c \"psql -c '\''CREATE DATABASE iora_core OWNER iora'\''\" 2>/dev/null || true; su - postgres -c \"psql -c '\''CREATE DATABASE iora_security OWNER iora'\''\" 2>/dev/null || true; su - postgres -c \"psql -c '\''CREATE DATABASE iora_secrets OWNER iora'\''\" 2>/dev/null || true; su - postgres -c \"psql -c '\''CREATE DATABASE iora_appstore OWNER iora'\''\" 2>/dev/null || true'"
     _enable iora-db-init
     success "iora-db-init.service (creates IORA databases)"
 else
@@ -160,7 +180,7 @@ fi
 
 # ── iora-init-data ──────────────────────────────────────────────────────
 _full_service iora-init-data "IORA Data Directory Init" "mnt-data.mount" \
-    "/bin/sh -c 'mkdir -p /mnt/data/iora /mnt/data/rauc /mnt/data/backups && chmod 755 /mnt/data/iora /mnt/data/rauc /mnt/data/backups'"
+    "/bin/sh -c 'mkdir -p /mnt/data/iora /mnt/data/rauc /mnt/data/backups /opt/iora/data && chmod 755 /mnt/data/iora /mnt/data/rauc /mnt/data/backups /opt/iora/data'"
 _enable iora-init-data
 success "iora-init-data.service"
 
@@ -209,7 +229,7 @@ for svc in iora-core iora-home iora-control iora-assist \
             iora-secrets iora-watchdog iora-security iora-gateway \
             iora-supervisor iora-api iora-appstore iora-backup iora-connector \
             iora-dev-bridge iora-files iora-network-monitor iora-nginx \
-            iora-resource-manager iora-updater; do
+            iora-resource-manager iora-updater iora-domain-validator; do
     if ! systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
         if systemctl is-enabled --quiet "${svc}.service" 2>/dev/null; then
             log "restarting stopped native service: ${svc}"
@@ -238,12 +258,316 @@ _enable iora-setup
 success "iora-setup.service"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. IORA APP SERVICES (systemd units matching IORA OS)
+# 2. REVERSE PROXY & SSL/TLS (IORA OS parity)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+log "Setting up nginx reverse proxy with SSL/TLS..."
+
+# Install nginx if not present
+if ! command -v nginx >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq nginx 2>/dev/null || true
+fi
+
+# Generate self-signed SSL certificate (like IORA OS)
+SSL_DIR="/etc/iora/ssl"
+mkdir -p "$SSL_DIR"
+if [ ! -f "$SSL_DIR/server.crt" ]; then
+    openssl req -x509 -nodes -days 3650 \
+        -newkey rsa:2048 \
+        -keyout "$SSL_DIR/server.key" \
+        -out "$SSL_DIR/server.crt" \
+        -subj "/C=DE/ST=Dev/L=Dev/O=IORA-Dev/CN=iora-dev.local" \
+        -addext "subjectAltName=DNS:iora-dev.local,DNS:localhost,IP:127.0.0.1" 2>/dev/null
+    chmod 600 "$SSL_DIR/server.key"
+    chmod 644 "$SSL_DIR/server.crt"
+    success "SSL certificate generated: $SSL_DIR/server.crt"
+else
+    success "SSL certificate already exists"
+fi
+
+# Generate DH parameters (small for dev speed)
+if [ ! -f "$SSL_DIR/dhparam.pem" ]; then
+    openssl dhparam -out "$SSL_DIR/dhparam.pem" 1024 2>/dev/null || true
+fi
+
+# Nginx configuration matching IORA OS
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
+rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+cat > /etc/nginx/sites-available/iora-gateway <<'NGINXEOF'
+# IORA OS Gateway – Dev VM Reverse Proxy
+# Matches production iora-nginx configuration
+
+# Upstream definitions (service discovery)
+upstream iora_home {
+    server 127.0.0.1:8126;
+    keepalive 32;
+}
+
+upstream iora_core {
+    server 127.0.0.1:8090;
+    keepalive 16;
+}
+
+upstream iora_assist {
+    server 127.0.0.1:8092;
+    keepalive 8;
+}
+
+upstream iora_appstore {
+    server 127.0.0.1:8098;
+    keepalive 8;
+}
+
+upstream iora_supervisor {
+    server 127.0.0.1:8097;
+    keepalive 8;
+}
+
+upstream iora_gateway {
+    server 127.0.0.1:8096;
+    keepalive 8;
+}
+
+upstream iora_security {
+    server 127.0.0.1:8095;
+    keepalive 8;
+}
+
+upstream iora_files {
+    server 127.0.0.1:8103;
+    keepalive 8;
+}
+
+upstream iora_dev_bridge {
+    server 127.0.0.1:8101;
+    keepalive 8;
+}
+
+upstream iora_control {
+    server 127.0.0.1:8091;
+    keepalive 8;
+}
+
+# Rate limiting (like IORA OS)
+limit_req_zone $binary_remote_addr zone=api:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
+
+# Main server block – HTTP → HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name iora-dev.local localhost;
+
+    # ACME challenge (for future Let's Encrypt)
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # Health check (no redirect)
+    location /health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    # Redirect everything else to HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS server block
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name iora-dev.local localhost;
+
+    # SSL configuration
+    ssl_certificate /etc/iora/ssl/server.crt;
+    ssl_certificate_key /etc/iora/ssl/server.key;
+    ssl_dhparam /etc/iora/ssl/dhparam.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # Security headers (like IORA OS)
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # Gzip
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+    # Frontend (SPA) – served by iora-home or static files
+    root /opt/iora/build/dist;
+    index index.html;
+
+    # Frontend routes (SPA fallback)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API – iora-home (main API)
+    location /api/ {
+        limit_req zone=api burst=50 nodelay;
+        proxy_pass http://iora_home;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # Auth endpoints (stricter rate limit)
+    location /api/auth/ {
+        limit_req zone=auth burst=3 nodelay;
+        proxy_pass http://iora_home;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket support
+    location /ws/ {
+        proxy_pass http://iora_home;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400s;
+    }
+
+    # iora-core (service registry)
+    location /core/ {
+        proxy_pass http://iora_core/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # iora-assist (AI)
+    location /assist/ {
+        proxy_pass http://iora_assist/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+
+    # iora-assist streaming
+    location /assist/stream/ {
+        proxy_pass http://iora_assist/;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 600s;
+    }
+
+    # App Store
+    location /store/ {
+        proxy_pass http://iora_appstore/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Supervisor (Docker management)
+    location /supervisor/ {
+        proxy_pass http://iora_supervisor/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Security
+    location /security/ {
+        proxy_pass http://iora_security/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Files
+    location /files/ {
+        proxy_pass http://iora_files/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        client_max_body_size 100M;
+    }
+
+    # Gateway
+    location /gateway/ {
+        proxy_pass http://iora_gateway/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Control Center
+    location /control/ {
+        proxy_pass http://iora_control/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Dev Bridge (IDE integration) – EXAKT wie IORA OS Dev
+    location /dev/ {
+        proxy_pass http://iora_dev_bridge/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+
+    # Swagger/API docs
+    location /docs {
+        proxy_pass http://iora_home/api/docs;
+        proxy_set_header Host $host;
+    }
+
+    location /api/docs {
+        proxy_pass http://iora_home;
+        proxy_set_header Host $host;
+    }
+
+    # Health endpoints
+    location /health/ {
+        access_log off;
+        proxy_pass http://iora_home/health;
+    }
+}
+NGINXEOF
+
+ln -sf /etc/nginx/sites-available/iora-gateway /etc/nginx/sites-enabled/iora-gateway
+
+# Test and reload nginx
+nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+systemctl enable nginx 2>/dev/null || true
+success "nginx reverse proxy configured (HTTP→HTTPS, all services)"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. IORA APP SERVICES (EXAKT wie IORA OS /devup.sh registry)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 log "Creating IORA app service units..."
 
-# Service-Port mapping (from devup.sh registry)
+# Service-Port mapping (EXAKT aus devup.sh _register Aufrufen)
 declare -A IORA_PORTS
 IORA_PORTS[iora-core]=8090
 IORA_PORTS[iora-home]=8126
@@ -255,18 +579,18 @@ IORA_PORTS[iora-security]=8095
 IORA_PORTS[iora-gateway]=8096
 IORA_PORTS[iora-supervisor]=8097
 IORA_PORTS[iora-appstore]=8098
-IORA_PORTS[iora-api]=8101
-IORA_PORTS[iora-files]=8102
-IORA_PORTS[iora-updater]=8103
-IORA_PORTS[iora-connector]=8104
-IORA_PORTS[iora-network-monitor]=8105
-IORA_PORTS[iora-nginx]=8089
+IORA_PORTS[iora-api]=8099
 IORA_PORTS[iora-backup]=8100
 IORA_PORTS[iora-dev-bridge]=8101
-IORA_PORTS[iora-domain-validator]=8106
-IORA_PORTS[iora-resource-manager]=8107
+IORA_PORTS[iora-domain-validator]=8102
+IORA_PORTS[iora-files]=8103
+IORA_PORTS[iora-network-monitor]=8104
+IORA_PORTS[iora-nginx]=8089
+IORA_PORTS[iora-resource-manager]=8105
+IORA_PORTS[iora-updater]=8106
+IORA_PORTS[iora-connector]=8088
 
-# Service dependencies
+# Service dependencies (EXAKT aus devup.sh _register Aufrufen)
 declare -A IORA_AFTER
 IORA_AFTER[iora-home]="iora-core.service"
 IORA_AFTER[iora-control]="iora-core.service iora-home.service"
@@ -278,21 +602,24 @@ IORA_AFTER[iora-appstore]="iora-core.service iora-supervisor.service"
 IORA_AFTER[iora-backup]="iora-core.service"
 IORA_AFTER[iora-dev-bridge]="iora-core.service iora-supervisor.service"
 IORA_AFTER[iora-api]="iora-core.service iora-home.service"
-IORA_AFTER[iora-stack]="docker.service iora-init-data.service"
+
+# Memory limits (like IORA OS)
+declare -A IORA_MEM
+IORA_MEM[iora-assist]="1500M"
 
 for svc in "${!IORA_PORTS[@]}"; do
-    _iora_service "$svc" "${IORA_PORTS[$svc]}" "${IORA_AFTER[$svc]:-}"
+    _iora_service "$svc" "${IORA_PORTS[$svc]}" "${IORA_AFTER[$svc]:-}" "${IORA_MEM[$svc]:-}"
     success "  ${svc}.service (port ${IORA_PORTS[$svc]})"
 done
 
-# Create /opt/iora/build structure for each service
+# Create /opt/iora/data structure for each service
 for svc in "${!IORA_PORTS[@]}"; do
-    mkdir -p "/opt/iora/build/${svc}/bin"
+    mkdir -p "/opt/iora/data/${svc}" 2>/dev/null || true
 done
-success "/opt/iora/build/<svc>/bin/ directories created"
+success "/opt/iora/data/<svc>/ directories created"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. OS-LEVEL SERVICES – STUB (exist, but no-op in dev)
+# 4. OS-LEVEL SERVICES – STUB (exist, but no-op in dev)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 log "Creating stub services (IORA OS compatibility – no-op in Dev VM)..."
@@ -369,7 +696,129 @@ systemctl start mnt-data.mount 2>/dev/null || true
 success "mnt-data.mount (tmpfs 2GB)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. SUMMARY
+# 5. LOGGING & MONITORING (matches IORA OS)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+log "Configuring logging and monitoring..."
+
+# Log rotation for IORA services
+cat > /etc/logrotate.d/iora <<'LOGROTATEEOF'
+/var/log/iora/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 root root
+    sharedscripts
+    postrotate
+        systemctl reload rsyslog > /dev/null 2>&1 || true
+    endscript
+}
+LOGROTATEEOF
+
+# Rsyslog config for IORA services
+if command -v rsyslogd >/dev/null 2>&1; then
+    cat > /etc/rsyslog.d/50-iora.conf <<'RSYSLOGEOF'
+# IORA OS service logging
+:programname, startswith, "iora-" /var/log/iora/services.log
+& stop
+RSYSLOGEOF
+    systemctl restart rsyslog 2>/dev/null || true
+fi
+
+success "Logging: journald + rsyslog + logrotate configured"
+
+# Health check script
+cat > /usr/lib/iora/iora-health-check <<'HEALTHEOF'
+#!/bin/bash
+# IORA Health Check – Monitors all IORA services
+LOG_TAG="iora-health"
+LOG_FILE="/var/log/iora/health.log"
+
+log() { 
+    logger -t "$LOG_TAG" "$*"
+    echo "[$(date -Iseconds)] $LOG_TAG: $*" >> "$LOG_FILE"
+}
+
+# Check all IORA services
+check_service() {
+    local svc="$1"
+    if ! systemctl is-active --quiet "${svc}.service" 2>/dev/null; then
+        log "WARN: $svc is not running"
+        return 1
+    fi
+    return 0
+}
+
+# Main health check
+SERVICES="iora-core iora-home iora-assist iora-appstore iora-supervisor iora-gateway iora-security iora-files iora-secrets iora-control iora-watchdog iora-dev-bridge"
+
+HEALTHY=0
+UNHEALTHY=0
+
+for svc in $SERVICES; do
+    if check_service "$svc"; then
+        HEALTHY=$((HEALTHY + 1))
+    else
+        UNHEALTHY=$((UNHEALTHY + 1))
+    fi
+done
+
+# Check nginx, PostgreSQL, Docker
+for svc in nginx postgresql docker; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        HEALTHY=$((HEALTHY + 1))
+    else
+        log "WARN: $svc is not running"
+        UNHEALTHY=$((UNHEALTHY + 1))
+    fi
+done
+
+# Write status file
+cat > /var/log/iora/status.json <<EOF
+{
+  "timestamp": "$(date -Iseconds)",
+  "healthy": $HEALTHY,
+  "unhealthy": $UNHEALTHY
+}
+EOF
+
+exit 0
+HEALTHEOF
+chmod 755 /usr/lib/iora/iora-health-check
+
+# Health check timer
+cat > "${SVC_DIR}/iora-health-check.timer" <<'EOF'
+[Unit]
+Description=IORA Health Check Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+RandomizedDelaySec=10s
+
+[Install]
+WantedBy=timers.target
+EOF
+
+cat > "${SVC_DIR}/iora-health-check.service" <<'EOF'
+[Unit]
+Description=IORA Health Check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/iora/iora-health-check
+StandardOutput=journal
+StandardError=journal
+EOF
+
+ln -sf "${SVC_DIR}/iora-health-check.timer" "${SVC_DIR}/timers.target.wants/iora-health-check.timer" 2>/dev/null || true
+success "Health check: runs every minute"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 
 systemctl daemon-reload 2>/dev/null || true
@@ -406,6 +855,8 @@ check_svc "iora-integrity"        "STUB"
 check_svc "iora-verify"           "STUB"
 check_svc "iora-update-check"     "STUB"
 check_svc "iora-tamper-screen"    "STUB"
+check_svc "iora-health-check"     "FULL"
+check_svc "iora-health-check.timer" "FULL"
 
 # App services
 for svc in "${!IORA_PORTS[@]}"; do
@@ -416,5 +867,9 @@ echo ""
 log "Dev VM services match IORA OS:"
 log "  $(ls ${SVC_DIR}/iora-*.service 2>/dev/null | wc -l) IORA service units created"
 log "  FULL = fully functional | STUB = exists but no-op | APP = Rust binary unit"
+echo ""
+log "Binary paths: /usr/bin/iora-* (EXAKT wie IORA OS)"
+log "Data paths:   /opt/iora/data/<svc>/ (EXAKT wie IORA OS)"
+log "Config paths: /etc/iora/<svc>.env (EXAKT wie IORA OS)"
 echo ""
 success "Service compatibility layer complete."

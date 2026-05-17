@@ -2010,6 +2010,14 @@ async fn bootstrap_admin_user(
 ) -> anyhow::Result<()> {
     info!("Bootstrap: starting admin-user bootstrap check");
 
+    // Dev images accept shorter passwords so the well-known
+    // dev credentials (admin/admin) work out of the box.
+    let is_os_dev = std::path::Path::new("/etc/iora/os-dev-mode").exists();
+    let min_password_len: usize = if is_os_dev { 5 } else { 8 };
+    if is_os_dev {
+        info!("Bootstrap: OS dev image detected — min password length relaxed to {}", min_password_len);
+    }
+
     // The systemd unit for iora-home sets ProtectSystem=strict and only
     // whitelists /var/lib/iora/iora-home + /var/log/iora as writable.
     // /mnt/data/iora is therefore READ-ONLY for the iora-home process —
@@ -2035,12 +2043,12 @@ async fn bootstrap_admin_user(
                     let u = v.get("username").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
                     let p = v.get("password").and_then(|x| x.as_str()).unwrap_or("").to_string();
                     let d = v.get("display_name").and_then(|x| x.as_str()).map(|s| s.to_string());
-                    if !u.is_empty() && p.len() >= 8 {
+                    if !u.is_empty() && p.len() >= min_password_len {
                         info!("Bootstrap: JSON contains usable credentials for user='{}'", u);
                         creds = Some((u, p, d));
                         delete_json_after = Some(json_path.clone());
                     } else {
-                        warn!("Bootstrap JSON at {} is incomplete (need username + password >= 8 chars) — ignoring", json_path.display());
+                        warn!("Bootstrap JSON at {} is incomplete (need username + password >= {} chars) — ignoring", json_path.display(), min_password_len);
                     }
                 }
                 Err(e) => warn!("Could not parse {}: {} — ignoring", json_path.display(), e),
@@ -2067,12 +2075,12 @@ async fn bootstrap_admin_user(
     if creds.is_none() {
         if let (Some(u), Some(p)) = (env_user, env_pass) {
             let u = u.trim().to_string();
-            if !u.is_empty() && p.len() >= 8 {
+            if !u.is_empty() && p.len() >= min_password_len {
                 let d = std::env::var("IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME").ok();
                 info!("Bootstrap: using env-var credentials for user='{}'", u);
                 creds = Some((u, p, d));
             } else {
-                warn!("Bootstrap env vars present but invalid (username empty or password < 8 bytes) — ignoring");
+                warn!("Bootstrap env vars present but invalid (username empty or password < {} bytes) — ignoring", min_password_len);
             }
         }
     }
@@ -2084,7 +2092,7 @@ async fn bootstrap_admin_user(
             std::env::var("IORA_BOOTSTRAP_ADMIN_PASSWORD"),
         ) {
             let u = u.trim().to_string();
-            if !u.is_empty() && p.len() >= 8 {
+            if !u.is_empty() && p.len() >= min_password_len {
                 let d = std::env::var("IORA_BOOTSTRAP_ADMIN_DISPLAY_NAME").ok();
                 creds = Some((u, p, d));
             }

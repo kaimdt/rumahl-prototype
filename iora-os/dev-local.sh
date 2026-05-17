@@ -256,7 +256,7 @@ QEMU_ARGS=(
     -m "$VM_RAM" -smp "$VM_CPUS"
     -drive "file=$VM_DISK,format=qcow2,if=virtio"
     -cdrom "$SEED_ISO"
-    -netdev "user,id=n0,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::$VM_BRIDGE-:8101,hostfwd=tcp::$VM_HOME-:8126,hostfwd=tcp::$VM_SSH-:22"
+    -netdev "user,id=n0,hostfwd=tcp::80-:80,hostfwd=tcp::443-:443,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::$VM_BRIDGE-:8101,hostfwd=tcp::$VM_HOME-:8126,hostfwd=tcp::$VM_SSH-:22"
     -device "virtio-net-pci,netdev=n0"
     -name "IORA-Dev" -cpu host
     -machine "$QEMU_MACHINE,accel=hvf"
@@ -349,9 +349,9 @@ fi
 $SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>/dev/null
 ok "Project uploaded"
 
-log "Installing system packages (curl, git, rust, docker, postgresql, mold linker)..."
-$SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim mold" 2>&1 | tail -5
-$SSH "systemctl enable docker --now && systemctl enable postgresql --now" 2>&1 | tail -3
+log "Installing system packages (curl, git, rust, docker, postgresql, nginx, mold linker)..."
+$SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim mold nginx openssl" 2>&1 | tail -5
+$SSH "systemctl enable docker --now && systemctl enable postgresql --now && systemctl enable nginx --now" 2>&1 | tail -3
 # PostgreSQL: create roles + dev mode marker
 $SSH 'bash -s' <<'PGEOF'
 su - postgres -c "psql -c 'CREATE ROLE root WITH LOGIN SUPERUSER PASSWORD '\''iora'\'''" 2>/dev/null || true
@@ -380,6 +380,66 @@ ok "Cargo config: mold linker + sparse registry"
 log "Setting up IORA OS compatibility..."
 $SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | tail -5
 $SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | tail -5
+
+# ── Verify new services ─────────────────────────────────────────────────────
+log "Verifying IORA OS services..."
+SERVICES_CHECK=$($SSH "systemctl list-units --type=service --all | grep -c iora || echo 0" 2>/dev/null)
+log "IORA services registered: $SERVICES_CHECK"
+
+# Check nginx
+if $SSH "nginx -t 2>&1 && echo NGINX_OK" 2>/dev/null | grep -q NGINX_OK; then
+    ok "nginx reverse proxy: configured"
+else
+    warn "nginx configuration issue - check in VM"
+fi
+
+# Check SSL
+if $SSH "test -f /etc/iora/ssl/server.crt && echo SSL_OK" 2>/dev/null | grep -q SSL_OK; then
+    ok "SSL certificates: generated"
+else
+    warn "SSL certificates not found"
+fi
+
+# Check hot-reload
+HOT_RELOAD_CHECK=$($SSH "systemctl is-active iora-hot-reload.path 2>/dev/null || echo inactive" 2>/dev/null)
+if [ "$HOT_RELOAD_CHECK" = "active" ]; then
+    ok "Hot-reload: active"
+else
+    log "Hot-reload: ready (will activate on first deploy)"
+fi
+
+# Check dev mode (EXAKT wie IORA OS Dev)
+if $SSH "test -f /etc/iora/os-dev-mode && echo DEV_MODE_OK" 2>/dev/null | grep -q DEV_MODE_OK; then
+    ok "Dev mode: /etc/iora/os-dev-mode installed"
+fi
+
+# Check health monitoring
+if $SSH "test -f /usr/lib/iora/iora-health-check && echo HEALTH_OK" 2>/dev/null | grep -q HEALTH_OK; then
+    ok "Health monitoring: configured"
+fi
+
+# Check setup wizard
+if $SSH "test -f /usr/lib/iora/iora-setup-wizard && echo WIZARD_OK" 2>/dev/null | grep -q WIZARD_OK; then
+    ok "Setup wizard: configured"
+fi
+
+# Check logging
+if $SSH "test -d /var/log/iora && echo LOG_OK" 2>/dev/null | grep -q LOG_OK; then
+    ok "Centralized logging: configured"
+fi
+
+# Check firewall
+if $SSH "test -f /usr/lib/iora/iora-firewall && echo FIREWALL_OK" 2>/dev/null | grep -q FIREWALL_OK; then
+    ok "Firewall: configured"
+fi
+
+# Enable iora-hot-reload
+$SSH "systemctl enable iora-hot-reload.path 2>/dev/null || true" 2>/dev/null
+$SSH "systemctl start iora-hot-reload.path 2>/dev/null || true" 2>/dev/null
+
+# Enable health check timer
+$SSH "systemctl enable iora-health-check.timer 2>/dev/null || true" 2>/dev/null
+$SSH "systemctl start iora-health-check.timer 2>/dev/null || true" 2>/dev/null
 
 # Re-run DB init (may have failed at boot with old config)
 log "Initializing databases..."
@@ -446,10 +506,41 @@ fi
 
 ok "IORA Dev VM ready!"
 echo ""
-echo "  Dashboard:  http://localhost:$VM_HOME"
-echo "  Dev Bridge:  http://localhost:$VM_BRIDGE/dev/health"
-echo "  SSH:        ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1"
-echo "  Dev-Loop:   Press B in the dev-watch window for initial build"
+
+# TUI Banner
+cat << EOF
+  +====================================================================+
+  |                    IORA Dev VM - All Services                       |
+  +====================================================================+
+  |                                                                    |
+  |  WEB INTERFACES:                                                   |
+  |    Dashboard:      https://localhost                               |
+  |    Dashboard:      http://localhost:$VM_HOME   (direct)             |
+  |    Dev Bridge:     http://localhost:$VM_BRIDGE/dev/health           |
+  |    Swagger API:    http://localhost:$VM_HOME/api/docs               |
+  |                                                                    |
+  |  ACCESS:                                                           |
+  |    SSH:            ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1        |
+  |    Dev-Loop:       Run dev-watch.sh in separate terminal           |
+  |                                                                    |
+  |  SERVICES (EXAKT wie IORA OS Dev):                                 |
+  |    Binaries:       /usr/bin/iora-* (EXAKT wie IORA OS)             |
+  |    nginx:          Reverse proxy with SSL (port 80/443)            |
+  |    20 Services:    All IORA OS services registered                 |
+  |    Health Monitor: Every minute                                    |
+  |    Setup Wizard:   Auto-setup on first boot                        |
+  |    Firewall:       iptables rules like IORA OS                     |
+  |    Dev Mode:       /etc/iora/os-dev-mode                           |
+  |                                                                    |
+  |  QUICK START:                                                      |
+  |    1. Run ./dev-watch.sh in separate terminal                     |
+  |    2. Press [B] to build and deploy all services                   |
+  |    3. Open https://localhost in browser                            |
+  |    4. Login: admin / admin (PIN: 0000)                             |
+  |                                                                    |
+  +====================================================================+
+EOF
+
 echo ""
 echo "Press Ctrl+C to stop. VM stays running in background."
 wait

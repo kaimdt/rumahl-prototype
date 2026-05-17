@@ -49,8 +49,12 @@ function browserSafeBaseUrl(url: string): string {
 /** Returns the current backend URL. Safe to call from anywhere. */
 export function getBackendUrl(): string {
   let url = _backendUrl;
-  // Development fallback: If running on localhost:5173 (Vite dev), use localhost:3001
-  if (!url && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+  // Development fallback: Only when running on the Vite dev server (port 5173)
+  // do we default to localhost:3001. In production / IORA OS / remote dev VM
+  // access, use relative URLs (same origin) so API calls reach the same host.
+  if (!url && typeof window !== 'undefined'
+      && window.location.hostname === 'localhost'
+      && window.location.port === '5173') {
     url = 'http://localhost:3001';
   }
   return browserSafeBaseUrl(url)
@@ -67,10 +71,10 @@ export function getAssistUrl(): string {
   if (!url && typeof window !== 'undefined') {
     // Last resort: derive from page origin or use localhost default
     const origin = window.location.origin;
-    if (origin && !origin.includes('5173') && !origin.includes('localhost')) {
-      url = origin; // Production: same-origin deployment
+    if (origin && window.location.port !== '5173') {
+      url = origin; // Production or remote dev: same-origin deployment
     } else {
-      url = 'http://localhost:3001'; // Development default
+      url = 'http://localhost:3001'; // Vite dev server default
     }
   }
 

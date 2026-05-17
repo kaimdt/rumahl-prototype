@@ -5692,7 +5692,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/review", post(submit_code_review))
         .route("/api/assist/health", get(get_health_checks))
         .route("/api/assist/health/check", post(run_health_check))
-        .route("/api/assist/cost/summary", get(get_cost_summary))
         .route("/api/assist/cost/records", get(get_cost_records))
         .route("/api/assist/cost/suggest", get(suggest_cheaper_provider))
         .route("/api/assist/learning/mistakes", get(get_mistakes))

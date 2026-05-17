@@ -418,7 +418,7 @@ $qemuArgs = @(
 ) + $fwDrive + @(
     "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
     "-cdrom", "$SEED_ISO",
-    "-netdev", "user,id=n0,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::8101-:8101,hostfwd=tcp::8126-:8126,hostfwd=tcp::${SshPort}-:22",
+    "-netdev", "user,id=n0,hostfwd=tcp::80-:80,hostfwd=tcp::443-:443,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::8101-:8101,hostfwd=tcp::8126-:8126,hostfwd=tcp::${SshPort}-:22",
     "-device", "e1000,netdev=n0",
     "-name", "IORA-Dev",
     "-machine", "${VM_MACHINE},accel=whpx",
@@ -485,7 +485,7 @@ if (-not $whpxAlive) {
         "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
         "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
         "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
-        "-netdev", "user,id=n0,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::8101-:8101,hostfwd=tcp::8126-:8126,hostfwd=tcp::${SshPort}-:22",
+        "-netdev", "user,id=n0,hostfwd=tcp::80-:80,hostfwd=tcp::443-:443,hostfwd=tcp::3001-:3001,hostfwd=tcp::5432-:5432,hostfwd=tcp::8080-:8080,hostfwd=tcp::8090-:8090,hostfwd=tcp::8092-:8092,hostfwd=tcp::8095-:8095,hostfwd=tcp::8097-:8097,hostfwd=tcp::8098-:8098,hostfwd=tcp::8101-:8101,hostfwd=tcp::8126-:8126,hostfwd=tcp::${SshPort}-:22",
         "-device", "e1000,netdev=n0",
         "-nographic"
     )
@@ -577,8 +577,8 @@ Write-Success "Project uploaded"
 Write-Info "Setting permissions..."
 Invoke-SSH "chown -R iora:iora /home/iora/iora || sudo chown -R iora:iora /home/iora/iora" 2>$null | Out-Null
 
-Write-Info "Installing system packages (curl, git, rust, docker, postgresql, mold linker)..."
-Invoke-SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim mold 2>&1" 2>$null | Select-Object -Last 5
+Write-Info "Installing system packages (curl, git, rust, docker, postgresql, nginx, mold linker)..."
+Invoke-SSH "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq curl git build-essential pkg-config libssl-dev nodejs npm docker.io postgresql postgresql-client rsync python3 python3-pip htop vim mold nginx openssl 2>&1" 2>$null | Select-Object -Last 5
 Invoke-SSH "systemctl enable docker --now && systemctl enable postgresql --now 2>&1" 2>$null | Select-Object -Last 3
 Invoke-SSH "su - postgres -c 'psql -c \"CREATE USER iora WITH PASSWORD '\''iora'\'' CREATEDB\"' 2>/dev/null || true" 2>$null | Out-Null
 Invoke-SSH "su - postgres -c 'createuser -s root 2>/dev/null || true'" 2>$null | Out-Null
@@ -610,6 +610,69 @@ Write-Success "Cargo config: mold linker + sparse registry"
 Write-Info "Setting up IORA OS compatibility..."
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" 2>$null | Select-Object -Last 5
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" 2>$null | Select-Object -Last 5
+
+# ── Verify new services ─────────────────────────────────────────────────────
+Write-Info "Verifying IORA OS services..."
+$servicesCheck = Invoke-SSH "systemctl list-units --type=service --all | grep -c iora || echo 0"
+Write-Info "IORA services registered: $($servicesCheck -replace '\s','')"
+
+# Check nginx
+$nginxCheck = Invoke-SSH "nginx -t 2>&1 && echo NGINX_OK || echo NGINX_FAIL"
+if ($nginxCheck -match "NGINX_OK") {
+    Write-Success "nginx reverse proxy: configured"
+} else {
+    Write-Warn "nginx configuration issue - check in VM"
+}
+
+# Check SSL
+$sslCheck = Invoke-SSH "test -f /etc/iora/ssl/server.crt && echo SSL_OK || echo SSL_FAIL"
+if ($sslCheck -match "SSL_OK") {
+    Write-Success "SSL certificates: generated"
+} else {
+    Write-Warn "SSL certificates not found"
+}
+
+# Check hot-reload
+$hotReloadCheck = Invoke-SSH "systemctl is-active iora-hot-reload.path 2>/dev/null || echo inactive"
+if ($hotReloadCheck -match "active") {
+    Write-Success "Hot-reload: active"
+} else {
+    Write-Info "Hot-reload: ready (will activate on first deploy)"
+}
+
+# Check dev mode (EXAKT wie IORA OS Dev)
+$devModeCheck = Invoke-SSH "test -f /etc/iora/os-dev-mode && echo DEV_MODE_OK || echo DEV_MODE_FAIL"
+if ($devModeCheck -match "DEV_MODE_OK") {
+    Write-Success "Dev mode: /etc/iora/os-dev-mode installed"
+}
+
+# Check health monitoring
+$healthCheck = Invoke-SSH "test -f /usr/lib/iora/iora-health-check && echo HEALTH_OK || echo HEALTH_FAIL"
+if ($healthCheck -match "HEALTH_OK") {
+    Write-Success "Health monitoring: configured"
+}
+
+# Check setup wizard
+$wizardCheck = Invoke-SSH "test -f /usr/lib/iora/iora-setup-wizard && echo WIZARD_OK || echo WIZARD_FAIL"
+if ($wizardCheck -match "WIZARD_OK") {
+    Write-Success "Setup wizard: configured"
+}
+
+# Check logging
+$logCheck = Invoke-SSH "test -d /var/log/iora && echo LOG_OK || echo LOG_FAIL"
+if ($logCheck -match "LOG_OK") {
+    Write-Success "Centralized logging: configured"
+}
+
+# Check firewall
+$firewallCheck = Invoke-SSH "test -f /usr/lib/iora/iora-firewall && echo FIREWALL_OK || echo FIREWALL_FAIL"
+if ($firewallCheck -match "FIREWALL_OK") {
+    Write-Success "Firewall: configured"
+}
+
+# Enable health check timer
+Invoke-SSH "systemctl enable iora-health-check.timer 2>/dev/null || true" 2>$null | Out-Null
+Invoke-SSH "systemctl start iora-health-check.timer 2>/dev/null || true" 2>$null | Out-Null
 
 # Re-run DB init (may have failed at boot with old config)
 Write-Info "Initializing databases..."
@@ -704,10 +767,42 @@ if (Test-Path $watchScript) {
 Write-Host ""
 Write-Success "IORA Dev VM ready!"
 Write-Host ""
-Write-Host "  Dashboard:  http://localhost:8126" -ForegroundColor Cyan
-Write-Host "  Dev Bridge:  http://localhost:8101/dev/health" -ForegroundColor Cyan
-Write-Host "  SSH:        ssh -i $SSH_KEY -p $SshPort root@127.0.0.1" -ForegroundColor Cyan
-Write-Host "  Dev-Loop:   Press B in the dev-watch window for initial build" -ForegroundColor Cyan
+
+# TUI Banner
+$banner = @"
+  +====================================================================+
+  |                    IORA Dev VM - All Services                       |
+  +====================================================================+
+  |                                                                    |
+  |  WEB INTERFACES:                                                   |
+  |    Dashboard:      https://localhost                               |
+  |    Dashboard:      http://localhost:8126   (direct)                 |
+  |    Dev Bridge:     http://localhost:8101/dev/health                 |
+  |    Swagger API:    http://localhost:8126/api/docs                   |
+  |                                                                    |
+  |  ACCESS:                                                           |
+  |    SSH:            ssh -i $SSH_KEY -p $SshPort root@127.0.0.1       |
+  |    Dev-Loop:       Run dev-watch.ps1 in separate window            |
+  |                                                                    |
+  |  SERVICES (EXAKT wie IORA OS Dev):                                 |
+  |    Binaries:       /usr/bin/iora-* (EXAKT wie IORA OS)             |
+  |    nginx:          Reverse proxy with SSL (port 80/443)            |
+  |    20 Services:    All IORA OS services registered                 |
+  |    Health Monitor: Every minute                                    |
+  |    Setup Wizard:   Auto-setup on first boot                        |
+  |    Firewall:       iptables rules like IORA OS                     |
+  |    Dev Mode:       /etc/iora/os-dev-mode                           |
+  |                                                                    |
+  |  QUICK START:                                                      |
+  |    1. Open dev-watch.ps1 in new window                             |
+  |    2. Press [B] to build and deploy all services                   |
+  |    3. Open https://localhost in browser                            |
+  |    4. Login: admin / admin (PIN: 0000)                             |
+  |                                                                    |
+  +====================================================================+
+"@
+
+Write-Host $banner -ForegroundColor Green
 Write-Host ""
 Write-Info "Press Ctrl+C to stop. Closing window also kills QEMU."
 Write-Info "To keep VM running: close QEMU window first, then Ctrl+C here."

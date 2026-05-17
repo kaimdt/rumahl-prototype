@@ -34,10 +34,11 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         ConnectInfo, Path, Query, State,
     },
+    handler::Handler,
     http::{header, HeaderMap, Method, StatusCode, Uri},
     middleware,
     response::{IntoResponse, Json, Response},
-    routing::{delete, get, post, put},
+    routing::{any, delete, get, post, put},
     Router,
 };
 use chrono::Utc;
@@ -288,7 +289,7 @@ async fn main() -> Result<()> {
         // Admin management (JWT auth)
         .nest("/api/connector", admin_routes(state.clone()))
         // Public proxy: routes external traffic to IORA Home via WS tunnel
-        .route("/{*path}", get(proxy_http_request).post(proxy_http_request).put(proxy_http_request).delete(proxy_http_request))
+        .fallback(any(proxy_http_request))
         .layer(cors.clone())
         .with_state(state.clone());
 

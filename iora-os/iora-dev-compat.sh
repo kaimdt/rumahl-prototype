@@ -3,13 +3,13 @@
 # iora-dev-compat.sh – IORA OS Compatibility Layer for Dev VM
 # ============================================================================
 # Stellt sicher, dass die Debian Dev-VM dieselben OS-Schnittstellen
-# bereitstellt wie das echte IORA OS:
+# bereitstellt wie das echte IORA OS / IORA OS Dev:
 #   - /etc/iora/        – OS-Konfiguration
-#   - /usr/bin/iora-*   – System-Tools (netctl, watchdog, …)
-#   - /opt/iora/        – Service binaries + build staging
+#   - /usr/bin/iora-*   – System-Tools + Services (EXAKT wie IORA OS)
+#   - /opt/iora/        – Data directories (EXAKT wie IORA OS)
 #   - systemd-networkd  – Gleiche Netzwerk-Konfiguration
 #   - Docker daemon     – Gleiche Docker-Konfiguration
-#   - /mnt/data/iora/   – Datenpartition (emuliert via loopback)
+#   - /mnt/data/iora/   – Datenpartition (emuliert via tmpfs)
 #
 # Usage: sudo ./iora-dev-compat.sh
 # ============================================================================
@@ -30,14 +30,16 @@ fi
 log "Setting up IORA OS compatibility layer..."
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 1. Directory Structure – exakt wie IORA OS
+# 1. Directory Structure – EXAKT wie IORA OS
 # ═══════════════════════════════════════════════════════════════════════════════
 mkdir -p /etc/iora
-mkdir -p /opt/iora/build
-mkdir -p /opt/iora/iora-home
+mkdir -p /opt/iora/data
+mkdir -p /opt/iora/docs
+mkdir -p /opt/iora/build/dist
 mkdir -p /mnt/data/iora /mnt/data/rauc /mnt/data/backups
 mkdir -p /var/lib/iora
 mkdir -p /usr/lib/iora
+mkdir -p /tmp/iora-sandboxes
 success "Directory structure: /etc/iora, /opt/iora, /mnt/data/iora"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -96,7 +98,8 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. iora-netctl – Network Configurator (1:1 wie IORA OS)
 # ═══════════════════════════════════════════════════════════════════════════════
-cat > /usr/bin/iora-netctl <<'NETCTLEOF'
+if [ ! -f /usr/bin/iora-netctl ]; then
+    cat > /usr/bin/iora-netctl <<'NETCTLEOF'
 #!/usr/bin/env python3
 """IORA OS network configurator (Dev VM compatibility).
 
@@ -240,8 +243,11 @@ def main():
 if __name__ == "__main__":
     main()
 NETCTLEOF
-chmod 755 /usr/bin/iora-netctl
-success "iora-netctl installed (/usr/bin/iora-netctl)"
+    chmod 755 /usr/bin/iora-netctl
+    success "iora-netctl installed (/usr/bin/iora-netctl)"
+else
+    success "iora-netctl already exists"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. Docker daemon config – identisch zu IORA OS
@@ -273,11 +279,14 @@ echo "IORA_OS_COMPAT=1" > /etc/iora/os-release
 echo "IORA_VERSION=dev-vm" >> /etc/iora/os-release
 echo "IORA_BUILD_ID=debian-compat-$(date +%Y%m%d)" >> /etc/iora/os-release
 
+# Dev mode marker (like IORA OS Dev)
+touch /etc/iora/os-dev-mode
+
 # Binary manifest (empty placeholder – dev services are built by cargo)
 touch /etc/iora/binary-manifest.sha256
 touch /etc/iora/allowed-images.txt
 touch /mnt/data/iora/.setup-complete
-success "IORA OS markers: /etc/iora/os-release, manifest, setup-complete"
+success "IORA OS markers: /etc/iora/os-release, os-dev-mode, manifest, setup-complete"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. iora-* Tool-Wrapper (falls Binaries nicht via cargo gebaut wurden)
@@ -301,8 +310,181 @@ EOF
 systemctl restart systemd-journald 2>/dev/null || true
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 8. Verify & Report
+# 8. Firewall & Security (matches IORA OS)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+log "Configuring firewall and security..."
+
+# Install iptables if not present
+if ! command -v iptables >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq iptables 2>/dev/null || true
+fi
+
+# Basic firewall rules (like IORA OS)
+cat > /usr/lib/iora/iora-firewall <<'FIREWALLEOF'
+#!/bin/bash
+# IORA Firewall – Basic security rules
+set -e
+
+# Flush existing rules
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+
+# Default policies
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# Allow loopback
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
+
+# Allow established connections
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow SSH
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Allow HTTP/HTTPS
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+# Allow IORA service ports (localhost only)
+iptables -A INPUT -p tcp --dport 3001 -s 127.0.0.1 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5432 -s 127.0.0.1 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8080 -s 127.0.0.1 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8088:8126 -s 127.0.0.1 -j ACCEPT
+
+# Allow ICMP (ping)
+iptables -A INPUT -p icmp -j ACCEPT
+
+# Log dropped packets
+iptables -A INPUT -j LOG --log-prefix "IPTABLES-DROP: " --log-level 4
+
+exit 0
+FIREWALLEOF
+chmod 755 /usr/lib/iora/iora-firewall
+
+# Firewall systemd service
+cat > "${SVC_DIR}/iora-firewall.service" <<'EOF'
+[Unit]
+Description=IORA Firewall
+DefaultDependencies=no
+After=local-fs.target
+Before=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/iora/iora-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+_enable iora-firewall
+success "Firewall: basic security rules configured"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Setup Wizard (matches IORA OS first-boot)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+log "Setting up first-boot wizard..."
+
+cat > /usr/lib/iora/iora-setup-wizard <<'WIZARDEOF'
+#!/bin/bash
+# IORA Setup Wizard – First-boot configuration
+SETUP_FILE="/mnt/data/iora/.setup-complete"
+WIZARD_RUN="/mnt/data/iora/.wizard-running"
+LOG_TAG="iora-setup"
+
+log() { logger -t "$LOG_TAG" "$*"; echo "[$(date -Iseconds)] $LOG_TAG: $*"; }
+
+if [ -f "$SETUP_FILE" ]; then
+    log "Setup already complete"
+    exit 0
+fi
+
+if [ -f "$WIZARD_RUN" ]; then
+    log "Setup wizard already running"
+    exit 0
+fi
+
+touch "$WIZARD_RUN"
+log "Starting first-boot setup wizard..."
+
+# Wait for database
+log "Waiting for database..."
+for i in $(seq 1 30); do
+    if pg_isready -q 2>/dev/null; then break; fi
+    sleep 1
+done
+
+# Initialize databases
+log "Initializing databases..."
+su - postgres -c "createuser -s root 2>/dev/null || true" 2>/dev/null || true
+su - postgres -c "psql -c 'CREATE DATABASE iora_home OWNER iora'" 2>/dev/null || true
+su - postgres -c "psql -c 'CREATE DATABASE iora_core OWNER iora'" 2>/dev/null || true
+su - postgres -c "psql -c 'CREATE DATABASE iora_security OWNER iora'" 2>/dev/null || true
+su - postgres -c "psql -c 'CREATE DATABASE iora_secrets OWNER iora'" 2>/dev/null || true
+su - postgres -c "psql -c 'CREATE DATABASE iora_appstore OWNER iora'" 2>/dev/null || true
+
+# Wait for iora-core
+log "Waiting for iora-core..."
+for i in $(seq 1 60); do
+    if curl -sf http://localhost:8090/health >/dev/null 2>&1; then break; fi
+    sleep 1
+done
+
+# Wait for iora-home
+log "Waiting for iora-home..."
+for i in $(seq 1 60); do
+    if curl -sf http://localhost:8126/health >/dev/null 2>&1; then break; fi
+    sleep 1
+done
+
+# Create default admin user
+log "Creating default admin user..."
+curl -sf -X POST http://localhost:8126/api/auth/register \
+    -H "Content-Type: application/json" \
+    -d '{"username":"admin","password":"admin","pin":"0000"}' 2>/dev/null || true
+
+touch "$SETUP_FILE"
+rm -f "$WIZARD_RUN"
+log "First-boot setup complete!"
+log "Default credentials: admin / admin (PIN: 0000)"
+log "Access dashboard: https://localhost"
+
+exit 0
+WIZARDEOF
+chmod 755 /usr/lib/iora/iora-setup-wizard
+
+cat > "${SVC_DIR}/iora-setup-wizard.service" <<'EOF'
+[Unit]
+Description=IORA Setup Wizard (First Boot)
+After=iora-db-init.service iora-home.service
+Wants=iora-db-init.service iora-home.service
+ConditionPathExists=!/mnt/data/iora/.setup-complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/iora/iora-setup-wizard
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+_enable iora-setup-wizard
+success "Setup wizard: /usr/lib/iora/iora-setup-wizard"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. Verify & Report
+# ═══════════════════════════════════════════════════════════════════════════════
+
 echo ""
 log "============================================"
 log "IORA OS Compatibility Layer – Verification"
@@ -318,20 +500,44 @@ check() {
 }
 
 check "/etc/iora/os-release"          "/etc/iora/os-release"
+check "/etc/iora/os-dev-mode"         "Dev mode marker"
 check "/usr/bin/iora-netctl"           "iora-netctl tool"
 check "/etc/docker/daemon.json"        "Docker daemon config"
 check "/etc/systemd/network/90-iora-wired-default.network" "Network config"
-check "/opt/iora/build"                "/opt/iora/build staging"
+check "/opt/iora/data"                 "/opt/iora/data (service data)"
+check "/opt/iora/build/dist"           "/opt/iora/build/dist (frontend)"
 check "/mnt/data/iora"                 "/mnt/data/iora (data partition)"
 check "/mnt/data/iora/.setup-complete" "Setup-complete marker"
 check "/etc/iora/binary-manifest.sha256" "Binary manifest"
+check "/etc/iora/ssl/server.crt"       "SSL certificate"
+check "/etc/iora/ssl/server.key"       "SSL private key"
+check "/etc/nginx/sites-available/iora-gateway" "nginx gateway config"
+check "/usr/lib/iora/iora-firewall"    "Firewall script"
+check "/usr/lib/iora/iora-setup-wizard" "Setup wizard script"
+check "/etc/logrotate.d/iora"          "Log rotation config"
+check "/var/log/iora"                  "Log directory"
 check "/var/lib/iora"                  "/var/lib/iora runtime dir"
 
 echo ""
 log "Dev VM now speaks IORA OS interfaces:"
-log "  Network:   iora-netctl status"
-log "  Services:  systemctl status iora-*"
-log "  Config:    /etc/iora/"
+log "  Network:          iora-netctl status"
+log "  Services:         systemctl status iora-*"
+log "  Config:           /etc/iora/"
+log "  SSL/TLS:          https://localhost"
+log "  Reverse Proxy:    nginx (port 80/443)"
+log "  Service Discovery: iora-core (port 8090)"
+log "  Health Monitor:   systemctl status iora-health-check.timer"
+log "  Firewall:         systemctl status iora-firewall"
+log "  Logging:          journalctl -u iora-*"
+log "  Setup Wizard:     /usr/lib/iora/iora-setup-wizard"
+log "  Dev Mode:         /etc/iora/os-dev-mode"
 log "  Same glibc, systemd, Docker setup as IORA OS."
 echo ""
 success "Compatibility layer setup complete."
+echo ""
+log "Next steps:"
+log "  1. Build services: cd iora-os/backend && cargo build --release"
+log "  2. Deploy via devup.sh or dev-watch.ps1"
+log "  3. Access dashboard: https://localhost"
+log "  4. Default credentials: admin / admin (PIN: 0000)"
+log "  5. Services auto-register with iora-core"

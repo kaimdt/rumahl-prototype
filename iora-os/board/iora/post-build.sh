@@ -1464,11 +1464,28 @@ cat > "${TARGET_DIR}/usr/lib/iora/iora-db-init" <<'DBINIT'
 # Runs as root (via ExecStart=+) so it can call psql as the postgres user.
 SENTINEL="/etc/iora/.db-initialised"
 PASSFILE="/etc/iora/db.password"
-PGDATA="/var/lib/pgsql"
 LOG_TAG="iora-db-init"
 
 log()   { logger -t "$LOG_TAG" "$*"; echo "[$(date -Iseconds)] $LOG_TAG: $*"; }
 die()   { log "FATAL: $*"; exit 1; }
+
+# Auto-detect PostgreSQL data directory (works on both IORA OS /var/lib/pgsql
+# and Debian/Ubuntu /var/lib/postgresql/<version>/main).
+auto_detect_pgdata() {
+    if [ -n "${PGDATA:-}" ] && [ -d "$PGDATA" ]; then
+        return
+    fi
+    if [ -d "/var/lib/pgsql" ] && [ -f "/var/lib/pgsql/PG_VERSION" ]; then
+        PGDATA="/var/lib/pgsql"
+    elif [ -d "/var/lib/postgresql" ]; then
+        PGDATA=$(find /var/lib/postgresql -maxdepth 3 -name "PG_VERSION" -type f 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+        [ -z "$PGDATA" ] && PGDATA="/var/lib/pgsql"
+    else
+        PGDATA="/var/lib/pgsql"
+    fi
+    log "Detected PGDATA=${PGDATA}"
+}
+auto_detect_pgdata
 
 # Wait for the PostgreSQL socket to be ready (up to 30 s).
 wait_pg() {
@@ -1487,15 +1504,17 @@ psql_iora() {
 
 wait_pg
 
-# Load the DB password the setup wizard wrote, or abort gracefully.
-if [ ! -f "$PASSFILE" ]; then
-    log "No DB password file at $PASSFILE — will retry after setup wizard runs"
-    exit 0
-fi
-DB_PASS=$(cat "$PASSFILE")
-if [ -z "$DB_PASS" ]; then
-    log "DB password file is empty — skipping init"
-    exit 0
+# Load the DB password the setup wizard wrote, or auto-generate one.
+# This ensures IORA services come up automatically on first boot
+# even before the setup wizard has run.
+if [ ! -f "$PASSFILE" ] || [ -z "$(cat "$PASSFILE" 2>/dev/null)" ]; then
+    DB_PASS=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | cut -c1-32)
+    mkdir -p /etc/iora
+    printf '%s' "$DB_PASS" > "$PASSFILE"
+    chmod 600 "$PASSFILE"
+    log "Auto-generated DB password (setup wizard has not run yet)"
+else
+    DB_PASS=$(cat "$PASSFILE")
 fi
 
 log "Initialising IORA databases…"
@@ -1542,13 +1561,36 @@ grep -qF "host    all             iora" "$HBA" 2>/dev/null || {
     log "Updated pg_hba.conf and reloaded PostgreSQL"
 }
 
-# 4. Write the sentinel so this script is skipped on the next boot.
+# 4. Replace every CHANGEME placeholder in all service environment files
+#    with the actual password so services come up immediately on first boot.
+UPDATED_ENV=0
+for envfile in /etc/iora/*.env; do
+    [ -f "$envfile" ] || continue
+    if grep -q 'CHANGEME' "$envfile" 2>/dev/null; then
+        sed -i "s/CHANGEME/${DB_PASS}/g" "$envfile"
+        UPDATED_ENV=$((UPDATED_ENV + 1))
+        log "Updated $(basename "$envfile") — replaced CHANGEME placeholders"
+    fi
+done
+if [ "$UPDATED_ENV" -gt 0 ]; then
+    log "Replaced CHANGEME in ${UPDATED_ENV} environment file(s)"
+else
+    log "No CHANGEME placeholders found in /etc/iora/*.env (env files may be missing — services use fallback defaults)"
+fi
+
+# 5. Write the sentinel so this script is skipped on the next boot.
 mkdir -p /etc/iora
 touch "$SENTINEL"
 log "IORA database initialisation complete"
 exit 0
 DBINIT
 chmod 755 "${TARGET_DIR}/usr/lib/iora/iora-db-init"
+
+# Install the bootstrap/rescue script for existing deployments
+if [ -f "${BR2_EXTERNAL_IORA_PATH}/board/iora/iora-bootstrap.sh" ]; then
+    install -Dm0755 "${BR2_EXTERNAL_IORA_PATH}/board/iora/iora-bootstrap.sh" \
+        "${TARGET_DIR}/usr/lib/iora/iora-bootstrap.sh"
+fi
 
 cat > "${TARGET_DIR}/etc/systemd/system/iora-db-init.service" <<'EOF'
 [Unit]
@@ -4081,8 +4123,8 @@ write_iora_service() {
 [Unit]
 Description=IORA ${description}
 Documentation=https://iora.kaimdt.com
-After=network.target local-fs.target postgresql.service ${after}
-Wants=network.target postgresql.service
+After=network.target local-fs.target postgresql.service iora-db-init.service ${after}
+Wants=network.target postgresql.service iora-db-init.service
 ConditionPathExists=${bin}
 
 [Service]

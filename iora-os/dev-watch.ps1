@@ -295,6 +295,56 @@ Write-Host ""
 $script:lastBuildTime = [DateTime]::MinValue
 $script:buildCount = 0
 $script:sccacheEnabled = $script:sccacheAvailable
+$script:lastRustBuildInfo = ""
+$script:lastFeBuildInfo = ""
+
+function Invoke-WithRetry {
+    param([ScriptBlock]$ScriptBlock, [int]$MaxRetries = 3, [int]$DelaySec = 2)
+    $attempt = 0
+    while ($attempt -lt $MaxRetries) {
+        $attempt++
+        try {
+            & $ScriptBlock
+            if ($LASTEXITCODE -eq 0) { return $true }
+            if ($LASTEXITCODE -eq 255) {
+                Write-Host "     SSH connection lost (attempt $attempt/$MaxRetries), retrying in ${DelaySec}s..." -ForegroundColor Yellow
+                Start-Sleep -Seconds $DelaySec
+                $DelaySec = [Math]::Min($DelaySec * 2, 15)
+                continue
+            }
+            return $false
+        } catch {
+            if ($attempt -lt $MaxRetries) {
+                Write-Host "     Command failed (attempt $attempt/$MaxRetries), retrying in ${DelaySec}s..." -ForegroundColor Yellow
+                Start-Sleep -Seconds $DelaySec
+                $DelaySec = [Math]::Min($DelaySec * 2, 15)
+            } else {
+                return $false
+            }
+        }
+    }
+    return $false
+}
+
+function Draw-Header {
+    Clear-Host
+    Write-Host "==============================================================" -ForegroundColor Cyan
+    Write-Host " IORA OS Dev-Loop" -ForegroundColor Cyan
+    Write-Host "==============================================================" -ForegroundColor Cyan
+    Write-Host "  Workspace:  $Workspace"
+    Write-Host "  Target:     $Target"
+    Write-Host "  Shared dir: $SharedDir"
+    Write-Host "  Bin output: $BinDir"
+    if ($FrontendDir) { Write-Host "  Frontend:   $FrontendDir" }
+    Write-Host ""
+    Write-Host "==============================================================" -ForegroundColor Cyan
+    Write-Host "  [B] = rebuild all  [F] = frontend    [Q] = quit"
+    Write-Host "  [S] = sccache stats  [T] = toggle sccache"
+    if ($script:lastRustBuildInfo) { Write-Host "  Rust:     $($script:lastRustBuildInfo)" -ForegroundColor DarkGray }
+    if ($script:lastFeBuildInfo)   { Write-Host "  Frontend: $($script:lastFeBuildInfo)" -ForegroundColor DarkGray }
+    Write-Host "  Watching for changes... (press key to act)" -ForegroundColor DarkGray
+    Write-Host ""
+}
 
 function Write-Banner {
     Write-Host "--------------------------------------------------------------" -ForegroundColor DarkGray
@@ -383,56 +433,49 @@ function Build-AndSync {
 
         # SSH config
         $sshKey = Join-Path $ProjectRoot "iora-os\.cache\iora-dev-key"
-        $sshBase = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "IdentitiesOnly=yes", "-o", "AddressFamily=inet", "-i", $sshKey, "-p", "2222")
-        $scpBase = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "IdentitiesOnly=yes", "-o", "AddressFamily=inet", "-i", $sshKey, "-P", "2222")
+        $sshBase = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "IdentitiesOnly=yes", "-o", "AddressFamily=inet", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3", "-i", $sshKey, "-p", "2222")
+        $scpBase = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "IdentitiesOnly=yes", "-o", "AddressFamily=inet", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3", "-i", $sshKey, "-P", "2222")
 
-        # Sync all binary crates from services/ to VM
-        if (Test-Path "$Workspace\services") {
-            Get-ChildItem "$Workspace\services" -Directory | ForEach-Object {
-                $name = $_.Name
-                $bin = Join-Path $targetDir $name
-                if (Test-Path $bin) {
-                    try {
-                        $vmPath = "/opt/iora/build/$name/bin/$name"
-                        & scp $scpBase $bin "root@127.0.0.1:$vmPath" 2>$null
-                        if ($LASTEXITCODE -eq 0) {
-                            Write-Host "    -> $name" -ForegroundColor DarkGray
-                            $synced++
-                            # Restart service if it exists
-                            $restart = & ssh $sshBase "root@127.0.0.1" "chmod 755 $vmPath && systemctl restart $name 2>/dev/null && echo OK || echo SKIP" 2>$null
-                            if ($restart -match "OK") { $restarted += $name }
-                        } else {
-                            $errors += "SCP failed: $name"
-                        }
-                    } catch {
-                        $errors += "Failed: $name - $_"
-                    }
-                }
-            }
-        }
+        # AUTO-DISCOVER: scan all iora-* binaries in the build output
+        # Works for services/, tools/, apps/system/, and any future crates
+        $allBins = Get-ChildItem $targetDir -Filter "iora-*" | Where-Object { -not $_.PSIsContainer -and $_.Name -notmatch '\.(d|pdb|rlib|rmeta)$' } | Sort-Object Name
 
-        # Also tools/
-        if (Test-Path "$Workspace\tools") {
-            $toolNames = @{
-                "iora-cli" = "ora"
-            }
-            Get-ChildItem "$Workspace\tools" -Directory | ForEach-Object {
-                $crateName = $_.Name
-                $binName = if ($toolNames.ContainsKey($crateName)) { $toolNames[$crateName] } else { $crateName }
-                $bin = Join-Path $targetDir $crateName
-                if (-not (Test-Path $bin)) { $bin = Join-Path $targetDir $binName }
-                if (Test-Path $bin) {
-                    try {
-                        $vmPath = "/usr/local/bin/$binName"
-                        & scp $scpBase $bin "root@127.0.0.1:$vmPath" 2>$null
-                        if ($LASTEXITCODE -eq 0) {
-                            Write-Host "    -> $binName (tool)" -ForegroundColor DarkGray
-                            $synced++
-                            & ssh $sshBase "root@127.0.0.1" "chmod 755 $vmPath" 2>$null
-                        }
-                    } catch {
-                        $errors += "Failed tool: $crateName"
+        if ($allBins.Count -gt 0) {
+            # Pre-create ALL directories on VM in one SSH call
+            $dirList = ($allBins | ForEach-Object { "/opt/iora/build/$($_.Name)/bin" }) -join ' '
+            & ssh $sshBase "root@127.0.0.1" "mkdir -p $dirList" 2>$null | Out-Null
+
+            foreach ($binFile in $allBins) {
+                $name = $binFile.Name
+                $bin = $binFile.FullName
+
+                try {
+                    # Deploy to /usr/bin/ (where systemd expects it)
+                    $vmPath = "/usr/bin/$name"
+                    & scp $scpBase $bin "root@127.0.0.1:$vmPath"
+                    $scpOk = ($LASTEXITCODE -eq 0)
+                    if (-not $scpOk) {
+                        Write-Host "     SCP retrying $name..." -ForegroundColor Yellow
+                        Start-Sleep -Seconds 2
+                        & scp $scpBase $bin "root@127.0.0.1:$vmPath"
+                        $scpOk = ($LASTEXITCODE -eq 0)
                     }
+
+                    if ($scpOk) {
+                        Write-Host "    -> $name" -ForegroundColor DarkGray
+                        $synced++
+
+                        # Also copy to /opt/iora/build/ for systemd path units
+                        & ssh $sshBase "root@127.0.0.1" "mkdir -p /opt/iora/build/$name/bin && cp /usr/bin/$name /opt/iora/build/$name/bin/$name && chmod 755 /usr/bin/$name /opt/iora/build/$name/bin/$name" 2>$null | Out-Null
+
+                        # Restart systemd service if one exists
+                        $restart = & ssh $sshBase "root@127.0.0.1" "systemctl restart $name 2>/dev/null && echo OK || echo SKIP" 2>$null
+                        if ($restart -match "OK") { $restarted += $name }
+                    } else {
+                        $errors += "SCP failed: $name"
+                    }
+                } catch {
+                    $errors += "Failed: $name - $_"
                 }
             }
         }
@@ -445,13 +488,94 @@ function Build-AndSync {
             $errors | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
         }
         Write-Host "  Deployed $synced binaries" -ForegroundColor DarkGray
+        $script:lastRustBuildInfo = "#$($script:buildCount) OK $([math]::Round($sw.Elapsed.TotalSeconds, 1))s, $synced binaries ($(Get-Date -Format 'HH:mm:ss'))"
         Write-Banner
+        Draw-Header
     }
     else {
         Write-Host ""
         Write-Host "  FAIL  Build failed (exit code $exitCode)" -ForegroundColor Red
         Write-Host "        Check output above for compiler errors." -ForegroundColor DarkGray
+        $script:lastRustBuildInfo = "#$($script:buildCount) FAILED ($(Get-Date -Format 'HH:mm:ss'))"
         Write-Banner
+        Draw-Header
+    }
+}
+
+# -- Frontend: detect, build, watch, deploy -------------------------
+$FrontendDir = $null
+$script:frontendBuildCount = 0
+$script:lastFeBuildInfo = ""
+
+# Auto-detect frontend directory relative to project root
+@("$ProjectRoot\frontend", "$ScriptDir\..\..\frontend") | ForEach-Object {
+    if (-not $FrontendDir -and (Test-Path "$_\package.json")) {
+        $FrontendDir = $_
+    }
+}
+
+$FrontendAvailable = $false
+if ($FrontendDir) {
+    $npmBin = Get-Command npm -ErrorAction SilentlyContinue
+    if ($npmBin -and (Test-Path "$FrontendDir\node_modules")) {
+        $FrontendAvailable = $true
+    }
+}
+
+function Build-AndSyncFrontend {
+    if (-not $FrontendAvailable) { return }
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $script:frontendBuildCount++
+
+    Write-Host ""
+    Write-Host "  [#$($script:frontendBuildCount)] Building frontend..." -ForegroundColor Yellow
+
+    Push-Location $FrontendDir
+    try {
+        $prevEA = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $output = & npm run build 2>&1
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = $prevEA
+        if ($output) { $output | ForEach-Object { Write-Host $_ } }
+    } catch {
+        $exitCode = 1
+    } finally {
+        Pop-Location
+    }
+    $sw.Stop()
+
+    if ($exitCode -eq 0) {
+        Write-Host "  OK  Frontend OK ($([math]::Round($sw.Elapsed.TotalSeconds, 1))s)" -ForegroundColor Green
+        Write-Host "  Deploying to VM..." -ForegroundColor DarkGray
+
+        try {
+            $tempTar = Join-Path $env:TEMP "iora-frontend-dist.tar.gz"
+            Push-Location "$FrontendDir\dist"
+            & tar -czf $tempTar * 2>$null
+            Pop-Location
+
+            if (Test-Path $tempTar) {
+                & scp $scpBase $tempTar "root@127.0.0.1:/tmp/iora-frontend-dist.tar.gz" 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    $deploy = & ssh $sshBase "root@127.0.0.1" "mkdir -p /opt/iora/iora-home/dist && rm -rf /opt/iora/iora-home/dist/* && tar xzf /tmp/iora-frontend-dist.tar.gz -C /opt/iora/iora-home/dist && systemctl restart iora-home && echo DEPLOYED" 2>$null
+                    if ($deploy -match "DEPLOYED") {
+                        Write-Host "    -> frontend deployed + iora-home restarted" -ForegroundColor Green
+                    }
+                }
+                Remove-Item $tempTar -Force 2>$null
+            }
+        } catch {
+            Write-Host "  WARN: Deploy error: $_" -ForegroundColor Yellow
+        }
+
+        $script:lastFeBuildInfo = "#$($script:frontendBuildCount) OK $([math]::Round($sw.Elapsed.TotalSeconds, 1))s ($(Get-Date -Format 'HH:mm:ss'))"
+        Draw-Header
+    } else {
+        Write-Host "  FAIL  Frontend build failed" -ForegroundColor Red
+        $script:lastFeBuildInfo = "#$($script:frontendBuildCount) FAILED ($(Get-Date -Format 'HH:mm:ss'))"
+        Draw-Header
     }
 }
 
@@ -503,6 +627,36 @@ Register-ObjectEvent $watcher "Changed" -Action $onChange | Out-Null
 Register-ObjectEvent $watcher "Created" -Action $onChange | Out-Null
 Register-ObjectEvent $tomlWatcher "Changed" -Action $onChange | Out-Null
 
+# Frontend watcher (if available)
+if ($FrontendAvailable) {
+    $feWatcher = New-Object System.IO.FileSystemWatcher
+    $feWatcher.Path = $FrontendDir
+    $feWatcher.IncludeSubdirectories = $true
+    $feWatcher.Filter = "*"
+    $feWatcher.NotifyFilter = [System.IO.NotifyFilters]::LastWrite
+    $feWatcher.EnableRaisingEvents = $true
+
+    $feTimer = $null
+    $feSyncRoot = New-Object Object
+
+    $onFeChange = {
+        $changedFile = $Event.SourceEventArgs.FullPath
+        if ($changedFile -notmatch '[\\/](src|public)[\\/]' -and $changedFile -notmatch '[\\/](index\.html|package\.json|vite\.config\.\w+)$') { return }
+        [System.Threading.Monitor]::Enter($feSyncRoot)
+        try {
+            if ($feTimer) { try { $feTimer.Stop(); $feTimer.Dispose() } catch { } }
+            $feTimer = New-Object System.Timers.Timer($DebounceMs * 2)
+            $feTimer.AutoReset = $false
+            $feTimer.add_Elapsed({ Build-AndSyncFrontend })
+            $feTimer.Start()
+        } finally {
+            [System.Threading.Monitor]::Exit($feSyncRoot)
+        }
+    }
+
+    Register-ObjectEvent $feWatcher "Changed" -Action $onFeChange | Out-Null
+}
+
 # -- Show sccache stats -------------------------------------------------
 function Show-SccacheStats {
     if (-not $script:sccacheEnabled) {
@@ -516,23 +670,23 @@ function Show-SccacheStats {
 }
 
 # -- Keyboard input loop ------------------------------------------------
-Write-Host " Ready. Press [B] for initial build, [Q] to quit." -ForegroundColor DarkGray
+Draw-Header
 while ($true) {
     if ([Console]::KeyAvailable) {
         $key = [Console]::ReadKey($true)
         switch ($key.Key) {
-            'B' { Build-AndSync }
-            'S' { Show-SccacheStats }
+            'B' { Build-AndSync; Build-AndSyncFrontend }
+            'F' { Build-AndSyncFrontend }
+            'S' { Show-SccacheStats; Draw-Header }
             'T' {
                 $script:sccacheEnabled = -not $script:sccacheEnabled
                 if ($script:sccacheEnabled) {
                     $env:RUSTC_WRAPPER = "sccache"
-                    Write-Host "  sccache: ON" -ForegroundColor Green
                 }
                 else {
                     Remove-Item Env:\RUSTC_WRAPPER -ErrorAction SilentlyContinue
-                    Write-Host "  sccache: OFF" -ForegroundColor Yellow
                 }
+                Draw-Header
             }
             'Q' {
                 Write-Host ""
@@ -540,11 +694,15 @@ while ($true) {
                 if ($timer) {
                     try { $timer.Stop(); $timer.Dispose() } catch { }
                 }
+                if ($feTimer) {
+                    try { $feTimer.Stop(); $feTimer.Dispose() } catch { }
+                }
                 $watcher.EnableRaisingEvents = $false
                 $tomlWatcher.EnableRaisingEvents = $false
                 $watcher.Dispose()
                 $tomlWatcher.Dispose()
-                Write-Host "  Done. ($($script:buildCount) builds run)" -ForegroundColor Green
+                if ($feWatcher) { $feWatcher.EnableRaisingEvents = $false; $feWatcher.Dispose() }
+                Write-Host "  Done. ($($script:buildCount) Rust / $($script:frontendBuildCount) Frontend builds)" -ForegroundColor Green
                 exit 0
             }
         }
