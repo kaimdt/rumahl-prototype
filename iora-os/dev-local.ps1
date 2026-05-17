@@ -611,6 +611,9 @@ Write-Info "Setting up IORA OS compatibility..."
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" 2>$null | Select-Object -Last 5
 Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" 2>$null | Select-Object -Last 5
 
+Write-Info "Applying additional IORA OS improvements..."
+Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1" 2>$null | Select-Object -Last 5
+
 # ── Verify new services ─────────────────────────────────────────────────────
 Write-Info "Verifying IORA OS services..."
 $servicesCheck = Invoke-SSH "systemctl list-units --type=service --all | grep -c iora || echo 0"
@@ -740,7 +743,8 @@ if (-not (Test-Path (Join-Path $frontendDir "package.json"))) {
                 } elseif (Test-Path (Join-Path $frontendDir "dist")) {
                     Write-Info "Deploying frontend to VM..."
                     Invoke-SSH "mkdir -p /opt/iora/build/dist" 2>$null | Out-Null
-                    & $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -r -i $SSH_KEY -P $SshPort "$frontendDir\dist\*" "root@127.0.0.1:/opt/iora/build/dist/" 2>$null
+                    # Note: Use "$frontendDir\dist" (not "\*") - PowerShell doesn't expand globs for SCP
+                    & $SCP_BIN -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o IdentitiesOnly=yes -o AddressFamily=inet -r -i $SSH_KEY -P $SshPort "$frontendDir\dist" "root@127.0.0.1:/opt/iora/build/dist/" 2>$null
                     Write-Success "Frontend deployed"
                 }
             }

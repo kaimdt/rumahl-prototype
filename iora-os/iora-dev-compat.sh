@@ -21,6 +21,15 @@ log()    { echo -e "${BLUE}[compat]${NC} $*"; }
 success(){ echo -e "${GREEN}[compat]${NC} $*"; }
 warn()   { echo -e "${YELLOW}[compat]${NC} $*"; }
 
+# Service directory for systemd units
+SVC_DIR="/etc/systemd/system"
+
+# Enable a service (helper function - also in iora-dev-services.sh)
+_enable() { 
+    ln -sf "${SVC_DIR}/${1}.service" "${SVC_DIR}/multi-user.target.wants/${1}.service" 2>/dev/null || true
+    ln -sf "${SVC_DIR}/${1}.service" "${SVC_DIR}/local-fs.target.wants/${1}.service" 2>/dev/null || true
+}
+
 # Must run as root
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: Must run as root: sudo ./iora-dev-compat.sh"
@@ -271,6 +280,157 @@ if systemctl is-active --quiet docker 2>/dev/null; then
     systemctl restart docker 2>/dev/null || true
 fi
 success "Docker daemon: IORA OS config applied"
+
+# ── Docker socket hardening (matches IORA OS) ───────────────────────────────
+mkdir -p /etc/systemd/system/docker.socket.d
+cat > /etc/systemd/system/docker.socket.d/hardening.conf <<'EOF'
+[Socket]
+# Remove the default docker group ownership — only root may access the socket.
+# iora-supervisor holds root and is the sole gateway to Docker for user apps.
+SocketMode=0600
+SocketUser=root
+SocketGroup=root
+EOF
+
+# Make sure docker.service auto-restarts on crashes
+mkdir -p /etc/systemd/system/docker.service.d
+cat > /etc/systemd/system/docker.service.d/override.conf <<'EOF'
+[Service]
+Restart=always
+RestartSec=5
+StartLimitBurst=10
+StartLimitIntervalSec=60
+LimitNOFILE=1048576
+LimitNPROC=1048576
+EOF
+
+# Enable docker service and socket
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable docker.service 2>/dev/null || true
+systemctl enable docker.socket 2>/dev/null || true
+success "Docker hardening: socket + service overrides applied"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4b. iora-dhcp-conflict-guard – DHCP Conflict Detection (IORA OS feature)
+# ═══════════════════════════════════════════════════════════════════════════════
+log "Setting up DHCP conflict guard..."
+
+cat > /usr/lib/iora/iora-dhcp-conflict-guard.sh <<'DHCPGUARDEOF'
+#!/bin/sh
+# IORA OS DHCP Conflict Guard
+#
+# Validates that the IPv4 address on each physical interface is not
+# conflicting with another host on the LAN. Uses arping for Duplicate
+# Address Detection (DAD).
+
+set -eu
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+LOG_TAG="iora-dhcp-conflict-guard"
+RETRIES=2
+
+log() {
+    logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*"
+}
+
+renew_iface() {
+    iface="$1"
+    networkctl renew "$iface" >/dev/null 2>&1 \
+        || networkctl reconfigure "$iface" >/dev/null 2>&1 \
+        || systemctl try-restart systemd-networkd.service >/dev/null 2>&1 \
+        || true
+}
+
+for iface_path in /sys/class/net/*; do
+    iface=$(basename "$iface_path")
+
+    # Skip virtual / container interfaces
+    case "$iface" in
+        lo|docker*|br-*|veth*|vnet*|virbr*|tun*|tap*|bond*|sit*)
+            continue ;;
+    esac
+
+    # Only physical interfaces have a "device" symlink.
+    [ -d "/sys/class/net/$iface/device" ] || continue
+
+    ifindex=$(cat "/sys/class/net/$iface/ifindex" 2>/dev/null || echo "")
+    [ -n "$ifindex" ] || continue
+
+    # Get the current IPv4 address.
+    addr_info=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | head -1)
+    addr="${addr_info%%/*}"
+    [ -n "$addr" ] || continue
+
+    # Skip Docker bridge range IPs
+    case "$addr" in 172.17.*|172.18.*|172.19.*)
+        log "Skipping $iface: $addr is in Docker bridge range"
+        continue ;;
+    esac
+
+    # Skip if no DHCP lease was assigned
+    [ -f "/run/systemd/netif/leases/$ifindex" ] || continue
+
+    log "Checking $iface ($addr) for DHCP conflicts..."
+
+    attempt=1
+    while [ "$attempt" -le "$RETRIES" ]; do
+        if arping -D -q -c 1 -w 2 -I "$iface" -S "$addr" "$addr" >/dev/null 2>&1; then
+            log "$iface: no conflict detected for $addr"
+            break
+        fi
+
+        if ping -c 1 -W 1 "$addr" >/dev/null 2>&1; then
+            self_mac=$(cat "/sys/class/net/$iface/address" 2>/dev/null || echo "")
+            reply_mac=$(arping -c 1 -w 2 -I "$iface" "$addr" 2>/dev/null | grep -oE '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1)
+            if [ "$reply_mac" = "$self_mac" ] && [ -n "$self_mac" ]; then
+                log "$iface: response is from ourselves ($self_mac) — no conflict"
+                break
+            fi
+
+            log "WARNING: Possible DHCP conflict on $iface ($addr) — attempt $attempt/$RETRIES"
+            if [ "$attempt" -lt "$RETRIES" ]; then
+                log "Requesting new lease..."
+                ip addr flush dev "$iface" scope global >/dev/null 2>&1 || true
+                renew_iface "$iface"
+                sleep 3
+                addr_info=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | head -1)
+                addr="${addr_info%%/*}"
+                [ -n "$addr" ] || break
+            fi
+        else
+            log "$iface: no host responds to ping on $addr — no conflict"
+            break
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    final_addr=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    if [ -n "$final_addr" ]; then
+        log "$iface: lease validated at $final_addr"
+    fi
+done
+
+exit 0
+DHCPGUARDEOF
+chmod 755 /usr/lib/iora/iora-dhcp-conflict-guard.sh
+
+cat > "${SVC_DIR}/iora-dhcp-conflict-guard.service" <<'EOF'
+[Unit]
+Description=Validate DHCP lease and re-request on IPv4 conflict
+After=systemd-networkd.service systemd-networkd-wait-online.service
+Wants=systemd-networkd.service systemd-networkd-wait-online.service
+ConditionPathExists=/usr/lib/iora/iora-dhcp-conflict-guard.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/iora/iora-dhcp-conflict-guard.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+_enable iora-dhcp-conflict-guard
+success "iora-dhcp-conflict-guard.service installed"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5. Compatibility marker – IORA-typische Pfade und Marker

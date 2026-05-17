@@ -559,7 +559,7 @@ function Build-AndSyncFrontend {
             if (Test-Path $tempTar) {
                 & scp $scpBase $tempTar "root@127.0.0.1:/tmp/iora-frontend-dist.tar.gz" 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
-                    $deploy = & ssh $sshBase "root@127.0.0.1" "mkdir -p /opt/iora/iora-home/dist && rm -rf /opt/iora/iora-home/dist/* && tar xzf /tmp/iora-frontend-dist.tar.gz -C /opt/iora/iora-home/dist && systemctl restart iora-home && echo DEPLOYED" 2>$null
+                    $deploy = & ssh $sshBase "root@127.0.0.1" "mkdir -p /opt/iora/build/dist && rm -rf /opt/iora/build/dist/* && tar xzf /tmp/iora-frontend-dist.tar.gz -C /opt/iora/build/dist && systemctl restart iora-home && echo DEPLOYED" 2>$null
                     if ($deploy -match "DEPLOYED") {
                         Write-Host "    -> frontend deployed + iora-home restarted" -ForegroundColor Green
                     }

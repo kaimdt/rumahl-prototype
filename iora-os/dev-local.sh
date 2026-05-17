@@ -381,6 +381,9 @@ log "Setting up IORA OS compatibility..."
 $SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | tail -5
 $SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | tail -5
 
+log "Applying additional IORA OS improvements..."
+$SSH "bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1" | tail -5
+
 # ── Verify new services ─────────────────────────────────────────────────────
 log "Verifying IORA OS services..."
 SERVICES_CHECK=$($SSH "systemctl list-units --type=service --all | grep -c iora || echo 0" 2>/dev/null)

@@ -216,6 +216,14 @@ C:\tmp\home-assistant-dashb\
 - Container kommunizieren via Docker-DNS (`iora-home:8126`, etc.)
 
 ### Entwicklung (Lokal)
+
+**Option 1: IORA Dev VM (Empfohlen)**
+- Vollständige IORA OS Umgebung in QEMU VM
+- Alle 20+ Services mit 1:1 IORA OS Konfiguration
+- **Dokumentation:** `iora-os/README-DEV-VM.md`
+- **Start:** `cd iora-os && ./dev-local.ps1` (Windows) oder `./dev-local.sh` (Linux/macOS)
+
+**Option 2: Direkt auf Host**
 - Frontend: `cd frontend && npm run dev` (Port 5173, Vite-Proxy zu :3001)
 - Backend: `cd iora-os/backend && cargo run -p iora-home` (Port 3001)
 - Desktop: `cd desktop && npm run tauri dev`
