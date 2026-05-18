@@ -1,780 +1,604 @@
 #!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════
-# IORA OS Dev-Loop – Intelligent Watch, Cross-Compile, Deploy
-# ═══════════════════════════════════════════════════════════════════
-# Features:
-#   - Smart change detection (only rebuild changed crates)
-#   - Dependency-aware deployment (correct restart order)
-#   - Health checks after each restart
-#   - Auto-recovery on failed deploys
+# ============================================================================
+# dev-watch.sh – IORA OS Dev-Loop (watch → build → deploy)
+# ============================================================================
+# Watches the Rust workspace and frontend, cross-compiles for the VM target,
+# uploads changed binaries via SSH and restarts the corresponding systemd
+# services. Works on macOS, Linux and WSL2.
 #
-# Usage: ./dev-watch.sh [--skip-sccache] [--target TARGET]
-# ═══════════════════════════════════════════════════════════════════
-set -euo pipefail
+# Design goals: idempotent, autonomous, fault-tolerant.
+#
+# Usage:
+#   ./dev-watch.sh                       Build once + watch + deploy
+#   ./dev-watch.sh --no-watch            Build once and exit
+#   ./dev-watch.sh --rust-only           Skip the frontend pipeline
+#   ./dev-watch.sh --frontend-only       Skip the Rust pipeline
+#   ./dev-watch.sh --target TARGET       Override Cargo target triple
+#   ./dev-watch.sh --skip-sccache        Don't use sccache
+#   ./dev-watch.sh --vm-host HOST        SSH host (default 127.0.0.1)
+#   ./dev-watch.sh --vm-port PORT        SSH port (default 2222)
+#   ./dev-watch.sh --ssh-key FILE        SSH key (default <repo>/iora-os/.cache/iora-dev-key)
+#   ./dev-watch.sh --no-restart          Upload but don't restart services
+#   ./dev-watch.sh --help
+# ============================================================================
+# shellcheck disable=SC2155,SC2034
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || dirname "$SCRIPT_DIR")"
+set -uo pipefail
 
-if [ -d "$PROJECT_ROOT/iora-os/backend" ]; then
-    WORKSPACE="$PROJECT_ROOT/iora-os/backend"
-elif [ -d "$PROJECT_ROOT/backend" ]; then
-    WORKSPACE="$PROJECT_ROOT/backend"
+# ── Colors & logging (defined BEFORE any helper uses them) ────────────────
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    R=$'\033[0;31m'; G=$'\033[0;32m'; Y=$'\033[1;33m'; C=$'\033[0;36m'
+    D=$'\033[2m';    B=$'\033[1m';    N=$'\033[0m'
 else
-    echo "ERROR: Cannot find Rust workspace"
-    exit 1
+    R=''; G=''; Y=''; C=''; D=''; B=''; N=''
+fi
+log()  { printf '%s[*]%s %s\n' "$C" "$N" "$*"; }
+ok()   { printf '%s[+]%s %s\n' "$G" "$N" "$*"; }
+warn() { printf '%s[!]%s %s\n' "$Y" "$N" "$*" >&2; }
+err()  { printf '%s[X]%s %s\n' "$R" "$N" "$*" >&2; }
+dim()  { printf '%s%s%s\n' "$D" "$*" "$N"; }
+die()  { err "$*"; exit 1; }
+
+# ── Paths ─────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || cd "$SCRIPT_DIR/.." && pwd)"
+CACHE="$SCRIPT_DIR/.cache"
+SHARED="$REPO_ROOT/.iora-dev"
+BIN_DIR="$SHARED/binaries"
+SCCACHE_DIR="$SHARED/sccache"
+HASH_DIR="$CACHE/hashes"
+mkdir -p "$BIN_DIR" "$SCCACHE_DIR" "$HASH_DIR" "$CACHE"
+
+# SSH control socket directory (multiplexing → fast SCP/SSH calls)
+SSH_CTL_DIR="$CACHE/ssh-ctl"
+mkdir -p "$SSH_CTL_DIR"
+chmod 700 "$SSH_CTL_DIR"
+
+# ── Workspace detection ───────────────────────────────────────────────────
+if [ -f "$REPO_ROOT/iora-os/backend/Cargo.toml" ]; then
+    WORKSPACE="$REPO_ROOT/iora-os/backend"
+elif [ -f "$REPO_ROOT/backend/Cargo.toml" ]; then
+    WORKSPACE="$REPO_ROOT/backend"
+else
+    die "Cannot find Rust workspace (looked for iora-os/backend or backend)"
 fi
 
-SHARED_DIR="$PROJECT_ROOT/.iora-dev"
-BIN_DIR="$SHARED_DIR/binaries"
-SCCACHE_DIR="$SHARED_DIR/sccache"
-DEBOUNCE_SEC=1.0
+FRONTEND_DIR=""
+for d in "$REPO_ROOT/frontend" "$REPO_ROOT/desktop"; do
+    [ -f "$d/package.json" ] && FRONTEND_DIR="$d" && break
+done
 
-TARGET="${TARGET:-x86_64-unknown-linux-gnu}"
+# ── Defaults / args ───────────────────────────────────────────────────────
+TARGET="${IORA_DEV_TARGET:-x86_64-unknown-linux-gnu}"
+VM_HOST="127.0.0.1"
+VM_PORT=2222
+SSH_KEY="$CACHE/iora-dev-key"
 USE_SCCACHE=true
-BUILD_COUNT=0
-LAST_BUILD_TIME=0
+WATCH=true
+DO_RUST=true
+DO_FRONTEND=true
+DO_RESTART=true
+DEBOUNCE_SEC=1
 
-while [[ $# -gt 0 ]]; do
+show_help() {
+    sed -n '4,22p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+while [ $# -gt 0 ]; do
     case "$1" in
-        --skip-sccache) USE_SCCACHE=false; shift ;;
-        --target) TARGET="$2"; shift 2 ;;
-        *) shift ;;
+        --no-watch)        WATCH=false; shift ;;
+        --rust-only)       DO_FRONTEND=false; shift ;;
+        --frontend-only)   DO_RUST=false; shift ;;
+        --target)          TARGET="$2"; shift 2 ;;
+        --skip-sccache)    USE_SCCACHE=false; shift ;;
+        --vm-host)         VM_HOST="$2"; shift 2 ;;
+        --vm-port)         VM_PORT="$2"; shift 2 ;;
+        --ssh-key)         SSH_KEY="$2"; shift 2 ;;
+        --no-restart)      DO_RESTART=false; shift ;;
+        -h|--help)         show_help; exit 0 ;;
+        *)                 warn "Ignoring unknown argument: $1"; shift ;;
     esac
 done
 
-# ═══════════════════════════════════════════════════════════════════
-# SERVICE REGISTRY – EXAKT wie IORA OS devup.sh
-# ═══════════════════════════════════════════════════════════════════
-declare -A SVC_PORT SVC_AFTER SVC_PRIO SVC_CRITICAL
-SVC_PORT[iora-core]=8090;           SVC_AFTER[iora-core]="";                                    SVC_PRIO[iora-core]=1;           SVC_CRITICAL[iora-core]=true
-SVC_PORT[iora-home]=8126;           SVC_AFTER[iora-home]="iora-core";                            SVC_PRIO[iora-home]=2;           SVC_CRITICAL[iora-home]=true
-SVC_PORT[iora-control]=8091;        SVC_AFTER[iora-control]="iora-core iora-home";               SVC_PRIO[iora-control]=3;        SVC_CRITICAL[iora-control]=true
-SVC_PORT[iora-assist]=8092;         SVC_AFTER[iora-assist]="iora-core";                          SVC_PRIO[iora-assist]=4;         SVC_CRITICAL[iora-assist]=false
-SVC_PORT[iora-secrets]=8093;        SVC_AFTER[iora-secrets]="";                                  SVC_PRIO[iora-secrets]=1;        SVC_CRITICAL[iora-secrets]=true
-SVC_PORT[iora-watchdog]=8094;       SVC_AFTER[iora-watchdog]="iora-core";                        SVC_PRIO[iora-watchdog]=1;       SVC_CRITICAL[iora-watchdog]=true
-SVC_PORT[iora-security]=8095;       SVC_AFTER[iora-security]="iora-watchdog";                    SVC_PRIO[iora-security]=3;       SVC_CRITICAL[iora-security]=true
-SVC_PORT[iora-gateway]=8096;        SVC_AFTER[iora-gateway]="";                                  SVC_PRIO[iora-gateway]=5;        SVC_CRITICAL[iora-gateway]=false
-SVC_PORT[iora-supervisor]=8097;     SVC_AFTER[iora-supervisor]="iora-core iora-secrets";         SVC_PRIO[iora-supervisor]=2;     SVC_CRITICAL[iora-supervisor]=true
-SVC_PORT[iora-appstore]=8098;       SVC_AFTER[iora-appstore]="iora-core iora-supervisor";        SVC_PRIO[iora-appstore]=5;       SVC_CRITICAL[iora-appstore]=false
-SVC_PORT[iora-api]=8099;            SVC_AFTER[iora-api]="iora-core iora-home";                   SVC_PRIO[iora-api]=4;            SVC_CRITICAL[iora-api]=false
-SVC_PORT[iora-backup]=8100;         SVC_AFTER[iora-backup]="iora-core";                          SVC_PRIO[iora-backup]=6;         SVC_CRITICAL[iora-backup]=false
-SVC_PORT[iora-dev-bridge]=8101;     SVC_AFTER[iora-dev-bridge]="iora-core iora-supervisor";      SVC_PRIO[iora-dev-bridge]=2;     SVC_CRITICAL[iora-dev-bridge]=true
-SVC_PORT[iora-domain-validator]=8102; SVC_AFTER[iora-domain-validator]="iora-core";              SVC_PRIO[iora-domain-validator]=6; SVC_CRITICAL[iora-domain-validator]=false
-SVC_PORT[iora-files]=8103;          SVC_AFTER[iora-files]="iora-core";                           SVC_PRIO[iora-files]=5;          SVC_CRITICAL[iora-files]=false
-SVC_PORT[iora-network-monitor]=8104; SVC_AFTER[iora-network-monitor]="iora-core";                SVC_PRIO[iora-network-monitor]=6; SVC_CRITICAL[iora-network-monitor]=false
-SVC_PORT[iora-nginx]=8089;          SVC_AFTER[iora-nginx]="";                                    SVC_PRIO[iora-nginx]=5;          SVC_CRITICAL[iora-nginx]=false
-SVC_PORT[iora-resource-manager]=8105; SVC_AFTER[iora-resource-manager]="iora-core";              SVC_PRIO[iora-resource-manager]=6; SVC_CRITICAL[iora-resource-manager]=false
-SVC_PORT[iora-updater]=8106;        SVC_AFTER[iora-updater]="iora-core";                         SVC_PRIO[iora-updater]=6;        SVC_CRITICAL[iora-updater]=false
-SVC_PORT[iora-connector]=8088;      SVC_AFTER[iora-connector]="iora-core";                       SVC_PRIO[iora-connector]=5;      SVC_CRITICAL[iora-connector]=false
+# ── Logging mirror ────────────────────────────────────────────────────────
+LOG_FILE="$CACHE/dev-watch.log"
+if [ -f "$LOG_FILE" ] && [ "$(wc -c <"$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+    mv "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || true
+fi
+exec > >(tee -a "$LOG_FILE") 2>&1
 
-# ═══════════════════════════════════════════════════════════════════
-# DEPLOY FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════
+# ── SSH helpers (with ControlMaster for fast reuse) ──────────────────────
+SSH_OPTS=(
+    -o StrictHostKeyChecking=no
+    -o UserKnownHostsFile=/dev/null
+    -o IdentitiesOnly=yes
+    -o LogLevel=ERROR
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=3
+    -o ConnectTimeout=10
+    -o ControlMaster=auto
+    -o "ControlPath=$SSH_CTL_DIR/cm-%C"
+    -o ControlPersist=120
+    -i "$SSH_KEY"
+)
 
-# Hash tracking for change detection
-declare -A LAST_HASHES
+ssh_vm() { ssh "${SSH_OPTS[@]}" -p "$VM_PORT" "root@$VM_HOST" "$@"; }
+scp_to_vm() { scp "${SSH_OPTS[@]}" -P "$VM_PORT" -q "$1" "root@$VM_HOST:$2"; }
 
-deploy_binary() {
-    local name="$1"
-    local bin="$2"
-    local vm_path="/usr/bin/$name"
-    
-    # Calculate hash
-    local hash
-    hash=$(sha256sum "$bin" | cut -d' ' -f1)
-    local last_hash="${LAST_HASHES[$name]:-}"
-    
-    if [ "$hash" = "$last_hash" ]; then
-        dim "    -> $name (unchanged, skipping)"
-        return 0
+vm_reachable() {
+    [ -f "$SSH_KEY" ] || return 1
+    ssh_vm -o ConnectTimeout=5 -o BatchMode=yes "true" >/dev/null 2>&1
+}
+
+cleanup_ssh() {
+    # Close the multiplexed master connection cleanly
+    ssh -O exit "${SSH_OPTS[@]}" -p "$VM_PORT" "root@$VM_HOST" >/dev/null 2>&1 || true
+}
+
+# ── Service auto-discovery ────────────────────────────────────────────────
+# Scan workspace for crates with binary targets named `iora-*`. We try
+# services/, tools/, apps/system/, dev/ — anywhere a Cargo.toml lives.
+discover_services() {
+    local out=()
+    local dirs=("$WORKSPACE/services" "$WORKSPACE/tools" "$WORKSPACE/apps/system" "$WORKSPACE/dev")
+    for base in "${dirs[@]}"; do
+        [ -d "$base" ] || continue
+        # Each immediate subdir with Cargo.toml is a candidate.
+        for d in "$base"/*/; do
+            [ -f "$d/Cargo.toml" ] || continue
+            local name
+            name=$(basename "$d")
+            # Only deploy crates whose binary will start with iora-
+            [[ "$name" == iora-* ]] || continue
+            out+=("$name")
+        done
+    done
+    # Deduplicate (preserve order)
+    awk '!seen[$0]++' <<<"$(printf '%s\n' "${out[@]}")"
+}
+
+ALL_SERVICES=()
+mapfile -t ALL_SERVICES < <(discover_services)
+log "Discovered ${#ALL_SERVICES[@]} iora-* crates"
+
+# ── Toolchain detection ───────────────────────────────────────────────────
+USE_ZIGBUILD=false
+TOOLCHAIN="auto"
+
+setup_toolchain() {
+    # Prefer Buildroot toolchain, then system musl, then system gnu, else zigbuild.
+    local br_bin="$REPO_ROOT/iora-os/output/host/bin/x86_64-linux-gcc"
+    if [ -x "$br_bin" ]; then
+        export PATH="$(dirname "$br_bin"):$PATH"
+        export CC_x86_64_unknown_linux_gnu="$br_bin"
+        TARGET="x86_64-unknown-linux-gnu"
+        TOOLCHAIN="buildroot"
+    elif command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
+        export CC_x86_64_unknown_linux_musl=$(command -v x86_64-linux-musl-gcc)
+        TARGET="x86_64-unknown-linux-musl"
+        TOOLCHAIN="musl"
+    elif command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
+        export CC_x86_64_unknown_linux_gnu=$(command -v x86_64-linux-gnu-gcc)
+        TARGET="x86_64-unknown-linux-gnu"
+        TOOLCHAIN="gnu"
+    elif command -v cargo-zigbuild >/dev/null 2>&1 && command -v zig >/dev/null 2>&1; then
+        USE_ZIGBUILD=true
+        TOOLCHAIN="zigbuild"
+    else
+        TOOLCHAIN="host"
+        warn "No cross compiler found. Falling back to host toolchain (cargo build)."
+        warn "Install one of: musl-tools, gcc-x86-64-linux-gnu, cargo-zigbuild + zig"
     fi
-    
-    # Upload
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-        -i "$SSH_KEY" -P "${SSH_PORT:-2222}" "$bin" "root@127.0.0.1:$vm_path" 2>/dev/null
-    
-    if [ $? -ne 0 ]; then
-        err "    -> $name SCP FAILED"
+}
+
+# Install Rust target if missing (no-op if already there).
+ensure_rust_target() {
+    if ! rustup target list --installed 2>/dev/null | grep -q "^$TARGET$"; then
+        log "Installing Rust target $TARGET ..."
+        rustup target add "$TARGET" >/dev/null 2>&1 || warn "Could not install target $TARGET"
+    fi
+}
+
+# sccache wiring
+setup_sccache() {
+    export SCCACHE_DIR="$SCCACHE_DIR"
+    if ! $USE_SCCACHE; then return 0; fi
+    if command -v sccache >/dev/null 2>&1; then
+        export RUSTC_WRAPPER="sccache"
+        # Cap cache to 5GB by default (override with SCCACHE_CACHE_SIZE env)
+        export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-5G}"
+        ok "sccache enabled ($SCCACHE_DIR, max $SCCACHE_CACHE_SIZE)"
+    else
+        warn "sccache not found – builds will be slower (install via 'cargo install sccache')"
+    fi
+}
+
+# ── Hash tracking (only deploy real changes) ──────────────────────────────
+hash_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+bin_changed() {
+    local name="$1" bin="$2"
+    local hf="$HASH_DIR/$name"
+    local cur prev
+    cur=$(hash_file "$bin")
+    prev=$(cat "$hf" 2>/dev/null || echo "")
+    if [ "$cur" = "$prev" ]; then
         return 1
     fi
-    
-    # Set permissions
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-        -i "$SSH_KEY" -p "${SSH_PORT:-2222}" root@127.0.0.1 "chmod 755 $vm_path" 2>/dev/null
-    
-    echo -e "    -> ${G}$name${N} -> $vm_path"
-    LAST_HASHES[$name]="$hash"
+    echo "$cur" >"$hf"
     return 0
 }
 
-restart_with_health() {
-    local name="$1"
-    local port="${SVC_PORT[$name]:-}"
-    
-    # Restart
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-        -i "$SSH_KEY" -p "${SSH_PORT:-2222}" root@127.0.0.1 "systemctl restart $name" 2>/dev/null
-    
-    # Health check
-    if [ -n "$port" ]; then
-        local waited=0
-        while [ $waited -lt 15 ]; do
-            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-                -i "$SSH_KEY" -p "${SSH_PORT:-2222}" root@127.0.0.1 \
-                "curl -sf --max-time 3 http://localhost:$port/health >/dev/null 2>&1" 2>/dev/null; then
-                echo -e "    -> ${G}$name restarted (healthy)${N}"
-                return 0
-            fi
-            sleep 2
-            waited=$((waited + 2))
-        done
-        echo -e "    -> ${Y}$name restarted (health check timeout)${N}"
-    else
-        echo -e "    -> ${G}$name restarted${N}"
+# ── Deploy a single binary ────────────────────────────────────────────────
+deploy_binary() {
+    local name="$1" bin="$2"
+    local remote="/usr/bin/$name"
+
+    # Upload to a temp file, then atomically move into place (avoids
+    # corrupting a running binary on the VM mid-restart).
+    local tmp="/tmp/.iora-deploy-$name.$$"
+    if ! scp_to_vm "$bin" "$tmp"; then
+        err "    $name : scp failed"
+        return 1
     fi
+    if ! ssh_vm "install -m 0755 '$tmp' '$remote' && rm -f '$tmp'"; then
+        err "    $name : install failed"
+        ssh_vm "rm -f '$tmp'" >/dev/null 2>&1 || true
+        return 1
+    fi
+
+    if $DO_RESTART; then
+        # Use try-restart so we don't fail when a unit doesn't exist
+        ssh_vm "systemctl try-restart $name 2>/dev/null || systemctl restart $name 2>/dev/null || true" \
+            >/dev/null 2>&1 || true
+    fi
+    printf '    %s->%s %s\n' "$G" "$N" "$name"
     return 0
 }
 
-get_deploy_order() {
-    # Simple topological sort
+# Deploy a list of services in parallel (up to N at a time).
+deploy_many() {
     local services=("$@")
-    local ordered=()
-    local visited=""
-    
-    visit() {
-        local svc="$1"
-        echo "$visited" | grep -q "$svc" && return
-        visited="$visited $svc"
-        
-        local after="${SVC_AFTER[$svc]:-}"
-        for dep in $after; do
-            echo " ${services[*]} " | grep -q " $dep " && visit "$dep"
-        done
-        
-        ordered+=("$svc")
-    }
-    
-    for svc in "${services[@]}"; do
-        visit "$svc"
-    done
-    
-    echo "${ordered[@]}"
-}
-
-deploy_services() {
-    local services=("$@")
-    
-    if [ ${#services[@]} -eq 0 ]; then
-        dim "  No services to deploy"
-        return
-    fi
-    
-    # Get deploy order
-    local ordered_str
-    ordered_str=$(get_deploy_order "${services[@]}")
-    read -ra ordered <<< "$ordered_str"
-    
-    echo ""
-    echo "--------------------------------------------------------------"
-    echo -e "${Y}  Deploying ${#ordered[@]} services in dependency order:${N}"
-    echo "    ${ordered[*]}"
-    echo "--------------------------------------------------------------"
-    echo ""
-    
-    local deployed=0
+    local jobs=0
+    local max_jobs=4
+    local pids=()
     local failed=0
-    
-    for svc in "${ordered[@]}"; do
+    local deployed=0
+
+    for svc in "${services[@]}"; do
         local bin="$WORKSPACE/target/$TARGET/debug/$svc"
         if [ ! -f "$bin" ]; then
-            dim "    -> $svc (binary not found, skipping)"
+            dim "    $svc : binary not built, skipping"
             continue
         fi
-        
-        if deploy_binary "$svc" "$bin"; then
+        if ! bin_changed "$svc" "$bin"; then
+            dim "    $svc : unchanged"
+            continue
+        fi
+        # Also stash a copy in the shared dir (for any 9p-based fallback)
+        cp -f "$bin" "$BIN_DIR/" 2>/dev/null || true
+
+        (
+            if deploy_binary "$svc" "$bin"; then exit 0; else exit 1; fi
+        ) &
+        pids+=($!)
+        jobs=$((jobs + 1))
+        if [ "$jobs" -ge "$max_jobs" ]; then
+            wait -n 2>/dev/null || true
+            jobs=$((jobs - 1))
+        fi
+    done
+
+    for p in "${pids[@]}"; do
+        if wait "$p"; then
             deployed=$((deployed + 1))
-            restart_with_health "$svc"
-            sleep 0.5
         else
             failed=$((failed + 1))
         fi
     done
-    
-    # Reload nginx
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-        -i "$SSH_KEY" -p "${SSH_PORT:-2222}" root@127.0.0.1 "systemctl reload nginx 2>/dev/null" 2>/dev/null
-    
-    echo ""
-    echo "--------------------------------------------------------------"
-    echo -e "  Deployed: ${G}$deployed${N}, Failed: ${R}$failed${N}"
-    echo "--------------------------------------------------------------"
+
+    # Touch the trigger so any in-VM hot-reload daemon notices.
+    date +%s > "$BIN_DIR/.trigger" 2>/dev/null || true
+
+    printf '  deployed=%s failed=%s\n' "$deployed" "$failed"
+    return 0
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# BUILD FUNCTION
-# ═══════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════
-# FRONTEND BUILD FUNCTION
-# ═══════════════════════════════════════════════════════════════════
-
-FRONTEND_DIR=""
-for dir in "$PROJECT_ROOT/frontend" "$PROJECT_ROOT/../frontend"; do
-    if [ -f "$dir/package.json" ]; then
-        FRONTEND_DIR="$dir"
-        break
+# ── Health check ──────────────────────────────────────────────────────────
+health_check() {
+    if ! vm_reachable; then
+        warn "VM not reachable for health check"
+        return 1
     fi
-done
-
-build_and_sync_frontend() {
-    if [ -z "$FRONTEND_DIR" ] || [ ! -d "$FRONTEND_DIR" ]; then
-        warn "  Frontend not available"
-        return
-    fi
-    
-    if ! command -v npm &>/dev/null; then
-        warn "  npm not found - skipping frontend"
-        return
-    fi
-    
-    local start_time=$(date +%s)
-    
-    echo ""
-    echo "--------------------------------------------------------------"
-    echo -e "${Y} [Frontend] Building frontend...${N}"
-    echo "--------------------------------------------------------------"
-    
-    cd "$FRONTEND_DIR"
-    
-    # npm install
-    if [ ! -d "node_modules" ]; then
-        log "Running npm install..."
-        npm install 2>&1 | tail -3
-    fi
-    
-    # npm build
-    local exit_code=0
-    npm run build 2>&1 || exit_code=$?
-    
-    local elapsed=$(($(date +%s) - start_time))
-    
-    if [ "$exit_code" -eq 0 ]; then
-        echo ""
-        ok "Frontend build OK (${elapsed}s)"
-        
-        if [ -d "dist" ]; then
-            log "Deploying frontend to VM..."
-            
-            # Create tar and upload
-            local temp_tar="/tmp/iora-frontend-dist.tar.gz"
-            tar -czf "$temp_tar" -C dist . 2>/dev/null
-            
-            if [ -f "$temp_tar" ]; then
-                scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                    -o IdentitiesOnly=yes -i "$SSH_KEY" -P "${SSH_PORT:-2222}" \
-                    "$temp_tar" "root@127.0.0.1:/tmp/iora-frontend-dist.tar.gz" 2>/dev/null
-                
-                if [ $? -eq 0 ]; then
-                    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                        -o IdentitiesOnly=yes -i "$SSH_KEY" -p "${SSH_PORT:-2222}" \
-                        root@127.0.0.1 "rm -rf /opt/iora/build/dist && mkdir -p /opt/iora/build/dist && tar xzf /tmp/iora-frontend-dist.tar.gz -C /opt/iora/build/dist && systemctl restart iora-home && systemctl reload nginx 2>/dev/null; echo DEPLOYED" 2>/dev/null
-                    
-                    if [ $? -eq 0 ]; then
-                        echo -e "    -> ${G}frontend deployed + iora-home restarted + nginx reloaded${N}"
-                    fi
-                fi
-                rm -f "$temp_tar"
-            fi
-        fi
-    else
-        echo ""
-        err "Frontend build FAILED (exit code $exit_code)"
-    fi
-    
-    cd "$WORKSPACE"
+    log "Service status (failed only):"
+    ssh_vm "systemctl --failed --no-legend --no-pager 2>/dev/null | awk '{print \$1, \$3}' | head -20" \
+        || true
+    log "iora-home /api/health:"
+    ssh_vm "curl -sf --max-time 5 http://127.0.0.1:8126/api/health || curl -sf --max-time 5 http://127.0.0.1:8126/health || echo unreachable" \
+        2>/dev/null || true
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# RUST BUILD FUNCTION
-# ═══════════════════════════════════════════════════════════════════
+# ── Build: Rust ───────────────────────────────────────────────────────────
+RUST_BUILD_N=0
+build_rust() {
+    if ! $DO_RUST; then return 0; fi
+    RUST_BUILD_N=$((RUST_BUILD_N + 1))
+    local start now elapsed
+    start=$(date +%s)
+    printf '\n%s──[Rust #%d @ %s]──────────────────────────────────────────%s\n' \
+        "$Y" "$RUST_BUILD_N" "$(date '+%H:%M:%S')" "$N"
 
-build_and_sync() {
-    local now
-    now=$(date +%s)
-    if [ "$((now - LAST_BUILD_TIME))" -lt 1 ]; then return; fi
-    LAST_BUILD_TIME=$now
-    BUILD_COUNT=$((BUILD_COUNT + 1))
-    mkdir -p "$BIN_DIR"
-
-    echo ""
-    echo "--------------------------------------------------------------"
-    echo -e "${Y} [Rust #$BUILD_COUNT] Building workspace...${N}"
-    echo -e "${D}      $(date '+%H:%M:%S')${N}"
-    echo "--------------------------------------------------------------"
-
-    local start_time
-    start_time=$(date +%s)
-
-    cd "$WORKSPACE"
-    local exit_code=0
+    local rc=0
+    pushd "$WORKSPACE" >/dev/null
     if $USE_ZIGBUILD; then
-        cargo zigbuild --target "$TARGET" --workspace --color always 2>&1 || exit_code=$?
+        cargo zigbuild --target "$TARGET" --workspace --color always || rc=$?
     else
-        cargo build --target "$TARGET" --workspace --color always 2>&1 || exit_code=$?
+        cargo build --target "$TARGET" --workspace --color always || rc=$?
     fi
-    local elapsed
-    elapsed=$(($(date +%s) - start_time))
+    popd >/dev/null
 
-    if [ "$exit_code" -eq 0 ]; then
-        echo ""
-        echo "--------------------------------------------------------------"
-        ok "Build OK (${elapsed}s)"
-        echo "--------------------------------------------------------------"
-        local target_dir="$WORKSPACE/target/$TARGET/debug"
-        local changed_services=()
+    now=$(date +%s); elapsed=$((now - start))
+    if [ "$rc" -ne 0 ]; then
+        err "Rust build FAILED (exit $rc) after ${elapsed}s"
+        return $rc
+    fi
+    ok "Rust build OK in ${elapsed}s"
 
-        # Find changed binaries
-        if [ -d "$WORKSPACE/services" ]; then
-            for d in "$WORKSPACE/services"/*/; do
-                local name
-                name=$(basename "$d")
-                local bin="$target_dir/$name"
-                if [ -f "$bin" ]; then
-                    local hash
-                    hash=$(sha256sum "$bin" | cut -d' ' -f1)
-                    local last_hash="${LAST_HASHES[$name]:-}"
-                    if [ "$hash" != "$last_hash" ]; then
-                        changed_services+=("$name")
-                    fi
-                fi
-            done
-        fi
-
-        if [ ${#changed_services[@]} -gt 0 ]; then
-            echo "  Changed: ${changed_services[*]}"
-            deploy_services "${changed_services[@]}"
-        else
-            dim "  No binaries changed"
-        fi
-
-        # Copy to shared folder for 9p hot-reload
-        if [ -d "$WORKSPACE/services" ]; then
-            for d in "$WORKSPACE/services"/*/; do
-                local name
-                name=$(basename "$d")
-                local bin="$target_dir/$name"
-                [ -f "$bin" ] && cp "$bin" "$BIN_DIR/" 2>/dev/null
-            done
-        fi
-
-        date +%s > "$BIN_DIR/.trigger" 2>/dev/null
-        echo "--------------------------------------------------------------"
+    # Only deploy if the VM is up.
+    if vm_reachable; then
+        deploy_many "${ALL_SERVICES[@]}"
     else
-        echo ""
-        echo "--------------------------------------------------------------"
-        err "Build FAILED (exit code $exit_code)"
-        echo "--------------------------------------------------------------"
+        warn "VM not reachable, skipping deploy (binaries cached in target/)"
     fi
 }
 
-show_status() {
-    echo ""
-    echo -e "${Y}  SERVICE STATUS:${N}"
-    echo "  +----------------------------------------------------------+"
-    echo "  |  Service              Port  Status    Binary             |"
-    echo "  +----------------------------------------------------------+"
-    
-    for svc in $(for k in "${!SVC_PORT[@]}"; do echo "$k"; done | sort); do
-        local port="${SVC_PORT[$svc]}"
-        local short_name=$(printf "%-20s" "$svc")
-        
-        # Check status
-        local status="unknown"
-        local status_color="$D"
-        local result
-        result=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-            -i "$SSH_KEY" -p "${SSH_PORT:-2222}" root@127.0.0.1 "systemctl is-active $svc 2>/dev/null" 2>/dev/null || echo "unknown")
-        
-        if [ "$result" = "active" ]; then
-            status="active"
-            status_color="$G"
-        elif [ "$result" = "inactive" ]; then
-            status="inactive"
-            status_color="$D"
-        else
-            status="failed"
-            status_color="$R"
-        fi
-        
-        # Check binary
-        local binary_status="missing"
-        local bin_check
-        bin_check=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-            -i "$SSH_KEY" -p "${SSH_PORT:-2222}" root@127.0.0.1 "test -f /usr/bin/$svc && echo EXISTS || echo MISSING" 2>/dev/null || echo "MISSING")
-        if [ "$bin_check" = "EXISTS" ]; then binary_status="exists"; fi
-        
-        printf "  |  %-18s  %-5s  ${status_color}%-9s${N}  %-18s |\n" "$short_name" "$port" "$status" "$binary_status"
+# ── Build: Frontend ───────────────────────────────────────────────────────
+FE_BUILD_N=0
+build_frontend() {
+    if ! $DO_FRONTEND; then return 0; fi
+    [ -n "$FRONTEND_DIR" ] || { dim "no frontend, skipping"; return 0; }
+    if ! command -v npm >/dev/null 2>&1; then
+        warn "npm not found, skipping frontend"; return 0
+    fi
+    FE_BUILD_N=$((FE_BUILD_N + 1))
+    local start now elapsed rc=0
+    start=$(date +%s)
+    printf '\n%s──[Frontend #%d @ %s]──────────────────────────────────────%s\n' \
+        "$Y" "$FE_BUILD_N" "$(date '+%H:%M:%S')" "$N"
+
+    pushd "$FRONTEND_DIR" >/dev/null
+    if [ ! -d node_modules ]; then
+        log "Running 'npm install' (one-time)..."
+        npm install --no-audit --no-fund || rc=$?
+    fi
+    [ "$rc" -eq 0 ] && (npm run build || rc=$?)
+    popd >/dev/null
+
+    now=$(date +%s); elapsed=$((now - start))
+    if [ "$rc" -ne 0 ]; then
+        err "Frontend build FAILED (exit $rc) after ${elapsed}s"
+        return $rc
+    fi
+    ok "Frontend build OK in ${elapsed}s"
+
+    if [ -d "$FRONTEND_DIR/dist" ] && vm_reachable; then
+        deploy_frontend "$FRONTEND_DIR/dist"
+    fi
+}
+
+deploy_frontend() {
+    local dist="$1"
+    local tar="$CACHE/iora-frontend.tar.gz"
+
+    if ! tar -czf "$tar" -C "$dist" . 2>/dev/null; then
+        err "frontend tar failed"; return 1
+    fi
+    if ! scp_to_vm "$tar" "/tmp/iora-frontend.tar.gz"; then
+        err "frontend upload failed"; return 1
+    fi
+    ssh_vm '
+        set -e
+        mkdir -p /opt/iora/build/dist
+        rm -rf /opt/iora/build/dist/*
+        tar xzf /tmp/iora-frontend.tar.gz -C /opt/iora/build/dist
+        rm -f /tmp/iora-frontend.tar.gz
+        systemctl try-restart iora-home 2>/dev/null || true
+        systemctl reload nginx 2>/dev/null || true
+    ' >/dev/null 2>&1 || warn "frontend remote unpack reported errors"
+    rm -f "$tar"
+    ok "  frontend deployed → /opt/iora/build/dist"
+}
+
+# ── Watcher ───────────────────────────────────────────────────────────────
+# Single debounced trigger per pipeline. Each handler runs a short bash
+# loop that drains rapid bursts of events.
+RUST_DIRTY=false
+FE_DIRTY=false
+
+trigger_loop() {
+    while true; do
+        if $RUST_DIRTY; then RUST_DIRTY=false; build_rust || true; fi
+        if $FE_DIRTY;   then FE_DIRTY=false;   build_frontend || true; fi
+        sleep 1
     done
-    
-    echo "  +----------------------------------------------------------+"
-    echo ""
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# COLORS & HELPERS
-# ═══════════════════════════════════════════════════════════════════
+start_watchers() {
+    local pids=()
+    local rust_dirs=()
+    for sub in services shared tools apps dev; do
+        [ -d "$WORKSPACE/$sub" ] && rust_dirs+=("$WORKSPACE/$sub")
+    done
 
-R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; D='\033[2m'; N='\033[0m'
-log()    { echo -e "${C}[*]${N} $*"; }
-ok()     { echo -e "${G}[+]${N} $*"; }
-warn()   { echo -e "${Y}[!]${N} $*"; }
-err()    { echo -e "${R}[X]${N} $*"; }
-dim()    { echo -e "${D}$*${N}"; }
+    if command -v fswatch >/dev/null 2>&1; then
+        # macOS / cross-platform fswatch
+        (
+            fswatch -0 --latency=0.5 -r \
+                -e '/target(/|$)' -e '/node_modules(/|$)' -e '/\.git(/|$)' \
+                -e '/dist(/|$)' -e '/\.iora-dev(/|$)' \
+                -i '\.rs$' -i 'Cargo\.toml$' -i 'Cargo\.lock$' \
+                "${rust_dirs[@]}" 2>/dev/null | while IFS= read -r -d '' _f; do
+                RUST_DIRTY=true
+            done
+        ) &
+        pids+=($!)
+        if [ -n "$FRONTEND_DIR" ] && $DO_FRONTEND; then
+            (
+                fswatch -0 --latency=0.5 -r \
+                    -e '/node_modules(/|$)' -e '/dist(/|$)' -e '/\.next(/|$)' \
+                    -i '\.(tsx?|jsx?|css|html|json|svelte|vue)$' \
+                    "$FRONTEND_DIR/src" "$FRONTEND_DIR/public" \
+                    "$FRONTEND_DIR/index.html" "$FRONTEND_DIR/package.json" \
+                    2>/dev/null | while IFS= read -r -d '' _f; do
+                    FE_DIRTY=true
+                done
+            ) &
+            pids+=($!)
+        fi
+        dim "watcher: fswatch"
+    elif command -v inotifywait >/dev/null 2>&1; then
+        (
+            inotifywait -m -r -q -e modify,create,move,delete \
+                --include '\.rs$|Cargo\.toml$|Cargo\.lock$' \
+                --exclude '/(target|node_modules|\.git|dist|\.iora-dev)(/|$)' \
+                "${rust_dirs[@]}" 2>/dev/null | while read -r _; do
+                RUST_DIRTY=true
+            done
+        ) &
+        pids+=($!)
+        if [ -n "$FRONTEND_DIR" ] && $DO_FRONTEND; then
+            (
+                inotifywait -m -r -q -e modify,create,move,delete \
+                    --include '\.(tsx?|jsx?|css|html|json)$' \
+                    --exclude '/(node_modules|dist|\.next)(/|$)' \
+                    "$FRONTEND_DIR/src" "$FRONTEND_DIR/public" 2>/dev/null \
+                    | while read -r _; do FE_DIRTY=true; done
+            ) &
+            pids+=($!)
+        fi
+        dim "watcher: inotifywait"
+    else
+        warn "No file-watcher available (install fswatch or inotify-tools)."
+        warn "Falling back to polling (5s)."
+        (
+            while true; do
+                touch "$CACHE/.poll-tick"
+                sleep 5
+                # Naively assume change → rebuild incrementally (cargo handles it).
+                RUST_DIRTY=true
+                $DO_FRONTEND && [ -n "$FRONTEND_DIR" ] && FE_DIRTY=true
+            done
+        ) &
+        pids+=($!)
+    fi
 
-# ═══════════════════════════════════════════════════════════════════
-# SETUP
-# ═══════════════════════════════════════════════════════════════════
+    WATCH_PIDS=("${pids[@]}")
+}
 
-cat << EOF
-  +====================================================================+
-  |                  IORA OS Dev-Loop (Intelligent)                     |
-  +====================================================================+
-  |  Workspace:  $WORKSPACE
-  |  Target:     $TARGET
-  |  Gitignore:  Respecting .gitignore patterns
-  |  Debounce:   Waiting for changes to settle
-  +====================================================================+
+stop_watchers() {
+    for p in "${WATCH_PIDS[@]:-}"; do
+        kill "$p" 2>/dev/null || true
+    done
+}
+
+# ── Status table ──────────────────────────────────────────────────────────
+show_status() {
+    if ! vm_reachable; then
+        warn "VM not reachable ($VM_HOST:$VM_PORT)"
+        return
+    fi
+    printf '\n  %sService                       Active     Binary%s\n' "$Y" "$N"
+    printf '  ────────────────────────────────────────────────────\n'
+    for svc in "${ALL_SERVICES[@]}"; do
+        local active bin
+        active=$(ssh_vm "systemctl is-active $svc 2>/dev/null" 2>/dev/null || echo "unknown")
+        bin=$(ssh_vm "test -f /usr/bin/$svc && echo yes || echo no" 2>/dev/null || echo "?")
+        local col="$D"
+        case "$active" in active) col="$G" ;; failed) col="$R" ;; activating) col="$Y" ;; esac
+        printf '  %-28s  %s%-9s%s  %s\n' "$svc" "$col" "$active" "$N" "$bin"
+    done
+    echo
+}
+
+# ── Cleanup / signal handling ─────────────────────────────────────────────
+cleanup() {
+    stop_watchers
+    cleanup_ssh
+}
+trap cleanup EXIT INT TERM
+
+# ── Bootstrap ─────────────────────────────────────────────────────────────
+cat <<EOF
+${B}╔══════════════════════════════════════════════════════════════════╗
+║              IORA OS Dev-Loop (intelligent)                       ║
+╚══════════════════════════════════════════════════════════════════╝${N}
+  Workspace : $WORKSPACE
+  Frontend  : ${FRONTEND_DIR:-<none>}
+  Target    : (will be detected)
+  VM        : root@$VM_HOST:$VM_PORT
 EOF
 
-
-mkdir -p "$BIN_DIR" "$SCCACHE_DIR"
-
-# SSH config
-SSH_KEY="$PROJECT_ROOT/iora-os/.cache/iora-dev-key"
-SSH_PORT="${SSH_PORT:-2222}"
-
 if [ ! -f "$SSH_KEY" ]; then
-    warn "SSH key not found: $SSH_KEY"
+    warn "SSH key missing: $SSH_KEY"
     warn "Start the VM first: ./dev-local.sh"
 fi
 
-# Dependencies
-log "Checking dependencies..."
+setup_toolchain
+ensure_rust_target
+setup_sccache
+printf '  Toolchain : %s  → target %s%s\n' "$TOOLCHAIN" "$TARGET" \
+    "$($USE_ZIGBUILD && echo " (zigbuild)" || echo "")"
 
-# Rust target
-if ! rustup target list --installed | grep -q "$TARGET"; then
-    log "Installing target $TARGET..."
-    rustup target add "$TARGET" 2>/dev/null || true
-fi
-dim "  target:     $TARGET OK"
+# Initial sanity check of VM reachability (non-fatal)
+if vm_reachable; then ok "VM reachable"; else warn "VM not reachable – will retry on each build"; fi
 
-# sccache
-export SCCACHE_DIR="$SCCACHE_DIR"
-SCCACHE_AVAILABLE=false
-if $USE_SCCACHE && command -v sccache &>/dev/null; then
-    export RUSTC_WRAPPER=sccache
-    SCCACHE_AVAILABLE=true
-    dim "  sccache:    OK"
-fi
+# ── Initial build ─────────────────────────────────────────────────────────
+build_rust || true
+build_frontend || true
 
-# Cross-compiler
-CROSS_CC=""
-USE_ZIGBUILD=false
-
-if [ -f "$PROJECT_ROOT/iora-os/output/host/bin/x86_64-linux-gcc" ]; then
-    CROSS_CC="$PROJECT_ROOT/iora-os/output/host/bin/x86_64-linux-gcc"
-    TARGET="x86_64-unknown-linux-gnu"
-    export PATH="$(dirname "$CROSS_CC"):$PATH"
-    dim "  Toolchain:  Buildroot"
-elif command -v x86_64-linux-musl-gcc &>/dev/null; then
-    CROSS_CC="$(command -v x86_64-linux-musl-gcc)"
-    TARGET="x86_64-unknown-linux-musl"
-    dim "  Toolchain:  musl"
-elif command -v x86_64-linux-gnu-gcc &>/dev/null; then
-    CROSS_CC="$(command -v x86_64-linux-gnu-gcc)"
-    TARGET="x86_64-unknown-linux-gnu"
-    dim "  Toolchain:  gnu"
-else
-    USE_ZIGBUILD=true
-    dim "  Toolchain:  zigbuild"
-fi
-
-if [ -n "$CROSS_CC" ]; then
-    local cv="CC_$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
-    export "$cv=$CROSS_CC"
-fi
-
-echo ""
-cat << EOF
-  +====================================================================+
-  |  Setup complete. Starting dev-loop...                               |
-  +====================================================================+
-EOF
-
-
-# Initial status
-log "Checking VM service status..."
-echo ""
-
-# ═══════════════════════════════════════════════════════════════════
-# GITIGNORE PARSER
-# ═══════════════════════════════════════════════════════════════════
-
-load_gitignore() {
-    local dir="$1"
-    local gitignore="$dir/.gitignore"
-    
-    # Start with default ignore patterns
-    GITIGNORE_PATTERNS=(
-        ".git"
-        "node_modules"
-        ".next"
-        "dist"
-        "build"
-        "target"
-        ".cache"
-        "*.pyc"
-        "__pycache__"
-        ".env.local"
-        ".env.*.local"
-    )
-    
-    # Add patterns from .gitignore
-    if [ -f "$gitignore" ]; then
-        while IFS= read -r line; do
-            # Skip comments and empty lines
-            [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "${line// /}" ]] && continue
-            GITIGNORE_PATTERNS+=("$(echo "$line" | xargs)")
-        done < "$gitignore"
-    fi
-}
-
-should_ignore() {
-    local path="$1"
-    local basedir="$2"
-    
-    # Get relative path
-    local relpath="${path#$basedir}"
-    relpath="${relpath#/}"
-    
-    for pattern in "${GITIGNORE_PATTERNS[@]}"; do
-        # Convert glob to regex-like check
-        local regex="${pattern//\*/.*}"
-        regex="${regex//\?/.}"
-        
-        # Check if path matches pattern
-        if [[ "$relpath" =~ (^|[\/])$regex([\/]|$) ]]; then
-            return 0  # should ignore
-        fi
-        
-        # Check filename only
-        local filename=$(basename "$path")
-        if [[ "$filename" =~ ^$regex$ ]]; then
-            return 0  # should ignore
-        fi
-    done
-    
-    return 1  # should not ignore
-}
-
-# Load gitignore patterns
-load_gitignore "$WORKSPACE"
-RUST_GITIGNORE_PATTERNS=("${GITIGNORE_PATTERNS[@]}")
-
-FRONTEND_GITIGNORE_PATTERNS=()
-if [ -n "${FRONTEND_DIR:-}" ] && [ -d "$FRONTEND_DIR" ]; then
-    load_gitignore "$FRONTEND_DIR"
-    FRONTEND_GITIGNORE_PATTERNS=("${GITIGNORE_PATTERNS[@]}")
-    dim "  Frontend:   $FRONTEND_DIR"
-fi
-
-# ═══════════════════════════════════════════════════════════════════
-# FILE WATCHER with Smart Debouncing
-# ═══════════════════════════════════════════════════════════════════
-
-# Smart debounce: Wait until no more changes come for DEBOUNCE_SEC
-DEBOUNCE_PID=""
-FE_DEBOUNCE_PID=""
-LAST_CHANGE_TIME=0
-FE_LAST_CHANGE_TIME=0
-
-rust_debounce_handler() {
-    local now=$(date +%s%N)
-    LAST_CHANGE_TIME=$now
-    
-    # Kill previous debounce if running
-    if [ -n "$DEBOUNCE_PID" ] && kill -0 "$DEBOUNCE_PID" 2>/dev/null; then
-        kill "$DEBOUNCE_PID" 2>/dev/null
-    fi
-    
-    # Start new debounce
-    (
-        sleep "$DEBOUNCE_SEC"
-        # Only trigger if no new changes came during wait
-        if [ "$(date +%s%N)" -le "$((LAST_CHANGE_TIME + DEBOUNCE_SEC * 1000000000))" ]; then
-            build_and_sync
-        fi
-    ) &
-    DEBOUNCE_PID=$!
-}
-
-frontend_debounce_handler() {
-    local now=$(date +%s%N)
-    FE_LAST_CHANGE_TIME=$now
-    
-    # Kill previous debounce if running
-    if [ -n "$FE_DEBOUNCE_PID" ] && kill -0 "$FE_DEBOUNCE_PID" 2>/dev/null; then
-        kill "$FE_DEBOUNCE_PID" 2>/dev/null
-    fi
-    
-    # Start new debounce
-    (
-        sleep "$DEBOUNCE_SEC"
-        # Only trigger if no new changes came during wait
-        if [ "$(date +%s%N)" -le "$((FE_LAST_CHANGE_TIME + DEBOUNCE_SEC * 1000000000))" ]; then
-            build_and_sync_frontend
-        fi
-    ) &
-    FE_DEBOUNCE_PID=$!
-}
-
-WATCH_PID=""
-FE_WATCH_PID=""
-
-if command -v fswatch &>/dev/null; then
-    # Rust watcher
-    fswatch -0 -l "$DEBOUNCE_SEC" \
-        --include '\.rs$|\.toml$' --exclude '/target/' --exclude '/\.iora-dev/' \
-        "$WORKSPACE/services" "$WORKSPACE/shared" "$WORKSPACE/tools" "$WORKSPACE/apps" \
-        2>/dev/null | while read -r -d '' file; do
-        # Check gitignore
-        if should_ignore "$file" "$WORKSPACE"; then
-            continue
-        fi
-        rust_debounce_handler
-    done &
-    WATCH_PID=$!
-    dim "  Watching:   fswatch (Rust)"
-    
-    # Frontend watcher
-    if [ -n "${FRONTEND_DIR:-}" ] && [ -d "$FRONTEND_DIR" ]; then
-        fswatch -0 -l "$DEBOUNCE_SEC" \
-            --include '\.tsx$|\.ts$|\.jsx$|\.js$|\.css$|\.json$|\.html$' \
-            --exclude '/node_modules/' --exclude '/\.next/' --exclude '/dist/' --exclude '/build/' \
-            "$FRONTEND_DIR" \
-            2>/dev/null | while read -r -d '' file; do
-            # Check gitignore
-            if should_ignore "$file" "$FRONTEND_DIR"; then
-                continue
-            fi
-            frontend_debounce_handler
-        done &
-        FE_WATCH_PID=$!
-        dim "  Watching:   fswatch (Frontend)"
-    fi
-    
-    # Reload gitignore on change
-    fswatch -0 -l 5 \
-        --include '\.gitignore$' \
-        "$WORKSPACE" "${FRONTEND_DIR:-}" \
-        2>/dev/null | while read -r -d '' file; do
-        if [[ "$file" == *"$WORKSPACE/.gitignore" ]]; then
-            load_gitignore "$WORKSPACE"
-            RUST_GITIGNORE_PATTERNS=("${GITIGNORE_PATTERNS[@]}")
-        elif [[ "$file" == *"$FRONTEND_DIR/.gitignore" ]]; then
-            load_gitignore "$FRONTEND_DIR"
-            FRONTEND_GITIGNORE_PATTERNS=("${GITIGNORE_PATTERNS[@]}")
-        fi
-    done &
-    dim "  Watching:   .gitignore changes"
-    
-elif command -v inotifywait &>/dev/null; then
-    # Rust watcher
-    while true; do
-        inotifywait -r -q -e modify,create,move \
-            --include '\.rs$|\.toml$' \
-            --exclude '/target/' --exclude '/\.iora-dev/' \
-            "$WORKSPACE/services" "$WORKSPACE/shared" "$WORKSPACE/tools" "$WORKSPACE/apps" \
-            2>/dev/null
-        # Check gitignore
-        local changed_file=$(inotifywait -r -q -e modify,create,move --format '%w%f' \
-            --include '\.rs$|\.toml$' \
-            --exclude '/target/' --exclude '/\.iora-dev/' \
-            "$WORKSPACE/services" "$WORKSPACE/shared" "$WORKSPACE/tools" "$WORKSPACE/apps" \
-            2>/dev/null)
-        if ! should_ignore "$changed_file" "$WORKSPACE"; then
-            rust_debounce_handler
-        fi
-    done &
-    WATCH_PID=$!
-    dim "  Watching:   inotifywait (Rust)"
-    
-    # Frontend watcher
-    if [ -n "${FRONTEND_DIR:-}" ] && [ -d "$FRONTEND_DIR" ]; then
-        while true; do
-            inotifywait -r -q -e modify,create,move \
-                --include '\.tsx$|\.ts$|\.jsx$|\.js$|\.css$|\.json$|\.html$' \
-                --exclude '/node_modules/' --exclude '/\.next/' --exclude '/dist/' --exclude '/build/' \
-                "$FRONTEND_DIR" \
-                2>/dev/null
-            frontend_debounce_handler
-        done &
-        FE_WATCH_PID=$!
-        dim "  Watching:   inotifywait (Frontend)"
-    fi
-else
-    warn "  No file watcher (install fswatch or inotifywait)"
-    warn "  Manual mode: press B to build"
-fi
-
-# ═══════════════════════════════════════════════════════════════════
-# MAIN LOOP
-# ═══════════════════════════════════════════════════════════════════
-
-cat << EOF
-
-  +====================================================================+
-  |  [B] = rebuild all    [F] = frontend       [R] = Rust only         |
-  |  [D] = deploy only    [H] = health check   [S] = status            |
-  |  [Q] = quit                                                        |
-  +====================================================================+
-  |  Watching for changes... (press key to act)                        |
-  +====================================================================+
-EOF
-
-cleanup() {
-    [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null || true
-    [ -n "$FE_WATCH_PID" ] && kill "$FE_WATCH_PID" 2>/dev/null || true
-    [ -n "$DEBOUNCE_PID" ] && kill "$DEBOUNCE_PID" 2>/dev/null || true
-    [ -n "$FE_DEBOUNCE_PID" ] && kill "$FE_DEBOUNCE_PID" 2>/dev/null || true
+if ! $WATCH; then
+    log "Initial build complete; --no-watch set, exiting."
     exit 0
-}
-trap cleanup INT TERM
+fi
+
+# ── Watcher + key loop ────────────────────────────────────────────────────
+start_watchers
+trigger_loop &
+TRIGGER_PID=$!
+
+cat <<EOF
+
+${B}┌──────────────────────────────────────────────────────────────────┐
+│  [B] full rebuild   [R] Rust    [F] Frontend                     │
+│  [D] redeploy       [S] status  [H] health   [Q] quit            │
+└──────────────────────────────────────────────────────────────────┘${N}
+EOF
 
 while true; do
-    read -r -t 1 -n 1 key 2>/dev/null || true
+    key=""
+    # Read single char w/ 1s timeout so the loop is responsive but doesn't busy-spin.
+    if read -r -t 1 -n 1 key 2>/dev/null; then :; fi
     case "${key:-}" in
-        b|B) build_and_sync; build_and_sync_frontend ;;
-        r|R) build_and_sync ;;
-        f|F) build_and_sync_frontend ;;
-        d|D) 
-            target_dir="$WORKSPACE/target/$TARGET/debug"
-            all_services=()
-            for d in "$WORKSPACE/services"/*/; do
-                name=$(basename "$d")
-                bin="$target_dir/$name"
-                [ -f "$bin" ] && all_services+=("$name")
-            done
-            [ ${#all_services[@]} -gt 0 ] && deploy_services "${all_services[@]}"
-            ;;
-        h|H) 
-            for svc in $(for k in "${!SVC_PORT[@]}"; do echo "$k"; done | sort); do
-                ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes \
-                    -i "$SSH_KEY" -p "$SSH_PORT" root@127.0.0.1 "systemctl is-active $svc" 2>/dev/null || true
-            done
+        b|B) RUST_DIRTY=true; FE_DIRTY=true ;;
+        r|R) RUST_DIRTY=true ;;
+        f|F) FE_DIRTY=true ;;
+        d|D)
+            if vm_reachable; then
+                # Force re-deploy: clear all hashes first
+                rm -f "$HASH_DIR"/* 2>/dev/null || true
+                deploy_many "${ALL_SERVICES[@]}"
+            else
+                warn "VM not reachable"
+            fi
             ;;
         s|S) show_status ;;
-        q|Q) cleanup ;;
+        h|H) health_check ;;
+        q|Q) log "bye."; kill "$TRIGGER_PID" 2>/dev/null || true; exit 0 ;;
     esac
 done
