@@ -9,6 +9,7 @@ import {
   ChatText, Robot, Key, Package, Brain,
 } from '@phosphor-icons/react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 interface DocsConfig {
@@ -155,7 +156,7 @@ export function DocsPage() {
   }
 
   const renderMarkdown = (content: string) => {
-    const html = marked(content)
+    const html = DOMPurify.sanitize(marked(content) as string)
     return (
       <div
         className="prose prose-sm max-w-none
