@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Themed Weather App</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif);
+      background: var(--background);
+      color: var(--foreground);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+
+    .theme-info {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius, 0.75rem);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .theme-info h2 {
+      font-size: 1.25rem;
+      margin-bottom: 0.75rem;
+      color: var(--accent);
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .info-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .info-label {
+      font-size: 0.875rem;
+      color: var(--muted-foreground);
+      font-weight: 500;
+    }
+
+    .info-value {
+      font-size: 1rem;
+      color: var(--foreground);
+      font-family: var(--font-mono, monospace);
+    }
+
+    .weather-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius, 0.75rem);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .weather-icon {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+      filter: drop-shadow(0 0 10px var(--weather-sunny, var(--accent)));
+    }
+
+    .temperature {
+      font-size: 3rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .weather-description {
+      font-size: 1.25rem;
+      color: var(--muted-foreground);
+    }
+
+    .weather-conditions {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .condition-card {
+      background: var(--muted);
+      padding: 1rem;
+      border-radius: calc(var(--radius, 0.75rem) * 0.75);
+      text-align: center;
+      transition: transform 0.2s;
+    }
+
+    .condition-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .condition-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .condition-label {
+      font-size: 0.75rem;
+      color: var(--muted-foreground);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .condition-value {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--foreground);
+      margin-top: 0.25rem;
+    }
+
+    .controls {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius, 0.75rem);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .controls h2 {
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: var(--accent);
+      color: var(--accent-foreground);
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: calc(var(--radius, 0.75rem) * 0.5);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button:active {
+      opacity: 0.8;
+    }
+
+    .variables-list {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius, 0.75rem);
+      padding: 1.5rem;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .variables-list h2 {
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+      sticky: top 0;
+      background: var(--card);
+      padding-bottom: 0.5rem;
+    }
+
+    .variable-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.875rem;
+    }
+
+    .variable-item:last-child {
+      border-bottom: none;
+    }
+
+    .variable-name {
+      color: var(--muted-foreground);
+      font-family: var(--font-mono, monospace);
+    }
+
+    .variable-value {
+      color: var(--foreground);
+      font-family: var(--font-mono, monospace);
+      font-weight: 500;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .status-badge.connected {
+      background: var(--success, #22c55e);
+      color: white;
+    }
+
+    .status-badge.disconnected {
+      background: var(--destructive, #ef4444);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Themed Weather App</h1>
+
+    <div class="theme-info">
+      <h2>Theme Information</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Theme ID</span>
+          <span class="info-value" id="theme-id">Loading...</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Theme Name</span>
+          <span class="info-value" id="theme-name">Loading...</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Mode</span>
+          <span class="info-value" id="theme-mode">Loading...</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Status</span>
+          <span class="status-badge disconnected" id="theme-status">Disconnected</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="weather-card">
+      <div class="weather-icon">☀️</div>
+      <div class="temperature">24°C</div>
+      <div class="weather-description">Sonnig und warm</div>
+
+      <div class="weather-conditions">
+        <div class="condition-card">
+          <div class="condition-icon">💨</div>
+          <div class="condition-label">Wind</div>
+          <div class="condition-value">12 km/h</div>
+        </div>
+        <div class="condition-card">
+          <div class="condition-icon">💧</div>
+          <div class="condition-label">Luftfeuchtigkeit</div>
+          <div class="condition-value">65%</div>
+        </div>
+        <div class="condition-card">
+          <div class="condition-icon">🌡️</div>
+          <div class="condition-label">Gefühlt</div>
+          <div class="condition-value">26°C</div>
+        </div>
+        <div class="condition-card">
+          <div class="condition-icon">👁️</div>
+          <div class="condition-label">Sicht</div>
+          <div class="condition-value">10 km</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <h2>Theme Controls</h2>
+      <p style="color: var(--muted-foreground); margin-bottom: 1rem; font-size: 0.875rem;">
+        Ändere die Akzentfarbe, um die Theme-Anpassung zu demonstrieren:
+      </p>
+      <div class="button-group">
+        <button onclick="changeAccent('#3b82f6')">Himmelblau</button>
+        <button onclick="changeAccent('#fbbf24')">Sonnengelb</button>
+        <button onclick="changeAccent('#60a5fa')">Regenblau</button>
+        <button onclick="changeAccent('#7c3aed')">Gewitterlila</button>
+        <button onclick="changeAccent('#22c55e')">Frühlingsgrün</button>
+        <button onclick="changeAccent('#ef4444')">Unwetter-Rot</button>
+      </div>
+    </div>
+
+    <div class="variables-list">
+      <h2>Active CSS Variables</h2>
+      <div id="variables-container">
+        <p style="color: var(--muted-foreground); text-align: center;">Loading variables...</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Import the IORA Theme SDK
+    // In production, this would be: import { IoraThemeClient } from '@iora/sdk'
+    // For this example, we'll create a simplified inline version
+
+    class SimpleThemeClient {
+      constructor(appId, config = { inherit: true }) {
+        this.appId = appId
+        this.config = config
+        this.listeners = new Set()
+        this.currentTheme = null
+        this.init()
+      }
+
+      init() {
+        // Listen for theme updates from parent
+        window.addEventListener('message', (event) => {
+          if (event.data?.type === 'iora:theme:update') {
+            this.handleThemeUpdate(event.data.theme)
+          }
+        })
+
+        // Request initial theme
+        this.requestTheme()
+      }
+
+      requestTheme() {
+        window.parent.postMessage({
+          type: 'iora:theme:request',
+          appId: this.appId,
+        }, '*')
+      }
+
+      handleThemeUpdate(theme) {
+        this.currentTheme = theme
+        this.applyTheme(theme)
+        this.listeners.forEach(listener => listener(theme))
+      }
+
+      applyTheme(theme) {
+        // Apply inherited variables
+        if (this.config.inherit && theme.variables) {
+          Object.entries(theme.variables).forEach(([key, value]) => {
+            if (!this.config.variables?.[key]) {
+              document.documentElement.style.setProperty(`--${key}`, value)
+            }
+          })
+        }
+
+        // Apply custom variable overrides
+        if (this.config.variables) {
+          Object.entries(this.config.variables).forEach(([key, value]) => {
+            document.documentElement.style.setProperty(`--${key}`, value)
+          })
+        }
+      }
+
+      getTheme() {
+        return this.currentTheme
+      }
+
+      setVariables(variables) {
+        this.config.variables = { ...this.config.variables, ...variables }
+        if (this.currentTheme) {
+          this.applyTheme(this.currentTheme)
+        }
+      }
+
+      getVariable(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim()
+      }
+
+      onThemeChange(listener) {
+        this.listeners.add(listener)
+        if (this.currentTheme) {
+          listener(this.currentTheme)
+        }
+        return () => this.listeners.delete(listener)
+      }
+
+      getAllVariables() {
+        const computed = {}
+        const styles = getComputedStyle(document.documentElement)
+
+        // Get common IORA variables
+        const commonVars = [
+          'background', 'foreground', 'card', 'card-foreground',
+          'muted', 'muted-foreground', 'accent', 'accent-foreground',
+          'border', 'input', 'ring', 'success', 'destructive', 'warning', 'info',
+          'radius', 'spacing', 'gap', 'font-sans', 'font-heading', 'font-mono',
+          'weather-sunny', 'weather-cloudy', 'weather-rainy', 'weather-stormy'
+        ]
+
+        commonVars.forEach(varName => {
+          const value = styles.getPropertyValue(`--${varName}`).trim()
+          if (value) {
+            computed[varName] = value
+          }
+        })
+
+        return computed
+      }
+
+      isDark() {
+        if (!this.currentTheme) return false
+        return this.currentTheme.mode === 'dark' ||
+               (this.currentTheme.mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      }
+    }
+
+    // Initialize theme client
+    const themeClient = new SimpleThemeClient('themed-weather-app', {
+      inherit: true,
+      variables: {
+        'accent': '#3b82f6',
+        'weather-sunny': '#fbbf24',
+        'weather-cloudy': '#9ca3af',
+        'weather-rainy': '#60a5fa',
+        'weather-stormy': '#7c3aed',
+      }
+    })
+
+    // Update UI with theme info
+    function updateThemeInfo(theme) {
+      document.getElementById('theme-id').textContent = theme?.id || 'Unknown'
+      document.getElementById('theme-name').textContent = theme?.name || 'Unknown'
+      document.getElementById('theme-mode').textContent = theme?.mode || 'Unknown'
+
+      const statusBadge = document.getElementById('theme-status')
+      statusBadge.textContent = 'Connected'
+      statusBadge.className = 'status-badge connected'
+    }
+
+    // Update variables list
+    function updateVariablesList() {
+      const variables = themeClient.getAllVariables()
+      const container = document.getElementById('variables-container')
+
+      container.innerHTML = Object.entries(variables)
+        .map(([name, value]) => `
+          <div class="variable-item">
+            <span class="variable-name">--${name}</span>
+            <span class="variable-value">${value}</span>
+          </div>
+        `).join('')
+    }
+
+    // Listen for theme changes
+    themeClient.onThemeChange((theme) => {
+      console.log('Theme updated:', theme)
+      updateThemeInfo(theme)
+      updateVariablesList()
+    })
+
+    // Change accent color
+    window.changeAccent = (color) => {
+      themeClient.setVariables({ accent: color })
+      updateVariablesList()
+    }
+
+    // Initial update after a short delay to ensure theme is loaded
+    setTimeout(() => {
+      const theme = themeClient.getTheme()
+      if (theme) {
+        updateThemeInfo(theme)
+      }
+      updateVariablesList()
+    }, 500)
+  </script>
+</body>
+</html>

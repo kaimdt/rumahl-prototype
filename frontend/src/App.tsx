@@ -3,6 +3,7 @@ import '@/i18n'
 import { useTranslation } from 'react-i18next'
 import { getBackendUrl } from '@/lib/config'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
+import { ThemeIframeProvider } from '@/components/ThemeIframeProvider'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider, useConnection } from '@/contexts/ConnectionContext'
@@ -1071,6 +1072,7 @@ function App() {
     <ConnectionProvider>
       <AuthProvider>
         <ThemeProvider>
+          <ThemeIframeProvider />
           <PageNavigationProvider>
             <ConfigurationProvider>
               <CurrentBackgroundProvider>
