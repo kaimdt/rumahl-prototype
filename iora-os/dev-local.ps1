@@ -695,6 +695,8 @@ incremental = false
     Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1" | Select-Object -Last 8
     Write-Info "Optimizing memory allocation for system resources..."
     Invoke-SSH "bash /home/iora/iora/iora-os/iora-optimize-memory.sh 2>&1" | Select-Object -Last 8
+    Write-Info "Configuring Global Config access and live logs..."
+    Invoke-SSH "bash /home/iora/iora/iora-os/iora-config-sync.sh 2>&1" | Select-Object -Last 8
 
     Invoke-SSH "mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned" | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
@@ -794,9 +796,21 @@ Write-Host ""
   |    Dashboard direct  http://localhost:$VM_HOME                            |
   |    Dev Bridge        http://localhost:$VM_BRIDGE/dev/health               |
   |    Swagger API       http://localhost:$VM_HOME/api/docs                   |
+  |    Global Config API http://localhost:$VM_HOME/api/settings               |
   |                                                                     |
   |  ACCESS                                                             |
   |    SSH               ssh -i $SSH_KEY -p $SshPort root@127.0.0.1
+  |                                                                     |
+  |  LOGS (100% IORA OS compatible)                                     |
+  |    All services      ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-* -f'
+  |    Specific service  ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-home -f'
+  |    Last 100 lines    ssh root@127.0.0.1 -p $SshPort './iora-dev-logs.sh'
+  |    Follow all logs   ssh root@127.0.0.1 -p $SshPort './iora-dev-logs.sh -f'
+  |                                                                     |
+  |  GLOBAL CONFIG                                                      |
+  |    Get setting       ssh root@127.0.0.1 -p $SshPort 'iora-get-config ha.url'
+  |    Service env       /etc/iora/service.env (auto-loaded)           |
+  |    Per-service env   /etc/iora/<service>.env (optional)            |
   |                                                                     |
   |  CONTROL                                                            |
   |    Status            .\dev-local.ps1 -Status                        |
