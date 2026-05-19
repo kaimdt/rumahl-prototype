@@ -6,6 +6,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "dev:full": "node ../scripts/dev/start-full.mjs",
         "dev:all": "node ../scripts/dev/iora-dev.mjs",
         "dev:start": "node ../scripts/dev/iora-dev.mjs start all",
         "dev:watch": "node ../scripts/dev/iora-dev.mjs start all --watch",

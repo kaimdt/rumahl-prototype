@@ -12,7 +12,32 @@ IORA supports multiple frontend development workflows:
 
 ## Quick Start
 
-### Method 1: Vite Dev Server (Fastest HMR)
+### Method 1: Automated Startup (Recommended) ⚡
+
+**One command to start both frontend and backend:**
+
+```bash
+cd frontend
+npm run dev:full
+```
+
+This automatically:
+- ✅ Starts Vite dev server (port 5173)
+- ✅ Starts iora-home backend (port 3001)
+- ✅ Sets `IORA_FRONTEND_DEV_URL` environment variable
+- ✅ Configures API proxy
+- ✅ Aggregates logs from both processes
+- ✅ Handles graceful shutdown with Ctrl+C
+
+Access at: `http://localhost:5173` (frontend with HMR)
+
+**Benefits:**
+- 🚀 One command, fully automated
+- 📊 Unified log output
+- 🔄 Proper environment configuration
+- 🎯 No manual terminal juggling
+
+### Method 2: Vite Dev Server (Fastest HMR)
 
 Start the Vite dev server directly for fastest hot reload:
 
@@ -32,7 +57,7 @@ Access at: `http://localhost:5173`
 - API calls proxy to backend (configurable in `vite.config.ts`)
 - Backend must be running separately
 
-### Method 2: Frontend Dev Proxy Mode (Integrated)
+### Method 3: Frontend Dev Proxy Mode (Manual Integration)
 
 Run backend with frontend dev proxy enabled:
 
@@ -59,7 +84,7 @@ Access at: `http://localhost:3001` or `http://localhost:8126`
 - Displays dev mode info page
 - Directs you to Vite dev server for HMR
 
-### Method 3: Dev All Services (Complete System)
+### Method 4: Dev All Services (Complete System)
 
 Use the integrated dev runner:
 
@@ -135,9 +160,13 @@ The backend automatically serves from `dist/` when:
 
 ### UI Development (Styling, Components)
 
-**Best: Method 1 (Pure Vite)**
+**Best: Method 1 (Automated) or Method 2 (Vite Only)**
 
 ```bash
+# Option A: Automated (recommended for most cases)
+npm run dev:full
+
+# Option B: Vite only (fastest for pure UI work)
 cd frontend
 npm run dev
 ```
@@ -148,10 +177,13 @@ npm run dev
 
 ### API Integration Testing
 
-**Best: Method 2 (Dev Proxy) or Method 3 (Dev All)**
+**Best: Method 1 (Automated) or Method 4 (Dev All)**
 
 ```bash
-# Start both frontend and backend
+# Option A: Automated frontend + backend
+npm run dev:full
+
+# Option B: All services
 npm run dev:all
 ```
 
@@ -161,7 +193,7 @@ npm run dev:all
 
 ### Full System Testing
 
-**Best: Method 3 (Dev All) or Production Build**
+**Best: Method 4 (Dev All) or Production Build**
 
 ```bash
 # Option A: Dev all services
