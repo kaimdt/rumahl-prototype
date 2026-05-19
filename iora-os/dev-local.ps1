@@ -68,10 +68,31 @@ function Write-Info    { param([string]$Msg) Write-Host "[*] $Msg" -ForegroundCo
 function Write-Success { param([string]$Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
 function Write-Warn    { param([string]$Msg) Write-Host "[!] $Msg" -ForegroundColor Yellow }
 function Write-Err     { param([string]$Msg) Write-Host "[X] $Msg" -ForegroundColor Red }
+function Write-Dim     { param([string]$Msg) Write-Host $Msg -ForegroundColor DarkGray }
 function Stop-WithError {
     param([string]$Msg)
     Write-Err $Msg
     exit 1
+}
+
+# ── Load Auto-Repair Module ────────────────────────────────────────────────
+$AUTO_REPAIR_MODULE = Join-Path $PSScriptRoot "lib\DevAutoRepair.psm1"
+if (Test-Path $AUTO_REPAIR_MODULE) {
+    Import-Module $AUTO_REPAIR_MODULE -ErrorAction SilentlyContinue
+    if (Get-Module DevAutoRepair) {
+        Write-Dim "Auto-repair enabled"
+    }
+} else {
+    # Define no-op fallbacks if module not found
+    function Test-PortConflict { return @{ InUse = $false } }
+    function Resolve-PortConflict { return 0 }
+    function Test-DiskSpace { return $true }
+    function Invoke-DiskCleanup { }
+    function Test-Dependencies { return @{ HasMissing = $false } }
+    function Install-MissingDependencies { }
+    function Start-HealthMonitor { }
+    function Stop-HealthMonitor { }
+    function Send-Notification { }
 }
 
 Write-Host ""
@@ -472,99 +493,129 @@ if (-not (Test-Path $SEED_ISO)) { New-SeedIso }
 & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
 & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
 
+# Pre-flight checks: disk space and dependencies
+if (Get-Command Test-DiskSpace -ErrorAction SilentlyContinue) {
+    if (-not (Test-DiskSpace -Path $CACHE -MinimumGB 5)) {
+        Write-Dim "Attempting automatic cache cleanup..."
+        Invoke-DiskCleanup -CacheDir $CACHE
+    }
+}
+
 $existingProc = Get-QemuPid
 if ($existingProc) {
     Write-Success "QEMU already running (PID $($existingProc.Id)) – attaching to existing VM."
     $qemuProc = $existingProc
 } else {
-    Write-Info "Starting QEMU..."
-
-    # Build the netdev hostfwd string
-    $fwd = "user,id=n0,hostfwd=tcp::${SshPort}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
-    foreach ($p in $FWD_PORTS) { $fwd += ",hostfwd=tcp::${p}-:${p}" }
-
-    $fwDrive = if ($fwIsFlash) {
-        @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
-    } else {
-        @("-bios", $FW)
+    # Intelligent port conflict resolution
+    if (Get-Command Test-PortConflict -ErrorAction SilentlyContinue) {
+        $portCheck = Test-PortConflict -Port $SshPort
+        if ($portCheck.InUse) {
+            Write-Dim "Port $SshPort appears to be in use - checking..."
+            $resolveResult = Resolve-PortConflict -Port $SshPort -ServiceName "IORA VM"
+            if ($resolveResult -eq 2) {
+                # Existing IORA VM found - reuse it
+                $existingProc = Get-QemuPid
+                if ($existingProc) {
+                    Write-Success "Reusing existing IORA VM"
+                    $qemuProc = $existingProc
+                }
+            } elseif ($resolveResult -ne 0) {
+                Stop-WithError "Port $SshPort could not be freed. Run with -Stop or pick a free port."
+            }
+        }
     }
 
-    $qemuArgs = @(
-        "-name", "IORA-Dev",
-        "-m", $VM_RAM,
-        "-smp", $VM_CPUS
-    ) + $fwDrive + @(
-        "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
-        "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
-        "-netdev", $fwd,
-        "-device", "e1000,netdev=n0",
-        "-device", "virtio-gpu",
-        "-machine", "${VM_MACHINE},accel=whpx",
-        "-serial", "file:$($CACHE)\qemu-serial.log",
-        "-display", "gtk,show-cursor=on"
-    )
+    # Only start QEMU if we didn't find an existing VM
+    if (-not $existingProc) {
+        Write-Info "Starting QEMU..."
 
-    if ($HOST_ARCH -eq "ARM64") {
-        $qemuArgs += @("-boot", "order=d,menu=off")
-    }
+        # Build the netdev hostfwd string
+        $fwd = "user,id=n0,hostfwd=tcp::${SshPort}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
+        foreach ($p in $FWD_PORTS) { $fwd += ",hostfwd=tcp::${p}-:${p}" }
 
-    function Start-Qemu {
-        param([string[]] $Args, [string] $Accel, [switch] $NoWindow)
-        Write-Info "QEMU ($Accel)"
-        if ($Foreground -or $NoWindow) {
-            $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -NoNewWindow -RedirectStandardError $QEMU_STDERR
+        $fwDrive = if ($fwIsFlash) {
+            @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
         } else {
-            $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -WindowStyle Minimized -RedirectStandardError $QEMU_STDERR
+            @("-bios", $FW)
         }
-        # Record PID for later
-        Set-Content -Path $QEMU_PIDFILE -Value $proc.Id -NoNewline -Encoding ASCII
-        return $proc
-    }
 
-    function Test-Alive {
-        param($Proc, [int] $WaitSec)
-        for ($i = 0; $i -lt $WaitSec; $i++) {
-            Start-Sleep -Seconds 1
-            if ($Proc.HasExited) { return $false }
-        }
-        return $true
-    }
-
-    # Try WHPX first unless explicitly skipped
-    $useWhpx = -not $SkipWhpx
-    $qemuAccel = "whpx"
-    if ($useWhpx) {
-        $qemuProc = Start-Qemu -Args $qemuArgs -Accel "WHPX"
-        if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
-            Write-Warn "WHPX failed; falling back to TCG."
-            if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
-            # WHPX can corrupt the overlay; recreate it
-            Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
-            & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
-            $useWhpx = $false
-        }
-    }
-
-    if (-not $useWhpx) {
-        $qemuAccel = "tcg"
-        $tcgRam  = [Math]::Max(4, [Math]::Min([int]($VM_RAM -replace 'G',''), 8))
-        $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 8))
-        $tcgArgs = @(
+        $qemuArgs = @(
             "-name", "IORA-Dev",
-            "-m", "${tcgRam}G",
-            "-smp", $tcgCpus,
-            "-machine", "${VM_MACHINE},accel=tcg",
-            "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
+            "-m", $VM_RAM,
+            "-smp", $VM_CPUS
+        ) + $fwDrive + @(
             "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
             "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
             "-netdev", $fwd,
             "-device", "e1000,netdev=n0",
+            "-device", "virtio-gpu",
+            "-machine", "${VM_MACHINE},accel=whpx",
             "-serial", "file:$($CACHE)\qemu-serial.log",
-            "-nographic"
+            "-display", "gtk,show-cursor=on"
         )
-        $qemuProc = Start-Qemu -Args $tcgArgs -Accel "TCG"
-        if (-not (Test-Alive -Proc $qemuProc -WaitSec 20)) {
-            Stop-WithError "QEMU/TCG also crashed. See $QEMU_STDERR"
+
+        if ($HOST_ARCH -eq "ARM64") {
+            $qemuArgs += @("-boot", "order=d,menu=off")
+        }
+
+        function Start-Qemu {
+            param([string[]] $Args, [string] $Accel, [switch] $NoWindow)
+            Write-Info "QEMU ($Accel)"
+            if ($Foreground -or $NoWindow) {
+                $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -NoNewWindow -RedirectStandardError $QEMU_STDERR
+            } else {
+                $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -WindowStyle Minimized -RedirectStandardError $QEMU_STDERR
+            }
+            # Record PID for later
+            Set-Content -Path $QEMU_PIDFILE -Value $proc.Id -NoNewline -Encoding ASCII
+            return $proc
+        }
+
+        function Test-Alive {
+            param($Proc, [int] $WaitSec)
+            for ($i = 0; $i -lt $WaitSec; $i++) {
+                Start-Sleep -Seconds 1
+                if ($Proc.HasExited) { return $false }
+            }
+            return $true
+        }
+
+        # Try WHPX first unless explicitly skipped
+        $useWhpx = -not $SkipWhpx
+        $qemuAccel = "whpx"
+        if ($useWhpx) {
+            $qemuProc = Start-Qemu -Args $qemuArgs -Accel "WHPX"
+            if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
+                Write-Warn "WHPX failed; falling back to TCG."
+                if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
+                # WHPX can corrupt the overlay; recreate it
+                Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
+                & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+                $useWhpx = $false
+            }
+        }
+
+        if (-not $useWhpx) {
+            $qemuAccel = "tcg"
+            $tcgRam  = [Math]::Max(4, [Math]::Min([int]($VM_RAM -replace 'G',''), 8))
+            $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 8))
+            $tcgArgs = @(
+                "-name", "IORA-Dev",
+                "-m", "${tcgRam}G",
+                "-smp", $tcgCpus,
+                "-machine", "${VM_MACHINE},accel=tcg",
+                "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
+                "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
+                "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
+                "-netdev", $fwd,
+                "-device", "e1000,netdev=n0",
+                "-serial", "file:$($CACHE)\qemu-serial.log",
+                "-nographic"
+            )
+            $qemuProc = Start-Qemu -Args $tcgArgs -Accel "TCG"
+            if (-not (Test-Alive -Proc $qemuProc -WaitSec 20)) {
+                Stop-WithError "QEMU/TCG also crashed. See $QEMU_STDERR"
+            }
         }
     }
 }
@@ -783,6 +834,15 @@ if (-not $NoWatch) {
     }
 }
 
+# ── Step 11: Start background health monitor ───────────────────────────────
+$HEALTH_MONITOR_LOG = Join-Path $CACHE "health-monitor.log"
+$HEALTH_MONITOR_PID = Join-Path $CACHE "health-monitor.pid"
+
+if (Get-Command Start-HealthMonitor -ErrorAction SilentlyContinue) {
+    Start-HealthMonitor -VMHost "127.0.0.1" -VMPort $SshPort -SSHKey $SSH_KEY `
+        -LogFile $HEALTH_MONITOR_LOG -PIDFile $HEALTH_MONITOR_PID
+}
+
 # ── Banner ─────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Success "IORA Dev VM ready!"
@@ -800,6 +860,11 @@ Write-Host ""
   |                                                                     |
   |  ACCESS                                                             |
   |    SSH               ssh -i $SSH_KEY -p $SshPort root@127.0.0.1
+  |                                                                     |
+  |  CO-BUDDY FEATURES                                                  |
+  |    Auto-repair       Port conflicts, disk space, dependencies       |
+  |    Health Monitor    Background monitoring (logs: health-monitor.log)|
+  |    Smart Recovery    Auto-restart failed services                   |
   |                                                                     |
   |  LOGS (100% IORA OS compatible)                                     |
   |    All services      ssh root@127.0.0.1 -p $SshPort 'journalctl -u iora-* -f'
@@ -821,8 +886,14 @@ Write-Host ""
   |  Logs                                                               |
   |    Setup log         $LOG_FILE
   |    QEMU stderr       $QEMU_STDERR
+  |    Health monitor    $HEALTH_MONITOR_LOG
   +====================================================================+
 "@ | Write-Host -ForegroundColor Green
+
+# Send desktop notification
+if (Get-Command Send-Notification -ErrorAction SilentlyContinue) {
+    Send-Notification -Title "IORA Dev VM Ready" -Message "Dashboard available at http://localhost:$VM_HOME" -Urgency "Normal"
+}
 
 try { Stop-Transcript | Out-Null } catch {}
 
