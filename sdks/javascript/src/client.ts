@@ -144,7 +144,23 @@ export default class IoraClient {
   private onError?: (error: IoraError) => void;
   private circuitBreaker: CircuitBreaker;
 
-  constructor(config: IoraClientConfig = {}) {
+  constructor(config: IoraClientConfig = {});
+  constructor(baseUrl: string, apiKey?: string);
+  constructor(configOrBaseUrl?: IoraClientConfig | string, legacyApiKey?: string) {
+    // Support both new and legacy constructor signatures
+    let config: IoraClientConfig;
+
+    if (typeof configOrBaseUrl === 'string') {
+      // Legacy signature: new IoraClient(baseUrl, apiKey)
+      config = {
+        baseUrl: configOrBaseUrl,
+        apiKey: legacyApiKey
+      };
+    } else {
+      // New signature: new IoraClient(config)
+      config = configOrBaseUrl || {};
+    }
+
     this.baseUrl = (config.baseUrl || 'http://localhost:8080').replace(/\/$/, '');
     this.apiKey = config.apiKey;
     this.defaultTimeout = config.defaultTimeout || 30000; // 30 seconds
