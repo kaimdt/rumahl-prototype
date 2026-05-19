@@ -28,14 +28,34 @@ set -uo pipefail
 #    `log` was called before this point) ────────────────────────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     R=$'\033[0;31m'; G=$'\033[0;32m'; Y=$'\033[1;33m'; C=$'\033[0;36m'; B=$'\033[1m'; N=$'\033[0m'
+    D=$'\033[2m'  # Dim/gray for non-intrusive messages
 else
-    R=''; G=''; Y=''; C=''; B=''; N=''
+    R=''; G=''; Y=''; C=''; B=''; N=''; D=''
 fi
 log()  { printf '%s[*]%s %s\n' "$C" "$N" "$*"; }
 ok()   { printf '%s[+]%s %s\n' "$G" "$N" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$Y" "$N" "$*" >&2; }
 err()  { printf '%s[X]%s %s\n' "$R" "$N" "$*" >&2; }
+dim()  { printf '%s%s%s\n' "$D" "$*" "$N"; }
 die()  { err "$*"; exit 1; }
+
+# ── Load Auto-Repair Library ───────────────────────────────────────────────
+SCRIPT_DIR_TEMP="$(cd "$(dirname "$0")" && pwd)"
+AUTO_REPAIR_LIB="$SCRIPT_DIR_TEMP/lib/dev-auto-repair.sh"
+if [ -f "$AUTO_REPAIR_LIB" ]; then
+    source "$AUTO_REPAIR_LIB"
+    dim "Auto-repair enabled"
+else
+    # Define no-op fallbacks if library not found
+    auto_resolve_port_conflict() { return 0; }
+    detect_low_disk_space() { return 0; }
+    auto_clean_disk_space() { :; }
+    detect_missing_deps() { return 0; }
+    auto_install_deps() { :; }
+    start_health_monitor() { :; }
+    stop_health_monitor() { :; }
+    send_notification() { :; }
+fi
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -305,8 +325,20 @@ if $CLEAN; then
     exit 0
 fi
 
-# ── Sanity: required host tools ────────────────────────────────────────────
+# ── Sanity: required host tools (with auto-install) ────────────────────────
+log "Checking dependencies..."
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1 ($2)"; }
+
+# First, try auto-detection and auto-install
+if command -v detect_missing_deps >/dev/null 2>&1; then
+    missing_deps=$(detect_missing_deps 2>/dev/null || echo "")
+    if [ -n "$missing_deps" ]; then
+        log "Auto-installing missing dependencies: $missing_deps"
+        auto_install_deps $missing_deps || warn "Some dependencies could not be auto-installed"
+    fi
+fi
+
+# Then verify critical tools
 need_cmd "$QEMU_BIN" "Install QEMU (brew install qemu  /  apt install qemu-system-${HOST_ARCH%_*})"
 need_cmd qemu-img   "Comes with QEMU"
 need_cmd curl       "Install curl"
@@ -314,6 +346,7 @@ need_cmd ssh        "Install openssh-client"
 need_cmd ssh-keygen "Install openssh-client"
 need_cmd scp        "Install openssh-client"
 need_cmd rsync      "Install rsync"
+ok "All dependencies available"
 
 # ── Accelerator + display selection (platform-aware) ───────────────────────
 choose_accel() {
@@ -485,69 +518,94 @@ fi
 # ── Step 4: Start QEMU (only if not already running) ───────────────────────
 ssh_known_clear
 
+# Pre-flight checks: disk space and resources
+if command -v detect_low_disk_space >/dev/null 2>&1; then
+    if ! detect_low_disk_space "$CACHE" 5; then
+        dim "Attempting automatic cache cleanup..."
+        auto_clean_disk_space "$CACHE"
+    fi
+fi
+
 EXISTING_PID=$(vm_pid)
 if [ -n "$EXISTING_PID" ]; then
     ok "QEMU already running (PID $EXISTING_PID) – attaching to existing VM."
     QEMU_CHILD_PID=""  # don't kill someone else's process
 else
-    # If the SSH port is in use by something else, bail out clearly.
+    # Intelligent port conflict resolution
     if port_in_use "$VM_SSH"; then
-        die "Port $VM_SSH is in use by another process. Run './dev-local.sh --stop' or pick a free port."
-    fi
-
-    log "Starting QEMU ($QEMU_BIN, $ACCEL)..."
-
-    NETDEV="user,id=n0,hostfwd=tcp::${VM_SSH}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
-    for p in "${FWD_PORTS[@]}"; do
-        NETDEV="${NETDEV},hostfwd=tcp::${p}-:${p}"
-    done
-
-    QEMU_ARGS=(
-        -name "IORA-Dev"
-        -m "$VM_RAM" -smp "$VM_CPUS"
-        -cpu "$QEMU_CPU"
-        -machine "${QEMU_MACHINE},accel=${ACCEL}"
-        -drive "file=$VM_DISK,format=qcow2,if=virtio"
-        -drive "file=$SEED_ISO,format=raw,media=cdrom"
-        -netdev "$NETDEV"
-        -device virtio-gpu
-        -display "$DISPLAY_OPT"
-        -serial "file:$CACHE/qemu-serial.log"
-        -monitor "unix:$QEMU_MONITOR,server,nowait"
-        -pidfile "$QEMU_PIDFILE"
-    )
-
-    # arm64 needs a virtio-net-device variant and UEFI firmware
-    if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-        QEMU_ARGS+=(-device "virtio-net-device,netdev=n0")
-        FW="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
-        if [ ! -f "$FW" ]; then
-            FW=$(find /opt/homebrew /usr/share/qemu /usr/share/edk2 -name "edk2-aarch64-code.fd" 2>/dev/null | head -1)
+        dim "Port $VM_SSH appears to be in use - checking..."
+        if command -v auto_resolve_port_conflict >/dev/null 2>&1; then
+            auto_resolve_port_conflict "$VM_SSH" "IORA VM"
+            resolve_result=$?
+            if [ $resolve_result -eq 2 ]; then
+                # Existing IORA VM found - reuse it
+                EXISTING_PID=$(vm_pid)
+                ok "Reusing existing IORA VM"
+                QEMU_CHILD_PID=""
+            elif [ $resolve_result -ne 0 ]; then
+                die "Port $VM_SSH could not be freed. Run './dev-local.sh --stop' or pick a free port."
+            fi
+        else
+            die "Port $VM_SSH is in use by another process. Run './dev-local.sh --stop' or pick a free port."
         fi
-        [ -n "$FW" ] && [ -f "$FW" ] && QEMU_ARGS+=(-bios "$FW")
-        QEMU_ARGS+=(-boot order=d,menu=off)
-    else
-        QEMU_ARGS+=(-device "virtio-net-pci,netdev=n0")
     fi
 
-    # Detach unless --foreground requested
-    if $FOREGROUND; then
-        "$QEMU_BIN" "${QEMU_ARGS[@]}" &
-        QEMU_CHILD_PID=$!
-        log "QEMU PID: $QEMU_CHILD_PID (foreground mode)"
-    else
-        nohup "$QEMU_BIN" "${QEMU_ARGS[@]}" </dev/null >>"$CACHE/qemu-stdout.log" 2>>"$CACHE/qemu-stderr.log" &
-        QEMU_CHILD_PID=$!
-        disown "$QEMU_CHILD_PID" 2>/dev/null || true
-        log "QEMU PID: $QEMU_CHILD_PID (detached)"
-    fi
+    # Only start QEMU if we didn't find an existing VM
+    if [ -z "$EXISTING_PID" ]; then
+        log "Starting QEMU ($QEMU_BIN, $ACCEL)..."
 
-    # Quick liveness check
-    sleep 4
-    if ! kill -0 "$QEMU_CHILD_PID" 2>/dev/null; then
-        err "QEMU died immediately. Last 20 lines of stderr:"
-        tail -20 "$CACHE/qemu-stderr.log" 2>/dev/null >&2 || true
-        die "Check accelerator (currently '$ACCEL'). Set IORA_DEV_ACCEL=tcg to force software emulation."
+        NETDEV="user,id=n0,hostfwd=tcp::${VM_SSH}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
+        for p in "${FWD_PORTS[@]}"; do
+            NETDEV="${NETDEV},hostfwd=tcp::${p}-:${p}"
+        done
+
+        QEMU_ARGS=(
+            -name "IORA-Dev"
+            -m "$VM_RAM" -smp "$VM_CPUS"
+            -cpu "$QEMU_CPU"
+            -machine "${QEMU_MACHINE},accel=${ACCEL}"
+            -drive "file=$VM_DISK,format=qcow2,if=virtio"
+            -drive "file=$SEED_ISO,format=raw,media=cdrom"
+            -netdev "$NETDEV"
+            -device virtio-gpu
+            -display "$DISPLAY_OPT"
+            -serial "file:$CACHE/qemu-serial.log"
+            -monitor "unix:$QEMU_MONITOR,server,nowait"
+            -pidfile "$QEMU_PIDFILE"
+        )
+
+        # arm64 needs a virtio-net-device variant and UEFI firmware
+        if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
+            QEMU_ARGS+=(-device "virtio-net-device,netdev=n0")
+            FW="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
+            if [ ! -f "$FW" ]; then
+                FW=$(find /opt/homebrew /usr/share/qemu /usr/share/edk2 -name "edk2-aarch64-code.fd" 2>/dev/null | head -1)
+            fi
+            [ -n "$FW" ] && [ -f "$FW" ] && QEMU_ARGS+=(-bios "$FW")
+            QEMU_ARGS+=(-boot order=d,menu=off)
+        else
+            QEMU_ARGS+=(-device "virtio-net-pci,netdev=n0")
+        fi
+
+        # Detach unless --foreground requested
+        if $FOREGROUND; then
+            "$QEMU_BIN" "${QEMU_ARGS[@]}" &
+            QEMU_CHILD_PID=$!
+            log "QEMU PID: $QEMU_CHILD_PID (foreground mode)"
+        else
+            nohup "$QEMU_BIN" "${QEMU_ARGS[@]}" </dev/null >>"$CACHE/qemu-stdout.log" 2>>"$CACHE/qemu-stderr.log" &
+            QEMU_CHILD_PID=$!
+            disown "$QEMU_CHILD_PID" 2>/dev/null || true
+            log "QEMU PID: $QEMU_CHILD_PID (detached)"
+        fi
+
+        # Quick liveness check
+        sleep 4
+        if ! kill -0 "$QEMU_CHILD_PID" 2>/dev/null; then
+            err "QEMU died immediately. Last 20 lines of stderr:"
+            tail -20 "$CACHE/qemu-stderr.log" 2>/dev/null >&2 || true
+            die "Check accelerator (currently '$ACCEL'). Set IORA_DEV_ACCEL=tcg to force software emulation."
+        fi
     fi
 fi
 
@@ -867,6 +925,14 @@ if ! $NO_WATCH; then
     fi
 fi
 
+# ── Step 11: Start background health monitor ───────────────────────────────
+HEALTH_MONITOR_LOG="$CACHE/health-monitor.log"
+HEALTH_MONITOR_PID="$CACHE/health-monitor.pid"
+
+if command -v start_health_monitor >/dev/null 2>&1; then
+    start_health_monitor "127.0.0.1" "$VM_SSH" "$SSH_KEY" "$HEALTH_MONITOR_LOG" "$HEALTH_MONITOR_PID"
+fi
+
 # ── Banner ─────────────────────────────────────────────────────────────────
 echo
 cat <<EOF
@@ -888,13 +954,24 @@ cat <<EOF
   |    Reprovision       ./dev-local.sh --reprovision                   |
   |    Full reset        ./dev-local.sh --clean                         |
   |                                                                     |
+  |  CO-BUDDY FEATURES                                                  |
+  |    Auto-repair       Port conflicts, disk space, dependencies       |
+  |    Health Monitor    Background monitoring (logs: health-monitor.log)|
+  |    Smart Recovery    Auto-restart failed services                   |
+  |                                                                     |
   |  Logs                                                               |
   |    Setup log         ${LOG_FILE}
   |    QEMU serial       ${CACHE}/qemu-serial.log
   |    QEMU stderr       ${CACHE}/qemu-stderr.log
+  |    Health monitor    ${HEALTH_MONITOR_LOG}
   +====================================================================+
 EOF
 echo
+
+# Send desktop notification
+if command -v send_notification >/dev/null 2>&1; then
+    send_notification "IORA Dev VM Ready" "Dashboard available at http://localhost:${VM_HOME}" "normal"
+fi
 
 if $FOREGROUND; then
     log "Foreground mode – Ctrl+C to stop the VM."
