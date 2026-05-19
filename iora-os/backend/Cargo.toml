@@ -52,6 +52,7 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+incremental = false
 
 # Fast release profile – production-safe but ~3-5× faster to compile.
 #   lto = false          → no fat link-time optimisation (biggest speed win)
@@ -65,3 +66,21 @@ opt-level = 2
 lto = false
 codegen-units = 16
 incremental = true
+strip = true
+
+# Development profile optimized for fast compilation
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+codegen-units = 256
+
+# Fast dev profile – quicker iteration than dev, faster runtime than dev
+#   opt-level = 1        → minimal optimizations for better performance
+#   incremental = true   → faster rebuilds
+#   codegen-units = 64   → balance between compile speed and optimization
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 1
+incremental = true
+codegen-units = 64

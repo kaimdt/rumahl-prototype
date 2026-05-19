@@ -54,7 +54,9 @@ User=root
 WorkingDirectory=${datadir}
 ExecStart=${binary}
 Restart=always
-RestartSec=5
+RestartSec=2
+StartLimitBurst=5
+StartLimitIntervalSec=30
 ${port:+Environment=PORT=${port}}
 StandardOutput=journal
 StandardError=journal

@@ -297,9 +297,9 @@ mkdir -p /etc/systemd/system/docker.service.d
 cat > /etc/systemd/system/docker.service.d/override.conf <<'EOF'
 [Service]
 Restart=always
-RestartSec=5
-StartLimitBurst=10
-StartLimitIntervalSec=60
+RestartSec=2
+StartLimitBurst=5
+StartLimitIntervalSec=30
 LimitNOFILE=1048576
 LimitNPROC=1048576
 EOF
@@ -317,7 +317,7 @@ log "Setting up DHCP conflict guard..."
 
 cat > /usr/lib/iora/iora-dhcp-conflict-guard.sh <<'DHCPGUARDEOF'
 #!/bin/sh
-# IORA OS DHCP Conflict Guard
+# IORA OS DHCP Conflict Guard (Optimized with parallel checks)
 #
 # Validates that the IPv4 address on each physical interface is not
 # conflicting with another host on the LAN. Uses arping for Duplicate
@@ -328,10 +328,18 @@ set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 LOG_TAG="iora-dhcp-conflict-guard"
 RETRIES=2
+TMP_DIR="/tmp/iora-dhcp-check-$$"
 
 log() {
     logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*"
 }
+
+cleanup() {
+    rm -rf "$TMP_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+mkdir -p "$TMP_DIR"
 
 renew_iface() {
     iface="$1"
@@ -341,34 +349,38 @@ renew_iface() {
         || true
 }
 
-for iface_path in /sys/class/net/*; do
-    iface=$(basename "$iface_path")
+# Check a single interface (for parallel execution)
+check_iface() {
+    iface="$1"
+    result_file="$TMP_DIR/$iface.result"
 
     # Skip virtual / container interfaces
     case "$iface" in
         lo|docker*|br-*|veth*|vnet*|virbr*|tun*|tap*|bond*|sit*)
-            continue ;;
+            echo "skip_virtual" > "$result_file"
+            return ;;
     esac
 
     # Only physical interfaces have a "device" symlink.
-    [ -d "/sys/class/net/$iface/device" ] || continue
+    [ -d "/sys/class/net/$iface/device" ] || { echo "skip_notphysical" > "$result_file"; return; }
 
     ifindex=$(cat "/sys/class/net/$iface/ifindex" 2>/dev/null || echo "")
-    [ -n "$ifindex" ] || continue
+    [ -n "$ifindex" ] || { echo "skip_noindex" > "$result_file"; return; }
 
     # Get the current IPv4 address.
     addr_info=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | head -1)
     addr="${addr_info%%/*}"
-    [ -n "$addr" ] || continue
+    [ -n "$addr" ] || { echo "skip_noaddr" > "$result_file"; return; }
 
     # Skip Docker bridge range IPs
     case "$addr" in 172.17.*|172.18.*|172.19.*)
         log "Skipping $iface: $addr is in Docker bridge range"
-        continue ;;
+        echo "skip_docker" > "$result_file"
+        return ;;
     esac
 
     # Skip if no DHCP lease was assigned
-    [ -f "/run/systemd/netif/leases/$ifindex" ] || continue
+    [ -f "/run/systemd/netif/leases/$ifindex" ] || { echo "skip_nolease" > "$result_file"; return; }
 
     log "Checking $iface ($addr) for DHCP conflicts..."
 
@@ -376,7 +388,8 @@ for iface_path in /sys/class/net/*; do
     while [ "$attempt" -le "$RETRIES" ]; do
         if arping -D -q -c 1 -w 2 -I "$iface" -S "$addr" "$addr" >/dev/null 2>&1; then
             log "$iface: no conflict detected for $addr"
-            break
+            echo "ok" > "$result_file"
+            return
         fi
 
         if ping -c 1 -W 1 "$addr" >/dev/null 2>&1; then
@@ -384,7 +397,8 @@ for iface_path in /sys/class/net/*; do
             reply_mac=$(arping -c 1 -w 2 -I "$iface" "$addr" 2>/dev/null | grep -oE '([0-9a-f]{2}:){5}[0-9a-f]{2}' | head -1)
             if [ "$reply_mac" = "$self_mac" ] && [ -n "$self_mac" ]; then
                 log "$iface: response is from ourselves ($self_mac) — no conflict"
-                break
+                echo "ok_self" > "$result_file"
+                return
             fi
 
             log "WARNING: Possible DHCP conflict on $iface ($addr) — attempt $attempt/$RETRIES"
@@ -395,11 +409,12 @@ for iface_path in /sys/class/net/*; do
                 sleep 3
                 addr_info=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | head -1)
                 addr="${addr_info%%/*}"
-                [ -n "$addr" ] || break
+                [ -n "$addr" ] || { echo "conflict_nolease" > "$result_file"; return; }
             fi
         else
             log "$iface: no host responds to ping on $addr — no conflict"
-            break
+            echo "ok_noping" > "$result_file"
+            return
         fi
         attempt=$((attempt + 1))
     done
@@ -407,8 +422,29 @@ for iface_path in /sys/class/net/*; do
     final_addr=$(ip -o -4 addr show dev "$iface" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     if [ -n "$final_addr" ]; then
         log "$iface: lease validated at $final_addr"
+        echo "ok_validated" > "$result_file"
+    else
+        echo "conflict_failed" > "$result_file"
     fi
+}
+
+# Collect all interfaces
+interfaces=""
+for iface_path in /sys/class/net/*; do
+    iface=$(basename "$iface_path")
+    interfaces="$interfaces $iface"
 done
+
+# Run checks in parallel (background jobs)
+for iface in $interfaces; do
+    check_iface "$iface" &
+done
+
+# Wait for all checks to complete
+wait
+
+# Collect results
+log "All interface checks completed"
 
 exit 0
 DHCPGUARDEOF

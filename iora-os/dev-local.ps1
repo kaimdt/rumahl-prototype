@@ -169,7 +169,15 @@ if ($CpuCount -eq 0) {
     $VM_CPUS = $CpuCount
 }
 $vmRamNum = [int]($VM_RAM -replace 'G', '')
-$CARGO_JOBS = [Math]::Max(1, [Math]::Min($VM_CPUS, [Math]::Floor($vmRamNum / 2.5)))
+
+# Optimized cargo job calculation:
+# - Each job needs ~2GB RAM (conservative estimate)
+# - Leave at least 2 CPU cores for the system
+# - Cap at physical CPU count for best performance
+$cargoJobsByRam = [Math]::Floor($vmRamNum / 2)
+$cargoJobsByCpu = [Math]::Max(1, $VM_CPUS - 2)
+$CARGO_JOBS = [Math]::Min($cargoJobsByRam, $cargoJobsByCpu)
+$CARGO_JOBS = [Math]::Max(1, [Math]::Min($CARGO_JOBS, $VM_CPUS))
 
 Write-Info "Host: ${hostRamGB}GB RAM, ${HOST_CPUS} CPUs ($HOST_ARCH)"
 Write-Info "VM:   $VM_RAM RAM, $VM_CPUS CPUs, cargo -j$CARGO_JOBS"
@@ -647,7 +655,7 @@ mkdir -p /etc/iora && touch /etc/iora/os-dev-mode
     Write-Info "Installing Rust toolchain (for in-VM cargo)..."
     Invoke-SSH "su - iora -c 'test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1" | Select-Object -Last 5
 
-    Write-Info "Configuring Cargo (mold + sparse registry)..."
+    Write-Info "Configuring Cargo (mold + sparse registry + incremental builds)..."
     $cargoCfg = @"
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
@@ -658,9 +666,19 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 [registries.crates-io]
 protocol = "sparse"
 
+[build]
+incremental = true
+jobs = $CARGO_JOBS
+
 [net]
 retry = 2
 git-fetch-with-cli = true
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+incremental = false
 "@
     $cargoCfgPath = Join-Path $CACHE "cargo-config.toml"
     Set-Content -Path $cargoCfgPath -Value $cargoCfg -NoNewline -Encoding ASCII
@@ -675,6 +693,8 @@ git-fetch-with-cli = true
     Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | Select-Object -Last 8
     Write-Info "Applying IORA OS improvements..."
     Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1" | Select-Object -Last 8
+    Write-Info "Optimizing memory allocation for system resources..."
+    Invoke-SSH "bash /home/iora/iora/iora-os/iora-optimize-memory.sh 2>&1" | Select-Object -Last 8
 
     Invoke-SSH "mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned" | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline

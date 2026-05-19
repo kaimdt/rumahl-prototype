@@ -106,12 +106,12 @@ EOF
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. PostgreSQL Hardening - ExecStartPre für /var/lib/pgsql
+# 2. PostgreSQL Performance Tuning + Hardening
 # ═══════════════════════════════════════════════════════════════════════════════
 if [ -d /etc/systemd/system/postgresql.service.d ]; then
-    log "PostgreSQL hardening already configured"
+    log "PostgreSQL service override already configured"
 else
-    log "Configuring PostgreSQL hardening..."
+    log "Configuring PostgreSQL performance tuning + hardening..."
     mkdir -p /etc/systemd/system/postgresql.service.d
     cat > /etc/systemd/system/postgresql.service.d/20-iora-init.conf <<EOF
 [Service]
@@ -119,13 +119,99 @@ ExecStartPre=+/bin/sh -c 'mkdir -p /var/lib/pgsql && chown postgres:postgres /va
 ExecStartPre=/bin/sh -c 'if [ ! -f /var/lib/pgsql/PG_VERSION ]; then /usr/bin/pg_ctl initdb -D /var/lib/pgsql -o "--locale=C --encoding=UTF8"; fi'
 Environment=LANG=C LC_ALL=C
 Restart=on-failure
-RestartSec=10
-TimeoutStartSec=300
+RestartSec=5
+TimeoutStartSec=120
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Unit]
 OnFailure=
 EOF
-    log "PostgreSQL hardening configured"
+    log "PostgreSQL service override configured"
+fi
+
+# PostgreSQL performance tuning configuration
+if [ -d /var/lib/pgsql ] && command -v postgres >/dev/null 2>&1; then
+    log "Applying PostgreSQL performance tuning..."
+
+    # Calculate optimal settings based on available RAM
+    TOTAL_RAM_MB=$(awk '/MemTotal/{printf "%.0f", $2/1024}' /proc/meminfo 2>/dev/null || echo "4096")
+    SHARED_BUFFERS=$((TOTAL_RAM_MB / 4))   # 25% of RAM
+    EFFECTIVE_CACHE=$((TOTAL_RAM_MB / 2))  # 50% of RAM
+    WORK_MEM=$((TOTAL_RAM_MB / 64))        # RAM / 64 per connection
+    MAINTENANCE_WORK_MEM=$((TOTAL_RAM_MB / 16))  # RAM / 16
+
+    # Cap values for sanity
+    [ $SHARED_BUFFERS -gt 2048 ] && SHARED_BUFFERS=2048
+    [ $WORK_MEM -lt 4 ] && WORK_MEM=4
+    [ $WORK_MEM -gt 64 ] && WORK_MEM=64
+    [ $MAINTENANCE_WORK_MEM -lt 64 ] && MAINTENANCE_WORK_MEM=64
+    [ $MAINTENANCE_WORK_MEM -gt 512 ] && MAINTENANCE_WORK_MEM=512
+
+    cat > /etc/postgresql/postgresql.conf.d/99-iora-performance.conf <<EOF
+# IORA OS PostgreSQL Performance Tuning
+# Auto-generated based on ${TOTAL_RAM_MB}MB system RAM
+
+# Memory Settings
+shared_buffers = ${SHARED_BUFFERS}MB
+effective_cache_size = ${EFFECTIVE_CACHE}MB
+work_mem = ${WORK_MEM}MB
+maintenance_work_mem = ${MAINTENANCE_WORK_MEM}MB
+
+# Connection Settings
+max_connections = 100
+superuser_reserved_connections = 3
+
+# Write Performance
+wal_buffers = 16MB
+checkpoint_completion_target = 0.9
+checkpoint_timeout = 15min
+max_wal_size = 1GB
+min_wal_size = 256MB
+
+# Query Planning
+random_page_cost = 1.1
+effective_io_concurrency = 200
+default_statistics_target = 100
+
+# Logging (minimal for performance)
+log_destination = 'stderr'
+logging_collector = on
+log_directory = '/var/log/postgresql'
+log_filename = 'postgresql-%a.log'
+log_truncate_on_rotation = on
+log_rotation_age = 1d
+log_rotation_size = 0
+log_min_duration_statement = 1000
+log_line_prefix = '%t [%p] %u@%d '
+log_autovacuum_min_duration = 0
+
+# Autovacuum
+autovacuum = on
+autovacuum_max_workers = 3
+autovacuum_naptime = 1min
+
+# Lock Management
+deadlock_timeout = 1s
+
+# Performance
+synchronous_commit = off  # Dev mode - faster writes
+fsync = on                # Keep fsync for data safety
+
+# Client Connection
+listen_addresses = 'localhost'
+unix_socket_directories = '/var/run/postgresql'
+EOF
+
+    # Ensure the conf.d directory is included
+    if ! grep -q "include_dir = 'postgresql.conf.d'" /etc/postgresql/postgresql.conf 2>/dev/null; then
+        mkdir -p /etc/postgresql/postgresql.conf.d
+        echo "include_dir = 'postgresql.conf.d'" >> /etc/postgresql/postgresql.conf 2>/dev/null || true
+    fi
+
+    log "PostgreSQL performance tuning configured (${SHARED_BUFFERS}MB shared_buffers, ${WORK_MEM}MB work_mem)"
+else
+    log "PostgreSQL not installed or data dir missing, skipping performance tuning"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -215,6 +301,18 @@ exit 0
 EOF
     chmod 755 /usr/lib/iora/iora-db-init-improved
     log "Improved iora-db-init script created"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. Dynamic Memory Optimization
+# ═══════════════════════════════════════════════════════════════════════════════
+log "Applying dynamic memory optimization..."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/iora-optimize-memory.sh" ]; then
+    bash "$SCRIPT_DIR/iora-optimize-memory.sh"
+else
+    warn "iora-optimize-memory.sh not found, skipping memory optimization"
 fi
 
 log "All improvements applied!"
