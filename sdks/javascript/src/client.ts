@@ -12,18 +12,146 @@ import type {
 } from './types';
 
 /**
+ * Request options for fine-grained control
+ */
+export interface RequestOptions {
+  timeout?: number;
+  retries?: number;
+  retryDelay?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Client configuration
+ */
+export interface IoraClientConfig {
+  baseUrl?: string;
+  apiKey?: string;
+  defaultTimeout?: number;
+  defaultRetries?: number;
+  retryDelay?: number;
+  onError?: (error: IoraError) => void;
+}
+
+/**
+ * Enhanced error class with context
+ */
+export class IoraError extends Error {
+  constructor(
+    message: string,
+    public statusCode?: number,
+    public path?: string,
+    public method?: string,
+    public retryable: boolean = false,
+    public context?: any
+  ) {
+    super(message);
+    this.name = 'IoraError';
+  }
+
+  /**
+   * Check if this error is retryable
+   */
+  isRetryable(): boolean {
+    return this.retryable || (this.statusCode !== undefined && [408, 429, 500, 502, 503, 504].includes(this.statusCode));
+  }
+}
+
+/**
+ * Circuit Breaker pattern implementation
+ * Prevents cascading failures by temporarily stopping requests to failing services
+ */
+class CircuitBreaker {
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+  private failureCount: number = 0;
+  private successCount: number = 0;
+  private lastFailureTime: number = 0;
+  private readonly failureThreshold: number = 5;
+  private readonly successThreshold: number = 2;
+  private readonly timeout: number = 60000; // 60 seconds
+
+  canAttempt(): boolean {
+    if (this.state === 'CLOSED') {
+      return true;
+    }
+
+    if (this.state === 'OPEN') {
+      // Check if timeout has elapsed
+      if (Date.now() - this.lastFailureTime >= this.timeout) {
+        this.state = 'HALF_OPEN';
+        this.successCount = 0;
+        return true;
+      }
+      return false;
+    }
+
+    // HALF_OPEN state
+    return true;
+  }
+
+  recordSuccess(): void {
+    if (this.state === 'HALF_OPEN') {
+      this.successCount++;
+      if (this.successCount >= this.successThreshold) {
+        this.state = 'CLOSED';
+        this.failureCount = 0;
+      }
+    } else if (this.state === 'CLOSED') {
+      this.failureCount = 0;
+    }
+  }
+
+  recordFailure(): void {
+    this.lastFailureTime = Date.now();
+    this.failureCount++;
+
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      this.successCount = 0;
+    } else if (this.state === 'CLOSED' && this.failureCount >= this.failureThreshold) {
+      this.state = 'OPEN';
+    }
+  }
+
+  getState(): string {
+    return this.state;
+  }
+
+  reset(): void {
+    this.state = 'CLOSED';
+    this.failureCount = 0;
+    this.successCount = 0;
+    this.lastFailureTime = 0;
+  }
+}
+
+/**
  * IORA API Client
  *
- * HTTP client for interacting with IORA APIs
+ * Robust HTTP client for interacting with IORA APIs with:
+ * - Automatic retry with exponential backoff
+ * - Request timeouts
+ * - Circuit breaker pattern
+ * - Detailed error handling
  */
 export default class IoraClient {
   private baseUrl: string;
   private apiKey?: string;
   private appId?: string;
+  private defaultTimeout: number;
+  private defaultRetries: number;
+  private retryDelay: number;
+  private onError?: (error: IoraError) => void;
+  private circuitBreaker: CircuitBreaker;
 
-  constructor(baseUrl: string = 'http://localhost:8080', apiKey?: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
-    this.apiKey = apiKey;
+  constructor(config: IoraClientConfig = {}) {
+    this.baseUrl = (config.baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+    this.apiKey = config.apiKey;
+    this.defaultTimeout = config.defaultTimeout || 30000; // 30 seconds
+    this.defaultRetries = config.defaultRetries ?? 3;
+    this.retryDelay = config.retryDelay || 1000; // 1 second base delay
+    this.onError = config.onError;
+    this.circuitBreaker = new CircuitBreaker();
   }
 
   /**
@@ -37,42 +165,204 @@ export default class IoraClient {
    * Set the app ID (used for app-specific API calls)
    */
   setAppId(appId: string): void {
+    if (!appId || typeof appId !== 'string') {
+      throw new IoraError('Invalid app ID provided', undefined, undefined, undefined, false);
+    }
     this.appId = appId;
   }
 
   /**
-   * Make an authenticated request
+   * Get current app ID
+   */
+  getAppId(): string | undefined {
+    return this.appId;
+  }
+
+  /**
+   * Make an authenticated request with retry logic and timeout
    */
   private async request<T>(
     method: string,
     path: string,
-    body?: any
+    body?: any,
+    options: RequestOptions = {}
   ): Promise<T> {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    // Validate inputs
+    if (!path || typeof path !== 'string') {
+      throw new IoraError('Invalid request path', undefined, path, method, false);
     }
 
-    const options: RequestInit = {
+    const timeout = options.timeout ?? this.defaultTimeout;
+    const maxRetries = options.retries ?? this.defaultRetries;
+
+    // Check circuit breaker
+    if (!this.circuitBreaker.canAttempt()) {
+      throw new IoraError(
+        'Circuit breaker is open. Service may be unavailable.',
+        503,
+        path,
+        method,
+        true
+      );
+    }
+
+    let lastError: IoraError | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await this.executeRequest<T>(method, path, body, timeout, options.signal);
+        this.circuitBreaker.recordSuccess();
+        return result;
+      } catch (error) {
+        lastError = this.normalizeError(error, path, method);
+
+        // Call error handler if provided
+        if (this.onError) {
+          try {
+            this.onError(lastError);
+          } catch (e) {
+            console.warn('Error handler threw:', e);
+          }
+        }
+
+        // Record failure in circuit breaker
+        this.circuitBreaker.recordFailure();
+
+        // Don't retry if not retryable or it's the last attempt
+        if (!lastError.isRetryable() || attempt === maxRetries) {
+          break;
+        }
+
+        // Exponential backoff with jitter
+        const delay = this.retryDelay * Math.pow(2, attempt) + Math.random() * 1000;
+        await this.sleep(delay);
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Execute a single request attempt
+   */
+  private async executeRequest<T>(
+    method: string,
+    path: string,
+    body: any,
+    timeout: number,
+    signal?: AbortSignal
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    // Combine signals if external signal provided
+    const combinedSignal = signal ? this.combineAbortSignals(signal, controller.signal) : controller.signal;
+
+    try {
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+
+      if (this.apiKey) {
+        headers['Authorization'] = `Bearer ${this.apiKey}`;
+      }
+
+      const options: RequestInit = {
+        method,
+        headers,
+        signal: combinedSignal,
+      };
+
+      if (body !== undefined) {
+        options.body = JSON.stringify(body);
+      }
+
+      const response = await fetch(`${this.baseUrl}${path}`, options);
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new IoraError(
+          `API Error: ${errorText}`,
+          response.status,
+          path,
+          method,
+          response.status >= 500 || response.status === 408 || response.status === 429
+        );
+      }
+
+      // Handle empty responses
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json();
+      } else {
+        return (await response.text()) as any;
+      }
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+
+      if (error.name === 'AbortError') {
+        throw new IoraError(
+          `Request timeout after ${timeout}ms`,
+          408,
+          path,
+          method,
+          true
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Combine multiple abort signals
+   */
+  private combineAbortSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
+    const controller = new AbortController();
+
+    const abort = () => controller.abort();
+    signal1.addEventListener('abort', abort);
+    signal2.addEventListener('abort', abort);
+
+    return controller.signal;
+  }
+
+  /**
+   * Normalize errors into IoraError
+   */
+  private normalizeError(error: any, path: string, method: string): IoraError {
+    if (error instanceof IoraError) {
+      return error;
+    }
+
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      return new IoraError(
+        'Network error: Unable to connect to IORA',
+        undefined,
+        path,
+        method,
+        true,
+        { originalError: error.message }
+      );
+    }
+
+    return new IoraError(
+      error.message || 'Unknown error occurred',
+      undefined,
+      path,
       method,
-      headers,
-    };
+      false,
+      { originalError: error }
+    );
+  }
 
-    if (body !== undefined) {
-      options.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(`${this.baseUrl}${path}`, options);
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error (${response.status}): ${error}`);
-    }
-
-    return response.json();
+  /**
+   * Sleep helper for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
