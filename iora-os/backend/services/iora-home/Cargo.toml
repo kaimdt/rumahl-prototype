@@ -42,8 +42,9 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+libsqlite3-sys = { workspace = true }
 
 # Authentication
 bcrypt = "0.15"
@@ -69,9 +70,8 @@ base64 = "0.22"
 
 # SQLite for per-app databases (via sqlx, consistent with other workspace crates)
 # rusqlite was removed to avoid libsqlite3-sys version conflict with sqlx-sqlite.
-# Pin libsqlite3-sys to ^0.26 (matching sqlx-sqlite's requirement) so that
+# Pin libsqlite3-sys to 0.28 via workspace (matching sqlx-sqlite 0.8's requirement) so that
 # any transitive dependency that needs libsqlite3-sys gets the same version.
-libsqlite3-sys = { version = "0.26", features = ["bundled"] }
 
 # Cron expression parsing
 cron = "0.12"

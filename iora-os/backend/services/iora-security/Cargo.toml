@@ -21,7 +21,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
 
 # Encryption
 aes-gcm = "0.10"
