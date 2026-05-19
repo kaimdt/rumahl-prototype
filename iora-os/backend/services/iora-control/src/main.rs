@@ -1,8 +1,15 @@
+// New modules for enhanced robustness
+mod auth;
+mod cache;
+mod error;
+mod ws;
+
 use std::{io::Write, process::{Command, Stdio}, sync::Arc, time::Instant};
 
 use axum::{
     extract::{Path, State},
     http::StatusCode,
+    middleware,
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
@@ -13,6 +20,8 @@ use sysinfo::{Disks, Networks, ProcessRefreshKind, RefreshKind, System};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
+
+use crate::{auth::AuthState, cache::Cache, ws::WsState};
 
 /// Returns the iora-core base URL.
 /// Honors `$IORA_CORE_URL` env var; falls back to system_config.
@@ -33,10 +42,16 @@ struct AppState {
     http: reqwest::Client,
     config: Arc<RwLock<serde_json::Value>>,
     started_at: Arc<Instant>,
+    cache: Cache,
+    ws_state: Arc<WsState>,
+    auth_state: Arc<AuthState>,
 }
 
 impl AppState {
     fn new() -> Self {
+        let jwt_secret = std::env::var("JWT_SECRET")
+            .unwrap_or_else(|_| "dev-secret-change-in-production".to_string());
+
         Self {
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -49,6 +64,9 @@ impl AppState {
                 "log_level": "info",
             }))),
             started_at: Arc::new(Instant::now()),
+            cache: Cache::new(),
+            ws_state: Arc::new(WsState::new()),
+            auth_state: Arc::new(AuthState { jwt_secret }),
         }
     }
 }
@@ -1168,8 +1186,8 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState::new();
 
-    let app = Router::new()
-        .route("/health", get(health))
+    // Protected API routes (require authentication)
+    let protected_routes = Router::new()
         .route("/api/control/dashboard", get(dashboard_overview))
         .route("/api/control/system", get(system_stats))
         .route("/api/control/services", get(list_services))
@@ -1191,8 +1209,32 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/control/os/hostname", get(get_hostname).put(set_hostname))
         .route("/api/control/os/reboot", post(os_reboot))
         .route("/api/control/os/shutdown", post(os_shutdown))
+        .layer(middleware::from_fn_with_state(
+            state.auth_state.clone(),
+            auth::auth_middleware,
+        ));
+
+    // WebSocket route (separate state)
+    let ws_router = Router::new()
+        .route("/ws", get(ws::ws_handler))
+        .with_state(state.ws_state.clone());
+
+    // Public routes
+    let app = Router::new()
+        .route("/health", get(health))
+        .merge(ws_router)
+        .merge(protected_routes)
         .layer(CorsLayer::permissive())
-        .with_state(state);
+        .with_state(state.clone());
+
+    // Spawn background tasks
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            state.cache.cleanup_expired();
+        }
+    });
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8091));
     info!("iora-control listening on {}", addr);
