@@ -77,7 +77,23 @@ pub fn database_url() -> String {
 }
 
 /// Returns a service-specific database URL if set, otherwise the shared one.
+/// Priority order:
+/// 1. Service-specific credentials file (/etc/iora/db-credentials/{service}.env)
+/// 2. Service-specific env var ({SERVICE}_DB_URL)
+/// 3. Shared DATABASE_URL env var
+/// 4. Default SQLite database
 pub fn database_url_for(service: &str) -> String {
+    // Try service-specific credentials file first (managed by iora-db-manager)
+    let cred_file = format!("/etc/iora/db-credentials/{}.env", service);
+    if let Ok(content) = std::fs::read_to_string(&cred_file) {
+        for line in content.lines() {
+            if let Some(url) = line.strip_prefix("DATABASE_URL=") {
+                return url.trim().to_string();
+            }
+        }
+    }
+
+    // Fall back to env var
     let key = format!("{}_DB_URL", service.to_uppercase().replace('-', "_"));
     env_optional(&key).unwrap_or_else(database_url)
 }

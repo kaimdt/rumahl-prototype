@@ -630,12 +630,68 @@ INSTEOF
     log "Configuring PostgreSQL roles & dev-mode marker..."
     ssh_vm bash -s <<'PGEOF' || warn "PostgreSQL setup had non-fatal warnings"
 set +e
+# Create admin roles for dev environment
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='root'\"" | grep -q 1 \
     || su - postgres -c "psql -c \"CREATE ROLE root WITH LOGIN SUPERUSER PASSWORD 'iora'\""
-su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='iora'\"" | grep -q 1 \
-    || su - postgres -c "psql -c \"CREATE USER iora WITH PASSWORD 'iora' CREATEDB\""
-mkdir -p /etc/iora
+su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='postgres'\"" | grep -q 1 \
+    && su - postgres -c "psql -c \"ALTER USER postgres WITH PASSWORD 'iora'\""
+
+# Mark as dev mode
+mkdir -p /etc/iora /etc/iora/db-credentials
 touch /etc/iora/os-dev-mode
+chmod 700 /etc/iora/db-credentials
+
+# Initialize database manager config (will be used by iora-db-manager)
+cat > /etc/iora/db-config.toml <<'DBCFG'
+# IORA Dev VM Database Configuration
+
+[global]
+default_conn_limit = 20
+enable_rls = true
+recommend_pooling = true
+backup_retention_days = 7
+
+[rotation]
+interval_days = 90
+min_password_length = 32
+grace_period_hours = 24
+auto_rotate = false  # Disabled in dev mode
+
+[services.iora-home]
+conn_limit = 30
+allow_ddl = true
+allow_temp_tables = true
+
+[services.iora-core]
+conn_limit = 25
+allow_ddl = true
+allow_temp_tables = true
+
+[services.iora-secrets]
+conn_limit = 20
+allow_ddl = false
+allow_temp_tables = false
+
+[services.iora-security]
+conn_limit = 20
+allow_ddl = false
+allow_temp_tables = true
+
+[services.iora-watchdog]
+conn_limit = 15
+allow_ddl = false
+allow_temp_tables = false
+
+[services.iora-assist]
+conn_limit = 25
+allow_ddl = true
+allow_temp_tables = true
+
+[services.iora-appstore]
+conn_limit = 20
+allow_ddl = false
+allow_temp_tables = true
+DBCFG
 PGEOF
 
     log "Installing Rust toolchain (for in-VM cargo if needed)..."
@@ -679,27 +735,58 @@ CEOF
 fi
 
 # ── Step 7: Service enablement & DB init (always run; safe to repeat) ──────
-log "Initializing databases..."
-ssh_vm bash -s <<'DBEOF' 2>/dev/null || true
+log "Initializing databases with iora-db-manager..."
+ssh_vm bash -s <<'DBEOF' 2>&1 | tail -10 || warn "Database initialization had warnings"
 set +e
-su - postgres -c "createuser -s root 2>/dev/null"
-for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
-    su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
-        || su - postgres -c "psql -c \"CREATE DATABASE $db OWNER iora\""
-done
-# iora-home dev override (uses PostgreSQL, not SQLite)
+
+# Check if iora-db-manager is available (built services)
+if command -v iora-db-manager >/dev/null 2>&1; then
+    # Use the new database manager for proper security
+    export POSTGRES_ADMIN_URL="postgres://postgres:iora@localhost:5432/postgres"
+    iora-db-manager --config /etc/iora/db-config.toml init
+    iora-db-manager --config /etc/iora/db-config.toml status
+else
+    # Fallback for dev VM before services are built
+    echo "[INFO] iora-db-manager not yet available, using simple init"
+    su - postgres -c "createuser -s root 2>/dev/null || true"
+
+    # Create databases with simple permissions
+    for db in iora_home iora_core iora_security iora_secrets iora_appstore iora_assist iora_watchdog; do
+        su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
+            || su - postgres -c "createdb $db"
+    done
+
+    # Grant root superuser access for dev
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE iora_home TO root\" 2>/dev/null || true"
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE iora_core TO root\" 2>/dev/null || true"
+
+    # Create simple credential files for compatibility
+    mkdir -p /etc/iora/db-credentials
+    for db in iora_home iora_core iora_security iora_secrets iora_appstore iora_assist iora_watchdog; do
+        echo "DATABASE_URL=postgres://root:iora@localhost/$db" > /etc/iora/db-credentials/iora-${db#iora_}.env
+    done
+    chmod 600 /etc/iora/db-credentials/*.env
+fi
+
+# iora-home systemd override for dev VM
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
 cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 [Service]
-Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
+# Database URL will be loaded from /etc/iora/db-credentials/iora-home.env
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
+
 systemctl daemon-reload
-systemctl reset-failed iora-db-init 2>/dev/null
-systemctl restart iora-home 2>/dev/null
-# Enable hot-reload + health-check timers if present
-systemctl enable --now iora-hot-reload.path 2>/dev/null
-systemctl enable --now iora-health-check.timer 2>/dev/null
+systemctl reset-failed iora-db-init iora-migrations 2>/dev/null
+systemctl restart iora-home 2>/dev/null || true
+
+# Enable services and timers
+systemctl enable --now iora-hot-reload.path 2>/dev/null || true
+systemctl enable --now iora-health-check.timer 2>/dev/null || true
+systemctl enable iora-db-init.service 2>/dev/null || true
+systemctl enable iora-migrations.service 2>/dev/null || true
+
+echo "[OK] Database initialization complete"
 DBEOF
 ok "Databases initialized"
 
