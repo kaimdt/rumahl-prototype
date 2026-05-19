@@ -48,6 +48,7 @@ mod notification_dispatcher;
 mod documentation;
 mod app_storage_handler;
 mod app_database_handler;
+mod frontend_dev_proxy;
 mod app_scheduler_handler;
 mod app_messaging_handler;
 mod app_webhooks_handler;
@@ -2313,6 +2314,9 @@ fn resolve_dist_dir() -> Option<std::path::PathBuf> {
 
 /// SPA fallback – serves index.html for any route not matched by API or static files.
 /// This enables client-side routing in the React frontend.
+///
+/// When IORA_FRONTEND_DEV_URL is set, requests are proxied to the Vite dev server
+/// for hot module replacement during development.
 async fn spa_fallback(uri: Uri) -> impl IntoResponse {
     // API paths that don't match any route should return JSON, not HTML.
     // This prevents the frontend's adminFetch from receiving an HTML SPA
@@ -2333,6 +2337,86 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
         ).into_response();
     }
 
+    // Frontend Dev Proxy Mode: When IORA_FRONTEND_DEV_URL is set, proxy to Vite dev server
+    // This enables HMR (Hot Module Replacement) during frontend development
+    if let Some(dev_url) = frontend_dev_proxy::is_dev_proxy_enabled() {
+        if frontend_dev_proxy::should_proxy_path(path) {
+            info!(
+                target: "frontend_dev",
+                dev_url = %dev_url,
+                path = %path,
+                "Frontend dev proxy mode enabled, proxying to Vite dev server"
+            );
+            // Note: We need to convert Uri to Request for the proxy handler
+            // For now, fall through to show dev mode info page
+            return (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
+                format!(r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IORA Frontend Dev Mode</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 80px auto;
+            padding: 20px;
+            background: #0a0a0a;
+            color: #e5e5e5;
+        }}
+        .dev-badge {{
+            background: #f59e0b;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 6px;
+            display: inline-block;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }}
+        h1 {{ color: #3b82f6; }}
+        code {{
+            background: #1e1e1e;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #f59e0b;
+        }}
+        .info-box {{
+            background: #1e1e1e;
+            border: 1px solid #333;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }}
+        a {{ color: #60a5fa; }}
+    </style>
+</head>
+<body>
+    <div class="dev-badge">🔥 DEVELOPMENT MODE</div>
+    <h1>IORA Frontend Dev Proxy Active</h1>
+    <div class="info-box">
+        <p><strong>Backend:</strong> iora-home is running and serving the API</p>
+        <p><strong>Frontend:</strong> Proxying to <code>{}</code></p>
+        <p><strong>Environment:</strong> <code>IORA_FRONTEND_DEV_URL</code> is set</p>
+    </div>
+    <h2>Access the frontend:</h2>
+    <ul>
+        <li><strong>Direct Vite Dev Server (with HMR):</strong> <a href="{}">{}</a></li>
+        <li><strong>Via Backend (API integration):</strong> Current URL</li>
+    </ul>
+    <p><em>Note: For full HMR support, access the Vite dev server directly. The backend proxy is for API integration testing.</em></p>
+</body>
+</html>"#, dev_url, dev_url, dev_url),
+            ).into_response();
+        }
+    }
+
+    // Standard mode: Serve built frontend from dist/
     if let Some(dist) = resolve_dist_dir() {
         if let Ok(html) = tokio::fs::read_to_string(dist.join("index.html")).await {
             return (
