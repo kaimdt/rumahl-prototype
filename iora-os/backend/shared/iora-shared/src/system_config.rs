@@ -79,7 +79,7 @@ pub fn database_url() -> String {
 /// Returns a service-specific database URL if set, otherwise the shared one.
 pub fn database_url_for(service: &str) -> String {
     let key = format!("{}_DB_URL", service.to_uppercase().replace('-', "_"));
-    env_optional(&key).unwrap_or_else(|| database_url())
+    env_optional(&key).unwrap_or_else(database_url)
 }
 
 // ═══════════════════════════════════════════════════════════════════════

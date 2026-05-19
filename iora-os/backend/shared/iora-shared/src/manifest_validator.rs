@@ -139,11 +139,11 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     result.manifest_name = name.map(|s| s.to_string());
 
     // ─── Required fields ──────────────────────────────────────────
-    if id.is_none() || id.unwrap().is_empty() {
+    if id.as_ref().map_or(true, |s| s.is_empty()) {
         result.add_error("id", "Die Theme-ID fehlt oder ist leer. Jedes Theme braucht eine eindeutige ID (z.B. \"mein-theme\").",
             Some("Füge \"id\": \"mein-theme\" hinzu. Nur Kleinbuchstaben, Zahlen und Bindestriche."));
     } else {
-        let id_val = id.unwrap();
+        let id_val = id.as_ref().unwrap();
         if id_val.contains(' ') {
             result.add_error("id", "Die Theme-ID darf keine Leerzeichen enthalten.",
                 Some(&format!("Ersetze Leerzeichen durch Bindestriche, z.B. \"{}\"", id_val.replace(' ', "-"))));
@@ -154,7 +154,7 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
         }
     }
 
-    if name.is_none() || name.unwrap().is_empty() {
+    if name.as_ref().map_or(true, |s| s.is_empty()) {
         result.add_error("name", "Der Theme-Name fehlt. Gib deinem Theme einen aussagekräftigen Namen.",
             Some("Füge \"name\": \"Mein Theme\" hinzu."));
     }
@@ -364,18 +364,18 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
     result.manifest_name = name.map(|s| s.to_string());
 
     // ─── Required fields ──────────────────────────────────────────
-    if id.is_none() || id.unwrap().is_empty() {
+    if id.as_ref().map_or(true, |s| s.is_empty()) {
         result.add_error("id", "Die App-ID fehlt. Jede App/Plugin braucht eine eindeutige ID.",
             Some("Füge \"id\": \"meine-app\" hinzu."));
     } else {
-        let id_val = id.unwrap();
+        let id_val = id.as_ref().unwrap();
         if id_val.contains(' ') {
             result.add_error("id", "Die App-ID darf keine Leerzeichen enthalten.",
                 Some(&format!("Verwende \"{}\"", id_val.replace(' ', "-"))));
         }
     }
 
-    if name.is_none() || name.unwrap().is_empty() {
+    if name.as_ref().map_or(true, |s| s.is_empty()) {
         result.add_error("name", "Der Name fehlt.",
             Some("Füge \"name\": \"Meine App\" hinzu."));
     }
