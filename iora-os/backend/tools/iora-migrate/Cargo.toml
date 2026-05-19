@@ -19,6 +19,8 @@ anyhow = "1"
 walkdir = "2"
 sha2 = "0.10"
 hex = "0.4"
+regex = "1.10"
+whoami = "1.5"
 
 [dependencies.iora-shared]
 path = "../../shared/iora-shared"
