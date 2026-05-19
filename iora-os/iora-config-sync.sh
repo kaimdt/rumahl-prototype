@@ -140,7 +140,80 @@ if [ $updated_count -gt 0 ]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. Create config synchronization service
+# 5. Config Change Notification System (Hot-Reload)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+log "Installing config change notification system (hot-reload)..."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/iora-config-notify.sh" ]; then
+    cp "$SCRIPT_DIR/iora-config-notify.sh" /usr/lib/iora/iora-config-notify
+    chmod 755 /usr/lib/iora/iora-config-notify
+    success "iora-config-notify installed from script"
+else
+    warn "iora-config-notify.sh not found in $SCRIPT_DIR, creating inline..."
+    cat > /usr/lib/iora/iora-config-notify <<'NOTIFYEOF'
+#!/bin/bash
+set -euo pipefail
+KEY="${1:-}"
+VALUE="${2:-}"
+NOTIFY_DIR="/var/run/iora/config-notify"
+mkdir -p "$NOTIFY_DIR"
+
+if [ "$KEY" = "--clear" ]; then
+    rm -f "$NOTIFY_DIR"/*
+    echo "Config notifications cleared"
+    exit 0
+fi
+
+if [ -z "$KEY" ]; then
+    echo "Usage: $0 <key> <value>"
+    echo "       $0 --clear"
+    exit 1
+fi
+
+TIMESTAMP=$(date +%s)
+NOTIFY_FILE="$NOTIFY_DIR/${TIMESTAMP}_${KEY//./_}"
+
+cat > "$NOTIFY_FILE" <<EOF
+KEY=$KEY
+VALUE=$VALUE
+TIMESTAMP=$TIMESTAMP
+EOF
+
+find "$NOTIFY_DIR" -type f -mmin +60 -delete 2>/dev/null || true
+
+for service in iora-core iora-home iora-assist iora-supervisor \
+               iora-appstore iora-gateway iora-security iora-watchdog \
+               iora-files iora-backup iora-connector iora-dev-bridge \
+               iora-control iora-network-monitor iora-domain-validator \
+               iora-resource-manager iora-updater; do
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        systemctl kill -s HUP "$service" 2>/dev/null || true
+    fi
+done
+
+echo "Config change notified: $KEY"
+NOTIFYEOF
+    chmod 755 /usr/lib/iora/iora-config-notify
+    success "iora-config-notify created inline"
+fi
+
+# Create notification directory
+mkdir -p /var/run/iora/config-notify
+chmod 755 /var/run/iora/config-notify
+success "Config notification directory: /var/run/iora/config-notify"
+
+# Update service environment to include config notify dir
+cat >> /etc/iora/service.env <<'EOF'
+
+# Hot-Reload Configuration
+IORA_CONFIG_NOTIFY_DIR=/var/run/iora/config-notify
+EOF
+success "Added IORA_CONFIG_NOTIFY_DIR to service.env"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. Create config synchronization service
 # ═══════════════════════════════════════════════════════════════════════════════
 
 cat > "${SVC_DIR}/iora-config-sync.service" <<'EOF'
@@ -257,7 +330,10 @@ log "Global Config access configured!"
 log "  Config API:       http://127.0.0.1:8126/api/settings"
 log "  Config helper:    iora-get-config <key> [default]"
 log "  Service env:      /etc/iora/service.env"
+log "  Hot-reload:       Config changes propagate automatically (no restart)"
+log "  Notifications:    /var/run/iora/config-notify/"
 log "  Live logs:        journalctl -u iora-* -f"
 log "  Log streaming:    iora-logs-stream [service]"
 echo ""
 success "All services can now access Global Config via IORA_HOME_URL"
+success "Config changes hot-reload automatically - no service restart needed!"

@@ -395,14 +395,59 @@ pub fn tts_service_url() -> String {
 /// Thread-safe cache of settings fetched from iora-home's settings API.
 static SETTINGS_CACHE: OnceLock<std::sync::RwLock<std::collections::HashMap<String, String>>> = OnceLock::new();
 
+/// Last update timestamp for cache invalidation
+static CACHE_UPDATED_AT: OnceLock<std::sync::RwLock<std::time::SystemTime>> = OnceLock::new();
+
 fn settings_cache() -> &'static std::sync::RwLock<std::collections::HashMap<String, String>> {
     SETTINGS_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+fn cache_updated_at() -> &'static std::sync::RwLock<std::time::SystemTime> {
+    CACHE_UPDATED_AT.get_or_init(|| std::sync::RwLock::new(std::time::SystemTime::UNIX_EPOCH))
 }
 
 /// Called by iora-home after bootstrapping to populate the cache.
 pub fn seed_settings_cache(entries: Vec<(String, String)>) {
     if let Ok(mut cache) = settings_cache().write() {
         for (k, v) in entries { cache.insert(k, v); }
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
+    }
+}
+
+/// Update a single setting in the cache (hot-reload).
+/// This is called when a setting is changed via the API.
+pub fn update_cached_setting(key: String, value: String) {
+    if let Ok(mut cache) = settings_cache().write() {
+        cache.insert(key, value);
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
+    }
+}
+
+/// Remove a setting from the cache (hot-reload).
+pub fn remove_cached_setting(key: &str) {
+    if let Ok(mut cache) = settings_cache().write() {
+        cache.remove(key);
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
+    }
+}
+
+/// Clear the entire settings cache.
+pub fn clear_settings_cache() {
+    if let Ok(mut cache) = settings_cache().write() {
+        cache.clear();
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
     }
 }
 
@@ -410,4 +455,12 @@ pub fn seed_settings_cache(entries: Vec<(String, String)>) {
 /// Returns None if not cached — caller should fall back to env var.
 pub fn get_cached_setting(key: &str) -> Option<String> {
     settings_cache().read().ok()?.get(key).cloned()
+}
+
+/// Get the timestamp when the cache was last updated.
+/// Useful for services that want to detect config changes.
+pub fn get_cache_updated_at() -> std::time::SystemTime {
+    cache_updated_at().read().ok()
+        .map(|ts| *ts)
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
 }

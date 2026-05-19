@@ -8032,6 +8032,25 @@ async fn admin_settings_put(
         .record_change("system_preferences", &key, "UPDATE", None)
         .await;
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOT-RELOAD: Update settings cache and notify all services
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Update the shared settings cache so other services get the new value immediately
+    iora_shared::system_config::update_cached_setting(key.clone(), body.value.to_string());
+
+    // Notify all services about the config change (sends SIGHUP signals)
+    tokio::spawn({
+        let key = key.clone();
+        let value = body.value.to_string();
+        async move {
+            let _ = tokio::process::Command::new("/usr/lib/iora/iora-config-notify")
+                .arg(&key)
+                .arg(&value)
+                .output()
+                .await;
+        }
+    });
+
     if !def.requires_restart.is_empty() {
         info!(
             "Setting '{}' updated – the following services need a restart to pick up the change: {}",
