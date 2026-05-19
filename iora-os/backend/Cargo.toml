@@ -41,6 +41,8 @@ members = [
     "tools/iora-cli",
     "tools/iora-sign",
     "tools/iora-verify",
+    "tools/iora-db-manager",
+    "tools/iora-migrate",
 
     # dev-image-only on-device pieces
     "dev/iora-dev-bridge",
