@@ -161,20 +161,6 @@ mkdir -p /etc/nginx/conf.d
 cat > /etc/nginx/conf.d/performance.conf <<'EOF'
 # IORA OS Nginx Performance Tuning
 
-# Rate limiting zones
-limit_req_zone $binary_remote_addr zone=general:10m rate=50r/s;
-limit_req_zone $binary_remote_addr zone=api:10m rate=30r/s;
-limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
-limit_req_status 429;
-
-# Connection limiting
-limit_conn_zone $binary_remote_addr zone=addr:10m;
-limit_conn addr 20;
-
-# Upstream keepalive settings (for proxying to IORA services)
-upstream_keepalive_connections 32;
-upstream_keepalive_timeout 60s;
-
 # Proxy optimizations
 proxy_http_version 1.1;
 proxy_set_header Connection "";
@@ -213,8 +199,6 @@ LimitNOFILE=65535
 
 # Faster restarts
 RestartSec=2
-StartLimitBurst=5
-StartLimitIntervalSec=30
 
 # Resource limits (generous for high-traffic scenarios)
 MemoryMax=2G
@@ -228,7 +212,7 @@ success "Systemd service optimizations applied"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 log "Testing nginx configuration..."
-if nginx -t 2>&1 | grep -q "syntax is ok"; then
+if nginx -t; then
     success "Nginx configuration is valid"
 
     systemctl daemon-reload 2>/dev/null || true

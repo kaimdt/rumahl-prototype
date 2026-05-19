@@ -84,11 +84,11 @@ $Watch      = -not $NoWatch
 $DoRestart  = -not $NoRestart
 
 # -- Logging helpers -------------------------------------------------------
-function Log-Info ($m)  { Write-Host "[*] $m" -ForegroundColor Cyan }
-function Log-Ok   ($m)  { Write-Host "[+] $m" -ForegroundColor Green }
-function Log-Warn ($m)  { Write-Host "[!] $m" -ForegroundColor Yellow }
-function Log-Err  ($m)  { Write-Host "[X] $m" -ForegroundColor Red }
-function Log-Dim  ($m)  { Write-Host "    $m" -ForegroundColor DarkGray }
+function Write-IoraInfo ($m)  { Write-Host "[*] $m" -ForegroundColor Cyan }
+function Write-IoraOk   ($m)  { Write-Host "[+] $m" -ForegroundColor Green }
+function Write-IoraWarning ($m)  { Write-Host "[!] $m" -ForegroundColor Yellow }
+function Write-IoraError  ($m)  { Write-Host "[X] $m" -ForegroundColor Red }
+function Write-IoraDim  ($m)  { Write-Host "    $m" -ForegroundColor DarkGray }
 
 # -- SSH plumbing (multiplexed via ControlMaster on Linux/macOS, but on
 #    Windows OpenSSH multiplexing isn't supported well, so we live without).
@@ -143,7 +143,7 @@ function Get-AllServices {
 }
 
 $Script:AllServices = Get-AllServices
-Log-Info "Discovered $($Script:AllServices.Count) iora-* crates"
+Write-IoraInfo "Discovered $($Script:AllServices.Count) iora-* crates"
 
 # -- Toolchain detection --------------------------------------------------
 $Script:UseZigbuild = $false
@@ -180,15 +180,15 @@ function Initialize-Toolchain {
         return
     }
     $Script:Toolchain = "host"
-    Log-Warn "No cross compiler found. Falling back to host toolchain."
-    Log-Warn "Install one of: cargo-zigbuild + zig (recommended on Windows)"
-    Log-Warn "  → see install-requirements.ps1"
+    Write-IoraWarning "No cross compiler found. Falling back to host toolchain."
+    Write-IoraWarning "Install one of: cargo-zigbuild + zig (recommended on Windows)"
+    Write-IoraWarning "  -> see install-requirements.ps1"
 }
 
 function Initialize-RustTarget {
     $installed = rustup target list --installed 2>$null
     if ($installed -notmatch [regex]::Escape($Target)) {
-        Log-Info "Installing Rust target $Target ..."
+        Write-IoraInfo "Installing Rust target $Target ..."
         rustup target add $Target 2>$null | Out-Null
     }
 }
@@ -199,9 +199,9 @@ function Initialize-Sccache {
     if (Get-Command sccache -ErrorAction SilentlyContinue) {
         $env:RUSTC_WRAPPER = "sccache"
         if (-not $env:SCCACHE_CACHE_SIZE) { $env:SCCACHE_CACHE_SIZE = "5G" }
-        Log-Ok "sccache enabled ($SccacheDir, max $($env:SCCACHE_CACHE_SIZE))"
+        Write-IoraOk "sccache enabled ($SccacheDir, max $($env:SCCACHE_CACHE_SIZE))"
     } else {
-        Log-Warn "sccache not found - builds will be slower (cargo install sccache)"
+        Write-IoraWarning "sccache not found - builds will be slower (cargo install sccache)"
     }
 }
 
@@ -230,11 +230,11 @@ function Invoke-DeployBinary {
     $tmp = "/tmp/.iora-deploy-$Name.$PID"
 
     if ((Send-Scp $Bin $tmp) -ne 0) {
-        Log-Err "    $Name : scp failed"
+        Write-IoraError "    $Name : scp failed"
         return $false
     }
     if ((Invoke-Ssh "install -m 0755 '$tmp' '$remote' && rm -f '$tmp'") -ne 0) {
-        Log-Err "    $Name : install failed"
+        Write-IoraError "    $Name : install failed"
         Invoke-Ssh "rm -f '$tmp'" | Out-Null
         return $false
     }
@@ -253,11 +253,11 @@ function Invoke-DeployMany {
     foreach ($svc in $Services) {
         $bin = Join-Path $targetDir $svc
         if (-not (Test-Path $bin)) {
-            Log-Dim "$svc : binary not built, skipping"
+            Write-IoraDim "$svc : binary not built, skipping"
             continue
         }
         if (-not (Test-BinChanged $svc $bin)) {
-            Log-Dim "$svc : unchanged"
+            Write-IoraDim "$svc : unchanged"
             continue
         }
         # Stash copy in shared dir (9p fallback)
@@ -275,7 +275,7 @@ function Invoke-BuildRust {
     $Script:RustN++
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Host ""
-    Write-Host "──[Rust #$($Script:RustN) @ $(Get-Date -Format HH:mm:ss)]──────────────────────" -ForegroundColor Yellow
+    Write-Host "--[Rust #$($Script:RustN) @ $(Get-Date -Format HH:mm:ss)]----------------------" -ForegroundColor Yellow
 
     Push-Location $Workspace
     try {
@@ -294,14 +294,14 @@ function Invoke-BuildRust {
     $sw.Stop()
 
     if ($exit -ne 0) {
-        Log-Err "Rust build FAILED (exit $exit) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+        Write-IoraError "Rust build FAILED (exit $exit) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
         return
     }
-    Log-Ok "Rust build OK in $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+    Write-IoraOk "Rust build OK in $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
     if (Test-VmReachable) {
         Invoke-DeployMany $Script:AllServices
     } else {
-        Log-Warn "VM not reachable, skipping deploy"
+        Write-IoraWarning "VM not reachable, skipping deploy"
     }
 }
 
@@ -311,18 +311,18 @@ function Invoke-BuildFrontend {
     if (-not $DoFrontend) { return }
     if (-not $FrontendDir) { return }
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Log-Warn "npm not found, skipping frontend"; return
+        Write-IoraWarning "npm not found, skipping frontend"; return
     }
     $Script:FeN++
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Host ""
-    Write-Host "──[Frontend #$($Script:FeN) @ $(Get-Date -Format HH:mm:ss)]──────────────────" -ForegroundColor Yellow
+    Write-Host "--[Frontend #$($Script:FeN) @ $(Get-Date -Format HH:mm:ss)]------------------" -ForegroundColor Yellow
 
     Push-Location $FrontendDir
     try {
         $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         if (-not (Test-Path "node_modules")) {
-            Log-Info "Running 'npm install' (one-time)..."
+            Write-IoraInfo "Running 'npm install' (one-time)..."
             & npm install --no-audit --no-fund 2>&1 | ForEach-Object { Write-Host $_ }
         }
         & npm run build 2>&1 | ForEach-Object { Write-Host $_ }
@@ -334,10 +334,10 @@ function Invoke-BuildFrontend {
     $sw.Stop()
 
     if ($exit -ne 0) {
-        Log-Err "Frontend build FAILED (exit $exit) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+        Write-IoraError "Frontend build FAILED (exit $exit) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
         return
     }
-    Log-Ok "Frontend build OK in $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+    Write-IoraOk "Frontend build OK in $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
 
     $dist = Join-Path $FrontendDir "dist"
     if ((Test-Path $dist) -and (Test-VmReachable)) {
@@ -352,11 +352,11 @@ function Invoke-DeployFrontend {
     try {
         & tar -czf $tar . 2>$null
     } finally { Pop-Location }
-    if (-not (Test-Path $tar)) { Log-Err "tar failed"; return }
+    if (-not (Test-Path $tar)) { Write-IoraError "tar failed"; return }
     if ((Send-Scp $tar "/tmp/iora-frontend.tar.gz") -ne 0) {
-        Log-Err "frontend upload failed"; return
+        Write-IoraError "frontend upload failed"; return
     }
-    Invoke-Ssh @'
+    $deployFrontendScript = @'
 set -e
 mkdir -p /opt/iora/build/dist
 rm -rf /opt/iora/build/dist/*
@@ -364,25 +364,26 @@ tar xzf /tmp/iora-frontend.tar.gz -C /opt/iora/build/dist
 rm -f /tmp/iora-frontend.tar.gz
 systemctl try-restart iora-home 2>/dev/null || true
 systemctl reload nginx 2>/dev/null || true
-'@ | Out-Null
+'@
+    Invoke-Ssh $deployFrontendScript | Out-Null
     Remove-Item $tar -ErrorAction SilentlyContinue
-    Log-Ok "  frontend deployed -> /opt/iora/build/dist"
+    Write-IoraOk "  frontend deployed -> /opt/iora/build/dist"
 }
 
 # -- Health / status -------------------------------------------------------
 function Show-Health {
-    if (-not (Test-VmReachable)) { Log-Warn "VM not reachable"; return }
-    Log-Info "Failed units:"
+    if (-not (Test-VmReachable)) { Write-IoraWarning "VM not reachable"; return }
+    Write-IoraInfo "Failed units:"
     Invoke-Ssh "systemctl --failed --no-legend --no-pager 2>/dev/null | awk '{print \$1, \$3}' | head -20" | Out-Null
-    Log-Info "iora-home /api/health:"
+    Write-IoraInfo "iora-home /api/health:"
     Invoke-Ssh "curl -sf --max-time 5 http://127.0.0.1:8126/api/health || curl -sf --max-time 5 http://127.0.0.1:8126/health || echo unreachable" | Out-Null
 }
 
 function Show-Status {
-    if (-not (Test-VmReachable)) { Log-Warn "VM not reachable"; return }
+    if (-not (Test-VmReachable)) { Write-IoraWarning "VM not reachable"; return }
     Write-Host ""
     Write-Host "  Service                       Active     Binary" -ForegroundColor Yellow
-    Write-Host "  ────────────────────────────────────────────────────"
+    Write-Host "  ----------------------------------------------------"
     foreach ($svc in $Script:AllServices) {
         $rc1, $active = Invoke-SshCapture "systemctl is-active $svc 2>/dev/null"
         $rc2, $bin    = Invoke-SshCapture "test -f /usr/bin/$svc && echo yes || echo no"
@@ -418,15 +419,6 @@ function New-Watcher {
         $w.EnableRaisingEvents = $true
         $script:watchers += $w
 
-        $handler = {
-            $p = $Event.SourceEventArgs.FullPath
-            if ($p -match '[\\/](target|node_modules|\.git|dist|\.iora-dev|\.next)([\\/]|$)') { return }
-            if ($Event.MessageData -eq "rust") {
-                [System.Threading.Interlocked]::Exchange([ref]$Script:RustDirty, $true) | Out-Null
-            } else {
-                [System.Threading.Interlocked]::Exchange([ref]$Script:FeDirty, $true) | Out-Null
-            }
-        }
         # NOTE: PowerShell can't set a script-level [bool] via Interlocked because
         # [bool] isn't supported. Use a small wrapper via Get-Variable instead.
         $simpleHandler = if ($Kind -eq "rust") {
@@ -449,7 +441,7 @@ function Start-Watchers {
             New-Watcher (Join-Path $FrontendDir $sub) @("*.ts","*.tsx","*.js","*.jsx","*.css","*.html","*.json") "fe"
         }
     }
-    Log-Dim "watcher: FileSystemWatcher x $($script:watchers.Count)"
+    Write-IoraDim "watcher: FileSystemWatcher x $($script:watchers.Count)"
 }
 
 function Stop-Watchers {
@@ -463,15 +455,15 @@ function Stop-Watchers {
 # -- Header / cleanup ------------------------------------------------------
 function Write-Header {
     Write-Host ""
-    Write-Host "╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║              IORA OS Dev-Loop (intelligent)                       ║" -ForegroundColor Cyan
-    Write-Host "╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "+==================================================================+" -ForegroundColor Cyan
+    Write-Host "|              IORA OS Dev-Loop (intelligent)                      |" -ForegroundColor Cyan
+    Write-Host "+==================================================================+" -ForegroundColor Cyan
     Write-Host "  Workspace : $Workspace"
     Write-Host "  Frontend  : $(if ($FrontendDir) { $FrontendDir } else { '<none>' })"
     Write-Host "  Target    : $Target  (toolchain: $($Script:Toolchain))"
     Write-Host "  VM        : root@${VmHost}:$VmPort"
     if (-not (Test-Path $SshKey)) {
-        Log-Warn "SSH key missing: $SshKey  (start the VM first: .\dev-local.ps1)"
+        Write-IoraWarning "SSH key missing: $SshKey  (start the VM first: .\dev-local.ps1)"
     }
 }
 
@@ -486,13 +478,13 @@ Initialize-Toolchain
 Initialize-RustTarget
 Initialize-Sccache
 
-if (Test-VmReachable) { Log-Ok "VM reachable" } else { Log-Warn "VM not reachable - will retry on each build" }
+if (Test-VmReachable) { Write-IoraOk "VM reachable" } else { Write-IoraWarning "VM not reachable - will retry on each build" }
 
 Invoke-BuildRust
 Invoke-BuildFrontend
 
 if (-not $Watch) {
-    Log-Info "Initial build complete; -NoWatch set, exiting."
+    Write-IoraInfo "Initial build complete; -NoWatch set, exiting."
     Invoke-Cleanup
     exit 0
 }
@@ -502,10 +494,10 @@ $Global:IoraFeDirty   = $false
 Start-Watchers
 
 Write-Host ""
-Write-Host "┌──────────────────────────────────────────────────────────────────┐" -ForegroundColor Cyan
-Write-Host "│  [B] full rebuild   [R] Rust    [F] Frontend                     │"
-Write-Host "│  [D] redeploy       [S] status  [H] health   [Q] quit            │"
-Write-Host "└──────────────────────────────────────────────────────────────────┘" -ForegroundColor Cyan
+Write-Host "+------------------------------------------------------------------+" -ForegroundColor Cyan
+Write-Host "|  [B] full rebuild   [R] Rust    [F] Frontend                     |"
+Write-Host "|  [D] redeploy       [S] status  [H] health   [Q] quit            |"
+Write-Host "+------------------------------------------------------------------+" -ForegroundColor Cyan
 
 try {
     while ($true) {
@@ -533,11 +525,11 @@ try {
                     if (Test-VmReachable) {
                         Get-ChildItem $HashDir -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
                         Invoke-DeployMany $Script:AllServices
-                    } else { Log-Warn "VM not reachable" }
+                    } else { Write-IoraWarning "VM not reachable" }
                 }
                 "S" { Show-Status }
                 "H" { Show-Health }
-                "Q" { Log-Info "bye."; break }
+                "Q" { Write-IoraInfo "bye."; break }
             }
             if ($k.Key -eq "Q") { break }
         }

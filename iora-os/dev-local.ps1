@@ -1,5 +1,5 @@
 # ============================================================================
-# dev-local.ps1 – IORA OS Local Dev VM (Windows)
+# dev-local.ps1 - IORA OS Local Dev VM (Windows)
 # ============================================================================
 # Starts a Debian 12 cloud VM via QEMU. The VM mirrors the IORA OS runtime
 # layout (same /etc/iora, /opt/iora, /usr/bin/iora-*, same systemd services).
@@ -226,7 +226,7 @@ $VM_BRIDGE = 8101
 $FWD_PORTS = @(80, 443, 3001, 5432, 8080, 8090, 8092, 8094, 8095, 8096, 8097, 8098)
 
 # ── Helpers ────────────────────────────────────────────────────────────────
-function To-WslPath { param([string]$WinPath)
+function ConvertTo-WslPath { param([string]$WinPath)
     $p = $WinPath.Replace('\', '/')
     return (wsl wslpath -a "$p" 2>$null)
 }
@@ -288,17 +288,27 @@ function Invoke-SSH {
 function Invoke-SSHStdin {
     param([string] $Script)
     $tmp = New-TemporaryFile
-    Set-Content -Path $tmp -Value $Script -NoNewline -Encoding ASCII
-    Get-Content $tmp -Raw | & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "bash -s" 2>&1
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    $stdout = New-TemporaryFile
+    $stderr = New-TemporaryFile
+    $normalizedScript = ($Script -replace "`r`n", "`n") -replace "`r", "`n"
+    [System.IO.File]::WriteAllText($tmp, $normalizedScript, [System.Text.Encoding]::ASCII)
+    try {
+        $sshArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-p", $SshPort, "root@127.0.0.1", "bash -s")
+        $proc = Start-Process -FilePath $SSH_BIN -ArgumentList $sshArgs -RedirectStandardInput $tmp -RedirectStandardOutput $stdout -RedirectStandardError $stderr -NoNewWindow -Wait -PassThru
+        $global:LASTEXITCODE = $proc.ExitCode
+        Get-Content $stdout -Raw -ErrorAction SilentlyContinue
+        Get-Content $stderr -Raw -ErrorAction SilentlyContinue
+    } finally {
+        Remove-Item $tmp, $stdout, $stderr -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Send-SCP {
     param([string] $LocalPath, [string] $RemotePath, [switch] $Recurse)
-    $args = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-P", $SshPort)
-    if ($Recurse) { $args += "-r" }
-    $args += @($LocalPath, "root@127.0.0.1:$RemotePath")
-    & $SCP_BIN @args 2>&1
+    $scpArgs = @() + $SSH_OPTS + @("-i", $SSH_KEY, "-P", $SshPort)
+    if ($Recurse) { $scpArgs += "-r" }
+    $scpArgs += @($LocalPath, "root@127.0.0.1:$RemotePath")
+    & $SCP_BIN @scpArgs 2>&1
 }
 
 function Test-VmHealth {
@@ -406,7 +416,7 @@ if (-not (Test-Path $VM_DISK)) {
 # ── Step 3: SSH key + cloud-init seed ISO ──────────────────────────────────
 if (-not (Test-Path $SSH_KEY)) {
     Write-Info "Generating SSH key for VM..."
-    $sshKeyWsl = To-WslPath $SSH_KEY
+    $sshKeyWsl = ConvertTo-WslPath $SSH_KEY
     wsl bash -c "ssh-keygen -t ed25519 -f '$sshKeyWsl' -N '' -C 'iora-dev-vm'" 2>$null
     if ($LASTEXITCODE -ne 0) { Stop-WithError "ssh-keygen via WSL failed." }
     icacls $SSH_KEY /inheritance:r /grant:r "${env:USERNAME}:R" 2>$null | Out-Null
@@ -461,12 +471,13 @@ final_message: "IORA Dev VM ready."
     Set-Content -Path (Join-Path $seedDir "user-data") -Value $userData -NoNewline -Encoding ASCII
     Set-Content -Path (Join-Path $seedDir "meta-data") -Value "instance-id: iora-dev-vm`nlocal-hostname: iora-dev`n" -NoNewline -Encoding ASCII
 
-    $seedDirWsl = To-WslPath $seedDir
-    $seedIsoWsl = To-WslPath $SEED_ISO
+    $seedDirWsl = ConvertTo-WslPath $seedDir
+    $seedIsoWsl = ConvertTo-WslPath $SEED_ISO
 
     $created = $false
     foreach ($tool in @('genisoimage','mkisofs','xorriso')) {
-        if (wsl bash -c "command -v $tool" 2>$null) {
+        wsl bash -c "command -v $tool" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
             if ($tool -eq 'xorriso') {
                 wsl xorriso -as mkisofs -output "$seedIsoWsl" -volid cidata -joliet -rock "$seedDirWsl" 2>&1 | Out-Null
             } else {
@@ -503,7 +514,7 @@ if (Get-Command Test-DiskSpace -ErrorAction SilentlyContinue) {
 
 $existingProc = Get-QemuPid
 if ($existingProc) {
-    Write-Success "QEMU already running (PID $($existingProc.Id)) – attaching to existing VM."
+    Write-Success "QEMU already running (PID $($existingProc.Id)) - attaching to existing VM."
     $qemuProc = $existingProc
 } else {
     # Intelligent port conflict resolution
@@ -559,13 +570,28 @@ if ($existingProc) {
         }
 
         function Start-Qemu {
-            param([string[]] $Args, [string] $Accel, [switch] $NoWindow)
+            param([string[]] $QemuArgs, [string] $Accel, [switch] $NoWindow)
             Write-Info "QEMU ($Accel)"
-            if ($Foreground -or $NoWindow) {
-                $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -NoNewWindow -RedirectStandardError $QEMU_STDERR
-            } else {
-                $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $Args -PassThru -WindowStyle Minimized -RedirectStandardError $QEMU_STDERR
+            if (-not $QemuArgs -or $QemuArgs.Count -eq 0) {
+                Stop-WithError "QEMU argument list is empty."
             }
+            $badArgIndexes = @()
+            for ($i = 0; $i -lt $QemuArgs.Count; $i++) {
+                if ([string]::IsNullOrWhiteSpace($QemuArgs[$i])) { $badArgIndexes += $i }
+            }
+            if ($badArgIndexes.Count -gt 0) {
+                Stop-WithError "QEMU argument list contains empty values at indexes: $($badArgIndexes -join ', ')"
+            }
+            try {
+                if ($Foreground -or $NoWindow) {
+                    $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $QemuArgs -PassThru -NoNewWindow -RedirectStandardError $QEMU_STDERR -ErrorAction Stop
+                } else {
+                    $proc = Start-Process -FilePath $QEMU_BIN -ArgumentList $QemuArgs -PassThru -WindowStyle Minimized -RedirectStandardError $QEMU_STDERR -ErrorAction Stop
+                }
+            } catch {
+                Stop-WithError "Failed to start QEMU: $_"
+            }
+            if (-not $proc) { Stop-WithError "Failed to start QEMU: no process returned." }
             # Record PID for later
             Set-Content -Path $QEMU_PIDFILE -Value $proc.Id -NoNewline -Encoding ASCII
             return $proc
@@ -582,9 +608,8 @@ if ($existingProc) {
 
         # Try WHPX first unless explicitly skipped
         $useWhpx = -not $SkipWhpx
-        $qemuAccel = "whpx"
         if ($useWhpx) {
-            $qemuProc = Start-Qemu -Args $qemuArgs -Accel "WHPX"
+            $qemuProc = Start-Qemu -QemuArgs $qemuArgs -Accel "WHPX"
             if (-not (Test-Alive -Proc $qemuProc -WaitSec 8)) {
                 Write-Warn "WHPX failed; falling back to TCG."
                 if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
@@ -596,7 +621,6 @@ if ($existingProc) {
         }
 
         if (-not $useWhpx) {
-            $qemuAccel = "tcg"
             $tcgRam  = [Math]::Max(4, [Math]::Min([int]($VM_RAM -replace 'G',''), 8))
             $tcgCpus = [Math]::Max(2, [Math]::Min($VM_CPUS, 8))
             $tcgArgs = @(
@@ -610,9 +634,10 @@ if ($existingProc) {
                 "-netdev", $fwd,
                 "-device", "e1000,netdev=n0",
                 "-serial", "file:$($CACHE)\qemu-serial.log",
-                "-nographic"
+                "-display", "none",
+                "-monitor", "none"
             )
-            $qemuProc = Start-Qemu -Args $tcgArgs -Accel "TCG"
+            $qemuProc = Start-Qemu -QemuArgs $tcgArgs -Accel "TCG"
             if (-not (Test-Alive -Proc $qemuProc -WaitSec 20)) {
                 Stop-WithError "QEMU/TCG also crashed. See $QEMU_STDERR"
             }
@@ -629,7 +654,7 @@ while ($waited -lt $timeout) {
     if ($qemuProc.HasExited) {
         Stop-WithError "QEMU exited (code $($qemuProc.ExitCode)). See $QEMU_STDERR"
     }
-    $result = Invoke-SSH "test -f /var/lib/cloud/instance/boot-finished && echo READY"
+    $result = Invoke-SSH 'test -f /var/lib/cloud/instance/boot-finished && echo READY'
     if ("$result" -match "READY") { $ready = $true; break }
     Start-Sleep -Seconds 5
     $waited += 5
@@ -645,7 +670,7 @@ Write-Success "SSH ready!"
 # ── Step 6: Provisioning (idempotent) ──────────────────────────────────────
 $needProvision = $true
 if ((Test-Path $PROVISIONED_MARKER) -and (-not $Reprovision)) {
-    $check = Invoke-SSH "test -f /etc/iora/dev-vm-provisioned && test -d /opt/iora && echo PROV_OK"
+    $check = Invoke-SSH 'test -f /etc/iora/dev-vm-provisioned && test -d /opt/iora && echo PROV_OK'
     if ("$check" -match "PROV_OK") {
         Write-Success "VM already provisioned (use -Reprovision to force)"
         $needProvision = $false
@@ -669,21 +694,29 @@ if (-not (Test-Path $projectTar)) { Stop-WithError "tar archive missing." }
 
 $sizeMB = [Math]::Round((Get-Item $projectTar).Length / 1MB)
 Write-Info "  uploading ${sizeMB}MB archive..."
-Invoke-SSH "mkdir -p /home/iora/iora" | Out-Null
+Invoke-SSH 'mkdir -p /home/iora/iora' | Out-Null
 Send-SCP -LocalPath $projectTar -RemotePath "/home/iora/iora/" | Out-Null
-Invoke-SSH "cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz && chown -R iora:iora /home/iora/iora" | Out-Null
+Invoke-SSH 'cd /home/iora/iora && tar -xzf iora-project.tar.gz && rm iora-project.tar.gz && chown -R iora:iora /home/iora/iora' | Out-Null
 Remove-Item $projectTar -Force -ErrorAction SilentlyContinue
 Write-Success "Project uploaded"
 
 if ($needProvision) {
     Write-Info "Installing system packages (slow first-run step)..."
-    Invoke-SSHStdin @'
+    $installScript = @'
 set -e
 export DEBIAN_FRONTEND=noninteractive
 for i in 1 2 3 4 5 6 7 8 9 10; do
     fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
     sleep 3
 done
+    if [ -f /etc/systemd/system/postgresql.service.d/20-iora-init.conf ] && \
+       grep -Eq '/usr/bin/pg_ctl|/var/lib/pgsql' /etc/systemd/system/postgresql.service.d/20-iora-init.conf; then
+        echo "Removing incompatible PostgreSQL service override from previous dev VM provisioning"
+        rm -f /etc/systemd/system/postgresql.service.d/20-iora-init.conf
+        rmdir /etc/systemd/system/postgresql.service.d 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl reset-failed postgresql postgresql@15-main 2>/dev/null || true
+    fi
 apt-get update -qq
 apt-get install -y -qq \
     curl git ca-certificates build-essential pkg-config libssl-dev \
@@ -691,23 +724,30 @@ apt-get install -y -qq \
     python3 python3-pip htop vim mold nginx openssl socat \
     sudo systemd-container
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
-'@ | Select-Object -Last 5
+'@
+    $installOutput = Invoke-SSHStdin $installScript
+    $installExitCode = $LASTEXITCODE
+    $installOutput | Select-Object -Last 5
+    if ($installExitCode -ne 0) {
+        Stop-WithError "Installing system packages failed in VM (ssh exit code $installExitCode)."
+    }
 
-    Write-Info "Configuring PostgreSQL roles & dev-mode marker..."
-    Invoke-SSHStdin @'
+    Write-Info "Configuring PostgreSQL roles and dev-mode marker..."
+    $postgresScript = @'
 set +e
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='root'\"" | grep -q 1 \
     || su - postgres -c "psql -c \"CREATE ROLE root WITH LOGIN SUPERUSER PASSWORD 'iora'\""
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='iora'\"" | grep -q 1 \
     || su - postgres -c "psql -c \"CREATE USER iora WITH PASSWORD 'iora' CREATEDB\""
 mkdir -p /etc/iora && touch /etc/iora/os-dev-mode
-'@ | Out-Null
+'@
+    $null = Invoke-SSHStdin $postgresScript
 
     Write-Info "Installing Rust toolchain (for in-VM cargo)..."
-    Invoke-SSH "su - iora -c 'test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1" | Select-Object -Last 5
+    Invoke-SSH 'su - iora -c ''test -x ~/.cargo/bin/rustc || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'' 2>&1' | Select-Object -Last 5
 
     Write-Info "Configuring Cargo (mold + sparse registry + incremental builds)..."
-    $cargoCfg = @"
+    $cargoCfgTemplate = @'
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
@@ -719,7 +759,7 @@ protocol = "sparse"
 
 [build]
 incremental = true
-jobs = $CARGO_JOBS
+jobs = __CARGO_JOBS__
 
 [net]
 retry = 2
@@ -730,33 +770,34 @@ incremental = true
 
 [profile.release]
 incremental = false
-"@
+'@
+    $cargoCfg = $cargoCfgTemplate -replace '__CARGO_JOBS__', $CARGO_JOBS
     $cargoCfgPath = Join-Path $CACHE "cargo-config.toml"
     Set-Content -Path $cargoCfgPath -Value $cargoCfg -NoNewline -Encoding ASCII
     Send-SCP -LocalPath $cargoCfgPath -RemotePath "/tmp/cargo-config.toml" | Out-Null
-    Invoke-SSH "su - iora -c 'mkdir -p ~/.cargo && cp /tmp/cargo-config.toml ~/.cargo/config.toml'" | Out-Null
+    Invoke-SSH 'su - iora -c ''mkdir -p ~/.cargo && cp /tmp/cargo-config.toml ~/.cargo/config.toml''' | Out-Null
     Remove-Item $cargoCfgPath -Force -ErrorAction SilentlyContinue
     Write-Success "Cargo configured"
 
     Write-Info "Applying IORA OS compatibility layer..."
-    Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1" | Select-Object -Last 8
+    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-dev-compat.sh 2>&1' | Select-Object -Last 8
     Write-Info "Registering IORA OS systemd services..."
-    Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1" | Select-Object -Last 8
+    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-dev-services.sh 2>&1' | Select-Object -Last 8
     Write-Info "Applying IORA OS improvements..."
-    Invoke-SSH "bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1" | Select-Object -Last 8
+    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-dev-improvements.sh 2>&1' | Select-Object -Last 8
     Write-Info "Optimizing memory allocation for system resources..."
-    Invoke-SSH "bash /home/iora/iora/iora-os/iora-optimize-memory.sh 2>&1" | Select-Object -Last 8
+    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-optimize-memory.sh 2>&1' | Select-Object -Last 8
     Write-Info "Configuring Global Config access and live logs..."
-    Invoke-SSH "bash /home/iora/iora/iora-os/iora-config-sync.sh 2>&1" | Select-Object -Last 8
+    Invoke-SSH 'bash /home/iora/iora/iora-os/iora-config-sync.sh 2>&1' | Select-Object -Last 8
 
-    Invoke-SSH "mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned" | Out-Null
+    Invoke-SSH 'mkdir -p /etc/iora && touch /etc/iora/dev-vm-provisioned' | Out-Null
     Set-Content -Path $PROVISIONED_MARKER -Value (Get-Date -Format "o") -NoNewline
     Write-Success "Provisioning complete"
 }
 
 # ── Step 7: DB init + service enablement (always run; safe to repeat) ──────
 Write-Info "Initializing databases..."
-Invoke-SSHStdin @'
+$dbInitScript = @'
 set +e
 su - postgres -c "createuser -s root 2>/dev/null"
 for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
@@ -774,7 +815,8 @@ systemctl reset-failed iora-db-init 2>/dev/null
 systemctl restart iora-home 2>/dev/null
 systemctl enable --now iora-hot-reload.path 2>/dev/null
 systemctl enable --now iora-health-check.timer 2>/dev/null
-'@ | Out-Null
+'@
+$null = Invoke-SSHStdin $dbInitScript
 Write-Success "Databases initialized"
 
 # ── Step 8: Frontend build + deploy ────────────────────────────────────────
@@ -795,16 +837,16 @@ if ((Test-Path (Join-Path $frontendDir "package.json")) -and (Get-Command npm -E
         } else { Write-Warn "npm install failed (non-fatal)" }
     } finally { Pop-Location }
 } else {
-    Write-Warn "npm not available – skipping frontend build."
+    Write-Warn "npm not available - skipping frontend build."
 }
 
 # ── Step 9: Verification ───────────────────────────────────────────────────
 Write-Info "Verifying IORA OS services..."
-$svcCount = (Invoke-SSH "systemctl list-unit-files --type=service 'iora-*' 2>/dev/null | grep -c '^iora-' || echo 0").ToString().Trim()
+$svcCount = (Invoke-SSH 'systemctl list-unit-files --type=service ''iora-*'' 2>/dev/null | grep -c ''^iora-'' || echo 0').ToString().Trim()
 Write-Info "IORA services registered: $svcCount"
 
 function Test-VmFile { param([string]$Label, [string]$Cmd)
-    $r = Invoke-SSH "$Cmd && echo OK"
+    $r = Invoke-SSH ('{0} && echo OK' -f $Cmd)
     if ("$r" -match "OK") { Write-Success $Label } else { Write-Warn ("{0}: missing" -f $Label) }
 }
 Test-VmFile "nginx reverse proxy"   "nginx -t >/dev/null 2>&1"
@@ -847,7 +889,7 @@ if (Get-Command Start-HealthMonitor -ErrorAction SilentlyContinue) {
 Write-Host ""
 Write-Success "IORA Dev VM ready!"
 Write-Host ""
-@"
+$readyBanner = @"
   +====================================================================+
   |                    IORA Dev VM ready                                |
   +====================================================================+
@@ -888,7 +930,8 @@ Write-Host ""
   |    QEMU stderr       $QEMU_STDERR
   |    Health monitor    $HEALTH_MONITOR_LOG
   +====================================================================+
-"@ | Write-Host -ForegroundColor Green
+"@
+Write-Host $readyBanner -ForegroundColor Green
 
 # Send desktop notification
 if (Get-Command Send-Notification -ErrorAction SilentlyContinue) {
@@ -898,7 +941,7 @@ if (Get-Command Send-Notification -ErrorAction SilentlyContinue) {
 try { Stop-Transcript | Out-Null } catch {}
 
 if ($Foreground) {
-    Write-Info "Foreground mode – Ctrl+C stops the VM."
+    Write-Info "Foreground mode - Ctrl+C stops the VM."
     try {
         $qemuProc.WaitForExit()
     } finally {

@@ -108,30 +108,22 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. PostgreSQL Performance Tuning + Hardening
 # ═══════════════════════════════════════════════════════════════════════════════
-if [ -d /etc/systemd/system/postgresql.service.d ]; then
-    log "PostgreSQL service override already configured"
-else
-    log "Configuring PostgreSQL performance tuning + hardening..."
-    mkdir -p /etc/systemd/system/postgresql.service.d
-    cat > /etc/systemd/system/postgresql.service.d/20-iora-init.conf <<EOF
-[Service]
-ExecStartPre=+/bin/sh -c 'mkdir -p /var/lib/pgsql && chown postgres:postgres /var/lib/pgsql && chmod 700 /var/lib/pgsql'
-ExecStartPre=/bin/sh -c 'if [ ! -f /var/lib/pgsql/PG_VERSION ]; then /usr/bin/pg_ctl initdb -D /var/lib/pgsql -o "--locale=C --encoding=UTF8"; fi'
-Environment=LANG=C LC_ALL=C
-Restart=on-failure
-RestartSec=5
-TimeoutStartSec=120
-StartLimitBurst=5
-StartLimitIntervalSec=30
-
-[Unit]
-OnFailure=
-EOF
-    log "PostgreSQL service override configured"
+log "Configuring PostgreSQL service defaults..."
+mkdir -p /etc/systemd/system/postgresql.service.d
+if [ -f /etc/systemd/system/postgresql.service.d/20-iora-init.conf ] && \
+   grep -Eq '/usr/bin/pg_ctl|/var/lib/pgsql' /etc/systemd/system/postgresql.service.d/20-iora-init.conf; then
+    rm -f /etc/systemd/system/postgresql.service.d/20-iora-init.conf
 fi
+cat > /etc/systemd/system/postgresql.service.d/20-iora-env.conf <<EOF
+[Service]
+Environment=LANG=C LC_ALL=C
+TimeoutStartSec=120
+EOF
+systemctl daemon-reload 2>/dev/null || true
+log "PostgreSQL service defaults configured"
 
 # PostgreSQL performance tuning configuration
-if [ -d /var/lib/pgsql ] && command -v postgres >/dev/null 2>&1; then
+if command -v psql >/dev/null 2>&1; then
     log "Applying PostgreSQL performance tuning..."
 
     # Calculate optimal settings based on available RAM
@@ -148,7 +140,12 @@ if [ -d /var/lib/pgsql ] && command -v postgres >/dev/null 2>&1; then
     [ $MAINTENANCE_WORK_MEM -lt 64 ] && MAINTENANCE_WORK_MEM=64
     [ $MAINTENANCE_WORK_MEM -gt 512 ] && MAINTENANCE_WORK_MEM=512
 
-    cat > /etc/postgresql/postgresql.conf.d/99-iora-performance.conf <<EOF
+    tuned_any=0
+    for cluster_conf in /etc/postgresql/*/*/postgresql.conf; do
+        [ -f "$cluster_conf" ] || continue
+        conf_dir="$(dirname "$cluster_conf")/conf.d"
+        mkdir -p "$conf_dir"
+        cat > "$conf_dir/99-iora-performance.conf" <<EOF
 # IORA OS PostgreSQL Performance Tuning
 # Auto-generated based on ${TOTAL_RAM_MB}MB system RAM
 
@@ -203,10 +200,14 @@ listen_addresses = 'localhost'
 unix_socket_directories = '/var/run/postgresql'
 EOF
 
-    # Ensure the conf.d directory is included
-    if ! grep -q "include_dir = 'postgresql.conf.d'" /etc/postgresql/postgresql.conf 2>/dev/null; then
-        mkdir -p /etc/postgresql/postgresql.conf.d
-        echo "include_dir = 'postgresql.conf.d'" >> /etc/postgresql/postgresql.conf 2>/dev/null || true
+        if ! grep -q "^[[:space:]]*include_dir[[:space:]]*=[[:space:]]*'conf.d'" "$cluster_conf" 2>/dev/null; then
+            echo "include_dir = 'conf.d'" >> "$cluster_conf" 2>/dev/null || true
+        fi
+        tuned_any=1
+    done
+
+    if [ "$tuned_any" -eq 1 ]; then
+        systemctl reload postgresql 2>/dev/null || systemctl restart postgresql 2>/dev/null || true
     fi
 
     log "PostgreSQL performance tuning configured (${SHARED_BUFFERS}MB shared_buffers, ${WORK_MEM}MB work_mem)"

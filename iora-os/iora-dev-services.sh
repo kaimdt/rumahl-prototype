@@ -288,11 +288,6 @@ else
     success "SSL certificate already exists"
 fi
 
-# Generate DH parameters (small for dev speed)
-if [ ! -f "$SSL_DIR/dhparam.pem" ]; then
-    openssl dhparam -out "$SSL_DIR/dhparam.pem" 1024 2>/dev/null || true
-fi
-
 # Nginx configuration matching IORA OS
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
@@ -389,7 +384,6 @@ server {
     # SSL configuration
     ssl_certificate /etc/iora/ssl/server.crt;
     ssl_certificate_key /etc/iora/ssl/server.key;
-    ssl_dhparam /etc/iora/ssl/dhparam.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
