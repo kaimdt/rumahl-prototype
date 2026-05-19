@@ -44,8 +44,10 @@ pub enum SettingType {
 /// Where a setting may be displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SettingVisibility {
     /// Visible everywhere (Wizard if flagged + Control Center).
+    #[default]
     Visible,
     /// Editable via API but never rendered in any UI (debug/internal).
     Hidden,
@@ -53,11 +55,6 @@ pub enum SettingVisibility {
     ReadOnly,
 }
 
-impl Default for SettingVisibility {
-    fn default() -> Self {
-        Self::Visible
-    }
-}
 
 /// Top-level grouping shown as tabs/sections in the Control Center UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

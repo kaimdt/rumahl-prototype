@@ -80,18 +80,15 @@ const IORA_RESERVED_PORTS: &[u16] = &[
 /// Port assignment mode
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PortAssignmentMode {
     /// Random port assigned on each restart (default)
+    #[default]
     Random,
     /// Fixed port, persists across restarts
     Fixed,
 }
 
-impl Default for PortAssignmentMode {
-    fn default() -> Self {
-        Self::Random
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortAssignment {
@@ -249,7 +246,7 @@ impl PortManager {
     /// Check if a specific port is available
     pub async fn is_port_available(&self, port: u16) -> bool {
         let allocated = self.allocated.read().await;
-        !allocated.contains(&port) && port >= APP_PORT_RANGE_START && port <= APP_PORT_RANGE_END
+        !allocated.contains(&port) && (APP_PORT_RANGE_START..=APP_PORT_RANGE_END).contains(&port)
     }
 
     /// Get port allocation statistics

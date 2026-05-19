@@ -21,17 +21,16 @@ use std::collections::HashMap;
 /// HTTP method for the webhook
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
+#[derive(Default)]
 pub enum WebhookMethod {
     Get,
+    #[default]
     Post,
     Put,
     Patch,
     Delete,
 }
 
-impl Default for WebhookMethod {
-    fn default() -> Self { WebhookMethod::Post }
-}
 
 /// A registered webhook
 #[derive(Debug, Clone, Serialize, Deserialize)]

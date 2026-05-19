@@ -663,7 +663,7 @@ async fn verify_os_password(username: &str, password: &str) -> bool {
     // Security: the password is sent via stdin pipe, never appears in
     // ps output or logs.
     
-    let test_cmd = format!("echo authenticated");
+    let test_cmd = "echo authenticated".to_string();
     
     let result = tokio::process::Command::new("su")
         .args(["-c", &test_cmd, username])
@@ -1251,7 +1251,7 @@ async fn fs_read(
     };
     let total_bytes = bytes.len();
     let preview = &bytes[..bytes.len().min(max_bytes)];
-    let binary_hint = preview.iter().any(|b| *b == 0);
+    let binary_hint = preview.contains(&0);
     Json(FsReadResponse {
         path: body.path,
         content: String::from_utf8_lossy(preview).into_owned(),
@@ -1581,9 +1581,9 @@ async fn system_info(
     if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
         for line in meminfo.lines() {
             if let Some(rest) = line.strip_prefix("MemTotal:") {
-                mem_total_kb = rest.trim().split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                mem_total_kb = rest.split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
             } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
-                mem_avail_kb = rest.trim().split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                mem_avail_kb = rest.split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
             }
         }
     }

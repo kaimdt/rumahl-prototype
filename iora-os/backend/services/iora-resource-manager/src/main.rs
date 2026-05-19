@@ -667,7 +667,18 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora_core".to_string())
         });
 
-    info!("Using database: {}", database_url.replace(|c: char| c.is_alphanumeric() || c == ':', '*'));
+    // Mask sensitive parts of the database URL for logging
+    let masked_url = if database_url.contains('@') {
+        let parts: Vec<&str> = database_url.split('@').collect();
+        if parts.len() == 2 {
+            format!("***@{}", parts[1])
+        } else {
+            "***".to_string()
+        }
+    } else {
+        database_url.clone()
+    };
+    info!("Using database: {}", masked_url);
 
     let pool = PgPool::connect(&database_url)
         .await

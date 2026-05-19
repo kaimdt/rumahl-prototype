@@ -17,18 +17,15 @@ use serde::{Deserialize, Serialize};
 /// Database backend type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum DatabaseBackend {
     /// Shared PostgreSQL (default, connection pool managed by IORA)
+    #[default]
     Postgres,
     /// Per-app SQLite database file
     Sqlite,
 }
 
-impl Default for DatabaseBackend {
-    fn default() -> Self {
-        DatabaseBackend::Postgres
-    }
-}
 
 /// Database configuration in the app manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]

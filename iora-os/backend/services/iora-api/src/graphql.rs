@@ -109,7 +109,7 @@ impl QueryRoot {
 
         let resp = gql_ctx
             .http_client
-            .get(&format!("{}/api/states", gql_ctx.iora_home_url))
+            .get(format!("{}/api/states", gql_ctx.iora_home_url))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await?;
@@ -165,7 +165,7 @@ impl QueryRoot {
 
         let resp = gql_ctx
             .http_client
-            .get(&format!("{}/api/states/{}", gql_ctx.iora_home_url, entity_id))
+            .get(format!("{}/api/states/{}", gql_ctx.iora_home_url, entity_id))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await?;
@@ -207,7 +207,7 @@ impl QueryRoot {
 
         let resp = gql_ctx
             .http_client
-            .get(&format!("{}/api/admin/ha/areas", gql_ctx.iora_home_url))
+            .get(format!("{}/api/admin/ha/areas", gql_ctx.iora_home_url))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await?;
@@ -330,8 +330,7 @@ impl SubscriptionRoot {
         domain: Option<String>,
     ) -> impl futures_util::Stream<Item = Entity> {
         let gql_ctx = ctx
-            .data::<GraphQLContext>()
-            .map(|c| c.clone())
+            .data::<GraphQLContext>().cloned()
             .ok();
 
         async_stream::stream! {
@@ -344,7 +343,7 @@ impl SubscriptionRoot {
                 interval.tick().await;
                 let resp = match gql_ctx
                     .http_client
-                    .get(&format!("{}/api/states", gql_ctx.iora_home_url))
+                    .get(format!("{}/api/states", gql_ctx.iora_home_url))
                     .send()
                     .await
                 {

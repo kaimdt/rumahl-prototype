@@ -139,7 +139,7 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     result.manifest_name = name.map(|s| s.to_string());
 
     // ─── Required fields ──────────────────────────────────────────
-    if id.as_ref().map_or(true, |s| s.is_empty()) {
+    if id.as_ref().is_none_or(|s| s.is_empty()) {
         result.add_error("id", "Die Theme-ID fehlt oder ist leer. Jedes Theme braucht eine eindeutige ID (z.B. \"mein-theme\").",
             Some("Füge \"id\": \"mein-theme\" hinzu. Nur Kleinbuchstaben, Zahlen und Bindestriche."));
     } else {
@@ -154,7 +154,7 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
         }
     }
 
-    if name.as_ref().map_or(true, |s| s.is_empty()) {
+    if name.as_ref().is_none_or(|s| s.is_empty()) {
         result.add_error("name", "Der Theme-Name fehlt. Gib deinem Theme einen aussagekräftigen Namen.",
             Some("Füge \"name\": \"Mein Theme\" hinzu."));
     }
@@ -364,7 +364,7 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
     result.manifest_name = name.map(|s| s.to_string());
 
     // ─── Required fields ──────────────────────────────────────────
-    if id.as_ref().map_or(true, |s| s.is_empty()) {
+    if id.as_ref().is_none_or(|s| s.is_empty()) {
         result.add_error("id", "Die App-ID fehlt. Jede App/Plugin braucht eine eindeutige ID.",
             Some("Füge \"id\": \"meine-app\" hinzu."));
     } else {
@@ -375,7 +375,7 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
         }
     }
 
-    if name.as_ref().map_or(true, |s| s.is_empty()) {
+    if name.as_ref().is_none_or(|s| s.is_empty()) {
         result.add_error("name", "Der Name fehlt.",
             Some("Füge \"name\": \"Meine App\" hinzu."));
     }
@@ -395,12 +395,11 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
     }
 
     // Plugin-specific checks
-    if app_type == "plugin" {
-        if json.get("plugin_type").is_none() {
+    if app_type == "plugin"
+        && json.get("plugin_type").is_none() {
             result.add_error("plugin_type", "Plugin-Typ fehlt (z.B. \"widget\", \"theme\", \"automation\").",
                 Some("Füge \"plugin_type\": \"widget\" hinzu."));
         }
-    }
 
     // App-specific checks
     if app_type == "app" {

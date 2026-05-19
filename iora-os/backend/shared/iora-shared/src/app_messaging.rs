@@ -14,13 +14,14 @@
 //! permission.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Message channel type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ChannelType {
     /// Public channel (any app with permission can subscribe)
+    #[default]
     Public,
     /// Protected channel (only the owning app and permitted apps)
     Protected,
@@ -28,11 +29,6 @@ pub enum ChannelType {
     System,
 }
 
-impl Default for ChannelType {
-    fn default() -> Self {
-        ChannelType::Public
-    }
-}
 
 /// A message channel
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,16 +96,15 @@ fn default_ttl() -> u64 { 300 } // 5 minutes
 /// Message priority
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MessagePriority {
     Low,
+    #[default]
     Normal,
     High,
     Critical,
 }
 
-impl Default for MessagePriority {
-    fn default() -> Self { MessagePriority::Normal }
-}
 
 /// Subscription to a message channel
 #[derive(Debug, Clone, Serialize, Deserialize)]

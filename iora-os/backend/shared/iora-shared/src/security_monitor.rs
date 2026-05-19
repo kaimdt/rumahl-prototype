@@ -182,8 +182,8 @@ impl SecurityMonitor {
         events
             .values()
             .filter(|e| {
-                let provider_match = provider_id.map_or(true, |pid| e.provider_id == pid);
-                let severity_match = severity.as_ref().map_or(true, |sev| &e.severity == sev);
+                let provider_match = provider_id.is_none_or(|pid| e.provider_id == pid);
+                let severity_match = severity.as_ref().is_none_or(|sev| &e.severity == sev);
                 provider_match && severity_match
             })
             .cloned()
