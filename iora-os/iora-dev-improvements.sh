@@ -315,4 +315,26 @@ else
     warn "iora-optimize-memory.sh not found, skipping memory optimization"
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. Nginx Performance Optimization
+# ═══════════════════════════════════════════════════════════════════════════════
+log "Applying nginx performance optimization..."
+
+if [ -f "$SCRIPT_DIR/iora-optimize-nginx.sh" ]; then
+    bash "$SCRIPT_DIR/iora-optimize-nginx.sh"
+else
+    warn "iora-optimize-nginx.sh not found, skipping nginx optimization"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. Service Priority & Lazy Loading
+# ═══════════════════════════════════════════════════════════════════════════════
+log "Configuring service priorities and lazy loading..."
+
+if [ -f "$SCRIPT_DIR/iora-service-priority.sh" ]; then
+    bash "$SCRIPT_DIR/iora-service-priority.sh"
+else
+    warn "iora-service-priority.sh not found, skipping service priority configuration"
+fi
+
 log "All improvements applied!"
