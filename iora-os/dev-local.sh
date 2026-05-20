@@ -554,7 +554,7 @@ else
     if [ -z "$EXISTING_PID" ]; then
         log "Starting QEMU ($QEMU_BIN, $ACCEL)..."
 
-        NETDEV="user,id=n0,hostfwd=tcp::${VM_SSH}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
+        NETDEV="user,id=n0,hostfwd=tcp::${VM_SSH}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101,dns=1.1.1.1"
         for p in "${FWD_PORTS[@]}"; do
             NETDEV="${NETDEV},hostfwd=tcp::${p}-:${p}"
         done
