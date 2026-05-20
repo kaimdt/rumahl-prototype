@@ -90,7 +90,9 @@ pub async fn proxy_to_vite_dev(req: Request) -> Response {
     };
 
     // Build proxied request
-    let method = req.method().clone();
+    // Convert axum::http::Method -> reqwest::Method (http 1.x -> 0.2.x)
+    let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes())
+        .unwrap_or(reqwest::Method::GET);
     let mut proxy_req = client.request(method, &target_url);
 
     // Copy relevant headers (skip host, connection, etc.)
@@ -128,7 +130,9 @@ pub async fn proxy_to_vite_dev(req: Request) -> Response {
     };
 
     // Build response
-    let status = response.status();
+    // Convert reqwest::StatusCode -> axum::http::StatusCode (http 0.2.x -> 1.x)
+    let status = axum::http::StatusCode::from_u16(response.status().as_u16())
+        .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
     let mut builder = Response::builder().status(status);
 
     // Copy response headers

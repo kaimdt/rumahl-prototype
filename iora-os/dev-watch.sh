@@ -41,7 +41,7 @@ die()  { err "$*"; exit 1; }
 
 # ── Paths ─────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || { cd "$SCRIPT_DIR/.." && pwd; })"
 CACHE="$SCRIPT_DIR/.cache"
 SHARED="$REPO_ROOT/.iora-dev"
 BIN_DIR="$SHARED/binaries"
@@ -62,6 +62,10 @@ elif [ -f "$REPO_ROOT/backend/Cargo.toml" ]; then
 else
     die "Cannot find Rust workspace (looked for iora-os/backend or backend)"
 fi
+
+# VM-side paths (for in-VM build strategy)
+VM_WORKSPACE="/home/iora/iora/iora-os/backend"
+VM_TARGET="$VM_WORKSPACE/target/debug"
 
 FRONTEND_DIR=""
 for d in "$REPO_ROOT/frontend" "$REPO_ROOT/desktop"; do
@@ -158,46 +162,20 @@ discover_services() {
 }
 
 ALL_SERVICES=()
-mapfile -t ALL_SERVICES < <(discover_services)
+while IFS= read -r line; do
+    ALL_SERVICES+=("$line")
+done < <(discover_services)
 log "Discovered ${#ALL_SERVICES[@]} iora-* crates"
 
 # ── Toolchain detection ───────────────────────────────────────────────────
-USE_ZIGBUILD=false
-TOOLCHAIN="auto"
-
+# Rust builds happen inside the VM, but we still set up for frontend-only tooling.
 setup_toolchain() {
-    # Prefer Buildroot toolchain, then system musl, then system gnu, else zigbuild.
-    local br_bin="$REPO_ROOT/iora-os/output/host/bin/x86_64-linux-gcc"
-    if [ -x "$br_bin" ]; then
-        export PATH="$(dirname "$br_bin"):$PATH"
-        export CC_x86_64_unknown_linux_gnu="$br_bin"
-        TARGET="x86_64-unknown-linux-gnu"
-        TOOLCHAIN="buildroot"
-    elif command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
-        export CC_x86_64_unknown_linux_musl=$(command -v x86_64-linux-musl-gcc)
-        TARGET="x86_64-unknown-linux-musl"
-        TOOLCHAIN="musl"
-    elif command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
-        export CC_x86_64_unknown_linux_gnu=$(command -v x86_64-linux-gnu-gcc)
-        TARGET="x86_64-unknown-linux-gnu"
-        TOOLCHAIN="gnu"
-    elif command -v cargo-zigbuild >/dev/null 2>&1 && command -v zig >/dev/null 2>&1; then
-        USE_ZIGBUILD=true
-        TOOLCHAIN="zigbuild"
-    else
-        TOOLCHAIN="host"
-        warn "No cross compiler found. Falling back to host toolchain (cargo build)."
-        warn "Install one of: musl-tools, gcc-x86-64-linux-gnu, cargo-zigbuild + zig"
-    fi
+    TOOLCHAIN="in-vm"
+    log "Rust toolchain: builds inside Dev VM (no cross-compilation needed)"
 }
 
-# Install Rust target if missing (no-op if already there).
-ensure_rust_target() {
-    if ! rustup target list --installed 2>/dev/null | grep -q "^$TARGET$"; then
-        log "Installing Rust target $TARGET ..."
-        rustup target add "$TARGET" >/dev/null 2>&1 || warn "Could not install target $TARGET"
-    fi
-}
+# No-op: target handled by the VM's native toolchain.
+ensure_rust_target() { :; }
 
 # sccache wiring
 setup_sccache() {
@@ -262,49 +240,25 @@ deploy_binary() {
     return 0
 }
 
-# Deploy a list of services in parallel (up to N at a time).
+# Deploy a list of services in parallel.
+# Since we build inside the VM, source and dest are both local to the VM.
 deploy_many() {
     local services=("$@")
-    local jobs=0
-    local max_jobs=4
-    local pids=()
-    local failed=0
     local deployed=0
+    local failed=0
+    local vm_target="$VM_TARGET"
 
     for svc in "${services[@]}"; do
-        local bin="$WORKSPACE/target/$TARGET/debug/$svc"
-        if [ ! -f "$bin" ]; then
-            dim "    $svc : binary not built, skipping"
-            continue
-        fi
-        if ! bin_changed "$svc" "$bin"; then
-            dim "    $svc : unchanged"
-            continue
-        fi
-        # Also stash a copy in the shared dir (for any 9p-based fallback)
-        cp -f "$bin" "$BIN_DIR/" 2>/dev/null || true
-
-        (
-            if deploy_binary "$svc" "$bin"; then exit 0; else exit 1; fi
-        ) &
-        pids+=($!)
-        jobs=$((jobs + 1))
-        if [ "$jobs" -ge "$max_jobs" ]; then
-            wait -n 2>/dev/null || true
-            jobs=$((jobs - 1))
-        fi
-    done
-
-    for p in "${pids[@]}"; do
-        if wait "$p"; then
+        if ssh_vm "test -f $vm_target/$svc && install -m 0755 $vm_target/$svc /usr/bin/$svc"; then
+            if $DO_RESTART; then
+                ssh_vm "systemctl try-restart $svc 2>/dev/null || systemctl restart $svc 2>/dev/null || true" >/dev/null 2>&1 || true
+            fi
+            printf '    %s->%s %s\n' "$G" "$N" "$svc"
             deployed=$((deployed + 1))
         else
-            failed=$((failed + 1))
+            dim "    $svc : not built, skipping"
         fi
     done
-
-    # Touch the trigger so any in-VM hot-reload daemon notices.
-    date +%s > "$BIN_DIR/.trigger" 2>/dev/null || true
 
     printf '  deployed=%s failed=%s\n' "$deployed" "$failed"
     return 0
@@ -324,7 +278,9 @@ health_check() {
         2>/dev/null || true
 }
 
-# ── Build: Rust ───────────────────────────────────────────────────────────
+# ── Build: Rust (inside VM) ──────────────────────────────────────────────
+# Cross-compilation from macOS fails due to OpenSSL native deps.
+# Instead, we sync sources and build natively inside the Dev VM.
 RUST_BUILD_N=0
 build_rust() {
     if ! $DO_RUST; then return 0; fi
@@ -334,14 +290,21 @@ build_rust() {
     printf '\n%s──[Rust #%d @ %s]──────────────────────────────────────────%s\n' \
         "$Y" "$RUST_BUILD_N" "$(date '+%H:%M:%S')" "$N"
 
-    local rc=0
-    pushd "$WORKSPACE" >/dev/null
-    if $USE_ZIGBUILD; then
-        cargo zigbuild --target "$TARGET" --workspace --color always || rc=$?
-    else
-        cargo build --target "$TARGET" --workspace --color always || rc=$?
+    if ! vm_reachable; then
+        warn "VM not reachable – skipping Rust build"
+        return 0
     fi
-    popd >/dev/null
+
+    local rc=0
+    # Sync changed source files to VM before building
+    rsync -az --delete \
+        --exclude='.git' --exclude='target' --exclude='node_modules' \
+        --exclude='.cache' --exclude='buildroot-*' --exclude='releases' \
+        --exclude='*.img' --exclude='*.qcow2' --exclude='*.iso' \
+        --exclude='.iora-dev' \
+        -e "ssh ${SSH_OPTS[*]} -p $VM_PORT" \
+        "$REPO_ROOT/" "root@$VM_HOST:/home/iora/iora/" 2>&1 | tail -3
+    ssh_vm "su - iora -c 'cd $VM_WORKSPACE && cargo build --workspace 2>&1'" || rc=$?
 
     now=$(date +%s); elapsed=$((now - start))
     if [ "$rc" -ne 0 ]; then
@@ -350,12 +313,7 @@ build_rust() {
     fi
     ok "Rust build OK in ${elapsed}s"
 
-    # Only deploy if the VM is up.
-    if vm_reachable; then
-        deploy_many "${ALL_SERVICES[@]}"
-    else
-        warn "VM not reachable, skipping deploy (binaries cached in target/)"
-    fi
+    deploy_many "${ALL_SERVICES[@]}"
 }
 
 # ── Build: Frontend ───────────────────────────────────────────────────────
