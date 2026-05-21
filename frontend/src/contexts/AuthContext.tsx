@@ -147,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const mapped = mapApiUser(data.user as ApiUser)
       setUser(mapped)
       localStorage.setItem('ha-username', mapped.username)
+      localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
     } finally {
       setIsLoading(false)
     }
@@ -174,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const mapped = mapApiUser(data.user as ApiUser)
       setUser(mapped)
       localStorage.setItem('ha-username', mapped.username)
+      localStorage.setItem('ha-auth-user', JSON.stringify(data.user))
     } finally {
       setIsLoading(false)
     }

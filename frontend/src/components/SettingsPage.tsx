@@ -71,7 +71,13 @@ import type { ThemeDefinition } from '@/contexts/ThemeContext'
 
 function ThemeSettingsPanelWrapper() {
   const { capabilities } = useTheme()
-  if (!capabilities?.custom_settings?.length) return null
+  const hasContent = !!(
+    capabilities?.design_modes?.length ||
+    capabilities?.accent_control?.presets?.length ||
+    capabilities?.glass_control ||
+    capabilities?.custom_settings?.length
+  )
+  if (!hasContent) return null
   return (
     <div className="p-4 rounded-2xl glass-card border-foreground/10">
       <ThemeSettingsPanel />

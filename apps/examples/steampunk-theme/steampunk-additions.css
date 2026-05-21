@@ -1,0 +1,286 @@
+/**
+ * STEAMPUNK REVOLUTION – Icon Mapping & Widget Style Overrides
+ * 
+ * Overrides Phosphor/react icons with steampunk glyphs via CSS.
+ * Each icon gets a brass/copper tint and mechanical styling.
+ */
+const STEAMPUNK_ICON_CSS = `
+
+/* ═══════════════════════════════════════════════════════════════════
+   ICON REPLACEMENT – Steampunk Glyphs
+   Replace modern icons with Victorian industrial equivalents
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* All icons get brass tint */
+[class*="phosphor"] svg, svg[class*="lucide"], svg[class*="icon"] {
+  filter: sepia(0.6) saturate(1.5) hue-rotate(350deg) brightness(1.1) !important;
+  transition: filter 0.4s ease;
+}
+
+/* Navigation icons – white brass */
+nav svg, [data-nav="root"] svg, [class*="nav"] svg {
+  color: oklch(from var(--accent) calc(l + 0.05) c h / 0.8) !important;
+}
+
+/* Widget header icons – glowing brass */
+[class*="widget-header"] svg, [class*="card-header"] svg {
+  color: oklch(from var(--accent) calc(l + 0.1) c h / 0.9) !important;
+  filter: drop-shadow(0 0 4px oklch(from var(--accent) l c h / 0.25)) !important;
+}
+
+/* Toggle/switch thumb – copper rivet */
+[role="switch"] [data-state="checked"] span:last-child {
+  background: radial-gradient(
+    circle at 40% 40%,
+    oklch(0.65 0.12 50 / 0.9),
+    oklch(0.45 0.08 40 / 0.7)
+  ) !important;
+  box-shadow: 0 0 6px oklch(0.55 0.12 50 / 0.3), 0 1px 3px oklch(0 0 0 / 0.4) !important;
+}
+
+/* Active icon – warm glow */
+[class*="active"] svg, [aria-current] svg, .text-accent svg {
+  color: oklch(from var(--accent) calc(l + 0.15) c h / 1) !important;
+  filter: drop-shadow(0 0 8px oklch(from var(--accent) l c h / 0.35)) !important;
+}
+
+/* Status indicators */
+[data-status="on"] svg, [data-status="active"] svg {
+  animation: brass-pulse 2s ease-in-out infinite;
+}
+
+@keyframes brass-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px oklch(from var(--accent) l c h / 0.2)); }
+  50% { filter: drop-shadow(0 0 12px oklch(from var(--accent) l c h / 0.4)); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TABLES & DATA – Ledger Book Style
+   ═══════════════════════════════════════════════════════════════════ */
+
+table {
+  border-collapse: collapse !important;
+  font-family: 'IM Fell English', serif !important;
+  width: 100% !important;
+}
+
+table th {
+  background: oklch(0.18 0.02 80 / 0.7) !important;
+  color: oklch(from var(--accent) calc(l + 0.1) c h / 0.9) !important;
+  font-family: 'Cinzel Decorative', serif !important;
+  font-size: 11px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  padding: 10px 14px !important;
+  border-bottom: 2px solid oklch(from var(--accent) l c h / 0.3) !important;
+}
+
+table td {
+  padding: 8px 14px !important;
+  border-bottom: 1px solid oklch(from var(--accent) l c h / 0.08) !important;
+  font-size: 12px !important;
+  color: var(--foreground) !important;
+}
+
+table tr:hover td {
+  background: oklch(from var(--accent) l c h / 0.04) !important;
+}
+
+table tr:nth-child(even) td {
+  background: oklch(0 0 0 / 0.08) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CHARTS & GRAPHS – Brass Instrument Panels
+   ═══════════════════════════════════════════════════════════════════ */
+
+[class*="chart"], [class*="graph"], canvas, [class*="recharts"] {
+  filter: sepia(0.3) contrast(1.1) !important;
+}
+
+[class*="recharts"] text {
+  font-family: 'Courier Prime', monospace !important;
+  fill: oklch(from var(--accent) calc(l + 0.05) c h / 0.7) !important;
+  font-size: 10px !important;
+}
+
+[class*="recharts"] line, [class*="recharts"] path[class*="cartesian"] {
+  stroke: oklch(from var(--accent) l c h / 0.12) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BADGES & TAGS – Brass Labels
+   ═══════════════════════════════════════════════════════════════════ */
+
+[class*="badge"], [class*="tag"], [class*="chip"], [class*="pill"] {
+  background: oklch(0.22 0.025 80 / 0.6) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.2) !important;
+  border-radius: 2px !important;
+  font-family: 'Courier Prime', monospace !important;
+  font-size: 10px !important;
+  letter-spacing: 0.05em !important;
+  color: oklch(from var(--accent) calc(l + 0.05) c h / 0.8) !important;
+  text-transform: uppercase !important;
+  padding: 2px 8px !important;
+}
+
+/* Success/error badges */
+[class*="bg-green"], [class*="bg-emerald"] {
+  background: oklch(0.20 0.04 160 / 0.5) !important;
+  border-color: oklch(0.45 0.08 160 / 0.4) !important;
+  color: oklch(0.65 0.12 160 / 0.9) !important;
+}
+
+[class*="bg-red"], [class*="bg-destructive"] {
+  background: oklch(0.20 0.04 25 / 0.5) !important;
+  border-color: oklch(0.45 0.08 25 / 0.4) !important;
+  color: oklch(0.60 0.14 25 / 0.9) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PROGRESS BARS – Steam Pressure Gauges
+   ═══════════════════════════════════════════════════════════════════ */
+
+[role="progressbar"], progress, [class*="progress"] {
+  height: 8px !important;
+  background: oklch(0.15 0.015 80 / 0.5) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.15) !important;
+  border-radius: 2px !important;
+  overflow: hidden !important;
+}
+
+[role="progressbar"] > *, progress::-webkit-progress-value, [class*="progress"] > [class*="bar"] {
+  background: linear-gradient(
+    90deg,
+    oklch(from var(--accent) calc(l + 0.05) c h / 0.5),
+    oklch(from var(--accent) calc(l + 0.15) c h / 0.8)
+  ) !important;
+  box-shadow: 0 0 6px oklch(from var(--accent) l c h / 0.15) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TOOLTIPS & POPOVERS – Copper Labels
+   ═══════════════════════════════════════════════════════════════════ */
+
+[role="tooltip"], [data-state="delayed-open"][role="tooltip"],
+[class*="popover"], [class*="tooltip"] {
+  background: oklch(0.22 0.03 70 / 0.95) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.25) !important;
+  border-radius: 2px !important;
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.5), 0 0 8px oklch(from var(--accent) l c h / 0.05) !important;
+  font-family: 'IM Fell English', serif !important;
+  font-size: 11px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   DIVIDERS – Brass Rails
+   ═══════════════════════════════════════════════════════════════════ */
+
+hr, [class*="divider"], [class*="separator"] {
+  border-color: oklch(from var(--accent) l c h / 0.1) !important;
+  border-style: solid !important;
+}
+
+hr::after {
+  content: '◆';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: oklch(from var(--accent) l c h / 0.3);
+  font-size: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   DROPDOWN MENUS – Mechanical Selector
+   ═══════════════════════════════════════════════════════════════════ */
+
+[role="menu"], [class*="dropdown"], [class*="context-menu"] {
+  background: oklch(0.18 0.025 80 / 0.95) !important;
+  border: 2px solid oklch(from var(--accent) l c h / 0.25) !important;
+  border-radius: 3px !important;
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.5), 0 0 12px oklch(from var(--accent) l c h / 0.06) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+[role="menuitem"]:hover, [class*="dropdown-item"]:hover {
+  background: oklch(from var(--accent) l c h / 0.08) !important;
+  color: oklch(from var(--accent) calc(l + 0.1) c h) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TABS – Industrial Switch Panel
+   ═══════════════════════════════════════════════════════════════════ */
+
+[role="tablist"] {
+  border-bottom: 2px solid oklch(from var(--accent) l c h / 0.15) !important;
+}
+
+[role="tab"] {
+  font-family: 'IM Fell English', serif !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em !important;
+  color: oklch(from var(--accent) l c h / 0.5) !important;
+  border-bottom: 2px solid transparent !important;
+  transition: all 0.3s !important;
+}
+
+[role="tab"][aria-selected="true"] {
+  color: oklch(from var(--accent) calc(l + 0.1) c h / 0.9) !important;
+  border-bottom-color: oklch(from var(--accent) l c h / 0.5) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SKELETON LOADING – Brass Shimmer
+   ═══════════════════════════════════════════════════════════════════ */
+
+[class*="skeleton"], [class*="animate-pulse"] {
+  background: linear-gradient(
+    90deg,
+    oklch(0.18 0.02 80 / 0.4) 0%,
+    oklch(from var(--accent) calc(l + 0.05) calc(c * 0.3) h / 0.3) 50%,
+    oklch(0.18 0.02 80 / 0.4) 100%
+  ) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CHECKBOXES – Stamped Metal
+   ═══════════════════════════════════════════════════════════════════ */
+
+[type="checkbox"] {
+  accent-color: oklch(from var(--accent) l c h) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.3) !important;
+  border-radius: 2px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CODE BLOCKS – Telegraph Tape
+   ═══════════════════════════════════════════════════════════════════ */
+
+pre, code {
+  background: oklch(0.12 0.015 80 / 0.6) !important;
+  border: 1px solid oklch(from var(--accent) l c h / 0.1) !important;
+  border-radius: 2px !important;
+  color: oklch(0.75 0.04 85) !important;
+  font-family: 'Courier Prime', monospace !important;
+  font-size: 11px !important;
+  letter-spacing: 0.03em !important;
+  padding: 12px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LINKS – Copper Wire
+   ═══════════════════════════════════════════════════════════════════ */
+
+a, [class*="link"] {
+  color: oklch(from var(--accent) calc(l + 0.1) c h / 0.9) !important;
+  text-decoration: none !important;
+  border-bottom: 1px dotted oklch(from var(--accent) l c h / 0.2) !important;
+  transition: border-color 0.2s !important;
+}
+
+a:hover {
+  border-bottom-color: oklch(from var(--accent) l c h / 0.5) !important;
+}
+`
+
+export default STEAMPUNK_ICON_CSS

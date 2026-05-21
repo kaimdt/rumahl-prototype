@@ -665,6 +665,8 @@ pub async fn list_themes(
             html_templates_json: r.html_templates_json,
             capabilities_json: r.capabilities_json,
             widget_templates_json: r.widget_templates_json,
+            css_variables_json: Some(r.css_variables),
+            additional_css: r.additional_css,
         }
     }).collect();
     Ok(Json(iora_shared::theme::ThemeListResponse { builtin, installed }))

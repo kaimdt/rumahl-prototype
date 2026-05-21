@@ -363,9 +363,24 @@ if ($HOST_ARCH -eq "ARM64") {
 foreach ($f in $fwPaths) { if (Test-Path $f) { $FW = $f; break } }
 if (-not $FW) { Stop-WithError "UEFI firmware not found in $QEMU_DIR" }
 if ($fwIsFlash) {
-    $FW_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
-    Copy-Item $FW $FW_CACHED -Force -ErrorAction SilentlyContinue
-    $FW = $FW_CACHED
+    $FW_CODE_CACHED = Join-Path $CACHE "OVMF_CODE.fd"
+    Copy-Item $FW $FW_CODE_CACHED -Force -ErrorAction SilentlyContinue
+    $FW = $FW_CODE_CACHED
+
+    # Cache writable VARS file (required for UEFI boot variables persistence)
+    $FW_VARS_CACHED = Join-Path $CACHE "OVMF_VARS.fd"
+    if (-not (Test-Path $FW_VARS_CACHED)) {
+        $varsPaths = @(
+            (Join-Path $QEMU_DIR "share\edk2-x86_64-vars.fd"),
+            (Join-Path $QEMU_DIR "share\edk2-i386-vars.fd"),
+            (Join-Path $QEMU_DIR "edk2-x86_64-vars.fd"),
+            (Join-Path $QEMU_DIR "edk2-i386-vars.fd")
+        )
+        foreach ($v in $varsPaths) { if (Test-Path $v) { Copy-Item $v $FW_VARS_CACHED -Force -ErrorAction SilentlyContinue; break } }
+    }
+    if (Test-Path $FW_VARS_CACHED) {
+        Write-Dim "  VARS: $FW_VARS_CACHED"
+    }
 }
 Write-Success "UEFI firmware: $FW"
 
@@ -545,7 +560,11 @@ if ($existingProc) {
         foreach ($p in $FWD_PORTS) { $fwd += ",hostfwd=tcp::${p}-:${p}" }
 
         $fwDrive = if ($fwIsFlash) {
-            @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
+            $base = @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
+            if (Test-Path $FW_VARS_CACHED) {
+                $base += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
+            }
+            $base
         } else {
             @("-bios", $FW)
         }
@@ -565,9 +584,7 @@ if ($existingProc) {
             "-display", "gtk,show-cursor=on"
         )
 
-        if ($HOST_ARCH -eq "ARM64") {
-            $qemuArgs += @("-boot", "order=d,menu=off")
-        }
+        $qemuArgs += @("-boot", "order=d,menu=off")
 
         function Start-Qemu {
             param([string[]] $QemuArgs, [string] $Accel, [switch] $NoWindow)
@@ -627,10 +644,18 @@ if ($existingProc) {
                 "-name", "IORA-Dev",
                 "-m", "${tcgRam}G",
                 "-smp", $tcgCpus,
-                "-machine", "${VM_MACHINE},accel=tcg",
-                "-drive", "if=pflash,format=raw,readonly=on,file=$FW",
+                "-machine", "${VM_MACHINE},accel=tcg"
+            )
+            if ($fwIsFlash) {
+                $tcgArgs += @("-drive", "if=pflash,format=raw,readonly=on,file=$FW")
+                if (Test-Path $FW_VARS_CACHED) {
+                    $tcgArgs += @("-drive", "if=pflash,format=raw,file=$FW_VARS_CACHED")
+                }
+            }
+            $tcgArgs += @(
                 "-drive", "file=$VM_DISK,format=qcow2,if=virtio",
                 "-drive", "file=$SEED_ISO,format=raw,media=cdrom",
+                "-boot", "order=d,menu=off",
                 "-netdev", $fwd,
                 "-device", "e1000,netdev=n0",
                 "-serial", "file:$($CACHE)\qemu-serial.log",
@@ -644,6 +669,10 @@ if ($existingProc) {
         }
     }
 }
+
+# ── Live serial console (separate window) ────────────────────────────────────
+$serialLog = Join-Path $CACHE "qemu-serial.log"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host 'IORA Dev VM - Serial Console (live)' -ForegroundColor Cyan; Get-Content -Wait -Tail 0 '$serialLog'" -WindowStyle Minimized | Out-Null
 
 # ── Step 5: Wait for cloud-init to finish ──────────────────────────────────
 Write-Info "Waiting for cloud-init to finish (first boot may take 3-10 min)..."
@@ -870,7 +899,7 @@ else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $SshP
 if (-not $NoWatch) {
     $watchScript = Join-Path $SCRIPT_DIR "dev-watch.ps1"
     if (Test-Path $watchScript) {
-        $targetArg = if ($HOST_ARCH -eq "ARM64") { "aarch64-unknown-linux-musl" } else { "x86_64-unknown-linux-musl" }
+        $targetArg = if ($HOST_ARCH -eq "ARM64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" }
         Write-Info "Launching dev-watch.ps1 in new terminal..."
         Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$watchScript`"", "-Target", $targetArg | Out-Null
     }

@@ -279,6 +279,12 @@ pub struct InstalledTheme {
     /// JSON serialized WidgetTemplate[]
     #[serde(default)]
     pub widget_templates_json: Option<String>,
+    /// CSS variables as key-value JSON
+    #[serde(default)]
+    pub css_variables_json: Option<String>,
+    /// Inline additional CSS
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_css: Option<String>,
 }
 
 /// Per-user theme selection stored in the profile.

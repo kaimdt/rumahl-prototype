@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { GridFour } from '@phosphor-icons/react'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
+import { ThemeWidgetWrapper } from '@/components/ThemeWidgetWrapper'
 import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
 import { SwitchWidget } from '@/components/widgets/SwitchWidget'
@@ -328,25 +329,33 @@ export function RenderWidget({
   switch (widget.type) {
     case 'light':
       return entity ? (
-        <LightWidget entity={entity as LightEntity} onUpdate={onUpdate} allEntities={entities} config={widget.config} widgetSize={resolvedSize} />
+        <ThemeWidgetWrapper widgetType="light" entity={entity} config={widget.config} widgetSize={resolvedSize}
+          fallback={<LightWidget entity={entity as LightEntity} onUpdate={onUpdate} allEntities={entities} config={widget.config} widgetSize={resolvedSize} />}
+        />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
     case 'climate':
       return entity ? (
-        <ClimateWidget entity={entity as ClimateEntity} onUpdate={onUpdate} config={widget.config} widgetSize={resolvedSize} />
+        <ThemeWidgetWrapper widgetType="climate" entity={entity} config={widget.config} widgetSize={resolvedSize}
+          fallback={<ClimateWidget entity={entity as ClimateEntity} onUpdate={onUpdate} config={widget.config} widgetSize={resolvedSize} />}
+        />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
     case 'switch':
       return entity ? (
-        <SwitchWidget entity={entity as SwitchEntity} onUpdate={onUpdate} config={widget.config} />
+        <ThemeWidgetWrapper widgetType="switch" entity={entity} config={widget.config}
+          fallback={<SwitchWidget entity={entity as SwitchEntity} onUpdate={onUpdate} config={widget.config} />}
+        />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )
     case 'sensor':
       return entity ? (
-        <SensorWidget entity={entity as SensorEntity} onUpdate={onUpdate} config={widget.config} widgetSize={resolvedSize} />
+        <ThemeWidgetWrapper widgetType="sensor" entity={entity} config={widget.config} widgetSize={resolvedSize}
+          fallback={<SensorWidget entity={entity as SensorEntity} onUpdate={onUpdate} config={widget.config} widgetSize={resolvedSize} />}
+        />
       ) : (
         <WidgetPlaceholder widget={widget} />
       )

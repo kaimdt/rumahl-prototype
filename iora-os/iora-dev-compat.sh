@@ -645,12 +645,12 @@ done
 log "Creating default admin user..."
 curl -sf -X POST http://localhost:8126/api/auth/register \
     -H "Content-Type: application/json" \
-    -d '{"username":"admin","password":"admin","pin":"0000"}' 2>/dev/null || true
+    -d '{"username":"admin","password":"admin1234","pin":"0000"}' 2>/dev/null || true
 
 touch "$SETUP_FILE"
 rm -f "$WIZARD_RUN"
 log "First-boot setup complete!"
-log "Default credentials: admin / admin (PIN: 0000)"
+log "Default credentials: admin / admin1234 (PIN: 0000)"
 log "Access dashboard: https://localhost"
 
 exit 0
@@ -735,5 +735,5 @@ log "Next steps:"
 log "  1. Build services: cd iora-os/backend && cargo build --release"
 log "  2. Deploy via devup.sh or dev-watch.ps1"
 log "  3. Access dashboard: https://localhost"
-log "  4. Default credentials: admin / admin (PIN: 0000)"
+log "  4. Default credentials: admin / admin1234 (PIN: 0000)"
 log "  5. Services auto-register with iora-core"
