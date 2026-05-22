@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   Robot, Terminal, Play, X, PaperPlaneRight,
   Check, Warning, Hourglass, Sparkle,

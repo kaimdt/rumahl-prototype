@@ -863,7 +863,18 @@ body {
 }
 
 .page-transition-enter {
-  animation: page-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: page-enter var(--page-transition-duration, 0.35s) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Motion page transition support ─── */
+.motion-page-wrapper {
+  /* Used by PageTransitionWrapper for custom CSS transitions */
+  --page-transition-duration: 0.35s;
+}
+
+.motion-page-wrapper[data-transition="custom"] {
+  animation-duration: var(--page-transition-duration, 0.35s);
+  animation-fill-mode: both;
 }
 
 /* ─── Premium separator lines ─── */

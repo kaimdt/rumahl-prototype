@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Bell, X, Check, Trash, Warning, Siren, CloudWarning, Info, ShieldWarning, Megaphone, CaretDown, CaretUp, Clock, IdentificationBadge } from '@phosphor-icons/react'
 import { useNotifications, type Notification, type EmergencyAlert } from '@/contexts/NotificationContext'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'

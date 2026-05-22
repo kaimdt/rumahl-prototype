@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 
 export function ThemeIframeProvider() {
-  const { theme, activeCssVariables, themeResponse, capabilities } = useTheme()
+  const { theme, activeCssVariables, themeResponse, capabilities, animationConfig } = useTheme()
   const lastThemeRef = useRef<string>('')
 
   useEffect(() => {
@@ -24,6 +24,7 @@ export function ThemeIframeProvider() {
         locksAccent: capabilities?.accent_control?.mode === 'force',
         locksGlass: capabilities?.glass_control?.mode !== 'user',
       },
+      animation: animationConfig || null,
     }
 
     // Only broadcast if theme actually changed
@@ -43,7 +44,7 @@ export function ThemeIframeProvider() {
         console.warn('Failed to send theme to iframe:', e)
       }
     })
-  }, [theme, activeCssVariables, capabilities])
+  }, [theme, activeCssVariables, capabilities, animationConfig])
 
   // Listen for theme requests from iframes
   useEffect(() => {
@@ -64,6 +65,7 @@ export function ThemeIframeProvider() {
               locksAccent: capabilities?.accent_control?.mode === 'force',
               locksGlass: capabilities?.glass_control?.mode !== 'user',
             },
+            animation: animationConfig || null,
           }
 
           event.source?.postMessage({
@@ -76,7 +78,7 @@ export function ThemeIframeProvider() {
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [theme, activeCssVariables, capabilities])
+  }, [theme, activeCssVariables, capabilities, animationConfig])
 
   return null // This is a logic-only component
 }

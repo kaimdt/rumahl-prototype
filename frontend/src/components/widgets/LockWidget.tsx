@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { LockKey } from '@phosphor-icons/react'
 import type { EntityState } from '@/lib/types'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { SpeakerHigh, Play, Pause, SkipBack, SkipForward, SpeakerSimpleSlash, ArrowsOutSimple, Stop } from '@phosphor-icons/react'
 import type { MediaPlayerEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'

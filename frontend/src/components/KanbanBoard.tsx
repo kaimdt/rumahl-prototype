@@ -1,6 +1,6 @@
 // AI Kanban Board – Visual project management for coding tasks
 import { useState, useCallback } from 'react'
-import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { motion, AnimatePresence, Reorder } from 'motion/react'
 import {
   Kanban, Plus, Robot, User, Fire, Warning, Circle, CheckCircle,
   DotsSixVertical, Bug, Code, TestTube, FileText, GitBranch, Sparkle,

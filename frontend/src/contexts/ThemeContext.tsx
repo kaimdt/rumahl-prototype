@@ -132,6 +132,69 @@ export interface ThemeCapabilities {
   accent_control?: ThemeAccentControl
   glass_control?: ThemeGlassControl
   custom_settings?: ThemeSetting[]
+  /** Animation configuration (splash, page transitions, widget animations) */
+  animation?: ThemeAnimationConfig
+}
+
+// ─── Animation Types (for motion.dev) ──────────────────────────
+
+export interface SpringConfig {
+  stiffness: number
+  damping: number
+  mass: number
+}
+
+export type SplashExitAnimation = 'fade' | 'scale' | 'slide-up' | 'slide-down' | 'custom'
+
+export interface SplashConfig {
+  enabled: boolean
+  /** Path to splash HTML template inside the theme */
+  template?: string
+  /** Path to splash-specific CSS */
+  css?: string
+  /** Path to splash-specific JavaScript (can use Motion API) */
+  js?: string
+  /** Duration of the splash screen in milliseconds */
+  duration_ms: number
+  /** Logo/image URL (relative to theme assets or absolute) */
+  logo_url?: string
+  /** Background color for the splash */
+  background_color?: string
+  /** Brand text below the logo */
+  brand_text?: string
+  /** Subtitle / tagline */
+  tagline?: string
+  /** Show a loading progress bar */
+  show_progress: boolean
+  /** Custom exit animation type */
+  exit_animation: SplashExitAnimation
+}
+
+export type PageTransitionType = 'fade' | 'slide' | 'scale' | 'flip' | 'custom'
+
+export interface PageTransitionConfig {
+  enabled: boolean
+  transition_type: PageTransitionType
+  duration_secs: number
+  spring?: SpringConfig
+  custom_name?: string
+}
+
+export type WidgetAnimationStyle = 'fade-up' | 'scale-in' | 'slide-left' | 'slide-right' | 'custom'
+
+export interface WidgetAnimationConfig {
+  style: WidgetAnimationStyle
+  duration_secs: number
+  stagger_secs: number
+  spring?: SpringConfig
+}
+
+export interface ThemeAnimationConfig {
+  splash?: SplashConfig
+  page_transitions?: PageTransitionConfig
+  widget_animations?: WidgetAnimationConfig
+  /** Custom CSS @keyframes (name → CSS content) */
+  keyframes?: Record<string, string>
 }
 
 // ─── Widget Template Types (v2.4) ──────────────────────────────
@@ -220,6 +283,14 @@ interface ThemeContextType {
   glassLocked: boolean
   /** Forced glass effect values */
   forcedGlass: { blur?: string; opacity?: string } | null
+  /** Full animation configuration from the active theme */
+  animationConfig: ThemeAnimationConfig | null
+  /** Splash screen configuration (convenience accessor) */
+  splashConfig: SplashConfig | null
+  /** Page transition configuration (convenience accessor) */
+  pageTransitionConfig: PageTransitionConfig | null
+  /** Widget animation configuration (convenience accessor) */
+  widgetAnimationConfig: WidgetAnimationConfig | null
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
@@ -874,6 +945,43 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return capabilities?.design_modes || []
   }, [capabilities])
 
+  // Computed animation config
+  const animationConfig = useMemo(() => capabilities?.animation || null, [capabilities])
+  const splashConfig = useMemo(() => capabilities?.animation?.splash || null, [capabilities])
+  const pageTransitionConfig = useMemo(() => capabilities?.animation?.page_transitions || null, [capabilities])
+  const widgetAnimationConfig = useMemo(() => capabilities?.animation?.widget_animations || null, [capabilities])
+
+  // Inject custom CSS keyframes from theme animation config
+  useEffect(() => {
+    const KEYFRAME_STYLE_ID = 'iora-theme-keyframes'
+    let styleEl = document.getElementById(KEYFRAME_STYLE_ID)
+    
+    if (capabilities?.animation?.keyframes && Object.keys(capabilities.animation.keyframes).length > 0) {
+      if (!styleEl) {
+        styleEl = document.createElement('style')
+        styleEl.id = KEYFRAME_STYLE_ID
+        document.head.appendChild(styleEl)
+      }
+      // Build CSS from keyframes map
+      const css = Object.entries(capabilities.animation.keyframes)
+        .map(([name, keyframeCss]) => `@keyframes ${name} { ${keyframeCss} }`)
+        .join('\n')
+      styleEl.textContent = css
+    } else {
+      if (styleEl) styleEl.remove()
+    }
+  }, [capabilities?.animation?.keyframes])
+
+  // Update transition CSS variable from animation config
+  useEffect(() => {
+    const root = document.documentElement
+    if (pageTransitionConfig?.duration_secs) {
+      root.style.setProperty('--page-transition-duration', `${pageTransitionConfig.duration_secs}s`)
+    } else {
+      root.style.removeProperty('--page-transition-duration')
+    }
+  }, [pageTransitionConfig?.duration_secs])
+
   const contextValue = useMemo(() => ({
     theme, sleepMode, setSleepMode,
     autoTheme, setAutoTheme,
@@ -886,6 +994,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     customSettings, updateCustomSetting,
     accentLocked, forcedAccent,
     glassLocked, forcedGlass,
+    animationConfig, splashConfig, pageTransitionConfig, widgetAnimationConfig,
   }), [
     theme, sleepMode, setSleepMode,
     autoTheme, setAutoTheme,
@@ -898,6 +1007,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     customSettings, updateCustomSetting,
     accentLocked, forcedAccent,
     glassLocked, forcedGlass,
+    animationConfig, splashConfig, pageTransitionConfig, widgetAnimationConfig,
   ])
 
   return (

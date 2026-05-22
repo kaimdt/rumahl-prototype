@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { MagnifyingGlass, CaretDown, CaretRight, Plus, DotsSixVertical, Lightbulb, PuzzlePiece, Ruler } from '@phosphor-icons/react'
 import { useDraggable } from '@dnd-kit/core'
 import { getWidgetDef, WIDGET_CATEGORIES, WIDGET_DEFINITIONS, type WidgetDefinition } from '@/lib/widgetRegistry'

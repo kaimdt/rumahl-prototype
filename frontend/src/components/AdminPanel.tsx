@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import '@/i18n' // side-effect: initializes i18next
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   ShieldCheck, Users, Key, HardDrive, CloudArrowUp,
   Cpu, WifiHigh, Cube, Gear, ListBullets, Database,

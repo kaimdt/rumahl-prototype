@@ -28,7 +28,7 @@
 
 import { useTranslation } from 'react-i18next'
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   Code, Eye, ArrowsClockwise, CheckCircle, Warning,
   Download, Upload, Copy, X, FloppyDisk, FileText,

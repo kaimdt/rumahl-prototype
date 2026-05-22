@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { useEffect, useRef, useState, useMemo } from 'react'
 
 interface SplashScreenProps {

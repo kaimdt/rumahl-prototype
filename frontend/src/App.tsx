@@ -18,7 +18,7 @@ import { SwitchWidget } from '@/components/widgets/SwitchWidget'
 import { SensorWidget } from '@/components/widgets/SensorWidget'
 import { MediaPlayerWidget } from '@/components/widgets/MediaPlayerWidget'
 import { NavigationMenu } from '@/components/NavigationMenu'
-import { SplashScreen } from '@/components/SplashScreen'
+import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginModal } from '@/components/LoginModal'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
@@ -39,7 +39,7 @@ import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ThemeLayout } from '@/components/ThemeLayout'
+import { PageTransitionWrapper } from '@/components/PageTransitionWrapper'
 import { CurrentBackgroundProvider } from '@/contexts/CurrentBackgroundContext'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
@@ -47,7 +47,7 @@ import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
 import { Sparkle, ShieldCheck, Wrench } from '@phosphor-icons/react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { wsOnMessage } from '@/lib/wsConnection'
@@ -402,7 +402,7 @@ function DashboardContent() {
   }, [homePage, currentVariant.config])
 
   if (showSplash) {
-    return <SplashScreen onComplete={() => setShowSplash(false)} />
+    return <ThemeSplashScreen onComplete={() => setShowSplash(false)} />
   }
 
   // Gate: show ONLY login screen when not authenticated
@@ -584,6 +584,7 @@ function DashboardContent() {
           </header>
 
           <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
+          <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
             // App Settings standalone page (opened in new tab from AppStoreTab)
             if (window.location.pathname.startsWith('/app-settings/')) {
@@ -808,6 +809,7 @@ function DashboardContent() {
               </div>
             )
           })()}
+        </PageTransitionWrapper>
         </main>
         </div>
       </div>

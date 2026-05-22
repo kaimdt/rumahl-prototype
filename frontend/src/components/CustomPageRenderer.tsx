@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useEffect, useState, useMemo } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { GridFour } from '@phosphor-icons/react'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ThemeWidgetWrapper } from '@/components/ThemeWidgetWrapper'

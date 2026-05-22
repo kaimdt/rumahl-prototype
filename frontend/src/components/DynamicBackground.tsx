@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { useConfiguration } from '@/contexts/ConfigurationContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'

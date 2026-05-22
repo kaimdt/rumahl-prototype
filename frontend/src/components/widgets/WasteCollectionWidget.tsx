@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Recycle, Trash, Leaf, Newspaper, TrashSimple, Check, X } from '@phosphor-icons/react'
 import { useEntityStore } from '@/hooks/useEntityStore'
 import type { EntityState } from '@/lib/types'

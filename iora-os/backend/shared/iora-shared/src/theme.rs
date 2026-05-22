@@ -339,6 +339,141 @@ pub struct ThemeCssResponse {
     /// Widget template definitions with resolved asset URLs
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub widget_templates: Vec<WidgetTemplate>,
+    /// Theme animation configuration (splash, page transitions, widget animations)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<ThemeAnimationConfig>,
+}
+
+// ════════════════════════════════════════════════════════════════
+// Theme Animation System – Splash, Page Transitions, Widget Animations
+// ════════════════════════════════════════════════════════════════
+
+/// Splash screen configuration for a theme.
+/// Themes can provide a custom splash/loading screen that appears on startup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SplashConfig {
+    /// Whether the theme provides a custom splash screen
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the splash HTML template inside the theme
+    /// (e.g. "html/splash.html"). If not provided, the default IORA splash is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    /// Path to splash-specific CSS (e.g. "css/splash.css")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css: Option<String>,
+    /// Path to splash-specific JavaScript (e.g. "js/splash.js")
+    /// Can use the Motion API for custom animations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub js: Option<String>,
+    /// Duration of the splash screen in milliseconds
+    #[serde(default = "default_splash_duration")]
+    pub duration_ms: u64,
+    /// Logo/image URL to show in the splash (relative to theme assets or absolute)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo_url: Option<String>,
+    /// Background color for the splash screen (CSS color value)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_color: Option<String>,
+    /// Text to show below the logo during loading
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand_text: Option<String>,
+    /// Subtitle / tagline text
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tagline: Option<String>,
+    /// Whether to show a loading progress bar
+    #[serde(default = "default_true")]
+    pub show_progress: bool,
+    /// Custom exit animation: "fade", "scale", "slide-up", "slide-down", "custom"
+    #[serde(default = "default_exit_animation")]
+    pub exit_animation: String,
+}
+
+fn default_splash_duration() -> u64 { 2200 }
+fn default_exit_animation() -> String { "fade".to_string() }
+
+/// Page transition configuration.
+/// Controls how pages animate when the user navigates between them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageTransitionConfig {
+    /// Whether page transitions are enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Transition type: "fade", "slide", "scale", "flip", "custom"
+    #[serde(default = "default_transition_type")]
+    pub transition_type: String,
+    /// Duration of the transition in seconds
+    #[serde(default = "default_transition_duration")]
+    pub duration_secs: f64,
+    /// Spring configuration for motion transitions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spring: Option<SpringConfig>,
+    /// Custom transition: CSS class or motion variant name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
+}
+
+fn default_transition_type() -> String { "fade".to_string() }
+fn default_transition_duration() -> f64 { 0.35 }
+
+/// Spring physics configuration for motion animations.
+/// Used by both page transitions and widget animations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpringConfig {
+    /// Spring stiffness (default: 300)
+    #[serde(default = "default_stiffness")]
+    pub stiffness: f64,
+    /// Spring damping (default: 30)
+    #[serde(default = "default_damping")]
+    pub damping: f64,
+    /// Spring mass (default: 1)
+    #[serde(default = "default_mass")]
+    pub mass: f64,
+}
+
+fn default_stiffness() -> f64 { 300.0 }
+fn default_damping() -> f64 { 30.0 }
+fn default_mass() -> f64 { 1.0 }
+
+/// Widget entrance animation configuration.
+/// Controls how widgets animate when they appear on a page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WidgetAnimationConfig {
+    /// Animation style: "fade-up", "scale-in", "slide-left", "slide-right", "custom"
+    #[serde(default = "default_widget_style")]
+    pub style: String,
+    /// Duration per widget in seconds
+    #[serde(default = "default_widget_duration")]
+    pub duration_secs: f64,
+    /// Stagger delay between widgets in seconds
+    #[serde(default = "default_stagger")]
+    pub stagger_secs: f64,
+    /// Spring configuration (optional, uses defaults if not set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spring: Option<SpringConfig>,
+}
+
+fn default_widget_style() -> String { "fade-up".to_string() }
+fn default_widget_duration() -> f64 { 0.4 }
+fn default_stagger() -> f64 { 0.03 }
+
+/// Complete theme animation configuration.
+/// Bundles all animation-related settings for a theme.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThemeAnimationConfig {
+    /// Custom splash/startup animation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub splash: Option<SplashConfig>,
+    /// Page transition configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_transitions: Option<PageTransitionConfig>,
+    /// Widget entrance animations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub widget_animations: Option<WidgetAnimationConfig>,
+    /// Custom CSS keyframes provided by the theme
+    /// Maps animation name → CSS @keyframes content
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub keyframes: HashMap<String, String>,
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -496,6 +631,9 @@ pub struct ThemeCapabilities {
     /// Custom settings fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_settings: Option<Vec<ThemeSetting>>,
+    /// Animation configuration (splash, page transitions, widget animations)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<ThemeAnimationConfig>,
 }
 
 /// Global default theme configuration.

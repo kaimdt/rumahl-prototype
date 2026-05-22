@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { MapTrifold, House, ArrowClockwise, GpsFix, User, Users, Plus, ClockCounterClockwise, Crosshair, Stack, FunnelSimple, Eye, EyeSlash, MapPin, NavigationArrow, CaretDown, Compass, Path, CalendarBlank, Play, Pause, Stop } from '@phosphor-icons/react'
 import { useEntityStore } from '@/hooks/useEntityStore'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'

@@ -1,6 +1,6 @@
 // Messaging Settings – SMTP Email, Telegram Bot, WhatsApp configuration for ORA AI
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import {
   Envelope, TelegramLogo, WhatsappLogo, ToggleRight, ToggleLeft,
   FloppyDisk, PaperPlaneRight, Check, X, Key, At, Lock, Broadcast,

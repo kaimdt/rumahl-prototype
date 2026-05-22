@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { ClockCounterClockwise } from '@phosphor-icons/react'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
 import { isIsoDateTime, formatDateTime } from '@/lib/formatValue'

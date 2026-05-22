@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <!-- Three column layout -->
+  <!-- Left sidebar -->
+  <rect x="8" y="8" width="80" height="284" rx="12" fill="#1e293b" stroke="#334155" stroke-width="0.5"/>
+  <rect x="16" y="20" width="60" height="8" rx="4" fill="url(#accentGrad)" opacity="0.25"/>
+  <rect x="16" y="38" width="40" height="5" rx="2.5" fill="#475569" opacity="0.4"/>
+  <rect x="16" y="50" width="55" height="5" rx="2.5" fill="#475569" opacity="0.4"/>
+  <rect x="16" y="62" width="35" height="5" rx="2.5" fill="#475569" opacity="0.4"/>
+  <rect x="16" y="74" width="50" height="5" rx="2.5" fill="#475569" opacity="0.4"/>
+  <!-- Main content -->
+  <rect x="96" y="8" width="210" height="284" rx="12" fill="#0f172a" opacity="0.5"/>
+  <rect x="104" y="16" width="194" height="24" rx="6" fill="#1e293b" stroke="#334155" stroke-width="0.5"/>
+  <circle cx="120" cy="28" r="4" fill="#06b6d4"/>
+  <rect x="130" y="24" width="30" height="8" rx="2" fill="#67e8f9" opacity="0.5"/>
+  <!-- Cards -->
+  <rect x="104" y="48" width="90" height="45" rx="10" fill="#1e293b" stroke="#334155" stroke-width="0.5"/>
+  <circle cx="120" cy="70" r="8" fill="#06b6d4" opacity="0.3"/>
+  <rect x="134" y="65" width="40" height="5" rx="2.5" fill="#94a3b8" opacity="0.5"/>
+  <rect x="134" y="76" width="28" height="4" rx="2" fill="#64748b" opacity="0.3"/>
+  <rect x="200" y="48" width="90" height="45" rx="10" fill="#1e293b" stroke="#334155" stroke-width="0.5"/>
+  <circle cx="216" cy="70" r="8" fill="#14b8a6" opacity="0.3"/>
+  <rect x="230" y="65" width="40" height="5" rx="2.5" fill="#94a3b8" opacity="0.5"/>
+  <rect x="230" y="76" width="35" height="4" rx="2" fill="#64748b" opacity="0.3"/>
+  <!-- Right sidebar -->
+  <rect x="314" y="8" width="80" height="284" rx="12" fill="#1e293b" stroke="#334155" stroke-width="0.5"/>
+  <rect x="322" y="20" width="60" height="6" rx="3" fill="#475569" opacity="0.3"/>
+  <circle cx="330" cy="42" r="10" fill="#1e293b" stroke="#06b6d4" stroke-width="1" opacity="0.4"/>
+  <circle cx="330" cy="74" r="10" fill="#1e293b" stroke="#14b8a6" stroke-width="1" opacity="0.4"/>
+  <circle cx="330" cy="106" r="10" fill="#1e293b" stroke="#06b6d4" stroke-width="1" opacity="0.4"/>
+  <!-- Label -->
+  <text x="200" y="290" text-anchor="middle" fill="#475569" font-family="monospace" font-size="9" letter-spacing="6">THREE COLUMN</text>
+</svg>

@@ -3,7 +3,7 @@
 // Design: Clean Copilot-inspired interface with glassmorphism
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   ChatCircle, Sparkle, Brain, Robot, PaperPlaneRight, Microphone,
   SpeakerHigh, SpeakerSlash, Plus, Trash, FolderOpen, Code,

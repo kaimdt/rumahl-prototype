@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next'
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   X, Palette, Sun, Moon, Gear, ArrowsClockwise, FloppyDisk,
   PaintBucket, TextT, Sliders, Layout, Eye, EyeSlash,
@@ -53,6 +53,9 @@ interface EditorState {
     glassBlur: string
     glassOpacity: string
     transitionDuration: string
+    transitionType: string
+    widgetAnimStyle: string
+    widgetStagger: string
   }
 }
 
@@ -391,7 +394,7 @@ function EffectsEditor({
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
         <Eye size={16} className="text-accent" weight="fill" />
-        <h3 className="text-sm font-semibold text-foreground">Effekte</h3>
+        <h3 className="text-sm font-semibold text-foreground">Effekte & Animationen</h3>
       </div>
 
       {/* Glass Blur */}
@@ -428,21 +431,75 @@ function EffectsEditor({
         />
       </div>
 
-      {/* Transition Duration */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-medium text-foreground/60 flex items-center justify-between">
-          <span>Übergangsdauer</span>
-          <span className="text-[10px] font-mono text-accent">{effects.transitionDuration}</span>
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.1"
-          value={parseFloat(effects.transitionDuration.replace('s', '')) || 0.4}
-          onChange={(e) => onChange('transitionDuration', `${e.target.value}s`)}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-foreground/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent"
-        />
+      {/* ─── Animation Section ─── */}
+      <div className="pt-2 border-t border-foreground/10">
+        <p className="text-[10px] text-foreground/40 uppercase tracking-wider mb-3">Seiten-Übergänge</p>
+
+        {/* Page Transition Duration */}
+        <div className="space-y-2">
+          <label className="text-[11px] font-medium text-foreground/60 flex items-center justify-between">
+            <span>Übergangsdauer</span>
+            <span className="text-[10px] font-mono text-accent">{effects.transitionDuration}</span>
+          </label>
+          <input
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.05"
+            value={parseFloat(effects.transitionDuration.replace('s', '')) || 0.4}
+            onChange={(e) => onChange('transitionDuration', `${e.target.value}s`)}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-foreground/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent"
+          />
+        </div>
+
+        {/* Page Transition Type */}
+        <div className="space-y-2 mt-3">
+          <label className="text-[11px] font-medium text-foreground/60">Übergangs-Stil</label>
+          <select
+            value={effects.transitionType || 'fade'}
+            onChange={(e) => onChange('transitionType', e.target.value)}
+            className="w-full px-3 py-1.5 rounded-lg bg-foreground/[0.06] border border-foreground/[0.1] text-xs text-foreground focus:outline-none focus:border-accent"
+          >
+            <option value="fade">Fade + Slide (Standard)</option>
+            <option value="slide">Slide (horizontal)</option>
+            <option value="scale">Scale (vergrößern)</option>
+            <option value="flip">Flip (3D)</option>
+            <option value="custom">Custom (CSS)</option>
+          </select>
+        </div>
+
+        {/* Widget Animation Style */}
+        <div className="space-y-2 mt-3">
+          <label className="text-[11px] font-medium text-foreground/60">Widget-Animation</label>
+          <select
+            value={effects.widgetAnimStyle || 'fade-up'}
+            onChange={(e) => onChange('widgetAnimStyle', e.target.value)}
+            className="w-full px-3 py-1.5 rounded-lg bg-foreground/[0.06] border border-foreground/[0.1] text-xs text-foreground focus:outline-none focus:border-accent"
+          >
+            <option value="fade-up">Fade Up (Standard)</option>
+            <option value="scale-in">Scale In</option>
+            <option value="slide-left">Slide Left</option>
+            <option value="slide-right">Slide Right</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        {/* Widget Stagger */}
+        <div className="space-y-2 mt-3">
+          <label className="text-[11px] font-medium text-foreground/60 flex items-center justify-between">
+            <span>Widget-Staffelung</span>
+            <span className="text-[10px] font-mono text-accent">{effects.widgetStagger || '0.03s'}</span>
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="0.15"
+            step="0.005"
+            value={parseFloat(effects.widgetStagger?.replace('s', '') || '0.03')}
+            onChange={(e) => onChange('widgetStagger', `${e.target.value}s`)}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-foreground/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent"
+          />
+        </div>
       </div>
     </div>
   )
@@ -554,6 +611,9 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
     glassBlur: '40px',
     glassOpacity: '0.35',
     transitionDuration: '0.4s',
+    transitionType: 'fade',
+    widgetAnimStyle: 'fade-up',
+    widgetStagger: '0.03s',
   })
 
   // Update colors when activeCssVariables changes

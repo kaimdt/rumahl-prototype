@@ -1,19 +1,20 @@
 {
   "id": "material-sidebar",
   "name": "Material Sidebar Theme",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "developer": "IORA",
-  "description": "Material Design theme with sidebar nav, custom design modes, locked accent color, and theme-specific settings. Demonstrates all ThemeCapabilities.",
+  "description": "Material Design Sidebar – klares, modernes Design mit Sidebar-Navigation, Akzentfarben-Lock und Material-Animationen. Volle ThemeCapabilities-Demo.",
   "type": "plugin",
   "plugin_type": "theme",
   "permissions": ["ThemeInstall"],
   "theme": {
     "id": "material-sidebar",
     "name": "Material Sidebar",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "developer": "IORA",
-    "description": "Material Design Sidebar mit eigenen Design-Modes, Akzentfarben-Lock und Theme-Einstellungen",
+    "description": "Material Design Sidebar mit eigenen Design-Modes, Akzentfarben-Lock, Theme-Einstellungen und spring-basierten Seitenübergängen",
     "icon": "Sidebar",
+    "preview_image": "images/preview.svg",
     "parent_theme": "night",
     "source": "file",
 
@@ -167,7 +168,30 @@
           "default_value": false,
           "css_variable": "layout-nav-width"
         }
-      ]
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2000,
+          "background_color": "oklch(0.15 0.01 260)",
+          "brand_text": "Material",
+          "tagline": "Design System",
+          "show_progress": true,
+          "exit_animation": "scale"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.3,
+          "spring": { "stiffness": 400, "damping": 32, "mass": 0.8 }
+        },
+        "widget_animations": {
+          "style": "scale-in",
+          "duration_secs": 0.35,
+          "stagger_secs": 0.025,
+          "spring": { "stiffness": 350, "damping": 28, "mass": 0.9 }
+        }
+      }
     }
   }
 }

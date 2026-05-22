@@ -1,19 +1,22 @@
 {
   "id": "steampunk-revolution",
   "name": "Steampunk Revolution",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "developer": "IORA",
-  "description": "Vollständiges Steampunk-Design – viktorianische Ästhetik mit Messing, Kupfer, Zahnrädern und Dampf-Effekten. Transformiert das gesamte IORA-Interface.",
+  "description": "Vollständiges Steampunk-Design – viktorianische Ästhetik mit Messing, Kupfer, Zahnrädern und Dampf-Effekten. Transformiert das gesamte IORA-Interface mit custom Splash-Animation und mechanischen Keyframes.",
+  "icon": "Gear",
+  "preview_image": "images/preview.svg",
   "type": "plugin",
   "plugin_type": "theme",
   "permissions": ["ThemeInstall"],
   "theme": {
     "id": "steampunk-revolution",
     "name": "Steampunk Revolution",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "developer": "IORA",
-    "description": "Steampunk – Messing, Zahnräder, Dampf & viktorianische Eleganz",
+    "description": "Steampunk – Messing, Zahnräder, Dampf & viktorianische Eleganz mit custom Animationen",
     "icon": "Gear",
+    "preview_image": "images/preview.svg",
     "parent_theme": "day-classic",
     "source": "file",
 
@@ -209,7 +212,34 @@
           "setting_type": "toggle",
           "default_value": false
         }
-      ]
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2800,
+          "background_color": "oklch(0.22 0.03 85)",
+          "brand_text": "Steampunk",
+          "tagline": "Victorian Engineering · Est. 1887",
+          "show_progress": true,
+          "exit_animation": "custom"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.5,
+          "spring": { "stiffness": 200, "damping": 25, "mass": 1.5 }
+        },
+        "widget_animations": {
+          "style": "fade-up",
+          "duration_secs": 0.5,
+          "stagger_secs": 0.04
+        },
+        "keyframes": {
+          "steampunk-gear-spin": "0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }",
+          "steampunk-flicker": "0%, 100% { opacity: 1; } 50% { opacity: 0.85; }",
+          "steampunk-entry": "0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); }"
+        }
+      }
     },
 
     "widget_templates": [

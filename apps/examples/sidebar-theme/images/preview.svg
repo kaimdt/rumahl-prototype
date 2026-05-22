@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0f0f23"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <!-- Left sidebar -->
+  <rect x="8" y="8" width="90" height="284" rx="14" fill="#151530" stroke="#2d2d5e" stroke-width="0.5"/>
+  <rect x="16" y="22" width="70" height="8" rx="4" fill="url(#accentGrad)" opacity="0.3"/>
+  <rect x="16" y="42" width="50" height="4" rx="2" fill="#4a4a8a" opacity="0.35"/>
+  <rect x="16" y="54" width="65" height="4" rx="2" fill="#4a4a8a" opacity="0.35"/>
+  <rect x="16" y="66" width="40" height="4" rx="2" fill="#4a4a8a" opacity="0.35"/>
+  <circle cx="32" cy="100" r="6" fill="#6366f1" opacity="0.15"/>
+  <rect x="45" y="97" width="35" height="6" rx="3" fill="#818cf8" opacity="0.4"/>
+  <!-- Main content -->
+  <rect x="106" y="8" width="286" height="284" rx="14" fill="#0f0f23" opacity="0.5"/>
+  <rect x="114" y="16" width="270" height="26" rx="8" fill="#151530" stroke="#2d2d5e" stroke-width="0.5"/>
+  <circle cx="130" cy="29" r="4" fill="#818cf8"/>
+  <rect x="140" y="25" width="30" height="8" rx="2" fill="#a5b4fc" opacity="0.4"/>
+  <!-- Cards -->
+  <rect x="114" y="50" width="128" height="52" rx="12" fill="#151530" stroke="#2d2d5e" stroke-width="0.5"/>
+  <circle cx="132" cy="76" r="9" fill="#6366f1" opacity="0.35"/>
+  <rect x="147" y="71" width="50" height="5" rx="2.5" fill="#c7d2fe" opacity="0.5"/>
+  <rect x="147" y="81" width="35" height="4" rx="2" fill="#64748b" opacity="0.3"/>
+  <rect x="250" y="50" width="140" height="52" rx="12" fill="#151530" stroke="#2d2d5e" stroke-width="0.5"/>
+  <circle cx="268" cy="76" r="9" fill="#8b5cf6" opacity="0.35"/>
+  <rect x="283" y="71" width="50" height="5" rx="2.5" fill="#c7d2fe" opacity="0.5"/>
+  <rect x="283" y="81" width="40" height="4" rx="2" fill="#64748b" opacity="0.3"/>
+  <!-- Label -->
+  <text x="200" y="290" text-anchor="middle" fill="#4a4a8a" font-family="sans-serif" font-size="10" letter-spacing="6" font-weight="300">SIDEBAR</text>
+</svg>

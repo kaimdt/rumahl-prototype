@@ -1,40 +1,177 @@
 {
   "id": "full-layout-theme",
   "name": "Full Layout Theme (HTML Template)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "developer": "IORA",
-  "description": "Demonstrates complete page restructuring via HTML layout template. Three-column layout with header, sidebar nav, main content, and right sidebar.",
+  "description": "Dreispaltiges Profi-Layout mit HTML-Template – Header, linke Sidebar-Nav, Hauptinhalt, rechte Sidebar. Zeigt maximale Theme-Layout-Flexibilität.",
+  "icon": "Columns",
+  "preview_image": "images/preview.svg",
   "type": "plugin",
   "plugin_type": "theme",
   "permissions": ["ThemeInstall"],
   "theme": {
     "id": "three-column-dark",
     "name": "Three Column Dark",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "developer": "IORA",
-    "description": "Dreispaltiges Layout mit HTML-Template – Header, linke Sidebar-Nav, Hauptinhalt, rechte Sidebar.",
+    "description": "Dreispaltiges Profi-Layout mit HTML-Template – maximaler Screen-Real-Estate für Power-User",
     "icon": "Columns",
+    "preview_image": "images/preview.svg",
     "parent_theme": "night",
     "source": "file",
+    "order": 70,
+
+    "css_files": [],
+    "js_files": [],
+
+    "fonts": [
+      {
+        "name": "Inter",
+        "family": "'Inter', 'SF Pro', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600&display=swap",
+        "weights": "300;400;500;600",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": false,
+        "is_monospace": false
+      },
+      {
+        "name": "JetBrains Mono",
+        "family": "'JetBrains Mono', 'Courier New', monospace",
+        "url": "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap",
+        "weights": "300;400;500",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": false,
+        "is_monospace": true
+      }
+    ],
+
     "css_variables": {
       "background": "oklch(0.16 0.02 260)",
       "foreground": "oklch(0.88 0.015 260)",
       "card": "oklch(0.20 0.025 260)",
       "card-foreground": "oklch(0.90 0.015 260)",
-      "accent": "oklch(0.65 0.22 190)",
+      "accent": "oklch(0.65 0.22 195)",
       "accent-foreground": "oklch(0.98 0 0)",
       "muted": "oklch(0.22 0.02 260)",
       "muted-foreground": "oklch(0.52 0.02 260)",
       "border": "oklch(0.26 0.015 260)",
-      "ring": "oklch(0.65 0.22 190)",
+      "ring": "oklch(0.65 0.22 195)",
+      "radius": "8px",
       "glass-bg": "oklch(0.20 0.03 260 / 0.55)",
       "glass-bg-end": "oklch(0.16 0.02 260 / 0.45)",
       "glass-border-color": "oklch(0.35 0.02 260 / 0.12)",
       "glass-shadow-1": "oklch(0 0 0 / 0.18)",
-      "glass-shadow-2": "oklch(0 0 0 / 0.10)"
+      "glass-shadow-2": "oklch(0 0 0 / 0.10)",
+      "success": "oklch(0.55 0.18 155)",
+      "destructive": "oklch(0.50 0.22 25)",
+      "transition-duration": "0.35s"
     },
+
     "html_templates": {
       "layout": "html/layout.html"
+    },
+
+    "capabilities": {
+      "design_modes": [
+        {
+          "id": "three-col-day",
+          "name": "Day Mode",
+          "icon": "Sun",
+          "time_start": "06:00",
+          "time_end": "17:00",
+          "css_variables": {
+            "background": "oklch(0.95 0.008 260)",
+            "foreground": "oklch(0.18 0.02 260)",
+            "card": "oklch(0.99 0.003 260)",
+            "card-foreground": "oklch(0.15 0.02 260)",
+            "accent": "oklch(0.58 0.22 195)",
+            "muted": "oklch(0.93 0.005 260)",
+            "muted-foreground": "oklch(0.48 0.02 260)",
+            "border": "oklch(0.86 0.005 260)",
+            "glass-bg": "oklch(0.97 0.004 260 / 0.60)",
+            "glass-bg-end": "oklch(0.99 0.002 260 / 0.50)"
+          }
+        },
+        {
+          "id": "three-col-night",
+          "name": "Night Mode",
+          "icon": "MoonStars",
+          "time_start": "17:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "oklch(0.16 0.02 260)",
+            "foreground": "oklch(0.88 0.015 260)",
+            "card": "oklch(0.20 0.025 260)",
+            "card-foreground": "oklch(0.90 0.015 260)",
+            "accent": "oklch(0.65 0.22 195)",
+            "muted": "oklch(0.22 0.02 260)",
+            "muted-foreground": "oklch(0.52 0.02 260)",
+            "border": "oklch(0.26 0.015 260)",
+            "glass-bg": "oklch(0.20 0.03 260 / 0.55)",
+            "glass-bg-end": "oklch(0.16 0.02 260 / 0.45)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "three-col-day": { "start": "06:00", "end": "17:00" },
+          "three-col-night": { "start": "17:00", "end": "06:00" }
+        },
+        "default_mode": "three-col-night"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          { "name": "Cyan (Standard)", "color": "oklch(0.65 0.22 195)" },
+          { "name": "Teal", "color": "oklch(0.58 0.22 180)" },
+          { "name": "Indigo", "color": "oklch(0.55 0.22 270)" },
+          { "name": "Amber", "color": "oklch(0.62 0.18 70)" }
+        ]
+      },
+      "glass_control": {
+        "mode": "user"
+      },
+      "custom_settings": [
+        {
+          "id": "right_sidebar_visible",
+          "name": "Rechte Sidebar",
+          "description": "Optionale rechte Sidebar einblenden",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "compact_mode",
+          "name": "Kompakt-Modus",
+          "description": "Reduzierte Abstände für mehr Widgets",
+          "setting_type": "toggle",
+          "default_value": false
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 1800,
+          "background_color": "oklch(0.16 0.02 260)",
+          "brand_text": "Three Column",
+          "tagline": "Professional Layout",
+          "show_progress": true,
+          "exit_animation": "slide-up"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "slide",
+          "duration_secs": 0.3,
+          "spring": { "stiffness": 350, "damping": 30, "mass": 1.0 }
+        },
+        "widget_animations": {
+          "style": "slide-left",
+          "duration_secs": 0.35,
+          "stagger_secs": 0.02
+        }
+      }
     }
   }
 }

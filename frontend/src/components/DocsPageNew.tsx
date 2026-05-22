@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   BookOpen, CaretRight, CaretDown, MagnifyingGlass,
   List, X, ArrowLeft, FileText, Info, House,

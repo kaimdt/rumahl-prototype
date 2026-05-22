@@ -1,5 +1,5 @@
 import { User } from '@phosphor-icons/react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import type { EntityState } from '@/lib/types'
 import { toBackendImageUrl } from '@/lib/imageUrl'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'

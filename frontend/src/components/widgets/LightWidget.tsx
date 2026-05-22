@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Lightbulb } from '@phosphor-icons/react'
 import type { EntityState, LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'

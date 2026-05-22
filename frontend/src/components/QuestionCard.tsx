@@ -2,7 +2,7 @@
 // Shows structured questions with options, multi-select, and preview support
 
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Question, CheckSquare, Square } from '@phosphor-icons/react'
 
 interface QuestionOption {

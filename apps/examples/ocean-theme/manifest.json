@@ -1,25 +1,201 @@
 {
   "id": "ocean-blue",
   "name": "Ocean Blue",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "developer": "IORA Community",
-  "description": "Ein ruhiges, tiefblaues Ozean-Farbschema",
-  "type": "theme",
+  "description": "Eintauchen in die Tiefe – ein ruhiges, tiefblaues Ozean-Farbschema mit sanften Wellen-Animationen. Perfekt für entspannte Abende und smarte Bedienung.",
   "icon": "Drop",
+  "preview_image": "images/preview.svg",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": ["ThemeInstall"],
   "theme": {
+    "id": "ocean-blue",
+    "name": "Ocean Blue",
+    "version": "1.1.0",
+    "developer": "IORA Community",
+    "description": "Tiefblaues Ozean-Design mit beruhigenden Wellen-Animationen und sanften Übergängen",
+    "icon": "Drop",
+    "preview_image": "images/preview.svg",
     "parent_theme": "night",
+    "source": "file",
     "order": 61,
+
     "css_files": ["variables.css"],
+    "js_files": [],
+
+    "fonts": [
+      {
+        "name": "Spectral",
+        "family": "'Spectral', 'Georgia', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap",
+        "weights": "300;400;500;700",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": true,
+        "is_monospace": false
+      },
+      {
+        "name": "DM Sans",
+        "family": "'DM Sans', 'Inter', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,700&display=swap",
+        "weights": "300;400;500;700",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": false,
+        "is_monospace": false
+      }
+    ],
+
     "css_variables": {
       "background": "oklch(0.06 0.04 250)",
       "foreground": "oklch(0.88 0.03 220)",
-      "card": "oklch(0.1 0.05 250)",
-      "accent": "oklch(0.6 0.25 220)",
+      "card": "oklch(0.10 0.05 250)",
+      "card-foreground": "oklch(0.90 0.03 220)",
+      "accent": "oklch(0.60 0.25 220)",
+      "accent-foreground": "oklch(0.98 0 0)",
       "muted": "oklch(0.12 0.04 250)",
+      "muted-foreground": "oklch(0.52 0.04 220)",
       "border": "oklch(0.18 0.05 250)",
-      "success": "oklch(0.55 0.18 140)",
+      "ring": "oklch(0.65 0.25 220)",
       "radius": "0.85rem",
-      "glass-bg": "oklch(0.1 0.05 250 / 0.6)"
+      "glass-bg": "oklch(0.10 0.05 250 / 0.60)",
+      "glass-bg-end": "oklch(0.06 0.04 250 / 0.45)",
+      "glass-border-color": "oklch(0.22 0.06 250 / 0.15)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.18)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.08)",
+      "success": "oklch(0.55 0.18 160)",
+      "destructive": "oklch(0.50 0.20 25)",
+      "transition-duration": "0.5s"
+    },
+
+    "capabilities": {
+      "design_modes": [
+        {
+          "id": "ocean-day",
+          "name": "Korallenriff",
+          "icon": "Fish",
+          "time_start": "06:00",
+          "time_end": "17:00",
+          "css_variables": {
+            "background": "oklch(0.10 0.05 240)",
+            "foreground": "oklch(0.90 0.04 200)",
+            "card": "oklch(0.14 0.06 240)",
+            "accent": "oklch(0.62 0.25 210)",
+            "muted": "oklch(0.16 0.05 240)",
+            "border": "oklch(0.22 0.06 240)",
+            "glass-bg": "oklch(0.14 0.06 240 / 0.55)",
+            "glass-bg-end": "oklch(0.10 0.05 240 / 0.40)"
+          }
+        },
+        {
+          "id": "ocean-dusk",
+          "name": "Abenddämmerung",
+          "icon": "SunDim",
+          "time_start": "17:00",
+          "time_end": "22:00",
+          "css_variables": {
+            "background": "oklch(0.08 0.05 260)",
+            "foreground": "oklch(0.86 0.04 230)",
+            "card": "oklch(0.12 0.06 260)",
+            "accent": "oklch(0.58 0.25 230)",
+            "muted": "oklch(0.14 0.05 260)",
+            "border": "oklch(0.20 0.06 260)",
+            "glass-bg": "oklch(0.12 0.06 260 / 0.50)",
+            "glass-bg-end": "oklch(0.08 0.05 260 / 0.35)"
+          }
+        },
+        {
+          "id": "ocean-night",
+          "name": "Tiefsee",
+          "icon": "MoonStars",
+          "time_start": "22:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "oklch(0.04 0.03 255)",
+            "foreground": "oklch(0.78 0.03 225)",
+            "card": "oklch(0.08 0.04 255)",
+            "accent": "oklch(0.52 0.22 225)",
+            "muted": "oklch(0.10 0.03 255)",
+            "border": "oklch(0.14 0.04 255)",
+            "glass-bg": "oklch(0.08 0.04 255 / 0.35)",
+            "glass-bg-end": "oklch(0.04 0.03 255 / 0.25)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "ocean-day": { "start": "06:00", "end": "17:00" },
+          "ocean-dusk": { "start": "17:00", "end": "22:00" },
+          "ocean-night": { "start": "22:00", "end": "06:00" }
+        },
+        "default_mode": "ocean-day"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          { "name": "Ozeanblau", "color": "oklch(0.60 0.25 220)" },
+          { "name": "Türkis", "color": "oklch(0.58 0.22 190)" },
+          { "name": "Koralle", "color": "oklch(0.55 0.20 30)" },
+          { "name": "Seegras", "color": "oklch(0.50 0.18 150)" },
+          { "name": "Abyss", "color": "oklch(0.45 0.15 260)" }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_on"
+      },
+      "custom_settings": [
+        {
+          "id": "wave_effect",
+          "name": "Wellen-Effekt",
+          "description": "Subtile animierte Wellen im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "ocean-wave-effect"
+        },
+        {
+          "id": "bubble_particles",
+          "name": "Blasen-Partikel",
+          "description": "Aufsteigende Luftblasen an den Seiten",
+          "setting_type": "toggle",
+          "default_value": false
+        },
+        {
+          "id": "depth_blur",
+          "name": "Tiefenunschärfe",
+          "description": "Hintergrund-Weichzeichnung für Tiefeneffekt",
+          "setting_type": "slider",
+          "default_value": 30,
+          "min": 0, "max": 80, "step": 10,
+          "css_variable": "ocean-depth-blur"
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2400,
+          "background_color": "oklch(0.04 0.03 255)",
+          "brand_text": "Ocean Blue",
+          "tagline": "Calm Technology",
+          "show_progress": true,
+          "exit_animation": "fade"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.45,
+          "spring": { "stiffness": 250, "damping": 28, "mass": 1.2 }
+        },
+        "widget_animations": {
+          "style": "fade-up",
+          "duration_secs": 0.5,
+          "stagger_secs": 0.04
+        },
+        "keyframes": {
+          "ocean-wave": "0% { transform: translateY(0); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0); }"
+        }
+      }
     }
   }
 }
