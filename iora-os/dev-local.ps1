@@ -17,6 +17,9 @@
 #   .\dev-local.ps1 -CleanAll      Also remove downloaded cloud image
 #   .\dev-local.ps1 -Status        Show whether VM is running + health check
 #   .\dev-local.ps1 -Stop          Stop the running VM
+#   .\dev-local.ps1 -Rebuild       Stop VM, clean cache, start fresh
+#   .\dev-local.ps1 -SSH           SSH directly into the running VM
+#   .\dev-local.ps1 -Log            Live cloud-init / system logs
 #   .\dev-local.ps1 -Reprovision   Force re-running the in-VM setup
 #   .\dev-local.ps1 -NoWatch       Don't auto-launch dev-watch.ps1
 #   .\dev-local.ps1 -Foreground    Keep this window attached to QEMU
@@ -29,6 +32,9 @@ param(
     [switch] $CleanAll,
     [switch] $Status,
     [switch] $Stop,
+    [switch] $Rebuild,
+    [switch] $SSH,
+    [switch] $Log,
     [switch] $Reprovision,
     [switch] $NoWatch,
     [switch] $Foreground,
@@ -57,9 +63,20 @@ if ($doubleDashArgs) {
 }
 
 if ($Help) {
-    Get-Content $MyInvocation.MyCommand.Path | Select-Object -First 22 | ForEach-Object {
-        $_ -replace '^# ?', ''
-    }
+    Write-Host "Usage: .\dev-local.ps1 [options]" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  -Clean         Drop cached VM disk + seed ISO (keep image)"
+    Write-Host "  -CleanAll      Also remove downloaded cloud image"
+    Write-Host "  -Status        Show whether VM is running + health check"
+    Write-Host "  -Stop          Stop the running VM"
+    Write-Host "  -Rebuild       Stop VM, clean cache, start fresh"
+    Write-Host "  -SSH           SSH directly into the VM"
+    Write-Host "  -Log           Live cloud-init / system logs"
+    Write-Host "  -Reprovision   Force re-running the in-VM setup"
+    Write-Host "  -NoWatch       Don't auto-launch dev-watch.ps1"
+    Write-Host "  -Foreground    Keep this window attached to QEMU"
+    Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
+    Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
     exit 0
 }
 
@@ -321,10 +338,79 @@ function Test-VmHealth {
     return $false
 }
 
-# ── -Status / -Stop fast paths ─────────────────────────────────────────────
+# ── -Status / -Stop / -Rebuild / -SSH fast paths ────────────────────────────
 if ($Stop) {
     Stop-Vm
     exit 0
+}
+
+if ($SSH) {
+    $p = Get-QemuPid
+    if (-not $p) { $p = Get-QemuProcess | Select-Object -First 1 }
+    if (-not $p) {
+        Stop-WithError "VM is not running. Start it first: .\dev-local.ps1"
+    }
+    Write-Info "Connecting to VM via SSH..."
+    & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1
+    exit 0
+}
+
+if ($Log) {
+    $serialLog = Join-Path $CACHE "qemu-serial.log"
+    $cloudLog = "/var/log/cloud-init-output.log"
+    $cloudMainLog = "/var/log/cloud-init.log"
+
+    $p = Get-QemuPid
+    if (-not $p) { $p = Get-QemuProcess | Select-Object -First 1 }
+    if (-not $p) {
+        Write-Warn "VM is not running. Showing last QEMU serial log:"
+        Write-Host "═══════════════ QEMU Serial Log ═══════════════" -ForegroundColor DarkGray
+        if (Test-Path $serialLog) {
+            Get-Content $serialLog -Tail 50
+        } else {
+            Write-Host "  (no serial log found)"
+        }
+        exit 0
+    }
+
+    $sshOk = Invoke-SSH "echo SSH_OK" 2>$null
+    if ("$sshOk" -match "SSH_OK") {
+        $hasCloudLog = Invoke-SSH "test -f $cloudLog && echo YES" 2>$null
+        $hasCloudMainLog = Invoke-SSH "test -f $cloudMainLog && echo YES" 2>$null
+        if ("$hasCloudLog" -match "YES") {
+            Write-Info "Live cloud-init output log (Ctrl+C to stop)..."
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f $cloudLog"
+        } elseif ("$hasCloudMainLog" -match "YES") {
+            Write-Info "Live cloud-init main log (Ctrl+C to stop)..."
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f $cloudMainLog"
+        } else {
+            Write-Info "SSH ready. Following syslog (Ctrl+C to stop)..."
+            & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1 "tail -f /var/log/syslog"
+        }
+    } else {
+        Write-Warn "SSH not yet reachable. Following QEMU serial console (live - Ctrl+C to stop):"
+        Write-Host "═══════════════ QEMU Serial Console ═══════════════" -ForegroundColor DarkGray
+        if (Test-Path $serialLog) {
+            Get-Content $serialLog -Wait -Tail 20
+        } else {
+            Write-Warn "No serial log available yet."
+        }
+    }
+    exit 0
+}
+
+if ($Rebuild) {
+    Write-Info "Rebuild: stopping VM..."
+    Stop-Vm
+    Write-Info "Cleaning cache..."
+    Get-ChildItem -Path $CACHE -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -notlike "debian-12-cloud-*.qcow2"
+    } | Remove-Item -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $CACHE "seed") -Recurse -Force -ErrorAction SilentlyContinue
+    & ssh-keygen -R "[127.0.0.1]:$SshPort" 2>$null | Out-Null
+    & ssh-keygen -R "[localhost]:$SshPort" 2>$null | Out-Null
+    Write-Info "Starting fresh provision..."
+    # Fall through to normal start
 }
 
 if ($Status) {
@@ -471,6 +557,22 @@ chpasswd:
   expire: false
 
 datasource_list: [ NoCloud ]
+
+write_files:
+  - path: /etc/resolv.conf
+    content: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+      nameserver 8.8.4.4
+    permissions: '0644'
+
+bootcmd:
+  - sleep 3
+  - ip link set eth0 up || true
+  - sleep 2
+
+package_update: true
+package_upgrade: false
 
 packages:
   - rsync

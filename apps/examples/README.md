@@ -1,79 +1,103 @@
 # IORA Example Apps
 
-> Beispiel-Anwendungen und Plugins zur Demonstration der IORA-Funktionen
+> Beispiel-Anwendungen, Plugins und Themes zur Demonstration der IORA-Funktionen
 
-## Verfügbare Beispiele
+## Ordnerstruktur
 
-### 1. Themed Weather App
-**Pfad:** `themed-weather-app/`
+```
+apps/examples/
+├── themes/             # 11 Theme-Plugins
+├── apps/               # 6 Beispiel-Apps
+├── plugins/            # 2 Funktions-Plugins
+└── README.md
+```
 
-Demonstriert das IORA Theme-System:
-- Theme Inheritance von IORA
-- Custom CSS Variables
-- Dynamische Theme-Updates
-- Interaktive Farbänderungen
-- Variable Inspector
+## Themes (11)
 
-**Features:**
-- ☀️ Wetter-Widget mit Theme-Integration
-- 🎨 Custom Wetter-Farben (sunny, cloudy, rainy, stormy)
-- 🔄 Echtzeit Theme-Synchronisation
-- 🎛️ Interaktive Theme-Kontrollen
-- 📊 Live CSS Variable Viewer
+Jedes Theme ist ein Plugin vom Typ `plugin_type: "theme"` und enthält:
+- `manifest.json` – Theme-Metadaten & Capabilities
+- `css/theme.css` – Theme-Variablen & Styles
+- `js/theme.js` – Theme-Logik & Mode-Switching
+- `build.sh` / `build.ps1` – Build-Script zum Erstellen einer `.zip`-Distribution
 
-**Lernziele:**
-- Verwendung des `IoraThemeClient`
-- CSS Variable Overrides
-- PostMessage-basierte Theme-Kommunikation
-- Responsive Design mit Theme-Variablen
+| Theme | Beschreibung |
+|-------|-------------|
+| `cyberpunk-neon` | Neon-Pink/Cyan, CRT-Scanlines, Glitch-Effekte |
+| `forest-cabin` | Warme Holztöne, Waldgrün, Laternenlicht |
+| `full-layout-theme` | Dreispaltiges Profi-Layout (HTML-Template) |
+| `material-sidebar-theme` | Material Design mit Sidebar & Ripple-Effekten |
+| `monochrome-pro` | Graustufen-Design, barrierefrei & produktiv |
+| `nordic-light` | Skandinavischer Minimalismus, helle Cremetöne |
+| `ocean-theme` | Tiefblaues Ozean-Theme mit Wellen-Animationen |
+| `sidebar-theme` | Minimalistisches Dark-Theme mit CSS-Sidebar |
+| `steampunk-theme` | Viktorianisch mit Messing, Zahnrädern & Dampf |
+| `synthwave-sunset` | 80s-Retro-Outrun, Neon auf Sonnenuntergang |
+| `terminal-theme` | Unix-Shell-Look, Monospace, grüner Cursor |
 
-[→ Zur App](./themed-weather-app/)
+[→ Alle Themes](./themes/)
 
-### 2. Weather App (Basic)
-**Pfad:** `weather-app/`
+## Apps (6)
 
-Einfache Wetter-App ohne Theme-System (Legacy-Beispiel).
+Apps laufen in Docker-Containern und bieten vollständige UIs oder Backend-Dienste.
 
-### 3. Network Scanner App
-**Pfad:** `network-scanner-app/`
+| App | Beschreibung |
+|-----|-------------|
+| `themed-weather-app` | Theme-System Demo mit CSS-Variablen & Live-Viewer |
+| `weather-app` | Einfache Wetter-App (Legacy, ohne Theme) |
+| `network-scanner-app` | Netzwerk-Scanner (Rust, Docker) |
+| `home-assistant-bundle` | HA Core + PostgreSQL + MQTT Bundle |
+| `idle-game` | Idle-Settlement-Spiel mit Prestige-System |
+| `macro-tracker` | Makro-Tracker mit SQLite-Datenbank |
 
-Rust-basierte App für Netzwerk-Scanning.
+[→ Alle Apps](./apps/)
 
-### 4. Notification Plugin
-**Pfad:** `notification-plugin/`
+## Plugins (2)
 
-Rust-basiertes Plugin für System-Benachrichtigungen.
+Funktions-Plugins laufen in der IORA-Runtime-Sandbox.
 
-### 5. Energy Optimizer Plugin
-**Pfad:** `energy-optimizer-plugin/`
+| Plugin | Beschreibung |
+|--------|-------------|
+| `notification-plugin` | Benachrichtigungs-Formatierer (Rust) |
+| `energy-optimizer-plugin` | Energie-Optimierung mit AI (TypeScript) |
 
-TypeScript-basiertes Plugin für Energie-Optimierung.
-
-## Kategorien
-
-### Apps (Docker Container)
-- `themed-weather-app/` - Theme-System Demo
-- `weather-app/` - Basic Weather App
-- `network-scanner-app/` - Network Scanner (Rust)
-
-### Plugins (Runtime Sandbox)
-- `notification-plugin/` - Notifications (Rust)
-- `energy-optimizer-plugin/` - Energy Optimizer (TS)
+[→ Alle Plugins](./plugins/)
 
 ## Installation
 
-### Einzelne App installieren:
+### Build: .zip erstellen
 
-1. Kopiere den App-Ordner nach `/var/lib/iora/apps/installed/`
+Jedes Theme, jede App und jedes Plugin enthält Build-Scripts:
+
+```bash
+# Linux / macOS
+cd themes/cyberpunk-neon
+./build.sh
+# Erstellt: cyberpunk-neon-v1.0.0.zip
+```
+
+```powershell
+# Windows PowerShell
+cd themes\cyberpunk-neon
+.\build.ps1
+# Erstellt: cyberpunk-neon-v1.0.0.zip
+```
+
+Die `.zip`-Datei kann dann im IORA App Store installiert werden.
+
+### Einzelne App/Plugin/Theme installieren:
+
+1. Baue die `.zip`-Datei mit `build.sh` oder `build.ps1`
 2. Öffne den IORA App Store
-3. Die App erscheint automatisch in der Liste
-4. Klicke auf "Installieren"
+3. Klicke auf "Aus Datei installieren" und wähle die `.zip`-Datei
+4. Alternativ: Entpacke nach `/var/lib/iora/apps/installed/`
 
 ### Alle Beispiele installieren:
 
 ```bash
-# Alle Beispiele kopieren
-sudo cp -r apps/examples/* /var/lib/iora/apps/installed/
+# Alle .zip-Dateien bauen
+for dir in themes/*/ apps/*/ plugins/*/; do
+  (cd "$dir" && ./build.sh)
+done
 
 # IORA neu starten (damit Apps erkannt werden)
 sudo systemctl restart iora-home
@@ -98,6 +122,8 @@ my-app/
 ├── Dockerfile          # Für Container-Apps
 ├── package.json        # Für Node.js-Apps
 ├── README.md           # Dokumentation
+├── build.sh            # Build-Script (Linux/macOS)
+├── build.ps1           # Build-Script (Windows)
 └── assets/            # Optional: Bilder, Styles, etc.
 ```
 

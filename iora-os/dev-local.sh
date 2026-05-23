@@ -13,6 +13,9 @@
 #   ./dev-local.sh --clean-all      Also remove downloaded cloud image
 #   ./dev-local.sh --status         Show whether VM is running, health check
 #   ./dev-local.sh --stop           Stop the running VM
+#   ./dev-local.sh --rebuild        Stop VM, clean cache, start fresh
+#   ./dev-local.sh --log             Live cloud-init / system logs
+#   ./dev-local.sh --ssh            SSH directly into the running VM
 #   ./dev-local.sh --reprovision    Force re-running the in-VM setup steps
 #   ./dev-local.sh --no-watch       Don't auto-launch dev-watch.sh
 #   ./dev-local.sh --foreground     Attach to QEMU process (Ctrl+C kills VM)
@@ -191,6 +194,9 @@ CLEAN=false
 CLEAN_ALL=false
 DO_STATUS=false
 DO_STOP=false
+DO_REBUILD=false
+DO_SSH=false
+DO_LOG=false
 REPROVISION=false
 NO_WATCH=false
 FOREGROUND=false
@@ -200,6 +206,9 @@ for a in "$@"; do
         --clean-all)    CLEAN=true; CLEAN_ALL=true ;;
         --status)       DO_STATUS=true ;;
         --stop)         DO_STOP=true ;;
+        --rebuild)      DO_REBUILD=true ;;
+        --ssh)          DO_SSH=true ;;
+        --log)          DO_LOG=true ;;
         --reprovision)  REPROVISION=true ;;
         --no-watch)     NO_WATCH=true ;;
         --foreground)   FOREGROUND=true ;;
@@ -279,10 +288,31 @@ SSH_OPTS=(
 ssh_vm() { ssh "${SSH_OPTS[@]}" -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1 "$@"; }
 scp_to_vm() { scp "${SSH_OPTS[@]}" -i "$SSH_KEY" -P "$VM_SSH" "$@"; }
 
-# ── --status / --stop fast paths ───────────────────────────────────────────
+# ── --status / --stop / --rebuild / --ssh fast paths ────────────────────────
 if $DO_STOP; then
     vm_stop
     exit 0
+fi
+
+if $DO_SSH; then
+    pid=$(vm_pid)
+    if [ -z "$pid" ]; then
+        die "VM is not running. Start it first: ./dev-local.sh"
+    fi
+    log "Connecting to VM via SSH..."
+    exec ssh "${SSH_OPTS[@]}" -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1
+    exit 0
+fi
+
+if $DO_REBUILD; then
+    log "Rebuild: stopping VM..."
+    vm_stop || true
+    log "Cleaning cache..."
+    rm -f "$VM_DISK" "$SEED_ISO" "$SSH_KEY" "$SSH_KEY.pub" "$PROVISIONED_MARKER"
+    rm -rf "$CACHE/seed"
+    ssh_known_clear
+    log "Starting fresh provision..."
+    # Fall through to normal start below
 fi
 
 if $DO_STATUS; then
@@ -307,6 +337,71 @@ if $DO_STATUS; then
             warn "iora-home not responding on port $VM_HOME yet"
         fi
     fi
+    exit 0
+fi
+
+# ── --log handler (live cloud-init / debian logs) ────────────────────────
+if $DO_LOG; then
+    SERIAL_LOG="$CACHE/qemu-serial.log"
+    CLOUD_OUTPUT="/var/log/cloud-init-output.log"
+    CLOUD_MAIN="/var/log/cloud-init.log"
+    SYSLOG="/var/log/syslog"
+
+    pid=$(vm_pid)
+    if [ -z "$pid" ]; then
+        warn "VM is not running. Showing last QEMU serial log:"
+        echo "═══════════════ QEMU Serial Log ═══════════════"
+        [ -f "$SERIAL_LOG" ] && tail -50 "$SERIAL_LOG" || echo "  (no serial log)"
+        exit 0
+    fi
+
+    log "Following all logs continuously (Ctrl+C to stop)..."
+    dim  "  Auto-switches: serial → cloud-init → syslog as VM boots"
+    echo ""
+
+    # Continuous log follower: tries serial first, then SSH logs when ready
+    (
+        SHOWN_SERIAL=false
+        SHOWN_CLOUD=false
+        while true; do
+            # Check if VM died
+            if ! kill -0 "$pid" 2>/dev/null; then
+                echo ""
+                warn "VM process ended."
+                break
+            fi
+
+            # Try SSH first
+            if ssh_vm "echo OK" 2>/dev/null | grep -q OK; then
+                # Show cloud-init output if available
+                if ssh_vm "test -f $CLOUD_OUTPUT && test -s $CLOUD_OUTPUT" 2>/dev/null; then
+                    if ! $SHOWN_CLOUD; then
+                        echo "═══════════════ Cloud-Init Output ═══════════════"
+                        SHOWN_CLOUD=true
+                    fi
+                    ssh_vm "tail -n 200 $CLOUD_OUTPUT 2>/dev/null" 2>/dev/null | tail -5
+                    # Check if cloud-init is still running
+                    if ssh_vm "test -f /var/lib/cloud/instance/boot-finished" 2>/dev/null; then
+                        if $SHOWN_CLOUD; then
+                            echo "═══════════════ Cloud-Init Complete → Syslog ═══════════════"
+                            SHOWN_CLOUD=false
+                        fi
+                        ssh_vm "journalctl -n 10 --no-pager 2>/dev/null || tail -10 $SYSLOG" 2>/dev/null
+                    fi
+                else
+                    ssh_vm "journalctl -n 10 --no-pager 2>/dev/null || tail -10 $SYSLOG" 2>/dev/null
+                fi
+            else
+                # SSH not ready — show serial
+                if ! $SHOWN_SERIAL && [ -s "$SERIAL_LOG" ]; then
+                    echo "═══════════════ QEMU Serial Console ═══════════════"
+                    SHOWN_SERIAL=true
+                fi
+                [ -f "$SERIAL_LOG" ] && tail -3 "$SERIAL_LOG" 2>/dev/null
+            fi
+            sleep 5
+        done
+    )
     exit 0
 fi
 
@@ -468,6 +563,27 @@ chpasswd:
 
 # Don't reach out to cloud metadata services
 datasource_list: [ NoCloud ]
+
+# Write DNS config early (before any network operations).
+# QEMU user-mode network sometimes doesn't forward DNS correctly
+# on macOS/HVF, so we set Cloudflare + Google DNS explicitly.
+write_files:
+  - path: /etc/resolv.conf
+    content: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+      nameserver 8.8.4.4
+    permissions: '0644'
+
+# Give the network stack time to initialize before package installs
+bootcmd:
+  - sleep 3
+  - ip link set eth0 up || true
+  - sleep 2
+
+# Update apt cache before installing packages
+package_update: true
+package_upgrade: false
 
 # Speed up first boot: install the absolute minimum here; everything else
 # is installed by dev-local from the host (so it can be retried/recovered).
@@ -652,6 +768,15 @@ fi
 # Always sync source code (cheap, idempotent, picks up host edits)
 log "Syncing repository to VM via rsync..."
 ssh_vm "mkdir -p /home/iora/iora" 2>/dev/null || true
+
+# Pre-flight: ensure rsync is installed in the VM (cloud-init may skip it)
+if ! ssh_vm "command -v rsync >/dev/null 2>&1 && echo OK" 2>/dev/null | grep -q OK; then
+    warn "rsync missing in VM (cloud-init may have skipped package install). Installing..."
+    ssh_vm "apt-get update -qq && apt-get install -y -qq rsync" 2>/dev/null || {
+        warn "Could not install rsync automatically. Trying scp fallback..."
+    }
+fi
+
 if rsync -az --delete \
     --exclude='.git' --exclude='target' --exclude='node_modules' \
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' \

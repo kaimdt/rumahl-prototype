@@ -406,6 +406,7 @@ impl ThemeState {
                 html_templates: HashMap::new(),
                 capabilities: None,
                 widget_templates: vec![],
+                animation: None,
             });
         }
 
@@ -545,6 +546,7 @@ impl ThemeState {
                 html_templates: html_resolved,
                 capabilities,
                 widget_templates,
+                animation: None,
             });
         }
 
@@ -556,6 +558,7 @@ impl ThemeState {
             html_templates: HashMap::new(),
             capabilities: None,
             widget_templates: vec![],
+            animation: None,
         })
     }
 

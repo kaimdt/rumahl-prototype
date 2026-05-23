@@ -20,7 +20,7 @@ export interface ThemeFont {
 
 export interface ThemeIconConfig {
   font_name: string
-  font_url: string
+  css_path: string
   class_prefix: string
   icon_map: Record<string, string>
 }
@@ -571,10 +571,10 @@ function injectIconFont(config: ThemeIconConfig) {
     link = document.createElement('link')
     link.id = ICON_FONT_ID
     link.rel = 'stylesheet'
-    link.href = config.font_url
+    link.href = config.css_path
     document.head.appendChild(link)
   } else {
-    link.href = config.font_url
+    link.href = config.css_path
   }
 
   // Store icon map on document for runtime use

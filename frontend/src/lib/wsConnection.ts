@@ -27,7 +27,7 @@ function connectWebSocket() {
 
   // Derive WebSocket URL from VITE_BACKEND_URL if set,
   // otherwise fall back to current host (works when served by backend).
-  // In dev mode, bypass Vite proxy to avoid message buffering.
+  // In dev mode (Vite dev server on :5173), connect to backend directly.
   let wsUrl: string
   if (API_BASE) {
     try {
@@ -38,8 +38,10 @@ function connectWebSocket() {
       wsUrl = `ws://${window.location.hostname}:3001/ws`
     }
   } else if (import.meta.env.DEV) {
+    // Vite dev server — connect to backend on port 3001
     wsUrl = `ws://${window.location.hostname}:3001/ws`
   } else {
+    // Production / IORA OS / VM — connect to same origin
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     wsUrl = `${protocol}//${window.location.host}/ws`
   }

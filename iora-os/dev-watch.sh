@@ -13,6 +13,10 @@
 #   ./dev-watch.sh --no-watch            Build once and exit
 #   ./dev-watch.sh --rust-only           Skip the frontend pipeline
 #   ./dev-watch.sh --frontend-only       Skip the Rust pipeline
+#   ./dev-watch.sh --services S1,S2      Only build specific services
+#   ./dev-watch.sh --no-deploy           Build but don't deploy to VM
+#   ./dev-watch.sh --auto-deploy         Auto-deploy after build (default)
+#   ./dev-watch.sh --tui                 Interactive terminal UI mode
 #   ./dev-watch.sh --target TARGET       Override Cargo target triple
 #   ./dev-watch.sh --skip-sccache        Don't use sccache
 #   ./dev-watch.sh --vm-host HOST        SSH host (default 127.0.0.1)
@@ -49,11 +53,6 @@ SCCACHE_DIR="$SHARED/sccache"
 HASH_DIR="$CACHE/hashes"
 mkdir -p "$BIN_DIR" "$SCCACHE_DIR" "$HASH_DIR" "$CACHE"
 
-# SSH control socket directory (multiplexing → fast SCP/SSH calls)
-SSH_CTL_DIR="$CACHE/ssh-ctl"
-mkdir -p "$SSH_CTL_DIR"
-chmod 700 "$SSH_CTL_DIR"
-
 # ── Workspace detection ───────────────────────────────────────────────────
 if [ -f "$REPO_ROOT/iora-os/backend/Cargo.toml" ]; then
     WORKSPACE="$REPO_ROOT/iora-os/backend"
@@ -82,6 +81,9 @@ WATCH=true
 DO_RUST=true
 DO_FRONTEND=true
 DO_RESTART=true
+DO_DEPLOY=true
+SELECTED_SERVICES=""
+TUI_MODE=false
 DEBOUNCE_SEC=1
 
 show_help() {
@@ -98,7 +100,11 @@ while [ $# -gt 0 ]; do
         --vm-host)         VM_HOST="$2"; shift 2 ;;
         --vm-port)         VM_PORT="$2"; shift 2 ;;
         --ssh-key)         SSH_KEY="$2"; shift 2 ;;
-        --no-restart)      DO_RESTART=false; shift ;;
+        --restart)         DO_RESTART=false; shift ;;
+        --services)        SELECTED_SERVICES="$2"; shift 2 ;;
+        --no-deploy)       DO_DEPLOY=false; shift ;;
+        --auto-deploy)     DO_DEPLOY=true; shift ;;
+        --tui)             TUI_MODE=true; shift ;;
         -h|--help)         show_help; exit 0 ;;
         *)                 warn "Ignoring unknown argument: $1"; shift ;;
     esac
@@ -120,9 +126,7 @@ SSH_OPTS=(
     -o ServerAliveInterval=30
     -o ServerAliveCountMax=3
     -o ConnectTimeout=10
-    -o ControlMaster=auto
-    -o "ControlPath=$SSH_CTL_DIR/cm-%C"
-    -o ControlPersist=120
+    -o AddressFamily=inet
     -i "$SSH_KEY"
 )
 
@@ -131,12 +135,7 @@ scp_to_vm() { scp "${SSH_OPTS[@]}" -P "$VM_PORT" -q "$1" "root@$VM_HOST:$2"; }
 
 vm_reachable() {
     [ -f "$SSH_KEY" ] || return 1
-    ssh_vm -o ConnectTimeout=5 -o BatchMode=yes "true" >/dev/null 2>&1
-}
-
-cleanup_ssh() {
-    # Close the multiplexed master connection cleanly
-    ssh -O exit "${SSH_OPTS[@]}" -p "$VM_PORT" "root@$VM_HOST" >/dev/null 2>&1 || true
+    ssh_vm -o ConnectTimeout=5 -o BatchMode=yes "true" 2>/dev/null
 }
 
 # ── Service auto-discovery ────────────────────────────────────────────────
@@ -165,6 +164,19 @@ ALL_SERVICES=()
 while IFS= read -r line; do
     ALL_SERVICES+=("$line")
 done < <(discover_services)
+
+# Filter to selected services if --services was specified
+if [ -n "$SELECTED_SERVICES" ]; then
+    IFS=',' read -ra WANTED <<< "$SELECTED_SERVICES"
+    FILTERED=()
+    for svc in "${ALL_SERVICES[@]}"; do
+        for w in "${WANTED[@]}"; do
+            if [ "$svc" = "$w" ]; then FILTERED+=("$svc"); break; fi
+        done
+    done
+    ALL_SERVICES=("${FILTERED[@]}")
+    log "Filtered to ${#ALL_SERVICES[@]} services: ${ALL_SERVICES[*]}"
+fi
 log "Discovered ${#ALL_SERVICES[@]} iora-* crates"
 
 # ── Toolchain detection ───────────────────────────────────────────────────
@@ -278,6 +290,221 @@ health_check() {
         2>/dev/null || true
 }
 
+# ═══════════════════════════════════════════════════════════════════
+# TUI – Interactive Terminal UI
+# ═══════════════════════════════════════════════════════════════════
+
+TUI_BUILD_LOG="$CACHE/tui-build.log"
+TUI_CURSOR=0
+TUI_SCROLL=0
+
+# Reset terminal on exit
+_tui_cleanup() { printf '\033[?25h\033[0m'; stty echo 2>/dev/null; }
+trap '_tui_cleanup' RETURN
+
+_tui_hide_cursor() { printf '\033[?25l'; }
+_tui_clear() { printf '\033[2J\033[H'; }
+_tui_goto() { printf '\033[%d;%dH' "${1:-1}" "${2:-1}"; }
+_tui_bold() { printf '%s' "$B"; }
+_tui_dim()  { printf '%s' "$D"; }
+_tui_green() { printf '%s' "$G"; }
+_tui_cyan() { printf '%s' "$C"; }
+_tui_yellow() { printf '%s' "$Y"; }
+_tui_reset() { printf '%s' "$N"; }
+
+# List of services with checkboxes (name:checked)
+TUI_SERVICES=()
+for svc in "${ALL_SERVICES[@]}"; do TUI_SERVICES+=("$svc:1"); done
+TUI_BUILD_RUST=true
+TUI_BUILD_FE=true
+TUI_DO_DEPLOY=$DO_DEPLOY
+TUI_WATCH_ENABLED=true
+TUI_LOG_LINES=()
+TUI_BUILDING=false
+TUI_LAST_BUILD="-"
+
+_tui_render() {
+    _tui_clear
+    local line=1
+
+    # Header
+    _tui_goto $line 1; _tui_bold; _tui_cyan
+    printf '╔══════════════════════════ IORA Dev TUI ══════════════════════════╗'
+    line=$((line+1))
+    _tui_goto $line 1
+    printf '║  VM: %-20s  Last build: %-25s ║' "$([ -n "$TUI_LAST_BUILD" ] && echo "$TUI_LAST_BUILD" || echo "-")" "$TUI_LAST_BUILD_TIME"
+    _tui_reset
+
+    # ── Services Section ──
+    line=$((line+2))
+    _tui_goto $line 3; _tui_bold; printf 'Services (Space=toggle, ↑↓=navigate):'; _tui_reset
+    line=$((line+1))
+    local idx=0
+    for entry in "${TUI_SERVICES[@]}"; do
+        local name="${entry%%:*}"; local checked="${entry##*:}"
+        _tui_goto $line 5
+        if [ $idx -eq $TUI_CURSOR ]; then
+            printf '\033[7m'  # inverse video for cursor
+        fi
+        if [ "$checked" = "1" ]; then
+            _tui_green; printf '[✓]'; _tui_reset
+        else
+            _tui_dim; printf '[ ]'; _tui_reset
+        fi
+        printf ' %s' "$name"
+        if [ $idx -eq $TUI_CURSOR ]; then
+            printf '\033[27m'
+        fi
+        line=$((line+1))
+        idx=$((idx+1))
+    done
+
+    # ── Settings Section ──
+    line=$((line+1))
+    _tui_goto $line 3; _tui_bold; printf 'Settings:'; _tui_reset
+    line=$((line+1))
+    _tui_goto $line 5
+    printf '['; $TUI_BUILD_RUST && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
+    printf '] Rust     ['; $TUI_BUILD_FE && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
+    printf '] Frontend  ['; $TUI_DO_DEPLOY && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
+    printf '] Deploy   ['; $TUI_WATCH_ENABLED && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
+    printf '] Watch'
+    line=$((line+1))
+    _tui_goto $line 5; _tui_dim; printf '[1-4] toggle  [R] Rebuild  [D] Deploy  [S] Status  [H] Health  [Q] Quit'; _tui_reset
+
+    # ── Build Output Section ──
+    line=$((line+2))
+    _tui_goto $line 3; _tui_bold; printf 'Build Output:'; _tui_reset
+    if $TUI_BUILDING; then
+        _tui_goto $line 30; _tui_yellow; printf '● BUILDING...'; _tui_reset
+    fi
+    local log_start=$((line+1))
+    local log_lines=${#TUI_LOG_LINES[@]}
+    local max_log=$(( $(tput lines 2>/dev/null || echo 24) - log_start - 2 ))
+    [ $max_log -lt 4 ] && max_log=4
+    local start=$(( log_lines > max_log ? log_lines - max_log : 0 ))
+    for ((i=start; i<log_lines; i++)); do
+        _tui_goto $((log_start + i - start)) 5
+        printf '%.120s' "${TUI_LOG_LINES[$i]}"
+    done
+}
+
+_tui_log() {
+    TUI_LOG_LINES+=("$(date '+%H:%M:%S') $*")
+    # Keep last 500 lines
+    if [ ${#TUI_LOG_LINES[@]} -gt 500 ]; then
+        TUI_LOG_LINES=("${TUI_LOG_LINES[@]: -500}")
+    fi
+}
+
+_tui_toggle_service() {
+    local idx=$TUI_CURSOR
+    local entry="${TUI_SERVICES[$idx]}"
+    local name="${entry%%:*}"; local checked="${entry##*:}"
+    if [ "$checked" = "1" ]; then
+        TUI_SERVICES[$idx]="$name:0"
+    else
+        TUI_SERVICES[$idx]="$name:1"
+    fi
+}
+
+_tui_get_selected_services() {
+    local sel=""
+    for entry in "${TUI_SERVICES[@]}"; do
+        local name="${entry%%:*}"; local checked="${entry##*:}"
+        if [ "$checked" = "1" ]; then
+            [ -n "$sel" ] && sel="$sel,$name" || sel="$name"
+        fi
+    done
+    echo "$sel"
+}
+
+_tui_do_build() {
+    TUI_BUILDING=true
+    TUI_LAST_BUILD_TIME=$(date '+%H:%M:%S')
+    _tui_log "Build started..."
+    _tui_render
+
+    # Set global vars from TUI state
+    SELECTED_SERVICES=$(_tui_get_selected_services)
+    DO_RUST=$TUI_BUILD_RUST
+    DO_FRONTEND=$TUI_BUILD_FE
+    DO_DEPLOY=$TUI_DO_DEPLOY
+
+    local rc=0
+    if $DO_RUST && [ -n "$SELECTED_SERVICES" ]; then
+        _tui_log "Building Rust: $SELECTED_SERVICES"
+        build_rust > "$TUI_BUILD_LOG" 2>&1 || rc=$?
+        while IFS= read -r l; do [ -n "$l" ] && _tui_log "$l"; done < "$TUI_BUILD_LOG"
+        if [ $rc -eq 0 ]; then
+            _tui_log "✓ Rust build OK"
+            TUI_LAST_BUILD="✓ Rust"
+        else
+            _tui_log "✗ Rust build FAILED (exit $rc)"
+            TUI_LAST_BUILD="✗ Rust"
+        fi
+    fi
+
+    if $DO_FRONTEND; then
+        _tui_log "Building Frontend..."
+        build_frontend > "$TUI_BUILD_LOG" 2>&1 || rc=$?
+        while IFS= read -r l; do [ -n "$l" ] && _tui_log "$l"; done < "$TUI_BUILD_LOG"
+        if [ $rc -eq 0 ]; then
+            _tui_log "✓ Frontend build OK"
+            TUI_LAST_BUILD="${TUI_LAST_BUILD} ✓ FE"
+        else
+            _tui_log "✗ Frontend build FAILED"
+        fi
+    fi
+
+    TUI_BUILDING=false
+}
+
+_tui_do_deploy() {
+    if ! vm_reachable; then _tui_log "✗ VM not reachable"; return; fi
+    _tui_log "Deploying..."
+    rm -f "$HASH_DIR"/* 2>/dev/null || true
+    deploy_many "${ALL_SERVICES[@]}" 2>&1 | while IFS= read -r l; do _tui_log "$l"; done
+    _tui_log "✓ Deploy complete"
+}
+
+run_tui() {
+    _tui_hide_cursor
+    stty -echo 2>/dev/null
+    _tui_log "TUI started. Select services and press R to build."
+
+    while true; do
+        _tui_render
+        local key
+        IFS= read -r -s -n 1 key < /dev/tty 2>/dev/null || continue
+
+        case "$key" in
+            q|Q) _tui_cleanup; stty echo 2>/dev/null; echo ""; log "bye."; exit 0 ;;
+            r|R) _tui_do_build ;;
+            d|D) _tui_do_deploy ;;
+            s|S) show_status; _tui_log "Status shown"; sleep 2 ;;
+            h|H) health_check; _tui_log "Health check done"; sleep 2 ;;
+            ' ') _tui_toggle_service ;;
+            '1') TUI_BUILD_RUST=$(! $TUI_BUILD_RUST); _tui_log "Rust: $($TUI_BUILD_RUST && echo ON || echo OFF)" ;;
+            '2') TUI_BUILD_FE=$(! $TUI_BUILD_FE); _tui_log "Frontend: $($TUI_BUILD_FE && echo ON || echo OFF)" ;;
+            '3') TUI_DO_DEPLOY=$(! $TUI_DO_DEPLOY); _tui_log "Deploy: $($TUI_DO_DEPLOY && echo ON || echo OFF)" ;;
+            '4') TUI_WATCH_ENABLED=$(! $TUI_WATCH_ENABLED); _tui_log "Watch: $($TUI_WATCH_ENABLED && echo ON || echo OFF)" ;;
+            $'\033')
+                read -r -s -n 2 -t 0.01 arrow 2>/dev/null || true
+                case "$arrow" in
+                    '[A') TUI_CURSOR=$(( TUI_CURSOR > 0 ? TUI_CURSOR - 1 : 0 )) ;;
+                    '[B') TUI_CURSOR=$(( TUI_CURSOR < ${#TUI_SERVICES[@]} - 1 ? TUI_CURSOR + 1 : TUI_CURSOR )) ;;
+                esac ;;
+        esac
+
+        # Auto-watch rebuild
+        if $TUI_WATCH_ENABLED && $RUST_DIRTY; then
+            RUST_DIRTY=false
+            _tui_do_build
+        fi
+    done
+}
+
 # ── Build: Rust (inside VM) ──────────────────────────────────────────────
 # Cross-compilation from macOS fails due to OpenSSL native deps.
 # Instead, we sync sources and build natively inside the Dev VM.
@@ -295,6 +522,17 @@ build_rust() {
         return 0
     fi
 
+    # Auto-install Rust/cargo if missing (e.g. fresh VM)
+    if ! ssh_vm "su - iora -c 'test -f /home/iora/.cargo/bin/cargo && echo OK'" 2>/dev/null | grep -q OK; then
+        log "Rust not found in VM. Installing..."
+        ssh_vm "echo 'nameserver 1.1.1.1' > /etc/resolv.conf; echo 'nameserver 8.8.8.8' >> /etc/resolv.conf" 2>/dev/null
+        ssh_vm "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'" 2>&1 | tail -3
+        ssh_vm "su - iora -c '/home/iora/.cargo/bin/cargo --version'" 2>/dev/null && ok "Rust installed" || { err "Rust install failed"; return 1; }
+    fi
+
+    # Fix target directory permissions (rsync may create as root)
+    ssh_vm "chown -R iora:iora $VM_WORKSPACE/target 2>/dev/null; mkdir -p $VM_WORKSPACE/target && chown iora:iora $VM_WORKSPACE/target" 2>/dev/null || true
+
     local rc=0
     # Sync changed source files to VM before building
     rsync -az --delete \
@@ -304,7 +542,18 @@ build_rust() {
         --exclude='.iora-dev' \
         -e "ssh ${SSH_OPTS[*]} -p $VM_PORT" \
         "$REPO_ROOT/" "root@$VM_HOST:/home/iora/iora/" 2>&1 | tail -3
-    ssh_vm "su - iora -c 'cd $VM_WORKSPACE && cargo build --workspace 2>&1'" || rc=$?
+    # Build only selected services (or full workspace)
+    local cargo_cmd="/home/iora/.cargo/bin/cargo build"
+    if [ -n "$SELECTED_SERVICES" ]; then
+        IFS=',' read -ra PKGS <<< "$SELECTED_SERVICES"
+        for pkg in "${PKGS[@]}"; do
+            cargo_cmd="$cargo_cmd -p $pkg"
+        done
+        log "Building: ${PKGS[*]}"
+    else
+        cargo_cmd="$cargo_cmd --workspace"
+    fi
+    ssh_vm "su - iora -c 'cd $VM_WORKSPACE && $cargo_cmd 2>&1'" || rc=$?
 
     now=$(date +%s); elapsed=$((now - start))
     if [ "$rc" -ne 0 ]; then
@@ -313,7 +562,11 @@ build_rust() {
     fi
     ok "Rust build OK in ${elapsed}s"
 
-    deploy_many "${ALL_SERVICES[@]}"
+    if $DO_DEPLOY; then
+        deploy_many "${ALL_SERVICES[@]}"
+    else
+        dim "  (deploy skipped: --no-deploy)"
+    fi
 }
 
 # ── Build: Frontend ───────────────────────────────────────────────────────
@@ -487,7 +740,6 @@ show_status() {
 # ── Cleanup / signal handling ─────────────────────────────────────────────
 cleanup() {
     stop_watchers
-    cleanup_ssh
 }
 trap cleanup EXIT INT TERM
 
@@ -511,7 +763,7 @@ setup_toolchain
 ensure_rust_target
 setup_sccache
 printf '  Toolchain : %s  → target %s%s\n' "$TOOLCHAIN" "$TARGET" \
-    "$($USE_ZIGBUILD && echo " (zigbuild)" || echo "")"
+    "$(${USE_ZIGBUILD:-false} && echo " (zigbuild)" || echo "")"
 
 # Initial sanity check of VM reachability (non-fatal)
 if vm_reachable; then ok "VM reachable"; else warn "VM not reachable – will retry on each build"; fi
@@ -525,6 +777,12 @@ if ! $WATCH; then
     exit 0
 fi
 
+# ── TUI Mode (interactive terminal UI) ──────────────────────────────
+if $TUI_MODE; then
+    run_tui
+    exit 0
+fi
+
 # ── Watcher + key loop ────────────────────────────────────────────────────
 start_watchers
 trigger_loop &
@@ -533,28 +791,37 @@ TRIGGER_PID=$!
 cat <<EOF
 
 ${B}┌──────────────────────────────────────────────────────────────────┐
-│  [B] full rebuild   [R] Rust    [F] Frontend                     │
-│  [D] redeploy       [S] status  [H] health   [Q] quit            │
+│  [B] rebuild  [R] Rust  [F] Frontend  [D] deploy  [P] fe-deploy │
+│  [S] status   [H] health  [L] toggle-deploy  [Q] quit            │
 └──────────────────────────────────────────────────────────────────┘${N}
 EOF
 
 while true; do
     key=""
-    # Read single char w/ 1s timeout so the loop is responsive but doesn't busy-spin.
-    if read -r -t 1 -n 1 key 2>/dev/null; then :; fi
+    # Read from TTY directly for reliable keyboard input
+    if [ -t 0 ]; then
+        IFS= read -r -s -t 1 -n 1 key < /dev/tty 2>/dev/null || true
+    fi
     case "${key:-}" in
         b|B) RUST_DIRTY=true; FE_DIRTY=true ;;
         r|R) RUST_DIRTY=true ;;
         f|F) FE_DIRTY=true ;;
         d|D)
             if vm_reachable; then
-                # Force re-deploy: clear all hashes first
                 rm -f "$HASH_DIR"/* 2>/dev/null || true
                 deploy_many "${ALL_SERVICES[@]}"
             else
                 warn "VM not reachable"
             fi
             ;;
+        p|P)
+            if vm_reachable && [ -d "$FRONTEND_DIR/dist" ]; then
+                deploy_frontend "$FRONTEND_DIR/dist"
+            else
+                warn "Frontend dist not found or VM not reachable"
+            fi
+            ;;
+        l|L) DO_DEPLOY=$(! $DO_DEPLOY); log "Auto-deploy: $($DO_DEPLOY && echo ON || echo OFF)" ;;
         s|S) show_status ;;
         h|H) health_check ;;
         q|Q) log "bye."; kill "$TRIGGER_PID" 2>/dev/null || true; exit 0 ;;

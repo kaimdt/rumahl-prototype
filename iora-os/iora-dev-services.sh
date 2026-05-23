@@ -548,6 +548,32 @@ server {
         proxy_pass http://iora_home/health;
     }
 }
+
+# Port 3001 – Development proxy (Vite dev server on host → VM)
+# The host forwards localhost:3001 → VM:3001 via QEMU port forwarding.
+# This lets the host's Vite dev server (npm run dev) reach the backend.
+server {
+    listen 3001;
+    listen [::]:3001;
+    server_name localhost 127.0.0.1;
+
+    # Allow all origins for dev convenience
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With" always;
+
+    location / {
+        proxy_pass http://iora_home;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+}
 NGINXEOF
 
 ln -sf /etc/nginx/sites-available/iora-gateway /etc/nginx/sites-enabled/iora-gateway

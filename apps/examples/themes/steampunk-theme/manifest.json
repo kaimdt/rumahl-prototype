@@ -1,0 +1,599 @@
+{
+  "id": "steampunk-revolution",
+  "name": "Steampunk Revolution",
+  "version": "1.1.0",
+  "developer": "IORA",
+  "description": "Vollständiges Steampunk-Design – viktorianische Ästhetik mit Messing, Kupfer, Zahnrädern und Dampf-Effekten. Das umfangreichste Theme mit custom Animationen und Widget-Templates. Features: 3 Design-Modes, 7 Akzent-Presets, Dampf-Partikel, Zahnrad-Animationen, Vignette, Messing-Rahmen, Schreibmaschinen-Sound.",
+  "icon": "Gear",
+  "preview_image": "images/preview.svg",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": [
+    "ThemeInstall"
+  ],
+  "theme": {
+    "id": "steampunk-revolution",
+    "name": "Steampunk Revolution",
+    "version": "1.1.0",
+    "developer": "IORA",
+    "description": "Steampunk – Messing, Zahnräder, Dampf & viktorianische Eleganz mit custom Animationen",
+    "icon": "Gear",
+    "preview_image": "images/preview.svg",
+    "parent_theme": "day-classic",
+    "source": "file",
+    "css_files": [
+      "theme.css"
+    ],
+    "js_files": [
+      "theme.js"
+    ],
+    "html_templates": {
+      "layout": "html/layout.html"
+    },
+    "fonts": [
+      {
+        "name": "Cinzel Decorative",
+        "family": "'Cinzel Decorative', 'Georgia', serif",
+        "url": "fonts/cinzel-decorative.css",
+        "weights": "400;700;900",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": true,
+        "is_monospace": false,
+        "format": "woff2"
+      },
+      {
+        "name": "IM Fell English",
+        "family": "'IM Fell English', 'Georgia', serif",
+        "url": "fonts/im-fell-english.css",
+        "weights": "400",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": false,
+        "is_monospace": false,
+        "format": "woff2"
+      },
+      {
+        "name": "Courier Prime",
+        "family": "'Courier Prime', 'Courier New', monospace",
+        "url": "fonts/courier-prime.css",
+        "weights": "400;700",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": false,
+        "is_monospace": true,
+        "format": "woff2"
+      }
+    ],
+    "css_variables": {
+      "background": "oklch(0.22 0.03 85)",
+      "foreground": "oklch(0.88 0.04 85)",
+      "card": "oklch(0.26 0.035 80)",
+      "card-foreground": "oklch(0.90 0.035 85)",
+      "accent": "oklch(0.62 0.18 85)",
+      "accent-foreground": "oklch(0.18 0.03 85)",
+      "muted": "oklch(0.30 0.03 80)",
+      "muted-foreground": "oklch(0.55 0.04 85)",
+      "border": "oklch(0.45 0.08 80)",
+      "ring": "oklch(0.65 0.20 85)",
+      "radius": "3px",
+      "glass-bg": "oklch(0.35 0.04 85 / 0.65)",
+      "glass-bg-end": "oklch(0.28 0.03 80 / 0.55)",
+      "glass-border-color": "oklch(0.55 0.12 85 / 0.25)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.35)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.2)",
+      "layout-nav-position": "left",
+      "layout-nav-width": "260px",
+      "layout-header-style": "compact",
+      "layout-card-radius": "3px",
+      "layout-widget-gap": "0.75rem",
+      "success": "oklch(0.55 0.15 160)",
+      "destructive": "oklch(0.50 0.20 25)",
+      "transition-duration": "0.5s",
+      "shadow-sm": "0 1px 2px rgba(255,255,255,0.03)",
+      "shadow-md": "0 4px 6px rgba(255,255,255,0.05)",
+      "shadow-lg": "0 10px 25px rgba(255,255,255,0.08)",
+      "shadow-xl": "0 20px 50px rgba(255,255,255,0.08)",
+      "selection-bg": "var(--accent)",
+      "selection-fg": "var(--accent-foreground)",
+      "scrollbar-width": "6px",
+      "scrollbar-track": "transparent",
+      "scrollbar-thumb": "var(--border)",
+      "scrollbar-thumb-hover": "var(--muted-foreground)",
+      "focus-ring-width": "2px",
+      "focus-ring-offset": "2px",
+      "content-max-width": "1500px",
+      "header-height": "56px",
+      "nav-icon-size": "20px",
+      "badge-radius": "9999px",
+      "tooltip-bg": "var(--card)",
+      "tooltip-fg": "var(--card-foreground)",
+      "input-bg": "var(--muted)",
+      "input-border": "var(--border)",
+      "overlay-bg": "rgba(0,0,0,0.5)",
+      "skeleton-shimmer": "rgba(255,255,255,0.05)"
+    },
+    "additional_css": "/* ─── Steampunk – Individuelle Scrollbars mit Messing-Optik ─── */\n::-webkit-scrollbar { width: var(--scrollbar-width, 10px); height: var(--scrollbar-width, 10px); }\n::-webkit-scrollbar-track { background: var(--scrollbar-track, oklch(0.22 0.025 85)); border: 1px solid oklch(0.45 0.08 80 / 0.3); border-radius: 3px; }\n::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, oklch(0.50 0.14 85)); border-radius: 3px; border: 1px solid oklch(0.55 0.16 85 / 0.4); transition: background var(--transition-duration, 0.5s) ease; }\n::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover, oklch(0.62 0.18 85)); }\n::-webkit-scrollbar-corner { background: var(--scrollbar-track, oklch(0.22 0.025 85)); }\n/* ─── Textauswahl – Vergilbtes Pergament ─── */\n::selection { background: var(--selection-bg, oklch(0.62 0.18 85 / 0.3)); color: var(--selection-fg, var(--foreground)); }\n/* ─── Fokus-Ringe – Gravierter Messing-Rahmen ─── */\n:focus-visible { outline: none !important; box-shadow: 0 0 0 var(--focus-ring-width, 2px) oklch(0.35 0.03 80), 0 0 0 calc(var(--focus-ring-width, 2px) + 2px) var(--accent); outline-offset: var(--focus-ring-offset, 2px); border-radius: 2px; transition: box-shadow var(--transition-duration, 0.5s) ease; }\nbutton:focus-visible, a:focus-visible, [role=\"button\"]:focus-visible { outline: none !important; box-shadow: 0 0 0 2px oklch(0.30 0.025 80), 0 0 0 4px var(--accent); }\n/* ─── Badge/Pill – Gravierte Messing-Plaketten ─── */\n.badge, .pill { display: inline-flex; align-items: center; padding: 0.15em 0.6em; font-family: 'IM Fell English', serif; font-size: 0.7rem; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; border-radius: var(--badge-radius, 3px); background: oklch(0.30 0.04 80 / 0.6); color: var(--accent); border: 1px solid oklch(from var(--accent) l c h / 0.35); transition: all var(--transition-duration, 0.5s) ease; }\n.badge:hover, .pill:hover { background: oklch(from var(--accent) l c h / 0.15); border-color: oklch(from var(--accent) l c h / 0.55); box-shadow: 0 2px 8px oklch(0 0 0 / 0.3), inset 0 0 8px oklch(from var(--accent) l c h / 0.1); }\n/* ─── Tooltips – Viktorianische Notizzettel ─── */\n.tooltip { position: relative; }\n.tooltip::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%) translateY(6px); padding: 0.4rem 0.85rem; font-family: 'IM Fell English', serif; font-size: 0.72rem; font-weight: 400; font-style: italic; white-space: nowrap; color: var(--tooltip-fg, var(--foreground)); background: var(--tooltip-bg, oklch(0.28 0.04 80)); border: 1px solid oklch(from var(--accent) l c h / 0.35); border-radius: 3px; box-shadow: 0 6px 20px oklch(0 0 0 / 0.4); opacity: 0; pointer-events: none; transition: opacity var(--transition-duration, 0.5s) ease, transform var(--transition-duration, 0.5s) ease; z-index: 9999; }\n.tooltip:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }\n/* ─── Skeleton Loading – Tickende Uhrwerk-Animation ─── */\n.skeleton { background: linear-gradient(90deg, var(--muted) 0%, oklch(from var(--accent) l c h / 0.12) 50%, var(--muted) 100%); background-size: 200% 100%; animation: skeleton-tick 2s steps(4) infinite; border-radius: var(--radius, 3px); min-height: 1em; }\n@keyframes skeleton-tick { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }\n/* ─── Input/Textarea – Schreibmaschinen-Felder ─── */\ninput[type=\"text\"], input[type=\"search\"], input[type=\"number\"], input[type=\"password\"], textarea, select { font-family: 'Courier Prime', monospace; background: var(--input-bg, var(--muted)); color: var(--foreground); border: 2px solid oklch(0.45 0.08 80 / 0.4); border-radius: 3px; padding: 0.5rem 0.75rem; font-size: 0.8rem; letter-spacing: 0.03em; transition: border-color var(--transition-duration, 0.5s) ease, box-shadow var(--transition-duration, 0.5s) ease, background var(--transition-duration, 0.5s) ease; }\ninput:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.2); background: oklch(0.24 0.03 80); outline: none; }\ninput::placeholder, textarea::placeholder { color: var(--muted-foreground); font-family: 'IM Fell English', serif; font-style: italic; }\n/* ─── Smooth Transitions – Dampfmaschinen-Rhythmus ─── */\nbutton, a, input, select, textarea, .badge, .pill, .tooltip, .skeleton, .glass-card, [role=\"button\"], .clickable { transition: all var(--transition-duration, 0.5s) ease; }\n@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }\n",
+    "capabilities": {
+      "night_mode": {
+        "overlay_color": "oklch(0.08 0.01 80)",
+        "overlay_opacity": 0.92,
+        "css_filter": "saturate(0.3) brightness(0.5)",
+        "transition_ms": 800,
+        "vignette": true,
+        "blend_mode": "normal",
+        "reduce_motion": false
+      },
+      "design_modes": [
+        {
+          "id": "steampunk-day",
+          "name": "Steam Day",
+          "icon": "Sun",
+          "time_start": "06:00",
+          "time_end": "17:00",
+          "css_variables": {
+            "background": "oklch(0.22 0.03 85)",
+            "foreground": "oklch(0.88 0.04 85)",
+            "card": "oklch(0.26 0.035 80)",
+            "accent": "oklch(0.62 0.18 85)",
+            "muted": "oklch(0.30 0.03 80)",
+            "border": "oklch(0.45 0.08 80)",
+            "glass-bg": "oklch(0.35 0.04 85 / 0.65)",
+            "glass-bg-end": "oklch(0.28 0.03 80 / 0.55)",
+            "glass-border-color": "oklch(0.55 0.12 85 / 0.25)"
+          }
+        },
+        {
+          "id": "steampunk-evening",
+          "name": "Gaslight Evening",
+          "icon": "Fire",
+          "time_start": "17:00",
+          "time_end": "22:00",
+          "css_variables": {
+            "background": "oklch(0.18 0.025 70)",
+            "foreground": "oklch(0.85 0.05 75)",
+            "card": "oklch(0.22 0.03 65)",
+            "accent": "oklch(0.58 0.20 60)",
+            "muted": "oklch(0.26 0.025 65)",
+            "border": "oklch(0.42 0.10 65)",
+            "glass-bg": "oklch(0.30 0.035 65 / 0.55)",
+            "glass-bg-end": "oklch(0.24 0.025 60 / 0.45)",
+            "glass-border-color": "oklch(0.52 0.14 65 / 0.22)"
+          }
+        },
+        {
+          "id": "steampunk-night",
+          "name": "Midnight Factory",
+          "icon": "MoonStars",
+          "time_start": "22:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "oklch(0.12 0.015 70)",
+            "foreground": "oklch(0.75 0.03 70)",
+            "card": "oklch(0.16 0.02 65)",
+            "accent": "oklch(0.50 0.15 65)",
+            "muted": "oklch(0.18 0.015 65)",
+            "border": "oklch(0.30 0.06 65)",
+            "glass-bg": "oklch(0.22 0.025 65 / 0.4)",
+            "glass-bg-end": "oklch(0.16 0.015 60 / 0.3)",
+            "glass-border-color": "oklch(0.38 0.08 65 / 0.18)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "steampunk-midnight": {
+            "start": "00:00",
+            "end": "04:00"
+          },
+          "steampunk-dawn": {
+            "start": "04:00",
+            "end": "06:00"
+          },
+          "steampunk-day": {
+            "start": "06:00",
+            "end": "17:00"
+          },
+          "steampunk-evening": {
+            "start": "17:00",
+            "end": "22:00"
+          },
+          "steampunk-night": {
+            "start": "22:00",
+            "end": "00:00"
+          }
+        },
+        "default_mode": "steampunk-day"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          {
+            "name": "Messing (Standard)",
+            "color": "oklch(0.62 0.18 85)"
+          },
+          {
+            "name": "Kupfer",
+            "color": "oklch(0.55 0.20 50)"
+          },
+          {
+            "name": "Bronze",
+            "color": "oklch(0.50 0.16 70)"
+          },
+          {
+            "name": "Rose Gold",
+            "color": "oklch(0.58 0.16 30)"
+          },
+          {
+            "name": "Oxidiertes Kupfer",
+            "color": "oklch(0.48 0.12 180)"
+          },
+          {
+            "name": "Platinum",
+            "color": "oklch(0.65 0.02 100)"
+          },
+          {
+            "name": "Patina",
+            "color": "oklch(0.45 0.15 160)"
+          }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_values",
+        "blur": "24px",
+        "opacity": "0.7"
+      },
+      "custom_settings": [
+        {
+          "id": "steam_particles",
+          "name": "Dampf-Partikel",
+          "description": "Animierte Dampfschwaden im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "gear_animation_speed",
+          "name": "Zahnrad-Geschwindigkeit",
+          "description": "Rotationsgeschwindigkeit der dekorativen Zahnräder",
+          "setting_type": "select",
+          "default_value": "normal",
+          "options": [
+            {
+              "label": "Langsam",
+              "value": "slow"
+            },
+            {
+              "label": "Normal",
+              "value": "normal"
+            },
+            {
+              "label": "Schnell",
+              "value": "fast"
+            }
+          ],
+          "css_variable": "steampunk-gear-speed"
+        },
+        {
+          "id": "vignette_intensity",
+          "name": "Vignette-Effekt",
+          "description": "Abdunkelung an den Bildrändern (viktorianischer Look)",
+          "setting_type": "slider",
+          "default_value": 60,
+          "min": 0,
+          "max": 100,
+          "step": 10,
+          "css_variable": "steampunk-vignette"
+        },
+        {
+          "id": "brass_borders",
+          "name": "Messing-Rahmen",
+          "description": "Dekorative Messing-Umrandung um Karten",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "steampunk-brass-borders"
+        },
+        {
+          "id": "typewriter_sounds",
+          "name": "Schreibmaschinen-Sound",
+          "description": "Dezentes Klickgeräusch bei Texteingabe",
+          "setting_type": "toggle",
+          "default_value": false
+        },
+        {
+          "id": "gear_decorations",
+          "name": "Zahnrad-Dekorationen",
+          "description": "Dekorative Zahnräder an Karten-Ecken und im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "steampunk-gear-decorations"
+        },
+        {
+          "id": "paper_texture",
+          "name": "Papier-Textur",
+          "description": "Viktorianische Papiertextur auf Karten-Hintergründen",
+          "setting_type": "toggle",
+          "default_value": false,
+          "css_variable": "steampunk-paper-texture"
+        },
+        {
+          "id": "brass_intensity",
+          "name": "Messing-Intensität",
+          "description": "Intensität der Messing-Akzente und Glanzlichter",
+          "setting_type": "slider",
+          "default_value": 70,
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "css_variable": "steampunk-brass-intensity"
+        },
+        {
+          "id": "scrollbar_style",
+          "name": "Scrollbar-Stil",
+          "description": "Aussehen der Bildlaufleiste",
+          "setting_type": "select",
+          "default_value": "Standard",
+          "options": [
+            {
+              "label": "Standard",
+              "value": "Standard"
+            },
+            {
+              "label": "Minimal",
+              "value": "Minimal"
+            },
+            {
+              "label": "Versteckt",
+              "value": "Versteckt"
+            },
+            {
+              "label": "Theme",
+              "value": "Theme"
+            }
+          ],
+          "css_variable": "scrollbar-width"
+        },
+        {
+          "id": "focus_ring_visible",
+          "name": "Fokus-Ring anzeigen",
+          "description": "Fokus-Ring um aktive Elemente anzeigen",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "content_width",
+          "name": "Inhaltsbreite",
+          "description": "Maximale Breite des Hauptinhalts",
+          "setting_type": "select",
+          "default_value": "Normal (1500px)",
+          "options": [
+            {
+              "label": "Schmal (1200px)",
+              "value": "Schmal (1200px)"
+            },
+            {
+              "label": "Normal (1500px)",
+              "value": "Normal (1500px)"
+            },
+            {
+              "label": "Breit (100%)",
+              "value": "Breit (100%)"
+            }
+          ],
+          "css_variable": "content-max-width"
+        },
+        {
+          "id": "shadow_level",
+          "name": "Schatten-Stärke",
+          "description": "Intensität der Kartenschatten",
+          "setting_type": "select",
+          "default_value": "Mittel",
+          "options": [
+            {
+              "label": "Flach",
+              "value": "Flach"
+            },
+            {
+              "label": "Leicht",
+              "value": "Leicht"
+            },
+            {
+              "label": "Mittel",
+              "value": "Mittel"
+            },
+            {
+              "label": "Stark",
+              "value": "Stark"
+            }
+          ],
+          "css_variable": "shadow-level"
+        },
+        {
+          "id": "border_radius_scale",
+          "name": "Abrundungs-Skalierung",
+          "description": "Skalierungsfaktor für alle Abrundungen",
+          "setting_type": "slider",
+          "default_value": 1.0,
+          "min": 0.5,
+          "max": 2.0,
+          "step": 0.1,
+          "css_variable": "radius-scale"
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2800,
+          "background_color": "oklch(0.22 0.03 85)",
+          "brand_text": "Steampunk",
+          "tagline": "Victorian Engineering · Est. 1887",
+          "show_progress": true,
+          "exit_animation": "custom"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.5,
+          "spring": {
+            "stiffness": 200,
+            "damping": 25,
+            "mass": 1.5
+          }
+        },
+        "widget_animations": {
+          "style": "fade-up",
+          "duration_secs": 0.5,
+          "stagger_secs": 0.04
+        },
+        "keyframes": {
+          "steampunk-gear-spin": "0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }",
+          "steampunk-flicker": "0%, 100% { opacity: 1; } 50% { opacity: 0.85; }",
+          "steampunk-entry": "0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); }",
+          "gear-reverse": "0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); }",
+          "steam-rise": "0% { opacity: 0.3; transform: translateY(20px) scale(0.8); } 50% { opacity: 0.6; transform: translateY(-5px) scale(1.05); } 100% { opacity: 0; transform: translateY(-30px) scale(0.6); }",
+          "brass-shine": "0% { background-position: -200% 0; } 100% { background-position: 200% 0; }"
+        }
+      },
+      "modals": {
+        "backdrop": "dim",
+        "backdrop_blur": 4,
+        "backdrop_opacity": 0.7,
+        "radius": "3px",
+        "border": "1px solid oklch(0.45 0.08 80)",
+        "enter_animation": "scale",
+        "exit_animation": "fade",
+        "close_button": "circle",
+        "shadow": "lg"
+      },
+      "notifications": {
+        "position": "bottom-left",
+        "enter": "slide-right",
+        "exit": "slide-left",
+        "radius": "3px",
+        "accent_bar": true,
+        "max": 3,
+        "dismiss": 8000
+      },
+      "navigation": {
+        "position": "left",
+        "background": "solid",
+        "radius": "3px",
+        "show_labels": true,
+        "icon_size": 22,
+        "gap": 4,
+        "buttons": [
+          {
+            "page_id": "home",
+            "label": "Cog",
+            "icon": "Gear"
+          },
+          {
+            "page_id": "lights",
+            "label": "Gaslamp",
+            "icon": "Lightbulb"
+          },
+          {
+            "page_id": "climate",
+            "label": "Thermometer",
+            "icon": "Thermometer"
+          },
+          {
+            "page_id": "switches",
+            "label": "Lever",
+            "icon": "ToggleRight"
+          },
+          {
+            "page_id": "sensors",
+            "label": "Gauge",
+            "icon": "Gauge"
+          },
+          {
+            "page_id": "music",
+            "label": "Phonograph",
+            "icon": "SpeakerHifi"
+          },
+          {
+            "page_id": "settings",
+            "label": "Wrench",
+            "icon": "Wrench"
+          }
+        ]
+      }
+    },
+    "widget_templates": [
+      {
+        "widget_type": "light",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/light.html",
+            "label": "Gaslamp",
+            "icon": "Lightbulb",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "switch",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/switch.html",
+            "label": "Lever Control",
+            "icon": "Power",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "climate",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/climate.html",
+            "label": "Thermometer Gauge",
+            "icon": "Thermometer",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "sensor",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/sensor.html",
+            "label": "Pressure Gauge",
+            "icon": "Gauge",
+            "is_default": true
+          }
+        ]
+      }
+    ],
+    "icon_font": {
+      "font_name": "Steampunk Icons",
+      "css_path": "",
+      "class_prefix": "sp-icon",
+      "icon_map": {
+        "Lightbulb": "sp-icon-gaslamp",
+        "Thermometer": "sp-icon-gauge",
+        "Power": "sp-icon-lever",
+        "Gear": "sp-icon-cog",
+        "House": "sp-icon-mansion",
+        "Sun": "sp-icon-sun-gear",
+        "MoonStars": "sp-icon-moon-gear",
+        "FireSimple": "sp-icon-boiler"
+      }
+    },
+    "background": {
+      "type": "image",
+      "url": "images/background.svg",
+      "overlay_opacity": 0.08,
+      "blend_mode": "overlay"
+    }
+  }
+}
