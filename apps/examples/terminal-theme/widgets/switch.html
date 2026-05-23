@@ -1,0 +1,9 @@
+<div class="theme-widget terminal-widget" data-widget-type="SWITCH" data-entity-id="{{entity_id}}">
+  <span class="term-prompt">$</span> switch --status {{entity_id}}
+  <div class="term-output">
+    <span class="term-label">{{friendly_name}}</span>
+    <span class="term-value {{#if state_on}}term-on{{else}}term-off{{/if}}">
+      {{#if state_on}}[ ON ]{{else}}[ OFF ]{{/if}}
+    </span>
+  </div>
+</div>

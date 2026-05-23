@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <!-- Glow filters -->
+    <filter id="pinkGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="cyanGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="heavyGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- Gradients -->
+    <linearGradient id="neonPink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff2d95"/>
+      <stop offset="100%" stop-color="#ff6b9d"/>
+    </linearGradient>
+    <linearGradient id="neonCyan" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="100%" stop-color="#00d4ff"/>
+    </linearGradient>
+    <linearGradient id="neonPurple" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b44dff"/>
+      <stop offset="100%" stop-color="#8b2cf5"/>
+    </linearGradient>
+    <!-- Hex grid pattern -->
+    <pattern id="hexGrid" x="0" y="0" width="36" height="60" patternUnits="userSpaceOnUse">
+      <polygon points="18,0 36,10 36,30 18,40 0,30 0,10" fill="none" stroke="#ff2d95" stroke-width="0.3" opacity="0.08"/>
+      <polygon points="18,30 36,40 36,60 18,70 0,60 0,40" fill="none" stroke="#00f0ff" stroke-width="0.3" opacity="0.08"/>
+      <polygon points="0,40 18,50 0,60" fill="none" stroke="#ff2d95" stroke-width="0.2" opacity="0.04"/>
+    </pattern>
+    <!-- Scanline pattern -->
+    <pattern id="scanlines" x="0" y="0" width="400" height="3" patternUnits="userSpaceOnUse">
+      <rect width="400" height="1" fill="#ffffff" opacity="0.015"/>
+    </pattern>
+    <!-- Digital noise -->
+    <pattern id="noise" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect x="2" y="2" width="1" height="1" fill="#00f0ff" opacity="0.04"/>
+      <rect x="6" y="5" width="1" height="1" fill="#ff2d95" opacity="0.03"/>
+      <rect x="4" y="0" width="1" height="1" fill="#00f0ff" opacity="0.02"/>
+      <rect x="0" y="7" width="1" height="1" fill="#b44dff" opacity="0.03"/>
+    </pattern>
+  </defs>
+  <!-- Base -->
+  <rect width="400" height="400" fill="#0a0a0f"/>
+  <rect width="400" height="400" fill="url(#hexGrid)"/>
+  <rect width="400" height="400" fill="url(#scanlines)"/>
+  <rect width="400" height="400" fill="url(#noise)"/>
+  <!-- Main vertical neon tube - pink -->
+  <rect x="42" y="8" width="3" height="80" rx="1.5" fill="url(#neonPink)" opacity="0.4" filter="url(#pinkGlow)"/>
+  <rect x="42" y="96" width="3" height="120" rx="1.5" fill="url(#neonPink)" opacity="0.25"/>
+  <rect x="42" y="224" width="3" height="80" rx="1.5" fill="url(#neonPink)" opacity="0.15"/>
+  <!-- Main vertical neon tube - cyan -->
+  <rect x="354" y="16" width="3" height="120" rx="1.5" fill="url(#neonCyan)" opacity="0.25" filter="url(#cyanGlow)"/>
+  <rect x="354" y="144" width="3" height="90" rx="1.5" fill="url(#neonCyan)" opacity="0.15"/>
+  <rect x="354" y="242" width="3" height="90" rx="1.5" fill="url(#neonCyan)" opacity="0.1"/>
+  <!-- Horizontal accent bars -->
+  <rect x="18" y="88" width="360" height="0.8" fill="url(#neonPink)" opacity="0.12"/>
+  <rect x="18" y="216" width="360" height="0.6" fill="url(#neonCyan)" opacity="0.1"/>
+  <rect x="18" y="312" width="360" height="0.5" fill="url(#neonPurple)" opacity="0.08"/>
+  <!-- Circuit traces top left -->
+  <polyline points="8,40 24,40 24,60 60,60 60,80" fill="none" stroke="#ff2d95" stroke-width="0.7" opacity="0.2"/>
+  <circle cx="60" cy="80" r="2.5" fill="none" stroke="#ff2d95" stroke-width="0.7" opacity="0.3" filter="url(#pinkGlow)"/>
+  <polyline points="8,56 16,56 16,72 40,72 40,56 60,56" fill="none" stroke="#00f0ff" stroke-width="0.6" opacity="0.15"/>
+  <circle cx="60" cy="56" r="1.5" fill="none" stroke="#00f0ff" stroke-width="0.5" opacity="0.2"/>
+  <!-- Circuit traces top right -->
+  <polyline points="392,30 376,30 376,50 340,50 340,30 320,30" fill="none" stroke="#b44dff" stroke-width="0.6" opacity="0.15"/>
+  <polyline points="392,60 368,60 368,80 348,80 348,60 328,60" fill="none" stroke="#00f0ff" stroke-width="0.7" opacity="0.18"/>
+  <circle cx="320" cy="30" r="2" fill="none" stroke="#b44dff" stroke-width="0.6" opacity="0.25"/>
+  <circle cx="328" cy="60" r="2" fill="none" stroke="#00f0ff" stroke-width="0.6" opacity="0.2"/>
+  <!-- Center neon panels -->
+  <rect x="110" y="60" width="180" height="80" rx="6" fill="#0d0d1a" stroke="#ff2d95" stroke-width="0.8" opacity="0.5" filter="url(#pinkGlow)"/>
+  <rect x="115" y="68" width="80" height="6" rx="3" fill="url(#neonPink)" opacity="0.3"/>
+  <rect x="115" y="80" width="120" height="4" rx="2" fill="#ff2d95" opacity="0.12"/>
+  <rect x="115" y="90" width="90" height="4" rx="2" fill="#ff2d95" opacity="0.08"/>
+  <rect x="115" y="100" width="140" height="16" rx="4" fill="#ff2d95" opacity="0.04"/>
+  <circle cx="280" cy="100" r="18" fill="none" stroke="#00f0ff" stroke-width="1" opacity="0.3" filter="url(#cyanGlow)"/>
+  <circle cx="280" cy="100" r="18" fill="none" stroke="#00f0ff" stroke-width="1" opacity="0.15"
+    stroke-dasharray="60 20" stroke-linecap="round" transform="rotate(-90 280 100)"/>
+  <!-- Glitch text lines -->
+  <rect x="110" y="150" width="160" height="6" rx="2" fill="#ff2d95" opacity="0.08"/>
+  <rect x="110" y="162" width="90" height="4" rx="2" fill="#00f0ff" opacity="0.06"/>
+  <!-- Displaced glitch block -->
+  <rect x="210" y="152" width="40" height="4" fill="#ff2d95" opacity="0.08" transform="translate(3,-2)"/>
+  <!-- Bottom neon panels -->
+  <rect x="88" y="236" width="224" height="64" rx="8" fill="#0d0d1a" stroke="#00f0ff" stroke-width="0.8" opacity="0.5" filter="url(#cyanGlow)"/>
+  <rect x="96" y="248" width="100" height="8" rx="4" fill="url(#neonCyan)" opacity="0.2"/>
+  <rect x="96" y="262" width="140" height="5" rx="2.5" fill="#00f0ff" opacity="0.08"/>
+  <rect x="96" y="273" width="80" height="5" rx="2.5" fill="#00f0ff" opacity="0.06"/>
+  <rect x="96" y="284" width="160" height="5" rx="2.5" fill="#00f0ff" opacity="0.05"/>
+  <!-- Bottom circuit traces -->
+  <polyline points="8,340 32,340 32,320 56,320 56,350 80,350 80,330" fill="none" stroke="#ff2d95" stroke-width="0.6" opacity="0.15"/>
+  <circle cx="80" cy="330" r="2" fill="none" stroke="#ff2d95" stroke-width="0.6" opacity="0.2"/>
+  <polyline points="392,340 360,340 360,320 336,320 336,350 312,350 312,330" fill="none" stroke="#00f0ff" stroke-width="0.6" opacity="0.15"/>
+  <circle cx="312" cy="330" r="2" fill="none" stroke="#00f0ff" stroke-width="0.6" opacity="0.2"/>
+  <!-- Hex grid nodes -->
+  <circle cx="200" cy="300" r="1.5" fill="#ff2d95" opacity="0.15" filter="url(#pinkGlow)"/>
+  <circle cx="200" cy="330" r="1.5" fill="#00f0ff" opacity="0.12" filter="url(#cyanGlow)"/>
+  <circle cx="218" cy="315" r="1" fill="#b44dff" opacity="0.1"/>
+  <circle cx="182" cy="315" r="1" fill="#b44dff" opacity="0.1"/>
+  <circle cx="200" cy="360" r="1.5" fill="#ff2d95" opacity="0.1" filter="url(#pinkGlow)"/>
+  <!-- Glitch displacement rectangles -->
+  <rect x="300" y="316" width="60" height="2" fill="url(#neonCyan)" opacity="0.12"/>
+  <rect x="310" y="322" width="40" height="2" fill="url(#neonPink)" opacity="0.08" transform="translate(2,0)"/>
+  <rect x="295" y="328" width="70" height="2" fill="url(#neonPurple)" opacity="0.1"/>
+  <!-- Corner neon accents -->
+  <rect x="8" y="8" width="8" height="2" rx="1" fill="url(#neonPink)" opacity="0.4"/>
+  <rect x="8" y="8" width="2" height="8" rx="1" fill="url(#neonPink)" opacity="0.4"/>
+  <rect x="384" y="8" width="8" height="2" rx="1" fill="url(#neonCyan)" opacity="0.35"/>
+  <rect x="390" y="8" width="2" height="8" rx="1" fill="url(#neonCyan)" opacity="0.35"/>
+  <rect x="8" y="382" width="8" height="2" rx="1" fill="url(#neonCyan)" opacity="0.3"/>
+  <rect x="8" y="390" width="2" height="8" rx="1" fill="url(#neonCyan)" opacity="0.3"/>
+  <rect x="384" y="382" width="8" height="2" rx="1" fill="url(#neonPink)" opacity="0.3"/>
+  <rect x="390" y="390" width="2" height="8" rx="1" fill="url(#neonPink)" opacity="0.3"/>
+</svg>

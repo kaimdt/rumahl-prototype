@@ -126,6 +126,69 @@ export interface ThemeSetting {
   css_variable?: string
 }
 
+// ─── Deep UI Customization Types ──────────────────────────────
+
+export interface NavButtonCustomization {
+  page_id: string
+  icon?: string
+  label?: string
+  order?: number
+  hidden?: boolean
+  css_class?: string
+  active_bg?: string
+  active_color?: string
+  badge?: string
+}
+
+export interface NavCustomization {
+  position?: 'bottom' | 'left' | 'right' | 'top' | 'floating'
+  background?: 'glass' | 'solid' | 'transparent' | 'gradient'
+  size?: number
+  radius?: string
+  css_class?: string
+  show_labels?: boolean
+  icon_size?: number
+  gap?: number
+  buttons?: NavButtonCustomization[]
+}
+
+export interface ModalThemeConfig {
+  backdrop?: 'blur' | 'dim' | 'solid' | 'none'
+  backdrop_blur?: number
+  backdrop_opacity?: number
+  radius?: string
+  border?: string
+  background?: string
+  enter_animation?: 'scale' | 'slide-up' | 'slide-down' | 'fade' | 'custom'
+  exit_animation?: 'scale' | 'slide-up' | 'slide-down' | 'fade' | 'custom'
+  close_button?: 'x' | 'circle' | 'pill' | 'none'
+  shadow?: 'none' | 'sm' | 'md' | 'lg' | 'xl'
+}
+
+export interface NotificationThemeConfig {
+  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center'
+  enter_animation?: 'slide-left' | 'slide-right' | 'slide-up' | 'fade' | 'scale'
+  exit_animation?: 'slide-left' | 'slide-right' | 'slide-up' | 'fade' | 'scale'
+  radius?: string
+  background?: string
+  border?: string
+  icon_size?: number
+  accent_bar?: boolean
+  max_visible?: number
+  auto_dismiss_ms?: number
+}
+
+export interface NightModeConfig {
+  overlay_color?: string
+  overlay_opacity?: number
+  css_filter?: string
+  transition_ms?: number
+  vignette?: boolean
+  background_url?: string
+  blend_mode?: string
+  reduce_motion?: boolean
+}
+
 export interface ThemeCapabilities {
   design_modes?: ThemeDesignMode[]
   auto_behavior?: ThemeAutoBehavior
@@ -134,6 +197,14 @@ export interface ThemeCapabilities {
   custom_settings?: ThemeSetting[]
   /** Animation configuration (splash, page transitions, widget animations) */
   animation?: ThemeAnimationConfig
+  /** Navigation bar customization */
+  navigation?: NavCustomization
+  /** Modal/dialog theming */
+  modals?: ModalThemeConfig
+  /** Notification theming */
+  notifications?: NotificationThemeConfig
+  /** Night mode / light-off customization */
+  night_mode?: NightModeConfig
 }
 
 // ─── Animation Types (for motion.dev) ──────────────────────────
@@ -291,6 +362,14 @@ interface ThemeContextType {
   pageTransitionConfig: PageTransitionConfig | null
   /** Widget animation configuration (convenience accessor) */
   widgetAnimationConfig: WidgetAnimationConfig | null
+  /** Navigation bar customization from the active theme */
+  navConfig: NavCustomization | null
+  /** Modal/dialog theming from the active theme */
+  modalConfig: ModalThemeConfig | null
+  /** Notification theming from the active theme */
+  notificationConfig: NotificationThemeConfig | null
+  /** Night mode customization from the active theme */
+  nightModeConfig: NightModeConfig | null
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
@@ -951,6 +1030,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const pageTransitionConfig = useMemo(() => capabilities?.animation?.page_transitions || null, [capabilities])
   const widgetAnimationConfig = useMemo(() => capabilities?.animation?.widget_animations || null, [capabilities])
 
+  // Computed UI customization configs
+  const navConfig = useMemo(() => capabilities?.navigation || null, [capabilities])
+  const modalConfig = useMemo(() => capabilities?.modals || null, [capabilities])
+  const notificationConfig = useMemo(() => capabilities?.notifications || null, [capabilities])
+  const nightModeConfig = useMemo(() => capabilities?.night_mode || null, [capabilities])
+
   // Inject custom CSS keyframes from theme animation config
   useEffect(() => {
     const KEYFRAME_STYLE_ID = 'iora-theme-keyframes'
@@ -995,6 +1080,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     accentLocked, forcedAccent,
     glassLocked, forcedGlass,
     animationConfig, splashConfig, pageTransitionConfig, widgetAnimationConfig,
+    navConfig, modalConfig, notificationConfig, nightModeConfig,
   }), [
     theme, sleepMode, setSleepMode,
     autoTheme, setAutoTheme,
@@ -1008,6 +1094,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     accentLocked, forcedAccent,
     glassLocked, forcedGlass,
     animationConfig, splashConfig, pageTransitionConfig, widgetAnimationConfig,
+    navConfig, modalConfig, notificationConfig, nightModeConfig,
   ])
 
   return (

@@ -1,0 +1,12 @@
+/* Nordic Light – Core CSS */
+:root[data-theme="nordic-light"] {
+  font-family: 'Work Sans', 'Inter', sans-serif;
+  font-weight: 300;
+}
+
+:root[data-theme="nordic-light"] h1, 
+:root[data-theme="nordic-light"] h2, 
+:root[data-theme="nordic-light"] h3 {
+  font-family: 'Crimson Pro', 'Georgia', serif;
+  font-weight: 400;
+}

@@ -1,0 +1,11 @@
+/* Monochrome Pro – Core CSS */
+:root[data-theme="monochrome-pro"] {
+  font-family: 'DM Sans', 'Inter', sans-serif;
+  font-weight: 400;
+}
+
+:root[data-theme="monochrome-pro"] code,
+:root[data-theme="monochrome-pro"] pre,
+:root[data-theme="monochrome-pro"] .font-mono {
+  font-family: 'DM Mono', 'JetBrains Mono', monospace;
+}

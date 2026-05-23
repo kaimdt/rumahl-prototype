@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <!-- Linen weave pattern unit -->
+    <pattern id="linen" x="0" y="0" width="16" height="16" patternUnits="userSpaceOnUse">
+      <!-- Base thread -->
+      <rect x="0" y="0" width="16" height="16" fill="#F8F5F0"/>
+      <!-- Horizontal thread -->
+      <rect x="0" y="1" width="16" height="2" rx="0.5" fill="#F0EBE3" opacity="0.7"/>
+      <rect x="0" y="9" width="16" height="2" rx="0.5" fill="#F0EBE3" opacity="0.7"/>
+      <!-- Vertical thread over-under -->
+      <rect x="1" y="0" width="2" height="4" rx="0.5" fill="#EDE7DE" opacity="0.6"/>
+      <rect x="1" y="8" width="2" height="4" rx="0.5" fill="#EDE7DE" opacity="0.6"/>
+      <rect x="9" y="0" width="2" height="4" rx="0.5" fill="#EDE7DE" opacity="0.6"/>
+      <rect x="9" y="8" width="2" height="4" rx="0.5" fill="#EDE7DE" opacity="0.6"/>
+      <!-- Cross-thread highlights -->
+      <rect x="4" y="2" width="8" height="1" rx="0.5" fill="#FDFCF9" opacity="0.4"/>
+      <rect x="4" y="10" width="8" height="1" rx="0.5" fill="#FDFCF9" opacity="0.4"/>
+    </pattern>
+    <!-- Subtle snowflake clusters -->
+    <pattern id="snowflakes" x="0" y="0" width="120" height="120" patternUnits="userSpaceOnUse">
+      <circle cx="30" cy="30" r="1.5" fill="#D4C9B5" opacity="0.25"/>
+      <circle cx="30" cy="30" r="0.5" fill="#D4C9B5" opacity="0.15"/>
+      <line x1="26" y1="30" x2="34" y2="30" stroke="#D4C9B5" stroke-width="0.3" opacity="0.2"/>
+      <line x1="30" y1="26" x2="30" y2="34" stroke="#D4C9B5" stroke-width="0.3" opacity="0.2"/>
+      <circle cx="90" cy="75" r="1" fill="#D4C9B5" opacity="0.2"/>
+      <circle cx="90" cy="75" r="0.4" fill="#D4C9B5" opacity="0.1"/>
+      <line x1="87" y1="75" x2="93" y2="75" stroke="#D4C9B5" stroke-width="0.2" opacity="0.15"/>
+      <line x1="90" y1="72" x2="90" y2="78" stroke="#D4C9B5" stroke-width="0.2" opacity="0.15"/>
+      <circle cx="60" cy="105" r="0.8" fill="#D4C9B5" opacity="0.15"/>
+      <line x1="58" y1="105" x2="62" y2="105" stroke="#D4C9B5" stroke-width="0.2" opacity="0.1"/>
+    </pattern>
+    <!-- Wood grain organic curves -->
+    <pattern id="woodgrain" x="0" y="0" width="200" height="40" patternUnits="userSpaceOnUse">
+      <path d="M0 10 Q25 8 50 10 T100 10 T150 10 T200 10" fill="none" stroke="#C4B5A0" stroke-width="0.4" opacity="0.3"/>
+      <path d="M0 15 Q25 13 50 15 T100 15 T150 15 T200 15" fill="none" stroke="#C4B5A0" stroke-width="0.3" opacity="0.25"/>
+      <path d="M0 20 Q25 22 50 20 T100 20 T150 20 T200 20" fill="none" stroke="#C4B5A0" stroke-width="0.5" opacity="0.35"/>
+      <path d="M0 25 Q25 23 50 25 T100 25 T150 25 T200 25" fill="none" stroke="#C4B5A0" stroke-width="0.3" opacity="0.2"/>
+      <path d="M0 30 Q25 32 50 30 T100 30 T150 30 T200 30" fill="none" stroke="#C4B5A0" stroke-width="0.4" opacity="0.25"/>
+      <path d="M0 35 Q25 33 50 35 T100 35 T150 35 T200 35" fill="none" stroke="#C4B5A0" stroke-width="0.3" opacity="0.15"/>
+    </pattern>
+    <!-- Geometric minimalist lines -->
+    <pattern id="geometric" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="80" height="80" fill="none"/>
+      <circle cx="0" cy="0" r="30" fill="none" stroke="#D4C9B5" stroke-width="0.3" opacity="0.2"/>
+      <circle cx="80" cy="80" r="30" fill="none" stroke="#D4C9B5" stroke-width="0.3" opacity="0.2"/>
+      <line x1="40" y1="0" x2="40" y2="80" stroke="#D4C9B5" stroke-width="0.2" opacity="0.1"/>
+      <line x1="0" y1="40" x2="80" y2="40" stroke="#D4C9B5" stroke-width="0.2" opacity="0.1"/>
+    </pattern>
+  </defs>
+  <!-- Base background -->
+  <rect width="400" height="400" fill="#F8F5F0"/>
+  <!-- Linen texture -->
+  <rect width="400" height="400" fill="url(#linen)"/>
+  <!-- Wood grain layer -->
+  <rect width="400" height="400" fill="url(#woodgrain)"/>
+  <!-- Snowflake clusters -->
+  <rect width="400" height="400" fill="url(#snowflakes)"/>
+  <!-- Minimalist geometric overlay -->
+  <rect width="400" height="400" fill="url(#geometric)"/>
+  <!-- Soft organic curve decoration -->
+  <path d="M0 200 Q200 150 400 200" fill="none" stroke="#EDE7DE" stroke-width="0.5" opacity="0.3"/>
+  <path d="M-50 300 Q200 240 450 300" fill="none" stroke="#EDE7DE" stroke-width="0.8" opacity="0.25"/>
+  <path d="M0 100 Q200 160 400 100" fill="none" stroke="#F0EBE3" stroke-width="0.4" opacity="0.2"/>
+</svg>

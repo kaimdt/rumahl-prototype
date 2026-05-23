@@ -1,0 +1,13 @@
+/* Synthwave Sunset – Core CSS */
+:root[data-theme="synthwave-sunset"] {
+  font-family: 'Rajdhani', 'Inter', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+}
+
+:root[data-theme="synthwave-sunset"] h1,
+:root[data-theme="synthwave-sunset"] h2 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.8em;
+  letter-spacing: 0.1em;
+}

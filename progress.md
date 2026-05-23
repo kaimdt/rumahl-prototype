@@ -1,23 +1,32 @@
-# Progress
+# Progress: Navigation Block Addition to Theme Manifests
 
-## Status
-In Progress
+## Status: ✅ Complete
 
-## Tasks
-- [x] Research motion.dev (framer-motion v12+ rebrand) → research/motion-dev.md
-- [x] Scout frontend animation usage → context/motion-scout.md
+## What was done
+Added `navigation` blocks to the `theme.capabilities` object in all 10 theme manifests under `apps/examples/`.
 
-## Files Changed
-- research/motion-dev.md — Comprehensive research brief: migration guide, page transitions API, dynamic animations, theme-based systems, splash screen features
-- context/motion-scout.md — Full inventory: 87 files with framer-motion imports, 10 CSS keyframes, CSS animation classes, SplashScreen analysis, ThemeCssResponse & capability types, ThemeEditor effects, package.json version (12.6.2 / resolved 12.23.25), tw-animate-css usage, zero motion.dev references
+## Details
+- **Script**: `add_navigation.py` (utility, can be removed)
+- **Output docs**: `ui/nav-configs.md`
 
-## Notes
-- Motion v12 has zero React API breaking changes — pure import rename
-- AnimateView (Motion+ early access) is the key new feature for page transitions
-- CSS variable-driven animations with Tailwind CSS v4 are first-class
-- Spring configurations support both physics-based and duration-based modes
-- 87 component files import framer-motion — migration is broad but mechanically simple (find-replace import paths)
-- CSS animation classes (`page-transition-enter`, `widget-animate-in`, `theme-transition`) are pure CSS keyframes — unaffected by motion migration
-- tw-animate-css provides Radix UI animation classes — separate from framer-motion
-- ThemeEditor controls `--transition-duration` CSS var (0–1s slider) which governs `.theme-transition`
-- SplashScreen is heavily framer-motion dependent (orbital rings, progress bar, status messages, exit animation)
+## Theme-specific configurations applied:
+| Theme | Position | Background | Radius | Labels | Icon Size | Gap |
+|-------|----------|------------|--------|--------|-----------|-----|
+| Steampunk | left | solid | 3px | true | 22 | 4 |
+| Ocean Blue | bottom | glass | 9999px | false | 24 | 8 |
+| Material Sidebar | left | solid | 12px | true | 20 | 2 |
+| Full Layout | left | glass | 8px | true | 18 | 4 |
+| Sidebar Dark | left | transparent | 0px | true | 20 | 6 |
+| Cyberpunk | bottom | solid | 2px | false | 24 | 2 |
+| Nordic Light | bottom | glass | 16px | false | 22 | 10 |
+| Forest Cabin | bottom | solid | 12px | true | 20 | 6 |
+| Synthwave | bottom | gradient | 4px | false | 24 | 2 |
+| Monochrome | bottom | solid | 6px | false | 20 | 4 |
+
+## Validation
+- All 10 JSON files parse without errors
+- All navigation blocks contain required fields (position, background, radius, show_labels, icon_size, gap, buttons)
+- All 7 page buttons present in each (home, lights, climate, switches, sensors, music, settings)
+
+## Files Changed (10 manifests)
+apps/examples/{steampunk-theme,ocean-theme,material-sidebar-theme,full-layout-theme,sidebar-theme,cyberpunk-neon,nordic-light,forest-cabin,synthwave-sunset,monochrome-pro}/manifest.json

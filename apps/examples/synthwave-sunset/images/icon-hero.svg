@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="synthSunGrad" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FF6B35"/>
+      <stop offset="40%" stop-color="#FF4081"/>
+      <stop offset="60%" stop-color="#E8396A"/>
+      <stop offset="100%" stop-color="#8B2252"/>
+    </linearGradient>
+    <filter id="neonGlow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="neonGlowStrong">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <circle cx="60" cy="60" r="55" fill="#1A1030" stroke="#3A2D5A" stroke-width="1.5"/>
+  <circle cx="60" cy="60" r="48" fill="none" stroke="#463D5A" stroke-width="0.5"/>
+  <g filter="url(#neonGlow)">
+    <clipPath id="sunHalf">
+      <rect x="0" y="0" width="120" height="72"/>
+    </clipPath>
+    <circle cx="60" cy="66" r="28" fill="url(#synthSunGrad)" clip-path="url(#sunHalf)"/>
+    <rect x="32" y="46" width="56" height="4" fill="#120B20" opacity="0.4"/>
+    <rect x="34" y="52" width="52" height="4" fill="#120B20" opacity="0.4"/>
+    <rect x="36" y="58" width="48" height="4" fill="#120B20" opacity="0.4"/>
+  </g>
+  <rect x="32" y="68" width="56" height="16" fill="url(#synthSunGrad)" opacity="0.4"/>
+  <g filter="url(#neonGlowStrong)" opacity="0.5">
+    <polygon points="60,44 68,56 52,56" fill="none" stroke="#00D4C8" stroke-width="1.2"/>
+  </g>
+  <line x1="25" y1="68" x2="95" y2="68" stroke="#E8396A" stroke-width="1" opacity="0.6"/>
+  <g transform="translate(25,68)" opacity="0.3">
+    <line x1="0" y1="0" x2="0" y2="-15" stroke="#120B20" stroke-width="1.5"/>
+    <path d="M0,-15 Q-8,-20 -10,-14" fill="none" stroke="#120B20" stroke-width="1"/>
+    <path d="M0,-15 Q8,-20 10,-14" fill="none" stroke="#120B20" stroke-width="1"/>
+    <path d="M0,-15 Q-10,-12 -12,-8" fill="none" stroke="#120B20" stroke-width="0.8"/>
+    <path d="M0,-15 Q10,-12 12,-8" fill="none" stroke="#120B20" stroke-width="0.8"/>
+  </g>
+</svg>

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#404040" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1A1A1A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="#1A1A1A"/>
+  <!-- Center glow -->
+  <circle cx="100" cy="100" r="90" fill="url(#centerGlow)"/>
+  <!-- Dot grid field -->
+  <g opacity="0.25">
+    <!-- Horizontal dots -->
+    <g fill="#505050">
+      <circle cx="20" cy="40" r="0.8"/>
+      <circle cx="48" cy="40" r="0.8"/>
+      <circle cx="76" cy="40" r="0.8"/>
+      <circle cx="104" cy="40" r="0.8"/>
+      <circle cx="132" cy="40" r="0.8"/>
+      <circle cx="160" cy="40" r="0.8"/>
+      <circle cx="20" cy="68" r="0.8"/>
+      <circle cx="48" cy="68" r="0.8"/>
+      <circle cx="76" cy="68" r="0.8"/>
+      <circle cx="104" cy="68" r="0.8"/>
+      <circle cx="132" cy="68" r="0.8"/>
+      <circle cx="160" cy="68" r="0.8"/>
+      <circle cx="20" cy="96" r="0.8"/>
+      <circle cx="48" cy="96" r="0.8"/>
+      <circle cx="76" cy="96" r="0.8"/>
+      <circle cx="104" cy="96" r="0.8"/>
+      <circle cx="132" cy="96" r="0.8"/>
+      <circle cx="160" cy="96" r="0.8"/>
+      <circle cx="20" cy="124" r="0.8"/>
+      <circle cx="48" cy="124" r="0.8"/>
+      <circle cx="76" cy="124" r="0.8"/>
+      <circle cx="104" cy="124" r="0.8"/>
+      <circle cx="132" cy="124" r="0.8"/>
+      <circle cx="160" cy="124" r="0.8"/>
+      <circle cx="20" cy="152" r="0.8"/>
+      <circle cx="48" cy="152" r="0.8"/>
+      <circle cx="76" cy="152" r="0.8"/>
+      <circle cx="104" cy="152" r="0.8"/>
+      <circle cx="132" cy="152" r="0.8"/>
+      <circle cx="160" cy="152" r="0.8"/>
+    </g>
+  </g>
+  <!-- Architectural diamond -->
+  <g transform="translate(100,100)" opacity="0.35">
+    <path d="M0,-35 L35,0 L0,35 L-35,0 Z" fill="none" stroke="#505050" stroke-width="0.8"/>
+    <path d="M0,-25 L25,0 L0,25 L-25,0 Z" fill="none" stroke="#454545" stroke-width="0.5"/>
+    <path d="M0,-14 L14,0 L0,14 L-14,0 Z" fill="none" stroke="#404040" stroke-width="0.4"/>
+    <!-- Crosshair center -->
+    <line x1="0" y1="-35" x2="0" y2="35" stroke="#505050" stroke-width="0.3"/>
+    <line x1="-35" y1="0" x2="35" y2="0" stroke="#505050" stroke-width="0.3"/>
+    <!-- Center dot -->
+    <circle cx="0" cy="0" r="2" fill="#606060" opacity="0.5"/>
+    <circle cx="0" cy="0" r="4" fill="none" stroke="#606060" stroke-width="0.4" opacity="0.3"/>
+  </g>
+  <!-- Vertical architectural axis lines -->
+  <line x1="100" y1="10" x2="100" y2="190" stroke="#2A2A2A" stroke-width="0.3" opacity="0.4"/>
+  <line x1="10" y1="100" x2="190" y2="100" stroke="#2A2A2A" stroke-width="0.3" opacity="0.4"/>
+  <!-- Clean geometric corner brackets -->
+  <g opacity="0.2" stroke="#505050" stroke-width="0.5">
+    <path d="M15,15 L15,30 M15,15 L30,15" fill="none"/>
+    <path d="M185,15 L185,30 M185,15 L170,15" fill="none"/>
+    <path d="M15,185 L15,170 M15,185 L30,185" fill="none"/>
+    <path d="M185,185 L185,170 M185,185 L170,185" fill="none"/>
+  </g>
+</svg>

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="fireCenter" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#A67C23" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#1A2E1A" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="pineDots" x="0" y="0" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="15" cy="15" r="0.6" fill="#3A5A2A" opacity="0.25"/>
+      <circle cx="8" cy="8" r="0.4" fill="#2A4A1A" opacity="0.2"/>
+      <circle cx="22" cy="8" r="0.4" fill="#2A4A1A" opacity="0.2"/>
+      <circle cx="8" cy="22" r="0.4" fill="#2A4A1A" opacity="0.2"/>
+      <circle cx="22" cy="22" r="0.4" fill="#2A4A1A" opacity="0.2"/>
+    </pattern>
+  </defs>
+  <rect width="200" height="200" fill="#14201A"/>
+  <rect width="200" height="200" fill="url(#pineDots)"/>
+  <!-- Central fire glow -->
+  <circle cx="100" cy="100" r="85" fill="url(#fireCenter)"/>
+  <!-- Pine silhouette hero -->
+  <g transform="translate(100,140)">
+    <!-- Tall center pine -->
+    <polygon points="-3,0 0,-55 3,0" fill="#1A2E1A" opacity="0.6"/>
+    <polygon points="-8,15 0,-40 8,15" fill="#132213" opacity="0.5"/>
+    <polygon points="-14,35 0,-20 14,35" fill="#0D1A0D" opacity="0.4"/>
+    <!-- Left pine -->
+    <polygon points="-28,10 -24,-22 -20,10" fill="#1A301A" opacity="0.4"/>
+    <polygon points="-33,20 -24,-10 -15,20" fill="#132213" opacity="0.35"/>
+    <polygon points="-38,35 -24,0 -10,35" fill="#0D1A0D" opacity="0.3"/>
+    <!-- Right pine -->
+    <polygon points="20,10 24,-22 28,10" fill="#1A301A" opacity="0.4"/>
+    <polygon points="15,20 24,-10 33,20" fill="#132213" opacity="0.35"/>
+    <polygon points="10,35 24,0 38,35" fill="#0D1A0D" opacity="0.3"/>
+    <!-- Ground line -->
+    <path d="M-45 0 Q-30 -3 -15 0 Q0 2 15 0 Q30 -3 45 0" fill="none" stroke="#2A4A1A" stroke-width="0.5" opacity="0.4"/>
+  </g>
+  <!-- Moss texture clusters -->
+  <g opacity="0.15">
+    <circle cx="30" cy="50" r="3" fill="#2A4028"/>
+    <circle cx="35" cy="47" r="2" fill="#243820"/>
+    <circle cx="28" cy="45" r="2.5" fill="#2E4428"/>
+    <circle cx="170" cy="60" r="3.5" fill="#2A4028"/>
+    <circle cx="165" cy="56" r="2" fill="#1E301C"/>
+    <circle cx="175" cy="58" r="2.5" fill="#243820"/>
+  </g>
+</svg>

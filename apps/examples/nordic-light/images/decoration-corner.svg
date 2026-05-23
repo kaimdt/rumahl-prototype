@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="cornerGrad" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C4A77D" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#8B7355" stop-opacity="0.15"/>
+    </linearGradient>
+  </defs>
+  <!-- Organic corner curve -->
+  <path d="M80 0 Q0 0 0 80" fill="url(#cornerGrad)"/>
+  <!-- Wood grain accent lines -->
+  <path d="M80 0 Q50 0 30 20" fill="none" stroke="#A89680" stroke-width="0.6" opacity="0.3"/>
+  <path d="M80 0 Q25 0 0 25" fill="none" stroke="#BFA07A" stroke-width="0.4" opacity="0.25"/>
+  <path d="M80 0 Q60 0 15 45" fill="none" stroke="#C4B5A0" stroke-width="0.5" opacity="0.2"/>
+  <!-- Snowflake detail in corner -->
+  <g transform="translate(15,15)" opacity="0.3">
+    <line x1="-4" y1="0" x2="4" y2="0" stroke="#8B7355" stroke-width="0.4"/>
+    <line x1="0" y1="-4" x2="0" y2="4" stroke="#8B7355" stroke-width="0.4"/>
+    <line x1="-3" y1="-3" x2="3" y2="3" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="-3" y1="3" x2="3" y2="-3" stroke="#8B7355" stroke-width="0.3"/>
+    <circle cx="0" cy="0" r="1" fill="#C4A77D" opacity="0.5"/>
+  </g>
+  <!-- Subtle dot cluster -->
+  <circle cx="50" cy="8" r="1.2" fill="#D4C9B5" opacity="0.3"/>
+  <circle cx="60" cy="12" r="0.8" fill="#D4C9B5" opacity="0.25"/>
+  <circle cx="20" cy="55" r="1" fill="#D4C9B5" opacity="0.2"/>
+  <circle cx="8" cy="50" r="0.8" fill="#D4C9B5" opacity="0.25"/>
+</svg>

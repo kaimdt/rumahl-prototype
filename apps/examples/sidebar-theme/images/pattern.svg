@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <pattern id="microDot" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
+      <circle cx="5" cy="5" r="0.5" fill="#818cf8" opacity="0.05"/>
+    </pattern>
+  </defs>
+  <!-- Transparent base -->
+  <rect width="120" height="120" fill="none"/>
+  <rect width="120" height="120" fill="url(#microDot)"/>
+  <!-- Subtle vertical accent (sidebar hint) -->
+  <rect x="4" y="0" width="1" height="120" fill="#818cf8" opacity="0.06"/>
+  <!-- Minimal horizontal lines -->
+  <rect y="30" width="120" height="0.4" fill="#4a4a8a" opacity="0.08"/>
+  <rect y="60" width="120" height="0.4" fill="#4a4a8a" opacity="0.08"/>
+  <rect y="90" width="120" height="0.4" fill="#4a4a8a" opacity="0.08"/>
+  <!-- Subtle diamond accents -->
+  <rect x="30" y="30" width="3" height="3" fill="#818cf8" opacity="0.04" transform="rotate(45 31.5 31.5)"/>
+  <rect x="90" y="60" width="3" height="3" fill="#6366f1" opacity="0.04" transform="rotate(45 91.5 61.5)"/>
+  <rect x="30" y="90" width="3" height="3" fill="#818cf8" opacity="0.03" transform="rotate(45 31.5 91.5)"/>
+</svg>

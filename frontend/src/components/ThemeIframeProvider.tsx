@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 
 export function ThemeIframeProvider() {
-  const { theme, activeCssVariables, themeResponse, capabilities, animationConfig } = useTheme()
+  const { theme, activeCssVariables, themeResponse, capabilities, animationConfig, navConfig, modalConfig, notificationConfig, nightModeConfig } = useTheme()
   const lastThemeRef = useRef<string>('')
 
   useEffect(() => {
@@ -25,6 +25,10 @@ export function ThemeIframeProvider() {
         locksGlass: capabilities?.glass_control?.mode !== 'user',
       },
       animation: animationConfig || null,
+      navigation: navConfig || null,
+      modals: modalConfig || null,
+      notifications: notificationConfig || null,
+      night_mode: nightModeConfig || null,
     }
 
     // Only broadcast if theme actually changed
@@ -44,7 +48,7 @@ export function ThemeIframeProvider() {
         console.warn('Failed to send theme to iframe:', e)
       }
     })
-  }, [theme, activeCssVariables, capabilities, animationConfig])
+  }, [theme, activeCssVariables, capabilities, animationConfig, navConfig, modalConfig, notificationConfig, nightModeConfig])
 
   // Listen for theme requests from iframes
   useEffect(() => {
@@ -66,6 +70,10 @@ export function ThemeIframeProvider() {
               locksGlass: capabilities?.glass_control?.mode !== 'user',
             },
             animation: animationConfig || null,
+            navigation: navConfig || null,
+            modals: modalConfig || null,
+            notifications: notificationConfig || null,
+            night_mode: nightModeConfig || null,
           }
 
           event.source?.postMessage({
@@ -78,7 +86,7 @@ export function ThemeIframeProvider() {
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [theme, activeCssVariables, capabilities, animationConfig])
+  }, [theme, activeCssVariables, capabilities, animationConfig, navConfig, modalConfig, notificationConfig, nightModeConfig])
 
   return null // This is a logic-only component
 }

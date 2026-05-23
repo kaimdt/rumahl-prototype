@@ -1,0 +1,4 @@
+(function(){const T='nordic-light';function init(){if(document.documentElement.getAttribute('data-theme')!==T)return;initTexture();initHygge()}
+function initTexture(){const t=document.createElement('div');t.className='nordic-texture';t.style.cssText='position:fixed;inset:0;background:url(images/pattern.svg) repeat;opacity:0.03;pointer-events:none;z-index:0;mix-blend-mode:multiply;';document.body.appendChild(t)}
+function initHygge(){if(document.documentElement.style.getPropertyValue('--nordic-hygge')==='0')return;document.documentElement.style.setProperty('--warmth-filter','sepia(0.15) saturate(0.9)')}
+document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();new MutationObserver(()=>init()).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})})();

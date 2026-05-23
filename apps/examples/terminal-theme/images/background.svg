@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <rect width="200" height="200" fill="#0a0a0a"/>
+  <text x="10" y="20" fill="#1a1a1a" font-family="monospace" font-size="9">/* background.sys */</text>
+  <text x="10" y="40" fill="#1a2a1a" font-family="monospace" font-size="8">0x0000: 00 01 FF A5 00 00 00 00</text>
+  <text x="10" y="55" fill="#1a2a1a" font-family="monospace" font-size="8">0x0008: 7F 45 4C 46 02 01 01 00</text>
+  <text x="10" y="70" fill="#1a2a1a" font-family="monospace" font-size="8">0x0010: 00 00 00 00 00 00 00 00</text>
+  <text x="10" y="85" fill="#1a2a1a" font-family="monospace" font-size="8">0x0018: 02 00 3E 00 01 00 00 00</text>
+  <text x="10" y="100" fill="#1a2a1a" font-family="monospace" font-size="8">0x0020: 78 00 40 00 00 00 00 00</text>
+  <text x="10" y="115" fill="#1a2a1a" font-family="monospace" font-size="8">0x0028: 40 00 00 00 00 00 00 00</text>
+  <text x="10" y="130" fill="#1a2a1a" font-family="monospace" font-size="8">0x0030: 00 00 00 00 40 00 38 00</text>
+  <text x="10" y="145" fill="#1a2a1a" font-family="monospace" font-size="8">0x0038: 02 00 40 00 00 00 00 00</text>
+  <text x="10" y="160" fill="#1a2a1a" font-family="monospace" font-size="8">0x0040: 01 00 00 00 05 00 00 00</text>
+  <text x="10" y="175" fill="#0d0d0d" font-family="monospace" font-size="7">─ iora-terminal-core.sys ─</text>
+</svg>

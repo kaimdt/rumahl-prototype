@@ -1,0 +1,8 @@
+<div class="theme-widget terminal-widget" data-widget-type="CLIMATE" data-entity-id="{{entity_id}}">
+  <span class="term-prompt">$</span> climate --read {{entity_id}}
+  <div class="term-output">
+    <span class="term-label">{{friendly_name}}</span>
+    <span class="term-temp">T: {{current_temperature}}° → {{temperature}}°</span>
+    <span class="term-mode">[{{hvac_action}}]</span>
+  </div>
+</div>

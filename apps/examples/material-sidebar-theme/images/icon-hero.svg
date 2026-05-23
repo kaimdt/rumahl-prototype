@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="matGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="accentVert" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <filter id="elevation">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="innerGlow">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#818cf8" flood-opacity="0.2"/>
+    </filter>
+    <filter id="accentGlow">
+      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#8b5cf6" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <!-- Outer circle with elevation -->
+  <circle cx="32" cy="32" r="28" fill="url(#matGrad)" stroke="#2d2d5e" stroke-width="1" filter="url(#elevation)"/>
+  <!-- Inner ring -->
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#1e1e3a" stroke-width="0.5"/>
+  <!-- Material geometric layers -->
+  <!-- Layer 1: Large square -->
+  <rect x="14" y="14" width="36" height="36" rx="8" fill="#1e1e3a" opacity="0.6" filter="url(#innerGlow)"/>
+  <!-- Layer 2: Accent circle -->
+  <circle cx="32" cy="32" r="14" fill="none" stroke="url(#accentGrad)" stroke-width="2" filter="url(#accentGlow)"/>
+  <!-- Layer 3: Center geometric shape -->
+  <g transform="translate(32,32)" filter="url(#accentGlow)">
+    <!-- Diagonal accent bars -->
+    <rect x="-8" y="-16" width="16" height="2" rx="1" fill="url(#accentVert)"/>
+    <rect x="-8" y="14" width="16" height="2" rx="1" fill="url(#accentVert)"/>
+    <rect x="-16" y="-8" width="2" height="16" rx="1" fill="url(#accentGrad)"/>
+    <rect x="14" y="-8" width="2" height="16" rx="1" fill="url(#accentGrad)"/>
+  </g>
+  <!-- Center diamond -->
+  <g transform="translate(32,32)">
+    <polygon points="0,-6 6,0 0,6 -6,0" fill="url(#accentGrad)" opacity="0.7" filter="url(#accentGlow)"/>
+    <circle cx="0" cy="0" r="2.5" fill="#c7d2fe" opacity="0.3"/>
+  </g>
+  <!-- Corner accent dots -->
+  <circle cx="8" cy="8" r="2" fill="#6366f1" opacity="0.3"/>
+  <circle cx="56" cy="8" r="2" fill="#8b5cf6" opacity="0.3"/>
+  <circle cx="8" cy="56" r="2" fill="#8b5cf6" opacity="0.3"/>
+  <circle cx="56" cy="56" r="2" fill="#6366f1" opacity="0.3"/>
+  <!-- Subtle ripple marks on ring -->
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#6366f1" stroke-width="0.3" stroke-dasharray="2 4" opacity="0.25"/>
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#8b5cf6" stroke-width="0.2" stroke-dasharray="1 6" opacity="0.15"/>
+</svg>

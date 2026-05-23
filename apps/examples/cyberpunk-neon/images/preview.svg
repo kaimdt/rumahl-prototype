@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a0f"/>
+      <stop offset="100%" stop-color="#050510"/>
+    </linearGradient>
+    <linearGradient id="neonPink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff2d95"/>
+      <stop offset="100%" stop-color="#ff6b9d"/>
+    </linearGradient>
+    <linearGradient id="neonCyan" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="100%" stop-color="#00d4ff"/>
+    </linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <!-- Grid lines -->
+  <line x1="0" y1="150" x2="400" y2="150" stroke="#ff2d95" stroke-width="0.3" opacity="0.15"/>
+  <line x1="200" y1="0" x2="200" y2="300" stroke="#00f0ff" stroke-width="0.3" opacity="0.15"/>
+  <!-- Neon cards -->
+  <rect x="30" y="30" width="150" height="100" rx="4" fill="#0d0d1a" stroke="#ff2d95" stroke-width="1" opacity="0.9" filter="url(#glow)"/>
+  <rect x="35" y="38" width="60" height="4" rx="2" fill="url(#neonPink)" opacity="0.7"/>
+  <rect x="35" y="50" width="90" height="3" rx="1.5" fill="#ff2d95" opacity="0.3"/>
+  <rect x="35" y="60" width="70" height="3" rx="1.5" fill="#ff2d95" opacity="0.2"/>
+  <circle cx="160" cy="78" r="12" fill="none" stroke="#ff2d95" stroke-width="1" opacity="0.4"/>
+  <rect x="220" y="30" width="150" height="100" rx="4" fill="#0d0d1a" stroke="#00f0ff" stroke-width="1" opacity="0.9" filter="url(#glow)"/>
+  <rect x="225" y="38" width="60" height="4" rx="2" fill="url(#neonCyan)" opacity="0.7"/>
+  <rect x="225" y="50" width="90" height="3" rx="1.5" fill="#00f0ff" opacity="0.3"/>
+  <rect x="225" y="60" width="80" height="3" rx="1.5" fill="#00f0ff" opacity="0.2"/>
+  <rect x="225" y="72" width="120" height="20" rx="2" fill="#00f0ff" opacity="0.08"/>
+  <!-- Glitch text -->
+  <text x="200" y="200" text-anchor="middle" fill="#ff2d95" font-family="monospace" font-size="14" letter-spacing="8" font-weight="700" filter="url(#glow)">CYBERPUNK</text>
+  <text x="200" y="218" text-anchor="middle" fill="#00f0ff" font-family="monospace" font-size="9" letter-spacing="6" opacity="0.6">NEON EDITION</text>
+  <!-- Decorative lines -->
+  <rect x="60" y="240" width="280" height="1" fill="url(#neonPink)" opacity="0.3"/>
+  <rect x="100" y="255" width="200" height="1" fill="url(#neonCyan)" opacity="0.2"/>
+</svg>
