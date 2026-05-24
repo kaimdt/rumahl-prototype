@@ -19,6 +19,7 @@
 #   ./dev-local.sh --ssh            SSH directly into the running VM
 #   ./dev-local.sh --reprovision    Force re-running the in-VM setup steps
 #   ./dev-local.sh --no-watch       Don't auto-launch dev-watch.sh
+#   ./dev-local.sh --watcher        Launch dev-watch.sh in new terminal (VM must be running)
 #   ./dev-local.sh --foreground     Attach to QEMU process (Ctrl+C kills VM)
 #   ./dev-local.sh --help
 # ============================================================================
@@ -202,6 +203,7 @@ DO_LOG=false
 REPROVISION=false
 NO_WATCH=false
 FOREGROUND=false
+DO_WATCHER=false
 for a in "$@"; do
     case "$a" in
         --clean)        CLEAN=true ;;
@@ -215,8 +217,9 @@ for a in "$@"; do
         --reprovision)  REPROVISION=true ;;
         --no-watch)     NO_WATCH=true ;;
         --foreground)   FOREGROUND=true ;;
+        --watcher)      DO_WATCHER=true ;;
         -h|--help)
-            sed -n '4,21p' "$0"
+            sed -n '4,24p' "$0"
             exit 0 ;;
         *) die "Unknown argument: $a (try --help)" ;;
     esac
@@ -304,6 +307,36 @@ if $DO_SSH; then
     fi
     log "Connecting to VM via SSH..."
     exec ssh "${SSH_OPTS[@]}" -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1
+    exit 0
+fi
+
+if $DO_WATCHER; then
+    pid=$(vm_pid)
+    if [ -z "$pid" ]; then
+        die "VM is not running. Start it first: ./dev-local.sh"
+    fi
+    WATCH_SCRIPT="$SCRIPT_DIR/dev-watch.sh"
+    if [ ! -f "$WATCH_SCRIPT" ]; then
+        die "dev-watch.sh not found at $WATCH_SCRIPT"
+    fi
+    TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+    [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ] && TARGET_TRIPLE="aarch64-unknown-linux-gnu"
+    log "Launching dev-watch.sh ($TARGET_TRIPLE)..."
+    if $IS_MACOS; then
+        osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE\"" >/dev/null 2>&1 \
+            || die "Couldn't auto-open Terminal.app. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+    else
+        if command -v gnome-terminal >/dev/null 2>&1; then
+            gnome-terminal -- bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+        elif command -v konsole >/dev/null 2>&1; then
+            konsole -e bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+        elif command -v xterm >/dev/null 2>&1; then
+            xterm -e "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE" &
+        else
+            die "No terminal emulator found. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+        fi
+    fi
+    ok "dev-watch launched in new terminal"
     exit 0
 fi
 
@@ -976,6 +1009,20 @@ cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
 
+# Bootstrap admin credentials for dev VM (idempotent)
+mkdir -p /etc/iora
+[ ! -f /etc/iora/iora-home.env ] && cat > /etc/iora/iora-home.env <<'ENVEOF'
+DATABASE_URL=postgres://root:iora@localhost:5432/iora_home
+RUST_LOG=iora-home=debug
+IORA_BOOTSTRAP_ADMIN_USER=admin
+IORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234
+ENVEOF
+# If file already exists, just ensure bootstrap vars are present
+[ -f /etc/iora/iora-home.env ] && {
+    grep -q 'IORA_BOOTSTRAP_ADMIN_USER' /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_BOOTSTRAP_ADMIN_USER=admin' >> /etc/iora/iora-home.env
+    grep -q 'IORA_BOOTSTRAP_ADMIN_PASSWORD' /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234' >> /etc/iora/iora-home.env
+}
+
 systemctl daemon-reload
 systemctl reset-failed iora-db-init iora-migrations 2>/dev/null
 systemctl restart iora-home 2>/dev/null || true
@@ -1095,6 +1142,7 @@ cat <<EOF
   |    Stop the VM       ./dev-local.sh --stop                          |
   |    Reprovision       ./dev-local.sh --reprovision                   |
   |    Full reset        ./dev-local.sh --clean                         |
+  |    Launch watcher    ./dev-local.sh --watcher                       |
   |                                                                     |
   |  CO-BUDDY FEATURES                                                  |
   |    Auto-repair       Port conflicts, disk space, dependencies       |

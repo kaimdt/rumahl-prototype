@@ -16,7 +16,6 @@
 #   ./dev-watch.sh --services S1,S2      Only build specific services
 #   ./dev-watch.sh --no-deploy           Build but don't deploy to VM
 #   ./dev-watch.sh --auto-deploy         Auto-deploy after build (default)
-#   ./dev-watch.sh --tui                 Interactive terminal UI mode
 #   ./dev-watch.sh --target TARGET       Override Cargo target triple
 #   ./dev-watch.sh --skip-sccache        Don't use sccache
 #   ./dev-watch.sh --vm-host HOST        SSH host (default 127.0.0.1)
@@ -31,10 +30,10 @@ set -uo pipefail
 
 # ── Colors & logging (defined BEFORE any helper uses them) ────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-    R=$'\033[0;31m'; G=$'\033[0;32m'; Y=$'\033[1;33m'; C=$'\033[0;36m'
+    R=$'\033[0;31m'; G=$'\033[0;32m'; Y=$'\033[1;33m'; C=$'\033[0;36m'; M=$'\033[0;35m'
     D=$'\033[2m';    B=$'\033[1m';    N=$'\033[0m'
 else
-    R=''; G=''; Y=''; C=''; D=''; B=''; N=''
+    R=''; G=''; Y=''; C=''; D=''; B=''; N=''; M=''
 fi
 log()  { printf '%s[*]%s %s\n' "$C" "$N" "$*"; }
 ok()   { printf '%s[+]%s %s\n' "$G" "$N" "$*"; }
@@ -83,7 +82,6 @@ DO_FRONTEND=true
 DO_RESTART=true
 DO_DEPLOY=true
 SELECTED_SERVICES=""
-TUI_MODE=false
 DEBOUNCE_SEC=1
 
 show_help() {
@@ -104,7 +102,6 @@ while [ $# -gt 0 ]; do
         --services)        SELECTED_SERVICES="$2"; shift 2 ;;
         --no-deploy)       DO_DEPLOY=false; shift ;;
         --auto-deploy)     DO_DEPLOY=true; shift ;;
-        --tui)             TUI_MODE=true; shift ;;
         -h|--help)         show_help; exit 0 ;;
         *)                 warn "Ignoring unknown argument: $1"; shift ;;
     esac
@@ -244,8 +241,8 @@ deploy_binary() {
     fi
 
     if $DO_RESTART; then
-        # Use try-restart so we don't fail when a unit doesn't exist
-        ssh_vm "systemctl try-restart $name 2>/dev/null || systemctl restart $name 2>/dev/null || true" \
+        # Use restart (starts inactive services too) after resetting any failed state
+        ssh_vm "systemctl reset-failed $name 2>/dev/null; systemctl restart $name 2>/dev/null || systemctl start $name 2>/dev/null || true" \
             >/dev/null 2>&1 || true
     fi
     printf '    %s->%s %s\n' "$G" "$N" "$name"
@@ -268,8 +265,19 @@ deploy_many() {
               [ -f /etc/iora/db-credentials/$svc.env ] || echo 'DATABASE_URL=postgres://root:iora@localhost/iora_${svc_short}' > /etc/iora/db-credentials/$svc.env && \
               [ -f /etc/iora/$svc.env ] || echo -e 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_${svc_short}\nRUST_LOG=${svc}=debug' > /etc/iora/$svc.env && \
               echo -e '[Service]\nProtectSystem=no\nProtectHome=no\nPrivateTmp=no\nNoNewPrivileges=no\nRestrictAddressFamilies=\nSystemCallFilter=\nReadWritePaths=\nReadOnlyPaths=\nEnvironmentFile=/etc/iora/$svc.env' > /etc/systemd/system/$svc.service.d/dev-relax.conf" 2>/dev/null || true
+            # For iora-home: add bootstrap admin credentials so dev login works immediately
+            if [ "$svc" = "iora-home" ]; then
+                ssh_vm "grep -q IORA_BOOTSTRAP_ADMIN_USER /etc/iora/iora-home.env 2>/dev/null || echo -e 'IORA_BOOTSTRAP_ADMIN_USER=admin\nIORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234' >> /etc/iora/iora-home.env" 2>/dev/null || true
+            fi
             if $DO_RESTART; then
-                ssh_vm "systemctl try-restart $svc 2>/dev/null || systemctl restart $svc 2>/dev/null || true" >/dev/null 2>&1 || true
+                ssh_vm "systemctl reset-failed $svc 2>/dev/null; systemctl restart $svc 2>/dev/null || systemctl start $svc 2>/dev/null || true" >/dev/null 2>&1 || true
+            fi
+            # For iora-home: ensure admin user has admin role (idempotent)
+            # Fresh VMs: bootstrap env vars create admin/admin1234 automatically.
+            # Existing VMs: fix role if user was created via UI registration.
+            if [ "$svc" = "iora-home" ]; then
+                sleep 5  # give iora-home time to finish bootstrap
+                ssh_vm "su - postgres -c \"psql iora_home -c \\\"UPDATE users SET role='admin' WHERE username='admin' AND role!='admin'\\\" 2>/dev/null\" 2>/dev/null || true" 2>/dev/null || true
             fi
             printf '    %s->%s %s\n' "$G" "$N" "$svc"
             deployed=$((deployed + 1))
@@ -282,235 +290,7 @@ deploy_many() {
     return 0
 }
 
-# ── Health check ──────────────────────────────────────────────────────────
-health_check() {
-    if ! vm_reachable; then
-        warn "VM not reachable for health check"
-        return 1
-    fi
-    log "Service status (failed only):"
-    ssh_vm "systemctl --failed --no-legend --no-pager 2>/dev/null | awk '{print \$1, \$3}' | head -20" \
-        || true
-    log "iora-home /api/health:"
-    ssh_vm "curl -sf --max-time 5 http://127.0.0.1:8126/api/health || curl -sf --max-time 5 http://127.0.0.1:8126/health || echo unreachable" \
-        2>/dev/null || true
-}
-
 # ═══════════════════════════════════════════════════════════════════
-# TUI – Interactive Terminal UI
-# ═══════════════════════════════════════════════════════════════════
-
-TUI_BUILD_LOG="$CACHE/tui-build.log"
-TUI_CURSOR=0
-TUI_SCROLL=0
-
-# Reset terminal on exit
-_tui_cleanup() { printf '\033[?25h\033[0m'; stty echo 2>/dev/null; }
-trap '_tui_cleanup' RETURN
-
-_tui_hide_cursor() { printf '\033[?25l'; }
-_tui_clear() { printf '\033[2J\033[H'; }
-_tui_goto() { printf '\033[%d;%dH' "${1:-1}" "${2:-1}"; }
-_tui_bold() { printf '%s' "$B"; }
-_tui_dim()  { printf '%s' "$D"; }
-_tui_green() { printf '%s' "$G"; }
-_tui_cyan() { printf '%s' "$C"; }
-_tui_yellow() { printf '%s' "$Y"; }
-_tui_reset() { printf '%s' "$N"; }
-
-# List of services with checkboxes (name:checked)
-TUI_SERVICES=()
-for svc in "${ALL_SERVICES[@]}"; do TUI_SERVICES+=("$svc:1"); done
-TUI_BUILD_RUST=true
-TUI_BUILD_FE=true
-TUI_DO_DEPLOY=$DO_DEPLOY
-TUI_WATCH_ENABLED=true
-TUI_LOG_LINES=()
-TUI_BUILDING=false
-TUI_LAST_BUILD="-"
-
-_tui_render() {
-    _tui_clear
-    local line=1
-
-    # Header
-    _tui_goto $line 1; _tui_bold; _tui_cyan
-    printf '╔══════════════════════════ IORA Dev TUI ══════════════════════════╗'
-    line=$((line+1))
-    _tui_goto $line 1
-    printf '║  VM: %-20s  Last build: %-25s ║' "$([ -n "$TUI_LAST_BUILD" ] && echo "$TUI_LAST_BUILD" || echo "-")" "$TUI_LAST_BUILD_TIME"
-    _tui_reset
-
-    # ── Services Section ──
-    line=$((line+2))
-    _tui_goto $line 3; _tui_bold; printf 'Services (Space=toggle, ↑↓=navigate):'; _tui_reset
-    line=$((line+1))
-    local idx=0
-    for entry in "${TUI_SERVICES[@]}"; do
-        local name="${entry%%:*}"; local checked="${entry##*:}"
-        _tui_goto $line 5
-        if [ $idx -eq $TUI_CURSOR ]; then
-            printf '\033[7m'  # inverse video for cursor
-        fi
-        if [ "$checked" = "1" ]; then
-            _tui_green; printf '[✓]'; _tui_reset
-        else
-            _tui_dim; printf '[ ]'; _tui_reset
-        fi
-        printf ' %s' "$name"
-        if [ $idx -eq $TUI_CURSOR ]; then
-            printf '\033[27m'
-        fi
-        line=$((line+1))
-        idx=$((idx+1))
-    done
-
-    # ── Settings Section ──
-    line=$((line+1))
-    _tui_goto $line 3; _tui_bold; printf 'Settings:'; _tui_reset
-    line=$((line+1))
-    _tui_goto $line 5
-    printf '['; $TUI_BUILD_RUST && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
-    printf '] Rust     ['; $TUI_BUILD_FE && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
-    printf '] Frontend  ['; $TUI_DO_DEPLOY && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
-    printf '] Deploy   ['; $TUI_WATCH_ENABLED && _tui_green && printf '✓' || _tui_dim && printf ' '; _tui_reset
-    printf '] Watch'
-    line=$((line+1))
-    _tui_goto $line 5; _tui_dim; printf '[1-4] toggle  [R] Rebuild  [D] Deploy  [S] Status  [H] Health  [Q] Quit'; _tui_reset
-
-    # ── Build Output Section ──
-    line=$((line+2))
-    _tui_goto $line 3; _tui_bold; printf 'Build Output:'; _tui_reset
-    if $TUI_BUILDING; then
-        _tui_goto $line 30; _tui_yellow; printf '● BUILDING...'; _tui_reset
-    fi
-    local log_start=$((line+1))
-    local log_lines=${#TUI_LOG_LINES[@]}
-    local max_log=$(( $(tput lines 2>/dev/null || echo 24) - log_start - 2 ))
-    [ $max_log -lt 4 ] && max_log=4
-    local start=$(( log_lines > max_log ? log_lines - max_log : 0 ))
-    for ((i=start; i<log_lines; i++)); do
-        _tui_goto $((log_start + i - start)) 5
-        printf '%.120s' "${TUI_LOG_LINES[$i]}"
-    done
-}
-
-_tui_log() {
-    TUI_LOG_LINES+=("$(date '+%H:%M:%S') $*")
-    # Keep last 500 lines
-    if [ ${#TUI_LOG_LINES[@]} -gt 500 ]; then
-        TUI_LOG_LINES=("${TUI_LOG_LINES[@]: -500}")
-    fi
-}
-
-_tui_toggle_service() {
-    local idx=$TUI_CURSOR
-    local entry="${TUI_SERVICES[$idx]}"
-    local name="${entry%%:*}"; local checked="${entry##*:}"
-    if [ "$checked" = "1" ]; then
-        TUI_SERVICES[$idx]="$name:0"
-    else
-        TUI_SERVICES[$idx]="$name:1"
-    fi
-}
-
-_tui_get_selected_services() {
-    local sel=""
-    for entry in "${TUI_SERVICES[@]}"; do
-        local name="${entry%%:*}"; local checked="${entry##*:}"
-        if [ "$checked" = "1" ]; then
-            [ -n "$sel" ] && sel="$sel,$name" || sel="$name"
-        fi
-    done
-    echo "$sel"
-}
-
-_tui_do_build() {
-    TUI_BUILDING=true
-    TUI_LAST_BUILD_TIME=$(date '+%H:%M:%S')
-    _tui_log "Build started..."
-    _tui_render
-
-    # Set global vars from TUI state
-    SELECTED_SERVICES=$(_tui_get_selected_services)
-    DO_RUST=$TUI_BUILD_RUST
-    DO_FRONTEND=$TUI_BUILD_FE
-    DO_DEPLOY=$TUI_DO_DEPLOY
-
-    local rc=0
-    if $DO_RUST && [ -n "$SELECTED_SERVICES" ]; then
-        _tui_log "Building Rust: $SELECTED_SERVICES"
-        build_rust > "$TUI_BUILD_LOG" 2>&1 || rc=$?
-        while IFS= read -r l; do [ -n "$l" ] && _tui_log "$l"; done < "$TUI_BUILD_LOG"
-        if [ $rc -eq 0 ]; then
-            _tui_log "✓ Rust build OK"
-            TUI_LAST_BUILD="✓ Rust"
-        else
-            _tui_log "✗ Rust build FAILED (exit $rc)"
-            TUI_LAST_BUILD="✗ Rust"
-        fi
-    fi
-
-    if $DO_FRONTEND; then
-        _tui_log "Building Frontend..."
-        build_frontend > "$TUI_BUILD_LOG" 2>&1 || rc=$?
-        while IFS= read -r l; do [ -n "$l" ] && _tui_log "$l"; done < "$TUI_BUILD_LOG"
-        if [ $rc -eq 0 ]; then
-            _tui_log "✓ Frontend build OK"
-            TUI_LAST_BUILD="${TUI_LAST_BUILD} ✓ FE"
-        else
-            _tui_log "✗ Frontend build FAILED"
-        fi
-    fi
-
-    TUI_BUILDING=false
-}
-
-_tui_do_deploy() {
-    if ! vm_reachable; then _tui_log "✗ VM not reachable"; return; fi
-    _tui_log "Deploying..."
-    rm -f "$HASH_DIR"/* 2>/dev/null || true
-    deploy_many "${ALL_SERVICES[@]}" 2>&1 | while IFS= read -r l; do _tui_log "$l"; done
-    _tui_log "✓ Deploy complete"
-}
-
-run_tui() {
-    _tui_hide_cursor
-    stty -echo 2>/dev/null
-    _tui_log "TUI started. Select services and press R to build."
-
-    while true; do
-        _tui_render
-        local key
-        IFS= read -r -s -n 1 key < /dev/tty 2>/dev/null || continue
-
-        case "$key" in
-            q|Q) _tui_cleanup; stty echo 2>/dev/null; echo ""; log "bye."; exit 0 ;;
-            r|R) _tui_do_build ;;
-            d|D) _tui_do_deploy ;;
-            s|S) show_status; _tui_log "Status shown"; sleep 2 ;;
-            h|H) health_check; _tui_log "Health check done"; sleep 2 ;;
-            ' ') _tui_toggle_service ;;
-            '1') TUI_BUILD_RUST=$(! $TUI_BUILD_RUST); _tui_log "Rust: $($TUI_BUILD_RUST && echo ON || echo OFF)" ;;
-            '2') TUI_BUILD_FE=$(! $TUI_BUILD_FE); _tui_log "Frontend: $($TUI_BUILD_FE && echo ON || echo OFF)" ;;
-            '3') TUI_DO_DEPLOY=$(! $TUI_DO_DEPLOY); _tui_log "Deploy: $($TUI_DO_DEPLOY && echo ON || echo OFF)" ;;
-            '4') TUI_WATCH_ENABLED=$(! $TUI_WATCH_ENABLED); _tui_log "Watch: $($TUI_WATCH_ENABLED && echo ON || echo OFF)" ;;
-            $'\033')
-                read -r -s -n 2 -t 0.01 arrow 2>/dev/null || true
-                case "$arrow" in
-                    '[A') TUI_CURSOR=$(( TUI_CURSOR > 0 ? TUI_CURSOR - 1 : 0 )) ;;
-                    '[B') TUI_CURSOR=$(( TUI_CURSOR < ${#TUI_SERVICES[@]} - 1 ? TUI_CURSOR + 1 : TUI_CURSOR )) ;;
-                esac ;;
-        esac
-
-        # Auto-watch rebuild
-        if $TUI_WATCH_ENABLED && $RUST_DIRTY; then
-            RUST_DIRTY=false
-            _tui_do_build
-        fi
-    done
-}
-
 # ── Build: Rust (inside VM) ──────────────────────────────────────────────
 # Cross-compilation from macOS fails due to OpenSSL native deps.
 # Instead, we sync sources and build natively inside the Dev VM.
@@ -638,7 +418,7 @@ deploy_frontend() {
         rm -rf /opt/iora/build/dist/*
         tar xzf /tmp/iora-frontend.tar.gz -C /opt/iora/build/dist
         rm -f /tmp/iora-frontend.tar.gz
-        systemctl try-restart iora-home 2>/dev/null || true
+        systemctl restart iora-home 2>/dev/null || systemctl start iora-home 2>/dev/null || true
         systemctl reload nginx 2>/dev/null || true
     ' >/dev/null 2>&1 || warn "frontend remote unpack reported errors"
     rm -f "$tar"
@@ -652,30 +432,6 @@ RUST_DIRTY=false
 FE_DIRTY=false
 BUILDING_RUST=false
 BUILDING_FE=false
-
-trigger_loop() {
-    while true; do
-        if $RUST_DIRTY; then
-            RUST_DIRTY=false
-            BUILDING_RUST=true
-            _update_status "${Y}Building Rust...${N}"
-            build_rust || true
-            BUILDING_RUST=false
-            ok "[R] Rust build done"
-            _update_status "idle"
-        fi
-        if $FE_DIRTY; then
-            FE_DIRTY=false
-            BUILDING_FE=true
-            _update_status "${Y}Building Frontend...${N}"
-            build_frontend || true
-            BUILDING_FE=false
-            ok "[F] Frontend build done"
-            _update_status "idle"
-        fi
-        sleep 1
-    done
-}
 
 start_watchers() {
     local pids=()
@@ -755,27 +511,10 @@ stop_watchers() {
     done
 }
 
-# ── Status table ──────────────────────────────────────────────────────────
-show_status() {
-    if ! vm_reachable; then
-        warn "VM not reachable ($VM_HOST:$VM_PORT)"
-        return
-    fi
-    printf '\n  %sService                       Active     Binary%s\n' "$Y" "$N"
-    printf '  ────────────────────────────────────────────────────\n'
-    for svc in "${ALL_SERVICES[@]}"; do
-        local active bin
-        active=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "unknown")
-        bin=$(ssh_vm "test -f /usr/bin/$svc && echo yes || echo no" 2>/dev/null || echo "?")
-        local col="$D"
-        case "$active" in active) col="$G" ;; failed) col="$R" ;; activating) col="$Y" ;; esac
-        printf '  %-28s  %s%-9s%s  %s\n' "$svc" "$col" "$active" "$N" "$bin"
-    done
-    echo
-}
-
 # ── Cleanup / signal handling ─────────────────────────────────────────────
 cleanup() {
+    tput csr 1 "$(tput lines 2>/dev/null || echo 24)" 2>/dev/null || true
+    printf '\033[?25h'
     stop_watchers
 }
 trap cleanup EXIT INT TERM
@@ -814,87 +553,289 @@ if ! $WATCH; then
     exit 0
 fi
 
-# ── TUI Mode (interactive terminal UI) ──────────────────────────────
-if $TUI_MODE; then
-    run_tui
-    exit 0
-fi
+# ═══════════════════════════════════════════════════════════════════
+# Dashboard TUI – persistent always-visible terminal dashboard
+# ═══════════════════════════════════════════════════════════════════
 
-# ── Watcher + key loop ────────────────────────────────────────────────────
-start_watchers
-trigger_loop &
-TRIGGER_PID=$!
+DASH_LOG=()
+DASH_BUILDING=false
+DASH_VM_ONLINE=false
+DASH_LAST_BUILD="-"
+DASH_LAST_DEPLOY="-"
+DASH_SERVICE_STATUS=""
+DASH_ACTIVE_COUNT=0
 
-cat <<EOF
-
-${B}┌──────────────────────────────────────────────────────────────────┐
-│  [B] rebuild  [R] Rust  [F] Frontend  [D] deploy  [P] fe-deploy │
-│  [S] status   [H] health  [L] toggle-deploy  [Q] quit            │
-└──────────────────────────────────────────────────────────────────┘${N}
-  Auto-deploy: $($DO_DEPLOY && echo "${G}ON${N}" || echo "${R}OFF${N}")  |  Ctrl+C to exit  |  Status: idle
-EOF
-
-# Update status line after state changes
-_last_status="idle"
-_update_status() {
-    local new_status="$1"
-    [ "$_last_status" = "$new_status" ] && return
-    _last_status="$new_status"
-    printf '\033[1A\r  Auto-deploy: %s  |  Ctrl+C to exit  |  Status: %s\033[K\n' \
-        "$($DO_DEPLOY && echo "${G}ON${N}" || echo "${R}OFF${N}")" "$new_status"
+_dash_log() {
+    local ts
+    ts=$(date '+%H:%M:%S')
+    DASH_LOG+=("$ts $*")
+    [ ${#DASH_LOG[@]} -gt 500 ] && DASH_LOG=("${DASH_LOG[@]: -500}")
 }
 
-while true; do
-    key=""
-    if [ -t 0 ]; then
-        IFS= read -r -s -t 1 -n 1 key < /dev/tty 2>/dev/null || true
+_dash_check_vm() {
+    if vm_reachable 2>/dev/null; then DASH_VM_ONLINE=true; return 0
+    else DASH_VM_ONLINE=false; return 1; fi
+}
+
+_dash_refresh_services() {
+    $DASH_VM_ONLINE || { DASH_ACTIVE_COUNT=0; return; }
+    DASH_SERVICE_STATUS=$(ssh_vm "for s in ${ALL_SERVICES[*]}; do systemctl is-active \$s 2>/dev/null || echo unknown; done" 2>/dev/null || echo "")
+    DASH_ACTIVE_COUNT=$(echo "$DASH_SERVICE_STATUS" | grep -c 'active' 2>/dev/null || echo 0)
+}
+
+_dash_render() {
+    local rows cols
+    rows=$(tput lines 2>/dev/null || echo 30)
+    cols=$(tput cols 2>/dev/null || echo 80)
+    [ "$rows" -lt 10 ] && rows=10
+    [ "$cols" -lt 40 ] && cols=40
+
+    tput sc 2>/dev/null || true
+    printf '\033[2J\033[H'
+
+    local vm_status deploy_label build_label
+    if $DASH_VM_ONLINE; then vm_status="${G}● online${N}"
+    else vm_status="${R}● offline${N}"; fi
+    deploy_label="$($DASH_AUTO_DEPLOY && printf '%sON%s' "$G" "$N" || printf '%sOFF%s' "$R" "$N")"
+    build_label="$DASH_LAST_BUILD"
+
+    # ── Header ──
+    local sep; sep=$(printf '%*s' $((cols-2)) '' | tr ' ' '═')
+    printf '%s%s\n' "$B" "$C"
+    printf '╔%s╗\n' "$sep"
+    printf '║ %-*s ║\n' $((cols-4)) "IORA Dev Watch"
+    printf '╠%s╣\n' "$sep"
+    printf '║ %s  │  Build: %b  │  Deploy: %b %*s║\n' \
+        "VM: $vm_status" "$build_label" "$deploy_label" $((cols-55)) ''
+    printf '╠%s╣\n' "$sep"
+    printf '%s' "$N"
+
+    # ── Log region (scrollable) ──
+    local log_top log_bottom max_log start shown
+    log_top=7
+    log_bottom=$((rows - 3))
+    [ "$log_bottom" -lt "$log_top" ] && log_bottom="$log_top"
+    tput csr "$log_top" "$log_bottom" 2>/dev/null || true
+
+    max_log=$((log_bottom - log_top + 1))
+    [ "$max_log" -lt 3 ] && max_log=3
+    start=$(( ${#DASH_LOG[@]} > max_log ? ${#DASH_LOG[@]} - max_log : 0 ))
+    shown=0
+    local i
+    for ((i=start; i<${#DASH_LOG[@]}; i++)); do
+        printf ' %s\n' "${DASH_LOG[$i]}"
+        shown=$((shown+1))
+    done
+    for ((i=shown; i<max_log; i++)); do printf '\n'; done
+
+    # ── Status Bar (fixed at bottom) ──
+    tput csr 1 "$rows" 2>/dev/null || true
+
+    local status_text
+    if $DASH_BUILDING; then status_text="${Y}● BUILDING...${N}"
+    elif ! $DASH_VM_ONLINE; then status_text="${R}VM offline${N}"
+    else status_text="${G}● idle${N}"; fi
+
+    local bar_row=$((rows - 1))
+    tput cup "$bar_row" 0 2>/dev/null || true
+    tput el 2>/dev/null || true
+    printf '  %b  │  Services: %s/%s active  │  %s' \
+        "$status_text" "$DASH_ACTIVE_COUNT" "${#ALL_SERVICES[@]}" \
+        "${D}Q=quit B=build S=status H=health D=deploy R=restart J=journal${N}"
+
+    tput cup "$rows" 0 2>/dev/null || true
+    tput el 2>/dev/null || true
+    printf '%s%s%s\n' "$D" "$sep" "$N"
+
+    tput rc 2>/dev/null || true
+}
+
+_dash_overlay() {
+    local title="$1"; shift
+    printf '\033[2J\033[H'
+    printf '%s%s═══ %s %s%s\n\n' "$B" "$C" "$title" "$(printf '%*s' $((70-${#title})) '' | tr ' ' '═')" "$N"
+    if ! $DASH_VM_ONLINE; then
+        printf '  %sVM offline - press C to connect%s\n' "$R" "$N"
+    else
+        "$@"
     fi
-    case "${key:-}" in
-        b|B)
-            if $BUILDING_RUST || $BUILDING_FE; then
-                warn "Build already running — please wait"
-            else
-                dim "[B] Full rebuild triggered..."
-                RUST_DIRTY=true; FE_DIRTY=true
-            fi ;;
-        r|R)
-            if $BUILDING_RUST; then
-                warn "Rust build already running — please wait"
-            else
-                dim "[R] Rust build triggered..."
-                RUST_DIRTY=true
-            fi ;;
-        f|F)
-            if $BUILDING_FE; then
-                warn "Frontend build already running — please wait"
-            else
-                dim "[F] Frontend build triggered..."
-                FE_DIRTY=true
-            fi ;;
-        d|D)
-            _update_status "${Y}Deploying...${N}"
-            dim "[D] Deploy triggered..."
-            if vm_reachable; then
-                rm -f "$HASH_DIR"/* 2>/dev/null || true
-                deploy_many "${ALL_SERVICES[@]}"
-                ok "[D] Deploy done"
-            else
-                warn "VM not reachable"
-            fi
-            _update_status "idle" ;;
-        p|P)
-            _update_status "${Y}Deploying Frontend...${N}"
-            dim "[P] Frontend deploy triggered..."
-            if vm_reachable && [ -d "$FRONTEND_DIR/dist" ]; then
-                deploy_frontend "$FRONTEND_DIR/dist"
-                ok "[P] Frontend deploy done"
-            else
-                warn "Frontend dist not found or VM not reachable"
-            fi
-            _update_status "idle" ;;
-        l|L) DO_DEPLOY=$(! $DO_DEPLOY); log "Auto-deploy: $($DO_DEPLOY && echo ON || echo OFF)" ;;
-        s|S) show_status ;;
-        h|H) health_check ;;
-        q|Q) log "bye."; kill "$TRIGGER_PID" 2>/dev/null || true; exit 0 ;;
-    esac
-done
+    printf '\n  %sPress any key to return%s\n' "$D" "$N"
+    read -r -s -n 1 < /dev/tty 2>/dev/null || true
+}
+
+_dash_show_status() {
+    printf '  %-30s %-10s %s\n' "Service" "Status" "Binary"
+    printf '  %s\n' "$(printf '%*s' 48 '' | tr ' ' '─')"
+    for svc in "${ALL_SERVICES[@]}"; do
+        local st col bin
+        st=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
+        col="$D"; case "$st" in active) col="$G" ;; failed) col="$R" ;; activating|reloading) col="$Y" ;; esac
+        bin=$(ssh_vm "test -f /usr/bin/$svc && echo yes || echo no" 2>/dev/null || echo "?")
+        printf '  %-30s %b%-10s%b  %s\n' "$svc" "$col" "$st" "$N" "$bin"
+    done
+}
+
+_dash_show_health() {
+    if ssh_vm "curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null" 2>/dev/null | grep -q '"status":"ok"'; then
+        printf '  %s✓ iora-home API: OK%s\n' "$G" "$N"
+    else printf '  %s✗ iora-home API: unreachable%s\n' "$R" "$N"; fi
+    printf '\n  %sFailed services:%s\n' "$B" "$N"
+    ssh_vm "systemctl --failed --no-legend --no-pager 2>/dev/null" 2>/dev/null | head -10 | while IFS= read -r l; do printf '  %s\n' "$l"; done
+    printf '\n  %sDisk:%s\n' "$B" "$N"
+    ssh_vm "df -h / 2>/dev/null | tail -1" 2>/dev/null | while IFS= read -r l; do printf '  %s\n' "$l"; done
+}
+
+_dash_restart_picker() {
+    local idx=1 choice target
+    for svc in "${ALL_SERVICES[@]}"; do
+        local st col
+        st=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
+        col="$D"; case "$st" in active) col="$G" ;; failed) col="$R" ;; esac
+        printf '  %2d) %-30s %b%s%b\n' "$idx" "$svc" "$col" "$st" "$N"
+        idx=$((idx+1))
+    done
+    printf '\n  %sEnter number (any other key cancels):%s ' "$D" "$N"
+    read -r -s -n 3 choice < /dev/tty 2>/dev/null || true
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#ALL_SERVICES[@]}" ] 2>/dev/null; then
+        target="${ALL_SERVICES[$((choice-1))]}"
+        printf '\n  %sRestarting %s...%s\n' "$Y" "$target" "$N"
+        ssh_vm "systemctl reset-failed $target 2>/dev/null; systemctl restart $target 2>/dev/null || systemctl start $target 2>/dev/null || true" 2>/dev/null || true
+        sleep 1
+        local new_st
+        new_st=$(ssh_vm "systemctl is-active $target 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
+        printf '  %s→ %s %s%s\n' "$G" "$target" "$new_st" "$N"
+    fi
+    read -r -s -n 1 < /dev/tty 2>/dev/null || true
+}
+
+_dash_journal_picker() {
+    local idx=1 choice target
+    for svc in "${ALL_SERVICES[@]}"; do
+        printf '  %2d) %s\n' "$idx" "$svc"; idx=$((idx+1))
+    done
+    printf '\n  %sPick service (number):%s ' "$D" "$N"
+    read -r -s -n 3 choice < /dev/tty 2>/dev/null || true
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#ALL_SERVICES[@]}" ] 2>/dev/null; then
+        target="${ALL_SERVICES[$((choice-1))]}"
+        printf '\033[2J\033[H'
+        printf '%s%s═══ journalctl -u %s -n 40 %s%s\n\n' "$B" "$C" "$target" "$(printf '%*s' $((50-${#target})) '' | tr ' ' '═')" "$N"
+        ssh_vm "journalctl -u $target --no-pager -n 40 2>/dev/null" 2>/dev/null || echo "  (no logs)"
+        printf '\n  %sPress any key to return%s\n' "$D" "$N"
+        read -r -s -n 1 < /dev/tty 2>/dev/null || true
+    fi
+}
+
+# ── Build trigger (runs in background, feeds output to dashboard) ────────
+_dash_build_loop() {
+    while true; do
+        if $RUST_DIRTY; then
+            RUST_DIRTY=false; BUILDING_RUST=true
+            DASH_LAST_BUILD="${Y}Building Rust...${N}"
+            _dash_log "${Y}[RUST]${N} Building..."
+            build_rust > "$CACHE/dash-build.log" 2>&1 || true
+            while IFS= read -r l; do [ -n "$l" ] && _dash_log "${M}[RUST]${N} $l"; done < "$CACHE/dash-build.log"
+            BUILDING_RUST=false
+            DASH_LAST_BUILD="${G}✓ Rust${N}"
+            _dash_log "${G}[RUST]${N} Build complete"
+            _dash_refresh_services
+        fi
+        if $FE_DIRTY; then
+            FE_DIRTY=false; BUILDING_FE=true
+            DASH_LAST_BUILD="${Y}Building FE...${N}"
+            _dash_log "${Y}[FE]${N} Building..."
+            build_frontend > "$CACHE/dash-build.log" 2>&1 || true
+            while IFS= read -r l; do [ -n "$l" ] && _dash_log "${C}[FE]${N} $l"; done < "$CACHE/dash-build.log"
+            BUILDING_FE=false
+            DASH_LAST_BUILD="${G}✓ FE${N}"
+            _dash_log "${G}[FE]${N} Build complete"
+        fi
+        sleep 1
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# Main Dashboard
+# ═══════════════════════════════════════════════════════════════════
+
+run_dashboard() {
+    printf '\033[?25l'
+    stty -echo 2>/dev/null
+    trap 'printf "\033[?25h"; stty echo 2>/dev/null; printf "\033[2J\033[H"; echo "bye."' EXIT
+
+    DASH_AUTO_DEPLOY=$DO_DEPLOY
+    DASH_LAST_BUILD="-"
+    _dash_log "${C}[SYSTEM]${N} Dashboard ready. Checking VM..."
+    _dash_check_vm
+    if $DASH_VM_ONLINE; then
+        _dash_log "${G}[SYSTEM]${N} VM online at $VM_HOST:$VM_PORT"
+        _dash_refresh_services
+        _dash_log "${G}[SYSTEM]${N} ${DASH_ACTIVE_COUNT}/${#ALL_SERVICES[@]} services active"
+    else
+        _dash_log "${Y}[SYSTEM]${N} VM offline — start with ./dev-local.sh, then press C"
+    fi
+
+    start_watchers
+    _dash_build_loop &
+    TRIGGER_PID=$!
+
+    local tick=0
+    while true; do
+        if [ $((tick % 3)) -eq 0 ]; then _dash_check_vm; fi
+        if $DASH_VM_ONLINE && [ $((tick % 8)) -eq 0 ]; then _dash_refresh_services; fi
+        if $BUILDING_RUST || $BUILDING_FE; then DASH_BUILDING=true; else DASH_BUILDING=false; fi
+
+        _dash_render
+
+        local key=""
+        IFS= read -r -s -t 0.5 -n 1 key < /dev/tty 2>/dev/null || true
+
+        case "${key:-}" in
+            q|Q) kill "$TRIGGER_PID" 2>/dev/null || true; exit 0 ;;
+            b|B)
+                if $BUILDING_RUST || $BUILDING_FE; then
+                    _dash_log "${Y}[BUILD]${N} Already building"
+                else
+                    _dash_log "${C}[BUILD]${N} Full rebuild triggered"
+                    RUST_DIRTY=true; FE_DIRTY=true
+                fi ;;
+            r)
+                if $BUILDING_RUST; then _dash_log "${Y}[RUST]${N} Already building"
+                else _dash_log "${C}[RUST]${N} Rust build triggered"; RUST_DIRTY=true; fi ;;
+            f)
+                if $BUILDING_FE; then _dash_log "${Y}[FE]${N} Already building"
+                else _dash_log "${C}[FE]${N} Frontend build triggered"; FE_DIRTY=true; fi ;;
+            d|D)
+                if $DASH_VM_ONLINE; then
+                    _dash_log "${C}[DEPLOY]${N} Deploying..."
+                    _dash_render
+                    rm -f "$HASH_DIR"/* 2>/dev/null || true
+                    deploy_many "${ALL_SERVICES[@]}" 2>&1 | while IFS= read -r l; do _dash_log "${M}[DEPLOY]${N} $l"; done
+                    DASH_LAST_DEPLOY="${G}✓ deployed${N}"
+                    _dash_refresh_services
+                    _dash_log "${G}[DEPLOY]${N} Done — ${DASH_ACTIVE_COUNT}/${#ALL_SERVICES[@]} active"
+                else _dash_log "${Y}[DEPLOY]${N} VM offline"; fi ;;
+            p|P)
+                if $DASH_VM_ONLINE && [ -d "$FRONTEND_DIR/dist" ]; then
+                    _dash_log "${C}[FE]${N} Deploying frontend..."
+                    deploy_frontend "$FRONTEND_DIR/dist" 2>&1 | while IFS= read -r l; do _dash_log "${C}[FE]${N} $l"; done
+                else _dash_log "${Y}[FE]${N} dist not found or VM offline"; fi ;;
+            l|L) DASH_AUTO_DEPLOY=$(! $DASH_AUTO_DEPLOY); DO_DEPLOY=$DASH_AUTO_DEPLOY
+                _dash_log "${C}[CONFIG]${N} Auto-deploy: $($DASH_AUTO_DEPLOY && echo ON || echo OFF)" ;;
+            s|S) _dash_overlay "Service Status" _dash_show_status ;;
+            h|H) _dash_overlay "Health Check" _dash_show_health ;;
+            R)   _dash_overlay "Restart Service" _dash_restart_picker
+                 _dash_refresh_services ;;
+            j|J) _dash_overlay "Service Journal" _dash_journal_picker ;;
+            c|C)
+                _dash_log "${C}[VM]${N} Connecting..."
+                _dash_check_vm
+                if $DASH_VM_ONLINE; then
+                    _dash_log "${G}[VM]${N} Connected!"
+                    _dash_refresh_services
+                else _dash_log "${R}[VM]${N} Still unreachable — start VM with ./dev-local.sh"; fi ;;
+        esac
+        tick=$((tick + 1))
+    done
+}
+
+run_dashboard

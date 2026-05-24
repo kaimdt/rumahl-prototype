@@ -22,6 +22,7 @@
 #   .\dev-local.ps1 -Log            Live cloud-init / system logs
 #   .\dev-local.ps1 -Reprovision   Force re-running the in-VM setup
 #   .\dev-local.ps1 -NoWatch       Don't auto-launch dev-watch.ps1
+#   .\dev-local.ps1 -Watcher        Launch dev-watch.ps1 in new terminal (VM must be running)
 #   .\dev-local.ps1 -Foreground    Keep this window attached to QEMU
 #   .\dev-local.ps1 -Ram 8GB -CpuCount 4
 # ============================================================================
@@ -38,6 +39,7 @@ param(
     [switch] $Log,
     [switch] $Reprovision,
     [switch] $NoWatch,
+    [switch] $Watcher,
     [switch] $Foreground,
     [switch] $SkipWhpx,
     [ValidatePattern('^\d+(GB|G)?$')]
@@ -76,6 +78,7 @@ if ($Help) {
     Write-Host "  -Log           Live cloud-init / system logs"
     Write-Host "  -Reprovision   Force re-running the in-VM setup"
     Write-Host "  -NoWatch       Don't auto-launch dev-watch.ps1"
+    Write-Host "  -Watcher        Launch dev-watch.ps1 in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
     Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
     Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
@@ -354,6 +357,23 @@ if ($SSH) {
     }
     Write-Info "Connecting to VM via SSH..."
     & $SSH_BIN @SSH_OPTS -i $SSH_KEY -p $SshPort root@127.0.0.1
+    exit 0
+}
+
+if ($Watcher) {
+    $p = Get-QemuPid
+    if (-not $p) { $p = Get-QemuProcess | Select-Object -First 1 }
+    if (-not $p) {
+        Stop-WithError "VM is not running. Start it first: .\dev-local.ps1"
+    }
+    $watchScript = Join-Path $SCRIPT_DIR "dev-watch.ps1"
+    if (-not (Test-Path $watchScript)) {
+        Stop-WithError "dev-watch.ps1 not found at $watchScript"
+    }
+    $targetArg = if ($HOST_ARCH -eq "ARM64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" }
+    Write-Info "Launching dev-watch.ps1 in new terminal..."
+    Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$watchScript`"", "-Target", $targetArg
+    Write-Success "dev-watch launched in new terminal"
     exit 0
 }
 
@@ -950,6 +970,22 @@ cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
+
+# Bootstrap admin credentials for dev VM (idempotent)
+mkdir -p /etc/iora
+if [ ! -f /etc/iora/iora-home.env ]; then
+cat > /etc/iora/iora-home.env <<'ENVEOF'
+DATABASE_URL=postgres://root:iora@localhost:5432/iora_home
+RUST_LOG=iora-home=debug
+IORA_BOOTSTRAP_ADMIN_USER=admin
+IORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234
+ENVEOF
+fi
+# If file already exists, ensure bootstrap vars are present
+if [ -f /etc/iora/iora-home.env ]; then
+    grep -q 'IORA_BOOTSTRAP_ADMIN_USER' /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_BOOTSTRAP_ADMIN_USER=admin' >> /etc/iora/iora-home.env
+    grep -q 'IORA_BOOTSTRAP_ADMIN_PASSWORD' /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234' >> /etc/iora/iora-home.env
+fi
 systemctl daemon-reload
 systemctl reset-failed iora-db-init 2>/dev/null
 systemctl restart iora-home 2>/dev/null
@@ -1064,6 +1100,7 @@ $readyBanner = @"
   |    Stop VM           .\dev-local.ps1 -Stop                          |
   |    Reprovision       .\dev-local.ps1 -Reprovision                   |
   |    Full reset        .\dev-local.ps1 -Clean                         |
+  |    Launch watcher    .\dev-local.ps1 -Watcher                       |
   |                                                                     |
   |  Logs                                                               |
   |    Setup log         $LOG_FILE

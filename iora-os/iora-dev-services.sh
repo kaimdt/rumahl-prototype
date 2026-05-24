@@ -47,6 +47,8 @@ Documentation=https://iora-os.dev/services/${name}
 ${after:+After=${after}}
 ${after:+Wants=${after}}
 ConditionPathExists=${binary}
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Service]
 Type=simple
@@ -55,8 +57,6 @@ WorkingDirectory=${datadir}
 ExecStart=${binary}
 Restart=always
 RestartSec=2
-StartLimitBurst=5
-StartLimitIntervalSec=30
 ${port:+Environment=PORT=${port}}
 StandardOutput=journal
 StandardError=journal
