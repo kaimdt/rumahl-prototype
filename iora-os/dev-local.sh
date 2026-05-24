@@ -13,6 +13,7 @@
 #   ./dev-local.sh --clean-all      Also remove downloaded cloud image
 #   ./dev-local.sh --status         Show whether VM is running, health check
 #   ./dev-local.sh --stop           Stop the running VM
+#   ./dev-local.sh --reboot          Stop VM + restart fresh
 #   ./dev-local.sh --rebuild        Stop VM, clean cache, start fresh
 #   ./dev-local.sh --log             Live cloud-init / system logs
 #   ./dev-local.sh --ssh            SSH directly into the running VM
@@ -195,6 +196,7 @@ CLEAN_ALL=false
 DO_STATUS=false
 DO_STOP=false
 DO_REBUILD=false
+DO_REBOOT=false
 DO_SSH=false
 DO_LOG=false
 REPROVISION=false
@@ -207,6 +209,7 @@ for a in "$@"; do
         --status)       DO_STATUS=true ;;
         --stop)         DO_STOP=true ;;
         --rebuild)      DO_REBUILD=true ;;
+        --reboot)       DO_REBOOT=true ;;
         --ssh)          DO_SSH=true ;;
         --log)          DO_LOG=true ;;
         --reprovision)  REPROVISION=true ;;
@@ -302,6 +305,13 @@ if $DO_SSH; then
     log "Connecting to VM via SSH..."
     exec ssh "${SSH_OPTS[@]}" -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1
     exit 0
+fi
+
+if $DO_REBOOT; then
+    log "Reboot: stopping VM..."
+    vm_stop || true
+    log "Starting fresh..."
+    # Fall through to normal start
 fi
 
 if $DO_REBUILD; then
@@ -949,6 +959,13 @@ else
         echo "DATABASE_URL=postgres://root:iora@localhost/$db" > /etc/iora/db-credentials/iora-${db#iora_}.env
     done
     chmod 600 /etc/iora/db-credentials/*.env
+
+    # Pre-seed extensions and columns that migrations may miss
+    for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
+        su - postgres -c "psql $db -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto'" 2>/dev/null || true
+    done
+    # Force widget_templates_json column (migration 028 sometimes skipped)
+    su - postgres -c "psql iora_home -c 'ALTER TABLE installed_themes ADD COLUMN IF NOT EXISTS widget_templates_json TEXT DEFAULT NULL'" 2>/dev/null || true
 fi
 
 # iora-home systemd override for dev VM

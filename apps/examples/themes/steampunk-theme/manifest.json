@@ -281,7 +281,7 @@
           "setting_type": "slider",
           "default_value": 60,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "steampunk-vignette"
         },
@@ -323,7 +323,7 @@
           "setting_type": "slider",
           "default_value": 70,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 5,
           "css_variable": "steampunk-brass-intensity"
         },
@@ -415,7 +415,7 @@
           "setting_type": "slider",
           "default_value": 1.0,
           "min": 0.5,
-          "max": 2.0,
+          "max_visible": 2.0,
           "step": 0.1,
           "css_variable": "radius-scale"
         }
@@ -467,12 +467,12 @@
       },
       "notifications": {
         "position": "bottom-left",
-        "enter": "slide-right",
-        "exit": "slide-left",
+        "enter_animation": "slide-right",
+        "exit_animation": "slide-left",
         "radius": "3px",
         "accent_bar": true,
-        "max": 3,
-        "dismiss": 8000
+        "max_visible": 3,
+        "auto_dismiss_ms": 8000
       },
       "navigation": {
         "position": "left",

@@ -13,6 +13,8 @@ export interface ThemeFont {
   url: string
   weights?: string
   subsets?: string
+  /** Font format hint, e.g. "woff2", "truetype", "opentype" */
+  format?: string
   is_primary?: boolean
   is_heading?: boolean
   is_monospace?: boolean
@@ -23,6 +25,8 @@ export interface ThemeIconConfig {
   css_path: string
   class_prefix: string
   icon_map: Record<string, string>
+  /** Path to the icon font file (e.g. .woff2, .ttf) inside theme assets */
+  font_file?: string
 }
 
 export interface ThemeDefinition {
@@ -308,6 +312,8 @@ export interface ThemeCssResponse {
   html_templates: Record<string, string>
   /** Theme capabilities */
   capabilities?: ThemeCapabilities
+  /** Animation configuration (splash, page transitions, widget animations) */
+  animation?: ThemeAnimationConfig
   /** Widget templates for theme-defined widget rendering */
   widget_templates?: WidgetTemplate[]
 }

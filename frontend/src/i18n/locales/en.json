@@ -186,6 +186,7 @@
     "greeting_evening": "Good Evening",
     "greeting_night": "Good Night",
     "authenticating": "Authenticating...",
+    "noMediaPlayers": "No media players found",
     "maintenanceMode": "Maintenance Mode",
     "maintenanceMessage": "IORA is in maintenance mode. Please wait.",
     "pageNotFound": "Page not found",

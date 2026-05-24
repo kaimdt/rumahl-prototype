@@ -243,7 +243,7 @@
           "setting_type": "slider",
           "default_value": 70,
           "min": 20,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "synthwave-glow"
         },
@@ -261,7 +261,7 @@
           "setting_type": "slider",
           "default_value": 60,
           "min": 30,
-          "max": 80,
+          "max_visible": 80,
           "step": 5
         },
         {
@@ -271,7 +271,7 @@
           "setting_type": "slider",
           "default_value": 50,
           "min": 20,
-          "max": 100,
+          "max_visible": 100,
           "step": 10
         },
         {
@@ -404,7 +404,7 @@
           "setting_type": "slider",
           "default_value": 1.0,
           "min": 0.5,
-          "max": 2.0,
+          "max_visible": 2.0,
           "step": 0.1,
           "css_variable": "radius-scale"
         }
@@ -455,12 +455,12 @@
       },
       "notifications": {
         "position": "top-right",
-        "enter": "slide-left",
-        "exit": "slide-right",
+        "enter_animation": "slide-left",
+        "exit_animation": "slide-right",
         "radius": "4px",
         "accent_bar": true,
-        "max": 3,
-        "dismiss": 4000
+        "max_visible": 3,
+        "auto_dismiss_ms": 4000
       },
       "navigation": {
         "position": "bottom",

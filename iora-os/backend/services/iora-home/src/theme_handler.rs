@@ -297,7 +297,7 @@ impl ThemeState {
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
         .bind(&fonts_json).bind(&icon_font_json).bind(&capabilities_json)
         .bind(&widget_templates_json)
-        .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
+        .bind(def.system).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
         self.refresh_cache().await?;
@@ -337,7 +337,7 @@ impl ThemeState {
         .bind(&css_files_json).bind(&js_files_json).bind(&html_templates_json)
         .bind(&fonts_json).bind(&icon_font_json).bind(&capabilities_json)
         .bind(&widget_templates_json)
-        .bind(false).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
+        .bind(def.system).bind(true).bind(now).bind(Option::<&str>::None).bind(now)
         .execute(&self.db_pool).await?;
 
         self.refresh_cache().await?;
@@ -680,6 +680,17 @@ pub async fn handle_install_theme_inline(
     State(gs): State<AppState>,
     Json(def): Json<iora_shared::theme::ThemeDefinition>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Validate the manifest before installing (consistent with ZIP handler)
+    let manifest_json = serde_json::to_value(&def).unwrap_or_default();
+    let validation = iora_shared::manifest_validator::validate_theme_manifest(&manifest_json);
+    if !validation.is_valid() {
+        let errors: Vec<String> = validation.issues.iter()
+            .filter(|i| i.severity == iora_shared::manifest_validator::ValidationSeverity::Error)
+            .map(|i| format!("{}: {}", i.field, i.message))
+            .collect();
+        return Err((StatusCode::BAD_REQUEST, format!("Manifest enth\u{e4}lt Fehler:\n{}", errors.join("\n"))));
+    }
+
     gs.theme_manager.install_inline(def).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Install: {}", e)))?;
     Ok(Json(serde_json::json!({"status":"ok"})))

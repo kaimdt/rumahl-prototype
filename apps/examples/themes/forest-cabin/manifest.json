@@ -273,7 +273,7 @@
           "setting_type": "slider",
           "default_value": 70,
           "min": 30,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "forest-warmth"
         },
@@ -298,7 +298,7 @@
           "setting_type": "slider",
           "default_value": 50,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "forest-bark"
         },
@@ -309,7 +309,7 @@
           "setting_type": "slider",
           "default_value": 70,
           "min": 30,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "forest-fire-brightness"
         },
@@ -320,7 +320,7 @@
           "setting_type": "slider",
           "default_value": 50,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 10
         },
         {
@@ -436,7 +436,7 @@
           "setting_type": "slider",
           "default_value": 1.0,
           "min": 0.5,
-          "max": 2.0,
+          "max_visible": 2.0,
           "step": 0.1,
           "css_variable": "radius-scale"
         }
@@ -484,12 +484,12 @@
       },
       "notifications": {
         "position": "bottom-right",
-        "enter": "slide-up",
-        "exit": "slide-down",
+        "enter_animation": "slide-up",
+        "exit_animation": "slide-down",
         "radius": "12px",
         "accent_bar": true,
-        "max": 4,
-        "dismiss": 6000
+        "max_visible": 4,
+        "auto_dismiss_ms": 6000
       },
       "navigation": {
         "position": "bottom",

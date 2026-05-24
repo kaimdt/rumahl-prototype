@@ -1,12 +1,8 @@
 use bcrypt::{hash, verify, DEFAULT_COST};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use std::env;
 use rand::Rng;
 use iora_shared::system_config;
-
-const JWT_SECRET_ENV: &str = "JWT_SECRET";
-const DEFAULT_JWT_SECRET: &str = "your-secret-key-change-in-production";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {

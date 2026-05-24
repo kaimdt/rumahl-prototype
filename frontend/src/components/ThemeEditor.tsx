@@ -16,6 +16,8 @@
 import { useTranslation } from 'react-i18next'
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { authFetch } from '@/lib/authHelpers'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { motion, AnimatePresence } from 'motion/react'
 import {
@@ -556,6 +558,87 @@ function WidgetVariantPreview({
   )
 }
 
+// ─── Save Button ──────────────────────────────────────────────────────
+
+interface SaveButtonProps {
+  hasChanges: boolean
+  colors: Record<string, string>
+  fonts: EditorState['fonts']
+  layout: EditorState['layout']
+  effects: EditorState['effects']
+  selectedTheme: string
+  onSaved: () => void
+}
+
+function SaveButton({ hasChanges, colors, fonts, layout, effects, selectedTheme, onSaved }: SaveButtonProps) {
+  const { token, user } = useAuth()
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = useCallback(async () => {
+    if (!user?.id || !token) return
+    setSaving(true)
+
+    // Build CSS variable overrides from editor state
+    const overrides: Record<string, string> = {}
+
+    // Colors map directly to CSS variable names
+    for (const [key, value] of Object.entries(colors)) {
+      overrides[key] = value
+    }
+
+    // Fonts
+    overrides['font-heading'] = fonts.heading
+    overrides['font-body'] = fonts.body
+    overrides['font-mono'] = fonts.mono
+
+    // Layout
+    overrides['layout-nav-position'] = layout.navPosition
+    overrides['layout-header-style'] = layout.headerStyle
+    overrides['card-radius'] = layout.cardRadius
+    overrides['widget-gap'] = layout.widgetGap
+
+    // Effects
+    overrides['glass-blur'] = effects.glassBlur
+    overrides['glass-opacity'] = effects.glassOpacity
+    overrides['page-transition-duration'] = effects.transitionDuration
+    overrides['page-transition-type'] = effects.transitionType
+    overrides['widget-anim-style'] = effects.widgetAnimStyle
+    overrides['widget-stagger'] = effects.widgetStagger
+
+    try {
+      const res = await authFetch(`/api/themes/user/${user.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          theme_id: selectedTheme,
+          auto_theme: false,
+          overrides,
+        }),
+      })
+      if (res.ok) {
+        onSaved()
+        // Also refresh the theme to apply changes immediately
+        window.dispatchEvent(new CustomEvent('iora-theme-saved'))
+      }
+    } catch (err) {
+      console.warn('Failed to save theme overrides:', err)
+    } finally {
+      setSaving(false)
+    }
+  }, [user?.id, token, colors, fonts, layout, effects, selectedTheme, onSaved])
+
+  return (
+    <button
+      onClick={handleSave}
+      disabled={!hasChanges || saving}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium bg-accent text-accent-foreground hover:bg-accent/90 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      <FloppyDisk size={12} />
+      {saving ? 'Speichern...' : 'Speichern'}
+    </button>
+  )
+}
+
 // ─── Main ThemeEditor Component ───────────────────────────────────────
 
 export interface ThemeEditorProps {
@@ -709,13 +792,15 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
             )}
 
             {/* Save */}
-            <button
-              onClick={() => {/* TODO: save */}}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium bg-accent text-accent-foreground hover:bg-accent/90 transition-all shadow-sm"
-            >
-              <FloppyDisk size={12} />
-              Speichern
-            </button>
+            <SaveButton
+              hasChanges={hasChanges}
+              colors={colors}
+              fonts={fonts}
+              layout={layout}
+              effects={effects}
+              selectedTheme={selectedTheme}
+              onSaved={() => setHasChanges(false)}
+            />
 
             <button
               onClick={() => onOpenChange(false)}

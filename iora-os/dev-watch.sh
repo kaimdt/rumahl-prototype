@@ -262,6 +262,12 @@ deploy_many() {
 
     for svc in "${services[@]}"; do
         if ssh_vm "test -f $vm_target/$svc && install -m 0755 $vm_target/$svc /usr/bin/$svc"; then
+            # Ensure Global Config env files exist
+            local svc_short="${svc#iora-}"
+            ssh_vm "mkdir -p /etc/iora/db-credentials /tmp/iora-sandboxes /opt/iora/build/$svc/data && \
+              [ -f /etc/iora/db-credentials/$svc.env ] || echo 'DATABASE_URL=postgres://root:iora@localhost/iora_${svc_short}' > /etc/iora/db-credentials/$svc.env && \
+              [ -f /etc/iora/$svc.env ] || echo -e 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_${svc_short}\nRUST_LOG=${svc}=debug' > /etc/iora/$svc.env && \
+              echo -e '[Service]\nProtectSystem=no\nProtectHome=no\nPrivateTmp=no\nNoNewPrivileges=no\nRestrictAddressFamilies=\nSystemCallFilter=\nReadWritePaths=\nReadOnlyPaths=\nEnvironmentFile=/etc/iora/$svc.env' > /etc/systemd/system/$svc.service.d/dev-relax.conf" 2>/dev/null || true
             if $DO_RESTART; then
                 ssh_vm "systemctl try-restart $svc 2>/dev/null || systemctl restart $svc 2>/dev/null || true" >/dev/null 2>&1 || true
             fi
@@ -533,6 +539,19 @@ build_rust() {
     # Fix target directory permissions (rsync may create as root)
     ssh_vm "chown -R iora:iora $VM_WORKSPACE/target 2>/dev/null; mkdir -p $VM_WORKSPACE/target && chown iora:iora $VM_WORKSPACE/target" 2>/dev/null || true
 
+    # Auto-detect optimal CARGO_BUILD_JOBS from VM resources
+    local VM_RAM_MB VM_CPUS
+    VM_RAM_MB=$(ssh_vm "awk '/MemTotal/{printf \"%d\", \$2/1024}' /proc/meminfo" 2>/dev/null || echo 4096)
+    VM_CPUS=$(ssh_vm "nproc" 2>/dev/null || echo 2)
+    # Each rustc needs ~2GB RAM. Leave 1GB for system.
+    local jobs_by_ram=$(( (VM_RAM_MB - 1024) / 2048 ))
+    [ "$jobs_by_ram" -lt 1 ] && jobs_by_ram=1
+    # Cap at CPU count
+    local OPTIMAL_JOBS=$(( jobs_by_ram < VM_CPUS ? jobs_by_ram : VM_CPUS ))
+    [ "$OPTIMAL_JOBS" -lt 1 ] && OPTIMAL_JOBS=1
+    [ "$OPTIMAL_JOBS" -gt 8 ] && OPTIMAL_JOBS=8
+    dim "  VM: ${VM_RAM_MB}MB RAM, ${VM_CPUS} CPUs → CARGO_BUILD_JOBS=$OPTIMAL_JOBS"
+
     local rc=0
     # Sync changed source files to VM before building
     rsync -az --delete \
@@ -543,7 +562,7 @@ build_rust() {
         -e "ssh ${SSH_OPTS[*]} -p $VM_PORT" \
         "$REPO_ROOT/" "root@$VM_HOST:/home/iora/iora/" 2>&1 | tail -3
     # Build only selected services (or full workspace)
-    local cargo_cmd="/home/iora/.cargo/bin/cargo build"
+    local cargo_cmd="CARGO_BUILD_JOBS=$OPTIMAL_JOBS /home/iora/.cargo/bin/cargo build"
     if [ -n "$SELECTED_SERVICES" ]; then
         IFS=',' read -ra PKGS <<< "$SELECTED_SERVICES"
         for pkg in "${PKGS[@]}"; do
@@ -631,11 +650,29 @@ deploy_frontend() {
 # loop that drains rapid bursts of events.
 RUST_DIRTY=false
 FE_DIRTY=false
+BUILDING_RUST=false
+BUILDING_FE=false
 
 trigger_loop() {
     while true; do
-        if $RUST_DIRTY; then RUST_DIRTY=false; build_rust || true; fi
-        if $FE_DIRTY;   then FE_DIRTY=false;   build_frontend || true; fi
+        if $RUST_DIRTY; then
+            RUST_DIRTY=false
+            BUILDING_RUST=true
+            _update_status "${Y}Building Rust...${N}"
+            build_rust || true
+            BUILDING_RUST=false
+            ok "[R] Rust build done"
+            _update_status "idle"
+        fi
+        if $FE_DIRTY; then
+            FE_DIRTY=false
+            BUILDING_FE=true
+            _update_status "${Y}Building Frontend...${N}"
+            build_frontend || true
+            BUILDING_FE=false
+            ok "[F] Frontend build done"
+            _update_status "idle"
+        fi
         sleep 1
     done
 }
@@ -728,7 +765,7 @@ show_status() {
     printf '  ────────────────────────────────────────────────────\n'
     for svc in "${ALL_SERVICES[@]}"; do
         local active bin
-        active=$(ssh_vm "systemctl is-active $svc 2>/dev/null" 2>/dev/null || echo "unknown")
+        active=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "unknown")
         bin=$(ssh_vm "test -f /usr/bin/$svc && echo yes || echo no" 2>/dev/null || echo "?")
         local col="$D"
         case "$active" in active) col="$G" ;; failed) col="$R" ;; activating) col="$Y" ;; esac
@@ -794,33 +831,67 @@ ${B}┌────────────────────────�
 │  [B] rebuild  [R] Rust  [F] Frontend  [D] deploy  [P] fe-deploy │
 │  [S] status   [H] health  [L] toggle-deploy  [Q] quit            │
 └──────────────────────────────────────────────────────────────────┘${N}
+  Auto-deploy: $($DO_DEPLOY && echo "${G}ON${N}" || echo "${R}OFF${N}")  |  Ctrl+C to exit  |  Status: idle
 EOF
+
+# Update status line after state changes
+_last_status="idle"
+_update_status() {
+    local new_status="$1"
+    [ "$_last_status" = "$new_status" ] && return
+    _last_status="$new_status"
+    printf '\033[1A\r  Auto-deploy: %s  |  Ctrl+C to exit  |  Status: %s\033[K\n' \
+        "$($DO_DEPLOY && echo "${G}ON${N}" || echo "${R}OFF${N}")" "$new_status"
+}
 
 while true; do
     key=""
-    # Read from TTY directly for reliable keyboard input
     if [ -t 0 ]; then
         IFS= read -r -s -t 1 -n 1 key < /dev/tty 2>/dev/null || true
     fi
     case "${key:-}" in
-        b|B) RUST_DIRTY=true; FE_DIRTY=true ;;
-        r|R) RUST_DIRTY=true ;;
-        f|F) FE_DIRTY=true ;;
+        b|B)
+            if $BUILDING_RUST || $BUILDING_FE; then
+                warn "Build already running — please wait"
+            else
+                dim "[B] Full rebuild triggered..."
+                RUST_DIRTY=true; FE_DIRTY=true
+            fi ;;
+        r|R)
+            if $BUILDING_RUST; then
+                warn "Rust build already running — please wait"
+            else
+                dim "[R] Rust build triggered..."
+                RUST_DIRTY=true
+            fi ;;
+        f|F)
+            if $BUILDING_FE; then
+                warn "Frontend build already running — please wait"
+            else
+                dim "[F] Frontend build triggered..."
+                FE_DIRTY=true
+            fi ;;
         d|D)
+            _update_status "${Y}Deploying...${N}"
+            dim "[D] Deploy triggered..."
             if vm_reachable; then
                 rm -f "$HASH_DIR"/* 2>/dev/null || true
                 deploy_many "${ALL_SERVICES[@]}"
+                ok "[D] Deploy done"
             else
                 warn "VM not reachable"
             fi
-            ;;
+            _update_status "idle" ;;
         p|P)
+            _update_status "${Y}Deploying Frontend...${N}"
+            dim "[P] Frontend deploy triggered..."
             if vm_reachable && [ -d "$FRONTEND_DIR/dist" ]; then
                 deploy_frontend "$FRONTEND_DIR/dist"
+                ok "[P] Frontend deploy done"
             else
                 warn "Frontend dist not found or VM not reachable"
             fi
-            ;;
+            _update_status "idle" ;;
         l|L) DO_DEPLOY=$(! $DO_DEPLOY); log "Auto-deploy: $($DO_DEPLOY && echo ON || echo OFF)" ;;
         s|S) show_status ;;
         h|H) health_check ;;

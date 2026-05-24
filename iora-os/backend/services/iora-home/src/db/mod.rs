@@ -57,6 +57,7 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("025_desktop_clients", include_str!("../../migrations/025_desktop_clients.sql")),
         ("026_themes", include_str!("../../migrations/026_themes.sql")),
         ("027_theme_capabilities", include_str!("../../migrations/027_theme_capabilities.sql")),
+        ("028_theme_widget_templates", include_str!("../../migrations/028_theme_widget_templates.sql")),
     ];
 
     // Apply each migration if not already applied

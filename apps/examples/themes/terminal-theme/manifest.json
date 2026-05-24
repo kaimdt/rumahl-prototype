@@ -96,7 +96,7 @@
           "name": "Green Screen",
           "icon": "Monitor",
           "time_start": "00:00",
-          "time_end": "24:00",
+          "time_end": "00:00",
           "css_variables": {
             "background": "#0a0a0a",
             "foreground": "#50fa7b",
@@ -288,7 +288,7 @@
           "setting_type": "slider",
           "default_value": 50,
           "min": 10,
-          "max": 100,
+          "max_visible": 100,
           "step": 10
         },
         {
@@ -313,7 +313,7 @@
           "setting_type": "slider",
           "default_value": 60,
           "min": 10,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "terminal-crt-intensity"
         },

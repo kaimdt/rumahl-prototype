@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react'
 import { getBackendUrl, getAssistUrl, setBackendUrl, setAssistUrl } from '@/lib/config'
+import { getAuthToken } from '@/lib/authHelpers'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -65,17 +66,13 @@ export function GlobalConfigProvider({ children }: { children: ReactNode }) {
   const [allSettings, setAllSettings] = useState<GlobalSetting[]>([])
   const [loaded, setLoaded] = useState(false)
 
-  const token = (() => {
-    try {
-      const raw = localStorage.getItem('ha-auth-token')
-      return raw ? JSON.parse(raw) : ''
-    } catch {
-      return localStorage.getItem('ha-auth-token') || ''
-    }
-  })()
+  // Read token at call time so that loadConfig works even when
+  // the user authenticates after GlobalConfigProvider mounts.
+  const loadConfigRef = useRef<(() => Promise<void>) | null>(null)
 
   const loadConfig = useCallback(async () => {
     const base = getBackendUrl() || ''
+    const token = getAuthToken()
     try {
       const res = await fetch(`${base}/api/admin/settings`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -100,14 +97,29 @@ export function GlobalConfigProvider({ children }: { children: ReactNode }) {
       // Backend may not be running — use bootstrap defaults
     }
     setLoaded(true)
-  }, [token])
+  }, [])
+
+  loadConfigRef.current = loadConfig
 
   useEffect(() => {
-    loadConfig()
+    loadConfigRef.current?.()
   }, []) // run once on mount
+
+  // Re-trigger loadConfig when the auth token appears in storage
+  // (e.g. user logs in after GlobalConfigProvider already mounted).
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'ha-auth-token' && e.newValue) {
+        loadConfigRef.current?.()
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const getSetting = useCallback(async (key: string): Promise<unknown> => {
     try {
+      const token = getAuthToken()
       const res = await fetch(`${backendUrlState}/api/admin/settings/${encodeURIComponent(key)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
@@ -117,10 +129,11 @@ export function GlobalConfigProvider({ children }: { children: ReactNode }) {
       }
     } catch { /* ignore */ }
     return null
-  }, [backendUrlState, token])
+  }, [backendUrlState])
 
   const setSetting = useCallback(async (key: string, value: unknown) => {
     try {
+      const token = getAuthToken()
       await fetch(`${backendUrlState}/api/admin/settings/${encodeURIComponent(key)}`, {
         method: 'PUT',
         headers: {
@@ -130,7 +143,7 @@ export function GlobalConfigProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ value }),
       })
     } catch { /* ignore */ }
-  }, [backendUrlState, token])
+  }, [backendUrlState])
 
   return (
     <GlobalConfigContext.Provider value={{

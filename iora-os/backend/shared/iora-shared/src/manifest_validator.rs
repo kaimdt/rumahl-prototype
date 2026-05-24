@@ -171,25 +171,34 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     }
 
     // ─── CSS Variables ────────────────────────────────────────────
+    // Child themes that set parent_theme only need to override a subset
+    // of variables — skip the required-variables check for them.
+    let has_parent = get_str(&theme_json, "parent_theme")
+        .map(|p| !p.is_empty())
+        .unwrap_or(false);
+
     if let Some(vars) = get_obj(&theme_json, "css_variables") {
-        let mut missing_required: Vec<&str> = vec![];
-        for req in REQUIRED_THEME_VARS {
-            if !vars.contains_key(*req) {
-                missing_required.push(req);
+        // Only check required variables for standalone (non-child) themes
+        if !has_parent {
+            let mut missing_required: Vec<&str> = vec![];
+            for req in REQUIRED_THEME_VARS {
+                if !vars.contains_key(*req) {
+                    missing_required.push(req);
+                }
+            }
+            if !missing_required.is_empty() {
+                result.add_error("css_variables",
+                    &format!("Mindest-Farbwerte fehlen: {}. Ein Theme muss mindestens Hintergrund, Text, Karten, Akzent, Rahmen und gedämpfte Farbe definieren.",
+                        missing_required.iter().map(|s| format!("--{}", s)).collect::<Vec<_>>().join(", ")),
+                    Some(&format!("Füge fehlende Variablen hinzu:\n{}",
+                        missing_required.iter().map(|v|
+                            format!("  \"{}\": \"oklch(0.5 0.1 240)\"", v)
+                        ).collect::<Vec<_>>().join(",\n"))
+                    ));
             }
         }
-        if !missing_required.is_empty() {
-            result.add_error("css_variables",
-                &format!("Mindest-Farbwerte fehlen: {}. Ein Theme muss mindestens Hintergrund, Text, Karten, Akzent, Rahmen und gedämpfte Farbe definieren.",
-                    missing_required.iter().map(|s| format!("--{}", s)).collect::<Vec<_>>().join(", ")),
-                Some(&format!("Füge fehlende Variablen hinzu:\n{}",
-                    missing_required.iter().map(|v|
-                        format!("  \"{}\": \"oklch(0.5 0.1 240)\"", v)
-                    ).collect::<Vec<_>>().join(",\n"))
-                ));
-        }
 
-        // Validate color values
+        // Validate color values (applies to all themes, including children)
         for (key, val) in vars {
             if let Some(val_str) = val.as_str() {
                 if val_str.is_empty() {
@@ -213,22 +222,26 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
             }
         }
 
-        // Check for recommended variables
-        // Check for recommended variables
-        let missing_rec: Vec<String> = RECOMMENDED_THEME_VARS.iter()
-            .filter(|r| !vars.contains_key(**r))
-            .map(|r| r.to_string())
-            .collect();
-        if !missing_rec.is_empty() {
-            result.add_warning("css_variables",
-                &format!("Empfohlene Variablen fehlen: {}. Diese verbessern das Theme-Erlebnis.",
-                    missing_rec.iter().map(|s| format!("--{}", s)).collect::<Vec<_>>().join(", ")),
-                Some("Erwäge, diese Variablen für bessere Kontrolle hinzuzufügen."));
+        // Check for recommended variables (non-blocking for child themes too)
+        if !has_parent {
+            let missing_rec: Vec<String> = RECOMMENDED_THEME_VARS.iter()
+                .filter(|r| !vars.contains_key(**r))
+                .map(|r| r.to_string())
+                .collect();
+            if !missing_rec.is_empty() {
+                result.add_warning("css_variables",
+                    &format!("Empfohlene Variablen fehlen: {}. Diese verbessern das Theme-Erlebnis.",
+                        missing_rec.iter().map(|s| format!("--{}", s)).collect::<Vec<_>>().join(", ")),
+                    Some("Erwäge, diese Variablen für bessere Kontrolle hinzuzufügen."));
+            }
         }
     } else {
-        result.add_error("css_variables",
-            "Keine CSS-Variablen definiert. Ein Theme MUSS css_variables mit mindestens background, foreground, card, accent, border und muted enthalten.",
-            Some("Füge ein \"css_variables\"-Objekt mit Farbwerten hinzu."));
+        // No css_variables at all: valid for child themes, error for standalone
+        if !has_parent {
+            result.add_error("css_variables",
+                "Keine CSS-Variablen definiert. Ein Theme MUSS css_variables mit mindestens background, foreground, card, accent, border und muted enthalten.",
+                Some("Füge ein \"css_variables\"-Objekt mit Farbwerten hinzu."));
+        }
     }
 
     // ─── Source-Type ──────────────────────────────────────────────

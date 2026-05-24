@@ -249,7 +249,7 @@
           "setting_type": "slider",
           "default_value": 50,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 10
         },
         {
@@ -329,7 +329,7 @@
           "setting_type": "slider",
           "default_value": 70,
           "min": 30,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "glass-opacity"
         },
@@ -361,7 +361,7 @@
           "setting_type": "slider",
           "default_value": 20,
           "min": 0,
-          "max": 40,
+          "max_visible": 40,
           "step": 5,
           "css_variable": "header-blur"
         },
@@ -453,7 +453,7 @@
           "setting_type": "slider",
           "default_value": 1.0,
           "min": 0.5,
-          "max": 2.0,
+          "max_visible": 2.0,
           "step": 0.1,
           "css_variable": "radius-scale"
         }
@@ -501,12 +501,12 @@
       },
       "notifications": {
         "position": "bottom-left",
-        "enter": "slide-up",
-        "exit": "fade",
+        "enter_animation": "slide-up",
+        "exit_animation": "fade",
         "radius": "12px",
         "accent_bar": true,
-        "max": 4,
-        "dismiss": 5000
+        "max_visible": 4,
+        "auto_dismiss_ms": 5000
       },
       "navigation": {
         "position": "left",

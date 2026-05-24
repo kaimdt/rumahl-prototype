@@ -33,6 +33,7 @@ param(
     [switch] $Status,
     [switch] $Stop,
     [switch] $Rebuild,
+    [switch] $Reboot,
     [switch] $SSH,
     [switch] $Log,
     [switch] $Reprovision,
@@ -69,6 +70,7 @@ if ($Help) {
     Write-Host "  -CleanAll      Also remove downloaded cloud image"
     Write-Host "  -Status        Show whether VM is running + health check"
     Write-Host "  -Stop          Stop the running VM"
+    Write-Host "  -Reboot        Stop VM + restart fresh"
     Write-Host "  -Rebuild       Stop VM, clean cache, start fresh"
     Write-Host "  -SSH           SSH directly into the VM"
     Write-Host "  -Log           Live cloud-init / system logs"
@@ -397,6 +399,13 @@ if ($Log) {
         }
     }
     exit 0
+}
+
+if ($Reboot) {
+    Write-Info "Reboot: stopping VM..."
+    Stop-Vm
+    Write-Info "Starting fresh..."
+    # Fall through to normal start
 }
 
 if ($Rebuild) {

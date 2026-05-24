@@ -102,9 +102,34 @@ pub fn database_url_for(service: &str) -> String {
 // JWT / Security Secrets
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Returns the JWT secret. Auto-generated on first boot if not set.
+/// Auto-generated JWT secret cache (lazy init, used as fallback before DB is available).
+static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
+
+/// Returns the JWT secret. Priority:
+/// 1. `IORA_JWT_SECRET` environment variable
+/// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
+/// 3. Auto-generated random secret (set by `persist_jwt_secret` or UUID v4 fallback)
 pub fn jwt_secret() -> String {
-    env_or("IORA_JWT_SECRET", "iora-dev-jwt-change-in-production")
+    // 1. Env var (highest priority, for explicit override)
+    if let Some(secret) = env_optional("IORA_JWT_SECRET") {
+        return secret;
+    }
+    // 2. Settings cache (populated by iora-home from system_preferences table)
+    if let Some(secret) = get_cached_setting("jwt_secret") {
+        return secret;
+    }
+    // 3. Auto-generated fallback (UUID v4 is cryptographically random)
+    AUTO_JWT_SECRET.get_or_init(|| uuid::Uuid::new_v4().to_string()).clone()
+}
+
+/// Persist a generated JWT secret — called by iora-home after writing to the DB.
+/// Updates both the settings cache and the auto-generated fallback so all callers
+/// see the same secret.
+pub fn persist_jwt_secret(secret: &str) {
+    update_cached_setting("jwt_secret".to_string(), secret.to_string());
+    // Also update the auto-generated fallback to match the persisted value.
+    // If the OnceLock is already initialized, force-set it (best-effort).
+    let _ = AUTO_JWT_SECRET.set(secret.to_string());
 }
 
 /// Master encryption key for the secrets service.

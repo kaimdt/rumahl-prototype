@@ -710,7 +710,7 @@ function DashboardContent() {
 
               {currentPageId === 'lights' && !showSimpleDashboard && lightEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Beleuchtung</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.lights')}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {lightEntities.map((light, i) => (
                       <div key={light.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -727,7 +727,7 @@ function DashboardContent() {
 
               {currentPageId === 'climate' && !showSimpleDashboard && climateEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Klima</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.climate')}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
                     {climateEntities.map((climate, i) => (
                       <div key={climate.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -743,7 +743,7 @@ function DashboardContent() {
 
               {currentPageId === 'switches' && !showSimpleDashboard && switchEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Schalter</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.switches')}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {switchEntities.map((switchEntity, i) => (
                       <div key={switchEntity.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -759,7 +759,7 @@ function DashboardContent() {
 
               {currentPageId === 'sensors' && !showSimpleDashboard && sensorEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Sensoren</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.sensors')}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {sensorEntities.map((sensor, i) => (
                       <div key={sensor.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -775,7 +775,7 @@ function DashboardContent() {
 
               {currentPageId === 'music' && !showSimpleDashboard && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.music')}</h3>
                   {mediaPlayerEntities.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                       {mediaPlayerEntities.map((player, i) => (
@@ -789,7 +789,7 @@ function DashboardContent() {
                     </div>
                   ) : (
                     <div className="p-4 sm:p-6 rounded-2xl glass-card text-center text-foreground/50 border border-foreground/10">
-                      Keine Medienplayer gefunden
+                      {t('dashboard.noMediaPlayers')}
                     </div>
                   )}
                 </div>

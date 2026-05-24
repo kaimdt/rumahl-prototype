@@ -324,7 +324,7 @@
           "setting_type": "slider",
           "default_value": 1.0,
           "min": 0.5,
-          "max": 2.0,
+          "max_visible": 2.0,
           "step": 0.1,
           "css_variable": "radius-scale"
         }
@@ -377,12 +377,12 @@
       },
       "notifications": {
         "position": "bottom-right",
-        "enter": "slide-left",
-        "exit": "slide-right",
+        "enter_animation": "slide-left",
+        "exit_animation": "slide-right",
         "radius": "12px",
         "accent_bar": false,
-        "max": 4,
-        "dismiss": 4000
+        "max_visible": 4,
+        "auto_dismiss_ms": 4000
       },
       "navigation": {
         "position": "left",

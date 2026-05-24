@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { getBackendUrl } from '@/lib/config'
+import { parseStoredToken } from '@/lib/authHelpers'
 
 interface User {
   id: string
@@ -41,36 +42,40 @@ function mapApiUser(user: ApiUser): User {
   }
 }
 
-function parseStoredToken(raw: string | null): string | null {
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw)
-    return typeof parsed === 'string' ? parsed : null
-  } catch {
-    return raw
-  }
+// ── Cookie helpers ──────────────────────────────────────────────
+function setCookie(name: string, value: string, days: number) {
+  const d = new Date()
+  d.setTime(d.getTime() + days * 86400000)
+  document.cookie = `${name}=${encodeURIComponent(value)};expires=${d.toUTCString()};path=/;SameSite=Lax`
+}
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : null
+}
+function deleteCookie(name: string) {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
 }
 
 function readPersistedToken(): string | null {
+  // 1. Cookie (survives page reloads, theme changes)
+  const cookieToken = getCookie('iora_token')
+  if (cookieToken) return cookieToken
+  // 2. localStorage (legacy fallback)
   return parseStoredToken(localStorage.getItem('ha-auth-token'))
     ?? parseStoredToken(sessionStorage.getItem('ha-auth-token'))
 }
 
-function writePersistedToken(token: string | null, rememberMe: boolean) {
+function writePersistedToken(token: string | null, _rememberMe: boolean) {
   if (!token) {
+    deleteCookie('iora_token')
     localStorage.removeItem('ha-auth-token')
     sessionStorage.removeItem('ha-auth-token')
     return
   }
-
-  const serialized = JSON.stringify(token)
-  if (rememberMe) {
-    localStorage.setItem('ha-auth-token', serialized)
-    sessionStorage.removeItem('ha-auth-token')
-  } else {
-    sessionStorage.setItem('ha-auth-token', serialized)
-    localStorage.removeItem('ha-auth-token')
-  }
+  // Always store as cookie (survives F5, theme changes)
+  setCookie('iora_token', token, 30)
+  // Also store in localStorage as fallback
+  localStorage.setItem('ha-auth-token', JSON.stringify(token))
 }
 
 const API_BASE = getBackendUrl()
@@ -125,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     verifyToken()
   }, [token])
 
-  const login = useCallback(async (username: string, password: string, rememberMe = false) => {
+  const login = useCallback(async (username: string, password: string, rememberMe = true) => {
     setIsLoading(true)
     try {
       const response = await fetch(`${API_BASE}/api/auth/login`, {

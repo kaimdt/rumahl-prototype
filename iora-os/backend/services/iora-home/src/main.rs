@@ -5,6 +5,7 @@ use axum::{
     routing::{any, delete, get, get_service, post, put},
     Extension, Json, Router,
 };
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::{Ipv4Addr, SocketAddr}, path::Path as FsPath, sync::Arc, time::Duration};
@@ -601,6 +602,34 @@ async fn main() -> anyhow::Result<()> {
     // Initialize configuration repository
     let config_repo = Arc::new(ConfigRepository::new(db_pool.clone()));
 
+    // Ensure JWT secret exists in system_preferences.
+    // Priority: existing DB value > env var > auto-generated crypto-random bytes.
+    if config_repo.get_system_preference("jwt_secret").await
+        .map(|p| p.is_none()).unwrap_or(true)
+    {
+        use rand::RngCore;
+        let mut bytes = [0u8; 64];
+        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        use base64::Engine as _;
+        let secret = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let save_req = db::models::SaveSystemPreferenceRequest {
+            preference_key: "jwt_secret".to_string(),
+            preference_value: serde_json::Value::String(secret.clone()),
+        };
+        if let Err(e) = config_repo.save_system_preference(save_req).await {
+            warn!("Failed to persist auto-generated JWT secret: {e}");
+        } else {
+            iora_shared::system_config::persist_jwt_secret(&secret);
+            info!("Auto-generated and persisted JWT secret");
+        }
+    } else {
+        // Secret exists in DB — seed the system_config cache so jwt_secret()
+        // picks it up without needing an env var.
+        if let Ok(Some(pref)) = config_repo.get_system_preference("jwt_secret").await {
+            iora_shared::system_config::persist_jwt_secret(&pref.preference_value);
+        }
+    }
+
     // First-boot admin bootstrap.
     // The setup wizard (board/iora/iora-setup/setup-server.py) writes the
     // chosen IORA Home web-admin credentials to either an env-file consumed
@@ -624,7 +653,7 @@ async fn main() -> anyhow::Result<()> {
         .timeout(std::time::Duration::from_secs(15))
         .tcp_keepalive(std::time::Duration::from_secs(60))
         .build()
-        .expect("Failed to build HTTP client");
+        .context("Failed to build HTTP client")?;
 
     // Initialize persistent WebSocket connection to Home Assistant.
     // This replaces REST API polling AND provides instant service call dispatch.
@@ -656,6 +685,42 @@ async fn main() -> anyhow::Result<()> {
         ha_client.clone(),
     ));
 
+    // ── local_appstore init ──────────────────────────────────────────
+    let local_appstore = match local_appstore::LocalAppStore::open().await {
+        Ok(s) => s,
+        Err(e) => {
+            if cfg!(target_os = "linux") {
+                anyhow::bail!("local-appstore init failed; persistent storage is required: {e:#}");
+            }
+            warn!("local-appstore init failed ({e:#}); falling back to temporary storage only");
+            // open() only fails if the directory cannot be created;
+            // retry into a temp dir so the rest of the server still
+            // starts.
+            std::env::set_var(
+                "IORA_LOCAL_APPS_DIR",
+                std::env::temp_dir().join("iora-local-apps"),
+            );
+            local_appstore::LocalAppStore::open()
+                .await
+                .context("fallback local-appstore init in temp dir")?
+        }
+    };
+
+    // ── plugin_sandbox init ─────────────────────────────────────────
+    let plugin_sandbox_base = std::env::var("IORA_LOCAL_APPS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps"));
+    let plugin_sandbox = match plugin_sandbox::PluginSandbox::new(&plugin_sandbox_base).await {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("plugin sandbox init failed: {e:#}");
+            // Fallback: tmpdir – Sandbox kann später re-init werden
+            plugin_sandbox::PluginSandbox::new(&std::env::temp_dir().join("iora-plugin-sandbox"))
+                .await
+                .context("plugin-sandbox tmp init")?
+        }
+    };
+
     // Create application state
     let state = AppState {
         ha_client: ha_client.clone(),
@@ -677,44 +742,9 @@ async fn main() -> anyhow::Result<()> {
         stream_manager: stream_manager.clone(),
         notification_dispatcher: notification_dispatcher.clone(),
         settings_registry: Arc::new(iora_shared::settings::default_registry()),
-        local_appstore: match local_appstore::LocalAppStore::open().await {
-            Ok(s) => s,
-            Err(e) => {
-                if cfg!(target_os = "linux") {
-                    anyhow::bail!("local-appstore init failed; persistent storage is required: {e:#}");
-                }
-                warn!("local-appstore init failed ({e:#}); falling back to temporary storage only");
-                // open() only fails if the directory cannot be created;
-                // retry into a temp dir so the rest of the server still
-                // starts.
-                std::env::set_var(
-                    "IORA_LOCAL_APPS_DIR",
-                    std::env::temp_dir().join("iora-local-apps"),
-                );
-                local_appstore::LocalAppStore::open()
-                    .await
-                    .expect("fallback local-appstore init in temp dir")
-            }
-        },
+        local_appstore,
         dev_image: Arc::new(dev_image::DevImageInfo::detect()),
-        plugin_sandbox: {
-            // Sandbox-Manager teilt sich das gleiche Base-Dir wie der App-Store,
-            // damit Plugin-Code persistent neben App-Daten liegt. ensure_running()
-            // wird lazy aufgerufen – hier nur das Verzeichnis vorbereiten.
-            let base = std::env::var("IORA_LOCAL_APPS_DIR")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps"));
-            match plugin_sandbox::PluginSandbox::new(&base).await {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("plugin sandbox init failed: {e:#}");
-                    // Fallback: tmpdir – Sandbox kann später re-init werden
-                    plugin_sandbox::PluginSandbox::new(&std::env::temp_dir().join("iora-plugin-sandbox"))
-                        .await
-                        .expect("plugin-sandbox tmp init")
-                }
-            }
-        },
+        plugin_sandbox,
 
         // New v2.1: Extended App Capabilities
         app_storage: Arc::new(app_storage_handler::AppStorageState::new()),
@@ -8428,7 +8458,7 @@ async fn get_page_settings_handler(
     axum::extract::Path((profile_id, page_id)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
     match state.config_repo.get_page_settings(&profile_id, &page_id).await {
-        Ok(Some(settings)) => Ok(Json(serde_json::to_value(settings).unwrap())),
+        Ok(Some(settings)) => Ok(Json(serde_json::to_value(settings).unwrap_or(Value::Null))),
         Ok(None) => Ok(Json(serde_json::json!(null))),
         Err(e) => {
             warn!("Failed to get page settings: {}", e);
@@ -10585,7 +10615,7 @@ async fn admin_mqtt_status(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let status = state.mqtt_client.status().await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 /// Connect to MQTT broker
@@ -10776,7 +10806,7 @@ async fn admin_matter_status(
         .count();
 
     let status = state.matter_client.status(matter_entity_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 /// Save Matter config
@@ -10787,7 +10817,7 @@ async fn admin_matter_save_config(
     state.matter_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "matter_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
@@ -10803,7 +10833,7 @@ async fn admin_matter_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.matter_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 /// Refresh Matter devices from HA entities
@@ -10829,7 +10859,7 @@ async fn admin_zigbee_status(
         .filter(|i| i.available).map(|i| i.domain.clone()).collect();
     state.zigbee_client.refresh_from_entities(&entities, &integrations).await;
     let status = state.zigbee_client.status().await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_zigbee_save_config(
@@ -10839,7 +10869,7 @@ async fn admin_zigbee_save_config(
     state.zigbee_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "zigbee_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
@@ -10851,7 +10881,7 @@ async fn admin_zigbee_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.zigbee_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 async fn admin_zigbee_refresh(
@@ -10874,7 +10904,7 @@ async fn admin_zwave_status(
     state.zwave_client.refresh_from_entities(&entities).await;
     let zwave_count = entities.iter().filter(|e| e.entity_id.contains("zwave")).count();
     let status = state.zwave_client.status(zwave_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_zwave_save_config(
@@ -10884,7 +10914,7 @@ async fn admin_zwave_save_config(
     state.zwave_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "zwave_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
@@ -10896,7 +10926,7 @@ async fn admin_zwave_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.zwave_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 async fn admin_zwave_refresh(
@@ -10919,7 +10949,7 @@ async fn admin_ble_status(
         e.entity_id.contains("ble_") || e.entity_id.contains("bluetooth")
     }).count();
     let status = state.ble_client.status(ble_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_ble_save_config(
@@ -10929,7 +10959,7 @@ async fn admin_ble_save_config(
     state.ble_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "ble_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
@@ -10941,7 +10971,7 @@ async fn admin_ble_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.ble_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 async fn admin_ble_refresh(
@@ -10963,7 +10993,7 @@ async fn admin_homekit_status(
     state.homekit_client.refresh_from_entities(&entities, ha_has_homekit).await;
     let hk_count = entities.iter().filter(|e| e.entity_id.contains("homekit")).count();
     let status = state.homekit_client.status(hk_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_homekit_save_config(
@@ -10973,7 +11003,7 @@ async fn admin_homekit_save_config(
     state.homekit_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "homekit_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
@@ -10985,7 +11015,7 @@ async fn admin_homekit_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.homekit_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 async fn admin_homekit_refresh(
@@ -11004,7 +11034,7 @@ async fn admin_ha_connection_status(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let status = state.ha_connection.status().await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 /// Overview of all protocol statuses in one call

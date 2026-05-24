@@ -273,7 +273,7 @@
           "setting_type": "slider",
           "default_value": 40,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 10,
           "css_variable": "cyberpunk-glitch"
         },
@@ -314,7 +314,7 @@
           "setting_type": "slider",
           "default_value": 30,
           "min": 0,
-          "max": 100,
+          "max_visible": 100,
           "step": 5,
           "css_variable": "cyberpunk-hologram"
         },
@@ -406,7 +406,7 @@
           "setting_type": "slider",
           "default_value": 1.0,
           "min": 0.5,
-          "max": 2.0,
+          "max_visible": 2.0,
           "step": 0.1,
           "css_variable": "radius-scale"
         }
@@ -458,12 +458,12 @@
       },
       "notifications": {
         "position": "top-right",
-        "enter": "slide-left",
-        "exit": "slide-right",
+        "enter_animation": "slide-left",
+        "exit_animation": "slide-right",
         "radius": "2px",
         "accent_bar": true,
-        "max": 3,
-        "dismiss": 3000
+        "max_visible": 3,
+        "auto_dismiss_ms": 3000
       },
       "navigation": {
         "position": "bottom",
