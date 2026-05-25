@@ -17,10 +17,11 @@ export default function EntityStatisticsWidget({
   entityId?: string
   config?: Record<string, unknown>
 }) {
-  const { entities } = useEntityStore()
+  const { getEntity } = useEntityStore()
   const [stats, setStats] = useState<StatData | null>(null)
   const [loading, setLoading] = useState(true)
-  const entity = entityId ? entities.find(e => e.entity_id === entityId) : undefined
+  // ⚡ Bolt Optimization: Use O(1) getEntity instead of O(N) entities.find()
+  const entity = entityId ? getEntity(entityId) : undefined
   const friendlyName = (entity?.attributes?.friendly_name as string) || entityId || 'Unbekannt'
 
   useEffect(() => {

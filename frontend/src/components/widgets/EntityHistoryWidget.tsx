@@ -13,10 +13,11 @@ interface HistoryPoint {
 }
 
 export default function EntityHistoryWidget({ entityId, config }: EntityHistoryWidgetProps) {
-  const { entities } = useEntityStore()
+  const { getEntity } = useEntityStore()
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const [loading, setLoading] = useState(true)
-  const entity = entityId ? entities.find(e => e.entity_id === entityId) : undefined
+  // ⚡ Bolt Optimization: Use O(1) getEntity instead of O(N) entities.find()
+  const entity = entityId ? getEntity(entityId) : undefined
   const variant = (config?.variant as string) || 'line'
 
   useEffect(() => {

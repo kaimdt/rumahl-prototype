@@ -5,6 +5,7 @@ import { wsOnOpen, wsOnMessage, wsOnClose } from '@/lib/wsConnection'
 
 interface EntityStore {
   entities: EntityState[]
+  getEntity: (entityId: string) => EntityState | undefined
   loading: boolean
   wsConnected: boolean
   refresh: () => Promise<void>
@@ -122,6 +123,8 @@ export function useEntityStore(): EntityStore {
 
   return {
     entities: globalEntities,
+    // ⚡ Bolt Optimization: Expose O(1) Map lookup to prevent O(N) Array.find() scans during renders
+    getEntity: (entityId: string) => globalMap.get(entityId),
     loading: globalLoading,
     wsConnected: globalWsConnected,
     refresh: fetchEntities,
