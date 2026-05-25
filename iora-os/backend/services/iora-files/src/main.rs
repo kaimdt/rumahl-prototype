@@ -415,9 +415,11 @@ async fn upload_file(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Storage error: {}", e))
     })?;
     let storage_path = user_dir.join(&storage_filename);
-    fs::write(&storage_path, &data).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {}", e))
-    })?;
+    iora_shared::upload_store::atomic_write_async(&storage_path, &data)
+        .await
+        .map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {}", e))
+        })?;
 
     let size = data.len() as i64;
     let now = Utc::now().to_rfc3339();

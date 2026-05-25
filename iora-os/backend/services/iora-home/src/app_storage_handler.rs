@@ -26,9 +26,16 @@ use tokio::fs;
 use tracing::{error, info, warn};
 
 use iora_shared::app_storage::*;
+use iora_shared::upload_store::atomic_write_async;
 
 /// Storage backend base path
 const STORAGE_BASE_DIR: &str = "data/app-storage";
+
+/// Hard limit per single uploaded file (50 MiB).
+const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Hard limit for the total storage consumed by a single app (500 MiB).
+const MAX_APP_TOTAL_BYTES: u64 = 500 * 1024 * 1024;
 
 /// App state reference (shared via main.rs)
 #[derive(Clone)]
@@ -124,6 +131,41 @@ pub async fn upload_file(
 
     let size_bytes = content.len() as u64;
 
+    // Enforce per-file quota.
+    if size_bytes > MAX_FILE_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "File exceeds per-file limit ({} bytes > {} bytes)",
+                size_bytes, MAX_FILE_BYTES
+            ),
+        ));
+    }
+
+    // Enforce per-app total quota by inspecting existing metadata.
+    let meta_path_quota = state.app_meta_path(&app_id);
+    let existing_total: u64 = if meta_path_quota.exists() {
+        match fs::read_to_string(&meta_path_quota).await {
+            Ok(c) => serde_json::from_str::<Vec<StoredFile>>(&c)
+                .unwrap_or_default()
+                .iter()
+                .map(|f| f.size_bytes)
+                .sum(),
+            Err(_) => 0,
+        }
+    } else {
+        0
+    };
+    if existing_total.saturating_add(size_bytes) > MAX_APP_TOTAL_BYTES {
+        return Err((
+            StatusCode::INSUFFICIENT_STORAGE,
+            format!(
+                "App storage quota exceeded ({} + {} > {} bytes)",
+                existing_total, size_bytes, MAX_APP_TOTAL_BYTES
+            ),
+        ));
+    }
+
     // Compute SHA-256
     let mut hasher = Sha256::new();
     hasher.update(&content);
@@ -132,8 +174,8 @@ pub async fn upload_file(
     let file_id = uuid::Uuid::new_v4().to_string();
     let storage_path = file_dir.join(&file_id);
 
-    // Write file
-    fs::write(&storage_path, &content).await.map_err(|e| {
+    // Write file atomically (tmp + rename) via shared upload store.
+    atomic_write_async(&storage_path, &content).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e))
     })?;
 
@@ -165,7 +207,7 @@ pub async fn upload_file(
     let meta_json = serde_json::to_string(&metadatas).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize metadata: {}", e))
     })?;
-    fs::write(&meta_path, &meta_json).await.map_err(|e| {
+    atomic_write_async(&meta_path, meta_json.as_bytes()).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write metadata: {}", e))
     })?;
 
@@ -249,7 +291,7 @@ pub async fn delete_file(
     let meta_json = serde_json::to_string(&remaining).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize: {}", e))
     })?;
-    fs::write(&meta_path, &meta_json).await.map_err(|e| {
+    atomic_write_async(&meta_path, meta_json.as_bytes()).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write metadata: {}", e))
     })?;
 
@@ -311,7 +353,7 @@ pub async fn set_kv(
     let content = serde_json::to_string(&entries).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize: {}", e))
     })?;
-    fs::write(&kv_path, &content).await.map_err(|e| {
+    atomic_write_async(&kv_path, content.as_bytes()).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write KV: {}", e))
     })?;
 
@@ -361,7 +403,7 @@ pub async fn delete_kv(
     let json = serde_json::to_string(&entries).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize: {}", e))
     })?;
-    fs::write(&kv_path, &json).await.map_err(|e| {
+    atomic_write_async(&kv_path, json.as_bytes()).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write KV: {}", e))
     })?;
 

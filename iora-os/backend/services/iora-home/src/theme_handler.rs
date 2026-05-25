@@ -179,8 +179,32 @@ impl ThemeState {
     /// Install a theme from ZIP data.
     pub fn extract_zip(&self, zip_data: &[u8]) -> anyhow::Result<iora_shared::theme::ThemeDefinition> {
         use std::io::Cursor;
+
+        // Anti-zip-bomb hard limits.
+        const MAX_TOTAL_UNCOMPRESSED: u64 = 50 * 1024 * 1024; // 50 MiB total
+        const MAX_SINGLE_FILE: u64 = 20 * 1024 * 1024;        // 20 MiB per entry
+        const MAX_ENTRIES: usize = 2_000;
+
         let mut archive = ZipArchive::new(Cursor::new(zip_data))
             .map_err(|e| anyhow::anyhow!("Invalid ZIP: {}", e))?;
+
+        if archive.len() > MAX_ENTRIES {
+            anyhow::bail!("ZIP contains too many entries ({} > {})", archive.len(), MAX_ENTRIES);
+        }
+
+        // Pre-flight: sum declared uncompressed sizes and reject obvious bombs.
+        let mut declared_total: u64 = 0;
+        for i in 0..archive.len() {
+            let entry = archive.by_index(i)?;
+            let sz = entry.size();
+            if sz > MAX_SINGLE_FILE {
+                anyhow::bail!("ZIP entry '{}' exceeds per-file limit ({} > {})", entry.name(), sz, MAX_SINGLE_FILE);
+            }
+            declared_total = declared_total.saturating_add(sz);
+            if declared_total > MAX_TOTAL_UNCOMPRESSED {
+                anyhow::bail!("ZIP uncompressed size exceeds limit ({} > {})", declared_total, MAX_TOTAL_UNCOMPRESSED);
+            }
+        }
 
         let mut manifest_bytes = Vec::new();
         let mut manifest_prefix = String::new();
@@ -644,8 +668,13 @@ impl ThemeState {
             .map_err(|_| (StatusCode::NOT_FOUND, "File not found".into()))?;
         let mime = mime_type(&clean);
         let mut headers = HeaderMap::new();
-        headers.insert(header::CONTENT_TYPE, mime.parse().unwrap());
-        headers.insert(header::CACHE_CONTROL, "public, max-age=3600".parse().unwrap());
+        let mime_value = header::HeaderValue::from_str(mime)
+            .unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream"));
+        headers.insert(header::CONTENT_TYPE, mime_value);
+        headers.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("public, max-age=3600"),
+        );
         Ok((headers, data).into_response())
     }
 }

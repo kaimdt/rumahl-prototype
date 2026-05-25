@@ -3330,6 +3330,7 @@ dependencies = [
  "futures-util",
  "gethostname",
  "hex",
+ "iora-shared",
  "mdns-sd",
  "reqwest 0.11.27",
  "serde",
@@ -3716,14 +3717,18 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "flate2",
  "jsonwebtoken",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
+ "zip 0.6.6",
 ]
 
 [[package]]

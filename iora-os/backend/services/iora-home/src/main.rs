@@ -8723,7 +8723,18 @@ async fn upload_background_image(
             return Err(ErrorResponse::bad_request("Uploaded file is empty"));
         }
 
-        tokio::fs::write(&disk_path, &bytes)
+        // Per-file cap for background images (20 MiB). Larger uploads are
+        // almost certainly malicious or operator error.
+        const MAX_BACKGROUND_BYTES: usize = 20 * 1024 * 1024;
+        if bytes.len() > MAX_BACKGROUND_BYTES {
+            return Err(ErrorResponse::bad_request(format!(
+                "Uploaded file exceeds {} bytes",
+                MAX_BACKGROUND_BYTES
+            )));
+        }
+
+        let disk_path_buf = FsPath::new(&disk_path).to_path_buf();
+        iora_shared::upload_store::atomic_write_async(&disk_path_buf, &bytes)
             .await
             .map_err(|e| ErrorResponse::internal(format!("Failed to save uploaded file: {}", e)))?;
 

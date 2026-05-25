@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::{
@@ -19,6 +20,7 @@ use axum::{
     Json,
 };
 use chrono::Utc;
+use cron::Schedule as CronSchedule;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tracing::{info, warn};
@@ -27,6 +29,16 @@ use iora_shared::app_scheduler::*;
 
 /// Scheduler data directory
 const SCHEDULER_BASE_DIR: &str = "data/app-schedules";
+
+/// Validate that `expr` is a parsable cron expression.
+fn validate_cron(expr: &str) -> Result<(), (StatusCode, String)> {
+    CronSchedule::from_str(expr).map(|_| ()).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid cron expression '{}': {}", expr, e),
+        )
+    })
+}
 
 #[derive(Clone)]
 pub struct AppSchedulerState {
@@ -84,6 +96,10 @@ pub async fn create_schedule(
     AxumPath(app_id): AxumPath<String>,
     Json(req): Json<CreateScheduleRequest>,
 ) -> Result<Json<ScheduledTask>, (StatusCode, String)> {
+    if let Some(ref expr) = req.cron_expression {
+        validate_cron(expr)?;
+    }
+
     let mut tasks = state.load_tasks(&app_id).await;
 
     let task = ScheduledTask {
@@ -132,7 +148,10 @@ pub async fn update_schedule(
 
     if let Some(name) = req.name { task.name = name; }
     if let Some(st) = req.schedule_type { task.schedule_type = st; }
-    if let Some(cron) = req.cron_expression { task.cron_expression = Some(cron); }
+    if let Some(cron) = req.cron_expression {
+        validate_cron(&cron)?;
+        task.cron_expression = Some(cron);
+    }
     if let Some(interval) = req.interval_seconds { task.interval_seconds = Some(interval); }
     if let Some(run_at) = req.run_at { task.run_at = Some(run_at); }
     if let Some(payload) = req.payload { task.payload = payload; }

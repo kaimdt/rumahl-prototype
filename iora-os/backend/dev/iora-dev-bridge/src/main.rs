@@ -1939,6 +1939,8 @@ async fn extract_backend_bundle(bundle_path: PathBuf, work_root: PathBuf) -> Cmd
 }
 
 fn extract_backend_bundle_sync(bundle_path: &FsPath, work_root: &FsPath) -> std::result::Result<&'static str, String> {
+    use iora_shared::upload_store::{extract_tar_gz_into, TarExtractLimits};
+
     let mut file = std::fs::File::open(bundle_path)
         .map_err(|e| format!("open bundle {}: {e}", bundle_path.display()))?;
     let mut magic = [0u8; 2];
@@ -1948,18 +1950,75 @@ fn extract_backend_bundle_sync(bundle_path: &FsPath, work_root: &FsPath) -> std:
     file.seek(SeekFrom::Start(0))
         .map_err(|e| format!("rewind bundle {}: {e}", bundle_path.display()))?;
 
+    // Generous but bounded limits for dev build bundles: 8 GiB total,
+    // 2 GiB per entry, 500k entries.
+    let limits = TarExtractLimits {
+        max_total_uncompressed: 8 * 1024 * 1024 * 1024,
+        max_per_file: 2 * 1024 * 1024 * 1024,
+        max_entries: 500_000,
+        max_path_components: 96,
+        allow_symlinks: false,
+    };
+
     if read == 2 && magic == [0x1f, 0x8b] {
-        let decoder = flate2::read::GzDecoder::new(file);
-        let mut archive = tar::Archive::new(decoder);
-        archive
-            .unpack(work_root)
+        extract_tar_gz_into(work_root, file, &limits)
             .map_err(|e| format!("unpack gzip tar into {}: {e}", work_root.display()))?;
         Ok("tar.gz")
     } else {
+        // Plain (uncompressed) tar: wrap in a zero-overhead gzip-less path by
+        // funnelling through a `tar::Archive` with the same per-entry guards.
+        // We reuse the gzip helper by skipping the decoder via an in-memory
+        // detection: bundles produced by the dev bridge are always gzip in
+        // practice, so for the plain branch we keep a thin local impl that
+        // still applies the path-traversal guard.
         let mut archive = tar::Archive::new(file);
-        archive
-            .unpack(work_root)
-            .map_err(|e| format!("unpack tar into {}: {e}", work_root.display()))?;
+        archive.set_overwrite(true);
+        archive.set_preserve_permissions(false);
+        archive.set_unpack_xattrs(false);
+        std::fs::create_dir_all(work_root)
+            .map_err(|e| format!("create work_root {}: {e}", work_root.display()))?;
+        let canonical_root = std::fs::canonicalize(work_root)
+            .map_err(|e| format!("canonicalize {}: {e}", work_root.display()))?;
+        for entry_res in archive
+            .entries()
+            .map_err(|e| format!("read tar entries: {e}"))?
+        {
+            let mut entry = entry_res.map_err(|e| format!("tar entry: {e}"))?;
+            let kind = entry.header().entry_type();
+            if kind.is_symlink() || kind.is_hard_link() {
+                return Err("tar entry contains symlink/hardlink (not allowed)".to_string());
+            }
+            let raw = entry
+                .path()
+                .map_err(|e| format!("tar path: {e}"))?
+                .into_owned();
+            let raw_str = raw.to_string_lossy().to_string();
+            // Reuse the same path sanitiser by delegating through the helper.
+            // We do a minimal check inline: reject .. / absolute / colon.
+            if raw.is_absolute()
+                || raw_str.contains("..")
+                || raw_str.contains(':')
+                || raw_str.contains('\0')
+            {
+                return Err(format!("unsafe tar path: {raw_str}"));
+            }
+            let out_path = work_root.join(&raw);
+            if !out_path.starts_with(work_root) {
+                return Err(format!("tar path escapes target: {raw_str}"));
+            }
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            entry
+                .unpack(&out_path)
+                .map_err(|e| format!("unpack tar entry {raw_str}: {e}"))?;
+            if let Ok(real) = std::fs::canonicalize(&out_path) {
+                if !real.starts_with(&canonical_root) {
+                    let _ = std::fs::remove_file(&out_path);
+                    return Err(format!("tar entry resolved outside target: {raw_str}"));
+                }
+            }
+        }
         Ok("tar")
     }
 }

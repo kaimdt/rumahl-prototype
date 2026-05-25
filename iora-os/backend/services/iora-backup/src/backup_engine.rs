@@ -202,18 +202,34 @@ impl BackupEngine {
     /// Restore is non-destructive by default: we extract the tar.gz into
     /// `<backup_dir>/restore-<id>/` and the operator can promote files
     /// manually. Avoids destroying live data accidentally.
+    ///
+    /// Hardened via [`iora_shared::upload_store::SecureUploadStore`]: every
+    /// tar entry is validated (no `..`, no absolute paths, no symlinks,
+    /// per-file/total/entry-count caps) before being unpacked.
     pub fn restore_backup(
         &self,
         archive_path: &Path,
     ) -> anyhow::Result<PathBuf> {
-        let id = Uuid::new_v4();
-        let target = self.backup_dir.join(format!("restore-{}", id));
-        fs::create_dir_all(&target)?;
+        use iora_shared::upload_store::{SecureUploadStore, TarExtractLimits};
 
+        let id = Uuid::new_v4();
+        let scope = format!("restore-{}", id);
+
+        let store = SecureUploadStore::new(&self.backup_dir)?;
         let file = fs::File::open(archive_path)?;
-        let dec = flate2::read::GzDecoder::new(file);
-        let mut archive = tar::Archive::new(dec);
-        archive.unpack(&target)?;
+        let limits = TarExtractLimits {
+            // Backups can be large but must still be bounded; refuse single
+            // entries above 4 GiB and archives above 50 GiB.
+            max_total_uncompressed: 50 * 1024 * 1024 * 1024,
+            max_per_file: 4 * 1024 * 1024 * 1024,
+            max_entries: 1_000_000,
+            max_path_components: 64,
+            allow_symlinks: false,
+        };
+
+        let target = store
+            .extract_tar_gz(&scope, file, &limits)
+            .map_err(|e| anyhow::anyhow!("restore failed: {}", e))?;
 
         info!("backup restored to staging dir: {}", target.display());
         Ok(target)

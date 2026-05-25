@@ -881,7 +881,10 @@ impl LocalAppStore {
     /// Append a log entry for a specific app.
     pub fn append_log(&self, app_id: &str, entry: LogEntry) {
         {
-            let mut logs_map = self.app_logs.lock().expect("app_logs mutex poisoned");
+            let mut logs_map = self
+                .app_logs
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             let logs = logs_map.entry(app_id.to_string()).or_default();
             logs.push(entry.clone());
             if logs.len() > MAX_APP_LOG_LINES {
@@ -897,13 +900,19 @@ impl LocalAppStore {
 
     /// Get all log entries for a specific app.
     pub async fn get_logs(&self, app_id: &str) -> Vec<LogEntry> {
-        let logs_map = self.app_logs.lock().expect("app_logs mutex poisoned");
+        let logs_map = self
+            .app_logs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         logs_map.get(app_id).cloned().unwrap_or_default()
     }
 
     /// Get all log entries across all apps.
     pub async fn get_all_logs(&self) -> HashMap<String, Vec<LogEntry>> {
-        let logs_map = self.app_logs.lock().expect("app_logs mutex poisoned");
+        let logs_map = self
+            .app_logs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         logs_map.clone()
     }
 }
@@ -914,8 +923,45 @@ fn extract_zip(
     job_id: Uuid,
     events: &broadcast::Sender<InstallEvent>,
 ) -> Result<(AppManifest, PathBuf)> {
+    // Hard caps shared with [`iora_shared::upload_store`] — protect against
+    // ZIP bombs. Apps can be larger than themes but still must stay bounded.
+    const MAX_TOTAL_UNCOMPRESSED: u64 = 512 * 1024 * 1024; // 512 MiB total
+    const MAX_SINGLE_FILE: u64 = 128 * 1024 * 1024; // 128 MiB per entry
+    const MAX_ENTRIES: usize = 10_000;
+
     let cursor = Cursor::new(bytes);
     let mut zip = zip::ZipArchive::new(cursor).context("öffnen der ZIP-Datei")?;
+
+    if zip.len() > MAX_ENTRIES {
+        return Err(anyhow!(
+            "ZIP enthält zu viele Einträge ({} > {})",
+            zip.len(),
+            MAX_ENTRIES
+        ));
+    }
+
+    // Pre-flight: declared uncompressed sizes must stay within limits.
+    let mut declared_total: u64 = 0;
+    for i in 0..zip.len() {
+        let entry = zip.by_index(i).context("ZIP-Eintrag lesen")?;
+        let sz = entry.size();
+        if sz > MAX_SINGLE_FILE {
+            return Err(anyhow!(
+                "ZIP-Eintrag '{}' überschreitet Datei-Limit ({} > {})",
+                entry.name(),
+                sz,
+                MAX_SINGLE_FILE
+            ));
+        }
+        declared_total = declared_total.saturating_add(sz);
+        if declared_total > MAX_TOTAL_UNCOMPRESSED {
+            return Err(anyhow!(
+                "ZIP unkomprimierte Gesamtgröße überschreitet Limit ({} > {})",
+                declared_total,
+                MAX_TOTAL_UNCOMPRESSED
+            ));
+        }
+    }
 
     // First pass: locate manifest.json.
     let manifest_idx = (0..zip.len())
@@ -983,7 +1029,19 @@ fn extract_zip(
         }
         let mut out = std::fs::File::create(&out_path)
             .with_context(|| format!("schreibe {}", out_path.display()))?;
-        std::io::copy(&mut file, &mut out)?;
+        // Defensive cap: the actual decompressed stream must not exceed the
+        // pre-flight per-file limit (a malicious ZIP header may lie about
+        // declared size).
+        let mut limited = (&mut file).take(MAX_SINGLE_FILE + 1);
+        let written = std::io::copy(&mut limited, &mut out)?;
+        if written > MAX_SINGLE_FILE {
+            // Best-effort cleanup of the half-written file.
+            let _ = std::fs::remove_file(&out_path);
+            return Err(anyhow!(
+                "ZIP-Eintrag '{}' tatsächliche Größe überschreitet Datei-Limit",
+                raw
+            ));
+        }
 
         // Periodic progress update (every ~16 entries).
         if i % 16 == 0 {
