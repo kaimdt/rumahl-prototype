@@ -538,15 +538,26 @@ function DashboardContent() {
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}
         />
-        {(theme === 'night' || theme === 'sleep') && nightModeSettings.nightFilterEnabled && (
+        {nightModeSettings.isActive && (theme === 'night' || theme === 'sleep' || nightModeSettings.applyAlways) && (
           <div
             className="fixed inset-0 z-10 pointer-events-none"
             style={{
-              background: theme === 'sleep' ? 'rgba(0, 0, 0, 1)' : 'rgba(35, 22, 12, 1)',
+              background: theme === 'sleep'
+                ? 'rgba(0, 0, 0, 1)'
+                : 'var(--night-overlay-color, rgba(35, 22, 12, 1))',
               opacity: theme === 'sleep'
                 ? 0.88 * (nightModeSettings.overlayStrength / 100)
-                : 0.45 * (nightModeSettings.overlayStrength / 100),
-              transition: 'opacity var(--transition-duration) ease',
+                : (() => {
+                    // Mirror the formula in useNightModeSettings.applyNightModeCss for SSR-safe value.
+                    const tempBelow = Math.max(0, 6500 - nightModeSettings.colorTemperature)
+                    const warmthFromTemp = Math.min(1, tempBelow / 5000)
+                    const warmthFromBlue = nightModeSettings.blueLightReduction / 100
+                    const warmth = Math.max(warmthFromTemp, warmthFromBlue * 0.8)
+                    // Scale overlay opacity with overlay strength and warmth so a low temperature
+                    // doesn't produce a strong tint when the user has overlay slider at 0.
+                    return (nightModeSettings.overlayStrength / 100) * 0.55 * (0.4 + warmth * 0.6)
+                  })(),
+              transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
             }}
           />
         )}

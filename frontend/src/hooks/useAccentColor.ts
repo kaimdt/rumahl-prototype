@@ -16,8 +16,13 @@ export function useAccentColor() {
   const [accentColor, setAccentColor] = useState(DEFAULT_ACCENT)
   const [extractedPalette, setExtractedPalette] = useState<string[]>([])
   const [settings, setSettings] = useState<AccentColorSettings>(() => {
-    const stored = localStorage.getItem('accent-color-settings')
-    return stored ? JSON.parse(stored) : { mode: 'auto', staticColor: DEFAULT_ACCENT }
+    try {
+      const stored = localStorage.getItem('accent-color-settings')
+      return stored ? JSON.parse(stored) : { mode: 'auto', staticColor: DEFAULT_ACCENT }
+    } catch (err) {
+      console.warn('useAccentColor: failed to parse stored settings, using defaults', err)
+      return { mode: 'auto', staticColor: DEFAULT_ACCENT }
+    }
   })
 
   // Counter to discard stale async extractions

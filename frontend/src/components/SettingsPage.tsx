@@ -320,6 +320,7 @@ function SliderRow({
   onChange: (v: number) => void
   disabled?: boolean
 }) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -333,7 +334,10 @@ function SliderRow({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
-        className="w-full h-1.5 bg-foreground/10 rounded-full appearance-none cursor-pointer disabled:opacity-40 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-sm [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+        style={{
+          background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, oklch(from var(--foreground) l c h / 0.10) ${pct}%, oklch(from var(--foreground) l c h / 0.10) 100%)`,
+        }}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:opacity-40 transition-shadow focus:outline-none focus:ring-2 focus:ring-accent/30 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_0_3px_oklch(from_var(--accent)_l_c_h/0.18)] [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
       />
     </div>
   )
@@ -838,6 +842,18 @@ interface SettingsPageProps {
     setAutoBrightness: (v: boolean) => void
     overlayStrength: number
     setOverlayStrength: (v: number) => void
+    colorTemperature: number
+    setColorTemperature: (v: number) => void
+    scheduleEnabled: boolean
+    setScheduleEnabled: (v: boolean) => void
+    startTime: string
+    setStartTime: (v: string) => void
+    endTime: string
+    setEndTime: (v: string) => void
+    applyAlways: boolean
+    setApplyAlways: (v: boolean) => void
+    isActive: boolean
+    isScheduleActive: boolean
   }
   // Screensaver
   screensaverSettings: {
@@ -1345,8 +1361,26 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Night Mode */}
             <SettingsSection icon={Moon} title={t("settings.nightMode")} description={t("settings.nightModeDesc")}>
+              {/* Live status pill */}
+              <div className="flex items-center justify-between rounded-xl bg-foreground/[0.04] border border-foreground/8 px-4 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${nightModeSettings.isActive ? 'bg-amber-400' : 'bg-foreground/25'}`}
+                    style={nightModeSettings.isActive ? { boxShadow: '0 0 8px rgba(251,191,36,0.55)' } : undefined}
+                  />
+                  <span className="text-[12px] text-foreground/75 font-medium">
+                    {nightModeSettings.isActive ? t('settings.nightFilterActive') : t('settings.nightFilterInactive')}
+                  </span>
+                </div>
+                {nightModeSettings.scheduleEnabled && (
+                  <span className="text-[10px] uppercase tracking-wider text-foreground/45">
+                    {nightModeSettings.startTime}–{nightModeSettings.endTime}
+                  </span>
+                )}
+              </div>
+
               <ToggleRow
-                label="Nachtfilter"
+                label={t("settings.nightFilter")}
                 description={t("settings.nightFilterDesc")}
                 checked={nightModeSettings.nightFilterEnabled}
                 onCheckedChange={nightModeSettings.setNightFilterEnabled}
@@ -1354,27 +1388,73 @@ export function SettingsPage(props: SettingsPageProps) {
               {nightModeSettings.nightFilterEnabled && (
                 <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
                   <SliderRow
-                    label="Blaulichtfilter"
+                    label={t("settings.colorTemperature")}
+                    value={nightModeSettings.colorTemperature}
+                    min={1500}
+                    max={6500}
+                    unit=" K"
+                    onChange={nightModeSettings.setColorTemperature}
+                  />
+                  <SliderRow
+                    label={t("settings.blueLightFilter")}
                     value={nightModeSettings.blueLightReduction}
                     min={0}
                     max={100}
                     unit="%"
                     onChange={nightModeSettings.setBlueLightReduction}
                   />
-                  <ToggleRow
-                    label="Auto-Helligkeit"
-                    description={t("settings.brightnessAdjustDesc")}
-                    checked={nightModeSettings.autoBrightness}
-                    onCheckedChange={nightModeSettings.setAutoBrightness}
-                  />
                   <SliderRow
-                    label="Nacht-Overlay"
+                    label={t("settings.nightOverlay")}
                     value={nightModeSettings.overlayStrength}
                     min={0}
                     max={100}
                     unit="%"
                     onChange={nightModeSettings.setOverlayStrength}
                   />
+                  <ToggleRow
+                    label={t("settings.autoBrightness")}
+                    description={t("settings.brightnessAdjustDesc")}
+                    checked={nightModeSettings.autoBrightness}
+                    onCheckedChange={nightModeSettings.setAutoBrightness}
+                  />
+                  <ToggleRow
+                    label={t("settings.nightApplyAlways")}
+                    description={t("settings.nightApplyAlwaysDesc")}
+                    checked={nightModeSettings.applyAlways}
+                    onCheckedChange={nightModeSettings.setApplyAlways}
+                  />
+                  <ToggleRow
+                    label={t("settings.nightSchedule")}
+                    description={t("settings.nightScheduleDesc")}
+                    checked={nightModeSettings.scheduleEnabled}
+                    onCheckedChange={nightModeSettings.setScheduleEnabled}
+                  />
+                  {nightModeSettings.scheduleEnabled && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] uppercase tracking-wider text-foreground/55">
+                          {t("settings.nightStartTime")}
+                        </span>
+                        <input
+                          type="time"
+                          value={nightModeSettings.startTime}
+                          onChange={(e) => nightModeSettings.setStartTime(e.target.value)}
+                          className="w-full h-10 px-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow"
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] uppercase tracking-wider text-foreground/55">
+                          {t("settings.nightEndTime")}
+                        </span>
+                        <input
+                          type="time"
+                          value={nightModeSettings.endTime}
+                          onChange={(e) => nightModeSettings.setEndTime(e.target.value)}
+                          className="w-full h-10 px-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow"
+                        />
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
             </SettingsSection>

@@ -442,6 +442,17 @@ export async function adminFetch(path: string, token: string, options?: RequestI
       ...(options?.headers || {}),
     },
   })
+  // Any mutating request invalidates the in-memory GET cache so the UI does
+  // not display stale data after a successful save/delete. We clear the exact
+  // path plus its base (e.g. `/api/admin/users/123` -> also clear `/api/admin/users`).
+  const method = (options?.method || 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD') {
+    try {
+      dataCache.delete(path)
+      const base = path.split('?')[0].replace(/\/[^/]+$/, '')
+      if (base.startsWith('/api/')) dataCache.delete(base)
+    } catch { /* cache map may not exist yet during init */ }
+  }
   // Detect HTML responses (e.g. dev-server fallback / nginx 404 page) before
   // we try to parse them as JSON, so the user sees a friendly message instead
   // of "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON".
@@ -480,6 +491,18 @@ export async function adminFetch(path: string, token: string, options?: RequestI
     throw new Error('Dieser Bereich ist auf diesem System (noch) nicht verfügbar — der Endpunkt existiert nicht oder wird von einem anderen Microservice bereitgestellt.')
   }
   return res.json()
+}
+
+/**
+ * Surface action errors to the user via a toast. Action handlers in the admin
+ * panel used to swallow errors silently (catch with empty body), which made
+ * users believe buttons "did nothing". This helper centralises the feedback
+ * so every failed mutation produces a visible message and a console trace.
+ */
+function notifyError(e: unknown): void {
+  const message = e instanceof Error ? e.message : (typeof e === 'string' ? e : 'Unbekannter Fehler')
+  console.error('[AdminPanel] action failed:', e)
+  try { toast.error(message) } catch { /* toast container may not be mounted in some contexts */ }
 }
 
 // Simple cache so tab switches don't re-fetch
@@ -1675,7 +1698,7 @@ function TasksTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/control/tasks/${taskId}/trigger`, token, { method: 'POST' })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     setTriggerLoading(null)
   }
 
@@ -1683,7 +1706,7 @@ function TasksTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/control/tasks/${taskId}/toggle`, token, { method: 'POST' })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -2012,7 +2035,7 @@ function SystemTab({ token }: { token: string }) {
       })
       setMaintenanceActive(result.active)
       setMaintenanceMsg(result.message || '')
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     setMaintenanceLoading(false)
   }
 
@@ -2024,7 +2047,7 @@ function SystemTab({ token }: { token: string }) {
         body: JSON.stringify({ message: maintenanceMsg }),
       })
       setMaintenanceMsg(result.message || '')
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     setMaintenanceLoading(false)
   }
 
@@ -2171,7 +2194,7 @@ function UsersTab({ token }: { token: string }) {
         body: JSON.stringify({ is_admin: !isAdmin }),
       })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2181,7 +2204,7 @@ function UsersTab({ token }: { token: string }) {
       await adminFetch(`/api/admin/users/${userId}`, token, { method: 'DELETE' })
       setConfirmDelete(null)
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2199,7 +2222,7 @@ function UsersTab({ token }: { token: string }) {
       setEditingUser(null)
       setEditForm({ display_name: '', new_password: '', role: '' })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2386,7 +2409,7 @@ function ApiKeysTab({ token }: { token: string }) {
       setShowCreate(false)
       setForm({ name: '', permissions: ['read'], rate_limit: 60, expires_in_days: 0 })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2395,7 +2418,7 @@ function ApiKeysTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/keys/${keyId}`, token, { method: 'DELETE' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -4017,7 +4040,7 @@ function LogsTab({ token }: { token: string }) {
     try {
       await adminFetch('/api/admin/logs/clear', token, { method: 'POST' })
       setLogs([])
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -4234,7 +4257,7 @@ function DatabaseTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/system/database/temp-users/${id}`, token, { method: 'DELETE' })
       loadData()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -4461,35 +4484,35 @@ function SystemNotificationsTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/system-notifications/${id}/acknowledge`, token, { method: 'PUT' })
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, acknowledged: true } : n))
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleResolve = async (id: string) => {
     try {
       await adminFetch(`/api/admin/system-notifications/${id}/resolve`, token, { method: 'PUT' })
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, resolved: true } : n))
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleDelete = async (id: string) => {
     try {
       await adminFetch(`/api/admin/system-notifications/${id}`, token, { method: 'DELETE' })
       setNotifications(prev => prev.filter(n => n.id !== id))
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleClearResolved = async () => {
     try {
       await adminFetch('/api/admin/system-notifications/clear-resolved', token, { method: 'DELETE' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleForceSync = async (entityId: string) => {
     try {
       await adminFetch(`/api/admin/location-sync/${encodeURIComponent(entityId)}/force-sync`, token, { method: 'POST' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -5117,7 +5140,7 @@ function WebhooksTab({ token }: { token: string }) {
       setShowCreate(false)
       setForm({ name: '', url: '', secret: '', events: '*' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -5126,7 +5149,7 @@ function WebhooksTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/webhooks/${id}`, token, { method: 'DELETE' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -5138,7 +5161,7 @@ function WebhooksTab({ token }: { token: string }) {
         body: JSON.stringify({ active: !active }),
       })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -5157,7 +5180,7 @@ function WebhooksTab({ token }: { token: string }) {
     try {
       const data = await adminFetch(`/api/webhooks/${webhookId}/deliveries?limit=20`, token) as { deliveries: WebhookDelivery[] }
       setDeliveryLog({ webhookId, deliveries: data.deliveries || [] })
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6044,7 +6067,7 @@ function SchedulerTab({ token }: { token: string }) {
       setShowCreateSchedule(false)
       setNewSchedule({ entity_id: '', action: 'turn_on', cron: '', name: '' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6053,7 +6076,7 @@ function SchedulerTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/integration/schedules/${id}`, token, { method: 'DELETE' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6067,7 +6090,7 @@ function SchedulerTab({ token }: { token: string }) {
       setShowCreateWatchdog(false)
       setNewWatchdog({ entity_id: '', expected_state: 'on', timeout_minutes: 30, action: 'notify', name: '' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6076,7 +6099,7 @@ function SchedulerTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/integration/watchdogs/${id}`, token, { method: 'DELETE' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6084,7 +6107,7 @@ function SchedulerTab({ token }: { token: string }) {
     setActionLoading('check-watchdogs')
     try {
       await adminFetch('/api/integration/watchdogs/check', token, { method: 'POST' })
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 

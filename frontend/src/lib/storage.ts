@@ -107,6 +107,9 @@ class LocalStorageManager {
 }
 
 // Export singleton instance
+// React import at top (was at bottom previously — moved for convention).
+import * as React from 'react'
+
 export const storage = new LocalStorageManager()
 
 /**
@@ -116,16 +119,22 @@ export function useLocalStorage<T>(
   key: string,
   defaultValue: T
 ): [T, (value: T) => void] {
+  // Keep latest defaultValue in a ref so the subscribe effect doesn't
+  // re-subscribe whenever the caller passes a new (referentially fresh)
+  // default. The first render still uses `defaultValue` directly.
+  const defaultValueRef = React.useRef(defaultValue)
+  defaultValueRef.current = defaultValue
+
   const [value, setValue] = React.useState<T>(() => {
     return storage.get(key, defaultValue) ?? defaultValue
   })
 
   React.useEffect(() => {
     const unsubscribe = storage.subscribe<T>(key, (newValue) => {
-      setValue(newValue ?? defaultValue)
+      setValue(newValue ?? defaultValueRef.current)
     })
     return unsubscribe
-  }, [key, defaultValue])
+  }, [key])
 
   const setStorageValue = React.useCallback(
     (newValue: T) => {
@@ -137,8 +146,5 @@ export function useLocalStorage<T>(
 
   return [value, setStorageValue]
 }
-
-// For compatibility with existing code
-import * as React from 'react'
 
 export { useLocalStorage as useKV }

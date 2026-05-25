@@ -16,19 +16,26 @@ const DEFAULT_SETTINGS: GlassSettings = {
 
 export function useGlassSettings() {
   const [settings, setSettings] = useState<GlassSettings>(() => {
-    const stored = localStorage.getItem('glass-settings')
-    return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS
+    try {
+      const stored = localStorage.getItem('glass-settings')
+      return stored
+        ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) }
+        : DEFAULT_SETTINGS
+    } catch (err) {
+      console.warn('useGlassSettings: failed to parse stored settings, using defaults', err)
+      return DEFAULT_SETTINGS
+    }
   })
 
+  // Persist + apply whenever settings change (also runs on mount).
   useEffect(() => {
-    localStorage.setItem('glass-settings', JSON.stringify(settings))
+    try {
+      localStorage.setItem('glass-settings', JSON.stringify(settings))
+    } catch (err) {
+      console.warn('useGlassSettings: failed to persist settings', err)
+    }
     applyGlassSettings(settings)
   }, [settings])
-
-  // Apply on mount
-  useEffect(() => {
-    applyGlassSettings(settings)
-  }, [])
 
   const setBlurIntensity = useCallback((value: number) => {
     setSettings(prev => ({ ...prev, blurIntensity: value }))

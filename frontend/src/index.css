@@ -722,7 +722,25 @@
   border: 1px solid var(--accent) !important;
   box-shadow: 0 8px 32px oklch(from var(--accent) l c h / 0.3) !important;
 }
-/* Blue light reduction for night modes — applied via App.tsx content wrapper, not body */
+/* ─── Night Mode v2 ─────────────────────────────────────────────────
+ * `useNightModeSettings` writes CSS variables on `:root` and toggles
+ * `body[data-night-active]` + `body[data-night-scope]`.
+ *
+ *  - scope="theme"  → only filter when the active theme is night/sleep
+ *  - scope="global" → filter regardless of theme (applyAlways)
+ *
+ * The body filter is applied via `:has()` selectors on `html` so the
+ * filter cascades through the entire page including fixed overlays.
+ */
+html:has(body[data-night-active="true"][data-night-scope="global"]) > body,
+html[data-theme="night"]:has(body[data-night-active="true"][data-night-scope="theme"]) > body,
+html[data-theme="sleep"]:has(body[data-night-active="true"][data-night-scope="theme"]) > body {
+  filter:
+    var(--night-filter-sepia, sepia(0))
+    var(--night-filter-saturate, saturate(1))
+    var(--night-filter-brightness, brightness(1))
+    var(--night-filter-hue, hue-rotate(0deg));
+}
 
 /* Ensure smooth transitions for theme changes */
 body {

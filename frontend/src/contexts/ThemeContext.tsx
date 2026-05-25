@@ -551,7 +551,7 @@ function injectFonts(fonts: ThemeFont[]) {
 
 /** Inject a <style> tag for custom CSS */
 function injectCustomCss(css: string) {
-  if (process.env.NODE_ENV === 'development') {
+  if (import.meta.env.DEV) {
     const lines = css.split('\n')
     for (const line of lines) {
       const trimmed = line.trim()
@@ -693,7 +693,7 @@ function applyCachedThemeCss(): string | null {
   try {
     const raw = sessionStorage.getItem(THEME_CSS_CACHE_KEY)
     if (!raw) return null
-    const { id, vars } = JSON.parse(raw)
+    const { id, vars } = JSON.parse(raw) as { id: string; vars: Record<string, string> }
     const root = document.documentElement
     Object.entries(vars).forEach(([k, v]) => root.style.setProperty(`--${k}`, v))
     root.setAttribute('data-theme', id)
@@ -734,8 +734,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const { user } = useAuth()
   useEffect(() => {
-    setProfileId(user?.id || user?.sub || null)
-  }, [user?.id, user?.sub])
+    setProfileId(user?.id || null)
+  }, [user?.id])
 
   const refreshThemes = useCallback(async () => {
     try {
