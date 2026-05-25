@@ -493,7 +493,7 @@ const LONG_TTL_PATHS = new Set([
   '/api/admin/ha/network', '/api/admin/ha/scenes', '/api/admin/ha/automations',
   '/api/admin/ha/mqtt', '/api/admin/ha/matter', '/api/admin/system/database',
 ])
-const LONG_CACHE_TTL = 300_000 // 5 minutes for stable data
+const LONG_CACHE_TTL = 600_000 // 10 minutes for stable data (HA config/services rarely change at runtime)
 
 async function cachedFetch(path: string, token: string): Promise<unknown> {
   const ttl = LONG_TTL_PATHS.has(path) ? LONG_CACHE_TTL : CACHE_TTL

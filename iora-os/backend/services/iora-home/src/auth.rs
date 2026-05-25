@@ -26,9 +26,12 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::Bcryp
 pub fn generate_token(user_id: &str, username: &str, is_admin: bool, expiration_days: i64) -> Result<String, jsonwebtoken::errors::Error> {
     let secret = system_config::jwt_secret();
 
+    // `checked_add_signed` only returns None on extreme overflow. Falling back to
+    // a 24h expiry keeps token generation alive instead of panicking the handler.
     let expiration = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::days(expiration_days.clamp(1, 90)))
-        .expect("valid timestamp")
+        .or_else(|| chrono::Utc::now().checked_add_signed(chrono::Duration::days(1)))
+        .unwrap_or_else(chrono::Utc::now)
         .timestamp() as usize;
 
     let claims = Claims {

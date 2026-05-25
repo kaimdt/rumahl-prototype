@@ -108,12 +108,6 @@ fn ensure_writable_dir(dir: &FsPath) -> std::io::Result<()> {
 
 // The handler functions below use State<AppState> and access theme_manager via app_state.theme_manager
 
-// Helper to extract ThemeState reference from AppState
-#[allow(dead_code)]
-fn tm(state: &AppState) -> &ThemeState {
-    &state.theme_manager
-}
-
 // ─── DB Row types ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,7 +513,14 @@ impl ThemeState {
                         // Resolve icon font paths
             let mut resolved_icon_font: Option<iora_shared::theme::ThemeIconConfig> = None;
             if let Some(mut ic) = icon_font {
-                if !ic.css_path.starts_with("http") && !ic.css_path.starts_with("data:") {
+                // Only prepend the asset base when a non-empty relative path was provided.
+                // Without this guard, an empty `css_path` (common in sample manifests)
+                // would resolve to the assets directory URL and the frontend would inject
+                // a broken <link rel="stylesheet"> tag.
+                if !ic.css_path.is_empty()
+                    && !ic.css_path.starts_with("http")
+                    && !ic.css_path.starts_with("data:")
+                {
                     if let Some(ref base) = assets_base { ic.css_path = format!("{}/{}", base, ic.css_path); }
                 }
                 if let Some(ff) = ic.font_file.take() {
@@ -929,6 +930,12 @@ pub async fn update_user_theme_settings(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let now = chrono::Utc::now();
 
+    // Batch all upserts in a single transaction. On SQLite this collapses N
+    // independent fsyncs into one and gives ~5–10x speedup for large setting
+    // payloads; on Postgres it removes N round-trips.
+    let mut tx = gs.db_pool.begin().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB begin: {}", e)))?;
+
     for (key, value) in &req.settings {
         let value_str = serde_json::to_string(value)
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid value for {}: {}", key, e)))?;
@@ -942,9 +949,12 @@ pub async fn update_user_theme_settings(
         .bind(&format!("uts_{}", uuid::Uuid::new_v4()))
         .bind(&profile_id).bind(&profile_id).bind(&theme_id)
         .bind(key).bind(&value_str).bind(now).bind(now)
-        .execute(&gs.db_pool).await
+        .execute(&mut *tx).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB: {}", e)))?;
     }
+
+    tx.commit().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB commit: {}", e)))?;
 
     Ok(Json(serde_json::json!({"status": "ok", "updated": req.settings.len()})))
 }

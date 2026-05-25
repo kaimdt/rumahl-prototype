@@ -53,6 +53,8 @@ rand = "0.8"
 hex = "0.4"
 hmac = "0.12"
 sha2 = "0.10"
+# AES-256-GCM for at-rest encryption of sensitive secrets (e.g. MQTT passwords)
+aes-gcm = "0.10"
 
 # System info
 sysinfo = "0.30"

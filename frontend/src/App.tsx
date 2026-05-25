@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react'
 import '@/i18n'
 import { useTranslation } from 'react-i18next'
 import { getBackendUrl } from '@/lib/config'
@@ -22,19 +22,21 @@ import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginModal } from '@/components/LoginModal'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
-import { PageDesigner } from '@/components/PageDesigner'
+// Heavy admin/editor routes: lazy-loaded to keep the initial bundle small.
+// They are only rendered when the user navigates to the corresponding page.
+const PageDesigner = lazy(() => import('@/components/PageDesigner').then(m => ({ default: m.PageDesigner })))
 import { CustomPageRenderer } from '@/components/CustomPageRenderer'
 import { SettingsPage } from '@/components/SettingsPage'
 import { SimpleDashboard } from '@/components/SimpleDashboard'
 // Share page for the Apps & Features app menu
-import { SharePage } from './components/SharePage'
+const SharePage = lazy(() => import('./components/SharePage').then(m => ({ default: m.SharePage })))
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
-import { AdminPanel } from '@/components/AdminPanel'
-import { AgentTab } from '@/components/AgentTab'
-import { DocsPage } from '@/components/DocsPageNew'
-import { StreamSender } from '@/components/StreamSender'
-import { AppSettingsPage } from '@/components/AppSettingsPage'
+const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ default: m.AdminPanel })))
+const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
+const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
+const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
+const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
 import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
@@ -53,7 +55,7 @@ import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defau
 import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
 import { ORAAssistant } from '@/components/ORAAssistant'
-import { CodingAgent } from '@/components/CodingAgent'
+const CodingAgent = lazy(() => import('@/components/CodingAgent').then(m => ({ default: m.CodingAgent })))
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -588,7 +590,7 @@ function DashboardContent() {
           {(() => {
             // App Settings standalone page (opened in new tab from AppStoreTab)
             if (window.location.pathname.startsWith('/app-settings/')) {
-              return <AppSettingsPage />
+              return <Suspense fallback={null}><AppSettingsPage /></Suspense>
             }
 
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
@@ -622,7 +624,7 @@ function DashboardContent() {
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
               return (
-                <>
+                <Suspense fallback={null}>
                   {currentPageId === 'settings' && (
                     <SettingsPage
                       user={user}
@@ -664,7 +666,7 @@ function DashboardContent() {
                       <AgentTab token={token || ''} />
                     </div>
                   )}
-                </>
+                </Suspense>
               )
             }
 
@@ -847,14 +849,18 @@ function DashboardContent() {
           </div>
         </DialogContent>
       </Dialog>
-      <PageDesigner
-        isOpen={showPageDesigner}
-        onClose={() => setShowPageDesigner(false)}
-        availableEntities={entities}
-        userName={userName}
-        weatherEntity={weatherEntity}
-        lightEntities={lightEntities}
-      />
+      {showPageDesigner && (
+        <Suspense fallback={null}>
+          <PageDesigner
+            isOpen={showPageDesigner}
+            onClose={() => setShowPageDesigner(false)}
+            availableEntities={entities}
+            userName={userName}
+            weatherEntity={weatherEntity}
+            lightEntities={lightEntities}
+          />
+        </Suspense>
+      )}
       {/* Modal Page Overlay */}
       <AnimatePresence>
         {modalPageId && (() => {
@@ -922,7 +928,7 @@ function DashboardContent() {
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
       <ORAAssistant />
-      {aiEnabled && <CodingAgent />}
+      {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
     </>
   )
 }

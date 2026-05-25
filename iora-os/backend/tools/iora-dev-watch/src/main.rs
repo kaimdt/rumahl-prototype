@@ -49,6 +49,9 @@ enum AppEvent {
     BuildComplete,
     VmStatus(bool),
     FileChange { rust_crates: HashSet<String>, frontend: bool },
+    /// Result of fetch_service_status — list of (status, has_binary) in the
+    /// same order as `App::services`.
+    ServiceStatus(Vec<(String, bool)>),
 }
 
 // ═══ Modes & Views ═══════════════════════════════════════════════════════
@@ -82,6 +85,7 @@ struct App {
     log_scroll_offset: usize,
     command_log: VecDeque<String>,
     build_start: Option<Instant>,
+    last_frame_tick: Instant,
     // Log buffer (for status/health/journal snapshots)
 }
 
@@ -110,26 +114,48 @@ impl App {
             frontend_dir, cache_dir, build_frame: 0, show_help: false,
             log_scroll_offset: 0, command_log: VecDeque::with_capacity(200),
             build_start: None,
+            last_frame_tick: Instant::now(),
         })
     }
 
+    /// SSH ControlMaster socket path. Keeps one persistent TCP connection
+    /// open across all ssh/scp/rsync invocations so we don't pay the
+    /// ~100–200ms handshake cost every time (a single deploy fires 20+
+    /// commands).
+    fn ctl_path(&self) -> String {
+        // %C = unique hash of host/port/user, so multiple VMs coexist.
+        let dir = self.cache_dir.join("ssh-sockets");
+        let _ = std::fs::create_dir_all(&dir);
+        format!("{}/cm-%C", dir.display())
+    }
+
     fn ssh_args(&self) -> Vec<String> {
+        let ctl = self.ctl_path();
         vec![
             "-o".into(),"StrictHostKeyChecking=no".into(),"-o".into(),"UserKnownHostsFile=/dev/null".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
             "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=30".into(),
             "-o".into(),"AddressFamily=inet".into(),
+            "-o".into(),"ControlMaster=auto".into(),
+            "-o".into(),format!("ControlPath={}", ctl),
+            "-o".into(),"ControlPersist=600".into(),
             "-i".into(),self.ssh_key.to_string_lossy().to_string(),
             "-p".into(),self.vm_port.to_string(),
             format!("root@{}",self.vm_host),
         ]
     }
 
+    // Kept for ad-hoc file pushes / future use; FE deploy now streams over ssh.
+    #[allow(dead_code)]
     fn scp_args(&self) -> Vec<String> {
+        let ctl = self.ctl_path();
         vec![
             "-o".into(),"StrictHostKeyChecking=no".into(),"-o".into(),"UserKnownHostsFile=/dev/null".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
             "-o".into(),"ConnectTimeout=10".into(),
+            "-o".into(),"ControlMaster=auto".into(),
+            "-o".into(),format!("ControlPath={}", ctl),
+            "-o".into(),"ControlPersist=600".into(),
             "-i".into(),self.ssh_key.to_string_lossy().to_string(),
             "-P".into(),self.vm_port.to_string(),"-q".into(),
         ]
@@ -154,18 +180,32 @@ impl App {
         }
     }
 
+    /// Single batched SSH call instead of one per service. For ~15 services
+    /// this collapses ~15× RTT (≈1s on a loaded VM) into one round trip.
     async fn fetch_service_status(&mut self) {
         self.service_status.clear();
-        for svc in &self.services {
-            let cmd = format!("systemctl is-active {} 2>/dev/null | tr -d '\\n'; echo -n '|'; test -f /usr/bin/{} && echo yes || echo no", svc, svc);
-            if let Ok(o) = self.ssh_exec(&cmd).await {
-                let parts: Vec<&str> = o.split('|').collect();
-                self.service_status.push((
-                    parts.first().unwrap_or(&"?").trim().to_string(),
-                    parts.get(1).unwrap_or(&"no").trim() == "yes",
-                ));
-            } else {
-                self.service_status.push(("?".into(), false));
+        // Emit one line per service: "<status>|<yes|no>".
+        let script = format!(
+            "for s in {}; do printf '%s|%s\\n' \"$(systemctl is-active $s 2>/dev/null || echo unknown)\" \"$(test -f /usr/bin/$s && echo yes || echo no)\"; done",
+            self.services.join(" "));
+        match self.ssh_exec(&script).await {
+            Ok(output) => {
+                let mut lines = output.lines();
+                for _ in &self.services {
+                    if let Some(line) = lines.next() {
+                        let mut parts = line.splitn(2, '|');
+                        let status = parts.next().unwrap_or("?").trim().to_string();
+                        let has_bin = parts.next().unwrap_or("no").trim() == "yes";
+                        self.service_status.push((status, has_bin));
+                    } else {
+                        self.service_status.push(("?".into(), false));
+                    }
+                }
+            }
+            Err(_) => {
+                for _ in &self.services {
+                    self.service_status.push(("?".into(), false));
+                }
             }
         }
     }
@@ -177,37 +217,83 @@ impl App {
         cmd
     }
 
+    /// Build a remote bash script that:
+    ///  1. hashes every built binary on the VM (single batch),
+    ///  2. emits a SKIP marker for each one that matches the previous hash
+    ///     stored under /var/lib/iora/.bin-hashes/,
+    ///  3. installs + restarts only the changed binaries,
+    ///  4. fixes the iora-home admin role once (marker file), no fixed sleep.
     fn deploy_cmd(&self) -> String {
-        let mut lines = vec!["#!/bin/bash".into(), "errors=0; deployed=0".into()];
-        for svc in &self.services {
-            let short = svc.strip_prefix("iora-").unwrap_or(svc);
-            lines.push(format!(
-                "if test -f {ws}/target/debug/{svc}; then install -m 0755 {ws}/target/debug/{svc} /usr/bin/{svc} && \
-                 mkdir -p /etc/iora/db-credentials /opt/iora/build/{svc}/data && \
-                 [ -f /etc/iora/db-credentials/{svc}.env ] || echo 'DATABASE_URL=postgres://root:iora@localhost/iora_{short}' > /etc/iora/db-credentials/{svc}.env && \
-                 [ -f /etc/iora/{svc}.env ] || printf 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_{short}\\nRUST_LOG={svc}=debug\\nIORA_BOOTSTRAP_ADMIN_USER=admin\\nIORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234\\n' > /etc/iora/{svc}.env && \
-                 systemctl reset-failed {svc} 2>/dev/null; systemctl restart {svc} 2>/dev/null || systemctl start {svc} 2>/dev/null || true; \
-                 deployed=$((deployed+1)); else echo 'skip {svc}'; fi",
-                ws=self.vm_workspace,svc=svc,short=short));
-        }
-        lines.push("sleep 2; su - postgres -c \"psql iora_home -c \\\"UPDATE users SET role='admin' WHERE username='admin' AND role!='admin'\\\"\" 2>/dev/null || true".into());
-        lines.push("echo \"DEPLOY_RESULT: deployed=$deployed\"".into());
-        lines.join("\n")
+        let ws = &self.vm_workspace;
+        let svc_list = self.services.join(" ");
+        format!(r#"#!/bin/bash
+set +e
+mkdir -p /var/lib/iora/.bin-hashes
+deployed=0
+skipped=0
+restart_list=""
+home_changed=0
+for svc in {svc_list}; do
+    bin="{ws}/target/debug/$svc"
+    [ -f "$bin" ] || {{ echo "DEPLOY: skip $svc (not built)"; continue; }}
+    short="${{svc#iora-}}"
+    cur=$(sha256sum "$bin" | awk '{{print $1}}')
+    prev=$(cat "/var/lib/iora/.bin-hashes/$svc" 2>/dev/null)
+    if [ "$cur" = "$prev" ] && [ -f "/usr/bin/$svc" ]; then
+        echo "DEPLOY: unchanged $svc"
+        skipped=$((skipped+1))
+        continue
+    fi
+    install -m 0755 "$bin" "/usr/bin/$svc" || {{ echo "DEPLOY: install FAILED $svc"; continue; }}
+    mkdir -p "/etc/iora/db-credentials" "/opt/iora/build/$svc/data" "/etc/systemd/system/$svc.service.d"
+    [ -f "/etc/iora/db-credentials/$svc.env" ] || echo "DATABASE_URL=postgres://root:iora@localhost/iora_$short" > "/etc/iora/db-credentials/$svc.env"
+    if [ ! -f "/etc/iora/$svc.env" ]; then
+        if [ "$svc" = "iora-home" ]; then
+            printf 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_%s\nRUST_LOG=%s=debug\nIORA_BOOTSTRAP_ADMIN_USER=admin\nIORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234\n' "$short" "$svc" > "/etc/iora/$svc.env"
+        else
+            printf 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_%s\nRUST_LOG=%s=debug\n' "$short" "$svc" > "/etc/iora/$svc.env"
+        fi
+    fi
+    echo "$cur" > "/var/lib/iora/.bin-hashes/$svc"
+    restart_list="$restart_list $svc"
+    [ "$svc" = "iora-home" ] && home_changed=1
+    deployed=$((deployed+1))
+    echo "DEPLOY: ✓ $svc"
+done
+# Restart changed services in parallel.
+for svc in $restart_list; do
+    (systemctl reset-failed "$svc" 2>/dev/null; systemctl restart "$svc" 2>/dev/null || systemctl start "$svc" 2>/dev/null) &
+done
+wait
+# Admin role fix runs once per VM (marker file), only if iora-home changed.
+if [ "$home_changed" = "1" ] && [ ! -f /var/lib/iora/.admin-role-fixed ]; then
+    for i in 1 2 3 4 5 6 7 8; do
+        if su - postgres -c "psql -tAc 'SELECT 1 FROM users LIMIT 1' iora_home" 2>/dev/null | grep -q 1; then break; fi
+        sleep 1
+    done
+    su - postgres -c "psql iora_home -c \"UPDATE users SET role='admin' WHERE username='admin' AND role!='admin'\"" >/dev/null 2>&1
+    touch /var/lib/iora/.admin-role-fixed
+fi
+echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
+"#)
     }
 
     async fn sync_sources(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
         let _=tx.send(AppEvent::BuildOutput("[RUST] Syncing sources...".into()));
         let ssh_opts:Vec<String>=self.ssh_args().into_iter().rev().skip(1).rev().collect();
-        let mut args=vec!["-az".into(),"--delete".into(),
+        let mut args=vec!["-a".into(),"--delete".into(),
+            // --no-times skips mtime sync (we don't need it; reduces stat work).
+            // No -z: localhost↔VM is loopback, compression just burns CPU.
             "--exclude=.git".into(),"--exclude=target".into(),"--exclude=node_modules".into(),
             "--exclude=.cache".into(),"--exclude=buildroot-*".into(),"--exclude=releases".into(),
             "--exclude=*.img".into(),"--exclude=*.qcow2".into(),"--exclude=*.iso".into(),
-            "--exclude=.iora-dev".into(),
+            "--exclude=.iora-dev".into(),"--exclude=dist".into(),"--exclude=__pycache__".into(),
         ];
         args.push("-e".into()); args.push(format!("ssh {}", ssh_opts.join(" ")));
         args.push(format!("{}/", self.repo_root.display()));
         args.push(format!("root@{}:/home/iora/iora/", self.vm_host));
-        let _=std::process::Command::new("rsync").args(&args).status()?;
+        // Async: don't block a tokio worker thread for the duration of the rsync.
+        let _=TokioCommand::new("rsync").args(&args).status().await;
         let _=self.ssh_exec("chown -R iora:iora /home/iora/iora 2>/dev/null").await;
         Ok(())
     }
@@ -220,24 +306,45 @@ impl App {
         let cmd = self.build_rust_cmd(only.as_ref());
         let full = format!("su - iora -c '{}' 2>&1", cmd);
         let _=tx.send(AppEvent::BuildOutput(format!("[RUST] {}", cmd)));
-        // Run build output via channel (non-blocking for main loop)
+        // Run build output via channel (non-blocking for main loop and for
+        // the tokio runtime: previously this used std::process + sync
+        // BufReader inside tokio::spawn, which pinned a worker thread for
+        // the entire build (→ minutes of unavailable worker capacity).
         let ssh_args = self.ssh_args();
         let full_cmd = full;
         let tx2 = tx.clone();
         tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
             let mut args = ssh_args;
             args.push(full_cmd);
-            if let Ok(mut child) = std::process::Command::new("ssh").args(&args)
-                .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn()
-            {
-                use std::io::{BufRead, BufReader};
-                for line in BufReader::new(child.stdout.take().unwrap()).lines().flatten() {
-                    let _=tx2.send(AppEvent::BuildOutput(format!("[RUST] {}", line)));
-                }
-                for line in BufReader::new(child.stderr.take().unwrap()).lines().flatten() {
-                    let _=tx2.send(AppEvent::BuildOutput(format!("[RUST] {}", line)));
-                }
-                let _=child.wait();
+            let spawn_res = TokioCommand::new("ssh").args(&args)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn();
+            if let Ok(mut child) = spawn_res {
+                let stdout = child.stdout.take();
+                let stderr = child.stderr.take();
+                let tx_out = tx2.clone();
+                let tx_err = tx2.clone();
+                let out_task = tokio::spawn(async move {
+                    if let Some(s) = stdout {
+                        let mut lines = BufReader::new(s).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let _=tx_out.send(AppEvent::BuildOutput(format!("[RUST] {}", line)));
+                        }
+                    }
+                });
+                let err_task = tokio::spawn(async move {
+                    if let Some(s) = stderr {
+                        let mut lines = BufReader::new(s).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let _=tx_err.send(AppEvent::BuildOutput(format!("[RUST] {}", line)));
+                        }
+                    }
+                });
+                let _=out_task.await;
+                let _=err_task.await;
+                let _=child.wait().await;
             }
             let _=tx2.send(AppEvent::BuildComplete);
         });
@@ -284,14 +391,34 @@ impl App {
     async fn deploy_frontend(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
         if let Some(ref fe) = self.frontend_dir {
             let dist = fe.join("dist"); if !dist.is_dir() { return Ok(()); }
-            let tar = self.cache_dir.join("iora-frontend.tar.gz");
-            let _=TokioCommand::new("tar").args(["-czf",tar.to_str().unwrap(),"-C",dist.to_str().unwrap(),"."]).status().await;
-            let mut a = self.scp_args(); a.push(tar.to_str().unwrap().into());
-            a.push(format!("root@{}:/tmp/iora-frontend.tar.gz", self.vm_host));
-            let _=TokioCommand::new("scp").args(&a).status().await;
-            let _=self.ssh_exec("mkdir -p /opt/iora/build/dist && rm -rf /opt/iora/build/dist/* && tar xzf /tmp/iora-frontend.tar.gz -C /opt/iora/build/dist && rm -f /tmp/iora-frontend.tar.gz && systemctl restart iora-home 2>/dev/null || systemctl start iora-home 2>/dev/null || true && systemctl reload nginx 2>/dev/null || true").await;
-            let _=tx.send(AppEvent::BuildOutput("[FE] ✓ Deployed".into()));
-            let _=std::fs::remove_file(&tar);
+            // Stream tar directly over SSH (reuses ControlMaster connection).
+            // Unpacks to a temp dir on the VM and atomically swaps it in, so
+            // the live dist is never empty mid-deploy.
+            let remote_unpack = "set -e; mkdir -p /opt/iora/build; \
+                tmp=$(mktemp -d /opt/iora/build/.dist-XXXXXX); \
+                tar xzf - -C \"$tmp\"; \
+                rm -rf /opt/iora/build/dist; \
+                mv \"$tmp\" /opt/iora/build/dist; \
+                systemctl reload nginx 2>/dev/null || true";
+            let mut ssh_args = self.ssh_args();
+            ssh_args.push(remote_unpack.into());
+            let tar = TokioCommand::new("tar")
+                .args(["-czf", "-", "-C", dist.to_str().unwrap(), "."])
+                .stdout(std::process::Stdio::piped())
+                .spawn();
+            if let Ok(mut tar_child) = tar {
+                if let Some(tar_out) = tar_child.stdout.take() {
+                    let status = TokioCommand::new("ssh")
+                        .args(&ssh_args)
+                        .stdin(std::process::Stdio::from(tar_out.into_owned_fd()?))
+                        .status().await;
+                    let _ = tar_child.wait().await;
+                    match status {
+                        Ok(s) if s.success() => { let _=tx.send(AppEvent::BuildOutput("[FE] ✓ Deployed".into())); }
+                        _ => { let _=tx.send(AppEvent::BuildOutput("[FE] ✗ Deploy FAILED".into())); }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -402,7 +529,7 @@ impl App {
             build_frame: 0, show_help: false,
             log_scroll_offset: 0, command_log: VecDeque::with_capacity(200),
             build_start: None,
-            
+            last_frame_tick: Instant::now(),
         }
     }
 }
@@ -581,7 +708,6 @@ fn render_commands_view(engine: &mut Engine, app: &App) {
 
 fn render_help_overlay(engine: &mut Engine) {
     let w=engine.width() as usize;
-    let h=engine.height() as usize;
     let bx=4u16; let by=3u16;
     let bw=(w-8) as u16; let bh=14u16;
     // Clear box area
@@ -760,6 +886,10 @@ fn main() -> Result<()> {
                     app.vm_online = online;
                     app.dirty = true;
                 }
+                AppEvent::ServiceStatus(status) => {
+                    app.service_status = status;
+                    app.dirty = true;
+                }
                 AppEvent::FileChange { rust_crates, frontend } => {
                     for c in &rust_crates {
                         if c == "__workspace__" { app.changed_rust.clear(); }
@@ -769,7 +899,7 @@ fn main() -> Result<()> {
                     if app.do_watch && !app.building && app.vm_online && app.auto_deploy {
                         if !app.changed_rust.is_empty() || app.changed_fe {
                             push_log(&mut stream, &mut engine, "[WATCH] Changes detected — auto-rebuilding...");
-                            app.building = true; app.dirty = true;
+                            app.building = true; app.build_start = Some(Instant::now()); app.dirty = true;
                             let only = if !app.changed_rust.is_empty() { Some(app.changed_rust.clone()) } else { None };
                             let tx2 = loop_tx.clone();
                             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
@@ -893,7 +1023,7 @@ fn main() -> Result<()> {
                                         if !app.vm_online { push_log(&mut stream, &mut engine, "[BUILD] VM offline"); }
                                         else if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
                                         else {
-                                            app.building = true;
+                                            app.building = true; app.build_start = Some(Instant::now());
                                             let only = if choice == 1 && !app.changed_rust.is_empty() { Some(app.changed_rust.clone()) } else { None };
                                             let tx2 = loop_tx.clone();
                                             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
@@ -937,7 +1067,7 @@ fn main() -> Result<()> {
                                         if !app.vm_online { push_log(&mut stream, &mut engine, "[BUILD] VM offline"); }
                                         else if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
                                         else {
-                                            app.building = true;
+                                            app.building = true; app.build_start = Some(Instant::now());
                                             let tx2 = loop_tx.clone();
                                             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
                                             let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
@@ -987,7 +1117,7 @@ fn main() -> Result<()> {
                                 if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
                                 else if !app.vm_online { push_log(&mut stream, &mut engine, "[BUILD] VM offline"); }
                                 else {
-                                    app.building = true;
+                                    app.building = true; app.build_start = Some(Instant::now());
                                     push_log(&mut stream, &mut engine, "[BUILD] Full rebuild");
                                     let tx2 = loop_tx.clone();
                                     let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
@@ -1049,10 +1179,11 @@ fn main() -> Result<()> {
                                     let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
                                     let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                     let svcs2 = app.services.clone();
+                                    let tx2 = loop_tx.clone();
                                     tokio::spawn(async move {
                                             let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                             a.fetch_service_status().await;
-                                            // TODO: send status back
+                                            let _=tx2.send(AppEvent::ServiceStatus(a.service_status.clone()));
                                         
                     });
                                 }
@@ -1120,7 +1251,15 @@ fn main() -> Result<()> {
         if app.should_quit { break; }
 
         // 4. Build animation + VM check
-        if app.building { app.build_frame = app.build_frame.wrapping_add(1); app.dirty = true; }
+        // Animate spinner at ~10 fps, not every 5 ms loop tick (used to repaint 200×/sec).
+        if app.building {
+            let now = Instant::now();
+            if now.duration_since(app.last_frame_tick) >= Duration::from_millis(100) {
+                app.build_frame = app.build_frame.wrapping_add(1);
+                app.last_frame_tick = now;
+                app.dirty = true;
+            }
+        }
         if last_vm_check.elapsed() >= Duration::from_secs(6) {
             last_vm_check = Instant::now();
             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());

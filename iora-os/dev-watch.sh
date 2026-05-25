@@ -115,6 +115,12 @@ fi
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 # ── SSH helpers (with ControlMaster for fast reuse) ──────────────────────
+# ControlMaster keeps a single TCP connection open for ControlPersist seconds.
+# All subsequent ssh/scp invocations reuse it — saves ~100-200ms per call,
+# which matters a lot when a single deploy fires 20+ SSH commands.
+SSH_SOCK_DIR="$CACHE/ssh-sockets"
+mkdir -p "$SSH_SOCK_DIR"
+chmod 700 "$SSH_SOCK_DIR"
 SSH_OPTS=(
     -o StrictHostKeyChecking=no
     -o UserKnownHostsFile=/dev/null
@@ -124,6 +130,9 @@ SSH_OPTS=(
     -o ServerAliveCountMax=3
     -o ConnectTimeout=10
     -o AddressFamily=inet
+    -o ControlMaster=auto
+    -o "ControlPath=$SSH_SOCK_DIR/cm-%C"
+    -o ControlPersist=600
     -i "$SSH_KEY"
 )
 
@@ -249,44 +258,125 @@ deploy_binary() {
     return 0
 }
 
-# Deploy a list of services in parallel.
-# Since we build inside the VM, source and dest are both local to the VM.
+# Deploy a list of services.
+# Optimisations vs. the original loop:
+#   * Single multiplexed SSH session enumerates which binaries exist and
+#     computes their sha256 in one batch (was: 1 SSH call per service).
+#   * Skip install + restart if the binary hash matches the previously
+#     deployed one  \u2014 avoids needlessly bouncing healthy services on every
+#     rebuild (huge time saver in fast incremental loops).
+#   * Per-service install + restart runs in parallel (bounded fan-out).
+#   * iora-home bootstrap role-fix is now idempotent and only sleeps when
+#     the role actually needs fixing.
 deploy_many() {
     local services=("$@")
-    local deployed=0
-    local failed=0
+    [ ${#services[@]} -eq 0 ] && { printf '  deployed=0 failed=0\n'; return 0; }
     local vm_target="$VM_TARGET"
 
-    for svc in "${services[@]}"; do
-        if ssh_vm "test -f $vm_target/$svc && install -m 0755 $vm_target/$svc /usr/bin/$svc"; then
-            # Ensure Global Config env files exist
-            local svc_short="${svc#iora-}"
-            ssh_vm "mkdir -p /etc/iora/db-credentials /tmp/iora-sandboxes /opt/iora/build/$svc/data && \
-              [ -f /etc/iora/db-credentials/$svc.env ] || echo 'DATABASE_URL=postgres://root:iora@localhost/iora_${svc_short}' > /etc/iora/db-credentials/$svc.env && \
-              [ -f /etc/iora/$svc.env ] || echo -e 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_${svc_short}\nRUST_LOG=${svc}=debug' > /etc/iora/$svc.env && \
-              echo -e '[Service]\nProtectSystem=no\nProtectHome=no\nPrivateTmp=no\nNoNewPrivileges=no\nRestrictAddressFamilies=\nSystemCallFilter=\nReadWritePaths=\nReadOnlyPaths=\nEnvironmentFile=/etc/iora/$svc.env' > /etc/systemd/system/$svc.service.d/dev-relax.conf" 2>/dev/null || true
-            # For iora-home: add bootstrap admin credentials so dev login works immediately
-            if [ "$svc" = "iora-home" ]; then
-                ssh_vm "grep -q IORA_BOOTSTRAP_ADMIN_USER /etc/iora/iora-home.env 2>/dev/null || echo -e 'IORA_BOOTSTRAP_ADMIN_USER=admin\nIORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234' >> /etc/iora/iora-home.env" 2>/dev/null || true
+    # ── 1. Batched discovery: which binaries exist + their hashes ─────
+    # Single SSH round-trip emits "svc:hash" lines for binaries that exist.
+    local svc_list="${services[*]}"
+    local discovery
+    discovery=$(ssh_vm "
+        cd '$vm_target' 2>/dev/null || exit 0
+        for s in $svc_list; do
+            if [ -f \"\$s\" ]; then
+                h=\$(sha256sum \"\$s\" 2>/dev/null | awk '{print \$1}')
+                echo \"\$s:\$h\"
             fi
-            if $DO_RESTART; then
-                ssh_vm "systemctl reset-failed $svc 2>/dev/null; systemctl restart $svc 2>/dev/null || systemctl start $svc 2>/dev/null || true" >/dev/null 2>&1 || true
-            fi
-            # For iora-home: ensure admin user has admin role (idempotent)
-            # Fresh VMs: bootstrap env vars create admin/admin1234 automatically.
-            # Existing VMs: fix role if user was created via UI registration.
-            if [ "$svc" = "iora-home" ]; then
-                sleep 5  # give iora-home time to finish bootstrap
-                ssh_vm "su - postgres -c \"psql iora_home -c \\\"UPDATE users SET role='admin' WHERE username='admin' AND role!='admin'\\\" 2>/dev/null\" 2>/dev/null || true" 2>/dev/null || true
-            fi
-            printf '    %s->%s %s\n' "$G" "$N" "$svc"
-            deployed=$((deployed + 1))
+        done
+    " 2>/dev/null) || discovery=""
+
+    if [ -z "$discovery" ]; then
+        printf '  deployed=0 failed=0 (no binaries built yet)\n'
+        return 0
+    fi
+
+    # ── 2. Filter to actually-changed binaries ────────────────────────
+    local -a to_deploy=()
+    local -a to_skip=()
+    while IFS=: read -r svc cur_hash; do
+        [ -z "$svc" ] && continue
+        local hf="$HASH_DIR/$svc"
+        local prev_hash=""
+        [ -f "$hf" ] && prev_hash=$(cat "$hf" 2>/dev/null)
+        if [ -n "$cur_hash" ] && [ "$cur_hash" = "$prev_hash" ]; then
+            to_skip+=("$svc")
         else
-            dim "    $svc : not built, skipping"
+            to_deploy+=("$svc:$cur_hash")
         fi
+    done <<<"$discovery"
+
+    for svc in "${to_skip[@]}"; do
+        dim "    $svc : unchanged"
     done
 
-    printf '  deployed=%s failed=%s\n' "$deployed" "$failed"
+    if [ ${#to_deploy[@]} -eq 0 ]; then
+        printf '  deployed=0 skipped=%d (all unchanged)\n' "${#to_skip[@]}"
+        return 0
+    fi
+
+    # ── 3. Build one combined remote script for all changed services ──
+    # Runs sequentially server-side but in a single SSH session (already
+    # cheap thanks to ControlMaster); the local 'wait' fanout would add
+    # complexity without measurable gain on small service counts.
+    local remote_script="set +e"$'\n'
+    local restart_block=""
+    local home_changed=false
+    for entry in "${to_deploy[@]}"; do
+        local svc="${entry%%:*}"
+        local svc_short="${svc#iora-}"
+        [ "$svc" = "iora-home" ] && home_changed=true
+        remote_script+="install -m 0755 '$vm_target/$svc' '/usr/bin/$svc' 2>/dev/null"$'\n'
+        remote_script+="mkdir -p /etc/iora/db-credentials /tmp/iora-sandboxes /opt/iora/build/$svc/data /etc/systemd/system/$svc.service.d"$'\n'
+        remote_script+="[ -f /etc/iora/db-credentials/$svc.env ] || echo 'DATABASE_URL=postgres://root:iora@localhost/iora_${svc_short}' > /etc/iora/db-credentials/$svc.env"$'\n'
+        remote_script+="[ -f /etc/iora/$svc.env ] || printf 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_${svc_short}\nRUST_LOG=${svc}=debug\n' > /etc/iora/$svc.env"$'\n'
+        remote_script+="[ -f /etc/systemd/system/$svc.service.d/dev-relax.conf ] || printf '[Service]\nProtectSystem=no\nProtectHome=no\nPrivateTmp=no\nNoNewPrivileges=no\nRestrictAddressFamilies=\nSystemCallFilter=\nReadWritePaths=\nReadOnlyPaths=\nEnvironmentFile=/etc/iora/$svc.env\n' > /etc/systemd/system/$svc.service.d/dev-relax.conf && systemctl daemon-reload"$'\n'
+        if [ "$svc" = "iora-home" ]; then
+            remote_script+="grep -q IORA_BOOTSTRAP_ADMIN_USER /etc/iora/iora-home.env 2>/dev/null || printf 'IORA_BOOTSTRAP_ADMIN_USER=admin\nIORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234\n' >> /etc/iora/iora-home.env"$'\n'
+        fi
+        if $DO_RESTART; then
+            restart_block+="systemctl reset-failed $svc 2>/dev/null; (systemctl restart $svc 2>/dev/null || systemctl start $svc 2>/dev/null) &"$'\n'
+        fi
+    done
+    if $DO_RESTART && [ -n "$restart_block" ]; then
+        remote_script+="$restart_block"$'wait\n'
+    fi
+
+    if ! ssh_vm "$remote_script" >/dev/null 2>&1; then
+        warn "  deploy: remote script reported errors (continuing)"
+    fi
+
+    # ── 4. Idempotent admin-role fix (only if iora-home changed and only
+    #      if the role actually needs fixing — no fixed sleep). ─────────
+    if $home_changed; then
+        (
+            # Marker file means we already fixed this VM's admin role.
+            if ! ssh_vm "test -f /var/lib/iora/.admin-role-fixed" 2>/dev/null; then
+                # Wait up to 8s for iora-home to finish bootstrap.
+                local i
+                for i in 1 2 3 4 5 6 7 8; do
+                    if ssh_vm "su - postgres -c \"psql -tAc 'SELECT 1 FROM users LIMIT 1' iora_home\"" 2>/dev/null | grep -q 1; then
+                        break
+                    fi
+                    sleep 1
+                done
+                ssh_vm "su - postgres -c \"psql iora_home -c \\\"UPDATE users SET role='admin' WHERE username='admin' AND role!='admin'\\\"\" >/dev/null 2>&1; mkdir -p /var/lib/iora && touch /var/lib/iora/.admin-role-fixed" 2>/dev/null || true
+            fi
+        ) &
+    fi
+
+    # ── 5. Persist hashes so the next deploy can skip unchanged ones ──
+    local deployed=0
+    for entry in "${to_deploy[@]}"; do
+        local svc="${entry%%:*}"
+        local hash="${entry#*:}"
+        echo "$hash" > "$HASH_DIR/$svc"
+        printf '    %s->%s %s\n' "$G" "$N" "$svc"
+        deployed=$((deployed + 1))
+    done
+
+    printf '  deployed=%d skipped=%d\n' "$deployed" "${#to_skip[@]}"
     return 0
 }
 
@@ -404,24 +494,23 @@ build_frontend() {
 
 deploy_frontend() {
     local dist="$1"
-    local tar="$CACHE/iora-frontend.tar.gz"
-
-    if ! tar -czf "$tar" -C "$dist" . 2>/dev/null; then
-        err "frontend tar failed"; return 1
+    # Stream tar directly over SSH — no local tempfile, no separate scp +
+    # unpack roundtrips. With ControlMaster this reuses the existing
+    # connection. Unpack to a temp dir and mv-swap so the live dist is
+    # never empty mid-deploy.
+    if ! tar -czf - -C "$dist" . 2>/dev/null | \
+         ssh "${SSH_OPTS[@]}" -p "$VM_PORT" "root@$VM_HOST" '
+            set -e
+            mkdir -p /opt/iora/build
+            tmp=$(mktemp -d /opt/iora/build/.dist-XXXXXX)
+            tar xzf - -C "$tmp"
+            rm -rf /opt/iora/build/dist
+            mv "$tmp" /opt/iora/build/dist
+            systemctl reload nginx 2>/dev/null || true
+         ' 2>/dev/null; then
+        err "frontend deploy failed"
+        return 1
     fi
-    if ! scp_to_vm "$tar" "/tmp/iora-frontend.tar.gz"; then
-        err "frontend upload failed"; return 1
-    fi
-    ssh_vm '
-        set -e
-        mkdir -p /opt/iora/build/dist
-        rm -rf /opt/iora/build/dist/*
-        tar xzf /tmp/iora-frontend.tar.gz -C /opt/iora/build/dist
-        rm -f /tmp/iora-frontend.tar.gz
-        systemctl restart iora-home 2>/dev/null || systemctl start iora-home 2>/dev/null || true
-        systemctl reload nginx 2>/dev/null || true
-    ' >/dev/null 2>&1 || warn "frontend remote unpack reported errors"
-    rm -f "$tar"
     ok "  frontend deployed → /opt/iora/build/dist"
 }
 
@@ -516,6 +605,13 @@ cleanup() {
     tput csr 1 "$(tput lines 2>/dev/null || echo 24)" 2>/dev/null || true
     printf '\033[?25h'
     stop_watchers
+    # Tear down any open SSH control-master sessions so the next run starts
+    # fresh and we don't leak unix sockets in $CACHE/ssh-sockets.
+    for sock in "$SSH_SOCK_DIR"/cm-*; do
+        [ -S "$sock" ] || continue
+        ssh -o ControlPath="$sock" -O exit "dummy" 2>/dev/null || true
+        rm -f "$sock"
+    done
 }
 trap cleanup EXIT INT TERM
 

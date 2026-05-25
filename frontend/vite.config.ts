@@ -29,6 +29,9 @@ export default defineConfig({
     }
   },
   build: {
+    // Target modern evergreen browsers: skips polyfills for ES2020+ features,
+    // produces smaller bundles and faster startup. Adjust if IE/old Safari support is needed.
+    target: 'es2022',
     chunkSizeWarningLimit: 1000,
     // CSS minifiers currently warn (and can mis-handle) valid Tailwind selectors
     // like `.text-white\\/90` and `2xl:grid-cols-*`. Keep CSS unminified to

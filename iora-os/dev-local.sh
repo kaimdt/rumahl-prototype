@@ -725,14 +725,19 @@ else
             -m "$VM_RAM" -smp "$VM_CPUS"
             -cpu "$QEMU_CPU"
             -machine "${QEMU_MACHINE},accel=${ACCEL}"
-            -drive "file=$VM_DISK,format=qcow2,if=virtio"
+            # Faster disk I/O: writeback caching, thread-pool AIO, online TRIM.
+            -drive "file=$VM_DISK,format=qcow2,if=virtio,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
             -drive "file=$SEED_ISO,format=raw,media=cdrom"
             -netdev "$NETDEV"
+            # virtio-gpu replaces the default VGA; suppress the unused one.
+            -vga none
             -device virtio-gpu
             -display "$DISPLAY_OPT"
             -serial "file:$CACHE/qemu-serial.log"
             -monitor "unix:$QEMU_MONITOR,server,nowait"
             -pidfile "$QEMU_PIDFILE"
+            # Sync guest clock to host, avoids drift after suspend/resume.
+            -rtc "base=utc,clock=host"
         )
 
         # arm64 needs a virtio-net-device variant and UEFI firmware

@@ -724,16 +724,20 @@ fn default_close_style() -> String { "x".to_string() }
 fn default_shadow_level() -> String { "md".to_string() }
 
 /// Notification theming configuration.
+///
+/// Manifests historically used the short field names `enter`, `exit`, `max`,
+/// `dismiss`. These are accepted as aliases so existing theme manifests keep
+/// working without modification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationThemeConfig {
     /// Position: "top-right", "top-left", "bottom-right", "bottom-left", "top-center", "bottom-center"
     #[serde(default = "default_notif_position")]
     pub position: String,
     /// Enter animation: "slide-left", "slide-right", "slide-up", "fade", "scale"
-    #[serde(default = "default_notif_animation")]
+    #[serde(default = "default_notif_animation", alias = "enter")]
     pub enter_animation: String,
     /// Exit animation
-    #[serde(default = "default_notif_animation")]
+    #[serde(default = "default_notif_animation", alias = "exit")]
     pub exit_animation: String,
     /// Border radius for notification cards
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -751,10 +755,10 @@ pub struct NotificationThemeConfig {
     #[serde(default = "default_true")]
     pub accent_bar: bool,
     /// Maximum number of visible notifications
-    #[serde(default = "default_notif_max")]
+    #[serde(default = "default_notif_max", alias = "max")]
     pub max_visible: i32,
     /// Auto-dismiss timeout in ms (0 = never)
-    #[serde(default = "default_notif_timeout")]
+    #[serde(default = "default_notif_timeout", alias = "dismiss")]
     pub auto_dismiss_ms: i32,
 }
 

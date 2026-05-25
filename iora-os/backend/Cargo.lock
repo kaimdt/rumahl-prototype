@@ -3474,6 +3474,7 @@ dependencies = [
 name = "iora-home"
 version = "2.0.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-stream",
  "axum 0.7.9",

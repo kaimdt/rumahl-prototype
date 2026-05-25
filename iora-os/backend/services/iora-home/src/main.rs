@@ -27,6 +27,7 @@ mod ha_websocket;
 mod websocket;
 mod db;
 mod auth;
+mod crypto;
 mod middleware;
 mod entity_cache;
 mod ha_cache;
@@ -875,11 +876,16 @@ async fn main() -> anyhow::Result<()> {
             if let Ok(Some(pref)) = repo.get_system_preference("mqtt_config").await {
                 if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&pref.preference_value) {
                     if let Some(host) = cfg.get("host").and_then(|v| v.as_str()).filter(|h| !h.is_empty()) {
+                        // Password may be stored as an `enc:v1:<base64>` blob (preferred)
+                        // or as legacy plaintext. `maybe_decrypt` handles both.
+                        let password = cfg.get("password")
+                            .and_then(|v| v.as_str())
+                            .map(crypto::maybe_decrypt);
                         let config = mqtt_client::MqttConfig {
                             host: host.to_string(),
                             port: cfg.get("port").and_then(|v| v.as_u64()).unwrap_or(1883) as u16,
                             username: cfg.get("username").and_then(|v| v.as_str()).map(String::from),
-                            password: cfg.get("password").and_then(|v| v.as_str()).map(String::from),
+                            password,
                             client_id: cfg.get("client_id").and_then(|v| v.as_str())
                                 .map(String::from)
                                 .unwrap_or_else(|| format!("mdt-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8])),
@@ -5613,7 +5619,7 @@ async fn supervisor_apps_compose(
         .header("content-type", "text/yaml; charset=utf-8")
         .header("content-disposition", format!("attachment; filename=\"docker-compose-{}.yml\"", app_id))
         .body(compose_yaml)
-        .unwrap())
+        .unwrap_or_else(|_| axum::response::Response::new(String::new())))
 }
 
 /// Generate a docker-compose.yml from a bundle definition.
@@ -6745,7 +6751,7 @@ parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:
                                 .status(StatusCode::OK)
                                 .header("content-type", "text/html; charset=utf-8")
                                 .body(Body::from(html))
-                                .unwrap()
+                                .unwrap_or_else(|_| Response::new(Body::empty()))
                         }
                     }
                 }
@@ -6753,7 +6759,7 @@ parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:
                     Response::builder()
                         .status(StatusCode::NOT_FOUND)
                         .body(Body::from("Keine konfigurierte URL für diese App"))
-                        .unwrap()
+                        .unwrap_or_else(|_| Response::new(Body::empty()))
                 }
             }
         }
@@ -6761,7 +6767,7 @@ parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("App nicht gefunden oder nicht gestartet"))
-                .unwrap()
+                .unwrap_or_else(|_| Response::new(Body::empty()))
         }
     }
 }
@@ -7074,7 +7080,7 @@ async fn app_icon_get(
                 .header("content-type", ct)
                 .header("cache-control", "public, max-age=300")
                 .body(Body::from(bytes))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::new(Body::empty()));
         }
     }
 
@@ -7086,7 +7092,7 @@ async fn app_icon_get(
                 serde_json::to_vec(&json!({"error": "icon not found", "app_id": app_id}))
                     .unwrap_or_default(),
             ))
-            .unwrap();
+            .unwrap_or_else(|_| axum::response::Response::new(Body::empty()));
     }
 
     // 1x1 transparent PNG fallback so the <img> tag stays quiet.
@@ -7102,7 +7108,7 @@ async fn app_icon_get(
         .header("content-type", "image/png")
         .header("cache-control", "no-store")
         .body(Body::from(TRANSPARENT_PNG))
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::new(Body::empty()))
 }
 
 /// SSE stream of logs for a specific app.
@@ -10647,12 +10653,16 @@ async fn admin_mqtt_connect(
     match state.mqtt_client.connect(config).await {
         Ok(()) => {
             info!("MQTT: Connected to {}:{}", host, port);
-            // Auto-save config to DB on successful connect
+            // Auto-save config to DB on successful connect.
+            // Password is encrypted at rest with AES-256-GCM (see crypto.rs);
+            // legacy plaintext rows are upgraded automatically the next time
+            // the user saves through the API.
+            let stored_password = req.password.as_deref().map(crypto::encrypt_secret);
             let config_value = serde_json::json!({
                 "host": req.host,
                 "port": req.port.unwrap_or(1883),
                 "username": req.username,
-                "password": req.password,
+                "password": stored_password,
                 "client_id": req.client_id,
                 "use_tls": req.use_tls.unwrap_or(false),
             });
@@ -10742,11 +10752,13 @@ async fn admin_mqtt_save_config(
     State(state): State<AppState>,
     Json(req): Json<MqttConnectRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    // Encrypt the password before persisting it. See `crypto.rs` for the format.
+    let stored_password = req.password.as_deref().map(crypto::encrypt_secret);
     let config_value = serde_json::json!({
         "host": req.host,
         "port": req.port.unwrap_or(1883),
         "username": req.username,
-        "password": req.password,
+        "password": stored_password,
         "client_id": req.client_id,
         "use_tls": req.use_tls.unwrap_or(false),
     });
@@ -10771,9 +10783,13 @@ async fn admin_mqtt_get_config(
         Ok(Some(pref)) => {
             // Parse the stored JSON and mask the password
             if let Ok(mut config) = serde_json::from_str::<Value>(&pref.preference_value) {
-                if config.get("password").and_then(|p| p.as_str()).is_some() {
-                    config.as_object_mut().unwrap().insert("has_password".into(), serde_json::json!(true));
-                    config.as_object_mut().unwrap().remove("password");
+                // Defensive: only mutate if the value is actually an object. A corrupted
+                // row could otherwise panic the handler thread.
+                if let Some(obj) = config.as_object_mut() {
+                    if obj.get("password").and_then(|p| p.as_str()).is_some_and(|s| !s.is_empty()) {
+                        obj.insert("has_password".into(), serde_json::json!(true));
+                        obj.remove("password");
+                    }
                 }
                 Ok(Json(config))
             } else {
