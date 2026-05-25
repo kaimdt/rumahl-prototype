@@ -8,9 +8,9 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::{HashSet, VecDeque},
     path::PathBuf,
-    sync::mpsc,
     time::{Duration, Instant},
 };
+use tokio::sync::mpsc;
 use tokio::process::Command as TokioCommand;
 
 // ═══ Colors ══════════════════════════════════════════════════════════════
@@ -79,6 +79,9 @@ struct App {
     repo_root: PathBuf, workspace: PathBuf, vm_workspace: String,
     frontend_dir: Option<PathBuf>, cache_dir: PathBuf,
     build_frame: u8, show_help: bool,
+    log_scroll_offset: usize,
+    command_log: VecDeque<String>,
+    build_start: Option<Instant>,
     // Log buffer (for status/health/journal snapshots)
 }
 
@@ -105,6 +108,8 @@ impl App {
             changed_rust: HashSet::new(), changed_fe: false,
             repo_root, workspace, vm_workspace: "/home/iora/iora/iora-os/backend".into(),
             frontend_dir, cache_dir, build_frame: 0, show_help: false,
+            log_scroll_offset: 0, command_log: VecDeque::with_capacity(200),
+            build_start: None,
         })
     }
 
@@ -190,7 +195,7 @@ impl App {
         lines.join("\n")
     }
 
-    async fn sync_sources(&self, tx: &mpsc::Sender<AppEvent>) -> Result<()> {
+    async fn sync_sources(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
         let _=tx.send(AppEvent::BuildOutput("[RUST] Syncing sources...".into()));
         let ssh_opts:Vec<String>=self.ssh_args().into_iter().rev().skip(1).rev().collect();
         let mut args=vec!["-az".into(),"--delete".into(),
@@ -207,7 +212,7 @@ impl App {
         Ok(())
     }
 
-    async fn build_rust(&mut self, only: Option<HashSet<String>>, tx: &mpsc::Sender<AppEvent>) -> Result<bool> {
+    async fn build_rust(&mut self, only: Option<HashSet<String>>, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<bool> {
         let label = if let Some(ref c) = only { format!("{} crates", c.len()) } else { "all".into() };
         let _=tx.send(AppEvent::BuildOutput(format!("──[Rust — {}]──", label)));
         let _=self.ssh_exec("su - iora -c 'test -f /home/iora/.cargo/bin/cargo || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1").await;
@@ -219,7 +224,7 @@ impl App {
         let ssh_args = self.ssh_args();
         let full_cmd = full;
         let tx2 = tx.clone();
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut args = ssh_args;
             args.push(full_cmd);
             if let Ok(mut child) = std::process::Command::new("ssh").args(&args)
@@ -241,7 +246,7 @@ impl App {
         Ok(true)
     }
 
-    async fn deploy_binaries(&mut self, tx: &mpsc::Sender<AppEvent>) -> Result<()> {
+    async fn deploy_binaries(&mut self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
         let _=tx.send(AppEvent::BuildOutput("[DEPLOY] Deploying...".into()));
         let script = self.deploy_cmd();
         let cmd = format!("cat > /tmp/iora-deploy.sh << 'DEPLOYEOF'\n{}\nDEPLOYEOF\nbash /tmp/iora-deploy.sh && rm -f /tmp/iora-deploy.sh", script);
@@ -251,7 +256,7 @@ impl App {
         Ok(())
     }
 
-    async fn build_frontend(&mut self, tx: &mpsc::Sender<AppEvent>) -> Result<bool> {
+    async fn build_frontend(&mut self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<bool> {
         let fe = match &self.frontend_dir { Some(d) => d.clone(), None => return Ok(false) };
         let _=tx.send(AppEvent::BuildOutput("──[Frontend]──".into()));
         if !fe.join("node_modules").is_dir() {
@@ -276,7 +281,7 @@ impl App {
         Ok(output.status.success())
     }
 
-    async fn deploy_frontend(&self, tx: &mpsc::Sender<AppEvent>) -> Result<()> {
+    async fn deploy_frontend(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
         if let Some(ref fe) = self.frontend_dir {
             let dist = fe.join("dist"); if !dist.is_dir() { return Ok(()); }
             let tar = self.cache_dir.join("iora-frontend.tar.gz");
@@ -296,7 +301,7 @@ impl App {
         self.ssh_exec(&cmd).await.unwrap_or_else(|_| "?".into())
     }
 
-    fn run_command(&mut self, input: &str, stream: &mut StreamWidget, engine: &mut Engine, tx: &mpsc::Sender<AppEvent>) {
+    fn run_command(&mut self, input: &str, stream: &mut StreamWidget, engine: &mut Engine, tx: &mpsc::UnboundedSender<AppEvent>) {
         let parts: Vec<&str> = input.trim().split_whitespace().collect();
         if parts.is_empty() { return; }
         match parts[0] {
@@ -315,16 +320,14 @@ impl App {
                 let (ws,vmws)=(self.workspace.clone(),self.vm_workspace.clone());
                 let (rr,cd,fe2)=(self.repo_root.clone(),self.cache_dir.clone(),self.frontend_dir.clone());
                 let svcs=self.services.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                tokio::spawn(async move {
                         let mut a = App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true;
                         if rust { let _=a.build_rust(only,&tx2).await; }
                         if fe { let _=a.build_frontend(&tx2).await; }
                         let _=tx2.send(AppEvent::BuildComplete);
+                    
                     });
-                });
             }
             "deploy"|"d" => {
                 if !self.vm_online { push_log(stream, engine, "[CMD] VM offline"); return; }
@@ -332,13 +335,11 @@ impl App {
                 let (ws,vmws)=(self.workspace.clone(),self.vm_workspace.clone());
                 let (rr,cd,fe2)=(self.repo_root.clone(),self.cache_dir.clone(),self.frontend_dir.clone());
                 let svcs=self.services.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                tokio::spawn(async move {
                         let mut a=App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true; let _=a.deploy_binaries(&tx2).await;
+                    
                     });
-                });
             }
             "restart"|"r" => {
                 if parts.len()<2 { push_log(stream, engine, "[CMD] Usage: restart <service>"); return; }
@@ -347,15 +348,13 @@ impl App {
                 let (ws,vmws)=(self.workspace.clone(),self.vm_workspace.clone());
                 let (rr,cd,fe2)=(self.repo_root.clone(),self.cache_dir.clone(),self.frontend_dir.clone());
                 let svcs=self.services.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                tokio::spawn(async move {
                         let mut a=App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true;
                         let _st = a.restart_service(&svc).await;
                         // Could send result back, but for now just log
+                    
                     });
-                });
             }
             "journal"|"j" => { self.view=View::Journal; self.dirty=true; }
             "status"|"s" => { self.view=View::Status; self.dirty=true; }
@@ -366,13 +365,11 @@ impl App {
                 let (ws,vmws)=(self.workspace.clone(),self.vm_workspace.clone());
                 let (rr,cd,fe2)=(self.repo_root.clone(),self.cache_dir.clone(),self.frontend_dir.clone());
                 let svcs=self.services.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                tokio::spawn(async move {
                         let mut a=App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true; a.check_vm().await;
+                    
                     });
-                });
             }
             "watch" => {
                 self.do_watch = parts.get(1).map_or(true, |&w| w!="off");
@@ -403,6 +400,8 @@ impl App {
             changed_rust: HashSet::new(), changed_fe: false,
             repo_root, workspace, vm_workspace, frontend_dir, cache_dir,
             build_frame: 0, show_help: false,
+            log_scroll_offset: 0, command_log: VecDeque::with_capacity(200),
+            build_start: None,
             
         }
     }
@@ -424,9 +423,8 @@ fn push_log(stream: &mut StreamWidget, engine: &mut Engine, msg: &str) {
         else { FG_WHITE }
     } else { FG_WHITE };
     stream.set_fg(color);
-    stream.push(engine, msg);
+    stream.push(engine, &format!("{}\n", msg));
     stream.set_fg(FG_WHITE);
-    stream.push(&engine, "\n");
 }
 
 fn find_repo_root() -> Result<PathBuf> {
@@ -457,7 +455,7 @@ fn discover_services(w: &PathBuf) -> Vec<String> {
     v.sort();v.dedup();v
 }
 
-fn start_file_watcher(workspace: PathBuf, fe: Option<PathBuf>, tx: mpsc::Sender<AppEvent>) -> Result<RecommendedWatcher> {
+fn start_file_watcher(workspace: PathBuf, fe: Option<PathBuf>, tx: mpsc::UnboundedSender<AppEvent>) -> Result<RecommendedWatcher> {
     let dirs: Vec<PathBuf> = ["services","shared","tools","apps","dev"].iter()
         .map(|s|workspace.join(s)).filter(|p|p.is_dir()).collect();
     let mut w: RecommendedWatcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -503,7 +501,12 @@ fn render_header(engine: &mut Engine, app: &App) {
     let dep_fg = if app.auto_deploy { FG_GREEN } else { FG_RED };
     let bl_label = if app.building {
         let dots = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
-        format!("Building {}", dots[app.build_frame as usize % dots.len()])
+        if let Some(start) = app.build_start {
+            let secs = start.elapsed().as_secs();
+            format!("Building {} {}s", dots[app.build_frame as usize % dots.len()], secs)
+        } else {
+            format!("Building {}", dots[app.build_frame as usize % dots.len()])
+        }
     } else { app.last_build.clone() };
 
     // Clear line 2, then draw colored segments
@@ -532,18 +535,23 @@ fn render_status_view(engine: &mut Engine, app: &App) {
         engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
     }
     let mut y=5u16;
+    let skip=app.log_scroll_offset;
     engine.draw_text(1, y, &format!("{:<30} {:<10} {}", "Service", "Status", "Binary"), FG_CYAN, BG_BLACK);
     y+=1;
     engine.draw_text(1, y, &"─".repeat(50), FG_GRAY, BG_BLACK); y+=1;
-    for svc in &app.services {
+    for (i, svc) in app.services.iter().enumerate().skip(skip) {
         if y>=h as u16-2{break;}
-        engine.draw_text(1, y, &format!("{:<30} ?        ?", svc), FG_WHITE, BG_BLACK);
+        let (status, has_bin) = app.service_status.get(i).map_or(("?", false), |(s,b)| (s.as_str(), *b));
+        let status_fg = if status == "active" { FG_GREEN } else if status == "failed" { FG_RED } else { FG_GRAY };
+        let bin_text = if has_bin { "yes" } else { "no" };
+        engine.draw_text(1, y, &format!("{:<30} {:<10} {}", svc, status, bin_text), FG_WHITE, BG_BLACK);
+        // Color status
+        engine.draw_text(32, y, status, status_fg, BG_BLACK);
         y+=1;
     }
-    engine.draw_text(1, y, "Press S to refresh service status", FG_GRAY, BG_BLACK);
 }
 
-fn render_journal_view(engine: &mut Engine, app: &App) {
+fn render_journal_view(engine: &mut Engine, _app: &App) {
     let w=engine.width() as usize;
     for y in 5..engine.height().saturating_sub(2) as usize {
         engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
@@ -553,10 +561,49 @@ fn render_journal_view(engine: &mut Engine, app: &App) {
 
 fn render_commands_view(engine: &mut Engine, app: &App) {
     let w=engine.width() as usize;
-    for y in 5..engine.height().saturating_sub(2) as usize {
+    let h=engine.height() as usize;
+    for y in 5..h.saturating_sub(2) {
         engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
     }
-    engine.draw_text(1, 5, "(commands will appear here)", FG_GRAY, BG_BLACK);
+    let max=(h.saturating_sub(7)).max(1);
+    let start=(app.command_log.len().saturating_sub(max)).saturating_add(app.log_scroll_offset).min(app.command_log.len().saturating_sub(1));
+    let mut y=5u16;
+    for line in app.command_log.iter().skip(start).take(max) {
+        let t=if line.len()>w{format!("{}…",&line[..w.saturating_sub(1)])}else{line.clone()};
+        let fg=if line.starts_with("> "){FG_YELLOW}else{FG_WHITE};
+        engine.draw_text(1, y, &t, fg, BG_BLACK);
+        y+=1;
+    }
+    if app.command_log.is_empty() {
+        engine.draw_text(1, 5, "(commands will appear here — press / to enter command mode)", FG_GRAY, BG_BLACK);
+    }
+}
+
+fn render_help_overlay(engine: &mut Engine) {
+    let w=engine.width() as usize;
+    let h=engine.height() as usize;
+    let bx=4u16; let by=3u16;
+    let bw=(w-8) as u16; let bh=14u16;
+    // Clear box area
+    for y in by..by+bh { engine.draw_text(bx, y, &" ".repeat(bw as usize), FG_WHITE, BG_BLACK); }
+    // Border
+    let sep="─".repeat(bw as usize -2);
+    engine.draw_text(bx, by, &format!("┌{}┐", sep), FG_CYAN, BG_BLACK);
+    engine.draw_text(bx, by+1, &format!("│ {:<width$} │", "Help — Keybindings", width=bw as usize-4), FG_CYAN, BG_BLACK);
+    engine.draw_text(bx, by+2, &format!("│ {:<width$} │", "", width=bw as usize-4), FG_CYAN, BG_BLACK);
+    let keys=[
+        ("/","Command mode"),("Tab","Switch view"),("R","Build menu"),
+        ("B","Quick rebuild"),("D","Deploy"),("C","VM connect"),
+        ("S","Status refresh"),("H","Health check"),("J","Journal"),
+        ("L","Toggle deploy"),("1-9","Restart services"),("?","This help"),
+        ("↑↓","Scroll"),("PgUp/Dn","Scroll 10"),("0/End","Bottom/Top"),
+        ("Esc","Cancel/Close"),("Q","Quit"),
+    ];
+    for (i,(key,desc)) in keys.iter().enumerate(){
+        let line=format!("│  {:<8} {:<width$} │", key, desc, width=bw as usize-13);
+        engine.draw_text(bx, by+3+i as u16, &line, FG_WHITE, BG_BLACK);
+    }
+    engine.draw_text(bx, by+bh-1, &format!("└{}┘", sep), FG_CYAN, BG_BLACK);
 }
 
 fn render_tabs(engine: &mut Engine, app: &App) {
@@ -621,6 +668,10 @@ fn render_footer(engine: &mut Engine, app: &App) {
 // ═══ Main ════════════════════════════════════════════════════════════════
 
 fn main() -> Result<()> {
+    // Shared tokio runtime for all background tasks (no per-task Runtime::new())
+    let rt = tokio::runtime::Runtime::new()?;
+    let _guard = rt.enter();
+
     let args = Args::parse();
     let mut app = App::new(&args)?;
 
@@ -634,7 +685,7 @@ fn main() -> Result<()> {
     stream.set_fg(FG_WHITE);
 
     // Event channel for background tasks
-    let (event_tx, event_rx) = mpsc::channel::<AppEvent>();
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<AppEvent>();
 
     // File watcher
     let _watcher = if app.do_watch {
@@ -659,9 +710,7 @@ fn main() -> Result<()> {
     let (rr, cd, fe) = (app.repo_root.clone(), app.cache_dir.clone(), app.frontend_dir.clone());
     let svcs = app.services.clone();
     let do_build = !app.no_initial_build;
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
+    tokio::spawn(async move {
             let mut a = App::dummy(vmh.clone(), vmp, sk.clone(), ws, vmws, fe, rr, cd, svcs);
             if a.check_vm().await {
                 let _=tx.send(AppEvent::VmStatus(true));
@@ -679,27 +728,31 @@ fn main() -> Result<()> {
                 let _=tx.send(AppEvent::VmStatus(false));
                 let _=tx.send(AppEvent::BuildOutput("[SYSTEM] VM offline — start with ./dev-local.sh, then press C".into()));
             }
-        });
-    });
+        
+                    });
 
     // Main loop
     let mut last_vm_check = Instant::now();
-    let loop_tx = event_tx.clone(); // clone for use inside loop
+    let loop_tx = event_tx.clone();
     loop {
-        // 0. Drain ALL pending input events (single poll at loop start)
         let mut pending = Vec::new();
+        // 0. Poll before anything
         while let Some(event) = engine.poll_input() { pending.push(event); }
-        if !pending.is_empty() { app.dirty = true; }
 
         // 1. Drain background events
         while let Ok(event) = event_rx.try_recv() {
             match event {
                 AppEvent::BuildOutput(line) => {
+                    // Auto-scroll to bottom unless user manually scrolled up
+                    if app.log_scroll_offset == 0 {
+                        stream.scroll_down(usize::MAX);
+                    }
                     push_log(&mut stream, &mut engine, &line);
                     app.dirty = true;
                 }
                 AppEvent::BuildComplete => {
                     app.building = false;
+                    app.build_start = None;
                     app.dirty = true;
                     push_log(&mut stream, &mut engine, "[SYSTEM] Build complete");
                 }
@@ -723,46 +776,82 @@ fn main() -> Result<()> {
                             let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
                             let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                             let svcs2 = app.services.clone();
-                            std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                            tokio::spawn(async move {
                                     let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                     a.vm_online = true;
                                     let _=a.build_rust(only, &tx2).await;
                                     let _=a.build_frontend(&tx2).await;
                                     let _=tx2.send(AppEvent::BuildComplete);
-                                });
-                            });
+                                
+                    });
                         }
                     }
                 }
             }
         }
 
-        // 2. Render full frame if dirty
+        // 1b. Poll after drain (catch keys during event processing)
+        while let Some(event) = engine.poll_input() { pending.push(event); }
+
+        // 2. Render full frame if dirty (only clear header/footer — StreamWidget handles its own area)
         if app.dirty {
-            engine.clear();
+            let w = engine.width() as usize;
+            let h = engine.height() as usize;
+            // Clear header rows only (0-4)
+            for y in 0..5u16 { engine.draw_text(0, y, &" ".repeat(w), FG_WHITE, BG_BLACK); }
+            // Clear footer rows (h-2, h-1)
+            for y in (h.saturating_sub(2) as u16)..(h as u16) { engine.draw_text(0, y, &" ".repeat(w), FG_WHITE, BG_BLACK); }
             render_header(&mut engine, &app);
             render_tabs(&mut engine, &app);
             // Render content area based on active view
             match app.view {
-                View::Logs => { stream.render(engine.buffer_mut()); }
-                View::Status => render_status_view(&mut engine, &app),
-                View::Journal => render_journal_view(&mut engine, &app),
-                View::Commands => render_commands_view(&mut engine, &app),
+                View::Logs => {
+                    stream.render(engine.buffer_mut());
+                    // Scroll indicator (top-right of log area)
+                    if app.log_scroll_offset > 0 {
+                        let ind = format!("[↑{} lines | 0=bottom]", app.log_scroll_offset);
+                        let x = w.saturating_sub(ind.len() + 2) as u16;
+                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
+                    }
+                }
+                View::Status => { render_status_view(&mut engine, &app);
+                    if app.log_scroll_offset > 0 {
+                        let ind = format!("[↑{} | 0=top]", app.log_scroll_offset);
+                        let x = w.saturating_sub(ind.len() + 2) as u16;
+                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
+                    }
+                }
+                View::Journal => { render_journal_view(&mut engine, &app);
+                    if app.log_scroll_offset > 0 {
+                        let ind = format!("[↑{} | 0=top]", app.log_scroll_offset);
+                        let x = w.saturating_sub(ind.len() + 2) as u16;
+                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
+                    }
+                }
+                View::Commands => { render_commands_view(&mut engine, &app);
+                    if app.log_scroll_offset > 0 {
+                        let ind = format!("[↑{} | 0=top]", app.log_scroll_offset);
+                        let x = w.saturating_sub(ind.len() + 2) as u16;
+                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
+                    }
+                }
             }
             render_footer(&mut engine, &app);
-            engine.request_redraw();
+            if app.show_help { render_help_overlay(&mut engine); }
+            engine.request_update();  // faster: diff-only, no full redraw
             app.dirty = false;
         }
+
+        // 2b. Poll after render (catch keys during draw)
+        while let Some(event) = engine.poll_input() { pending.push(event); }
 
         // 3. Process pending input events (collected at loop start)
         for event in pending {
             match event {
                 InputEvent::Resize { width, height } => {
                     engine.handle_resize(width, height);
-                    stream = StreamWidget::new(Rect::new(0, 5, width, height.saturating_sub(7)));
-                    stream.set_fg(FG_WHITE);
+                    engine.clear();
+                    stream.set_bounds(Rect::new(0, 5, width, height.saturating_sub(7)));
                     app.dirty = true;
                 }
                 InputEvent::Key { code, .. } => {
@@ -778,7 +867,8 @@ fn main() -> Result<()> {
                                 KeyCode::Enter => {
                                     let cmd = input.clone();
                                     app.mode = Mode::Normal;
-                                    push_log(&mut stream, &mut engine, &format!("> {}", cmd));
+                                    app.command_log.push_back(format!("> {}", cmd));
+                                    if app.command_log.len() > 200 { app.command_log.pop_front(); }
                                     app.run_command(&cmd, &mut stream, &mut engine, &loop_tx);
                                 }
                                 KeyCode::Char(c) => { input.insert(*cursor, c); *cursor += 1; }
@@ -811,16 +901,14 @@ fn main() -> Result<()> {
                                             let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                             let svcs2 = app.services.clone();
                                             push_log(&mut stream, &mut engine, &format!("[BUILD] Build: {}", ["All","Changed"][choice]));
-                                            std::thread::spawn(move || {
-                                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                                rt.block_on(async {
+                                            tokio::spawn(async move {
                                                     let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                                     a.vm_online = true;
                                                     let _=a.build_rust(only, &tx2).await;
                                                     let _=a.build_frontend(&tx2).await;
                                                     let _=tx2.send(AppEvent::BuildComplete);
-                                                });
-                                            });
+                                                
+                    });
                                         }
                                     }
                                 }
@@ -856,15 +944,13 @@ fn main() -> Result<()> {
                                             let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                             let svcs2 = app.services.clone();
                                             push_log(&mut stream, &mut engine, &format!("[BUILD] Build: {} services", only.len()));
-                                            std::thread::spawn(move || {
-                                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                                rt.block_on(async {
+                                            tokio::spawn(async move {
                                                     let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                                     a.vm_online = true;
                                                     let _=a.build_rust(Some(only), &tx2).await;
                                                     let _=tx2.send(AppEvent::BuildComplete);
-                                                });
-                                            });
+                                                
+                    });
                                         }
                                     }
                                 }
@@ -874,6 +960,7 @@ fn main() -> Result<()> {
                     } else {
                         // Normal mode keys
                         match code {
+                            KeyCode::Esc if app.show_help => { app.show_help = false; app.dirty = true; }
                             KeyCode::Char('q') | KeyCode::Char('Q') => app.should_quit = true,
                             KeyCode::Char('?') => app.show_help = !app.show_help,
                             KeyCode::Char('/') => app.mode = Mode::Command { input: String::new(), cursor: 0 },
@@ -885,6 +972,16 @@ fn main() -> Result<()> {
                                     View::Commands => View::Logs,
                                 };
                             }
+                            // Scroll in all views
+                            KeyCode::Up if app.view != View::Logs => { app.log_scroll_offset = app.log_scroll_offset.saturating_add(1); app.dirty = true; }
+                            KeyCode::Down if app.view != View::Logs => { app.log_scroll_offset = app.log_scroll_offset.saturating_sub(1); app.dirty = true; }
+                            KeyCode::End | KeyCode::Char('0') if app.view != View::Logs => { app.log_scroll_offset = 0; app.dirty = true; }
+                            KeyCode::Up if app.view == View::Logs => { stream.scroll_up(1); app.log_scroll_offset += 1; app.dirty = true; }
+                            KeyCode::Down if app.view == View::Logs => { if app.log_scroll_offset > 0 { stream.scroll_down(1); app.log_scroll_offset -= 1; } app.dirty = true; }
+                            KeyCode::PageUp if app.view == View::Logs => { stream.scroll_up(10); app.log_scroll_offset += 10; app.dirty = true; }
+                            KeyCode::PageDown if app.view == View::Logs => { let n = app.log_scroll_offset.min(10); stream.scroll_down(n); app.log_scroll_offset -= n; app.dirty = true; }
+                            KeyCode::Home if app.view == View::Logs => { stream.scroll_up(usize::MAX); app.log_scroll_offset = usize::MAX; app.dirty = true; }
+                            KeyCode::End | KeyCode::Char('0') if app.view == View::Logs => { stream.scroll_down(usize::MAX); app.log_scroll_offset = 0; app.dirty = true; }
                             KeyCode::Char('r') | KeyCode::Char('R') => app.mode = Mode::BuildMenu { cursor: 0 },
                             KeyCode::Char('b') | KeyCode::Char('B') => {
                                 if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
@@ -897,16 +994,14 @@ fn main() -> Result<()> {
                                     let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
                                     let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                     let svcs2 = app.services.clone();
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Runtime::new().unwrap();
-                                        rt.block_on(async {
+                                    tokio::spawn(async move {
                                             let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                             a.vm_online = true;
                                             let _=a.build_rust(None, &tx2).await;
                                             let _=a.build_frontend(&tx2).await;
                                             let _=tx2.send(AppEvent::BuildComplete);
-                                        });
-                                    });
+                                        
+                    });
                                 }
                             }
                             KeyCode::Char('c') | KeyCode::Char('C') => {
@@ -916,18 +1011,17 @@ fn main() -> Result<()> {
                                 let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                 let svcs2 = app.services.clone();
                                 let c_tx = loop_tx.clone();
-                                std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                let was_online = app.vm_online;
+                                tokio::spawn(async move {
                                         let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                        let was = a.vm_online; a.check_vm().await;
+                                        a.check_vm().await;
                                         if a.vm_online { a.refresh_services().await; }
                                         let _=c_tx.send(AppEvent::BuildOutput(
-                                            if a.vm_online { if was {"[VM] Connected!"} else {"[VM] Came online!"} }
+                                            if a.vm_online { if was_online {"[VM] Connected!"} else {"[VM] Came online!"} }
                                             else {"[VM] Still offline"}.into()
                                         ));
-                                    });
-                                });
+                                    
+                    });
                             }
                             KeyCode::Char('d') | KeyCode::Char('D') => {
                                 if !app.vm_online { push_log(&mut stream, &mut engine, "[DEPLOY] VM offline"); }
@@ -937,13 +1031,11 @@ fn main() -> Result<()> {
                                     let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
                                     let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                     let svcs2 = app.services.clone();
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Runtime::new().unwrap();
-                                        rt.block_on(async {
+                                    tokio::spawn(async move {
                                             let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                             a.vm_online = true; let _=a.deploy_binaries(&tx2).await;
-                                        });
-                                    });
+                                        
+                    });
                                 }
                             }
                             KeyCode::Char('l') | KeyCode::Char('L') => {
@@ -957,14 +1049,12 @@ fn main() -> Result<()> {
                                     let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
                                     let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                     let svcs2 = app.services.clone();
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Runtime::new().unwrap();
-                                        rt.block_on(async {
+                                    tokio::spawn(async move {
                                             let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                             a.fetch_service_status().await;
                                             // TODO: send status back
-                                        });
-                                    });
+                                        
+                    });
                                 }
                             }
                             KeyCode::Char('h') | KeyCode::Char('H') => {
@@ -974,9 +1064,7 @@ fn main() -> Result<()> {
                                 let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                 let svcs2 = app.services.clone();
                                 let tx2 = loop_tx.clone();
-                                std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                tokio::spawn(async move {
                                         let a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                         if let Ok(h) = a.ssh_exec("curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null || echo FAIL").await {
                                             let _=tx2.send(AppEvent::BuildOutput(if h.contains("\"status\":\"ok\"") {"[HEALTH] ✓ API OK"} else {"[HEALTH] ✗ API unreachable"}.into()));
@@ -984,8 +1072,8 @@ fn main() -> Result<()> {
                                         if let Ok(d) = a.ssh_exec("df -h / 2>/dev/null | tail -1").await {
                                             let _=tx2.send(AppEvent::BuildOutput(format!("[HEALTH] Disk: {}", d.trim())));
                                         }
-                                    });
-                                });
+                                    
+                    });
                             }
                             KeyCode::Char('j') | KeyCode::Char('J') => {
                                 app.view = View::Journal;
@@ -994,15 +1082,13 @@ fn main() -> Result<()> {
                                 let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                                 let svcs2 = app.services.clone();
                                 let tx2 = loop_tx.clone();
-                                std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                tokio::spawn(async move {
                                         let a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                         if let Ok(l) = a.ssh_exec("journalctl -u iora-home --no-pager -n 30 2>/dev/null").await {
                                             for line in l.lines() { let _=tx2.send(AppEvent::BuildOutput(format!("  {}", line))); }
                                         }
-                                    });
-                                });
+                                    
+                    });
                             }
                             KeyCode::Char('1')|KeyCode::Char('2')|KeyCode::Char('3')|KeyCode::Char('4')|
                             KeyCode::Char('5')|KeyCode::Char('6')|KeyCode::Char('7')|KeyCode::Char('8')|KeyCode::Char('9') => {
@@ -1015,27 +1101,17 @@ fn main() -> Result<()> {
                                     let svcs2 = app.services.clone();
                                     let tx2 = loop_tx.clone();
                                     push_log(&mut stream, &mut engine, &format!("[RESTART] {}", svc));
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Runtime::new().unwrap();
-                                        rt.block_on(async {
+                                    tokio::spawn(async move {
                                             let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
                                             let st = a.restart_service(&svc).await;
                                             let _=tx2.send(AppEvent::BuildOutput(format!("[RESTART] {} → {}", svc, st)));
-                                        });
-                                    });
+                                        
+                    });
                                 }
                             }
                             _ => {}
                         }
                     }
-                }
-                InputEvent::Resize { .. } => {
-                    // StreamWidget area needs updating on resize
-                    let w2 = engine.width() as usize;
-                    let h2 = engine.height() as usize;
-                    stream = StreamWidget::new(Rect::new(0, 5, w2 as u16, h2.saturating_sub(7) as u16));
-                    stream.set_fg(FG_WHITE);
-                    app.dirty = true;
                 }
                 _ => {}
             }
@@ -1052,19 +1128,17 @@ fn main() -> Result<()> {
             let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
             let svcs2 = app.services.clone();
             let tx2 = loop_tx.clone();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
+            let was_online = app.vm_online;  // Capture REAL state
+            tokio::spawn(async move {
                     let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                    let was = a.vm_online; a.vm_online = was;
                     a.check_vm().await;
                     let _=tx2.send(AppEvent::VmStatus(a.vm_online));
                     if a.vm_online { a.refresh_services().await; }
-                    if was != a.vm_online {
+                    if was_online != a.vm_online {
                         let _=tx2.send(AppEvent::BuildOutput(if a.vm_online {"[VM] Came online!"} else {"[VM] Went offline!"}.into()));
                     }
-                });
-            });
+                
+                    });
         }
 
         std::thread::sleep(Duration::from_millis(5));

@@ -853,6 +853,11 @@ apt-get install -y -qq \
     python3 python3-pip htop vim mold nginx openssl socat \
     sudo systemd-container
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
+# Fix DNS: disable systemd-resolved which adds broken IPv6 resolver
+systemctl disable systemd-resolved 2>/dev/null || true
+systemctl stop systemd-resolved 2>/dev/null || true
+rm -f /etc/resolv.conf
+echo -e 'nameserver 1.1.1.1\nnameserver 8.8.8.8' > /etc/resolv.conf
 INSTEOF
 
     log "Configuring PostgreSQL roles & dev-mode marker..."
