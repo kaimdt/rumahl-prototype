@@ -18,8 +18,8 @@
 #   ./dev-local.sh --log             Live cloud-init / system logs
 #   ./dev-local.sh --ssh            SSH directly into the running VM
 #   ./dev-local.sh --reprovision    Force re-running the in-VM setup steps
-#   ./dev-local.sh --no-watch       Don't auto-launch dev-watch.sh
-#   ./dev-local.sh --watcher        Launch dev-watch.sh in new terminal (VM must be running)
+#   ./dev-local.sh --no-watch       Don't auto-launch dev-watch TUI
+#   ./dev-local.sh --watcher        Launch dev-watch TUI in new terminal (VM must be running)
 #   ./dev-local.sh --foreground     Attach to QEMU process (Ctrl+C kills VM)
 #   ./dev-local.sh --help
 # ============================================================================
@@ -315,28 +315,30 @@ if $DO_WATCHER; then
     if [ -z "$pid" ]; then
         die "VM is not running. Start it first: ./dev-local.sh"
     fi
-    WATCH_SCRIPT="$SCRIPT_DIR/dev-watch.sh"
-    if [ ! -f "$WATCH_SCRIPT" ]; then
-        die "dev-watch.sh not found at $WATCH_SCRIPT"
+    # Build the Rust TUI binary if not present
+    DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
+    if [ ! -f "$DASH_BIN" ]; then
+        log "Building dev-watch TUI (one-time Rust compile)..."
+        (cd "$REPO_ROOT/iora-os/backend" && cargo build -p iora-dev-watch 2>&1 | tail -5) || \
+            die "Failed to build iora-dev-watch. Check: cd iora-os/backend && cargo build -p iora-dev-watch"
+        ok "dev-watch TUI built"
     fi
-    TARGET_TRIPLE="x86_64-unknown-linux-gnu"
-    [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ] && TARGET_TRIPLE="aarch64-unknown-linux-gnu"
-    log "Launching dev-watch.sh ($TARGET_TRIPLE)..."
+    log "Launching IORA Dev Watch TUI..."
     if $IS_MACOS; then
-        osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE\"" >/dev/null 2>&1 \
-            || die "Couldn't auto-open Terminal.app. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+        osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY\"" >/dev/null 2>&1 \
+            || die "Couldn't auto-open Terminal.app. Run manually: $DASH_BIN"
     else
         if command -v gnome-terminal >/dev/null 2>&1; then
-            gnome-terminal -- bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+            gnome-terminal -- bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
         elif command -v konsole >/dev/null 2>&1; then
-            konsole -e bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+            konsole -e bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
         elif command -v xterm >/dev/null 2>&1; then
-            xterm -e "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE" &
+            xterm -e "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY" &
         else
-            die "No terminal emulator found. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+            die "No terminal emulator found. Run manually: $DASH_BIN"
         fi
     fi
-    ok "dev-watch launched in new terminal"
+    ok "Dev Watch TUI launched in new terminal"
     exit 0
 fi
 
@@ -1090,25 +1092,28 @@ else
     warn "iora-home not yet responding – it may still be building. Check: ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1 'journalctl -u iora-home -n 50'"
 fi
 
-# ── Step 10: Launch dev-watch in a second terminal (best-effort) ───────────
+# ── Step 10: Launch dev-watch TUI in a second terminal (best-effort) ─────
 if ! $NO_WATCH; then
-    WATCH_SCRIPT="$SCRIPT_DIR/dev-watch.sh"
-    if [ -f "$WATCH_SCRIPT" ]; then
-        TARGET_TRIPLE="x86_64-unknown-linux-gnu"
-        [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ] && TARGET_TRIPLE="aarch64-unknown-linux-gnu"
-        log "Launching dev-watch.sh ($TARGET_TRIPLE)..."
+    DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
+    if [ ! -f "$DASH_BIN" ]; then
+        log "Building dev-watch TUI (one-time Rust compile)..."
+        (cd "$REPO_ROOT/iora-os/backend" && cargo build -p iora-dev-watch 2>&1 | tail -5) || \
+            warn "Failed to build dev-watch TUI. Run manually later."
+    fi
+    if [ -f "$DASH_BIN" ]; then
+        log "Launching IORA Dev Watch TUI..."
         if $IS_MACOS; then
-            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE\"" >/dev/null 2>&1 \
-                || warn "Couldn't auto-open Terminal.app. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY\"" >/dev/null 2>&1 \
+                || warn "Couldn't auto-open Terminal.app. Run manually: $DASH_BIN"
         else
             if command -v gnome-terminal >/dev/null 2>&1; then
-                gnome-terminal -- bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+                gnome-terminal -- bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
             elif command -v konsole >/dev/null 2>&1; then
-                konsole -e bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+                konsole -e bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
             elif command -v xterm >/dev/null 2>&1; then
-                xterm -e "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE" &
+                xterm -e "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY" &
             else
-                warn "No terminal emulator found. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+                warn "No terminal emulator found. Run manually: $DASH_BIN"
             fi
         fi
     fi
@@ -1143,6 +1148,7 @@ cat <<EOF
   |    Reprovision       ./dev-local.sh --reprovision                   |
   |    Full reset        ./dev-local.sh --clean                         |
   |    Launch watcher    ./dev-local.sh --watcher                       |
+  |    Dev Watch TUI     $REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch
   |                                                                     |
   |  CO-BUDDY FEATURES                                                  |
   |    Auto-repair       Port conflicts, disk space, dependencies       |

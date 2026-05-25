@@ -676,13 +676,29 @@ pub async fn list_themes(
 }
 
 /// POST /api/themes/install-from-manifest
+/// Accepts both flat ThemeDefinition and {"theme": {...}} wrapped format
 pub async fn handle_install_theme_inline(
     State(gs): State<AppState>,
-    Json(def): Json<iora_shared::theme::ThemeDefinition>,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Validate the manifest before installing (consistent with ZIP handler)
-    let manifest_json = serde_json::to_value(&def).unwrap_or_default();
-    let validation = iora_shared::manifest_validator::validate_theme_manifest(&manifest_json);
+    // If manifest has a "theme" wrapper, merge its fields into the top level.
+    let mut merged = body.clone();
+    if let Some(theme_obj) = body.get("theme").and_then(|v| v.as_object()) {
+        if let Some(root) = merged.as_object_mut() {
+            for (key, value) in theme_obj {
+                if !root.contains_key(key) {
+                    root.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+
+    // Deserialize from the (possibly merged) flat format
+    let def: iora_shared::theme::ThemeDefinition = serde_json::from_value(merged.clone())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid theme manifest: {}", e)))?;
+
+    // Validate (use the merged JSON for validation)
+    let validation = iora_shared::manifest_validator::validate_theme_manifest(&merged);
     if !validation.is_valid() {
         let errors: Vec<String> = validation.issues.iter()
             .filter(|i| i.severity == iora_shared::manifest_validator::ValidationSeverity::Error)

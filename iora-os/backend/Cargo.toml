@@ -43,6 +43,7 @@ members = [
     "tools/iora-verify",
     "tools/iora-db-manager",
     "tools/iora-migrate",
+    "tools/iora-dev-watch",
 
     # dev-image-only on-device pieces
     "dev/iora-dev-bridge",

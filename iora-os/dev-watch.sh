@@ -554,7 +554,7 @@ if ! $WATCH; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════
-# Dashboard TUI – persistent always-visible terminal dashboard
+# Dashboard TUI – proper terminal UI with resize support
 # ═══════════════════════════════════════════════════════════════════
 
 DASH_LOG=()
@@ -562,12 +562,87 @@ DASH_BUILDING=false
 DASH_VM_ONLINE=false
 DASH_LAST_BUILD="-"
 DASH_LAST_DEPLOY="-"
-DASH_SERVICE_STATUS=""
 DASH_ACTIVE_COUNT=0
+DASH_AUTO_DEPLOY=$DO_DEPLOY
+DASH_ROWS=24
+DASH_COLS=80
+DASH_HEADER_H=6
+DASH_FOOTER_H=2
+DASH_LOG_MAX=10
+
+_dash_get_size() {
+    DASH_ROWS=$(tput lines 2>/dev/null || echo 24)
+    DASH_COLS=$(tput cols 2>/dev/null || echo 80)
+    [ "$DASH_ROWS" -lt 10 ] && DASH_ROWS=10
+    [ "$DASH_COLS" -lt 40 ] && DASH_COLS=40
+    DASH_LOG_MAX=$((DASH_ROWS - DASH_HEADER_H - DASH_FOOTER_H))
+    [ "$DASH_LOG_MAX" -lt 3 ] && DASH_LOG_MAX=3
+}
+
+_dash_sep() { printf '%*s' "$1" '' | tr ' ' '═'; }
+
+_dash_header() {
+    local sep; sep=$(_dash_sep $((DASH_COLS-2)))
+    tput cup 0 0 2>/dev/null
+    printf '%s%s' "$B" "$C"
+    printf '╔%s╗\n' "$sep"
+    printf '║ %-*s ║\n' $((DASH_COLS-4)) "IORA Dev Watch"
+    printf '╠%s╣\n' "$sep"
+    local vm_mark deploy_label
+    $DASH_VM_ONLINE && vm_mark="${G}● online${N}" || vm_mark="${R}● offline${N}"
+    $DASH_AUTO_DEPLOY && deploy_label="${G}ON${N}" || deploy_label="${R}OFF${N}"
+    printf '║ VM: %b  │  Build: %b  │  Deploy: %b %*s║\n' \
+        "$vm_mark" "$DASH_LAST_BUILD" "$deploy_label" $((DASH_COLS-55)) ''
+    printf '╠%s╣\n' "$sep"
+    printf '%s' "$N"
+}
+
+_dash_logs() {
+    local row=$DASH_HEADER_H
+    local total=${#DASH_LOG[@]}
+    local start=$(( total > DASH_LOG_MAX ? total - DASH_LOG_MAX : 0 ))
+    local i
+    for ((i=start; i<total; i++)); do
+        tput cup $row 0 2>/dev/null
+        tput el 2>/dev/null
+        printf ' %s' "${DASH_LOG[$i]}"
+        row=$((row + 1))
+    done
+    while [ $row -lt $((DASH_HEADER_H + DASH_LOG_MAX)) ]; do
+        tput cup $row 0 2>/dev/null
+        tput el 2>/dev/null
+        row=$((row + 1))
+    done
+}
+
+_dash_footer() {
+    local row=$((DASH_ROWS - 2))
+    tput cup $row 0 2>/dev/null
+    tput el 2>/dev/null
+    local st
+    if $DASH_BUILDING; then st="${Y}● BUILDING...${N}"
+    elif ! $DASH_VM_ONLINE; then st="${R}VM offline — press C to connect${N}"
+    else st="${G}● idle${N}"; fi
+    printf '  %b  │  Services: %s/%s active  │  %s' \
+        "$st" "$DASH_ACTIVE_COUNT" "${#ALL_SERVICES[@]}" \
+        "${D}Q=quit B=build S=status H=health D=deploy R=restart J=journal${N}"
+    row=$((DASH_ROWS - 1))
+    tput cup $row 0 2>/dev/null
+    tput el 2>/dev/null
+    local sep; sep=$(_dash_sep $DASH_COLS)
+    printf '%s%s%s' "$D" "$sep" "$N"
+}
+
+_dash_full() {
+    _dash_get_size
+    printf '\033[2J\033[H'
+    _dash_header
+    _dash_logs
+    _dash_footer
+}
 
 _dash_log() {
-    local ts
-    ts=$(date '+%H:%M:%S')
+    local ts; ts=$(date '+%H:%M:%S')
     DASH_LOG+=("$ts $*")
     [ ${#DASH_LOG[@]} -gt 500 ] && DASH_LOG=("${DASH_LOG[@]: -500}")
 }
@@ -579,114 +654,57 @@ _dash_check_vm() {
 
 _dash_refresh_services() {
     $DASH_VM_ONLINE || { DASH_ACTIVE_COUNT=0; return; }
-    DASH_SERVICE_STATUS=$(ssh_vm "for s in ${ALL_SERVICES[*]}; do systemctl is-active \$s 2>/dev/null || echo unknown; done" 2>/dev/null || echo "")
-    DASH_ACTIVE_COUNT=$(echo "$DASH_SERVICE_STATUS" | grep -c 'active' 2>/dev/null || echo 0)
+    DASH_ACTIVE_COUNT=$(ssh_vm "for s in ${ALL_SERVICES[*]}; do systemctl is-active \$s 2>/dev/null || echo unknown; done" 2>/dev/null | grep -c 'active' || echo 0)
 }
 
-_dash_render() {
-    local rows cols
-    rows=$(tput lines 2>/dev/null || echo 30)
-    cols=$(tput cols 2>/dev/null || echo 80)
-    [ "$rows" -lt 10 ] && rows=10
-    [ "$cols" -lt 40 ] && cols=40
-
-    tput sc 2>/dev/null || true
+_dash_overlay_status() {
     printf '\033[2J\033[H'
-
-    local vm_status deploy_label build_label
-    if $DASH_VM_ONLINE; then vm_status="${G}● online${N}"
-    else vm_status="${R}● offline${N}"; fi
-    deploy_label="$($DASH_AUTO_DEPLOY && printf '%sON%s' "$G" "$N" || printf '%sOFF%s' "$R" "$N")"
-    build_label="$DASH_LAST_BUILD"
-
-    # ── Header ──
-    local sep; sep=$(printf '%*s' $((cols-2)) '' | tr ' ' '═')
-    printf '%s%s\n' "$B" "$C"
-    printf '╔%s╗\n' "$sep"
-    printf '║ %-*s ║\n' $((cols-4)) "IORA Dev Watch"
-    printf '╠%s╣\n' "$sep"
-    printf '║ %s  │  Build: %b  │  Deploy: %b %*s║\n' \
-        "VM: $vm_status" "$build_label" "$deploy_label" $((cols-55)) ''
-    printf '╠%s╣\n' "$sep"
-    printf '%s' "$N"
-
-    # ── Log region (scrollable) ──
-    local log_top log_bottom max_log start shown
-    log_top=7
-    log_bottom=$((rows - 3))
-    [ "$log_bottom" -lt "$log_top" ] && log_bottom="$log_top"
-    tput csr "$log_top" "$log_bottom" 2>/dev/null || true
-
-    max_log=$((log_bottom - log_top + 1))
-    [ "$max_log" -lt 3 ] && max_log=3
-    start=$(( ${#DASH_LOG[@]} > max_log ? ${#DASH_LOG[@]} - max_log : 0 ))
-    shown=0
-    local i
-    for ((i=start; i<${#DASH_LOG[@]}; i++)); do
-        printf ' %s\n' "${DASH_LOG[$i]}"
-        shown=$((shown+1))
-    done
-    for ((i=shown; i<max_log; i++)); do printf '\n'; done
-
-    # ── Status Bar (fixed at bottom) ──
-    tput csr 1 "$rows" 2>/dev/null || true
-
-    local status_text
-    if $DASH_BUILDING; then status_text="${Y}● BUILDING...${N}"
-    elif ! $DASH_VM_ONLINE; then status_text="${R}VM offline${N}"
-    else status_text="${G}● idle${N}"; fi
-
-    local bar_row=$((rows - 1))
-    tput cup "$bar_row" 0 2>/dev/null || true
-    tput el 2>/dev/null || true
-    printf '  %b  │  Services: %s/%s active  │  %s' \
-        "$status_text" "$DASH_ACTIVE_COUNT" "${#ALL_SERVICES[@]}" \
-        "${D}Q=quit B=build S=status H=health D=deploy R=restart J=journal${N}"
-
-    tput cup "$rows" 0 2>/dev/null || true
-    tput el 2>/dev/null || true
-    printf '%s%s%s\n' "$D" "$sep" "$N"
-
-    tput rc 2>/dev/null || true
-}
-
-_dash_overlay() {
-    local title="$1"; shift
-    printf '\033[2J\033[H'
-    printf '%s%s═══ %s %s%s\n\n' "$B" "$C" "$title" "$(printf '%*s' $((70-${#title})) '' | tr ' ' '═')" "$N"
+    printf '%s%s═══ Service Status %s%s\n\n' "$B" "$C" "$(_dash_sep $((DASH_COLS-20)))" "$N"
     if ! $DASH_VM_ONLINE; then
-        printf '  %sVM offline - press C to connect%s\n' "$R" "$N"
+        printf '  %sVM offline — press C to connect%s\n' "$R" "$N"
     else
-        "$@"
+        printf '  %-30s %-10s %s\n' "Service" "Status" "Binary"
+        printf '  %s\n' "$(_dash_sep 48)"
+        for svc in "${ALL_SERVICES[@]}"; do
+            local st col bin
+            st=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
+            col="$D"; case "$st" in active) col="$G" ;; failed) col="$R" ;; activating|reloading) col="$Y" ;; esac
+            bin=$(ssh_vm "test -f /usr/bin/$svc && echo yes || echo no" 2>/dev/null || echo "?")
+            printf '  %-30s %b%-10s%b  %s\n' "$svc" "$col" "$st" "$N" "$bin"
+        done
     fi
     printf '\n  %sPress any key to return%s\n' "$D" "$N"
     read -r -s -n 1 < /dev/tty 2>/dev/null || true
 }
 
-_dash_show_status() {
-    printf '  %-30s %-10s %s\n' "Service" "Status" "Binary"
-    printf '  %s\n' "$(printf '%*s' 48 '' | tr ' ' '─')"
-    for svc in "${ALL_SERVICES[@]}"; do
-        local st col bin
-        st=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
-        col="$D"; case "$st" in active) col="$G" ;; failed) col="$R" ;; activating|reloading) col="$Y" ;; esac
-        bin=$(ssh_vm "test -f /usr/bin/$svc && echo yes || echo no" 2>/dev/null || echo "?")
-        printf '  %-30s %b%-10s%b  %s\n' "$svc" "$col" "$st" "$N" "$bin"
-    done
+_dash_overlay_health() {
+    printf '\033[2J\033[H'
+    printf '%s%s═══ Health Check %s%s\n\n' "$B" "$C" "$(_dash_sep $((DASH_COLS-20)))" "$N"
+    if ! $DASH_VM_ONLINE; then
+        printf '  %sVM offline%s\n' "$R" "$N"
+    else
+        if ssh_vm "curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null" 2>/dev/null | grep -q '"status":"ok"'; then
+            printf '  %s✓ iora-home API: OK%s\n' "$G" "$N"
+        else printf '  %s✗ iora-home API: unreachable%s\n' "$R" "$N"; fi
+        printf '\n  %sFailed services:%s\n' "$B" "$N"
+        ssh_vm "systemctl --failed --no-legend --no-pager 2>/dev/null" 2>/dev/null | head -10 | while IFS= read -r l; do printf '  %s\n' "$l"; done
+        printf '\n  %sDisk:%s\n' "$B" "$N"
+        ssh_vm "df -h / 2>/dev/null | tail -1" 2>/dev/null | while IFS= read -r l; do printf '  %s\n' "$l"; done
+    fi
+    printf '\n  %sPress any key to return%s\n' "$D" "$N"
+    read -r -s -n 1 < /dev/tty 2>/dev/null || true
 }
 
-_dash_show_health() {
-    if ssh_vm "curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null" 2>/dev/null | grep -q '"status":"ok"'; then
-        printf '  %s✓ iora-home API: OK%s\n' "$G" "$N"
-    else printf '  %s✗ iora-home API: unreachable%s\n' "$R" "$N"; fi
-    printf '\n  %sFailed services:%s\n' "$B" "$N"
-    ssh_vm "systemctl --failed --no-legend --no-pager 2>/dev/null" 2>/dev/null | head -10 | while IFS= read -r l; do printf '  %s\n' "$l"; done
-    printf '\n  %sDisk:%s\n' "$B" "$N"
-    ssh_vm "df -h / 2>/dev/null | tail -1" 2>/dev/null | while IFS= read -r l; do printf '  %s\n' "$l"; done
-}
-
-_dash_restart_picker() {
-    local idx=1 choice target
+_dash_overlay_restart() {
+    printf '\033[2J\033[H'
+    printf '%s%s═══ Restart Service %s%s\n\n' "$B" "$C" "$(_dash_sep $((DASH_COLS-20)))" "$N"
+    if ! $DASH_VM_ONLINE; then
+        printf '  %sVM offline%s\n' "$R" "$N"
+        printf '\n  %sPress any key to return%s\n' "$D" "$N"
+        read -r -s -n 1 < /dev/tty 2>/dev/null || true
+        return
+    fi
+    local idx=1
     for svc in "${ALL_SERVICES[@]}"; do
         local st col
         st=$(ssh_vm "systemctl is-active $svc 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
@@ -697,7 +715,7 @@ _dash_restart_picker() {
     printf '\n  %sEnter number (any other key cancels):%s ' "$D" "$N"
     read -r -s -n 3 choice < /dev/tty 2>/dev/null || true
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#ALL_SERVICES[@]}" ] 2>/dev/null; then
-        target="${ALL_SERVICES[$((choice-1))]}"
+        local target="${ALL_SERVICES[$((choice-1))]}"
         printf '\n  %sRestarting %s...%s\n' "$Y" "$target" "$N"
         ssh_vm "systemctl reset-failed $target 2>/dev/null; systemctl restart $target 2>/dev/null || systemctl start $target 2>/dev/null || true" 2>/dev/null || true
         sleep 1
@@ -705,27 +723,35 @@ _dash_restart_picker() {
         new_st=$(ssh_vm "systemctl is-active $target 2>/dev/null | tr -d '\n'" 2>/dev/null || echo "?")
         printf '  %s→ %s %s%s\n' "$G" "$target" "$new_st" "$N"
     fi
+    printf '\n  %sPress any key to return%s\n' "$D" "$N"
     read -r -s -n 1 < /dev/tty 2>/dev/null || true
 }
 
-_dash_journal_picker() {
-    local idx=1 choice target
+_dash_overlay_journal() {
+    printf '\033[2J\033[H'
+    printf '%s%s═══ Service Journal %s%s\n\n' "$B" "$C" "$(_dash_sep $((DASH_COLS-20)))" "$N"
+    if ! $DASH_VM_ONLINE; then
+        printf '  %sVM offline%s\n' "$R" "$N"
+        printf '\n  %sPress any key to return%s\n' "$D" "$N"
+        read -r -s -n 1 < /dev/tty 2>/dev/null || true
+        return
+    fi
+    local idx=1
     for svc in "${ALL_SERVICES[@]}"; do
         printf '  %2d) %s\n' "$idx" "$svc"; idx=$((idx+1))
     done
     printf '\n  %sPick service (number):%s ' "$D" "$N"
     read -r -s -n 3 choice < /dev/tty 2>/dev/null || true
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#ALL_SERVICES[@]}" ] 2>/dev/null; then
-        target="${ALL_SERVICES[$((choice-1))]}"
+        local target="${ALL_SERVICES[$((choice-1))]}"
         printf '\033[2J\033[H'
-        printf '%s%s═══ journalctl -u %s -n 40 %s%s\n\n' "$B" "$C" "$target" "$(printf '%*s' $((50-${#target})) '' | tr ' ' '═')" "$N"
+        printf '%s%s═══ journalctl -u %s -n 40 %s%s\n\n' "$B" "$C" "$target" "$(_dash_sep $((DASH_COLS-20)))" "$N"
         ssh_vm "journalctl -u $target --no-pager -n 40 2>/dev/null" 2>/dev/null || echo "  (no logs)"
         printf '\n  %sPress any key to return%s\n' "$D" "$N"
         read -r -s -n 1 < /dev/tty 2>/dev/null || true
     fi
 }
 
-# ── Build trigger (runs in background, feeds output to dashboard) ────────
 _dash_build_loop() {
     while true; do
         if $RUST_DIRTY; then
@@ -754,16 +780,26 @@ _dash_build_loop() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# Main Dashboard
+# Main Dashboard Loop
 # ═══════════════════════════════════════════════════════════════════
 
 run_dashboard() {
     printf '\033[?25l'
     stty -echo 2>/dev/null
-    trap 'printf "\033[?25h"; stty echo 2>/dev/null; printf "\033[2J\033[H"; echo "bye."' EXIT
 
+    _dash_cleanup() {
+        printf '\033[?25h'
+        stty echo 2>/dev/null
+        tput cup "$DASH_ROWS" 0 2>/dev/null
+        printf '\nbye.\n'
+    }
+    trap '_dash_cleanup' EXIT
+    trap '_dash_full' WINCH
+
+    _dash_get_size
     DASH_AUTO_DEPLOY=$DO_DEPLOY
     DASH_LAST_BUILD="-"
+
     _dash_log "${C}[SYSTEM]${N} Dashboard ready. Checking VM..."
     _dash_check_vm
     if $DASH_VM_ONLINE; then
@@ -774,23 +810,36 @@ run_dashboard() {
         _dash_log "${Y}[SYSTEM]${N} VM offline — start with ./dev-local.sh, then press C"
     fi
 
+    printf '\033[2J\033[H'
+    _dash_header
+    _dash_logs
+    _dash_footer
+
     start_watchers
     _dash_build_loop &
-    TRIGGER_PID=$!
+    local build_pid=$!
 
     local tick=0
     while true; do
-        if [ $((tick % 3)) -eq 0 ]; then _dash_check_vm; fi
-        if $DASH_VM_ONLINE && [ $((tick % 8)) -eq 0 ]; then _dash_refresh_services; fi
-        if $BUILDING_RUST || $BUILDING_FE; then DASH_BUILDING=true; else DASH_BUILDING=false; fi
+        if [ $((tick % 6)) -eq 0 ]; then
+            local was_online=$DASH_VM_ONLINE
+            _dash_check_vm
+            [ "$was_online" != "$DASH_VM_ONLINE" ] && _dash_header
+        fi
+        if $DASH_VM_ONLINE && [ $((tick % 16)) -eq 0 ]; then
+            _dash_refresh_services
+            _dash_footer
+        fi
 
-        _dash_render
+        local was_building=$DASH_BUILDING
+        if $BUILDING_RUST || $BUILDING_FE; then DASH_BUILDING=true; else DASH_BUILDING=false; fi
+        [ "$was_building" != "$DASH_BUILDING" ] && { _dash_footer; _dash_header; }
 
         local key=""
-        IFS= read -r -s -t 0.5 -n 1 key < /dev/tty 2>/dev/null || true
+        IFS= read -r -s -t 0.3 -n 1 key < /dev/tty 2>/dev/null || true
 
         case "${key:-}" in
-            q|Q) kill "$TRIGGER_PID" 2>/dev/null || true; exit 0 ;;
+            q|Q) kill "$build_pid" 2>/dev/null || true; exit 0 ;;
             b|B)
                 if $BUILDING_RUST || $BUILDING_FE; then
                     _dash_log "${Y}[BUILD]${N} Already building"
@@ -807,7 +856,7 @@ run_dashboard() {
             d|D)
                 if $DASH_VM_ONLINE; then
                     _dash_log "${C}[DEPLOY]${N} Deploying..."
-                    _dash_render
+                    _dash_footer
                     rm -f "$HASH_DIR"/* 2>/dev/null || true
                     deploy_many "${ALL_SERVICES[@]}" 2>&1 | while IFS= read -r l; do _dash_log "${M}[DEPLOY]${N} $l"; done
                     DASH_LAST_DEPLOY="${G}✓ deployed${N}"
@@ -819,21 +868,25 @@ run_dashboard() {
                     _dash_log "${C}[FE]${N} Deploying frontend..."
                     deploy_frontend "$FRONTEND_DIR/dist" 2>&1 | while IFS= read -r l; do _dash_log "${C}[FE]${N} $l"; done
                 else _dash_log "${Y}[FE]${N} dist not found or VM offline"; fi ;;
-            l|L) DASH_AUTO_DEPLOY=$(! $DASH_AUTO_DEPLOY); DO_DEPLOY=$DASH_AUTO_DEPLOY
-                _dash_log "${C}[CONFIG]${N} Auto-deploy: $($DASH_AUTO_DEPLOY && echo ON || echo OFF)" ;;
-            s|S) _dash_overlay "Service Status" _dash_show_status ;;
-            h|H) _dash_overlay "Health Check" _dash_show_health ;;
-            R)   _dash_overlay "Restart Service" _dash_restart_picker
-                 _dash_refresh_services ;;
-            j|J) _dash_overlay "Service Journal" _dash_journal_picker ;;
+            l|L)
+                DASH_AUTO_DEPLOY=$(! $DASH_AUTO_DEPLOY); DO_DEPLOY=$DASH_AUTO_DEPLOY
+                _dash_log "${C}[CONFIG]${N} Auto-deploy: $($DASH_AUTO_DEPLOY && echo ON || echo OFF)"
+                _dash_header ;;
+            s|S) _dash_overlay_status; _dash_full ;;
+            h|H) _dash_overlay_health; _dash_full ;;
+            R)   _dash_overlay_restart; _dash_refresh_services; _dash_full ;;
+            j|J) _dash_overlay_journal; _dash_full ;;
             c|C)
                 _dash_log "${C}[VM]${N} Connecting..."
                 _dash_check_vm
                 if $DASH_VM_ONLINE; then
                     _dash_log "${G}[VM]${N} Connected!"
                     _dash_refresh_services
+                    _dash_header
                 else _dash_log "${R}[VM]${N} Still unreachable — start VM with ./dev-local.sh"; fi ;;
         esac
+
+        [ -n "${key:-}" ] && { _dash_logs; _dash_footer; }
         tick=$((tick + 1))
     done
 }
