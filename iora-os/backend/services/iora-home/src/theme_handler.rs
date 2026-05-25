@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -45,7 +46,7 @@ const THEMES_DIR: &str = "data/themes";
 #[derive(Clone)]
 pub struct ThemeState {
     pub db_pool: DbPool,
-    pub theme_cache: Arc<RwLock<HashMap<String, InstalledThemeRow>>>,
+    pub theme_cache: Arc<RwLock<HashMap<String, (InstalledThemeRow, Instant)>>>,
     pub themes_dir: PathBuf,
 }
 
@@ -65,7 +66,7 @@ impl ThemeState {
             .fetch_all(&self.db_pool).await?;
         let mut cache = self.theme_cache.write().await;
         cache.clear();
-        for row in &rows { let t = map_theme_row(row); cache.insert(t.id.clone(), t); }
+        for row in &rows { let t = map_theme_row(row); cache.insert(t.id.clone(), (t, Instant::now())); }
         info!("Theme cache refreshed: {} themes", cache.len());
         Ok(())
     }
@@ -108,6 +109,7 @@ fn ensure_writable_dir(dir: &FsPath) -> std::io::Result<()> {
 // The handler functions below use State<AppState> and access theme_manager via app_state.theme_manager
 
 // Helper to extract ThemeState reference from AppState
+#[allow(dead_code)]
 fn tm(state: &AppState) -> &ThemeState {
     &state.theme_manager
 }
@@ -406,22 +408,33 @@ impl ThemeState {
                 html_templates: HashMap::new(),
                 capabilities: None,
                 widget_templates: vec![],
-                animation: None,
+                animation: None,  // auto theme has no animation
             });
         }
 
         let cache = self.theme_cache.read().await;
-        if let Some(row) = cache.get(theme_id) {
-            let mut vars: HashMap<String, String> = serde_json::from_str(&row.css_variables).unwrap_or_default();
+        if let Some((row, cached_at)) = cache.get(theme_id) {
+            if cached_at.elapsed() > Duration::from_secs(60) {
+                tracing::debug!("Theme cache entry for {} is stale ({}s old)", theme_id, cached_at.elapsed().as_secs());
+            }
+            let mut vars: HashMap<String, String> = serde_json::from_str(&row.css_variables)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to parse css_variables for theme {}: {}", row.id, e);
+                    HashMap::new()
+                });
             if let Some(ref sel) = selection { vars.extend(sel.overrides.clone()); }
 
             // ─── Parent Theme Inheritance ──────────────────────────────
             // If this theme has a parent, merge parent's data first
             if let Some(ref parent_id) = row.parent_theme {
                 if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
-                    if let Some(parent_row) = cache.get(parent_id) {
+                    if let Some((parent_row, _)) = cache.get(parent_id) {
                         // Merge parent CSS variables (child wins)
-                        let parent_vars: HashMap<String, String> = serde_json::from_str(&parent_row.css_variables).unwrap_or_default();
+                        let parent_vars: HashMap<String, String> = serde_json::from_str(&parent_row.css_variables)
+                            .unwrap_or_else(|e| {
+                                tracing::warn!("Failed to parse parent css_variables for theme {} (parent={}): {}", row.id, parent_id, e);
+                                HashMap::new()
+                            });
                         for (k, v) in parent_vars {
                             vars.entry(k).or_insert(v);
                         }
@@ -431,15 +444,27 @@ impl ThemeState {
             // ─── End parent inheritance ───────────────────────────────
 
             let fonts: Vec<iora_shared::theme::ThemeFont> = row.fonts_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse fonts for theme {}: {}", row.id, e);
+                        None
+                    }
+                }).unwrap_or_default();
 
             // Merge parent fonts (child fonts with same name override parent)
             let mut merged_fonts = fonts.clone();
             if let Some(ref parent_id) = row.parent_theme {
                 if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
-                    if let Some(parent_row) = cache.get(parent_id) {
+                    if let Some((parent_row, _)) = cache.get(parent_id) {
                         let parent_fonts: Vec<iora_shared::theme::ThemeFont> = parent_row.fonts_json.as_ref()
-                            .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                            .and_then(|j| match serde_json::from_str(j) {
+                                Ok(v) => Some(v),
+                                Err(e) => {
+                                    tracing::warn!("Failed to parse parent fonts for theme {} (parent={}): {}", row.id, parent_id, e);
+                                    None
+                                }
+                            }).unwrap_or_default();
                         for pf in parent_fonts {
                             if !merged_fonts.iter().any(|f| f.name == pf.name) {
                                 merged_fonts.push(pf);
@@ -450,13 +475,37 @@ impl ThemeState {
             }
             let fonts = merged_fonts;
             let icon_font: Option<iora_shared::theme::ThemeIconConfig> = row.icon_font_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok());
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse icon_font for theme {}: {}", row.id, e);
+                        None
+                    }
+                });
             let css_files: Vec<String> = row.css_files_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse css_files for theme {}: {}", row.id, e);
+                        None
+                    }
+                }).unwrap_or_default();
             let js_files: Vec<String> = row.js_files_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse js_files for theme {}: {}", row.id, e);
+                        None
+                    }
+                }).unwrap_or_default();
             let html_templates: HashMap<String, String> = row.html_templates_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse html_templates for theme {}: {}", row.id, e);
+                        None
+                    }
+                }).unwrap_or_default();
 
             let assets_base = if row.source == "file" { Some(format!("/api/themes/assets/{}", theme_id)) } else { None };
 
@@ -502,18 +551,36 @@ impl ThemeState {
             }).collect();
 
             let capabilities: Option<iora_shared::theme::ThemeCapabilities> = row.capabilities_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok());
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse capabilities for theme {}: {}", row.id, e);
+                        None
+                    }
+                });
 
             // Parse and resolve widget templates
             let mut widget_templates: Vec<iora_shared::theme::WidgetTemplate> = row.widget_templates_json.as_ref()
-                .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                .and_then(|j| match serde_json::from_str(j) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse widget_templates for theme {}: {}", row.id, e);
+                        None
+                    }
+                }).unwrap_or_default();
 
             // Merge parent widget templates (child wins for same widget_type)
             if let Some(ref parent_id) = row.parent_theme {
                 if !parent_id.is_empty() && parent_id != "auto" && parent_id != "default" {
-                    if let Some(parent_row) = cache.get(parent_id) {
+                    if let Some((parent_row, _)) = cache.get(parent_id) {
                         let parent_wts: Vec<iora_shared::theme::WidgetTemplate> = parent_row.widget_templates_json.as_ref()
-                            .and_then(|j| serde_json::from_str(j).ok()).unwrap_or_default();
+                            .and_then(|j| match serde_json::from_str(j) {
+                                Ok(v) => Some(v),
+                                Err(e) => {
+                                    tracing::warn!("Failed to parse parent widget_templates for theme {} (parent={}): {}", row.id, parent_id, e);
+                                    None
+                                }
+                            }).unwrap_or_default();
                         for pwt in parent_wts {
                             if !widget_templates.iter().any(|w| w.widget_type == pwt.widget_type) {
                                 widget_templates.push(pwt);
@@ -537,6 +604,8 @@ impl ThemeState {
                 }
             }
 
+            let animation = capabilities.as_ref().and_then(|c| c.animation.clone());
+
             return Ok(iora_shared::theme::ThemeCssResponse {
                 theme_id: theme_id.to_string(), source: row.source.clone(),
                 css_variables: vars, additional_css: row.additional_css.clone(),
@@ -544,9 +613,9 @@ impl ThemeState {
                 assets_base_url: assets_base,
                 fonts: resolved_fonts, icon_font: resolved_icon_font,
                 html_templates: html_resolved,
+                animation,
                 capabilities,
                 widget_templates,
-                animation: None,
             });
         }
 

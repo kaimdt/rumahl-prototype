@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 import { useLocalStorage } from '@/lib/storage'
 import { authFetch } from '@/lib/authHelpers'
 import { getBackendUrl } from '@/lib/config'
@@ -380,6 +381,55 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
+// ─── Split Contexts for Render Performance ─────────────────────
+// Only components that need the full context should use useTheme().
+// For targeted re-renders, use the split hooks below.
+
+interface ThemeMetaContextType {
+  availableThemes: ThemeDefinition[]
+  installedThemes: InstalledTheme[]
+  loading: boolean
+  refreshThemes: () => Promise<void>
+}
+const ThemeMetaContext = createContext<ThemeMetaContextType | undefined>(undefined)
+
+interface ThemeActiveContextType {
+  theme: string
+  sleepMode: boolean
+  autoTheme: boolean
+  selectedTheme: string
+  activeCssVariables: Record<string, string>
+  themeResponse: ThemeCssResponse | null
+  capabilities: ThemeCapabilities | null
+  activeTemplates: Record<string, string>
+  widgetTemplates: WidgetTemplate[]
+  designModes: ThemeDesignMode[]
+  activeDesignMode: string
+  customSettings: Record<string, unknown>
+  accentLocked: boolean
+  forcedAccent: string | null
+  glassLocked: boolean
+  forcedGlass: { blur?: string; opacity?: string } | null
+  animationConfig: ThemeAnimationConfig | null
+  splashConfig: SplashConfig | null
+  pageTransitionConfig: PageTransitionConfig | null
+  widgetAnimationConfig: WidgetAnimationConfig | null
+  navConfig: NavCustomization | null
+  modalConfig: ModalThemeConfig | null
+  notificationConfig: NotificationThemeConfig | null
+  nightModeConfig: NightModeConfig | null
+}
+const ThemeActiveContext = createContext<ThemeActiveContextType | undefined>(undefined)
+
+interface ThemeActionContextType {
+  setSleepMode: (enabled: boolean) => void
+  setAutoTheme: (enabled: boolean) => void
+  setSelectedTheme: (theme: string) => void
+  setActiveDesignMode: (modeId: string) => void
+  updateCustomSetting: (key: string, value: unknown) => Promise<void>
+}
+const ThemeActionContext = createContext<ThemeActionContextType | undefined>(undefined)
+
 function getThemeFromTime(): string {
   const hour = new Date().getHours()
   if (hour >= 6 && hour < 18) return 'day'
@@ -501,13 +551,24 @@ function injectFonts(fonts: ThemeFont[]) {
 
 /** Inject a <style> tag for custom CSS */
 function injectCustomCss(css: string) {
+  if (process.env.NODE_ENV === 'development') {
+    const lines = css.split('\n')
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.includes('{') && !trimmed.startsWith(':root[') && !trimmed.startsWith('@') && !trimmed.startsWith('/*') && !trimmed.startsWith('//') && !trimmed.startsWith('}') && !trimmed.startsWith('*')) {
+        console.warn('[ThemeContext] CSS rule without :root[data-theme] scope — may affect ALL themes:', trimmed.substring(0, 80))
+      }
+    }
+  }
   let style = document.getElementById(STYLE_CONTAINER_ID)
   if (!style) {
     style = document.createElement('style')
     style.id = STYLE_CONTAINER_ID
     document.head.appendChild(style)
+  } else if ((style as HTMLStyleElement).textContent === css) {
+    return
   }
-  style.textContent = css
+  ;(style as HTMLStyleElement).textContent = css
 }
 
 /** Inject external CSS file URL (single file, legacy) */
@@ -622,6 +683,24 @@ function clearThemeInjections() {
   delete (window as any).__iora_icon_prefix
 }
 
+// ─── FOUC Protection - sessionStorage CSS cache ───────────────────
+
+const THEME_CSS_CACHE_KEY = 'iora-theme-css-cache'
+function cacheThemeCss(id: string, vars: Record<string, string>) {
+  try { sessionStorage.setItem(THEME_CSS_CACHE_KEY, JSON.stringify({ id, vars })) } catch {}
+}
+function applyCachedThemeCss(): string | null {
+  try {
+    const raw = sessionStorage.getItem(THEME_CSS_CACHE_KEY)
+    if (!raw) return null
+    const { id, vars } = JSON.parse(raw)
+    const root = document.documentElement
+    Object.entries(vars).forEach(([k, v]) => root.style.setProperty(`--${k}`, v))
+    root.setAttribute('data-theme', id)
+    return id
+  } catch { return null }
+}
+
 // ─── Theme Provider ─────────────────────────────────────────────────
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -629,6 +708,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [autoTheme, setAutoTheme] = useLocalStorage<boolean>('ha-auto-theme', true)
   const [selectedTheme, setSelectedThemeState] = useLocalStorage<string>('ha-selected-theme', 'auto')
   const [theme, setTheme] = useState<string>(() => {
+    const cached = applyCachedThemeCss()
+    if (cached && sleepMode) return 'sleep'
+    if (cached && selectedTheme === cached) return cached
     if (sleepMode) return 'sleep'
     if (selectedTheme !== 'auto') return selectedTheme
     return getThemeFromTime()
@@ -647,16 +729,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Track which theme's resources are currently injected
   const injectedThemeRef = useRef<string | null>(null)
+  const prevModeVarsRef = useRef<Record<string, string>>({})
+  const abortRef = useRef<AbortController | null>(null)
 
+  const { user } = useAuth()
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('ha-auth-user')
-      if (stored) {
-        const user = JSON.parse(stored)
-        setProfileId(user.id || user.sub || null)
-      }
-    } catch {}
-  }, [])
+    setProfileId(user?.id || user?.sub || null)
+  }, [user?.id, user?.sub])
 
   const refreshThemes = useCallback(async () => {
     try {
@@ -685,10 +764,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { refreshThemes() }, [refreshThemes])
 
+  const fetchSeqRef = useRef(0)
+
   /** Fetch the full theme data (CSS vars, fonts, icons, custom CSS) */
   const fetchThemeData = useCallback(async (pid: string) => {
+    const seq = ++fetchSeqRef.current
     try {
       const res = await authFetch(`/api/themes/css/${pid}`)
+      if (seq !== fetchSeqRef.current) return
       if (res.ok) {
         const data: ThemeCssResponse = await res.json()
         setThemeResponse(data)
@@ -699,6 +782,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch {
+      if (seq !== fetchSeqRef.current) return
       setThemeResponse(null)
       setActiveCssVariables({})
     }
@@ -733,7 +817,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     update()
     const interval = setInterval(update, 60000)
     return () => clearInterval(interval)
-  }, [sleepMode, autoTheme, selectedTheme, capabilities])
+  }, [sleepMode, autoTheme, selectedTheme])
 
   // Fetch theme data when theme changes
   useEffect(() => {
@@ -752,6 +836,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Apply CSS variables + fonts + icons + custom CSS when themeResponse changes
   useEffect(() => {
+    if (themeResponse?.theme_id === injectedThemeRef.current) return
+
     const root = document.documentElement
 
     // Clear previous custom theme variables
@@ -768,10 +854,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (themeResponse) {
       // Apply CSS variables
       if (Object.keys(themeResponse.css_variables).length > 0) {
-        Object.entries(themeResponse.css_variables).forEach(([key, value]) => {
-          root.style.setProperty(`--${key}`, value)
-        })
+        const applyVars = () => {
+          Object.entries(themeResponse.css_variables).forEach(([key, value]) => {
+            root.style.setProperty(`--${key}`, value)
+          })
+        }
+        if (typeof document !== 'undefined' && 'startViewTransition' in document) {
+          (document as any).startViewTransition(() => {
+            requestAnimationFrame(applyVars)
+          })
+        } else {
+          requestAnimationFrame(applyVars)
+        }
         root.setAttribute('data-custom-theme-vars', JSON.stringify(Object.keys(themeResponse.css_variables)))
+        cacheThemeCss(themeResponse.theme_id, themeResponse.css_variables)
       }
 
       // Set layout attributes for CSS-driven layout changes
@@ -917,9 +1013,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     // Load custom settings from API
     if (profileId && themeResponse?.theme_id && themeResponse.theme_id !== 'auto') {
-      authFetch(`/api/themes/user/${profileId}/settings/${themeResponse.theme_id}`)
-        .then(r => r.ok ? r.json() : null)
-        .then((data: { settings?: Record<string, unknown> } | null) => {
+      abortRef.current?.abort()
+      abortRef.current = new AbortController()
+      let cancelled = false
+      const fetchSettings = async () => {
+        try {
+          const r = await authFetch(`/api/themes/user/${profileId}/settings/${themeResponse.theme_id}`)
+          const data: { settings?: Record<string, unknown> } | null = r.ok ? await r.json() : null
+          if (cancelled) return
           if (data?.settings) {
             setCustomSettings(data.settings)
             // Apply CSS variable bindings
@@ -940,15 +1041,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
             })
             setCustomSettings(defaults)
           }
-        })
-        .catch(() => {
+        } catch {
+          if (cancelled) return
           // Use defaults on error
           const defaults: Record<string, unknown> = {}
           caps?.custom_settings?.forEach(s => {
             defaults[s.id] = s.default_value
           })
           setCustomSettings(defaults)
-        })
+        }
+      }
+      fetchSettings()
+      return () => { cancelled = true; abortRef.current?.abort() }
     } else {
       setCustomSettings({})
     }
@@ -983,11 +1087,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Set active design mode (for themes with custom modes)
   const setActiveDesignMode = useCallback((modeId: string) => {
     setActiveDesignModeState(modeId)
+    // Clean up previous mode variables
+    Object.keys(prevModeVarsRef.current).forEach(key => {
+      document.documentElement.style.removeProperty(`--${key}`)
+    })
     const mode = capabilities?.design_modes?.find(m => m.id === modeId)
     if (mode) {
+      prevModeVarsRef.current = mode.css_variables
       Object.entries(mode.css_variables).forEach(([key, value]) => {
         document.documentElement.style.setProperty(`--${key}`, value)
       })
+    } else {
+      prevModeVarsRef.current = {}
     }
   }, [capabilities])
 
@@ -1073,6 +1184,33 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pageTransitionConfig?.duration_secs])
 
+  const metaValue = useMemo(() => ({
+    availableThemes, installedThemes, loading, refreshThemes,
+  }), [availableThemes, installedThemes, loading, refreshThemes])
+
+  const activeValue = useMemo(() => ({
+    theme, sleepMode, autoTheme, selectedTheme,
+    activeCssVariables, themeResponse, capabilities,
+    activeTemplates, widgetTemplates, designModes,
+    activeDesignMode, customSettings,
+    accentLocked, forcedAccent, glassLocked, forcedGlass,
+    animationConfig, splashConfig, pageTransitionConfig, widgetAnimationConfig,
+    navConfig, modalConfig, notificationConfig, nightModeConfig,
+  }), [
+    theme, sleepMode, autoTheme, selectedTheme,
+    activeCssVariables, themeResponse, capabilities,
+    activeTemplates, widgetTemplates, designModes,
+    activeDesignMode, customSettings,
+    accentLocked, forcedAccent, glassLocked, forcedGlass,
+    animationConfig, splashConfig, pageTransitionConfig, widgetAnimationConfig,
+    navConfig, modalConfig, notificationConfig, nightModeConfig,
+  ])
+
+  const actionValue = useMemo(() => ({
+    setSleepMode, setAutoTheme, setSelectedTheme,
+    setActiveDesignMode, updateCustomSetting,
+  }), [setSleepMode, setAutoTheme, setSelectedTheme, setActiveDesignMode, updateCustomSetting])
+
   const contextValue = useMemo(() => ({
     theme, sleepMode, setSleepMode,
     autoTheme, setAutoTheme,
@@ -1104,12 +1242,34 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   ])
 
   return (
+    <ThemeMetaContext.Provider value={metaValue}>
+    <ThemeActiveContext.Provider value={activeValue}>
+    <ThemeActionContext.Provider value={actionValue}>
     <ThemeContext.Provider value={contextValue}>
       <div className="theme-transition min-h-screen bg-background text-foreground">
         {children}
       </div>
     </ThemeContext.Provider>
+    </ThemeActionContext.Provider>
+    </ThemeActiveContext.Provider>
+    </ThemeMetaContext.Provider>
   )
+}
+
+export function useThemeMeta() {
+  const ctx = useContext(ThemeMetaContext)
+  if (!ctx) throw new Error('useThemeMeta must be used within ThemeProvider')
+  return ctx
+}
+export function useThemeActive() {
+  const ctx = useContext(ThemeActiveContext)
+  if (!ctx) throw new Error('useThemeActive must be used within ThemeProvider')
+  return ctx
+}
+export function useThemeActions() {
+  const ctx = useContext(ThemeActionContext)
+  if (!ctx) throw new Error('useThemeActions must be used within ThemeProvider')
+  return ctx
 }
 
 export function useTheme() {

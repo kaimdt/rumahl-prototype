@@ -10,12 +10,15 @@ type StorageListener<T> = (value: T) => void
 
 class LocalStorageManager {
   private listeners = new Map<string, Set<StorageListener<any>>>()
+  private memoryFallback = new Map<string, unknown>()
 
   /**
    * Get a value from localStorage
    */
   get<T>(key: string, defaultValue?: T): T | undefined {
     try {
+      const memVal = this.memoryFallback.get(key)
+      if (memVal !== undefined) return memVal as T
       const item = localStorage.getItem(key)
       if (item === null) return defaultValue
       return JSON.parse(item) as T
@@ -31,7 +34,11 @@ class LocalStorageManager {
   set<T>(key: string, value: T): void {
     try {
       const serialized = JSON.stringify(value)
-      localStorage.setItem(key, serialized)
+      try {
+        localStorage.setItem(key, serialized)
+      } catch {
+        this.memoryFallback.set(key, value)
+      }
       this.notifyListeners(key, value)
       // Debounce-push synced keys to backend
       scheduleSyncToBackend(key, serialized)

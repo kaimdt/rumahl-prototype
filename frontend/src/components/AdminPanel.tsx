@@ -95,7 +95,7 @@ const ccBtnIcon = (base: string = '') =>
   `inline-flex items-center justify-center rounded-xl p-2 text-foreground/50 hover:text-foreground hover:bg-foreground/[0.06] transition-all duration-200 active:scale-95 ${base}`
 
 const ccCard = (base: string = '') =>
-  `rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-5 ${base}`
+  `rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-4 sm:p-5 overflow-x-auto ${base}`
 
 const ccBadge = (color: string, base: string = '') =>
   `inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${color} ${base}`
@@ -643,12 +643,12 @@ export function AdminPanel() {
         </button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(14rem,16rem)_minmax(0,1fr)]">
         {/* ── Sidebar: Hidden on mobile, overlay when open ─────── */}
         <aside className={`
           ${ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')}
           sidebar-scroll
-          ${sidebarOpen ? 'fixed inset-x-4 top-20 z-50 max-h-[calc(100vh-10rem)] shadow-2xl' : 'hidden lg:flex'}
+          ${sidebarOpen ? 'fixed inset-x-4 top-20 z-[60] max-h-[calc(100vh-10rem)] shadow-2xl' : 'hidden lg:flex'}
         `}>
           {/* Close button for mobile overlay */}
           <div className="lg:hidden flex items-center justify-between mb-3 flex-shrink-0">
@@ -740,12 +740,12 @@ export function AdminPanel() {
         {/* ── Mobile Sidebar Backdrop ──────────────────────────── */}
         {sidebarOpen && (
           <div
-            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[55]"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           {/* ── Active Tab Header ─────────────────────────────────── */}
           <div className={ccCard()}>
             <div className="flex items-center gap-3">
