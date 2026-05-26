@@ -306,6 +306,26 @@
     "users": "Users",
     "network": "Network",
     "logs": "Logs",
+    "logsSources": {
+      "title": "Dienste & Apps",
+      "heading": "Quellen",
+      "all": "Alle",
+      "empty": "Keine Quellen gefunden.",
+      "running": "aktiv",
+      "stopped": "inaktiv",
+      "lines": "Zeilen",
+      "auto": "Auto",
+      "refresh": "Aktualisieren",
+      "filterPlaceholder": "Logs filtern...",
+      "noLines": "Keine Log-Einträge.",
+      "kind": {
+        "self": "IORA Home",
+        "service": "Dienste (systemd)",
+        "app": "Apps",
+        "plugin": "Plugins",
+        "docker": "Docker Container"
+      }
+    },
     "database": "Database",
     "backups": "Backups",
     "updates": "Updates",

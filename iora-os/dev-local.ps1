@@ -971,6 +971,12 @@ Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
 
+# Central log viewer: iora-home must be able to read other services' journals.
+cat > /etc/systemd/system/iora-home.service.d/logs.conf <<CFG
+[Service]
+SupplementaryGroups=systemd-journal
+CFG
+
 # Bootstrap admin credentials for dev VM (idempotent)
 mkdir -p /etc/iora
 if [ ! -f /etc/iora/iora-home.env ]; then

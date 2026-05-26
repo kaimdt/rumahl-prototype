@@ -911,6 +911,72 @@ pub async fn serve_theme_asset(
     gs.theme_manager.serve_asset(&theme_id, &path).await
 }
 
+/// GET /api/themes/assets/:theme_id
+/// Returns the entire theme directory packaged as a ZIP. Used by the admin
+/// panel's "Export theme" button so users can back up or share installed
+/// themes. Only file-based themes (those with an on-disk directory) have a
+/// non-empty bundle; built-in themes return 404.
+pub async fn export_theme_bundle(
+    State(gs): State<AppState>,
+    Path(theme_id): Path<String>,
+) -> Result<Response, (StatusCode, String)> {
+    let theme_dir = gs.theme_manager.themes_dir.join(&theme_id);
+    if !theme_dir.exists() || !theme_dir.is_dir() {
+        return Err((StatusCode::NOT_FOUND, format!("Theme '{}' has no exportable assets", theme_id)));
+    }
+
+    // Build the ZIP in a blocking task because zip::ZipWriter is sync I/O.
+    let dir_clone = theme_dir.clone();
+    let buf = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let mut out = std::io::Cursor::new(Vec::<u8>::new());
+        {
+            let mut zw = zip::ZipWriter::new(&mut out);
+            let opts: zip::write::FileOptions = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            fn walk(
+                base: &FsPath,
+                dir: &FsPath,
+                zw: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>,
+                opts: &zip::write::FileOptions,
+            ) -> Result<(), String> {
+                for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let path = entry.path();
+                    let rel = path.strip_prefix(base).map_err(|e| e.to_string())?;
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    if path.is_dir() {
+                        zw.add_directory(format!("{}/", rel_str), *opts).map_err(|e| e.to_string())?;
+                        walk(base, &path, zw, opts)?;
+                    } else {
+                        zw.start_file(rel_str, *opts).map_err(|e| e.to_string())?;
+                        let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+                        use std::io::Write;
+                        zw.write_all(&data).map_err(|e| e.to_string())?;
+                    }
+                }
+                Ok(())
+            }
+            walk(&dir_clone, &dir_clone, &mut zw, &opts)?;
+            zw.finish().map_err(|e| e.to_string())?;
+        }
+        Ok(out.into_inner())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("zip task join error: {}", e)))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("zip error: {}", e)))?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/zip"),
+    );
+    let disp = format!("attachment; filename=\"{}.zip\"", theme_id.replace('"', ""));
+    if let Ok(v) = header::HeaderValue::from_str(&disp) {
+        headers.insert(header::CONTENT_DISPOSITION, v);
+    }
+    Ok((headers, buf).into_response())
+}
+
 // ════════════════════════════════════════════════════════════════
 // User Theme Custom Settings API
 // ════════════════════════════════════════════════════════════════

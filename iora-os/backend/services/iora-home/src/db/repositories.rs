@@ -208,6 +208,20 @@ impl ConfigRepository {
         Ok(profile)
     }
 
+    /// List all profiles owned by a user. Used by the frontend to discover an
+    /// existing profile for a freshly logged-in user before falling back to
+    /// creating a new one.
+    pub async fn list_profiles_by_owner(&self, owner_id: &str) -> anyhow::Result<Vec<ConfigurationProfile>> {
+        let profiles = sqlx::query_as::<_, ConfigurationProfile>(
+            "SELECT * FROM configuration_profiles WHERE owner_id = $1 ORDER BY is_default DESC, updated_at DESC"
+        )
+        .bind(owner_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(profiles)
+    }
+
     pub async fn get_profile(&self, profile_id: &str) -> anyhow::Result<Option<ConfigurationProfile>> {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
             "SELECT * FROM configuration_profiles WHERE id = $1"

@@ -217,13 +217,14 @@ interface ResourceUsage {
 }
 
 interface SecurityAlert {
-  id: string
-  provider_id: string
+  id: number
   alert_type: string
   severity: 'low' | 'medium' | 'high' | 'critical'
-  description: string
-  triggered_at: string
+  title: string
+  message: string
+  created_at: string
   acknowledged: boolean
+  acknowledged_at?: string | null
 }
 
 export function SecurityMonitorTab({ token }: { token: string }) {
@@ -252,7 +253,7 @@ export function SecurityMonitorTab({ token }: { token: string }) {
 
   useEffect(() => { load() }, [load])
 
-  const acknowledgeAlert = async (alertId: string) => {
+  const acknowledgeAlert = async (alertId: number) => {
     try {
       await adminFetch(`/api/core/security/alerts/${alertId}/acknowledge`, token, { method: 'POST' })
       await load()
@@ -310,10 +311,10 @@ export function SecurityMonitorTab({ token }: { token: string }) {
                         'text-blue-400'
                       } />
                       {alert.alert_type}
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-foreground/10 text-foreground/60">{alert.provider_id}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-foreground/10 text-foreground/60">{alert.title}</span>
                     </div>
-                    <div className="text-[10px] text-foreground/60 mt-1">{alert.description}</div>
-                    <div className="text-[10px] text-foreground/40 mt-0.5">{new Date(alert.triggered_at).toLocaleString('de-DE')}</div>
+                    <div className="text-[10px] text-foreground/60 mt-1">{alert.message}</div>
+                    <div className="text-[10px] text-foreground/40 mt-0.5">{new Date(alert.created_at).toLocaleString('de-DE')}</div>
                   </div>
                   <button onClick={() => acknowledgeAlert(alert.id)}
                     className="ml-2 px-2 py-1 bg-foreground/10 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/20 transition-colors shrink-0">

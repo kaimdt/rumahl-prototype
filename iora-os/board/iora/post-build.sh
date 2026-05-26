@@ -4178,6 +4178,16 @@ write_iora_service "iora-core" "8090" "iora" "" "Core Orchestrator"
 # iora-home — IORA Home smart-home dashboard + HA translator
 write_iora_service "iora-home" "8126" "iora" "iora-core.service" "Home Dashboard"
 
+# Drop-in: give iora-home read access to other services' journals so the
+# Admin Control Center central log view (/api/admin/logs/source/...) can
+# tail any iora-* unit via `journalctl -u`. Without `systemd-journal` group
+# membership a non-privileged user only sees its own service's logs.
+mkdir -p "${TARGET_DIR}/etc/systemd/system/iora-home.service.d"
+cat > "${TARGET_DIR}/etc/systemd/system/iora-home.service.d/logs.conf" <<'EOF'
+[Service]
+SupplementaryGroups=systemd-journal
+EOF
+
 # iora-control — admin panel backend
 write_iora_service "iora-control" "8091" "iora" "iora-core.service iora-home.service" "Control Center"
 

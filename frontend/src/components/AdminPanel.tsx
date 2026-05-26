@@ -3982,6 +3982,7 @@ interface IoraLogEntry {
 }
 
 function LogsTab({ token }: { token: string }) {
+  const { t } = useTranslation()
   const [logs, setLogs] = useState<IoraLogEntry[]>([])
   const [haLogs, setHaLogs] = useState<Array<{ line: string; severity: string }>>([])
   const [loading, setLoading] = useState(true)
@@ -3990,7 +3991,7 @@ function LogsTab({ token }: { token: string }) {
   const [search, setSearch] = useState('')
   const [targetFilter, setTargetFilter] = useState('')
   const [liveMode, setLiveMode] = useState(false)
-  const [activeView, setActiveView] = useState<'iora' | 'ha'>('iora')
+  const [activeView, setActiveView] = useState<'iora' | 'ha' | 'sources'>('iora')
   const [autoScroll, setAutoScroll] = useState(true)
   const logContainerRef = { current: null as HTMLDivElement | null }
 
@@ -4073,6 +4074,9 @@ function LogsTab({ token }: { token: string }) {
               </button>
               <button onClick={() => setActiveView('ha')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'ha' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
                 Home Assistant
+              </button>
+              <button onClick={() => setActiveView('sources')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'sources' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
+                {t('admin.logsSources.title', 'Dienste & Apps')}
               </button>
             </div>
           </div>
@@ -4201,6 +4205,219 @@ function LogsTab({ token }: { token: string }) {
           </AdminCard>
         </>
       )}
+
+      {activeView === 'sources' && (
+        <SourceLogsView token={token} />
+      )}
+    </div>
+  )
+}
+
+// ── Source Logs View (services / apps / plugins / docker) ────
+
+interface LogSource {
+  id: string
+  kind: string
+  transport: string
+  name: string
+  running: boolean
+  description?: string | null
+}
+
+function SourceLogsView({ token }: { token: string }) {
+  const { t } = useTranslation()
+  const [sources, setSources] = useState<LogSource[]>([])
+  const [selected, setSelected] = useState<string>('self:iora-home')
+  const [lines, setLines] = useState<number>(500)
+  const [logLines, setLogLines] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
+  const [auto, setAuto] = useState(false)
+  const [kindFilter, setKindFilter] = useState<'all' | 'service' | 'app' | 'plugin' | 'docker' | 'self'>('all')
+
+  const loadSources = useCallback(async () => {
+    try {
+      const data = await adminFetch('/api/admin/logs/sources', token)
+      setSources((data.sources ?? []) as LogSource[])
+    } catch (e) { setError((e as Error).message) }
+  }, [token])
+
+  const loadLogs = useCallback(async () => {
+    if (!selected) return
+    setError('')
+    try {
+      const data = await adminFetch(`/api/admin/logs/source/${encodeURIComponent(selected)}?lines=${lines}`, token)
+      setLogLines((data.lines ?? []) as string[])
+    } catch (e) {
+      setError((e as Error).message)
+      setLogLines([])
+    }
+    setLoading(false)
+  }, [token, selected, lines])
+
+  useEffect(() => { loadSources() }, [loadSources])
+  useEffect(() => { loadLogs() }, [loadLogs])
+
+  useEffect(() => {
+    if (!auto) return
+    const iv = setInterval(() => { loadLogs() }, 5000)
+    return () => clearInterval(iv)
+  }, [auto, loadLogs])
+
+  const grouped = useMemo(() => {
+    const g: Record<string, LogSource[]> = {}
+    const list = kindFilter === 'all' ? sources : sources.filter(s => s.kind === kindFilter)
+    for (const s of list) {
+      const key = s.kind
+      if (!g[key]) g[key] = []
+      g[key].push(s)
+    }
+    return g
+  }, [sources, kindFilter])
+
+  const filteredLines = filter
+    ? logLines.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
+    : logLines
+
+  const kindLabel = (k: string) => {
+    switch (k) {
+      case 'self': return t('admin.logsSources.kind.self', 'IORA Home')
+      case 'service': return t('admin.logsSources.kind.service', 'Dienste (systemd)')
+      case 'app': return t('admin.logsSources.kind.app', 'Apps')
+      case 'plugin': return t('admin.logsSources.kind.plugin', 'Plugins')
+      case 'docker': return t('admin.logsSources.kind.docker', 'Docker Container')
+      default: return k
+    }
+  }
+  const kindIcon = (k: string) => {
+    switch (k) {
+      case 'self': return <Terminal size={12} />
+      case 'service': return <Cpu size={12} />
+      case 'app': return <Cube size={12} />
+      case 'plugin': return <Plug size={12} />
+      case 'docker': return <Cube size={12} />
+      default: return <ListBullets size={12} />
+    }
+  }
+
+  const selectedSource = sources.find(s => s.id === selected)
+
+  return (
+    <div className="grid grid-cols-12 gap-3">
+      <div className="col-span-12 md:col-span-4 lg:col-span-3">
+        <AdminCard>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium text-foreground/70">
+                {t('admin.logsSources.heading', 'Quellen')}
+              </div>
+              <button onClick={loadSources} className="p-1 rounded text-foreground/50 hover:text-accent hover:bg-accent/10 transition">
+                <ArrowClockwise size={12} />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(['all', 'self', 'service', 'app', 'plugin', 'docker'] as const).map(k => (
+                <button key={k} onClick={() => setKindFilter(k)}
+                  className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium transition ${kindFilter === k ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+                  {k === 'all' ? t('admin.logsSources.all', 'Alle') : kindLabel(k)}
+                </button>
+              ))}
+            </div>
+            <div className="max-h-[600px] overflow-y-auto space-y-2 pr-1">
+              {Object.entries(grouped).map(([kind, items]) => (
+                <div key={kind} className="space-y-0.5">
+                  <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-foreground/40 px-1 pt-1">
+                    {kindIcon(kind)} {kindLabel(kind)} <span className="text-foreground/30">({items.length})</span>
+                  </div>
+                  {items.map(s => (
+                    <button key={s.id} onClick={() => setSelected(s.id)}
+                      title={s.description ?? s.id}
+                      className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-left text-[10px] transition ${selected === s.id ? 'bg-accent/15 text-accent border border-accent/30' : 'hover:bg-foreground/5 text-foreground/70 border border-transparent'}`}>
+                      <span className="truncate">{s.name}</span>
+                      <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${s.running ? 'bg-green-400' : 'bg-foreground/20'}`} />
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {Object.keys(grouped).length === 0 && (
+                <div className="text-[10px] text-foreground/40 text-center py-4">
+                  {t('admin.logsSources.empty', 'Keine Quellen gefunden.')}
+                </div>
+              )}
+            </div>
+          </div>
+        </AdminCard>
+      </div>
+
+      <div className="col-span-12 md:col-span-8 lg:col-span-9 space-y-3">
+        <AdminCard>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              {selectedSource && kindIcon(selectedSource.kind)}
+              <div className="text-xs font-medium text-foreground/80 truncate">
+                {selectedSource?.name ?? selected}
+              </div>
+              {selectedSource && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${selectedSource.running ? 'bg-green-500/20 text-green-400' : 'bg-foreground/10 text-foreground/50'}`}>
+                  {selectedSource.running ? t('admin.logsSources.running', 'aktiv') : t('admin.logsSources.stopped', 'inaktiv')}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <select value={lines} onChange={e => setLines(Number(e.target.value))}
+                className="px-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground/80 focus:outline-none focus:border-accent/50">
+                {[100, 200, 500, 1000, 2000, 5000].map(n => (
+                  <option key={n} value={n}>{n} {t('admin.logsSources.lines', 'Zeilen')}</option>
+                ))}
+              </select>
+              <button onClick={() => setAuto(!auto)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition ${auto ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+                <Broadcast size={11} weight={auto ? 'fill' : 'regular'} />
+                {t('admin.logsSources.auto', 'Auto')}
+              </button>
+              <button onClick={loadLogs} className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-foreground/70 hover:text-accent hover:bg-accent/10 transition">
+                <ArrowClockwise size={11} /> {t('admin.logsSources.refresh', 'Aktualisieren')}
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 relative">
+            <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
+            <input value={filter} onChange={e => setFilter(e.target.value)}
+              placeholder={t('admin.logsSources.filterPlaceholder', 'Logs filtern...')}
+              className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
+          </div>
+        </AdminCard>
+
+        <AdminCard>
+          {loading ? (
+            <LoadingSpinner />
+          ) : error ? (
+            <ErrorMessage>{error}</ErrorMessage>
+          ) : (
+            <div className="max-h-[600px] overflow-y-auto font-mono text-[10px] leading-relaxed">
+              {filteredLines.length === 0 ? (
+                <div className="text-foreground/50 text-center py-8">
+                  {t('admin.logsSources.noLines', 'Keine Log-Einträge.')}
+                </div>
+              ) : filteredLines.map((line, i) => {
+                const lower = line.toLowerCase()
+                const isErr = lower.includes('error') || lower.includes(' err ') || lower.includes('panic')
+                const isWarn = lower.includes('warn')
+                return (
+                  <div key={i} className={`py-0.5 px-2 rounded whitespace-pre-wrap break-all ${
+                    isErr ? 'text-red-400/90 bg-red-500/5' :
+                    isWarn ? 'text-amber-400/80' :
+                    'text-foreground/70'
+                  }`}>
+                    {line}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </AdminCard>
+      </div>
     </div>
   )
 }

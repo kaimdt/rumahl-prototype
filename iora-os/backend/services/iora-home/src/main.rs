@@ -55,6 +55,7 @@ mod app_scheduler_handler;
 mod app_messaging_handler;
 mod app_webhooks_handler;
 mod theme_handler;
+mod logs_handler;
 
 use ha_client::HomeAssistantClient;
 use ha_websocket::HAWebSocket;
@@ -1153,6 +1154,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/metrics", get(admin_get_metrics))
         .route("/api/admin/metrics/live", get(admin_metrics_live_sse))
         .route("/api/admin/logs/live", get(admin_logs_live_sse))
+        // Central per-source log viewer (services, apps, plugins, docker)
+        .route("/api/admin/logs/sources", get(logs_handler::list_log_sources))
+        .route("/api/admin/logs/source/:source_id", get(logs_handler::get_source_logs))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_admin))
         .with_state(state.clone());
 
@@ -1244,6 +1248,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/themes/user/:profile_id", get(theme_handler::get_user_theme).post(theme_handler::set_user_theme))
         .route("/api/themes/css/:profile_id", get(theme_handler::get_theme_css))
         .route("/api/themes/assets/:theme_id/*path", get(theme_handler::serve_theme_asset))
+        .route("/api/themes/assets/:theme_id", get(theme_handler::export_theme_bundle))
         // Home Assistant API proxy
         .route("/api/states", get(get_states))
         .route("/api/states/:entity_id", get(get_state))
@@ -1266,6 +1271,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/config/devices/:device_id/heartbeat", post(device_heartbeat))
         .route("/api/config/profiles", post(create_profile))
         .route("/api/config/profiles/:profile_id", get(get_profile_data))
+        .route("/api/config/users/:user_id/profiles", get(list_user_profiles))
         .route("/api/config/profiles/:profile_id/pages", post(save_pages))
         .route("/api/config/profiles/:profile_id/theme", post(save_theme_settings))
         .route("/api/config/profiles/:profile_id/background", post(save_background_config))
@@ -1365,6 +1371,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/core/registrations/:id/revoke", post(core_registrations_revoke))
         .route("/api/core/security/events", get(proxy_core_security))
         .route("/api/core/security/alerts", get(proxy_core_security))
+        .route("/api/core/security/alerts/:id/acknowledge", post(proxy_core_security))
         .route("/api/core/security/resource-usage", get(proxy_core_security))
         .route("/api/core/updates/check", get(core_updates_check).post(core_updates_check))
         .route("/api/core/updates/history", get(core_updates_history))
@@ -4335,6 +4342,22 @@ async fn get_profile_data(
         Err(e) => {
             warn!("Failed to get profile data: {}", e);
             Err(ErrorResponse::internal(format!("Failed to get profile data: {}", e)))
+        }
+    }
+}
+
+/// List all configuration profiles owned by the given user. The frontend
+/// `PageNavigationContext` uses this to find an existing profile for a freshly
+/// logged-in user before creating a new one.
+async fn list_user_profiles(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Vec<db::models::ConfigurationProfile>>, ErrorResponse> {
+    match state.config_repo.list_profiles_by_owner(&user_id).await {
+        Ok(profiles) => Ok(Json(profiles)),
+        Err(e) => {
+            warn!("Failed to list profiles for user {}: {}", user_id, e);
+            Err(ErrorResponse::internal(format!("Failed to list profiles: {}", e)))
         }
     }
 }
@@ -9195,27 +9218,27 @@ const LOG_BUFFER_CAPACITY: usize = 5000;
 
 /// A single log entry captured from the tracing system
 #[derive(Clone, Serialize)]
-struct LogEntry {
+pub(crate) struct LogEntry {
     /// Monotonic ID for ordering
-    id: u64,
+    pub id: u64,
     /// ISO-8601 timestamp
-    timestamp: String,
+    pub timestamp: String,
     /// Log level: trace, debug, info, warn, error
-    level: String,
+    pub level: String,
     /// Source service / module target
-    target: String,
+    pub target: String,
     /// Log message text
-    message: String,
+    pub message: String,
     /// Optional structured fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    fields: Option<Value>,
+    pub fields: Option<Value>,
 }
 
 /// Global log ID counter
-static LOG_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+pub(crate) static LOG_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// In-memory ring buffer for captured log entries
-static LOG_BUFFER: std::sync::LazyLock<std::sync::RwLock<VecDeque<LogEntry>>> =
+pub(crate) static LOG_BUFFER: std::sync::LazyLock<std::sync::RwLock<VecDeque<LogEntry>>> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(VecDeque::with_capacity(LOG_BUFFER_CAPACITY)));
 
 /// Broadcast channel for real-time log streaming
