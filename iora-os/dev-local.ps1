@@ -21,8 +21,8 @@
 #   .\dev-local.ps1 -SSH           SSH directly into the running VM
 #   .\dev-local.ps1 -Log            Live cloud-init / system logs
 #   .\dev-local.ps1 -Reprovision   Force re-running the in-VM setup
-#   .\dev-local.ps1 -NoWatch       Don't auto-launch dev-watch.ps1
-#   .\dev-local.ps1 -Watcher        Launch dev-watch.ps1 in new terminal (VM must be running)
+#   .\dev-local.ps1 -NoWatch       Don't auto-launch dev-watch TUI
+#   .\dev-local.ps1 -Watcher        Launch dev-watch TUI in new terminal (VM must be running)
 #   .\dev-local.ps1 -Foreground    Keep this window attached to QEMU
 #   .\dev-local.ps1 -Ram 8GB -CpuCount 4
 # ============================================================================
@@ -77,8 +77,8 @@ if ($Help) {
     Write-Host "  -SSH           SSH directly into the VM"
     Write-Host "  -Log           Live cloud-init / system logs"
     Write-Host "  -Reprovision   Force re-running the in-VM setup"
-    Write-Host "  -NoWatch       Don't auto-launch dev-watch.ps1"
-    Write-Host "  -Watcher        Launch dev-watch.ps1 in new terminal (VM must be running)"
+    Write-Host "  -NoWatch       Don't auto-launch dev-watch TUI"
+    Write-Host "  -Watcher        Launch dev-watch TUI in new terminal (VM must be running)"
     Write-Host "  -Foreground    Keep this window attached to QEMU"
     Write-Host "  -Ram 8GB       Set VM RAM (default: auto)"
     Write-Host "  -CpuCount 4    Set VM CPU count (default: auto)"
@@ -366,14 +366,21 @@ if ($Watcher) {
     if (-not $p) {
         Stop-WithError "VM is not running. Start it first: .\dev-local.ps1"
     }
-    $watchScript = Join-Path $SCRIPT_DIR "dev-watch.ps1"
-    if (-not (Test-Path $watchScript)) {
-        Stop-WithError "dev-watch.ps1 not found at $watchScript"
+    $dashBin = Join-Path $REPO_ROOT "iora-os\backend\target\debug\iora-dev-watch.exe"
+    if (-not (Test-Path $dashBin)) {
+        Write-Info "Building dev-watch TUI (one-time Rust compile)..."
+        Push-Location (Join-Path $REPO_ROOT "iora-os\backend")
+        try {
+            cargo build -p iora-dev-watch 2>&1 | Select-Object -Last 5
+            if ($LASTEXITCODE -ne 0) {
+                Stop-WithError "Failed to build iora-dev-watch. Check: cd iora-os\backend && cargo build -p iora-dev-watch"
+            }
+            Write-Success "dev-watch TUI built"
+        } finally { Pop-Location }
     }
-    $targetArg = if ($HOST_ARCH -eq "ARM64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" }
-    Write-Info "Launching dev-watch.ps1 in new terminal..."
-    Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$watchScript`"", "-Target", $targetArg
-    Write-Success "dev-watch launched in new terminal"
+    Write-Info "Launching IORA Dev Watch TUI..."
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$dashBin' --vm-host 127.0.0.1 --vm-port $SshPort --ssh-key $SSH_KEY"
+    Write-Success "Dev Watch TUI launched in new terminal"
     exit 0
 }
 
@@ -1048,13 +1055,22 @@ for ($i=0; $i -lt 12; $i++) {
 if ($healthOk) { Write-Success "iora-home OK on http://127.0.0.1:$VM_HOME" }
 else { Write-Warn "iora-home not responding yet. Check: ssh -i $SSH_KEY -p $SshPort root@127.0.0.1 'journalctl -u iora-home -n 50'" }
 
-# ── Step 10: Launch dev-watch ──────────────────────────────────────────────
+# ── Step 10: Launch dev-watch TUI ──────────────────────────────────────────
 if (-not $NoWatch) {
-    $watchScript = Join-Path $SCRIPT_DIR "dev-watch.ps1"
-    if (Test-Path $watchScript) {
-        $targetArg = if ($HOST_ARCH -eq "ARM64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" }
-        Write-Info "Launching dev-watch.ps1 in new terminal..."
-        Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$watchScript`"", "-Target", $targetArg | Out-Null
+    $dashBin = Join-Path $REPO_ROOT "iora-os\backend\target\debug\iora-dev-watch.exe"
+    if (-not (Test-Path $dashBin)) {
+        Write-Info "Building dev-watch TUI (one-time Rust compile)..."
+        Push-Location (Join-Path $REPO_ROOT "iora-os\backend")
+        try {
+            cargo build -p iora-dev-watch 2>&1 | Select-Object -Last 5
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "Failed to build dev-watch TUI. Run manually later."
+            }
+        } finally { Pop-Location }
+    }
+    if (Test-Path $dashBin) {
+        Write-Info "Launching IORA Dev Watch TUI..."
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$dashBin' --vm-host 127.0.0.1 --vm-port $SshPort --ssh-key $SSH_KEY" | Out-Null
     }
 }
 

@@ -122,6 +122,7 @@ impl App {
     /// open across all ssh/scp/rsync invocations so we don't pay the
     /// ~100–200ms handshake cost every time (a single deploy fires 20+
     /// commands).
+    #[cfg(unix)]
     fn ctl_path(&self) -> String {
         // %C = unique hash of host/port/user, so multiple VMs coexist.
         let dir = self.cache_dir.join("ssh-sockets");
@@ -130,35 +131,57 @@ impl App {
     }
 
     fn ssh_args(&self) -> Vec<String> {
+        #[cfg(unix)]
         let ctl = self.ctl_path();
-        vec![
-            "-o".into(),"StrictHostKeyChecking=no".into(),"-o".into(),"UserKnownHostsFile=/dev/null".into(),
+
+        let mut args = vec![
+            "-o".into(),"StrictHostKeyChecking=no".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
             "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=30".into(),
             "-o".into(),"AddressFamily=inet".into(),
-            "-o".into(),"ControlMaster=auto".into(),
-            "-o".into(),format!("ControlPath={}", ctl),
-            "-o".into(),"ControlPersist=600".into(),
-            "-i".into(),self.ssh_key.to_string_lossy().to_string(),
-            "-p".into(),self.vm_port.to_string(),
-            format!("root@{}",self.vm_host),
-        ]
+        ];
+        #[cfg(unix)]
+        {
+            args.push("-o".into()); args.push("UserKnownHostsFile=/dev/null".into());
+            args.push("-o".into()); args.push("ControlMaster=auto".into());
+            args.push("-o".into()); args.push(format!("ControlPath={}", ctl));
+            args.push("-o".into()); args.push("ControlPersist=600".into());
+        }
+        #[cfg(windows)]
+        {
+            args.push("-o".into()); args.push("UserKnownHostsFile=NUL".into());
+        }
+        args.push("-i".into()); args.push(self.ssh_key.to_string_lossy().to_string());
+        args.push("-p".into()); args.push(self.vm_port.to_string());
+        args.push(format!("root@{}",self.vm_host));
+        args
     }
 
     // Kept for ad-hoc file pushes / future use; FE deploy now streams over ssh.
     #[allow(dead_code)]
     fn scp_args(&self) -> Vec<String> {
+        #[cfg(unix)]
         let ctl = self.ctl_path();
-        vec![
-            "-o".into(),"StrictHostKeyChecking=no".into(),"-o".into(),"UserKnownHostsFile=/dev/null".into(),
+
+        let mut args = vec![
+            "-o".into(),"StrictHostKeyChecking=no".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
             "-o".into(),"ConnectTimeout=10".into(),
-            "-o".into(),"ControlMaster=auto".into(),
-            "-o".into(),format!("ControlPath={}", ctl),
-            "-o".into(),"ControlPersist=600".into(),
-            "-i".into(),self.ssh_key.to_string_lossy().to_string(),
-            "-P".into(),self.vm_port.to_string(),"-q".into(),
-        ]
+        ];
+        #[cfg(unix)]
+        {
+            args.push("-o".into()); args.push("UserKnownHostsFile=/dev/null".into());
+            args.push("-o".into()); args.push("ControlMaster=auto".into());
+            args.push("-o".into()); args.push(format!("ControlPath={}", ctl));
+            args.push("-o".into()); args.push("ControlPersist=600".into());
+        }
+        #[cfg(windows)]
+        {
+            args.push("-o".into()); args.push("UserKnownHostsFile=NUL".into());
+        }
+        args.push("-i".into()); args.push(self.ssh_key.to_string_lossy().to_string());
+        args.push("-P".into()); args.push(self.vm_port.to_string()); args.push("-q".into());
+        args
     }
 
     async fn ssh_exec(&self, cmd: &str) -> Result<String> {
@@ -408,9 +431,13 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
                 .spawn();
             if let Ok(mut tar_child) = tar {
                 if let Some(tar_out) = tar_child.stdout.take() {
+                    #[cfg(unix)]
+                    let stdin = std::process::Stdio::from(tar_out.into_owned_fd()?);
+                    #[cfg(windows)]
+                    let stdin = std::process::Stdio::from(tar_out.into_owned_handle()?);
                     let status = TokioCommand::new("ssh")
                         .args(&ssh_args)
-                        .stdin(std::process::Stdio::from(tar_out.into_owned_fd()?))
+                        .stdin(stdin)
                         .status().await;
                     let _ = tar_child.wait().await;
                     match status {
@@ -852,7 +879,11 @@ fn main() -> Result<()> {
                 }
             } else {
                 let _=tx.send(AppEvent::VmStatus(false));
-                let _=tx.send(AppEvent::BuildOutput("[SYSTEM] VM offline — start with ./dev-local.sh, then press C".into()));
+                let _=tx.send(AppEvent::BuildOutput(if cfg!(windows) {
+                    "[SYSTEM] VM offline — start with .\\dev-local.ps1, then press C".into()
+                } else {
+                    "[SYSTEM] VM offline — start with ./dev-local.sh, then press C".into()
+                }));
             }
         
                     });
