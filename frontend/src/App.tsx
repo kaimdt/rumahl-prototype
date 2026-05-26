@@ -151,6 +151,20 @@ function DashboardContent() {
       document.documentElement.removeAttribute('data-page')
     }
   }, [currentPageId, currentPage?.pageSource?.kind])
+
+  // Allow other components (e.g. ORAAssistant availability banner) to request
+  // navigation to the Admin panel by dispatching a CustomEvent.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tab?: string } | undefined
+      setCurrentPageId('admin')
+      if (detail?.tab) {
+        try { sessionStorage.setItem('iora-admin-deep-link', detail.tab) } catch { /* ignore */ }
+      }
+    }
+    window.addEventListener('iora:open-admin', handler)
+    return () => window.removeEventListener('iora:open-admin', handler)
+  }, [setCurrentPageId])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
 
   // Skip splash screen when opening in a new tab or navigating directly to a page

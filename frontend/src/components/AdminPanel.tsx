@@ -646,6 +646,43 @@ export function AdminPanel() {
     prefetchAdjacentTabs(activeTab, token)
   }, [activeTab, token])
 
+  // Deep-link support: when something dispatches `iora:open-admin` with
+  // {tab: 'assist'} or writes 'iora-admin-deep-link' to sessionStorage,
+  // jump to the matching admin tab (e.g. "ai-providers" for the AI banner CTA).
+  useEffect(() => {
+    const resolveDeepLink = (raw: string | null | undefined): Tab | null => {
+      if (!raw) return null
+      const map: Record<string, Tab> = {
+        assist: 'ai-providers',
+        'ai-providers': 'ai-providers',
+        'ai-agent': 'ai-agent',
+        'ai-overview': 'ai-overview',
+        'ai-tools': 'ai-tools',
+        'ai-voice': 'ai-voice',
+      }
+      return map[raw] ?? null
+    }
+
+    // 1) Consume any pending deep-link written before mount
+    try {
+      const pending = sessionStorage.getItem('iora-admin-deep-link')
+      const target = resolveDeepLink(pending)
+      if (target) {
+        setActiveTab(target)
+        sessionStorage.removeItem('iora-admin-deep-link')
+      }
+    } catch {}
+
+    // 2) Live listener for events fired while AdminPanel is already mounted
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tab?: string } | undefined
+      const target = resolveDeepLink(detail?.tab)
+      if (target) setActiveTab(target)
+    }
+    window.addEventListener('iora:open-admin', handler)
+    return () => window.removeEventListener('iora:open-admin', handler)
+  }, [])
+
   return (
     <div className="pb-28 safe-bottom-nav">
       {/* ── Mobile Hamburger Button ─────────────────────────────── */}

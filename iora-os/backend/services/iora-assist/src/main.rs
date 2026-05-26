@@ -254,6 +254,15 @@ struct ChatRequest {
     /// Custom AI instructions/personality from user settings.
     #[serde(default)]
     instructions: Option<String>,
+    /// Optional model override coming from the UI (e.g. "llama3.1:8b").
+    /// The chat handler appends this as a hint to the system prompt; full
+    /// per-request model switching is provider-dependent.
+    #[serde(default)]
+    model: Option<String>,
+    /// Optional agent preset id selected in the UI (e.g. "code", "devops").
+    /// Currently used for logging and prompt tagging.
+    #[serde(default)]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -407,6 +416,21 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     if let Some(ref instructions) = req.instructions {
         if !instructions.trim().is_empty() {
             system_prompt.push_str(&format!("\n\n### Custom Instructions from User\n{}\n", instructions));
+        }
+    }
+
+    // Soft hint for model override / selected agent preset.
+    if let Some(ref model_hint) = req.model {
+        if !model_hint.trim().is_empty() {
+            system_prompt.push_str(&format!(
+                "\n\n### Preferred Model (advisory)\nThe user selected model `{}` in the UI. Use it if your current backend supports it; otherwise continue with the active model and mention the fallback briefly.\n",
+                model_hint
+            ));
+        }
+    }
+    if let Some(ref agent_id) = req.agent_id {
+        if !agent_id.trim().is_empty() {
+            tracing::debug!(target: "iora-assist", "chat agent_id={} model={:?}", agent_id, req.model);
         }
     }
 
@@ -3340,9 +3364,21 @@ fn load_config_from_env() -> (ProviderType, ProviderConfig) {
 
     let provider = provider_type_from_str(&provider_type).unwrap_or(ProviderType::Local);
 
+    // Local AI (Ollama/LM Studio/LocalAI): default to localhost Ollama port if
+    // the operator hasn't configured an explicit base URL yet. This avoids the
+    // "AI nicht verfügbar" state on a fresh install where Ollama runs locally.
+    let configured_base_url = system_config::ai_base_url();
+    let base_url = if configured_base_url.trim().is_empty()
+        && matches!(provider, ProviderType::Local)
+    {
+        "http://127.0.0.1:11434".to_string()
+    } else {
+        configured_base_url
+    };
+
     let config = ProviderConfig {
         api_key: system_config::ai_api_key(),
-        base_url: Some(system_config::ai_base_url()),
+        base_url: Some(base_url),
         model: system_config::ai_model(),
         api_version: system_config::ai_api_version(),
     };
