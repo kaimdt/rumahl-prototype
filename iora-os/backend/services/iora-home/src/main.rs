@@ -9,6 +9,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::{Ipv4Addr, SocketAddr}, path::Path as FsPath, sync::Arc, time::Duration};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use futures_util::Stream;
 use tower_http::{
@@ -73,6 +74,7 @@ use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
 use iora_shared::settings::{SettingsRegistry, SettingDefinition};
 use iora_shared::system_config;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
 /// Per-entity service call buffer that coalesces rapid-fire requests.
@@ -86,6 +88,263 @@ use tokio::net::TcpStream;
 pub struct ServiceCallBuffer {
     /// entity_id → latest pending call data (None means drain task should exit)
     pending: tokio::sync::Mutex<HashMap<String, Option<BufferedCall>>>,
+}
+
+#[derive(Clone)]
+struct AppTerminalSession {
+    id: String,
+    app_id: String,
+    project: String,
+    service: String,
+    created_at: String,
+    input_tx: tokio::sync::mpsc::Sender<TerminalInputPayload>,
+    output_tx: tokio::sync::broadcast::Sender<String>,
+    child: Arc<tokio::sync::Mutex<tokio::process::Child>>,
+}
+
+struct TerminalInputPayload {
+    input: String,
+    append_newline: bool,
+}
+
+#[derive(Default)]
+pub struct AppTerminalManager {
+    sessions: tokio::sync::RwLock<HashMap<String, Arc<AppTerminalSession>>>,
+}
+
+impl AppTerminalManager {
+    async fn resolve_target(
+        &self,
+        app_id: &str,
+        requested_service: Option<&str>,
+    ) -> Result<(String, String), String> {
+        use tokio::process::Command;
+
+        for prefix in ["iora-app-", "iora-bundle-"] {
+            let project = format!("{prefix}{app_id}");
+            let out = Command::new("docker")
+                .args(["compose", "-p", &project, "ps", "--services", "--all"])
+                .output()
+                .await;
+
+            match out {
+                Ok(o) if o.status.success() => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    let services: Vec<String> = stdout
+                        .lines()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .collect();
+
+                    if services.is_empty() {
+                        continue;
+                    }
+
+                    let service = if let Some(req) = requested_service {
+                        if services.iter().any(|s| s == req) {
+                            req.to_string()
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        services[0].clone()
+                    };
+
+                    return Ok((project, service));
+                }
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err("Docker CLI is unavailable on this host".to_string());
+                }
+                Err(_) => continue,
+            }
+        }
+
+        Err(format!("No running compose project found for app '{app_id}'"))
+    }
+
+    async fn create_session(
+        self: &Arc<Self>,
+        app_id: &str,
+        requested_service: Option<String>,
+    ) -> Result<Arc<AppTerminalSession>, String> {
+        use tokio::process::Command;
+
+        let (project, service) = self
+            .resolve_target(app_id, requested_service.as_deref())
+            .await?;
+
+        let mut child = Command::new("docker")
+            .args([
+                "compose",
+                "-p",
+                &project,
+                "exec",
+                "-T",
+                "-i",
+                &service,
+                "sh",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn terminal session: {e}"))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Terminal stdin unavailable".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Terminal stdout unavailable".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Terminal stderr unavailable".to_string())?;
+
+        let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<TerminalInputPayload>(128);
+        let (output_tx, _unused) = tokio::sync::broadcast::channel::<String>(512);
+
+        let session = Arc::new(AppTerminalSession {
+            id: uuid::Uuid::new_v4().to_string(),
+            app_id: app_id.to_string(),
+            project,
+            service,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            input_tx,
+            output_tx: output_tx.clone(),
+            child: Arc::new(tokio::sync::Mutex::new(child)),
+        });
+
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(session.id.clone(), session.clone());
+        }
+
+        // stdin writer task
+        tokio::spawn(async move {
+            let mut writer = stdin;
+            while let Some(payload) = input_rx.recv().await {
+                let mut input = payload.input;
+                if payload.append_newline && !input.ends_with('\n') {
+                    input.push('\n');
+                }
+                if writer.write_all(input.as_bytes()).await.is_err() {
+                    break;
+                }
+                if writer.flush().await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // stdout reader task
+        {
+            let tx = output_tx.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stdout);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let _ = tx.send(line.clone());
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // stderr reader task
+        {
+            let tx = output_tx.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let _ = tx.send(format!("[stderr] {}", line));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // process watcher
+        {
+            let manager = Arc::clone(self);
+            let sid = session.id.clone();
+            let child = Arc::clone(&session.child);
+            let tx = output_tx;
+            tokio::spawn(async move {
+                loop {
+                    let done = {
+                        let mut locked = child.lock().await;
+                        match locked.try_wait() {
+                            Ok(Some(status)) => {
+                                let _ = tx.send(format!("\n[session closed] exit code: {}\n", status.code().unwrap_or(-1)));
+                                true
+                            }
+                            Ok(None) => false,
+                            Err(_) => {
+                                let _ = tx.send("\n[session closed] failed to query process status\n".to_string());
+                                true
+                            }
+                        }
+                    };
+
+                    if done {
+                        let mut sessions = manager.sessions.write().await;
+                        sessions.remove(&sid);
+                        break;
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                }
+            });
+        }
+
+        Ok(session)
+    }
+
+    async fn get_session(&self, session_id: &str) -> Option<Arc<AppTerminalSession>> {
+        self.sessions.read().await.get(session_id).cloned()
+    }
+
+    async fn send_input(&self, session_id: &str, input: String, append_newline: bool) -> Result<(), String> {
+        let session = self
+            .get_session(session_id)
+            .await
+            .ok_or_else(|| "Terminal session not found".to_string())?;
+        session
+            .input_tx
+            .send(TerminalInputPayload { input, append_newline })
+            .await
+            .map_err(|_| "Terminal session is closed".to_string())
+    }
+
+    async fn close_session(&self, session_id: &str) -> bool {
+        let session = {
+            let mut sessions = self.sessions.write().await;
+            sessions.remove(session_id)
+        };
+
+        let Some(session) = session else { return false; };
+
+        let _ = session.output_tx.send("\n[session closed by user]\n".to_string());
+        let mut child = session.child.lock().await;
+        let _ = child.kill().await;
+        true
+    }
 }
 
 struct BufferedCall {
@@ -200,6 +459,9 @@ pub struct AppState {
 
     /// Theme manager – file-based themes
     pub theme_manager: Arc<theme_handler::ThemeState>,
+
+    /// Interactive app terminal sessions (Developer Mode only).
+    pub terminal_manager: Arc<AppTerminalManager>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -322,6 +584,9 @@ impl ErrorResponse {
     }
     pub fn conflict(error: impl Into<String>) -> Self {
         Self { error: error.into(), status: StatusCode::CONFLICT }
+    }
+    pub fn forbidden(error: impl Into<String>) -> Self {
+        Self { error: error.into(), status: StatusCode::FORBIDDEN }
     }
     pub fn service_unavailable(error: impl Into<String>) -> Self {
         Self { error: error.into(), status: StatusCode::SERVICE_UNAVAILABLE }
@@ -770,6 +1035,7 @@ async fn main() -> anyhow::Result<()> {
                 });
             Arc::new(theme_handler::ThemeState::new(db_pool.clone(), &data_dir))
         },
+        terminal_manager: Arc::new(AppTerminalManager::default()),
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -1307,6 +1573,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall))
         .route("/api/supervisor/apps/:app_id/start", post(supervisor_apps_start))
         .route("/api/supervisor/apps/:app_id/stop", post(supervisor_apps_stop))
+        .route("/api/supervisor/apps/:app_id/pause", post(supervisor_apps_pause))
+        .route("/api/supervisor/apps/:app_id/resume", post(supervisor_apps_resume))
         .route("/api/supervisor/apps/:app_id/restart", post(supervisor_apps_restart))
         // App Bundle management (v2.3 multi-container)
         .route("/api/supervisor/apps/:app_id/compose", get(supervisor_apps_compose))
@@ -1353,6 +1621,11 @@ async fn main() -> anyhow::Result<()> {
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
         .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
+        .route("/api/apps/:app_id/terminal/exec", post(app_terminal_exec))
+        .route("/api/apps/:app_id/terminal/sessions", post(app_terminal_session_start))
+        .route("/api/apps/:app_id/terminal/sessions/:session_id/input", post(app_terminal_session_input))
+        .route("/api/apps/:app_id/terminal/sessions/:session_id/stream", get(app_terminal_session_stream))
+        .route("/api/apps/:app_id/terminal/sessions/:session_id", delete(app_terminal_session_close))
         .route("/api/apps/:app_id/icon", get(app_icon_get))
         // App detail with full info.
         .route("/api/apps/:app_id/detail", get(app_detail_get))
@@ -5507,6 +5780,136 @@ async fn supervisor_apps_stop(
     })))
 }
 
+async fn docker_compose_control(app_id: &str, action: &str) -> Option<Result<String, String>> {
+    use tokio::process::Command;
+
+    let mut had_binary = false;
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        match Command::new("docker")
+            .args(["compose", "-p", &project, action])
+            .output()
+            .await
+        {
+            Ok(out) => {
+                had_binary = true;
+                if out.status.success() {
+                    let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    return Some(Ok(if msg.is_empty() {
+                        format!("docker compose {action} succeeded")
+                    } else {
+                        msg
+                    }));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(_) => {}
+        }
+    }
+
+    if had_binary {
+        Some(Err(format!("docker compose {action} failed for app '{app_id}'")))
+    } else {
+        None
+    }
+}
+
+async fn supervisor_apps_pause(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .cloned()
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Pause is only available for containerized apps".to_string(),
+        ));
+    }
+
+    match docker_compose_control(&app_id, "pause").await {
+        Some(Ok(msg)) => {
+            let updated = state
+                .local_appstore
+                .set_status(&app_id, "paused")
+                .await
+                .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: format!("App paused. {msg}"),
+                    source: "app-runtime".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": true,
+                "app_id": updated.id,
+                "status": "paused",
+                "message": format!("App '{}' paused.", updated.name),
+            })))
+        }
+        Some(Err(err)) => Err(ErrorResponse::bad_request(err)),
+        None => Err(ErrorResponse::service_unavailable(
+            "Docker CLI is unavailable. Pause is not possible.".to_string(),
+        )),
+    }
+}
+
+async fn supervisor_apps_resume(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .cloned()
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Resume is only available for containerized apps".to_string(),
+        ));
+    }
+
+    match docker_compose_control(&app_id, "unpause").await {
+        Some(Ok(msg)) => {
+            let updated = state
+                .local_appstore
+                .set_status(&app_id, "running")
+                .await
+                .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: format!("App resumed. {msg}"),
+                    source: "app-runtime".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": true,
+                "app_id": updated.id,
+                "status": "running",
+                "message": format!("App '{}' resumed.", updated.name),
+            })))
+        }
+        Some(Err(err)) => Err(ErrorResponse::bad_request(err)),
+        None => Err(ErrorResponse::service_unavailable(
+            "Docker CLI is unavailable. Resume is not possible.".to_string(),
+        )),
+    }
+}
+
 async fn supervisor_apps_restart(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
@@ -6800,8 +7203,6 @@ async fn app_detail_get(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    use local_appstore::LogEntry;
-
     let installed = state.local_appstore.list().await;
     let app = installed
         .into_iter()
@@ -6827,6 +7228,22 @@ async fn app_detail_get(
     // Generate a default icon if none
     let icon = app.icon.clone().unwrap_or_else(|| format!("/api/apps/{}/icon", app.id));
 
+    let storage_usage = state.app_storage.usage_for_app(&app_id).await;
+
+    let config_key = format!("app.config.{}", app_id);
+    let config_pref = state
+        .config_repo
+        .get_system_preference(&config_key)
+        .await
+        .unwrap_or(None);
+    let config_entries = config_pref
+        .and_then(|pref| serde_json::from_str::<Value>(&pref.preference_value).ok())
+        .and_then(|value| value.as_object().map(|o| o.len()))
+        .unwrap_or(0);
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    let dev_mode_enabled = is_developer_mode_enabled(&state).await;
+
     Ok(Json(json!({
         "id": app.id,
         "name": app.name,
@@ -6836,6 +7253,9 @@ async fn app_detail_get(
         "icon": icon,
         "status": app.status,
         "enabled": app.enabled,
+        "autostart": app.autostart,
+        "last_started_at": app.last_started_at,
+        "last_stopped_at": app.last_stopped_at,
         "kind": app.kind,
         "system": app.system,
         "trust_level": app.trust_level,
@@ -6851,6 +7271,14 @@ async fn app_detail_get(
         "services": app.bundle_config.as_ref().and_then(|b| b.get("services").cloned()).unwrap_or(serde_json::Value::Array(Vec::new())),
         "recent_logs": recent_logs,
         "log_count": logs.len(),
+        "storage_usage": storage_usage,
+        "user_data": {
+            "config_entries": config_entries,
+            "kv_entries": storage_usage.kv_entry_count,
+            "stored_files": storage_usage.file_count,
+            "total_file_bytes": storage_usage.total_file_bytes,
+        },
+        "dev_terminal_available": dev_mode_enabled && needs_docker,
         "open_url": app.custom_pages.first().map(|p| format!("/page/{}", p.id)),
     })))
 }
@@ -7035,6 +7463,326 @@ async fn app_logs_get(
         "logs": logs,
         "count": logs.len(),
     }))
+}
+
+async fn is_developer_mode_enabled(state: &AppState) -> bool {
+    if state.dev_image.is_os_dev {
+        return true;
+    }
+    match state
+        .config_repo
+        .get_system_preference("developer.mode")
+        .await
+    {
+        Ok(Some(pref)) => {
+            serde_json::from_str::<Value>(&pref.preference_value)
+                .ok()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct AppTerminalExecRequest {
+    command: String,
+    #[serde(default)]
+    service: Option<String>,
+    #[serde(default)]
+    timeout_sec: Option<u64>,
+}
+
+async fn app_terminal_exec(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppTerminalExecRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    use tokio::process::Command;
+
+    if !is_developer_mode_enabled(&state).await {
+        return Err(ErrorResponse::forbidden(
+            "Container terminal is only available in Developer Mode".to_string(),
+        ));
+    }
+
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .into_iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Terminal exec is only available for containerized apps".to_string(),
+        ));
+    }
+
+    let command = body.command.trim();
+    if command.is_empty() {
+        return Err(ErrorResponse::bad_request("command darf nicht leer sein".to_string()));
+    }
+    if command.len() > 2000 {
+        return Err(ErrorResponse::bad_request("command ist zu lang".to_string()));
+    }
+
+    let status_info = app_lifecycle::docker_compose_status(&app_id).await;
+    let service = body
+        .service
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            status_info.as_ref().and_then(|s| {
+                s.services
+                    .iter()
+                    .find(|(_, state)| {
+                        let st = state.to_ascii_lowercase();
+                        st.contains("running") || st.contains("started")
+                    })
+                    .map(|(name, _)| name.clone())
+            })
+        })
+        .or_else(|| {
+            status_info
+                .as_ref()
+                .and_then(|s| s.services.keys().next().cloned())
+        })
+        .unwrap_or_else(|| app_id.clone());
+
+    let timeout = std::time::Duration::from_secs(body.timeout_sec.unwrap_or(20).clamp(1, 120));
+    let mut last_stderr = String::new();
+
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        let fut = Command::new("docker")
+            .args([
+                "compose",
+                "-p",
+                &project,
+                "exec",
+                "-T",
+                &service,
+                "sh",
+                "-lc",
+                command,
+            ])
+            .output();
+
+        let out = match tokio::time::timeout(timeout, fut).await {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ErrorResponse::service_unavailable(
+                    "Docker CLI is unavailable on this host".to_string(),
+                ));
+            }
+            Ok(Err(e)) => {
+                last_stderr = e.to_string();
+                continue;
+            }
+            Err(_) => {
+                return Err(ErrorResponse::bad_request(
+                    "Terminal command timed out".to_string(),
+                ));
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let code = out.status.code().unwrap_or(-1);
+
+        state.local_appstore.append_log(
+            &app_id,
+            local_appstore::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                level: if code == 0 { "INFO" } else { "WARN" }.to_string(),
+                message: format!(
+                    "Terminal exec in service '{service}': `{}` (exit={code})",
+                    command
+                ),
+                source: "app-terminal".to_string(),
+            },
+        );
+
+        return Ok(Json(json!({
+            "success": code == 0,
+            "app_id": app_id,
+            "service": service,
+            "project": project,
+            "exit_code": code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "command": command,
+        })));
+    }
+
+    Err(ErrorResponse::bad_request(if last_stderr.is_empty() {
+        "Unable to execute command in app container".to_string()
+    } else {
+        format!("Unable to execute command in app container: {last_stderr}")
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct AppTerminalSessionStartRequest {
+    #[serde(default)]
+    service: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AppTerminalSessionInputRequest {
+    input: String,
+    #[serde(default)]
+    append_newline: Option<bool>,
+}
+
+async fn app_terminal_session_start(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppTerminalSessionStartRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    if !is_developer_mode_enabled(&state).await {
+        return Err(ErrorResponse::forbidden(
+            "Container terminal is only available in Developer Mode".to_string(),
+        ));
+    }
+
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .into_iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Terminal sessions are only available for containerized apps".to_string(),
+        ));
+    }
+
+    let session = state
+        .terminal_manager
+        .create_session(&app_id, body.service)
+        .await
+        .map_err(ErrorResponse::bad_request)?;
+
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: format!(
+                "Interactive terminal opened (service='{}', project='{}')",
+                session.service, session.project
+            ),
+            source: "app-terminal".to_string(),
+        },
+    );
+
+    Ok(Json(json!({
+        "success": true,
+        "session_id": session.id,
+        "app_id": app_id,
+        "service": session.service,
+        "project": session.project,
+        "created_at": session.created_at,
+    })))
+}
+
+async fn app_terminal_session_input(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, session_id)): axum::extract::Path<(String, String)>,
+    Json(body): Json<AppTerminalSessionInputRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let session = state
+        .terminal_manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ErrorResponse::not_found("Terminal session not found".to_string()))?;
+    if session.app_id != app_id {
+        return Err(ErrorResponse::bad_request(
+            "Terminal session does not belong to this app".to_string(),
+        ));
+    }
+
+    state
+        .terminal_manager
+        .send_input(&session_id, body.input, body.append_newline.unwrap_or(true))
+        .await
+        .map_err(ErrorResponse::bad_request)?;
+
+    Ok(Json(json!({ "success": true })))
+}
+
+async fn app_terminal_session_stream(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, session_id)): axum::extract::Path<(String, String)>,
+) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ErrorResponse> {
+    use tokio_stream::StreamExt as _;
+
+    let session = state
+        .terminal_manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ErrorResponse::not_found("Terminal session not found".to_string()))?;
+    if session.app_id != app_id {
+        return Err(ErrorResponse::bad_request(
+            "Terminal session does not belong to this app".to_string(),
+        ));
+    }
+
+    let intro = json!({
+        "type": "system",
+        "session_id": session_id.clone(),
+        "data": format!(
+            "Connected to service '{}' (project '{}').",
+            session.service, session.project
+        ),
+    })
+    .to_string();
+
+    let recv = session.output_tx.subscribe();
+    let sid = session_id.clone();
+    let stream = tokio_stream::wrappers::BroadcastStream::new(recv).filter_map(move |msg| {
+        match msg {
+            Ok(line) => {
+                let data = json!({
+                    "type": "output",
+                    "session_id": sid.clone(),
+                    "data": line,
+                })
+                .to_string();
+                Some(Ok(SseEvent::default().data(data)))
+            }
+            Err(_) => None,
+        }
+    });
+
+    let initial_event = Ok(SseEvent::default().data(intro));
+    let combined = futures_util::stream::once(async { initial_event }).chain(stream);
+
+    Ok(Sse::new(combined).keep_alive(KeepAlive::default()))
+}
+
+async fn app_terminal_session_close(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, session_id)): axum::extract::Path<(String, String)>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let session = state
+        .terminal_manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ErrorResponse::not_found("Terminal session not found".to_string()))?;
+    if session.app_id != app_id {
+        return Err(ErrorResponse::bad_request(
+            "Terminal session does not belong to this app".to_string(),
+        ));
+    }
+
+    let closed = state.terminal_manager.close_session(&session_id).await;
+    Ok(Json(json!({
+        "success": closed,
+        "session_id": session_id,
+    })))
 }
 
 /// Serve an app's icon.

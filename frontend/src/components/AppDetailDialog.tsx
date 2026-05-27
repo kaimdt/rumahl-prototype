@@ -30,6 +30,9 @@ interface AppDetail {
   icon: string
   status: string
   enabled: boolean
+  autostart?: boolean
+  last_started_at?: string
+  last_stopped_at?: string
   kind: string
   system?: boolean
   trust_level: string
@@ -42,6 +45,19 @@ interface AppDetail {
   settings_schema: any
   recent_logs: Array<{ timestamp: string; level: string; message: string; source: string }>
   log_count: number
+  storage_usage?: {
+    total_file_bytes: number
+    file_count: number
+    kv_entry_count: number
+    usage_percent: number
+  }
+  user_data?: {
+    config_entries: number
+    kv_entries: number
+    stored_files: number
+    total_file_bytes: number
+  }
+  dev_terminal_available?: boolean
   open_url?: string
   is_bundle?: boolean
   bundle_config?: any
@@ -72,9 +88,19 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
   const [detail, setDetail] = useState<AppDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'info' | 'logs' | 'settings' | 'pages' | 'bundle'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'logs' | 'terminal' | 'settings' | 'pages' | 'bundle'>('info')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [terminalCommand, setTerminalCommand] = useState('')
+  const [terminalOutput, setTerminalOutput] = useState('')
+  const [terminalRunning, setTerminalRunning] = useState(false)
+  const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null)
+  const [terminalSessionProject, setTerminalSessionProject] = useState('')
+  const [terminalSessionService, setTerminalSessionService] = useState('')
+  const [selectedTerminalService, setSelectedTerminalService] = useState('')
+  const [terminalHistory, setTerminalHistory] = useState<string[]>([])
+  const [terminalHistoryIndex, setTerminalHistoryIndex] = useState(-1)
+  const terminalEsRef = useRef<EventSource | null>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [expandedLog, setExpandedLog] = useState<number | null>(null)
@@ -85,18 +111,37 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     setLoading(true)
     setError('')
     setLogs([])
+    setTerminalOutput('')
+    setTerminalCommand('')
+    setTerminalSessionId(null)
+    setTerminalSessionProject('')
+    setTerminalSessionService('')
+    setSelectedTerminalService('')
+    setTerminalHistory([])
+    setTerminalHistoryIndex(-1)
 
     ;(async () => {
       try {
         const data = await adminFetch(`/api/apps/${appId}/detail`, token) as AppDetail
         setDetail(data)
         setLogs(data.recent_logs || [])
+        const firstService = typeof data.services?.[0]?.name === 'string' ? data.services[0].name : ''
+        setSelectedTerminalService(firstService)
       } catch (e) {
         setError((e as Error).message)
       }
       setLoading(false)
     })()
   }, [appId, token])
+
+  const sendTerminalInput = useCallback(async (input: string, appendNewline = true) => {
+    if (!appId || !terminalSessionId) return
+    await adminFetch(`/api/apps/${appId}/terminal/sessions/${terminalSessionId}/input`, token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input, append_newline: appendNewline }),
+    })
+  }, [appId, terminalSessionId, token])
 
   // Subscribe to live logs via SSE
   useEffect(() => {
@@ -161,6 +206,145 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     setActionLoading(null)
   }
 
+  const pauseApp = async () => {
+    if (!appId) return
+    setActionLoading('pause')
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/pause`, token, { method: 'POST' })
+      toast.success('App pausiert')
+      setDetail(prev => prev ? { ...prev, status: 'paused' } : prev)
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setActionLoading(null)
+  }
+
+  const resumeApp = async () => {
+    if (!appId) return
+    setActionLoading('resume')
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/resume`, token, { method: 'POST' })
+      toast.success('App fortgesetzt')
+      setDetail(prev => prev ? { ...prev, status: 'running' } : prev)
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setActionLoading(null)
+  }
+
+  const runTerminalCommand = async () => {
+    if (!appId || !terminalSessionId || !terminalCommand.trim() || terminalRunning) return
+    setTerminalRunning(true)
+    try {
+      const cmd = terminalCommand
+      setTerminalOutput(prev => prev ? `${prev}\n$ ${cmd}` : `$ ${cmd}`)
+      setTerminalCommand('')
+      setTerminalHistory(prev => {
+        if (!cmd.trim()) return prev
+        if (prev[prev.length - 1] === cmd) return prev
+        return [...prev, cmd]
+      })
+      setTerminalHistoryIndex(-1)
+
+      await sendTerminalInput(cmd, true)
+    } catch (e) {
+      const msg = (e as Error).message
+      setTerminalOutput(prev => prev ? `${prev}\nERROR: ${msg}` : `ERROR: ${msg}`)
+      toast.error(msg)
+    }
+    setTerminalRunning(false)
+  }
+
+  const navigateTerminalHistory = (direction: 'up' | 'down') => {
+    if (terminalHistory.length === 0) return
+
+    if (direction === 'up') {
+      const nextIndex = terminalHistoryIndex < 0
+        ? terminalHistory.length - 1
+        : Math.max(0, terminalHistoryIndex - 1)
+      setTerminalHistoryIndex(nextIndex)
+      setTerminalCommand(terminalHistory[nextIndex] || '')
+      return
+    }
+
+    if (terminalHistoryIndex < 0) return
+    if (terminalHistoryIndex >= terminalHistory.length - 1) {
+      setTerminalHistoryIndex(-1)
+      setTerminalCommand('')
+      return
+    }
+
+    const nextIndex = terminalHistoryIndex + 1
+    setTerminalHistoryIndex(nextIndex)
+    setTerminalCommand(terminalHistory[nextIndex] || '')
+  }
+
+  useEffect(() => {
+    if (!appId || activeTab !== 'terminal' || !detail?.dev_terminal_available) return
+
+    let cancelled = false
+    let createdSessionId: string | null = null
+    setTerminalOutput('')
+    setTerminalCommand('')
+    setTerminalHistory([])
+    setTerminalHistoryIndex(-1)
+    ;(async () => {
+      try {
+        const session = await adminFetch(`/api/apps/${appId}/terminal/sessions`, token, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ service: selectedTerminalService || undefined }),
+        }) as { session_id: string; service?: string; project?: string }
+
+        if (cancelled) return
+        createdSessionId = session.session_id
+        setTerminalSessionId(session.session_id)
+        setTerminalSessionProject(session.project || '')
+        setTerminalSessionService(session.service || '')
+        if (session.service) {
+          setSelectedTerminalService(session.service)
+        }
+
+        const baseUrl = getBackendUrl()
+        const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ''
+        const es = new EventSource(`${baseUrl}/api/apps/${appId}/terminal/sessions/${session.session_id}/stream${tokenQuery}`)
+        terminalEsRef.current = es
+
+        es.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data) as { type?: string; data?: string }
+            const data = payload.data ?? ''
+            setTerminalOutput(prev => prev ? `${prev}${data}` : data)
+          } catch {
+            setTerminalOutput(prev => prev ? `${prev}${event.data}` : event.data)
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          const msg = (e as Error).message
+          setTerminalOutput(prev => prev ? `${prev}\nERROR: ${msg}` : `ERROR: ${msg}`)
+          toast.error(msg)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      if (terminalEsRef.current) {
+        terminalEsRef.current.close()
+        terminalEsRef.current = null
+      }
+      if (createdSessionId) {
+        adminFetch(`/api/apps/${appId}/terminal/sessions/${createdSessionId}`, token, { method: 'DELETE' }).catch(() => {})
+      }
+      setTerminalSessionId(null)
+      setTerminalSessionProject('')
+      setTerminalSessionService('')
+    }
+  }, [appId, activeTab, detail?.dev_terminal_available, selectedTerminalService, token])
+
   const openApp = () => {
     if (detail?.open_url) {
       window.location.href = detail.open_url
@@ -214,6 +398,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
       case 'running': return <span className="flex items-center gap-1.5 text-green-400"><span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /> Läuft</span>
       case 'starting': return <span className="flex items-center gap-1.5 text-amber-300"><span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse" /> Startet</span>
       case 'installing': return <span className="flex items-center gap-1.5 text-blue-300"><span className="w-2 h-2 rounded-full bg-blue-300 animate-pulse" /> Verarbeitet</span>
+      case 'paused': return <span className="flex items-center gap-1.5 text-yellow-300"><span className="w-2 h-2 rounded-full bg-yellow-300" /> Pausiert</span>
       case 'error': return <span className="flex items-center gap-1.5 text-red-300"><span className="w-2 h-2 rounded-full bg-red-300" /> Fehler</span>
       case 'stopped': return <span className="flex items-center gap-1.5 text-foreground/50"><span className="w-2 h-2 rounded-full bg-foreground/30" /> Gestoppt</span>
       default: return <span className="flex items-center gap-1.5 text-foreground/40"><span className="w-2 h-2 rounded-full bg-foreground/20" /> {status}</span>
@@ -247,9 +432,20 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
             {detail && (
               <div className="flex items-center gap-2 flex-shrink-0">
                 {detail.status === 'running' ? (
-                  <button onClick={stopApp} disabled={actionLoading === 'stop'}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40">
-                    {actionLoading === 'stop' ? <InlineSpinner size={12} /> : <Pause size={12} />} Stoppen
+                  <>
+                    <button onClick={pauseApp} disabled={actionLoading === 'pause'}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-yellow-500/15 text-yellow-300 rounded text-[10px] font-semibold hover:bg-yellow-500/25 transition-colors disabled:opacity-40">
+                      {actionLoading === 'pause' ? <InlineSpinner size={12} /> : <Pause size={12} />} Pausieren
+                    </button>
+                    <button onClick={stopApp} disabled={actionLoading === 'stop'}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40">
+                      {actionLoading === 'stop' ? <InlineSpinner size={12} /> : <Pause size={12} />} Stoppen
+                    </button>
+                  </>
+                ) : detail.status === 'paused' ? (
+                  <button onClick={resumeApp} disabled={actionLoading === 'resume'}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40">
+                    {actionLoading === 'resume' ? <InlineSpinner size={12} /> : <Play size={12} />} Fortsetzen
                   </button>
                 ) : detail.status === 'starting' || detail.status === 'installing' ? (
                   <button disabled
@@ -275,7 +471,14 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
         {/* Tab Navigation */}
         <div className="flex gap-1 p-2 bg-foreground/5 mx-4 mt-3 rounded-lg flex-shrink-0">
-          {(['info', 'logs', 'settings', 'pages', ...(detail?.is_bundle ? ['bundle' as const] : [])] as const).map(tab => (
+          {([
+            'info',
+            'logs',
+            ...(detail?.dev_terminal_available ? ['terminal' as const] : []),
+            'settings',
+            'pages',
+            ...(detail?.is_bundle ? ['bundle' as const] : []),
+          ] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -287,10 +490,16 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
             >
               {tab === 'info' && <Info size={12} />}
               {tab === 'logs' && <Terminal size={12} />}
+              {tab === 'terminal' && <Terminal size={12} />}
               {tab === 'settings' && <Gear size={12} />}
               {tab === 'pages' && <Code size={12} />}
               {tab === 'bundle' && <Stack size={12} />}
-              {tab === 'info' ? 'Info' : tab === 'logs' ? `Logs (${logs.length})` : tab === 'settings' ? 'Einstellungen' : tab === 'pages' ? 'Seiten' : 'Bundle'}
+              {tab === 'info' ? 'Info'
+                : tab === 'logs' ? `Logs (${logs.length})`
+                : tab === 'terminal' ? 'Terminal'
+                : tab === 'settings' ? 'Einstellungen'
+                : tab === 'pages' ? 'Seiten'
+                : 'Bundle'}
             </button>
           ))}
         </div>
@@ -326,6 +535,9 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                       <div><span className="text-foreground/40">Vertrauen:</span> <span className="text-foreground/70">{detail.trust_level}</span></div>
                       <div><span className="text-foreground/40">Installiert:</span> <span className="text-foreground/70">{new Date(detail.installed_at).toLocaleDateString('de-DE')}</span></div>
                       <div><span className="text-foreground/40">Quelle:</span> <span className="text-foreground/70">{detail.source}</span></div>
+                      <div><span className="text-foreground/40">Autostart:</span> <span className="text-foreground/70">{detail.autostart ? 'An' : 'Aus'}</span></div>
+                      <div><span className="text-foreground/40">Letzter Start:</span> <span className="text-foreground/70">{detail.last_started_at ? new Date(detail.last_started_at).toLocaleString('de-DE') : '—'}</span></div>
+                      <div className="col-span-2"><span className="text-foreground/40">Letzter Stopp:</span> <span className="text-foreground/70">{detail.last_stopped_at ? new Date(detail.last_stopped_at).toLocaleString('de-DE') : '—'}</span></div>
                       {detail.is_bundle && (
                         <div className="col-span-2"><span className="text-foreground/40">Services:</span> <span className="text-foreground/70">{detail.services?.length || 0} Container</span></div>
                       )}
@@ -336,6 +548,18 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   <div className="p-3 rounded-lg bg-foreground/3">
                     <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1">Beschreibung</div>
                     <p className="text-[11px] text-foreground/70 leading-relaxed">{detail.description || 'Keine Beschreibung'}</p>
+                  </div>
+
+                  {/* Storage + user data */}
+                  <div className="p-3 rounded-lg bg-foreground/3">
+                    <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1.5">Speicherplatz & Benutzerdaten</div>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div><span className="text-foreground/40">Dateien:</span> <span className="text-foreground/70">{detail.storage_usage?.file_count ?? 0}</span></div>
+                      <div><span className="text-foreground/40">KV-Einträge:</span> <span className="text-foreground/70">{detail.storage_usage?.kv_entry_count ?? 0}</span></div>
+                      <div><span className="text-foreground/40">Speicher belegt:</span> <span className="text-foreground/70">{((detail.storage_usage?.total_file_bytes ?? 0) / (1024 * 1024)).toFixed(2)} MB</span></div>
+                      <div><span className="text-foreground/40">Nutzung:</span> <span className="text-foreground/70">{(detail.storage_usage?.usage_percent ?? 0).toFixed(1)}%</span></div>
+                      <div><span className="text-foreground/40">Config-Einträge:</span> <span className="text-foreground/70">{detail.user_data?.config_entries ?? 0}</span></div>
+                    </div>
                   </div>
 
                   {/* Permissions */}
@@ -419,6 +643,114 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   <div className="text-[9px] text-foreground/30 text-center">
                     Klicke auf einen Log-Eintrag für Details · {logs.length} Einträge gesamt
                   </div>
+                </div>
+              )}
+
+              {/* Terminal Tab */}
+              {activeTab === 'terminal' && (
+                <div className="space-y-2">
+                  <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider flex items-center gap-2">
+                    Container-Terminal (Developer Mode)
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] ${terminalSessionId ? 'bg-green-500/15 text-green-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                      {terminalSessionId ? 'Verbunden' : 'Verbinde…'}
+                    </span>
+                  </div>
+                  {terminalSessionId && (
+                    <div className="text-[9px] text-foreground/45">
+                      Aktive Session: {terminalSessionProject || '-'} / {terminalSessionService || selectedTerminalService || '-'}
+                    </div>
+                  )}
+                  {(detail.services?.length || 0) > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] text-foreground/50">Service:</label>
+                      <select
+                        value={selectedTerminalService}
+                        onChange={(e) => setSelectedTerminalService(e.target.value)}
+                        className="px-2 py-1.5 rounded-md bg-foreground/5 border border-foreground/10 text-[10px] text-foreground focus:outline-none focus:border-accent"
+                      >
+                        {detail.services
+                          .map((svc) => typeof svc?.name === 'string' ? svc.name : '')
+                          .filter(Boolean)
+                          .map((serviceName) => (
+                            <option key={serviceName} value={serviceName}>{serviceName}</option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={terminalCommand}
+                      onChange={(e) => setTerminalCommand(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          runTerminalCommand()
+                          return
+                        }
+                        if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          navigateTerminalHistory('up')
+                          return
+                        }
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          navigateTerminalHistory('down')
+                        }
+                      }}
+                      placeholder="z.B. ls -la /app"
+                      className="flex-1 px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+                    />
+                    <button
+                      onClick={runTerminalCommand}
+                      disabled={!terminalSessionId || !terminalCommand.trim() || terminalRunning}
+                      className="px-3 py-2 rounded-lg bg-accent/20 text-accent text-[10px] font-semibold hover:bg-accent/30 transition-colors disabled:opacity-40"
+                    >
+                      {terminalRunning ? <InlineSpinner size={12} /> : 'Ausführen'}
+                    </button>
+                    <button
+                      onClick={() => setTerminalOutput('')}
+                      className="px-3 py-2 rounded-lg bg-foreground/10 text-foreground/60 text-[10px] font-semibold hover:bg-foreground/15 transition-colors"
+                    >
+                      Löschen
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => sendTerminalInput('\u0003', false)}
+                      disabled={!terminalSessionId}
+                      className="px-2 py-1 rounded-md bg-red-500/15 text-red-300 text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                    >
+                      Ctrl+C
+                    </button>
+                    <button
+                      onClick={() => sendTerminalInput('', true)}
+                      disabled={!terminalSessionId}
+                      className="px-2 py-1 rounded-md bg-foreground/10 text-foreground/70 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
+                    >
+                      Enter
+                    </button>
+                    <button
+                      onClick={() => sendTerminalInput('\t', false)}
+                      disabled={!terminalSessionId}
+                      className="px-2 py-1 rounded-md bg-foreground/10 text-foreground/70 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
+                    >
+                      Tab
+                    </button>
+                    <button
+                      onClick={() => sendTerminalInput('\u0004', false)}
+                      disabled={!terminalSessionId}
+                      className="px-2 py-1 rounded-md bg-foreground/10 text-foreground/70 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
+                    >
+                      Ctrl+D
+                    </button>
+                  </div>
+
+                  <div className="bg-black/50 rounded-lg p-3 font-mono text-[10px] min-h-[280px] max-h-[420px] overflow-auto text-foreground/80 whitespace-pre-wrap">
+                    {terminalOutput || 'Noch keine Ausgabe. Einen Befehl ausführen, um die Container-Shell zu verwenden.'}
+                  </div>
+                  <p className="text-[9px] text-foreground/30">
+                    Session bleibt offen. Pfeil hoch/runter durchsucht die Command-History, Sondertasten werden direkt an die Shell gesendet.
+                  </p>
                 </div>
               )}
 

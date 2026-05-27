@@ -61,6 +61,47 @@ impl AppStorageState {
     fn app_meta_path(&self, app_id: &str) -> PathBuf {
         self.base_dir.join(app_id).join("file_meta.json")
     }
+
+    pub async fn usage_for_app(&self, app_id: &str) -> StorageUsage {
+        let meta_path = self.app_meta_path(app_id);
+        let kv_path = self.app_kv_path(app_id);
+
+        let metadatas: Vec<StoredFile> = if meta_path.exists() {
+            match fs::read_to_string(&meta_path).await {
+                Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+                Err(_) => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+
+        let total_file_bytes: u64 = metadatas.iter().map(|f| f.size_bytes).sum();
+        let file_count = metadatas.len() as u32;
+
+        let kv_entries: Vec<KvEntry> = if kv_path.exists() {
+            match fs::read_to_string(&kv_path).await {
+                Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+                Err(_) => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+
+        let quota = StorageQuota::default();
+        let usage_pct = if quota.max_file_storage_bytes > 0 {
+            (total_file_bytes as f64 / quota.max_file_storage_bytes as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        StorageUsage {
+            total_file_bytes,
+            file_count,
+            kv_entry_count: kv_entries.len() as u32,
+            quota,
+            usage_percent: usage_pct,
+        }
+    }
 }
 
 /// Query parameters for listing files
@@ -415,43 +456,5 @@ pub async fn get_storage_usage(
     State(state): State<Arc<AppStorageState>>,
     AxumPath(app_id): AxumPath<String>,
 ) -> Result<Json<StorageUsage>, (StatusCode, String)> {
-    let file_dir = state.app_file_dir(&app_id);
-    let meta_path = state.app_meta_path(&app_id);
-    let kv_path = state.app_kv_path(&app_id);
-
-    let metadatas: Vec<StoredFile> = if meta_path.exists() {
-        match fs::read_to_string(&meta_path).await {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-            Err(_) => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-
-    let total_file_bytes: u64 = metadatas.iter().map(|f| f.size_bytes).sum();
-    let file_count = metadatas.len() as u32;
-
-    let kv_entries: Vec<KvEntry> = if kv_path.exists() {
-        match fs::read_to_string(&kv_path).await {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-            Err(_) => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-
-    let quota = StorageQuota::default();
-    let usage_pct = if quota.max_file_storage_bytes > 0 {
-        (total_file_bytes as f64 / quota.max_file_storage_bytes as f64) * 100.0
-    } else {
-        0.0
-    };
-
-    Ok(Json(StorageUsage {
-        total_file_bytes,
-        file_count,
-        kv_entry_count: kv_entries.len() as u32,
-        quota,
-        usage_percent: usage_pct,
-    }))
+    Ok(Json(state.usage_for_app(&app_id).await))
 }

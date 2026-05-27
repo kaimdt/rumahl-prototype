@@ -125,15 +125,15 @@ impl App {
     #[cfg(unix)]
     fn ctl_path(&self) -> String {
         // %C = unique hash of host/port/user, so multiple VMs coexist.
-        let dir = self.cache_dir.join("ssh-sockets");
+        // Hardcode /tmp (instead of cache_dir or env::temp_dir) because
+        // macOS limits Unix-domain socket paths to ~104 bytes.
+        // /tmp is short (~4 chars) on macOS, Linux, and WSL → safe.
+        let dir = std::path::PathBuf::from("/tmp/iora-ssh");
         let _ = std::fs::create_dir_all(&dir);
         format!("{}/cm-%C", dir.display())
     }
 
     fn ssh_args(&self) -> Vec<String> {
-        #[cfg(unix)]
-        let ctl = self.ctl_path();
-
         let mut args = vec![
             "-o".into(),"StrictHostKeyChecking=no".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
@@ -143,9 +143,6 @@ impl App {
         #[cfg(unix)]
         {
             args.push("-o".into()); args.push("UserKnownHostsFile=/dev/null".into());
-            args.push("-o".into()); args.push("ControlMaster=auto".into());
-            args.push("-o".into()); args.push(format!("ControlPath={}", ctl));
-            args.push("-o".into()); args.push("ControlPersist=600".into());
         }
         #[cfg(windows)]
         {
@@ -192,7 +189,17 @@ impl App {
     }
 
     async fn check_vm(&mut self) -> bool {
-        self.vm_online = self.ssh_exec("echo OK").await.map_or(false, |s| s.contains("OK"));
+        self.vm_online = match self.ssh_exec("echo OK").await {
+            Ok(s) => {
+                let ok = s.contains("OK");
+                if !ok { eprintln!("[iora-dev-watch] check_vm: ssh output missing 'OK': {:?}", s); }
+                ok
+            }
+            Err(e) => {
+                eprintln!("[iora-dev-watch] check_vm: ssh_exec failed: {e:?}");
+                false
+            }
+        };
         self.vm_online
     }
 

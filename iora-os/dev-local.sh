@@ -158,6 +158,7 @@ log "Host: ${HOST_RAM_GB}GB RAM, ${HOST_CPUS} CPUs ($(uname -s) $HOST_ARCH)"
 log "VM:   ${VM_RAM} RAM, ${VM_CPUS} CPUs, cargo -j${CARGO_JOBS}"
 
 # ── Ports (kept in sync with IORA OS nginx + service config) ───────────────
+VM_HOST=127.0.0.1
 VM_SSH=2222
 VM_HOME=8126
 VM_BRIDGE=8101
@@ -1119,15 +1120,15 @@ if ! $NO_WATCH; then
     if [ -f "$DASH_BIN" ]; then
         log "Launching IORA Dev Watch TUI..."
         if $IS_MACOS; then
-            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY\"" >/dev/null 2>&1 \
+            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY\"" >/dev/null 2>&1 \
                 || warn "Couldn't auto-open Terminal.app. Run manually: $DASH_BIN"
         else
             if command -v gnome-terminal >/dev/null 2>&1; then
-                gnome-terminal -- bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
+                gnome-terminal -- bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
             elif command -v konsole >/dev/null 2>&1; then
-                konsole -e bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
+                konsole -e bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
             elif command -v xterm >/dev/null 2>&1; then
-                xterm -e "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host 127.0.0.1 --vm-port $VM_SSH --ssh-key $SSH_KEY" &
+                xterm -e "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY" &
             else
                 warn "No terminal emulator found. Run manually: $DASH_BIN"
             fi

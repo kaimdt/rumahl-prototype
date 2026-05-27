@@ -70,8 +70,14 @@ pub struct InstalledApp {
     pub icon: Option<String>,
     pub trust_level: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub autostart: bool,
     #[serde(default = "default_status")]
     pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_stopped_at: Option<String>,
     pub installed_at: String,
     pub source: String,
     /// "app" / "plugin" / "system" — used by the UI to filter.
@@ -251,6 +257,9 @@ impl LocalAppStore {
         let mut enriched: Vec<InstalledApp> = apps
             .into_iter()
             .map(|mut a| {
+                if a.enabled && !a.autostart {
+                    a.autostart = true;
+                }
                 if a.custom_pages.is_empty() {
                     if let Some(cp) = a.manifest.extra.get("custom_pages") {
                         if let Ok(pages) = serde_json::from_value::<Vec<CustomPageEntry>>(cp.clone()) {
@@ -395,7 +404,10 @@ impl LocalAppStore {
             icon: None,
             trust_level: "trusted".to_string(),
             enabled: true,
+            autostart: true,
             status: "running".to_string(),
+            last_started_at: Some(now_iso()),
+            last_stopped_at: None,
             installed_at: now_iso(),
             source: "system".to_string(),
             kind: "system".to_string(),
@@ -431,7 +443,10 @@ impl LocalAppStore {
             icon: Some("share-network".to_string()),
             trust_level: "trusted".to_string(),
             enabled: true,
+            autostart: true,
             status: "running".to_string(),
+            last_started_at: Some(now_iso()),
+            last_stopped_at: None,
             installed_at: now_iso(),
             source: "system".to_string(),
             kind: "app".to_string(),
@@ -486,7 +501,10 @@ impl LocalAppStore {
             icon: Some("broadcast".to_string()),
             trust_level: "trusted".to_string(),
             enabled: true,
+            autostart: true,
             status: "running".to_string(),
+            last_started_at: Some(now_iso()),
+            last_stopped_at: None,
             installed_at: now_iso(),
             source: "system".to_string(),
             kind: "app".to_string(),
@@ -571,10 +589,13 @@ impl LocalAppStore {
             ));
         }
         app.enabled = enable;
+        app.autostart = enable;
         if enable && app.status == "stopped" {
             app.status = "running".to_string();
+            app.last_started_at = Some(now_iso());
         } else if !enable {
             app.status = "stopped".to_string();
+            app.last_stopped_at = Some(now_iso());
         }
         let updated = app.clone();
         drop(inner);
@@ -600,6 +621,9 @@ impl LocalAppStore {
         app.status = status.to_string();
         if matches!(status, "running" | "starting") {
             app.enabled = true;
+            app.last_started_at = Some(now_iso());
+        } else if matches!(status, "stopped" | "paused" | "error") {
+            app.last_stopped_at = Some(now_iso());
         }
         let updated = app.clone();
         drop(inner);
@@ -836,11 +860,14 @@ impl LocalAppStore {
             icon: manifest.icon.clone(),
             trust_level: "untrusted".to_string(),
             enabled: false,
+            autostart: false,
             status: if needs_runtime_prep {
                 "installing".to_string()
             } else {
                 "stopped".to_string()
             },
+            last_started_at: None,
+            last_stopped_at: Some(now_iso()),
             installed_at: now_iso(),
             source: "zip".to_string(),
             kind: manifest

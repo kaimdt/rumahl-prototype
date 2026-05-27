@@ -22,7 +22,10 @@ interface AppInfo {
   icon?: string
   trust_level: 'trusted' | 'untrusted' | 'verified'
   enabled: boolean
+  autostart?: boolean
   status?: string
+  last_started_at?: string
+  last_stopped_at?: string
   installed_at: string
   ports?: PortInfo[]
   kind?: 'app' | 'plugin' | 'system'
@@ -41,6 +44,7 @@ interface AppInfo {
   open_url?: string
   custom_pages?: CustomPage[]
   is_bundle?: boolean
+  docker_config?: any
   bundle_config?: any
   services?: any[]
 }
@@ -333,6 +337,18 @@ function InstalledAppsView({
     setActionLoading(null)
   }
 
+  const pauseApp = async (appId: string) => {
+    setActionLoading(`pause-${appId}`)
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/pause`, token, { method: 'POST' })
+      toast.success('App pausiert')
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setActionLoading(null)
+  }
+
   const enableApp = async (appId: string) => {
     setActionLoading(`enable-${appId}`)
     try {
@@ -489,6 +505,10 @@ function InstalledAppsView({
                   <span className="flex items-center gap-1.5 px-2 py-1 bg-foreground/10 text-foreground/50 rounded-lg text-[10px] font-semibold border border-foreground/10">
                     <span className="w-1.5 h-1.5 rounded-full bg-foreground/30" /> Gestoppt
                   </span>
+                ) : app.status === 'paused' ? (
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/15 text-yellow-300 rounded-lg text-[10px] font-semibold border border-yellow-500/20">
+                    <Pause size={12} weight="fill" /> Pausiert
+                  </span>
                 ) : app.status === 'unhealthy' ? (
                   <span className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 text-amber-400 rounded-lg text-[10px] font-semibold border border-amber-500/20">
                     <Warning size={12} weight="fill" /> Unhealthy
@@ -519,6 +539,13 @@ function InstalledAppsView({
                     {app.custom_pages!.length} Seite{(app.custom_pages!.length !== 1) ? 'n' : ''}
                   </span>
                 )}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                  app.autostart ?? app.enabled
+                    ? 'bg-blue-500/15 text-blue-300'
+                    : 'bg-foreground/10 text-foreground/40'
+                }`}>
+                  {app.autostart ?? app.enabled ? 'Autostart an' : 'Autostart aus'}
+                </span>
               </div>
 
               {/* Actions */}
@@ -540,13 +567,34 @@ function InstalledAppsView({
                 ) : (
                   <>
                     {app.status === 'running' ? (
+                      <>
+                        <button
+                          onClick={() => stopApp(app.id)}
+                          disabled={actionLoading === `stop-${app.id}`}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
+                        >
+                          {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                          Stoppen
+                        </button>
+                        {(app.docker || app.docker_config || app.is_bundle) && (
+                          <button
+                            onClick={() => pauseApp(app.id)}
+                            disabled={actionLoading === `pause-${app.id}`}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-yellow-500/15 text-yellow-300 rounded text-[10px] font-semibold hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
+                          >
+                            {actionLoading === `pause-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                            Pausieren
+                          </button>
+                        )}
+                      </>
+                    ) : app.status === 'paused' ? (
                       <button
-                        onClick={() => stopApp(app.id)}
-                        disabled={actionLoading === `stop-${app.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
+                        onClick={() => startApp(app.id)}
+                        disabled={actionLoading === `start-${app.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
                       >
-                        {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
-                        Stoppen
+                        {actionLoading === `start-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
+                        Fortsetzen
                       </button>
                     ) : app.status === 'starting' || app.status === 'installing' ? (
                       <button
@@ -617,6 +665,13 @@ function InstalledAppsView({
                 Installiert: {new Date(app.installed_at).toLocaleDateString('de-DE', {
                   year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                 })}
+                {app.last_started_at && (
+                  <span className="ml-2">
+                    · Letzter Start: {new Date(app.last_started_at).toLocaleDateString('de-DE', {
+                      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    })}
+                  </span>
+                )}
               </div>
             </div>
           ))}
