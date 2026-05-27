@@ -137,7 +137,8 @@ impl App {
         let mut args = vec![
             "-o".into(),"StrictHostKeyChecking=no".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
-            "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=30".into(),
+            "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=60".into(),
+            "-o".into(),"ServerAliveCountMax=30".into(),"-o".into(),"TCPKeepAlive=yes".into(),
             "-o".into(),"AddressFamily=inet".into(),
         ];
         #[cfg(unix)]
@@ -183,7 +184,7 @@ impl App {
 
     async fn ssh_exec(&self, cmd: &str) -> Result<String> {
         let mut args = self.ssh_args(); args.push(cmd.into());
-        let result = tokio::time::timeout(Duration::from_secs(10),
+        let result = tokio::time::timeout(Duration::from_secs(30),
             TokioCommand::new("ssh").args(&args).output()).await.context("timeout")?;
         Ok(String::from_utf8_lossy(&result?.stdout).into())
     }
@@ -1298,7 +1299,7 @@ fn main() -> Result<()> {
                 app.dirty = true;
             }
         }
-        if last_vm_check.elapsed() >= Duration::from_secs(6) {
+        if last_vm_check.elapsed() >= Duration::from_secs(15) {
             last_vm_check = Instant::now();
             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
             let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());

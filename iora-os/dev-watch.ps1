@@ -273,7 +273,7 @@ function Update-Status {
 
 # Background status refresh (simple approach: toggle flag)
 $Script:StatusDirty = $true
-$Script:StatusTimer = [System.Timers.Timer]::new(2000)
+$Script:StatusTimer = [System.Timers.Timer]::new(5000)
 $Script:StatusTimer.AutoReset = $true
 $Script:StatusTimer.Enabled = $true
 $null = Register-ObjectEvent -InputObject $Script:StatusTimer -EventName Elapsed -Action {
@@ -291,9 +291,10 @@ $Script:SshOpts = @(
     "-o", "UserKnownHostsFile=NUL",
     "-o", "IdentitiesOnly=yes",
     "-o", "LogLevel=ERROR",
-    "-o", "ServerAliveInterval=30",
-    "-o", "ServerAliveCountMax=3",
+    "-o", "ServerAliveInterval=60",
+    "-o", "ServerAliveCountMax=30",
     "-o", "ConnectTimeout=10",
+    "-o", "TCPKeepAlive=yes",
     "-i", $SshKey
 )
 
