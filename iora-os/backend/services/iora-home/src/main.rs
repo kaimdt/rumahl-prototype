@@ -955,7 +955,7 @@ async fn main() -> anyhow::Result<()> {
         ws_manager.clone(),
         ha_client.clone(),
     ));
-    let system_events = Arc::new(system_events::SystemEventLog::new(ws_manager.clone()));
+    let system_events = system_events::SystemEventLog::new(db_pool.clone(), ws_manager.clone());
 
     // ── local_appstore init ──────────────────────────────────────────
     let local_appstore = match local_appstore::LocalAppStore::open().await {
@@ -1308,6 +1308,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/services/:domain/:service",
             post(call_service),
         )
+        .route("/api/system-events/client", post(client_system_event_ingest))
         .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_auth))
         .with_state(state.clone());
 
@@ -1386,6 +1387,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/presence", get(admin_presence))
         // Centralised system event log (background-task errors / warnings)
         .route("/api/admin/system-events", get(admin_system_events).delete(admin_clear_system_events))
+        .route("/api/admin/system-events/occurrences", get(admin_system_events_occurrences))
+        .route("/api/admin/system-events/:fingerprint", get(admin_system_event_detail).delete(admin_system_event_delete_group))
+        .route("/api/admin/system-events/:fingerprint/resolve", post(admin_system_event_resolve))
+        .route("/api/admin/system-events/:fingerprint/unresolve", post(admin_system_event_unresolve))
         // Maintenance mode
         .route("/api/admin/maintenance", get(admin_get_maintenance).put(admin_set_maintenance))
         // Notifications & alerts
@@ -4602,50 +4607,211 @@ async fn admin_delete_device(
 }
 
 /// GET /api/admin/system-events
-/// Returns the most recent buffered system events (errors / warnings / info
-/// from background tasks). Optional query params:
-///   - `limit`    (default 200, capped at 500)
-///   - `severity` (`info` | `warning` | `error`, minimum threshold)
+/// Grouped (deduplicated) view of system events. Identical
+/// `(severity, source, message)` events are collapsed into one row with a
+/// counter so repeated failures don't bloat the UI.
+/// Query params:
+///   - `limit`         (default 200, capped at 1000)
+///   - `severity`      (`info` | `warning` | `error`, minimum threshold)
+///   - `unresolved`    (`true` to hide groups marked resolved)
 async fn admin_system_events(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let limit = params
         .get("limit")
-        .and_then(|s| s.parse::<usize>().ok())
+        .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(200)
-        .min(500);
+        .clamp(1, 1000);
+    let min_severity = params
+        .get("severity")
+        .and_then(|s| system_events::Severity::from_str_ci(s));
+    let only_unresolved = params
+        .get("unresolved")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
 
-    let min_severity = match params.get("severity").map(|s| s.to_lowercase()) {
-        Some(s) if s == "error" => Some(system_events::Severity::Error),
-        Some(s) if s == "warning" || s == "warn" => Some(system_events::Severity::Warning),
-        Some(s) if s == "info" => Some(system_events::Severity::Info),
-        _ => None,
-    };
-
-    let mut events = if let Some(min) = min_severity {
-        state.system_events.snapshot_min(min).await
-    } else {
-        state.system_events.snapshot().await
-    };
-
-    // Newest first
-    events.reverse();
-    events.truncate(limit);
+    let groups = state
+        .system_events
+        .list_groups(min_severity, only_unresolved, limit)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events groups query failed: {e}")))?;
+    let stats = state
+        .system_events
+        .stats()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events stats failed: {e}")))?;
 
     Ok(Json(json!({
-        "events": events,
-        "total": events.len(),
+        "groups": groups,
+        "stats": stats,
         "generated_at": chrono::Utc::now().to_rfc3339(),
     })))
 }
 
-/// DELETE /api/admin/system-events — clear the in-memory ring buffer.
+/// GET /api/admin/system-events/occurrences
+/// Raw chronological log of every individual occurrence — **not**
+/// deduplicated, so each event is shown exactly as it happened.
+/// Query params:
+///   - `limit`         (default 200, capped at 2000)
+///   - `severity`      (minimum threshold filter)
+///   - `fingerprint`   (drill into a single group's history)
+///   - `origin`        (`backend` | `tracing` | `frontend`)
+async fn admin_system_events_occurrences(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200)
+        .clamp(1, 2000);
+    let min_severity = params
+        .get("severity")
+        .and_then(|s| system_events::Severity::from_str_ci(s));
+    let origin = params.get("origin").and_then(|o| match o.to_lowercase().as_str() {
+        "backend" => Some(system_events::Origin::Backend),
+        "tracing" => Some(system_events::Origin::Tracing),
+        "frontend" | "client" => Some(system_events::Origin::Frontend),
+        _ => None,
+    });
+    let fp = params.get("fingerprint").map(|s| s.as_str());
+
+    let occurrences = state
+        .system_events
+        .list_occurrences(min_severity, fp, origin, limit)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events occurrences query failed: {e}")))?;
+
+    Ok(Json(json!({
+        "occurrences": occurrences,
+        "total": occurrences.len(),
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
+
+/// GET /api/admin/system-events/:fingerprint — group + recent occurrences.
+async fn admin_system_event_detail(
+    State(state): State<AppState>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let groups = state
+        .system_events
+        .list_groups(None, false, 1000)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events groups query failed: {e}")))?;
+    let group = groups.into_iter().find(|g| g.fingerprint == fp);
+    let group = match group {
+        Some(g) => g,
+        None => return Err(ErrorResponse::not_found("group not found")),
+    };
+    let occurrences = state
+        .system_events
+        .list_occurrences(None, Some(&fp), None, 200)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events occurrences query failed: {e}")))?;
+    Ok(Json(json!({
+        "group": group,
+        "occurrences": occurrences,
+    })))
+}
+
+/// POST /api/admin/system-events/:fingerprint/resolve
+async fn admin_system_event_resolve(
+    State(state): State<AppState>,
+    Extension(auth): Extension<middleware::AuthIdentity>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let user = auth.user_id().to_string();
+    let affected = state
+        .system_events
+        .mark_resolved(&fp, &user)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("mark_resolved failed: {e}")))?;
+    Ok(Json(json!({ "resolved": affected > 0 })))
+}
+
+/// POST /api/admin/system-events/:fingerprint/unresolve
+async fn admin_system_event_unresolve(
+    State(state): State<AppState>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let affected = state
+        .system_events
+        .unmark_resolved(&fp)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("unmark_resolved failed: {e}")))?;
+    Ok(Json(json!({ "unresolved": affected > 0 })))
+}
+
+/// DELETE /api/admin/system-events/:fingerprint — delete one group + its occurrences.
+async fn admin_system_event_delete_group(
+    State(state): State<AppState>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let affected = state
+        .system_events
+        .delete_group(&fp)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("delete_group failed: {e}")))?;
+    Ok(Json(json!({ "deleted": affected })))
+}
+
+/// DELETE /api/admin/system-events — clear the entire persistent log.
 async fn admin_clear_system_events(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    state.system_events.clear().await;
+    state
+        .system_events
+        .clear_all()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("clear_all failed: {e}")))?;
     Ok(Json(json!({ "cleared": true })))
+}
+
+/// POST /api/system-events/client — frontend / client-side error ingest.
+/// Accepted from authenticated users (not just admins) so widgets and the
+/// SDK can report their own failures.
+#[derive(Deserialize)]
+struct ClientSystemEventBody {
+    severity: String,
+    source: String,
+    message: String,
+    #[serde(default)] file: Option<String>,
+    #[serde(default)] line: Option<i32>,
+    #[serde(default)] request_path: Option<String>,
+    #[serde(default)] error_chain: Option<String>,
+    #[serde(default)] extra: Option<Value>,
+}
+
+async fn client_system_event_ingest(
+    State(state): State<AppState>,
+    Extension(auth): Extension<middleware::AuthIdentity>,
+    Json(body): Json<ClientSystemEventBody>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let severity = system_events::Severity::from_str_ci(&body.severity)
+        .unwrap_or(system_events::Severity::Error);
+    // Force the `client:` prefix so frontend sources are always
+    // distinguishable in the grouped view.
+    let source = if body.source.starts_with("client:") || body.source.starts_with("frontend:") {
+        body.source
+    } else {
+        format!("client:{}", body.source)
+    };
+    // Reject absurdly long messages so a runaway client can't bloat the DB.
+    let message: String = body.message.chars().take(2000).collect();
+    let mut meta = system_events::EventMeta::default();
+    meta.user_id = Some(auth.user_id().to_string());
+    meta.file = body.file;
+    meta.line = body.line;
+    meta.request_path = body.request_path;
+    meta.error_chain = body.error_chain;
+    meta.extra = body.extra;
+    state
+        .system_events
+        .report_from_client(severity, &source, message, meta)
+        .await;
+    Ok(Json(json!({ "accepted": true })))
 }
 
 /// Admin: combined presence overview. Aggregates users, devices, and the
@@ -10312,7 +10478,29 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
             _ => {}
         }
         let fields = if visitor.1.is_empty() { None } else { Some(json!(visitor.1)) };
-        push_log_entry(level, target, &visitor.0, fields);
+        push_log_entry(level, target, &visitor.0, fields.clone());
+
+        // Auto-capture into the persistent system event log for error/warn
+        // so every tracing-style `error!()` / `warn!()` anywhere in the
+        // codebase is recorded — no call-site changes required.
+        let severity = match level {
+            "error" => Some(system_events::Severity::Error),
+            "warn" => Some(system_events::Severity::Warning),
+            _ => None,
+        };
+        if let Some(sev) = severity {
+            // Skip our own diagnostics to avoid an infinite feedback loop.
+            if !target.contains("system_events") {
+                let meta = event.metadata();
+                let mut emeta = system_events::EventMeta::default();
+                emeta.target = Some(target.to_string());
+                emeta.file = meta.file().map(|f| f.to_string());
+                emeta.line = meta.line().map(|l| l as i32);
+                emeta.extra = fields;
+                let source = target.rsplit("::").next().unwrap_or(target).to_string();
+                system_events::capture_from_tracing(sev, &source, &visitor.0, emeta);
+            }
+        }
     }
 }
 

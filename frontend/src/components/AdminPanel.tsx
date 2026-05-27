@@ -12336,38 +12336,114 @@ function PresenceTab({ token }: { token: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// SystemLogsTab — central error/warning/info log from backend background tasks
-// (webhook delivery, scheduler, HA reconnects, etc.). Powered by the
-// in-memory ring buffer maintained by `system_events::SystemEventLog`.
+// SystemLogsTab — IORA Control Center central event log.
+//
+// All errors / warnings / infos from anywhere in the stack (backend
+// tracing layer, background tasks, frontend window errors, SDK clients)
+// land in two Postgres tables and are surfaced here:
+//
+//   • "Gruppiert" view — one row per unique (severity, source, message)
+//     fingerprint, with an occurrence counter so repeated failures don't
+//     drown out the signal. Each row can be drilled into to see all of
+//     its individual occurrences with full metadata.
+//
+//   • "Verlauf" view — raw chronological stream of every single
+//     occurrence (no dedup), exactly as it happened.
+//
+// Powered by `system_events::SystemEventLog` + migration
+// `031_system_events.sql`.
 // ═══════════════════════════════════════════════════════════════════════
 
-interface SystemEventEntry {
-  id: number
-  severity: 'error' | 'warning' | 'info'
+type Severity = 'error' | 'warning' | 'info'
+type Origin = 'backend' | 'tracing' | 'frontend'
+
+interface EventGroup {
+  fingerprint: string
+  severity: Severity
   source: string
   message: string
   count: number
-  timestamp: string
+  first_seen: string
   last_seen: string
+  resolved: boolean
+  resolved_at?: string | null
+  resolved_by?: string | null
+  last_details?: unknown
+}
+
+interface EventOccurrence {
+  id: number
+  fingerprint: string
+  severity: Severity
+  source: string
+  message: string
+  origin: Origin
+  occurred_at: string
+  user_id?: string | null
+  request_path?: string | null
+  request_method?: string | null
+  status_code?: number | null
+  file?: string | null
+  line?: number | null
+  target?: string | null
+  error_chain?: string | null
   details?: unknown
 }
 
+interface EventStats {
+  total_groups: number
+  unresolved_groups: number
+  unresolved_errors: number
+  unresolved_warnings: number
+  total_occurrences: number
+  occurrences_last_hour: number
+  occurrences_last_day: number
+  ingest_drops: number
+}
+
+function severityBadge(sev: Severity): string {
+  switch (sev) {
+    case 'error': return 'bg-red-500/15 text-red-500 border-red-500/30'
+    case 'warning': return 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+    case 'info': return 'bg-blue-500/15 text-blue-500 border-blue-500/30'
+  }
+}
+
+function originBadge(origin: Origin): string {
+  switch (origin) {
+    case 'backend': return 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+    case 'tracing': return 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+    case 'frontend': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+  }
+}
+
 function SystemLogsTab({ token }: { token: string }) {
-  const [events, setEvents] = useState<SystemEventEntry[]>([])
+  const [view, setView] = useState<'grouped' | 'history'>('grouped')
+  const [severity, setSeverity] = useState<'all' | Severity>('all')
+  const [originFilter, setOriginFilter] = useState<'all' | Origin>('all')
+  const [onlyUnresolved, setOnlyUnresolved] = useState(false)
+  const [groups, setGroups] = useState<EventGroup[]>([])
+  const [occurrences, setOccurrences] = useState<EventOccurrence[]>([])
+  const [stats, setStats] = useState<EventStats | null>(null)
+  const [selectedFingerprint, setSelectedFingerprint] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [severity, setSeverity] = useState<'all' | 'error' | 'warning' | 'info'>('all')
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const sevQuery = severity === 'all' ? '' : `&severity=${severity}`
+  const originQuery = originFilter === 'all' ? '' : `&origin=${originFilter}`
+  const unresolvedQuery = onlyUnresolved ? '&unresolved=true' : ''
+
+  const loadGrouped = useCallback(async () => {
     try {
-      const sevParam = severity === 'all' ? '' : `&severity=${severity}`
-      const r = await fetch(`${getBackendUrl()}/api/admin/system-events?limit=200${sevParam}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const r = await fetch(
+        `${getBackendUrl()}/api/admin/system-events?limit=200${sevQuery}${unresolvedQuery}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const data = await r.json()
-      setEvents(data.events || [])
+      setGroups(data.groups || [])
+      setStats(data.stats || null)
       setGeneratedAt(data.generated_at || null)
       setError(null)
     } catch (e) {
@@ -12375,59 +12451,195 @@ function SystemLogsTab({ token }: { token: string }) {
     } finally {
       setLoading(false)
     }
-  }, [token, severity])
+  }, [token, sevQuery, unresolvedQuery])
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const fpQ = selectedFingerprint ? `&fingerprint=${encodeURIComponent(selectedFingerprint)}` : ''
+      const r = await fetch(
+        `${getBackendUrl()}/api/admin/system-events/occurrences?limit=300${sevQuery}${originQuery}${fpQ}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json()
+      setOccurrences(data.occurrences || [])
+      setGeneratedAt(data.generated_at || null)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token, sevQuery, originQuery, selectedFingerprint])
 
   useEffect(() => {
-    load()
-    const id = setInterval(load, 10_000)
-    return () => clearInterval(id)
-  }, [load])
+    setLoading(true)
+    if (view === 'grouped') {
+      loadGrouped()
+      const id = setInterval(loadGrouped, 10_000)
+      return () => clearInterval(id)
+    } else {
+      loadHistory()
+      const id = setInterval(loadHistory, 10_000)
+      return () => clearInterval(id)
+    }
+  }, [view, loadGrouped, loadHistory])
 
-  const clearAll = async () => {
-    if (!window.confirm('Alle gespeicherten System-Events löschen?')) return
+  const resolveGroup = async (fp: string) => {
     try {
-      await fetch(`${getBackendUrl()}/api/admin/system-events`, {
-        method: 'DELETE',
+      await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}/resolve`, {
+        method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
-      setEvents([])
+      loadGrouped()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  const badgeClasses = (sev: string) => {
-    switch (sev) {
-      case 'error': return 'bg-red-500/15 text-red-500 border-red-500/30'
-      case 'warning': return 'bg-amber-500/15 text-amber-500 border-amber-500/30'
-      case 'info': return 'bg-blue-500/15 text-blue-500 border-blue-500/30'
-      default: return 'bg-foreground/10 text-foreground/70 border-foreground/20'
+  const unresolveGroup = async (fp: string) => {
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}/unresolve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const deleteGroup = async (fp: string) => {
+    if (!window.confirm('Diese Fehlergruppe inklusive aller Vorkommen löschen?')) return
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const clearAll = async () => {
+    if (!window.confirm('Wirklich ALLE gespeicherten System-Events löschen? Dies kann nicht rückgängig gemacht werden.')) return
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setGroups([])
+      setOccurrences([])
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 
   return (
     <div className="space-y-4">
+      {/* Stats KPI cards */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-red-500/80">Fehler offen</div>
+            <div className="text-2xl font-semibold text-red-500">{stats.unresolved_errors}</div>
+          </div>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-amber-500/80">Warnungen offen</div>
+            <div className="text-2xl font-semibold text-amber-500">{stats.unresolved_warnings}</div>
+          </div>
+          <div className="rounded-lg border border-foreground/15 bg-foreground/[0.02] px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-foreground/60">Letzte Stunde</div>
+            <div className="text-2xl font-semibold text-foreground">{stats.occurrences_last_hour}</div>
+          </div>
+          <div className="rounded-lg border border-foreground/15 bg-foreground/[0.02] px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-foreground/60">Letzte 24h</div>
+            <div className="text-2xl font-semibold text-foreground">{stats.occurrences_last_day}</div>
+          </div>
+        </div>
+      )}
+
       <AdminCard
-        title="System-Events"
-        description="Zentrale Fehler-, Warn- und Info-Meldungen aus Hintergrundprozessen — wird auch live über WebSocket an alle Admins gepusht."
+        title="IORA Control Center · System-Events"
+        description="Alle Fehler, Warnungen und Infos aus dem gesamten Stack — Backend-Tracing, Hintergrund-Tasks, Frontend, SDK-Clients. Gleiche Fehler werden gruppiert mit Zähler; im Verlauf bleibt jedes Vorkommen einzeln erhalten."
       >
+        {/* View tabs */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          {(['all', 'error', 'warning', 'info'] as const).map(s => (
+          <div className="flex rounded-md border border-foreground/15 overflow-hidden">
             <button
-              key={s}
-              onClick={() => setSeverity(s)}
-              className={`px-3 py-1 text-xs rounded-md border transition ${
-                severity === s
-                  ? 'bg-foreground/10 border-foreground/30 text-foreground'
-                  : 'border-foreground/15 text-foreground/60 hover:border-foreground/30'
+              onClick={() => { setView('grouped'); setSelectedFingerprint(null) }}
+              className={`px-3 py-1.5 text-xs transition ${
+                view === 'grouped' ? 'bg-foreground/10 text-foreground' : 'text-foreground/60 hover:bg-foreground/5'
               }`}
             >
-              {s === 'all' ? 'Alle' : s === 'error' ? 'Fehler' : s === 'warning' ? 'Warnungen' : 'Info'}
+              Gruppiert
             </button>
-          ))}
+            <button
+              onClick={() => setView('history')}
+              className={`px-3 py-1.5 text-xs transition border-l border-foreground/15 ${
+                view === 'history' ? 'bg-foreground/10 text-foreground' : 'text-foreground/60 hover:bg-foreground/5'
+              }`}
+            >
+              Verlauf {selectedFingerprint ? '(gefiltert)' : ''}
+            </button>
+          </div>
+
+          {/* Severity filter */}
+          <div className="flex flex-wrap items-center gap-1 ml-2">
+            {(['all', 'error', 'warning', 'info'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setSeverity(s)}
+                className={`px-2 py-1 text-[11px] rounded-md border transition ${
+                  severity === s
+                    ? 'bg-foreground/10 border-foreground/30 text-foreground'
+                    : 'border-foreground/15 text-foreground/60 hover:border-foreground/30'
+                }`}
+              >
+                {s === 'all' ? 'Alle' : s === 'error' ? 'Fehler' : s === 'warning' ? 'Warn.' : 'Info'}
+              </button>
+            ))}
+          </div>
+
+          {view === 'grouped' && (
+            <label className="flex items-center gap-1.5 ml-2 text-[11px] text-foreground/70">
+              <input
+                type="checkbox"
+                checked={onlyUnresolved}
+                onChange={(e) => setOnlyUnresolved(e.target.checked)}
+                className="accent-foreground/60"
+              />
+              Nur ungelöste
+            </label>
+          )}
+
+          {view === 'history' && (
+            <select
+              value={originFilter}
+              onChange={(e) => setOriginFilter(e.target.value as 'all' | Origin)}
+              className="ml-2 px-2 py-1 text-[11px] rounded-md border border-foreground/15 bg-transparent text-foreground/70"
+            >
+              <option value="all">Alle Quellen</option>
+              <option value="backend">Backend</option>
+              <option value="tracing">Tracing</option>
+              <option value="frontend">Frontend</option>
+            </select>
+          )}
+
+          {view === 'history' && selectedFingerprint && (
+            <button
+              onClick={() => setSelectedFingerprint(null)}
+              className="px-2 py-1 text-[11px] rounded-md border border-foreground/15 text-foreground/60 hover:border-foreground/30"
+            >
+              Filter aufheben
+            </button>
+          )}
+
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={load}
+              onClick={() => (view === 'grouped' ? loadGrouped() : loadHistory())}
               className="px-3 py-1 text-xs rounded-md border border-foreground/15 text-foreground/70 hover:border-foreground/30"
             >
               Aktualisieren
@@ -12436,50 +12648,98 @@ function SystemLogsTab({ token }: { token: string }) {
               onClick={clearAll}
               className="px-3 py-1 text-xs rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10"
             >
-              Buffer leeren
+              Alles löschen
             </button>
           </div>
         </div>
 
-        {loading && events.length === 0 ? (
+        {loading && groups.length === 0 && occurrences.length === 0 ? (
           <div className="text-sm text-foreground/50 py-8 text-center">Lade Events…</div>
         ) : error ? (
           <div className="text-sm text-red-500 py-8 text-center">Fehler: {error}</div>
-        ) : events.length === 0 ? (
-          <div className="text-sm text-foreground/50 py-8 text-center">
-            Keine Events im Buffer — alles ruhig im Backend.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="text-foreground/50 text-left">
-                <tr className="border-b border-foreground/10">
-                  <th className="py-2 px-2 font-medium">Schwere</th>
-                  <th className="py-2 px-2 font-medium">Quelle</th>
-                  <th className="py-2 px-2 font-medium">Meldung</th>
-                  <th className="py-2 px-2 font-medium">Anzahl</th>
-                  <th className="py-2 px-2 font-medium">Zuletzt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map(ev => (
-                  <tr key={ev.id} className="border-b border-foreground/5 hover:bg-foreground/[0.02]">
-                    <td className="py-2 px-2">
-                      <span className={`inline-block px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${badgeClasses(ev.severity)}`}>
-                        {ev.severity}
-                      </span>
-                    </td>
-                    <td className="py-2 px-2 font-mono text-foreground/70">{ev.source}</td>
-                    <td className="py-2 px-2 text-foreground/90">{ev.message}</td>
-                    <td className="py-2 px-2 text-foreground/60">{ev.count > 1 ? `×${ev.count}` : ''}</td>
-                    <td className="py-2 px-2 text-foreground/50 whitespace-nowrap">
-                      {new Date(ev.last_seen).toLocaleString()}
-                    </td>
+        ) : view === 'grouped' ? (
+          groups.length === 0 ? (
+            <div className="text-sm text-foreground/50 py-8 text-center">
+              Keine Events {onlyUnresolved ? 'ungelöst' : 'vorhanden'} — alles ruhig.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-foreground/50 text-left">
+                  <tr className="border-b border-foreground/10">
+                    <th className="py-2 px-2 font-medium">Schwere</th>
+                    <th className="py-2 px-2 font-medium">Quelle</th>
+                    <th className="py-2 px-2 font-medium">Meldung</th>
+                    <th className="py-2 px-2 font-medium text-right">Anzahl</th>
+                    <th className="py-2 px-2 font-medium">Zuerst</th>
+                    <th className="py-2 px-2 font-medium">Zuletzt</th>
+                    <th className="py-2 px-2 font-medium">Status</th>
+                    <th className="py-2 px-2 font-medium text-right">Aktionen</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {groups.map(g => (
+                    <tr key={g.fingerprint} className={`border-b border-foreground/5 hover:bg-foreground/[0.02] ${g.resolved ? 'opacity-50' : ''}`}>
+                      <td className="py-2 px-2">
+                        <span className={`inline-block px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${severityBadge(g.severity)}`}>
+                          {g.severity}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 font-mono text-foreground/70 whitespace-nowrap max-w-[180px] truncate" title={g.source}>{g.source}</td>
+                      <td className="py-2 px-2 text-foreground/90 max-w-[480px] truncate" title={g.message}>{g.message}</td>
+                      <td className="py-2 px-2 text-foreground/80 text-right font-mono">{g.count}</td>
+                      <td className="py-2 px-2 text-foreground/50 whitespace-nowrap">{new Date(g.first_seen).toLocaleString()}</td>
+                      <td className="py-2 px-2 text-foreground/50 whitespace-nowrap">{new Date(g.last_seen).toLocaleString()}</td>
+                      <td className="py-2 px-2 whitespace-nowrap">
+                        {g.resolved ? (
+                          <span className="text-emerald-500 text-[10px]">✓ gelöst{g.resolved_by ? ` (${g.resolved_by})` : ''}</span>
+                        ) : (
+                          <span className="text-foreground/40 text-[10px]">offen</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => { setSelectedFingerprint(g.fingerprint); setView('history') }}
+                          className="px-2 py-0.5 text-[10px] rounded border border-foreground/15 text-foreground/70 hover:border-foreground/30 mr-1"
+                        >
+                          Verlauf
+                        </button>
+                        {g.resolved ? (
+                          <button
+                            onClick={() => unresolveGroup(g.fingerprint)}
+                            className="px-2 py-0.5 text-[10px] rounded border border-foreground/15 text-foreground/70 hover:border-foreground/30 mr-1"
+                          >
+                            Wieder öffnen
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => resolveGroup(g.fingerprint)}
+                            className="px-2 py-0.5 text-[10px] rounded border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 mr-1"
+                          >
+                            Auflösen
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteGroup(g.fingerprint)}
+                          className="px-2 py-0.5 text-[10px] rounded border border-red-500/30 text-red-500 hover:bg-red-500/10"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          occurrences.length === 0 ? (
+            <div className="text-sm text-foreground/50 py-8 text-center">Keine Vorkommen.</div>
+          ) : (
+            <div className="space-y-2">
+              {occurrences.map(o => <OccurrenceRow key={o.id} occ={o} />)}
+            </div>
+          )
         )}
       </AdminCard>
 
@@ -12487,6 +12747,53 @@ function SystemLogsTab({ token }: { token: string }) {
         <p className="text-[10px] text-foreground/40 text-center">
           Auto-Refresh alle 10s · Daten generiert {new Date(generatedAt).toLocaleTimeString()}
         </p>
+      )}
+    </div>
+  )
+}
+
+function OccurrenceRow({ occ }: { occ: EventOccurrence }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="rounded-md border border-foreground/10 bg-foreground/[0.015]">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-foreground/[0.03]"
+      >
+        <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${severityBadge(occ.severity)}`}>
+          {occ.severity}
+        </span>
+        <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${originBadge(occ.origin)}`}>
+          {occ.origin}
+        </span>
+        <span className="font-mono text-foreground/60 truncate max-w-[180px]" title={occ.source}>{occ.source}</span>
+        <span className="text-foreground/90 truncate flex-1" title={occ.message}>{occ.message}</span>
+        <span className="text-foreground/40 whitespace-nowrap text-[10px]">{new Date(occ.occurred_at).toLocaleString()}</span>
+        <span className="text-foreground/40 text-[10px]">{expanded ? '▾' : '▸'}</span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 text-[11px] text-foreground/70 space-y-1 border-t border-foreground/10">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <div><span className="text-foreground/40">Fingerprint:</span> <code className="text-foreground/80">{occ.fingerprint}</code></div>
+            {occ.user_id && <div><span className="text-foreground/40">User:</span> {occ.user_id}</div>}
+            {occ.request_path && <div><span className="text-foreground/40">Pfad:</span> <code>{occ.request_method ?? ''} {occ.request_path}</code></div>}
+            {occ.status_code != null && <div><span className="text-foreground/40">Status:</span> {occ.status_code}</div>}
+            {occ.file && <div><span className="text-foreground/40">Datei:</span> <code>{occ.file}{occ.line ? `:${occ.line}` : ''}</code></div>}
+            {occ.target && <div><span className="text-foreground/40">Target:</span> <code>{occ.target}</code></div>}
+          </div>
+          {occ.error_chain && (
+            <div>
+              <div className="text-foreground/40 mt-1">Error-Chain / Stack:</div>
+              <pre className="mt-1 text-[10px] bg-foreground/[0.04] border border-foreground/10 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">{occ.error_chain}</pre>
+            </div>
+          )}
+          {occ.details != null && (
+            <div>
+              <div className="text-foreground/40 mt-1">Details:</div>
+              <pre className="mt-1 text-[10px] bg-foreground/[0.04] border border-foreground/10 rounded p-2 overflow-x-auto">{JSON.stringify(occ.details, null, 2)}</pre>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
