@@ -5,6 +5,7 @@ import { getBackendUrl } from '@/lib/config'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
 import { ThemeIframeProvider } from '@/components/ThemeIframeProvider'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { setAutoContrastUser } from '@/lib/autoContrast'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider, useConnection } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
@@ -54,6 +55,8 @@ import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
+import { installGlobalErrorHandlers } from '@/lib/errorReporter'
+import { startSystemEventListener } from '@/lib/systemEventListener'
 import { ORAAssistant } from '@/components/ORAAssistant'
 const CodingAgent = lazy(() => import('@/components/CodingAgent').then(m => ({ default: m.CodingAgent })))
 
@@ -112,6 +115,10 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile, token } = useAuth()
+  // Bind per-user auto-contrast preferences when the active user changes.
+  useEffect(() => {
+    setAutoContrastUser(user?.id || null)
+  }, [user?.id])
   const { currentPageId, currentPage, modalPageId, closeModalPage, pages, setCurrentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
@@ -1098,6 +1105,12 @@ function SetupWizardOverlay({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
+
+// Install global error handlers and start the backend system-event listener
+// once, at module load. They are idempotent and safe to call before React
+// mounts.
+installGlobalErrorHandlers()
+startSystemEventListener()
 
 function App() {
   return (

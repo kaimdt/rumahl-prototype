@@ -68,7 +68,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
+type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -109,7 +109,7 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 const TAB_IDS = new Set<Tab>([
   'services', 'health-intelligence', 'themes', 'developer-mode', 'documentation',
   'protocols', 'ha-tools', 'global-alert', 'notifications', 'tasks', 'control-mode',
-  'system', 'system-info', 'network', 'infrastructure', 'users', 'apps', 'plugins',
+  'system', 'system-info', 'network', 'infrastructure', 'users', 'presence', 'apps', 'plugins',
   'registrations', 'security-monitor', 'updates', 'widgets', 'api-keys', 'webhooks',
   'ha-config', 'ha-connection', 'integrations', 'entities', 'mqtt', 'zigbee', 'zwave',
   'matter', 'ble', 'homekit', 'scenes', 'automations', 'scheduler', 'analytics',
@@ -142,6 +142,7 @@ function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
     { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
     { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
+    { id: 'presence', label: 'Live-Übersicht', icon: Pulse, description: 'Alle angemeldeten Nutzer und ihre Geräte in Echtzeit — wer ist online, auf welchem Browser, Desktop oder Kiosk eingeloggt' },
     { id: 'apps', label: t('admin.apps'), icon: Cube, description: t('admin.appsDesc') },
     { id: 'plugins', label: t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
     { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
@@ -167,6 +168,7 @@ function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
     { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
     { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
+    { id: 'system-logs', label: 'System-Events', icon: Warning, description: 'Zentrale Fehler-, Warn- und Info-Events aus Hintergrundprozessen wie Webhook-Auslieferung, Scheduler und HA-Sync' },
     { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
     { id: 'calendars', label: 'Kalender', icon: CalendarBlank, description: 'Home Assistant Kalender-Entitäten und anstehende Termine anzeigen' },
     { id: 'realtime', label: 'Realtime', icon: Broadcast, description: 'SSE Event-Streams und Socket.IO-Namespace-WebSocket für Echtzeit-Daten testen und überwachen' },
@@ -213,8 +215,8 @@ const tabGroups: TabGroup[] = [
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
   { id: 'services', title: 'IORA Backend-Dienste', icon: Plug, items: ['secrets', 'files', 'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge'] },
   { id: 'os', title: 'IORA OS', icon: Terminal, items: ['os-ssh', 'os-network-config', 'os-disks', 'os-processes', 'os-power'] },
-  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
-  { id: 'access', title: 'Benutzer', icon: Users, items: ['users'] },
+  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'system-logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
+  { id: 'access', title: 'Benutzer', icon: Users, items: ['users', 'presence'] },
 ]
 
 const CLOUD_HOST_KEY = 'iora-cloud-connector-host'
@@ -860,6 +862,8 @@ export function AdminPanel() {
               {activeTab === 'updates' && <UpdateManagementTab token={token} />}
               {activeTab === 'widgets' && <WidgetManagementTab token={token} />}
               {activeTab === 'users' && <UsersTab token={token} />}
+              {activeTab === 'presence' && <PresenceTab token={token} />}
+              {activeTab === 'system-logs' && <SystemLogsTab token={token} />}
               {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
               {activeTab === 'webhooks' && <WebhooksTab token={token} />}
               {activeTab === 'ha-config' && <HaConfigTab token={token} />}
@@ -12004,4 +12008,486 @@ interface InstalledThemeDef {
   id: string; name: string; version: string; developer: string;
   description: string; system: boolean; enabled: boolean;
   source: string; icon?: string;
+}
+
+// ── Presence Tab ────────────────────────────────────────────────
+// Live overview of which users are currently online and on which devices
+// (browser, kiosk, IORA Desktop) they are logged in. Auto-refreshes every
+// 15s; the backend marks a device online when its last_seen is within
+// `online_threshold_seconds` (default 120s).
+
+interface PresenceDeviceRef {
+  device_id: string
+  device_name: string
+  device_type: string | null
+  is_primary: boolean
+  is_desktop_client: boolean
+  online: boolean
+  last_seen: string | null
+}
+
+interface PresenceUser {
+  id: string
+  username: string
+  display_name: string | null
+  avatar_url: string | null
+  role: string
+  is_admin: boolean
+  online: boolean
+  device_count: number
+  devices: PresenceDeviceRef[]
+}
+
+interface PresenceDevice {
+  id: string
+  device_name: string
+  device_type: string | null
+  user_agent: string | null
+  is_terminal: boolean
+  terminal_name: string | null
+  last_seen: string
+  online: boolean
+  seconds_since_seen: number
+  user_ids: string[]
+}
+
+interface PresencePayload {
+  users: PresenceUser[]
+  devices: PresenceDevice[]
+  totals: {
+    users: number
+    online_users: number
+    devices: number
+    online_devices: number
+    connected_ws_clients: number
+  }
+  online_threshold_seconds: number
+  generated_at: string
+}
+
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}min`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  return `${Math.floor(seconds / 86400)}d`
+}
+
+function PresenceTab({ token }: { token: string }) {
+  const [data, setData] = useState<PresencePayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+
+  const load = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const res = await adminFetch('/api/admin/presence', token)
+      setData(res as PresencePayload)
+      setError('')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(load, 15000)
+    return () => window.clearInterval(timer)
+  }, [load])
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+  if (!data) return null
+
+  const userById = new Map(data.users.map(u => [u.id, u]))
+  const onlineUsers = data.users.filter(u => u.online)
+  const offlineUsers = data.users.filter(u => !u.online)
+  const onlineDevices = data.devices.filter(d => d.online)
+  const offlineDevices = data.devices.filter(d => !d.online)
+
+  return (
+    <div className="space-y-3">
+      {/* Stats header */}
+      <AdminCard>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Nutzer online</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {data.totals.online_users}
+                <span className="text-sm text-foreground/40 font-normal"> / {data.totals.users}</span>
+              </p>
+            </div>
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Geräte online</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {data.totals.online_devices}
+                <span className="text-sm text-foreground/40 font-normal"> / {data.totals.devices}</span>
+              </p>
+            </div>
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Aktive WebSockets</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{data.totals.connected_ws_clients}</p>
+            </div>
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Online-Schwelle</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {data.online_threshold_seconds}s
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={load}
+            disabled={refreshing}
+            className={ccBtnSecondary()}
+          >
+            {refreshing ? <InlineSpinner /> : <Pulse size={14} weight="bold" />}
+            <span>Aktualisieren</span>
+          </button>
+        </div>
+      </AdminCard>
+
+      {/* Users grouped by online state */}
+      <AdminCard>
+        <div className="flex items-center gap-2 mb-3">
+          <Users size={16} className="text-foreground/60" />
+          <h3 className="text-sm font-semibold text-foreground">Angemeldete Nutzer</h3>
+          <span className={ccBadge('bg-emerald-500/15 text-emerald-500')}>
+            {onlineUsers.length} online
+          </span>
+        </div>
+
+        {data.users.length === 0 ? (
+          <p className="text-sm text-foreground/55">Keine Benutzer registriert.</p>
+        ) : (
+          <div className="space-y-2">
+            {[...onlineUsers, ...offlineUsers].map(u => (
+              <div
+                key={u.id}
+                className={`rounded-xl border p-3 transition-colors ${
+                  u.online
+                    ? 'border-emerald-500/30 bg-emerald-500/[0.04]'
+                    : 'border-foreground/10 bg-foreground/[0.02]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={`inline-block w-2.5 h-2.5 rounded-full ${
+                        u.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-foreground/20'
+                      }`}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {u.display_name || u.username}
+                      </p>
+                      <p className="text-xs text-foreground/55 truncate">
+                        @{u.username} · <span className="font-mono">{u.role}</span>
+                        {u.is_admin && <span className="ml-1 text-amber-500">★ Admin</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={ccBadge('bg-foreground/10 text-foreground/70')}>
+                      {u.device_count} Gerät{u.device_count === 1 ? '' : 'e'}
+                    </span>
+                  </div>
+                </div>
+
+                {u.devices.length > 0 && (
+                  <div className="mt-3 pl-5 space-y-1.5 border-l-2 border-foreground/10">
+                    {u.devices.map(d => (
+                      <div
+                        key={d.device_id}
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${
+                              d.online ? 'bg-emerald-500' : 'bg-foreground/25'
+                            }`}
+                            aria-hidden
+                          />
+                          {d.is_desktop_client ? (
+                            <Desktop size={12} className="text-foreground/55 shrink-0" />
+                          ) : (
+                            <Monitor size={12} className="text-foreground/55 shrink-0" />
+                          )}
+                          <span className="text-foreground/85 truncate">{d.device_name}</span>
+                          {d.is_primary && (
+                            <span className="text-[9px] text-amber-500 font-semibold">PRIMÄR</span>
+                          )}
+                          {d.is_desktop_client && (
+                            <span className="text-[9px] text-accent font-semibold">DESKTOP</span>
+                          )}
+                          {d.device_type && (
+                            <span className="text-[10px] text-foreground/45 font-mono">{d.device_type}</span>
+                          )}
+                        </div>
+                        <span className="text-foreground/50 text-[10px] font-mono shrink-0">
+                          {d.last_seen
+                            ? `vor ${formatAge(Math.floor((Date.now() - new Date(d.last_seen).getTime()) / 1000))}`
+                            : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </AdminCard>
+
+      {/* Devices view */}
+      <AdminCard>
+        <div className="flex items-center gap-2 mb-3">
+          <Desktop size={16} className="text-foreground/60" />
+          <h3 className="text-sm font-semibold text-foreground">Verbundene Geräte</h3>
+          <span className={ccBadge('bg-emerald-500/15 text-emerald-500')}>
+            {onlineDevices.length} online
+          </span>
+        </div>
+
+        {data.devices.length === 0 ? (
+          <p className="text-sm text-foreground/55">Keine Geräte registriert.</p>
+        ) : (
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-foreground/55 border-b border-foreground/10">
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium">Gerät</th>
+                  <th className="py-2 pr-3 font-medium">Typ</th>
+                  <th className="py-2 pr-3 font-medium">Angemeldete Nutzer</th>
+                  <th className="py-2 pr-3 font-medium text-right">Zuletzt gesehen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...onlineDevices, ...offlineDevices].map(d => {
+                  const users = d.user_ids
+                    .map(id => userById.get(id))
+                    .filter((u): u is PresenceUser => !!u)
+                  return (
+                    <tr key={d.id} className="border-b border-foreground/[0.06] last:border-0">
+                      <td className="py-2 pr-3">
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${
+                            d.online ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]' : 'bg-foreground/20'
+                          }`}
+                          aria-hidden
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <p className="font-medium text-foreground truncate max-w-[220px]">
+                          {d.device_name}
+                          {d.is_terminal && (
+                            <span className="ml-1 text-[9px] text-accent font-semibold">KIOSK</span>
+                          )}
+                        </p>
+                        {d.terminal_name && (
+                          <p className="text-[10px] text-foreground/45">{d.terminal_name}</p>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-foreground/70 font-mono text-[10px]">
+                        {d.device_type || '—'}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {users.length === 0 ? (
+                          <span className="text-foreground/40">—</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {users.map(u => (
+                              <span
+                                key={u.id}
+                                className={ccBadge(
+                                  u.online
+                                    ? 'bg-emerald-500/15 text-emerald-500'
+                                    : 'bg-foreground/10 text-foreground/70'
+                                )}
+                              >
+                                {u.display_name || u.username}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-right text-foreground/55 font-mono text-[10px]">
+                        vor {formatAge(d.seconds_since_seen)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </AdminCard>
+
+      <p className="text-[10px] text-foreground/40 text-center">
+        Auto-Refresh alle 15s · Daten generiert {new Date(data.generated_at).toLocaleTimeString()}
+      </p>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SystemLogsTab — central error/warning/info log from backend background tasks
+// (webhook delivery, scheduler, HA reconnects, etc.). Powered by the
+// in-memory ring buffer maintained by `system_events::SystemEventLog`.
+// ═══════════════════════════════════════════════════════════════════════
+
+interface SystemEventEntry {
+  id: number
+  severity: 'error' | 'warning' | 'info'
+  source: string
+  message: string
+  count: number
+  timestamp: string
+  last_seen: string
+  details?: unknown
+}
+
+function SystemLogsTab({ token }: { token: string }) {
+  const [events, setEvents] = useState<SystemEventEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [severity, setSeverity] = useState<'all' | 'error' | 'warning' | 'info'>('all')
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const sevParam = severity === 'all' ? '' : `&severity=${severity}`
+      const r = await fetch(`${getBackendUrl()}/api/admin/system-events?limit=200${sevParam}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json()
+      setEvents(data.events || [])
+      setGeneratedAt(data.generated_at || null)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token, severity])
+
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 10_000)
+    return () => clearInterval(id)
+  }, [load])
+
+  const clearAll = async () => {
+    if (!window.confirm('Alle gespeicherten System-Events löschen?')) return
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setEvents([])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const badgeClasses = (sev: string) => {
+    switch (sev) {
+      case 'error': return 'bg-red-500/15 text-red-500 border-red-500/30'
+      case 'warning': return 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+      case 'info': return 'bg-blue-500/15 text-blue-500 border-blue-500/30'
+      default: return 'bg-foreground/10 text-foreground/70 border-foreground/20'
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <AdminCard
+        title="System-Events"
+        description="Zentrale Fehler-, Warn- und Info-Meldungen aus Hintergrundprozessen — wird auch live über WebSocket an alle Admins gepusht."
+      >
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {(['all', 'error', 'warning', 'info'] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setSeverity(s)}
+              className={`px-3 py-1 text-xs rounded-md border transition ${
+                severity === s
+                  ? 'bg-foreground/10 border-foreground/30 text-foreground'
+                  : 'border-foreground/15 text-foreground/60 hover:border-foreground/30'
+              }`}
+            >
+              {s === 'all' ? 'Alle' : s === 'error' ? 'Fehler' : s === 'warning' ? 'Warnungen' : 'Info'}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={load}
+              className="px-3 py-1 text-xs rounded-md border border-foreground/15 text-foreground/70 hover:border-foreground/30"
+            >
+              Aktualisieren
+            </button>
+            <button
+              onClick={clearAll}
+              className="px-3 py-1 text-xs rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10"
+            >
+              Buffer leeren
+            </button>
+          </div>
+        </div>
+
+        {loading && events.length === 0 ? (
+          <div className="text-sm text-foreground/50 py-8 text-center">Lade Events…</div>
+        ) : error ? (
+          <div className="text-sm text-red-500 py-8 text-center">Fehler: {error}</div>
+        ) : events.length === 0 ? (
+          <div className="text-sm text-foreground/50 py-8 text-center">
+            Keine Events im Buffer — alles ruhig im Backend.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-foreground/50 text-left">
+                <tr className="border-b border-foreground/10">
+                  <th className="py-2 px-2 font-medium">Schwere</th>
+                  <th className="py-2 px-2 font-medium">Quelle</th>
+                  <th className="py-2 px-2 font-medium">Meldung</th>
+                  <th className="py-2 px-2 font-medium">Anzahl</th>
+                  <th className="py-2 px-2 font-medium">Zuletzt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map(ev => (
+                  <tr key={ev.id} className="border-b border-foreground/5 hover:bg-foreground/[0.02]">
+                    <td className="py-2 px-2">
+                      <span className={`inline-block px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${badgeClasses(ev.severity)}`}>
+                        {ev.severity}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 font-mono text-foreground/70">{ev.source}</td>
+                    <td className="py-2 px-2 text-foreground/90">{ev.message}</td>
+                    <td className="py-2 px-2 text-foreground/60">{ev.count > 1 ? `×${ev.count}` : ''}</td>
+                    <td className="py-2 px-2 text-foreground/50 whitespace-nowrap">
+                      {new Date(ev.last_seen).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </AdminCard>
+
+      {generatedAt && (
+        <p className="text-[10px] text-foreground/40 text-center">
+          Auto-Refresh alle 10s · Daten generiert {new Date(generatedAt).toLocaleTimeString()}
+        </p>
+      )}
+    </div>
+  )
 }

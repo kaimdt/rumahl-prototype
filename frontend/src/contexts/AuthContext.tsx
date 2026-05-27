@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { getBackendUrl } from '@/lib/config'
 import { parseStoredToken } from '@/lib/authHelpers'
+import { wsReauthenticate, wsReconnect } from '@/lib/wsConnection'
 
 interface User {
   id: string
@@ -130,6 +131,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     verifyToken()
   }, [token])
 
+  // Whenever the token changes (login, refresh, restore-from-storage),
+  // re-authenticate the already-open WebSocket so the backend trusts
+  // CallService commands without waiting for a reconnect.
+  useEffect(() => {
+    if (token) {
+      // Best-effort — wsReauthenticate handles "not open yet" gracefully.
+      wsReauthenticate()
+    }
+  }, [token])
+
   const login = useCallback(async (username: string, password: string, rememberMe = true) => {
     setIsLoading(true)
     try {
@@ -245,6 +256,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setUser(null)
     localStorage.removeItem('ha-username')
+    // Drop the authenticated WS session so the server clears identity
+    wsReconnect()
   }, [])
 
   const isAuthenticated = !!user

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'motion/react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -60,6 +61,14 @@ import { LightEnhancementsSettings } from '@/components/LightEnhancementsSetting
 import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { useLocalStorage } from '@/lib/storage'
+import {
+  getAutoContrastMode,
+  getEffectiveAutoContrastMode,
+  getDeviceTier,
+  setAutoContrastMode,
+  subscribeAutoContrast,
+  type AutoContrastMode,
+} from '@/lib/autoContrast'
 import { useTheme } from '@/contexts/ThemeContext'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import { ThemeEditor } from '@/components/ThemeEditor'
@@ -1760,6 +1769,10 @@ function AdditionalSettings() {
   const [reducedAnimations, setReducedAnimations] = useLocalStorage('ha-animations-reduced', false)
   const [fontSize, setFontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
   const [compactWidgets, setCompactWidgets] = useLocalStorage('ha-widget-compact', false)
+  const [autoContrast, setAutoContrastState] = React.useState<AutoContrastMode>(() => getAutoContrastMode())
+  React.useEffect(() => subscribeAutoContrast(setAutoContrastState), [])
+  const deviceTier = React.useMemo(() => getDeviceTier(), [])
+  const effectiveMode = getEffectiveAutoContrastMode()
 
   return (
     <>
@@ -1843,6 +1856,42 @@ function AdditionalSettings() {
           checked={compactWidgets}
           onCheckedChange={setCompactWidgets}
         />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-medium text-foreground/55">Automatischer Textkontrast</p>
+            <span className="text-[10px] text-foreground/55">
+              Gerät: <span className="text-foreground/85 font-mono">{deviceTier}</span>
+              {autoContrast === 'auto' && (
+                <> · aktiv: <span className="text-foreground/85 font-mono">{effectiveMode}</span></>
+              )}
+            </span>
+          </div>
+          <p className="text-[11px] text-foreground/50 -mt-1">
+            Passt Textfarben auf Glas- und Custom-Theme-Flächen automatisch an (WCAG AA). Einstellung gilt pro Nutzer.
+          </p>
+          <div className="grid grid-cols-5 gap-2">
+            {([
+              { id: 'off' as const,      label: 'Aus',       desc: 'Keine Anpassung' },
+              { id: 'light' as const,    label: 'Sparsam',   desc: 'Nur bei Theme-Wechsel' },
+              { id: 'balanced' as const, label: 'Ausgewogen',desc: 'Nur sichtbarer Bereich' },
+              { id: 'full' as const,     label: 'Vollst.',   desc: 'Komplett, reaktiv' },
+              { id: 'auto' as const,     label: 'Auto',      desc: 'Nach Geräteleistung' },
+            ]).map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setAutoContrastMode(opt.id)}
+                className={`p-2.5 rounded-xl border-2 transition-all text-center ${
+                  autoContrast === opt.id
+                    ? 'border-accent bg-accent/10'
+                    : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
+                }`}
+              >
+                <p className="text-xs font-medium">{opt.label}</p>
+                <p className="text-[10px] text-foreground/55 leading-tight mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
       </SettingsSection>
     </>
   )

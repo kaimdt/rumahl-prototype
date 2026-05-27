@@ -3,7 +3,8 @@ import {
   Cube, Play, Pause, TrashSimple, ShieldCheck, Gear,
   Terminal, Warning, X, Clock, ArrowClockwise,
   Code, PlugsConnected, Globe, Star, Info, CaretDown, CaretUp,
-  Stack, CubeFocus, DownloadSimple, ArrowSquareOut
+  Stack, CubeFocus, DownloadSimple, ArrowSquareOut,
+  Hammer, Play as PlayIcon, ArrowsClockwise, ArrowRight
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
@@ -409,7 +410,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
   return (
     <Dialog open={!!appId} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col glass-card border-foreground/10 bg-card/95 backdrop-blur-2xl">
+      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col glass-card border-foreground/15 bg-card/95 backdrop-blur-2xl shadow-2xl">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-foreground/10 flex-shrink-0">
           <DialogTitle className="flex items-center gap-3">
             {loading ? (
@@ -425,7 +426,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               <div className="text-sm font-semibold text-foreground truncate">
                 {detail?.name || 'App'}
               </div>
-              <div className="text-[10px] text-foreground/40">
+              <div className="text-[10px] text-foreground/60">
                 {detail?.version} · {detail?.developer || 'Unbekannt'}
               </div>
             </div>
@@ -470,7 +471,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
         </DialogHeader>
 
         {/* Tab Navigation */}
-        <div className="flex gap-1 p-2 bg-foreground/5 mx-4 mt-3 rounded-lg flex-shrink-0">
+        <div className="flex gap-1 p-1.5 bg-foreground/[0.07] border border-foreground/10 mx-4 mt-3 rounded-lg flex-shrink-0">
           {([
             'info',
             'logs',
@@ -485,7 +486,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all ${
                 activeTab === tab
                   ? 'bg-accent text-white shadow-sm'
-                  : 'text-foreground/50 hover:text-foreground hover:bg-foreground/5'
+                  : 'text-foreground/75 hover:text-foreground hover:bg-foreground/10'
               }`}
             >
               {tab === 'info' && <Info size={12} />}
@@ -518,59 +519,59 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {activeTab === 'info' && (
                 <div className="space-y-3">
                   {/* Status */}
-                  <div className="p-3 rounded-lg bg-foreground/3">
+                  <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider">Status</span>
+                      <span className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider">Status</span>
                       <div className="flex items-center gap-2">
                         {getStatusIndicator(detail.status)}
                         {detail.enabled ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 font-semibold">Aktiv</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 font-semibold">Aktiv</span>
                         ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/40 font-semibold">Inaktiv</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground/70 font-semibold">Inaktiv</span>
                         )}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
-                      <div><span className="text-foreground/40">Typ:</span> <span className="text-foreground/70">{detail.is_bundle ? 'Bundle' : detail.kind}</span></div>
-                      <div><span className="text-foreground/40">Vertrauen:</span> <span className="text-foreground/70">{detail.trust_level}</span></div>
-                      <div><span className="text-foreground/40">Installiert:</span> <span className="text-foreground/70">{new Date(detail.installed_at).toLocaleDateString('de-DE')}</span></div>
-                      <div><span className="text-foreground/40">Quelle:</span> <span className="text-foreground/70">{detail.source}</span></div>
-                      <div><span className="text-foreground/40">Autostart:</span> <span className="text-foreground/70">{detail.autostart ? 'An' : 'Aus'}</span></div>
-                      <div><span className="text-foreground/40">Letzter Start:</span> <span className="text-foreground/70">{detail.last_started_at ? new Date(detail.last_started_at).toLocaleString('de-DE') : '—'}</span></div>
-                      <div className="col-span-2"><span className="text-foreground/40">Letzter Stopp:</span> <span className="text-foreground/70">{detail.last_stopped_at ? new Date(detail.last_stopped_at).toLocaleString('de-DE') : '—'}</span></div>
+                      <div><span className="text-foreground/55">Typ:</span> <span className="text-foreground/90">{detail.is_bundle ? 'Bundle' : detail.kind}</span></div>
+                      <div><span className="text-foreground/55">Vertrauen:</span> <span className="text-foreground/90">{detail.trust_level}</span></div>
+                      <div><span className="text-foreground/55">Installiert:</span> <span className="text-foreground/90">{new Date(detail.installed_at).toLocaleDateString('de-DE')}</span></div>
+                      <div><span className="text-foreground/55">Quelle:</span> <span className="text-foreground/90">{detail.source}</span></div>
+                      <div><span className="text-foreground/55">Autostart:</span> <span className="text-foreground/90">{detail.autostart ? 'An' : 'Aus'}</span></div>
+                      <div><span className="text-foreground/55">Letzter Start:</span> <span className="text-foreground/90">{detail.last_started_at ? new Date(detail.last_started_at).toLocaleString('de-DE') : '—'}</span></div>
+                      <div className="col-span-2"><span className="text-foreground/55">Letzter Stopp:</span> <span className="text-foreground/90">{detail.last_stopped_at ? new Date(detail.last_stopped_at).toLocaleString('de-DE') : '—'}</span></div>
                       {detail.is_bundle && (
-                        <div className="col-span-2"><span className="text-foreground/40">Services:</span> <span className="text-foreground/70">{detail.services?.length || 0} Container</span></div>
+                        <div className="col-span-2"><span className="text-foreground/55">Services:</span> <span className="text-foreground/90">{detail.services?.length || 0} Container</span></div>
                       )}
                     </div>
                   </div>
 
                   {/* Description */}
-                  <div className="p-3 rounded-lg bg-foreground/3">
-                    <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1">Beschreibung</div>
-                    <p className="text-[11px] text-foreground/70 leading-relaxed">{detail.description || 'Keine Beschreibung'}</p>
+                  <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                    <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-1">Beschreibung</div>
+                    <p className="text-[11px] text-foreground/85 leading-relaxed">{detail.description || 'Keine Beschreibung'}</p>
                   </div>
 
                   {/* Storage + user data */}
-                  <div className="p-3 rounded-lg bg-foreground/3">
-                    <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1.5">Speicherplatz & Benutzerdaten</div>
+                  <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                    <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-1.5">Speicherplatz & Benutzerdaten</div>
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
-                      <div><span className="text-foreground/40">Dateien:</span> <span className="text-foreground/70">{detail.storage_usage?.file_count ?? 0}</span></div>
-                      <div><span className="text-foreground/40">KV-Einträge:</span> <span className="text-foreground/70">{detail.storage_usage?.kv_entry_count ?? 0}</span></div>
-                      <div><span className="text-foreground/40">Speicher belegt:</span> <span className="text-foreground/70">{((detail.storage_usage?.total_file_bytes ?? 0) / (1024 * 1024)).toFixed(2)} MB</span></div>
-                      <div><span className="text-foreground/40">Nutzung:</span> <span className="text-foreground/70">{(detail.storage_usage?.usage_percent ?? 0).toFixed(1)}%</span></div>
-                      <div><span className="text-foreground/40">Config-Einträge:</span> <span className="text-foreground/70">{detail.user_data?.config_entries ?? 0}</span></div>
+                      <div><span className="text-foreground/55">Dateien:</span> <span className="text-foreground/90">{detail.storage_usage?.file_count ?? 0}</span></div>
+                      <div><span className="text-foreground/55">KV-Einträge:</span> <span className="text-foreground/90">{detail.storage_usage?.kv_entry_count ?? 0}</span></div>
+                      <div><span className="text-foreground/55">Speicher belegt:</span> <span className="text-foreground/90">{((detail.storage_usage?.total_file_bytes ?? 0) / (1024 * 1024)).toFixed(2)} MB</span></div>
+                      <div><span className="text-foreground/55">Nutzung:</span> <span className="text-foreground/90">{(detail.storage_usage?.usage_percent ?? 0).toFixed(1)}%</span></div>
+                      <div><span className="text-foreground/55">Config-Einträge:</span> <span className="text-foreground/90">{detail.user_data?.config_entries ?? 0}</span></div>
                     </div>
                   </div>
 
                   {/* Permissions */}
                   {detail.permissions.length > 0 && (
-                    <div className="p-3 rounded-lg bg-foreground/3">
-                      <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1.5">
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-1.5">
                         Berechtigungen ({detail.permissions.length})
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {detail.permissions.map((perm, i) => (
-                          <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-mono">{perm}</span>
+                          <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent font-mono">{perm}</span>
                         ))}
                       </div>
                     </div>
@@ -578,11 +579,11 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
                   {/* Ports */}
                   {detail.ports.length > 0 && (
-                    <div className="p-3 rounded-lg bg-foreground/3">
-                      <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1.5">Ports</div>
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-1.5">Ports</div>
                       <div className="flex flex-wrap gap-1">
                         {detail.ports.map((p, i) => (
-                          <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-mono">
+                          <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent font-mono">
                             {p.external}:{p.internal}/{p.protocol}
                           </span>
                         ))}
@@ -596,11 +597,11 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {activeTab === 'logs' && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider">
+                    <span className="text-[10px] text-foreground/65 font-semibold uppercase tracking-wider">
                       Live Logs ({logs.length})
                     </span>
                     <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1 text-[10px] text-foreground/40 cursor-pointer">
+                      <label className="flex items-center gap-1 text-[10px] text-foreground/70 cursor-pointer">
                         <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="w-3 h-3" />
                         Auto-Scroll
                       </label>
@@ -608,7 +609,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   </div>
                   <div
                     ref={logContainerRef}
-                    className="bg-black/40 rounded-lg p-2 font-mono text-[10px] h-[350px] overflow-y-auto space-y-0.5"
+                    className="bg-background/80 border border-foreground/10 rounded-lg p-2 font-mono text-[10px] h-[350px] overflow-y-auto space-y-0.5"
                     onScroll={(e) => {
                       const el = e.currentTarget
                       const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
@@ -616,7 +617,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                     }}
                   >
                     {logs.length === 0 ? (
-                      <div className="text-foreground/30 p-4 text-center">Keine Logs vorhanden</div>
+                      <div className="text-foreground/55 p-4 text-center">Keine Logs vorhanden</div>
                     ) : (
                       logs.map((log, i) => (
                         <div
@@ -627,20 +628,20 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                           <span className={`flex-shrink-0 px-1 rounded text-[8px] font-semibold uppercase ${getLogLevelColor(log.level)}`}>
                             {log.level.slice(0, 4)}
                           </span>
-                          <span className="text-foreground/30 flex-shrink-0 w-16">
+                          <span className="text-foreground/55 flex-shrink-0 w-16">
                             {new Date(log.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </span>
-                          <span className="text-foreground/70 break-all flex-1 min-w-0 line-clamp-1">
+                          <span className="text-foreground/85 break-all flex-1 min-w-0 line-clamp-1">
                             {log.message}
                           </span>
                           {log.source && (
-                            <span className="text-[8px] text-foreground/30 flex-shrink-0">{log.source}</span>
+                            <span className="text-[8px] text-foreground/55 flex-shrink-0">{log.source}</span>
                           )}
                         </div>
                       ))
                     )}
                   </div>
-                  <div className="text-[9px] text-foreground/30 text-center">
+                  <div className="text-[9px] text-foreground/55 text-center">
                     Klicke auf einen Log-Eintrag für Details · {logs.length} Einträge gesamt
                   </div>
                 </div>
@@ -649,24 +650,24 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {/* Terminal Tab */}
               {activeTab === 'terminal' && (
                 <div className="space-y-2">
-                  <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider flex items-center gap-2">
+                  <div className="text-[10px] text-foreground/65 font-semibold uppercase tracking-wider flex items-center gap-2">
                     Container-Terminal (Developer Mode)
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] ${terminalSessionId ? 'bg-green-500/15 text-green-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${terminalSessionId ? 'bg-green-500/20 text-green-300' : 'bg-amber-500/20 text-amber-300'}`}>
                       {terminalSessionId ? 'Verbunden' : 'Verbinde…'}
                     </span>
                   </div>
                   {terminalSessionId && (
-                    <div className="text-[9px] text-foreground/45">
-                      Aktive Session: {terminalSessionProject || '-'} / {terminalSessionService || selectedTerminalService || '-'}
+                    <div className="text-[10px] text-foreground/70">
+                      Aktive Session: <span className="text-foreground/90 font-mono">{terminalSessionProject || '-'}</span> / <span className="text-foreground/90 font-mono">{terminalSessionService || selectedTerminalService || '-'}</span>
                     </div>
                   )}
                   {(detail.services?.length || 0) > 0 && (
                     <div className="flex items-center gap-2">
-                      <label className="text-[10px] text-foreground/50">Service:</label>
+                      <label className="text-[10px] text-foreground/70">Service:</label>
                       <select
                         value={selectedTerminalService}
                         onChange={(e) => setSelectedTerminalService(e.target.value)}
-                        className="px-2 py-1.5 rounded-md bg-foreground/5 border border-foreground/10 text-[10px] text-foreground focus:outline-none focus:border-accent"
+                        className="px-2 py-1.5 rounded-md bg-foreground/10 border border-foreground/15 text-[10px] text-foreground focus:outline-none focus:border-accent"
                       >
                         {detail.services
                           .map((svc) => typeof svc?.name === 'string' ? svc.name : '')
@@ -698,18 +699,18 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                         }
                       }}
                       placeholder="z.B. ls -la /app"
-                      className="flex-1 px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent"
+                      className="flex-1 px-3 py-2 rounded-lg bg-foreground/10 border border-foreground/15 text-[11px] text-foreground placeholder:text-foreground/50 focus:outline-none focus:border-accent"
                     />
                     <button
                       onClick={runTerminalCommand}
                       disabled={!terminalSessionId || !terminalCommand.trim() || terminalRunning}
-                      className="px-3 py-2 rounded-lg bg-accent/20 text-accent text-[10px] font-semibold hover:bg-accent/30 transition-colors disabled:opacity-40"
+                      className="px-3 py-2 rounded-lg bg-accent text-white text-[10px] font-semibold hover:bg-accent/90 transition-colors disabled:opacity-40"
                     >
                       {terminalRunning ? <InlineSpinner size={12} /> : 'Ausführen'}
                     </button>
                     <button
                       onClick={() => setTerminalOutput('')}
-                      className="px-3 py-2 rounded-lg bg-foreground/10 text-foreground/60 text-[10px] font-semibold hover:bg-foreground/15 transition-colors"
+                      className="px-3 py-2 rounded-lg bg-foreground/10 border border-foreground/10 text-foreground/80 text-[10px] font-semibold hover:bg-foreground/15 transition-colors"
                     >
                       Löschen
                     </button>
@@ -718,37 +719,37 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                     <button
                       onClick={() => sendTerminalInput('\u0003', false)}
                       disabled={!terminalSessionId}
-                      className="px-2 py-1 rounded-md bg-red-500/15 text-red-300 text-[10px] font-semibold hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                      className="px-2 py-1 rounded-md bg-red-500/20 text-red-300 text-[10px] font-semibold hover:bg-red-500/30 transition-colors disabled:opacity-40"
                     >
                       Ctrl+C
                     </button>
                     <button
                       onClick={() => sendTerminalInput('', true)}
                       disabled={!terminalSessionId}
-                      className="px-2 py-1 rounded-md bg-foreground/10 text-foreground/70 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
+                      className="px-2 py-1 rounded-md bg-foreground/10 border border-foreground/10 text-foreground/85 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
                     >
                       Enter
                     </button>
                     <button
                       onClick={() => sendTerminalInput('\t', false)}
                       disabled={!terminalSessionId}
-                      className="px-2 py-1 rounded-md bg-foreground/10 text-foreground/70 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
+                      className="px-2 py-1 rounded-md bg-foreground/10 border border-foreground/10 text-foreground/85 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
                     >
                       Tab
                     </button>
                     <button
                       onClick={() => sendTerminalInput('\u0004', false)}
                       disabled={!terminalSessionId}
-                      className="px-2 py-1 rounded-md bg-foreground/10 text-foreground/70 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
+                      className="px-2 py-1 rounded-md bg-foreground/10 border border-foreground/10 text-foreground/85 text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40"
                     >
                       Ctrl+D
                     </button>
                   </div>
 
-                  <div className="bg-black/50 rounded-lg p-3 font-mono text-[10px] min-h-[280px] max-h-[420px] overflow-auto text-foreground/80 whitespace-pre-wrap">
-                    {terminalOutput || 'Noch keine Ausgabe. Einen Befehl ausführen, um die Container-Shell zu verwenden.'}
+                  <div className="bg-background/85 border border-foreground/10 rounded-lg p-3 font-mono text-[10px] min-h-[280px] max-h-[420px] overflow-auto text-foreground/90 whitespace-pre-wrap">
+                    {terminalOutput || <span className="text-foreground/55">Noch keine Ausgabe. Einen Befehl ausführen, um die Container-Shell zu verwenden.</span>}
                   </div>
-                  <p className="text-[9px] text-foreground/30">
+                  <p className="text-[9px] text-foreground/60">
                     Session bleibt offen. Pfeil hoch/runter durchsucht die Command-History, Sondertasten werden direkt an die Shell gesendet.
                   </p>
                 </div>
@@ -757,19 +758,19 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {/* Settings Tab */}
               {activeTab === 'settings' && (
                 <div className="space-y-3">
-                  <div className="p-4 rounded-lg bg-foreground/3 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center flex-shrink-0">
+                  <div className="p-4 rounded-lg bg-foreground/[0.06] border border-foreground/10 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0">
                       <Gear size={20} className="text-accent" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-foreground">App-Einstellungen</p>
-                      <p className="text-[10px] text-foreground/50 mt-0.5">
+                      <p className="text-[10px] text-foreground/70 mt-0.5">
                         Konfiguration, Storage, Datenbank, Schedules, Webhooks &amp; Messaging dieser App.
                       </p>
                     </div>
                     <button
                       onClick={() => { window.location.href = `/app-settings/${appId}` }}
-                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/20 text-accent hover:bg-accent/30 flex items-center gap-1.5 flex-shrink-0"
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:bg-accent/90 flex items-center gap-1.5 flex-shrink-0"
                     >
                       Öffnen
                       <ArrowSquareOut size={12} />
@@ -781,11 +782,11 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {/* Pages Tab */}
               {activeTab === 'pages' && detail.custom_pages.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-1">
+                  <div className="text-[10px] text-foreground/65 font-semibold uppercase tracking-wider mb-1">
                     App-Seiten ({detail.custom_pages.length})
                   </div>
                   {detail.custom_pages.map((page, i) => (
-                    <div key={i} className="p-3 rounded-lg bg-foreground/3 hover:bg-foreground/5 transition-colors cursor-pointer"
+                    <div key={i} className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10 hover:bg-foreground/10 transition-colors cursor-pointer"
                       onClick={() => window.location.href = `/page/${page.id}`}>
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0">
@@ -793,14 +794,14 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-semibold text-foreground truncate">{page.title}</div>
-                          <div className="text-[10px] text-foreground/40 truncate">{page.url}</div>
+                          <div className="text-[10px] text-foreground/60 truncate">{page.url}</div>
                         </div>
                         <div className="flex items-center gap-1">
                           {page.show_in_nav !== false && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Im Nav</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 font-semibold">Im Nav</span>
                           )}
                           {page.iframe && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">Iframe</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">Iframe</span>
                           )}
                         </div>
                       </div>
@@ -809,10 +810,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                 </div>
               )}
               {activeTab === 'pages' && detail.custom_pages.length === 0 && (
-                <div className="p-4 rounded-lg bg-foreground/3 text-center">
-                  <Code size={24} className="mx-auto mb-2 text-foreground/30" />
-                  <p className="text-xs text-foreground/50">Keine eigenen Seiten</p>
-                  <p className="text-[10px] text-foreground/30 mt-1">Diese App hat keine benutzerdefinierten Seiten definiert.</p>
+                <div className="p-6 rounded-lg bg-foreground/[0.06] border border-foreground/10 text-center">
+                  <Code size={24} className="mx-auto mb-2 text-foreground/55" />
+                  <p className="text-xs text-foreground/85 font-semibold">Keine eigenen Seiten</p>
+                  <p className="text-[10px] text-foreground/60 mt-1">Diese App hat keine benutzerdefinierten Seiten definiert.</p>
                 </div>
               )}
 
@@ -820,15 +821,15 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {activeTab === 'bundle' && detail.is_bundle && (
                 <div className="space-y-3">
                   {/* Bundle Header */}
-                  <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                  <div className="p-3 rounded-lg bg-purple-500/15 border border-purple-500/25">
                     <div className="flex items-center gap-2 mb-2">
-                      <Stack size={18} weight="fill" className="text-purple-400" />
-                      <span className="text-xs font-semibold text-purple-300">App Bundle</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-semibold">
+                      <Stack size={18} weight="fill" className="text-purple-300" />
+                      <span className="text-xs font-semibold text-purple-200">App Bundle</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/25 text-purple-200 font-semibold">
                         {(detail.services?.length || 0)} Services
                       </span>
                     </div>
-                    <p className="text-[10px] text-purple-300/70">
+                    <p className="text-[10px] text-purple-200/90 leading-relaxed">
                       Diese App besteht aus mehreren Docker-Containern, die über ein internes Netzwerk kommunizieren.
                     </p>
                   </div>
@@ -837,24 +838,24 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   <div className="flex items-center gap-2">
                     {detail.status === 'running' ? (
                       <button onClick={bundleStop} disabled={actionLoading === 'bundle-stop'}
-                        className="flex items-center gap-1 px-3 py-2 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40">
+                        className="flex items-center gap-1 px-3 py-2 bg-foreground/10 border border-foreground/10 text-foreground/85 rounded text-[10px] font-semibold hover:bg-foreground/15 transition-colors disabled:opacity-40">
                         {actionLoading === 'bundle-stop' ? <InlineSpinner size={12} /> : <Pause size={12} />}
                         Bundle stoppen
                       </button>
                     ) : detail.status === 'starting' || detail.status === 'installing' ? (
                       <button disabled
-                        className="flex items-center gap-1 px-3 py-2 bg-amber-500/10 text-amber-300 rounded text-[10px] font-semibold opacity-80 cursor-default">
+                        className="flex items-center gap-1 px-3 py-2 bg-amber-500/20 text-amber-200 rounded text-[10px] font-semibold opacity-80 cursor-default">
                         <InlineSpinner size={12} /> {detail.status === 'installing' ? 'Verarbeitet…' : 'Startet…'}
                       </button>
                     ) : (
                       <button onClick={bundleStart} disabled={actionLoading === 'bundle-start'}
-                        className="flex items-center gap-1 px-3 py-2 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40">
+                        className="flex items-center gap-1 px-3 py-2 bg-green-500/20 text-green-300 rounded text-[10px] font-semibold hover:bg-green-500/30 transition-colors disabled:opacity-40">
                         {actionLoading === 'bundle-start' ? <InlineSpinner size={12} /> : <Play size={12} />}
                         Bundle starten
                       </button>
                     )}
                     <button onClick={downloadCompose}
-                      className="flex items-center gap-1 px-3 py-2 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors">
+                      className="flex items-center gap-1 px-3 py-2 bg-accent/20 border border-accent/20 text-accent rounded text-[10px] font-semibold hover:bg-accent/30 transition-colors">
                       <DownloadSimple size={12} /> docker-compose.yml
                     </button>
                   </div>
@@ -862,43 +863,43 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   {/* Service List */}
                   {detail.services && detail.services.length > 0 && (
                     <div>
-                      <div className="text-[10px] text-foreground/40 font-semibold uppercase tracking-wider mb-2">Services</div>
+                      <div className="text-[10px] text-foreground/65 font-semibold uppercase tracking-wider mb-2">Services</div>
                       <div className="space-y-1.5">
                         {detail.services.map((svc: any, i: number) => (
-                          <div key={i} className="p-2.5 rounded-lg bg-foreground/3 border border-foreground/5">
+                          <div key={i} className="p-2.5 rounded-lg bg-foreground/[0.06] border border-foreground/10">
                             <div className="flex items-center justify-between mb-1">
                               <div className="flex items-center gap-2">
                                 <CubeFocus size={14} className="text-accent" />
                                 <span className="text-[11px] font-semibold text-foreground">{svc.name}</span>
                               </div>
                               {svc.image && (
-                                <span className="text-[9px] font-mono text-foreground/40 bg-foreground/5 px-1.5 py-0.5 rounded truncate max-w-[200px]">
+                                <span className="text-[9px] font-mono text-foreground/75 bg-foreground/10 px-1.5 py-0.5 rounded truncate max-w-[200px]">
                                   {svc.image}
                                 </span>
                               )}
                             </div>
-                            <div className="flex flex-wrap gap-2 text-[9px] text-foreground/40">
-                              {svc.build && <span className="flex items-center gap-1">🔨 Build: {svc.build.context}</span>}
-                              {svc.command && <span className="flex items-center gap-1">▶ {svc.command}</span>}
-                              {svc.restart && <span className="flex items-center gap-1">↻ {svc.restart}</span>}
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-foreground/75">
+                              {svc.build && <span className="inline-flex items-center gap-1"><Hammer size={10} /> Build: {svc.build.context}</span>}
+                              {svc.command && <span className="inline-flex items-center gap-1"><PlayIcon size={10} weight="fill" /> {svc.command}</span>}
+                              {svc.restart && <span className="inline-flex items-center gap-1"><ArrowsClockwise size={10} /> {svc.restart}</span>}
                               {(svc.internal_ports?.length ?? 0) > 0 && (
-                                <span className="flex items-center gap-1">
-                                  🔌 {svc.internal_ports.map((p: any) => `${p.port}/${p.protocol}`).join(', ')}
+                                <span className="inline-flex items-center gap-1">
+                                  <PlugsConnected size={10} /> {svc.internal_ports.map((p: any) => `${p.port}/${p.protocol}`).join(', ')}
                                 </span>
                               )}
                               {(svc.depends_on?.length ?? 0) > 0 && (
-                                <span className="flex items-center gap-1 text-purple-400/70">
-                                  → {svc.depends_on.join(', ')}
+                                <span className="inline-flex items-center gap-1 text-purple-300">
+                                  <ArrowRight size={10} /> {svc.depends_on.join(', ')}
                                 </span>
                               )}
                             </div>
                             {/* Service env vars */}
                             {svc.environment && Object.keys(svc.environment).length > 0 && (
                               <details className="mt-1.5">
-                                <summary className="text-[9px] text-foreground/30 cursor-pointer hover:text-foreground/50">
+                                <summary className="text-[9px] text-foreground/65 cursor-pointer hover:text-foreground/85">
                                   {Object.keys(svc.environment).length} Umgebungsvariablen
                                 </summary>
-                                <pre className="mt-1 text-[9px] font-mono text-foreground/40 bg-black/30 rounded p-1.5 max-h-24 overflow-auto">
+                                <pre className="mt-1 text-[9px] font-mono text-foreground/85 bg-background/80 border border-foreground/10 rounded p-1.5 max-h-24 overflow-auto">
                                   {JSON.stringify(svc.environment, null, 2)}
                                 </pre>
                               </details>
@@ -911,10 +912,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
                   {/* No services */}
                   {(!detail.services || detail.services.length === 0) && (
-                    <div className="p-4 rounded-lg bg-foreground/3 text-center">
-                      <Stack size={24} className="mx-auto mb-2 text-foreground/20" />
-                      <p className="text-xs text-foreground/50">Keine Services definiert</p>
-                      <p className="text-[10px] text-foreground/30 mt-1">
+                    <div className="p-6 rounded-lg bg-foreground/[0.06] border border-foreground/10 text-center">
+                      <Stack size={24} className="mx-auto mb-2 text-foreground/55" />
+                      <p className="text-xs text-foreground/85 font-semibold">Keine Services definiert</p>
+                      <p className="text-[10px] text-foreground/60 mt-1">
                         Die Bundle-Konfiguration enthält keine Service-Definitionen.
                       </p>
                     </div>
@@ -923,10 +924,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               )}
 
               {activeTab === 'bundle' && !detail.is_bundle && (
-                <div className="p-4 rounded-lg bg-foreground/3 text-center">
-                  <Cube size={24} className="mx-auto mb-2 text-foreground/30" />
-                  <p className="text-xs text-foreground/50">Kein Bundle</p>
-                  <p className="text-[10px] text-foreground/30 mt-1">Diese App ist eine Standard-App mit einem einzelnen Container.</p>
+                <div className="p-6 rounded-lg bg-foreground/[0.06] border border-foreground/10 text-center">
+                  <Cube size={24} className="mx-auto mb-2 text-foreground/55" />
+                  <p className="text-xs text-foreground/85 font-semibold">Kein Bundle</p>
+                  <p className="text-[10px] text-foreground/60 mt-1">Diese App ist eine Standard-App mit einem einzelnen Container.</p>
                 </div>
               )}
             </>

@@ -1,5 +1,6 @@
 use super::models::*;
 use super::DbPool;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 pub struct ConfigRepository {
@@ -162,6 +163,31 @@ impl ConfigRepository {
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// List every entry in the `user_devices` association table so the
+    /// admin presence view can map which user is logged in on which device.
+    /// Returns tuples of (user_id, device_id, is_primary).
+    pub async fn list_user_device_links(&self) -> anyhow::Result<Vec<(String, String, bool)>> {
+        let rows: Vec<(String, String, bool)> = sqlx::query_as(
+            "SELECT user_id, device_id, is_primary FROM user_devices",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// List all registered IORA Desktop clients with their owning user.
+    /// Returns tuples of (device_id, user_id, device_name, os, last_seen_at).
+    pub async fn list_desktop_clients_raw(
+        &self,
+    ) -> anyhow::Result<Vec<(String, String, String, String, DateTime<Utc>)>> {
+        let rows: Vec<(String, String, String, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT device_id, user_id, device_name, os, last_seen_at FROM desktop_clients ORDER BY last_seen_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 
     // Configuration Profile operations

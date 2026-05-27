@@ -48,6 +48,7 @@ mod person_tracker;
 mod location_sync;
 mod desktop_gateway;
 mod notification_dispatcher;
+mod system_events;
 mod documentation;
 mod app_storage_handler;
 mod app_database_handler;
@@ -426,6 +427,9 @@ pub struct AppState {
     pub homekit_client: Arc<HomekitClient>,
     pub stream_manager: Arc<StreamManager>,
     pub notification_dispatcher: Arc<NotificationDispatcher>,
+    /// Centralised system-event log + broadcaster for background tasks.
+    /// See [`system_events`].
+    pub system_events: Arc<system_events::SystemEventLog>,
     /// Generic settings registry – schema for all user-configurable IORA values.
     /// See [`iora_shared::settings`].
     pub settings_registry: Arc<SettingsRegistry>,
@@ -951,6 +955,7 @@ async fn main() -> anyhow::Result<()> {
         ws_manager.clone(),
         ha_client.clone(),
     ));
+    let system_events = Arc::new(system_events::SystemEventLog::new(ws_manager.clone()));
 
     // ── local_appstore init ──────────────────────────────────────────
     let local_appstore = match local_appstore::LocalAppStore::open().await {
@@ -1008,6 +1013,7 @@ async fn main() -> anyhow::Result<()> {
         homekit_client: homekit_client.clone(),
         stream_manager: stream_manager.clone(),
         notification_dispatcher: notification_dispatcher.clone(),
+        system_events: system_events.clone(),
         settings_registry: Arc::new(iora_shared::settings::default_registry()),
         local_appstore,
         dev_image: Arc::new(dev_image::DevImageInfo::detect()),
@@ -1292,7 +1298,8 @@ async fn main() -> anyhow::Result<()> {
     let webhook_ws = state.ws_manager.clone();
     let webhook_db = state.db_pool.clone();
     let webhook_http = state.http_client.clone();
-    tokio::spawn(background_webhook_delivery(webhook_ws, webhook_db, webhook_http));
+    let webhook_sys = state.system_events.clone();
+    tokio::spawn(background_webhook_delivery(webhook_ws, webhook_db, webhook_http, webhook_sys));
 
     // Build router
     // Service routes protected by auth middleware
@@ -1375,6 +1382,10 @@ async fn main() -> anyhow::Result<()> {
         // Connected devices (IORA Desktop, browser tabs, kiosks)
         .route("/api/admin/devices", get(admin_list_devices))
         .route("/api/admin/devices/:device_id", delete(admin_delete_device))
+        // Combined presence overview: users + devices + login mapping
+        .route("/api/admin/presence", get(admin_presence))
+        // Centralised system event log (background-task errors / warnings)
+        .route("/api/admin/system-events", get(admin_system_events).delete(admin_clear_system_events))
         // Maintenance mode
         .route("/api/admin/maintenance", get(admin_get_maintenance).put(admin_set_maintenance))
         // Notifications & alerts
@@ -4588,6 +4599,236 @@ async fn admin_delete_device(
             e
         ))),
     }
+}
+
+/// GET /api/admin/system-events
+/// Returns the most recent buffered system events (errors / warnings / info
+/// from background tasks). Optional query params:
+///   - `limit`    (default 200, capped at 500)
+///   - `severity` (`info` | `warning` | `error`, minimum threshold)
+async fn admin_system_events(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(200)
+        .min(500);
+
+    let min_severity = match params.get("severity").map(|s| s.to_lowercase()) {
+        Some(s) if s == "error" => Some(system_events::Severity::Error),
+        Some(s) if s == "warning" || s == "warn" => Some(system_events::Severity::Warning),
+        Some(s) if s == "info" => Some(system_events::Severity::Info),
+        _ => None,
+    };
+
+    let mut events = if let Some(min) = min_severity {
+        state.system_events.snapshot_min(min).await
+    } else {
+        state.system_events.snapshot().await
+    };
+
+    // Newest first
+    events.reverse();
+    events.truncate(limit);
+
+    Ok(Json(json!({
+        "events": events,
+        "total": events.len(),
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
+
+/// DELETE /api/admin/system-events — clear the in-memory ring buffer.
+async fn admin_clear_system_events(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    state.system_events.clear().await;
+    Ok(Json(json!({ "cleared": true })))
+}
+
+/// Admin: combined presence overview. Aggregates users, devices, and the
+/// `user_devices` + `desktop_clients` link tables into a single payload so
+/// the Admin Control Center can show which users are online and on which
+/// devices they are currently logged in. A device counts as `online` when
+/// its `last_seen` is within `online_threshold_seconds`. A user counts as
+/// online when at least one of their linked devices is online.
+async fn admin_presence(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let users = state
+        .config_repo
+        .list_all_users_admin()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list users: {}", e)))?;
+    let devices = state
+        .config_repo
+        .list_devices()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list devices: {}", e)))?;
+    let links = state
+        .config_repo
+        .list_user_device_links()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list user-device links: {}", e)))?;
+    let desktop_clients = state
+        .config_repo
+        .list_desktop_clients_raw()
+        .await
+        .unwrap_or_default();
+
+    let now = chrono::Utc::now();
+    let threshold_secs: i64 = 120;
+
+    // Index devices by id for quick lookups.
+    let mut device_index: std::collections::HashMap<String, &db::models::Device> =
+        std::collections::HashMap::with_capacity(devices.len());
+    for d in &devices {
+        device_index.insert(d.id.clone(), d);
+    }
+
+    // Build user_id -> Vec<device_id> from both `user_devices` and `desktop_clients`.
+    let mut user_to_devices: std::collections::HashMap<String, Vec<(String, bool, bool)>> =
+        std::collections::HashMap::new();
+    for (user_id, device_id, is_primary) in &links {
+        user_to_devices
+            .entry(user_id.clone())
+            .or_default()
+            .push((device_id.clone(), *is_primary, false));
+    }
+    for (device_id, user_id, _name, _os, _last_seen) in &desktop_clients {
+        let entry = user_to_devices.entry(user_id.clone()).or_default();
+        if !entry.iter().any(|(d, _, _)| d == device_id) {
+            entry.push((device_id.clone(), false, true));
+        }
+    }
+    // Reverse map: device_id -> Vec<user_id>
+    let mut device_to_users: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (user_id, devs) in &user_to_devices {
+        for (device_id, _, _) in devs {
+            device_to_users
+                .entry(device_id.clone())
+                .or_default()
+                .push(user_id.clone());
+        }
+    }
+
+    let user_payload: Vec<Value> = users
+        .iter()
+        .map(|u| {
+            let devs = user_to_devices.get(&u.id).cloned().unwrap_or_default();
+            let device_entries: Vec<Value> = devs
+                .iter()
+                .map(|(device_id, is_primary, is_desktop)| {
+                    let dev = device_index.get(device_id);
+                    let (last_seen, online, name, dtype) = match dev {
+                        Some(d) => {
+                            let age = (now - d.last_seen).num_seconds();
+                            (
+                                Some(d.last_seen),
+                                age >= 0 && age <= threshold_secs,
+                                d.device_name.clone(),
+                                d.device_type.clone(),
+                            )
+                        }
+                        None => (None, false, device_id.clone(), None),
+                    };
+                    serde_json::json!({
+                        "device_id": device_id,
+                        "device_name": name,
+                        "device_type": dtype,
+                        "is_primary": is_primary,
+                        "is_desktop_client": is_desktop,
+                        "online": online,
+                        "last_seen": last_seen,
+                    })
+                })
+                .collect();
+            let any_online = device_entries
+                .iter()
+                .any(|d| d.get("online").and_then(|v| v.as_bool()).unwrap_or(false));
+            serde_json::json!({
+                "id": u.id,
+                "username": u.username,
+                "display_name": u.display_name,
+                "avatar_url": u.avatar_url,
+                "role": u.role,
+                "is_admin": u.is_admin,
+                "online": any_online,
+                "device_count": device_entries.len(),
+                "devices": device_entries,
+            })
+        })
+        .collect();
+
+    let device_payload: Vec<Value> = devices
+        .iter()
+        .map(|d| {
+            let age = (now - d.last_seen).num_seconds();
+            let online = age >= 0 && age <= threshold_secs;
+            let user_ids = device_to_users.get(&d.id).cloned().unwrap_or_default();
+            serde_json::json!({
+                "id": d.id,
+                "device_name": d.device_name,
+                "device_type": d.device_type,
+                "user_agent": d.user_agent,
+                "is_terminal": d.is_terminal,
+                "terminal_name": d.terminal_name,
+                "assigned_profile_id": d.assigned_profile_id,
+                "last_seen": d.last_seen,
+                "created_at": d.created_at,
+                "online": online,
+                "seconds_since_seen": age.max(0),
+                "user_ids": user_ids,
+            })
+        })
+        .collect();
+
+    let online_users = user_payload
+        .iter()
+        .filter(|u| u.get("online").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
+    let online_devices = device_payload
+        .iter()
+        .filter(|d| d.get("online").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
+    let connected_ws_clients = state.ws_manager.client_count().await;
+    let ws_sessions_raw = state.ws_manager.client_snapshot().await;
+    let ws_sessions: Vec<Value> = ws_sessions_raw
+        .iter()
+        .map(|c| {
+            let age = (now - c.last_seen).num_seconds().max(0);
+            serde_json::json!({
+                "client_id": c.client_id,
+                "user_id": c.user_id,
+                "username": c.username,
+                "is_admin": c.is_admin,
+                "authenticated": c.authenticated,
+                "connected_at": c.connected_at,
+                "last_seen": c.last_seen,
+                "seconds_since_seen": age,
+            })
+        })
+        .collect();
+    let authenticated_ws_clients = ws_sessions_raw.iter().filter(|c| c.authenticated).count();
+
+    Ok(Json(serde_json::json!({
+        "users": user_payload,
+        "devices": device_payload,
+        "ws_sessions": ws_sessions,
+        "totals": {
+            "users": user_payload.len(),
+            "online_users": online_users,
+            "devices": device_payload.len(),
+            "online_devices": online_devices,
+            "connected_ws_clients": connected_ws_clients,
+            "authenticated_ws_clients": authenticated_ws_clients,
+        },
+        "online_threshold_seconds": threshold_secs,
+        "generated_at": now,
+    })))
 }
 
 /// Create a configuration profile
@@ -14786,6 +15027,7 @@ async fn background_webhook_delivery(
     ws_manager: Arc<websocket::WebSocketManager>,
     db_pool: DbPool,
     http_client: reqwest::Client,
+    system_events: Arc<system_events::SystemEventLog>,
 ) {
     let mut rx = ws_manager.subscribe();
     loop {
@@ -14797,7 +15039,13 @@ async fn background_webhook_delivery(
                     "SELECT id, url, secret, events, headers FROM webhooks WHERE active = 1"
                 ).fetch_all(&db_pool).await {
                     Ok(rows) => rows,
-                    Err(_) => continue,
+                    Err(e) => {
+                        system_events.report_error(
+                            "webhook_delivery",
+                            format!("DB load of active webhooks failed: {}", e),
+                        ).await;
+                        continue;
+                    }
                 };
 
                 if webhooks.is_empty() { continue; }
@@ -14835,39 +15083,90 @@ async fn background_webhook_delivery(
                         let payload = payload.clone();
                         let wh_id = wh_id.clone();
                         let pool = db_pool.clone();
+                        let sys = system_events.clone();
 
                         // Fire-and-forget delivery with retry
                         tokio::spawn(async move {
                             let result = deliver_webhook_payload(&client, &url, &secret, &headers, &payload).await;
 
                             // Log delivery
-                            sqlx::query(
+                            if let Err(e) = sqlx::query(
                                 "INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, error) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
                             )
                             .bind(&wh_id).bind("state_changed").bind(payload.to_string())
                             .bind(result.status_code).bind(&result.response_body)
                             .bind(result.duration_ms).bind(result.success).bind(&result.error)
-                            .execute(&pool).await.ok();
+                            .execute(&pool).await
+                            {
+                                sys.report_warn(
+                                    "webhook_delivery",
+                                    format!("Could not persist delivery log for webhook {}: {}", wh_id, e),
+                                ).await;
+                            }
 
                             // Update webhook stats
                             if result.success {
-                                sqlx::query("UPDATE webhooks SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, consecutive_failures = 0 WHERE id = $1")
-                                    .bind(&wh_id).execute(&pool).await.ok();
+                                if let Err(e) = sqlx::query("UPDATE webhooks SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, consecutive_failures = 0 WHERE id = $1")
+                                    .bind(&wh_id).execute(&pool).await
+                                {
+                                    sys.report_warn(
+                                        "webhook_delivery",
+                                        format!("Could not update success stats for webhook {}: {}", wh_id, e),
+                                    ).await;
+                                }
                             } else {
+                                sys.report_error_with(
+                                    "webhook_delivery",
+                                    format!(
+                                        "Webhook {} delivery failed: {}",
+                                        wh_id,
+                                        result.error.as_deref().unwrap_or("unknown error")
+                                    ),
+                                    serde_json::json!({
+                                        "webhook_id": wh_id,
+                                        "url": url,
+                                        "status_code": result.status_code,
+                                        "duration_ms": result.duration_ms,
+                                    }),
+                                ).await;
                                 let _: Option<(i64,)> = sqlx::query_as("SELECT consecutive_failures FROM webhooks WHERE id = $1")
                                     .bind(&wh_id).fetch_optional(&pool).await.ok().flatten();
-                                sqlx::query("UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1")
-                                    .bind(&wh_id).execute(&pool).await.ok();
+                                if let Err(e) = sqlx::query("UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1")
+                                    .bind(&wh_id).execute(&pool).await
+                                {
+                                    sys.report_warn(
+                                        "webhook_delivery",
+                                        format!("Could not increment failure counter for webhook {}: {}", wh_id, e),
+                                    ).await;
+                                }
                                 // Auto-disable after 10 consecutive failures
-                                sqlx::query("UPDATE webhooks SET active = false WHERE id = $1 AND consecutive_failures >= 10")
-                                    .bind(&wh_id).execute(&pool).await.ok();
+                                match sqlx::query("UPDATE webhooks SET active = false WHERE id = $1 AND consecutive_failures >= 10")
+                                    .bind(&wh_id).execute(&pool).await
+                                {
+                                    Ok(res) if res.rows_affected() > 0 => {
+                                        sys.report_error(
+                                            "webhook_delivery",
+                                            format!("Webhook {} auto-disabled after 10 consecutive failures", wh_id),
+                                        ).await;
+                                    }
+                                    Err(e) => {
+                                        sys.report_warn(
+                                            "webhook_delivery",
+                                            format!("Could not auto-disable webhook {}: {}", wh_id, e),
+                                        ).await;
+                                    }
+                                    _ => {}
+                                }
                             }
                         });
                     }
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                warn!("Webhook delivery lagged by {} messages", n);
+                system_events.report_warn(
+                    "webhook_delivery",
+                    format!("State-update broadcast lagged by {} messages — webhook deliveries skipped", n),
+                ).await;
             }
             Err(_) => break,
         }
