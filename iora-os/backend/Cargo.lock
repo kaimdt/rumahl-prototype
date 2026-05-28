@@ -3356,7 +3356,11 @@ dependencies = [
  "crossterm",
  "flywheel-compositor",
  "notify",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
