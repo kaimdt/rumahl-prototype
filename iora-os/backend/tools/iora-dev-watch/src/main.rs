@@ -175,7 +175,7 @@ impl App {
             "-o".into(),"StrictHostKeyChecking=no".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
             "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=60".into(),
-            "-o".into(),"ServerAliveCountMax=30".into(),"-o".into(),"TCPKeepAlive=yes".into(),
+            "-o".into(),"ServerAliveCountMax=60".into(),"-o".into(),"TCPKeepAlive=yes".into(),
             "-o".into(),"AddressFamily=inet".into(),
         ];
         #[cfg(unix)]
@@ -221,7 +221,7 @@ impl App {
 
     async fn ssh_exec(&self, cmd: &str) -> Result<String> {
         let mut args = self.ssh_args(); args.push(cmd.into());
-        let result = tokio::time::timeout(Duration::from_secs(30),
+        let result = tokio::time::timeout(Duration::from_secs(60),
             TokioCommand::new("ssh").args(&args).output()).await.context("timeout")?;
         Ok(String::from_utf8_lossy(&result?.stdout).into())
     }
@@ -1037,6 +1037,14 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let mut app = App::new(&args)?;
 
+    // Apply crossterm PR #815 raw mode fix on Windows BEFORE Engine::new().
+    // The Input Actor thread starts during Engine::new() and reads the console
+    // mode at that point. Without ENABLE_EXTENDED_FLAGS, the console driver
+    // eats key events instead of forwarding them.
+    // See: https://github.com/crossterm-rs/crossterm/pull/815
+    #[cfg(windows)]
+    win_raw_fix::apply();
+
     let mut engine = Engine::new()?;
     let w = engine.width() as usize;
     let h = engine.height() as usize;
@@ -1126,6 +1134,9 @@ fn main() -> Result<()> {
                     let _=tx.send(AppEvent::BuildOutput("[SYSTEM] Starting initial build...".into()));
                     let _=a.build_rust(None, &tx).await;
                     let _=a.build_frontend(&tx).await;
+                    if a.auto_deploy {
+                        let _=a.deploy_binaries(&tx).await;
+                    }
                     let _=tx.send(AppEvent::BuildComplete);
                 }
             } else {
@@ -1204,6 +1215,7 @@ fn main() -> Result<()> {
                                     a.vm_online = true;
                                     let _=a.build_rust(only, &tx2).await;
                                     let _=a.build_frontend(&tx2).await;
+                                    let _=a.deploy_binaries(&tx2).await;
                                     let _=tx2.send(AppEvent::BuildComplete);
                                 
                     });
@@ -1696,12 +1708,15 @@ fn main() -> Result<()> {
         // When bridge is active, we rely on SSE heartbeats (every 5s) for
         // VM liveness. SSH checks run at reduced frequency (30s) and only
         // provide service counts and deeper health data.
+        // NEVER run SSH health checks during builds — the VM is clearly
+        // alive if cargo is still compiling. SSH may timeout under heavy
+        // CPU load (especially TCG emulation), causing false offline detection.
         let check_interval = if app.vm_bridge_port > 0 && app.vm_online {
             Duration::from_secs(30) // Bridge is active; slower SSH poll
         } else {
             Duration::from_secs(6)  // No bridge; fast SSH polling
         };
-        if last_vm_check.elapsed() >= check_interval {
+        if !app.building && last_vm_check.elapsed() >= check_interval {
             last_vm_check = Instant::now();
             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
             let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
@@ -1757,4 +1772,57 @@ fn main() -> Result<()> {
     // Engine drop handles cleanup automatically
     println!("bye.");
     Ok(())
+}
+
+// ═══ Windows raw mode fix ════════════════════════════════════════════
+// crossterm 0.28.1 (used by flywheel-compositor 0.1.5) has a bug on
+// Windows where ENABLE_EXTENDED_FLAGS is not set. Without it,
+// ENABLE_QUICK_EDIT_MODE is silently ignored and the console driver
+// eats key events instead of forwarding them to the application.
+// This module applies the fix from crossterm PR #815 manually.
+// See: https://github.com/crossterm-rs/crossterm/pull/815
+#[cfg(windows)]
+mod win_raw_fix {
+    use std::ffi::c_void;
+
+    const STD_INPUT_HANDLE: u32 = 0xFFFF_FFF6u32; // -10
+    const ENABLE_EXTENDED_FLAGS: u32 = 0x0080;
+    const ENABLE_INSERT_MODE: u32 = 0x0020;
+    const ENABLE_QUICK_EDIT_MODE: u32 = 0x0040;
+    const ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x0200;
+    const ENABLE_MOUSE_INPUT: u32 = 0x0010;
+    const ENABLE_WINDOW_INPUT: u32 = 0x0008;
+
+    extern "system" {
+        fn GetStdHandle(nStdHandle: u32) -> *mut c_void;
+        fn GetConsoleMode(hConsoleHandle: *mut c_void, lpMode: *mut u32) -> i32;
+        fn SetConsoleMode(hConsoleHandle: *mut c_void, dwMode: u32) -> i32;
+    }
+
+    /// Apply the missing console mode flags before flywheel/crossterm
+    /// initializes. crossterm 0.28.1 only removes ENABLE_LINE_INPUT,
+    /// ENABLE_ECHO_INPUT, and ENABLE_PROCESSED_INPUT. It does NOT set
+    /// ENABLE_EXTENDED_FLAGS, which is required for ENABLE_QUICK_EDIT_MODE
+    /// and proper key event forwarding on Windows.
+    pub fn apply() {
+        unsafe {
+            let handle = GetStdHandle(STD_INPUT_HANDLE);
+            if handle.is_null() {
+                return;
+            }
+            let mut mode: u32 = 0;
+            if GetConsoleMode(handle, &mut mode) == 0 {
+                return;
+            }
+            // Enable extended flags (required for quick-edit + insert mode)
+            mode |= ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE;
+            // Check if VT input is supported before setting it
+            if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) != 0 {
+                mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+            }
+            // Remove mouse/window input (these interfere with raw mode)
+            mode &= !(ENABLE_MOUSE_INPUT | ENABLE_WINDOW_INPUT);
+            SetConsoleMode(handle, mode);
+        }
+    }
 }

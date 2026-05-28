@@ -421,7 +421,7 @@ fn ssh_master_args(host: &str, port: u16, ssh_key: &std::path::Path) -> Vec<Stri
         "-o".into(), "BatchMode=yes".into(),
         "-o".into(), "ConnectTimeout=10".into(),
         "-o".into(), "ServerAliveInterval=30".into(),
-        "-o".into(), "ServerAliveCountMax=3".into(),
+        "-o".into(), "ServerAliveCountMax=10".into(),
         "-o".into(), "TCPKeepAlive=yes".into(),
         "-o".into(), "AddressFamily=inet".into(),
         // Keep master alive even after all client sessions close.
