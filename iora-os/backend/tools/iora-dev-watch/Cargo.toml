@@ -5,7 +5,6 @@ edition = "2021"
 description = "IORA Dev VM Watch – Terminal UI for build, deploy & monitoring"
 
 [dependencies]
-flywheel-compositor = "0.1"
 crossterm = "0.28"
 tokio = { version = "1", features = ["full"] }
 notify = { version = "7" }

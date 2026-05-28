@@ -1,5 +1,5 @@
 //! IORA Dev Watch — Build, deploy & monitor the Dev VM.
-//! Powered by flywheel-compositor: zero-flicker, input never blocked by rendering.
+//! Uses crossterm directly for terminal I/O.
 //!
 //! Connection architecture:
 //!   - HTTP Bridge (port 8101): persistent SSE stream for VM heartbeat/status
@@ -12,11 +12,18 @@ mod resources;
 use anyhow::{Context, Result};
 use clap::Parser;
 use connection::{BridgeConnection, ConnEvent, SshSession};
-use flywheel::{Engine, InputEvent, KeyCode, Rect, Rgb, StreamWidget};
+use crossterm::{
+    cursor::{Hide, MoveTo, Show},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    execute, queue,
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use resources::{ResourceData, ResourceHistory};
 use std::{
     collections::{HashSet, VecDeque},
+    io::{stdout, Write},
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -25,16 +32,17 @@ use tokio::process::Command as TokioCommand;
 
 // ═══ Colors ══════════════════════════════════════════════════════════════
 
-const FG_CYAN: Rgb = Rgb::new(0, 200, 200);
-const FG_GREEN: Rgb = Rgb::new(0, 200, 0);
-const FG_YELLOW: Rgb = Rgb::new(220, 220, 0);
-const FG_RED: Rgb = Rgb::new(220, 0, 0);
-const FG_WHITE: Rgb = Rgb::new(200, 200, 200);
-const FG_GRAY: Rgb = Rgb::new(100, 100, 100);
-const FG_MAGENTA: Rgb = Rgb::new(200, 0, 200);
-const FG_BLUE: Rgb = Rgb::new(60, 120, 220);
-const BG_BLACK: Rgb = Rgb::new(0, 0, 0);
-const BG_CYAN: Rgb = Rgb::new(0, 80, 80);
+const FG_CYAN: Color = Color::Cyan;
+const FG_GREEN: Color = Color::Green;
+const FG_YELLOW: Color = Color::Yellow;
+const FG_RED: Color = Color::Red;
+const FG_WHITE: Color = Color::Grey;
+const FG_GRAY: Color = Color::DarkGrey;
+const FG_MAGENTA: Color = Color::Magenta;
+const FG_BLUE: Color = Color::Blue;
+const BG_BLACK: Color = Color::Black;
+const BG_CYAN: Color = Color::DarkCyan;
+const BG_WHITE: Color = Color::Grey;
 
 // ═══ CLI ═════════════════════════════════════════════════════════════════
 
@@ -62,11 +70,9 @@ enum AppEvent {
     BuildComplete,
     VmStatus(bool),
     FileChange { rust_crates: HashSet<String>, frontend: bool },
-    /// Result of fetch_service_status — list of (status, has_binary) in the
-    /// same order as `App::services`.
     ServiceStatus(Vec<(String, bool)>),
-    /// New resource snapshot from the VM.
     ResourceUpdate(ResourceData),
+    HealthCheckComplete,
 }
 
 // ═══ Modes & Views ═══════════════════════════════════════════════════════
@@ -95,16 +101,15 @@ struct App {
     active_services: usize, total_services: usize,
     view: View, mode: Mode,
     services: Vec<String>,
-    service_status: Vec<(String, bool)>, // (status, has_binary)
+    service_status: Vec<(String, bool)>,
     should_quit: bool, dirty: bool,
     changed_rust: HashSet<String>, changed_fe: bool,
     repo_root: PathBuf, workspace: PathBuf, vm_workspace: String,
     frontend_dir: Option<PathBuf>, cache_dir: PathBuf,
-    build_frame: u8, show_help: bool,
+    show_help: bool,
     log_scroll_offset: usize,
     command_log: VecDeque<String>,
     build_start: Option<Instant>,
-    last_frame_tick: Instant,
     // Bridge connection health
     bridge_uptime: u64,
     bridge_mem_avail: u64,
@@ -112,11 +117,12 @@ struct App {
     // Independent connection trackers
     ssh_connected: bool,
     bridge_connected: bool,
+    // Rate-limit for periodic SSH health checks
+    health_check_in_flight: bool,
     // Resource monitoring
     resource_data: ResourceData,
     resource_history: ResourceHistory,
     last_resource_collect: Instant,
-    // Log buffer (for status/health/journal snapshots)
 }
 
 impl App {
@@ -142,29 +148,21 @@ impl App {
             should_quit: false, dirty: true,
             changed_rust: HashSet::new(), changed_fe: false,
             repo_root, workspace, vm_workspace: "/home/iora/iora/iora-os/backend".into(),
-            frontend_dir, cache_dir, build_frame: 0, show_help: false,
+            frontend_dir, cache_dir, show_help: false,
             log_scroll_offset: 0, command_log: VecDeque::with_capacity(200),
             build_start: None,
-            last_frame_tick: Instant::now(),
             bridge_uptime: 0, bridge_mem_avail: 0,
             bridge_loadavg: String::new(),
             ssh_connected: false, bridge_connected: false,
+            health_check_in_flight: false,
             resource_data: ResourceData::default(),
             resource_history: ResourceHistory::new(60),
             last_resource_collect: Instant::now(),
         })
     }
 
-    /// SSH ControlMaster socket path. Keeps one persistent TCP connection
-    /// open across all ssh/scp/rsync invocations so we don't pay the
-    /// ~100–200ms handshake cost every time (a single deploy fires 20+
-    /// commands).
     #[cfg(unix)]
     fn ctl_path(&self) -> String {
-        // %C = unique hash of host/port/user, so multiple VMs coexist.
-        // Hardcode /tmp (instead of cache_dir or env::temp_dir) because
-        // macOS limits Unix-domain socket paths to ~104 bytes.
-        // /tmp is short (~4 chars) on macOS, Linux, and WSL → safe.
         let dir = std::path::PathBuf::from("/tmp/iora-ssh");
         let _ = std::fs::create_dir_all(&dir);
         format!("{}/cm-%C", dir.display())
@@ -192,7 +190,6 @@ impl App {
         args
     }
 
-    // Kept for ad-hoc file pushes / future use; FE deploy now streams over ssh.
     #[allow(dead_code)]
     fn scp_args(&self) -> Vec<String> {
         #[cfg(unix)]
@@ -228,15 +225,8 @@ impl App {
 
     async fn check_vm(&mut self) -> bool {
         self.vm_online = match self.ssh_exec("echo OK").await {
-            Ok(s) => {
-                let ok = s.contains("OK");
-                if !ok { eprintln!("[iora-dev-watch] check_vm: ssh output missing 'OK': {:?}", s); }
-                ok
-            }
-            Err(e) => {
-                eprintln!("[iora-dev-watch] check_vm: ssh_exec failed: {e:?}");
-                false
-            }
+            Ok(s) => s.contains("OK"),
+            Err(_) => false,
         };
         self.vm_online
     }
@@ -248,11 +238,8 @@ impl App {
         }
     }
 
-    /// Single batched SSH call instead of one per service. For ~15 services
-    /// this collapses ~15× RTT (≈1s on a loaded VM) into one round trip.
     async fn fetch_service_status(&mut self) {
         self.service_status.clear();
-        // Emit one line per service: "<status>|<yes|no>".
         let script = format!(
             "for s in {}; do printf '%s|%s\\n' \"$(systemctl is-active $s 2>/dev/null || echo unknown)\" \"$(test -f /usr/bin/$s && echo yes || echo no)\"; done",
             self.services.join(" "));
@@ -285,12 +272,6 @@ impl App {
         cmd
     }
 
-    /// Build a remote bash script that:
-    ///  1. hashes every built binary on the VM (single batch),
-    ///  2. emits a SKIP marker for each one that matches the previous hash
-    ///     stored under /var/lib/iora/.bin-hashes/,
-    ///  3. installs + restarts only the changed binaries,
-    ///  4. fixes the iora-home admin role once (marker file), no fixed sleep.
     fn deploy_cmd(&self) -> String {
         let ws = &self.vm_workspace;
         let svc_list = self.services.join(" ");
@@ -328,12 +309,10 @@ for svc in {svc_list}; do
     deployed=$((deployed+1))
     echo "DEPLOY: ✓ $svc"
 done
-# Restart changed services in parallel.
 for svc in $restart_list; do
     (systemctl reset-failed "$svc" 2>/dev/null; systemctl restart "$svc" 2>/dev/null || systemctl start "$svc" 2>/dev/null) &
 done
 wait
-# Admin role fix runs once per VM (marker file), only if iora-home changed.
 if [ "$home_changed" = "1" ] && [ ! -f /var/lib/iora/.admin-role-fixed ]; then
     for i in 1 2 3 4 5 6 7 8; do
         if su - postgres -c "psql -tAc 'SELECT 1 FROM users LIMIT 1' iora_home" 2>/dev/null | grep -q 1; then break; fi
@@ -350,8 +329,6 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
         let _=tx.send(AppEvent::BuildOutput("[RUST] Syncing sources...".into()));
         let ssh_opts:Vec<String>=self.ssh_args().into_iter().rev().skip(1).rev().collect();
         let mut args=vec!["-a".into(),"--delete".into(),
-            // --no-times skips mtime sync (we don't need it; reduces stat work).
-            // No -z: localhost↔VM is loopback, compression just burns CPU.
             "--exclude=.git".into(),"--exclude=target".into(),"--exclude=node_modules".into(),
             "--exclude=.cache".into(),"--exclude=buildroot-*".into(),"--exclude=releases".into(),
             "--exclude=*.img".into(),"--exclude=*.qcow2".into(),"--exclude=*.iso".into(),
@@ -360,7 +337,6 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
         args.push("-e".into()); args.push(format!("ssh {}", ssh_opts.join(" ")));
         args.push(format!("{}/", self.repo_root.display()));
         args.push(format!("root@{}:/home/iora/iora/", self.vm_host));
-        // Async: don't block a tokio worker thread for the duration of the rsync.
         let _=TokioCommand::new("rsync").args(&args).status().await;
         let _=self.ssh_exec("chown -R iora:iora /home/iora/iora 2>/dev/null").await;
         Ok(())
@@ -374,10 +350,6 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
         let cmd = self.build_rust_cmd(only.as_ref());
         let full = format!("su - iora -c '{}' 2>&1", cmd);
         let _=tx.send(AppEvent::BuildOutput(format!("[RUST] {}", cmd)));
-        // Run build output via channel (non-blocking for main loop and for
-        // the tokio runtime: previously this used std::process + sync
-        // BufReader inside tokio::spawn, which pinned a worker thread for
-        // the entire build (→ minutes of unavailable worker capacity).
         let ssh_args = self.ssh_args();
         let full_cmd = full;
         let tx2 = tx.clone();
@@ -416,7 +388,6 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
             }
             let _=tx2.send(AppEvent::BuildComplete);
         });
-        // Return immediately — build runs in background, output arrives via channel
         self.last_build="Building...".into();
         Ok(true)
     }
@@ -459,9 +430,6 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
     async fn deploy_frontend(&self, tx: &mpsc::UnboundedSender<AppEvent>) -> Result<()> {
         if let Some(ref fe) = self.frontend_dir {
             let dist = fe.join("dist"); if !dist.is_dir() { return Ok(()); }
-            // Stream tar directly over SSH (reuses ControlMaster connection).
-            // Unpacks to a temp dir on the VM and atomically swaps it in, so
-            // the live dist is never empty mid-deploy.
             let remote_unpack = "set -e; mkdir -p /opt/iora/build; \
                 tmp=$(mktemp -d /opt/iora/build/.dist-XXXXXX); \
                 tar xzf - -C \"$tmp\"; \
@@ -500,7 +468,7 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
         self.ssh_exec(&cmd).await.unwrap_or_else(|_| "?".into())
     }
 
-    fn run_command(&mut self, input: &str, stream: &mut StreamWidget, engine: &mut Engine, tx: &mpsc::UnboundedSender<AppEvent>) {
+    fn run_command(&mut self, input: &str, log_buf: &mut Vec<String>, tx: &mpsc::UnboundedSender<AppEvent>) {
         let parts: Vec<&str> = input.trim().split_whitespace().collect();
         if parts.is_empty() { return; }
         match parts[0] {
@@ -509,10 +477,10 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
                 let mut i=1; while i<parts.len() {
                     match parts[i] { "rust"|"r"=>{fe=false;i+=1;} "fe"|"frontend"|"f"=>{rust=false;i+=1;}
                     "changed"|"c"=>{changed=true;i+=1;} "all"|"a"=>{i+=1;}
-                    _=>{push_log(stream, engine, "[CMD] unknown arg"); return;} }
+                    _=>{push_log(log_buf, "[CMD] unknown arg"); return;} }
                 }
-                if self.building { push_log(stream, engine, "[CMD] Already building"); return; }
-                if !self.vm_online { push_log(stream, engine, "[CMD] VM offline"); return; }
+                if self.building { push_log(log_buf, "[CMD] Already building"); return; }
+                if !self.vm_online { push_log(log_buf, "[CMD] VM offline"); return; }
                 self.building=true; self.dirty=true;
                 let only = if changed && !self.changed_rust.is_empty() { Some(self.changed_rust.clone()) } else { None };
                 let tx2=tx.clone(); let (vmh,vmp,sk)=(self.vm_host.clone(),self.vm_port,self.ssh_key.clone());
@@ -525,11 +493,10 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
                         if rust { let _=a.build_rust(only,&tx2).await; }
                         if fe { let _=a.build_frontend(&tx2).await; }
                         let _=tx2.send(AppEvent::BuildComplete);
-                    
                     });
             }
             "deploy"|"d" => {
-                if !self.vm_online { push_log(stream, engine, "[CMD] VM offline"); return; }
+                if !self.vm_online { push_log(log_buf, "[CMD] VM offline"); return; }
                 let tx2=tx.clone(); let (vmh,vmp,sk)=(self.vm_host.clone(),self.vm_port,self.ssh_key.clone());
                 let (ws,vmws)=(self.workspace.clone(),self.vm_workspace.clone());
                 let (rr,cd,fe2)=(self.repo_root.clone(),self.cache_dir.clone(),self.frontend_dir.clone());
@@ -537,11 +504,10 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
                 tokio::spawn(async move {
                         let mut a=App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true; let _=a.deploy_binaries(&tx2).await;
-                    
                     });
             }
             "restart"|"r" => {
-                if parts.len()<2 { push_log(stream, engine, "[CMD] Usage: restart <service>"); return; }
+                if parts.len()<2 { push_log(log_buf, "[CMD] Usage: restart <service>"); return; }
                 let svc=parts[1].to_string();
                 let (vmh,vmp,sk)=(self.vm_host.clone(),self.vm_port,self.ssh_key.clone());
                 let (ws,vmws)=(self.workspace.clone(),self.vm_workspace.clone());
@@ -551,8 +517,6 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
                         let mut a=App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true;
                         let _st = a.restart_service(&svc).await;
-                        // Could send result back, but for now just log
-                    
                     });
             }
             "journal"|"j" => { self.view=View::Journal; self.dirty=true; }
@@ -567,22 +531,21 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
                 tokio::spawn(async move {
                         let mut a=App::dummy(vmh,vmp,sk,ws,vmws,fe2,rr,cd,svcs);
                         a.vm_online=true; a.check_vm().await;
-                    
                     });
             }
             "watch" => {
                 self.do_watch = parts.get(1).map_or(true, |&w| w!="off");
-                push_log(stream, engine, &format!("[CMD] Watching: {}", if self.do_watch {"ON"} else {"OFF"}));
+                push_log(log_buf, &format!("[CMD] Watching: {}", if self.do_watch {"ON"} else {"OFF"}));
             }
             "deploy-toggle"|"dt" => {
                 self.auto_deploy=!self.auto_deploy; self.dirty=true;
-                push_log(stream, engine, &format!("[CMD] Auto-deploy: {}", if self.auto_deploy{"ON"}else{"OFF"}));
+                push_log(log_buf, &format!("[CMD] Auto-deploy: {}", if self.auto_deploy{"ON"}else{"OFF"}));
             }
             "quit"|"q"|"exit" => { self.should_quit=true; }
             "help"|"?" => {
-                push_log(stream, engine, "[CMD] build [rust|fe|changed] | deploy | restart <s> | journal | status | logs | commands | connect | watch [on|off] | deploy-toggle | quit");
+                push_log(log_buf, "[CMD] build [rust|fe|changed] | deploy | restart <s> | journal | status | logs | commands | connect | watch [on|off] | deploy-toggle | quit");
             }
-            _ => { push_log(stream, engine, &format!("[CMD] Unknown: {} (type help)", parts[0])); }
+            _ => { push_log(log_buf, &format!("[CMD] Unknown: {} (type help)", parts[0])); }
         }
     }
 
@@ -599,13 +562,13 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
             should_quit: false, dirty: true,
             changed_rust: HashSet::new(), changed_fe: false,
             repo_root, workspace, vm_workspace, frontend_dir, cache_dir,
-            build_frame: 0, show_help: false,
+            show_help: false,
             log_scroll_offset: 0, command_log: VecDeque::with_capacity(200),
             build_start: None,
-            last_frame_tick: Instant::now(),
             bridge_uptime: 0, bridge_mem_avail: 0,
             bridge_loadavg: String::new(),
             ssh_connected: false, bridge_connected: false,
+            health_check_in_flight: false,
             resource_data: ResourceData::default(),
             resource_history: ResourceHistory::new(60),
             last_resource_collect: Instant::now(),
@@ -615,22 +578,9 @@ echo "DEPLOY_RESULT: deployed=$deployed skipped=$skipped"
 
 // ═══ Helpers ═════════════════════════════════════════════════════════════
 
-fn push_log(stream: &mut StreamWidget, engine: &mut Engine, msg: &str) {
-    // Cached timestamp: updated once per frame in main loop
-    let color = if msg.len() > 12 {
-        let prefix = &msg[..12];
-        if prefix.contains("[RUST]")||prefix.contains("[DEPLOY]") { FG_MAGENTA }
-        else if prefix.contains("[FE]")||prefix.contains("[SYSTEM]") { FG_CYAN }
-        else if prefix.contains("[CMD]")||prefix.contains("[RESTART]")||prefix.contains("[WATCH]") { FG_YELLOW }
-        else if prefix.contains("[HEALTH]")||prefix.contains("[STATUS]") { FG_BLUE }
-        else if msg.contains("✓")||msg.contains("OK") { FG_GREEN }
-        else if msg.contains("✗")||msg.contains("FAILED") { FG_RED }
-        else if msg.contains("──") { FG_CYAN }
-        else { FG_WHITE }
-    } else { FG_WHITE };
-    stream.set_fg(color);
-    stream.push(engine, &format!("{}\n", msg));
-    stream.set_fg(FG_WHITE);
+fn push_log(buf: &mut Vec<String>, msg: &str) {
+    buf.push(msg.to_string());
+    if buf.len() > 5000 { buf.remove(0); }
 }
 
 fn find_repo_root() -> Result<PathBuf> {
@@ -694,21 +644,21 @@ fn start_file_watcher(workspace: PathBuf, fe: Option<PathBuf>, tx: mpsc::Unbound
 
 // ═══ Rendering ═══════════════════════════════════════════════════════════
 
-fn render_header(engine: &mut Engine, app: &App) {
-    let w = engine.width() as usize;
-    if w < 40 { return; }
-    let sep = "═".repeat(w.saturating_sub(2));
-    engine.draw_text(0, 0, &format!("╔{}╗", sep), FG_CYAN, BG_BLACK);
-    engine.draw_text(0, 1, &format!("║ {:<width$} ║", "IORA Dev Watch", width = w-4), FG_CYAN, BG_BLACK);
+fn render_header(out: &mut impl Write, app: &App, w: u16) -> Result<()> {
+    if w < 40 { return Ok(()); }
+    let sep = "═".repeat(w.saturating_sub(2) as usize);
+    queue!(out,
+        MoveTo(0, 0), SetForegroundColor(FG_CYAN), SetBackgroundColor(BG_BLACK),
+        Print(format!("╔{}╗", sep)),
+        MoveTo(0, 1), Print(format!("║ {:<width$} ║", "IORA Dev Watch", width = w as usize - 4)),
+    )?;
 
     let vm_label = if app.vm_online { "● online" } else { "● offline" };
     let vm_fg = if app.vm_online { FG_GREEN } else { FG_RED };
-    // Show per-channel status
     let bridge_indicator = if app.bridge_connected { "B" } else { "·" };
-    let bridge_fg = if app.bridge_connected { FG_GREEN } else { FG_GRAY };
+    let _bridge_fg = if app.bridge_connected { FG_GREEN } else { FG_GRAY };
     let ssh_indicator = if app.ssh_connected { "S" } else { "·" };
-    let ssh_fg = if app.ssh_connected { FG_GREEN } else { FG_GRAY };
-    // Show bridge heartbeat data when available
+    let _ssh_fg = if app.ssh_connected { FG_GREEN } else { FG_GRAY };
     let bridge_info = if app.bridge_connected && app.bridge_uptime > 0 {
         let mem_gb = app.bridge_mem_avail as f64 / 1_073_741_824.0;
         format!("  ↑{}m  free {:.1}G", app.bridge_uptime / 60, mem_gb)
@@ -716,283 +666,287 @@ fn render_header(engine: &mut Engine, app: &App) {
     let dep_label = if app.auto_deploy { "ON " } else { "OFF" };
     let dep_fg = if app.auto_deploy { FG_GREEN } else { FG_RED };
     let bl_label = if app.building {
-        let dots = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
         if let Some(start) = app.build_start {
-            let secs = start.elapsed().as_secs();
-            format!("Building {} {}s", dots[app.build_frame as usize % dots.len()], secs)
-        } else {
-            format!("Building {}", dots[app.build_frame as usize % dots.len()])
-        }
+            format!("Building  {}s", start.elapsed().as_secs())
+        } else { "Building...".into() }
     } else { app.last_build.clone() };
 
-    // Clear line 2, then draw colored segments
-    engine.draw_text(0, 2, &" ".repeat(w), FG_WHITE, BG_BLACK);
-    engine.draw_text(0, 2, "║ VM: ", FG_WHITE, BG_BLACK);
-    engine.draw_text(6, 2, vm_label, vm_fg, BG_BLACK);
-    let mut x = 6u16 + vm_label.len() as u16;
-    // Show channel indicators: [B]ridge [S]SH
-    engine.draw_text(x, 2, " [", FG_GRAY, BG_BLACK);
-    x += 2;
-    engine.draw_text(x, 2, bridge_indicator, bridge_fg, BG_BLACK);
-    x += 1;
-    engine.draw_text(x, 2, "|", FG_GRAY, BG_BLACK);
-    x += 1;
-    engine.draw_text(x, 2, ssh_indicator, ssh_fg, BG_BLACK);
-    x += 1;
-    engine.draw_text(x, 2, "]", FG_GRAY, BG_BLACK);
-    x += 1;
+    // Row 2: build line segments piece by piece
+    queue!(out,
+        MoveTo(0, 2), SetForegroundColor(FG_WHITE), SetBackgroundColor(BG_BLACK),
+        Print(format!("║ VM: ")),
+    )?;
+    queue!(out, SetForegroundColor(vm_fg), Print(vm_label))?;
+    let mut x = 7u16 + vm_label.len() as u16;
+    queue!(out, MoveTo(x, 2), SetForegroundColor(FG_GRAY),
+        Print(format!(" [{}{}{}]", bridge_indicator, "|", ssh_indicator)),
+    )?;
+    x += 4;
     if !bridge_info.is_empty() {
-        engine.draw_text(x, 2, &bridge_info, FG_GRAY, BG_BLACK);
+        queue!(out, MoveTo(x, 2), Print(&bridge_info))?;
         x += bridge_info.len() as u16;
     }
-    engine.draw_text(x, 2, "  │  Build: ", FG_WHITE, BG_BLACK);
+    queue!(out, MoveTo(x, 2), SetForegroundColor(FG_WHITE),
+        Print("  │  Build: "))?;
     x += 12;
-    engine.draw_text(x, 2, &bl_label, FG_CYAN, BG_BLACK);
+    queue!(out, SetForegroundColor(FG_CYAN), Print(&bl_label))?;
     x += bl_label.len() as u16;
-    engine.draw_text(x, 2, "  │  Deploy: ", FG_WHITE, BG_BLACK);
+    queue!(out, MoveTo(x, 2), SetForegroundColor(FG_WHITE),
+        Print("  │  Deploy: "))?;
     x += 13;
-    engine.draw_text(x, 2, dep_label, dep_fg, BG_BLACK);
+    queue!(out, SetForegroundColor(dep_fg), Print(dep_label))?;
     x += dep_label.len() as u16;
-    if x < w as u16 - 2 {
-        engine.draw_text(x, 2, &" ".repeat(w - 2 - x as usize), FG_WHITE, BG_BLACK);
-        engine.draw_text(w as u16 - 2, 2, "║", FG_CYAN, BG_BLACK);
+    // Fill remaining space
+    if x < w - 1 {
+        let pad = " ".repeat((w - 1 - x) as usize);
+        queue!(out, MoveTo(x, 2), SetForegroundColor(FG_WHITE), Print(&pad),
+            MoveTo(w - 1, 2), SetForegroundColor(FG_CYAN), Print("║"))?;
     }
-    engine.draw_text(0, 3, &format!("╠{}╣", sep), FG_CYAN, BG_BLACK);
+
+    // Separator
+    queue!(out,
+        MoveTo(0, 3), SetForegroundColor(FG_CYAN),
+        Print(format!("╠{}╣", sep)),
+        ResetColor,
+    )?;
+    Ok(())
 }
 
-fn render_status_view(engine: &mut Engine, app: &App) {
-    let h=engine.height() as usize;let w=engine.width() as usize;
-    for y in 5..h.saturating_sub(2) {
-        engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
+fn render_tabs(out: &mut impl Write, app: &App, _w: u16) -> Result<()> {
+    let tabs = [" Logs ", " Status ", " Journal ", " Commands ", " Resources "];
+    let mut x = 1u16;
+    for (i, label) in tabs.iter().enumerate() {
+        let active = match (&app.view, i) {
+            (View::Logs, 0) | (View::Status, 1) | (View::Journal, 2)
+                | (View::Commands, 3) | (View::Resources, 4) => true,
+            _ => false,
+        };
+        queue!(out, MoveTo(x, 4))?;
+        if active {
+            queue!(out, SetForegroundColor(BG_BLACK), SetBackgroundColor(BG_CYAN), Print(*label))?;
+        } else {
+            queue!(out, SetForegroundColor(FG_GRAY), SetBackgroundColor(BG_BLACK), Print(*label))?;
+        }
+        x += label.len() as u16;
     }
-    let mut y=5u16;
-    let skip=app.log_scroll_offset;
-    engine.draw_text(1, y, &format!("{:<30} {:<10} {}", "Service", "Status", "Binary"), FG_CYAN, BG_BLACK);
-    y+=1;
-    engine.draw_text(1, y, &"─".repeat(50), FG_GRAY, BG_BLACK); y+=1;
+    queue!(out, ResetColor)?;
+    Ok(())
+}
+
+fn render_logs(out: &mut impl Write, app: &App, log_buf: &[String], w: u16, h: u16) -> Result<()> {
+    let content_h = h.saturating_sub(7).max(1) as usize;
+    // Add 1 extra because the last line might be partial
+    let total = log_buf.len().saturating_sub(app.log_scroll_offset);
+    let start = total.saturating_sub(content_h + 1);
+    let visible: Vec<&String> = log_buf.iter().skip(start).take(content_h + 1).collect();
+
+    for (i, line) in visible.iter().enumerate() {
+        let y = 5u16 + i as u16;
+        if y >= h.saturating_sub(2) { break; }
+        let trunc: String = line.chars().take(w as usize).collect();
+        let color = log_color(line);
+        queue!(out, MoveTo(0, y), SetForegroundColor(color), SetBackgroundColor(BG_BLACK),
+            Print(&trunc), Print(" ".repeat(w.saturating_sub(trunc.len() as u16) as usize)),
+        )?;
+    }
+    // Scroll indicator
+    if app.log_scroll_offset > 0 {
+        let ind = format!("[↑{} | 0=bottom]", app.log_scroll_offset);
+        let x = w.saturating_sub(ind.len() as u16 + 1);
+        queue!(out, MoveTo(x, 5), SetForegroundColor(FG_YELLOW), SetBackgroundColor(BG_BLACK), Print(&ind))?;
+    }
+    queue!(out, ResetColor)?;
+    Ok(())
+}
+
+fn log_color(msg: &str) -> Color {
+    if msg.len() > 12 {
+        let prefix = &msg[..12];
+        if prefix.contains("[RUST]")||prefix.contains("[DEPLOY]") { FG_MAGENTA }
+        else if prefix.contains("[FE]")||prefix.contains("[SYSTEM]") { FG_CYAN }
+        else if prefix.contains("[CMD]")||prefix.contains("[RESTART]")||prefix.contains("[WATCH]") { FG_YELLOW }
+        else if prefix.contains("[HEALTH]")||prefix.contains("[STATUS]") { FG_BLUE }
+        else if msg.contains("✓")||msg.contains("OK") { FG_GREEN }
+        else if msg.contains("✗")||msg.contains("FAILED") { FG_RED }
+        else if msg.contains("──") { FG_CYAN }
+        else { FG_WHITE }
+    } else { FG_WHITE }
+}
+
+fn render_status_view(out: &mut impl Write, app: &App, _w: u16, h: u16) -> Result<()> {
+    let mut y = 5u16;
+    let skip = app.log_scroll_offset;
+    queue!(out,
+        MoveTo(1, y), SetForegroundColor(FG_CYAN), SetBackgroundColor(BG_BLACK),
+        Print(format!("{:<30} {:<10} {}", "Service", "Status", "Binary")),
+    )?;
+    y += 1;
+    queue!(out, MoveTo(1, y), SetForegroundColor(FG_GRAY), Print("─".repeat(50)))?;
+    y += 1;
     for (i, svc) in app.services.iter().enumerate().skip(skip) {
-        if y>=h as u16-2{break;}
+        if y >= h - 2 { break; }
         let (status, has_bin) = app.service_status.get(i).map_or(("?", false), |(s,b)| (s.as_str(), *b));
         let status_fg = if status == "active" { FG_GREEN } else if status == "failed" { FG_RED } else { FG_GRAY };
         let bin_text = if has_bin { "yes" } else { "no" };
-        engine.draw_text(1, y, &format!("{:<30} {:<10} {}", svc, status, bin_text), FG_WHITE, BG_BLACK);
-        // Color status
-        engine.draw_text(32, y, status, status_fg, BG_BLACK);
-        y+=1;
+        queue!(out,
+            MoveTo(1, y), SetForegroundColor(FG_WHITE), SetBackgroundColor(BG_BLACK),
+            Print(format!("{:<30} ", svc)),
+            SetForegroundColor(status_fg), Print(format!("{:<10} ", status)),
+            SetForegroundColor(FG_WHITE), Print(bin_text),
+        )?;
+        y += 1;
     }
+    queue!(out, ResetColor)?;
+    Ok(())
 }
 
-fn render_journal_view(engine: &mut Engine, _app: &App) {
-    let w=engine.width() as usize;
-    for y in 5..engine.height().saturating_sub(2) as usize {
-        engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
+fn render_commands_view(out: &mut impl Write, app: &App, w: u16, h: u16) -> Result<()> {
+    let max = (h.saturating_sub(7)).max(1) as usize;
+    let start = app.command_log.len().saturating_sub(max)
+        .saturating_add(app.log_scroll_offset)
+        .min(app.command_log.len().saturating_sub(1));
+    let mut y = 5u16;
+    for line in app.command_log.iter().skip(start).take(max) {
+        let t = if line.len() > w as usize { format!("{}…", &line[..w as usize - 1]) } else { line.clone() };
+        let fg = if line.starts_with("> ") { FG_YELLOW } else { FG_WHITE };
+        queue!(out, MoveTo(1, y), SetForegroundColor(fg), SetBackgroundColor(BG_BLACK), Print(&t))?;
+        y += 1;
     }
-    engine.draw_text(1, 5, "(journal will appear here when data streams)", FG_GRAY, BG_BLACK);
+    if app.command_log.is_empty() {
+        queue!(out, MoveTo(1, 5), SetForegroundColor(FG_GRAY), Print("(commands will appear here — press / to enter command mode)"))?;
+    }
+    queue!(out, ResetColor)?;
+    Ok(())
 }
 
-fn render_resources_view(engine: &mut Engine, app: &App) {
-    let w = engine.width() as usize;
-    let h = engine.height() as usize;
-    let bar_w = (w.saturating_sub(30)).min(50).max(10);
+fn render_journal_view(out: &mut impl Write, _app: &App, _w: u16, _h: u16) -> Result<()> {
+    queue!(out, MoveTo(1, 5), SetForegroundColor(FG_GRAY), SetBackgroundColor(BG_BLACK),
+        Print("(journal will appear here when data streams)"),
+        ResetColor,
+    )?;
+    Ok(())
+}
 
-    // Clear content area
-    for y in 5..h.saturating_sub(2) {
-        engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
-    }
-
+fn render_resources_view(out: &mut impl Write, app: &App, w: u16, _h: u16) -> Result<()> {
+    let bar_w = (w as usize).saturating_sub(30).min(50).max(10);
     let d = &app.resource_data;
-
-    // ── CPU ──────────────────────────────────────────────────────────
     let mut y: u16 = 5;
-    engine.draw_text(1, y, "── CPU ───────────────────────────────────", FG_CYAN, BG_BLACK);
+
+    // CPU
+    queue!(out,
+        MoveTo(1, y), SetForegroundColor(FG_CYAN), SetBackgroundColor(BG_BLACK),
+        Print("── CPU ───────────────────────────────────"),
+        ResetColor,
+    )?;
     y += 1;
     let bar = resources::render_bar(d.cpu_percent, bar_w);
-    engine.draw_text(1, y, &format!("  [{bar}] {:>5.1}%", d.cpu_percent), FG_WHITE, BG_BLACK);
-    if !app.bridge_loadavg.is_empty() {
-        y += 1;
-        engine.draw_text(1, y, &format!("  Load: {}   Cores used: {}/{}", app.bridge_loadavg.trim(), d.cpu_cores_used, d.cpu_cores_total.max(1)), FG_GRAY, BG_BLACK);
-    } else {
-        y += 1;
-        engine.draw_text(1, y, &format!("  Load: {:.2} {:.2} {:.2}   Cores: {}/{}", d.load_1m, d.load_5m, d.load_15m, d.cpu_cores_used, d.cpu_cores_total.max(1)), FG_GRAY, BG_BLACK);
-    }
+    queue!(out, MoveTo(1, y), SetForegroundColor(FG_WHITE), SetBackgroundColor(BG_BLACK),
+        Print(format!("  [{bar}] {:>5.1}%", d.cpu_percent)),
+        ResetColor,
+    )?;
     y += 1;
-    // Sparkline from history
-    let spark = resources::render_sparkline(&app.resource_history.cpu, bar_w);
-    engine.draw_text(1, y, &format!("  {spark}"), FG_GREEN, BG_BLACK);
+    queue!(out, MoveTo(1, y), SetForegroundColor(FG_GRAY),
+        Print(format!("  Load: {:.2} {:.2} {:.2}   Cores: {}/{}",
+            d.load_1m, d.load_5m, d.load_15m, d.cpu_cores_used, d.cpu_cores_total.max(1))),
+        ResetColor,
+    )?;
     y += 2;
 
-    // ── RAM ──────────────────────────────────────────────────────────
-    engine.draw_text(1, y, "── RAM ───────────────────────────────────", FG_CYAN, BG_BLACK);
+    // RAM
+    queue!(out,
+        MoveTo(1, y), SetForegroundColor(FG_CYAN),
+        Print("── RAM ───────────────────────────────────"),
+        ResetColor,
+    )?;
     y += 1;
     let ram_pct = if d.ram_total_bytes > 0 {
         (d.ram_used_bytes as f64 / d.ram_total_bytes as f64 * 100.0).clamp(0.0, 100.0)
     } else { 0.0 };
     let bar = resources::render_bar(ram_pct, bar_w);
-    let used = resources::format_bytes(d.ram_used_bytes);
-    let total = resources::format_bytes(d.ram_total_bytes);
-    let avail = resources::format_bytes(d.ram_available_bytes);
-    engine.draw_text(1, y, &format!("  [{bar}] {:>5.1}%", ram_pct), FG_WHITE, BG_BLACK);
-    y += 1;
-    engine.draw_text(1, y, &format!("  Used: {} / {}   Available: {}", used, total, avail), FG_GRAY, BG_BLACK);
-    y += 1;
-    let spark = resources::render_sparkline(&app.resource_history.ram, bar_w);
-    engine.draw_text(1, y, &format!("  {spark}"), FG_YELLOW, BG_BLACK);
-    y += 2;
-
-    // ── Disk ─────────────────────────────────────────────────────────
-    engine.draw_text(1, y, "── Disk ──────────────────────────────────", FG_CYAN, BG_BLACK);
-    y += 1;
-    let disk_pct = if d.disk_total_bytes > 0 {
-        (d.disk_used_bytes as f64 / d.disk_total_bytes as f64 * 100.0).clamp(0.0, 100.0)
-    } else { 0.0 };
-    let bar = resources::render_bar(disk_pct, bar_w);
-    let d_used = resources::format_bytes(d.disk_used_bytes);
-    let d_total = resources::format_bytes(d.disk_total_bytes);
-    let d_free = resources::format_bytes(d.disk_total_bytes.saturating_sub(d.disk_used_bytes));
-    engine.draw_text(1, y, &format!("  [{bar}] {:>5.1}%", disk_pct), FG_WHITE, BG_BLACK);
-    y += 1;
-    engine.draw_text(1, y, &format!("  Used: {} / {}   Free: {}   Mount: {}", d_used, d_total, d_free, d.disk_mount), FG_GRAY, BG_BLACK);
-    y += 2;
-
-    // ── Uptime & Summary ──────────────────────────────────────────────
-    engine.draw_text(1, y, "── System ────────────────────────────────", FG_CYAN, BG_BLACK);
-    y += 1;
-    engine.draw_text(1, y, &format!("  Uptime: {}", resources::format_uptime(d.uptime_seconds)), FG_WHITE, BG_BLACK);
-    y += 1;
-    if app.bridge_uptime > 0 {
-        engine.draw_text(1, y, &format!("  Bridge heartbeat: ↑{}s", app.bridge_uptime), FG_GRAY, BG_BLACK);
-    }
-    y += 2;
-
-    // ── Resource adjustment hint ──────────────────────────────────────
-    engine.draw_text(1, y, "Press R to adjust CPU/RAM/Disk allocation", FG_GRAY, BG_BLACK);
+    queue!(out, MoveTo(1, y), SetForegroundColor(FG_WHITE),
+        Print(format!("  [{bar}] {:>5.1}%", ram_pct)),
+        ResetColor,
+    )?;
+    Ok(())
 }
 
-fn render_resize_overlay(engine: &mut Engine, app: &App) {
-    if !matches!(&app.mode, Mode::Resize { .. }) { return; }
-    let w = engine.width() as usize;
-    let bx = 6u16; let by = 5u16;
-    let bw = (w - 12) as u16; let bh = 10u16;
-
-    // Background
-    for y in by..by + bh {
-        engine.draw_text(bx, y, &" ".repeat(bw as usize), BG_CYAN, BG_BLACK);
+fn render_help_overlay(out: &mut impl Write, w: u16) -> Result<()> {
+    let bx = 4u16; let by = 3u16;
+    let bw = (w - 8) as usize;
+    let sep = "─".repeat(bw.saturating_sub(2));
+    queue!(out,
+        MoveTo(bx, by), SetForegroundColor(FG_CYAN), SetBackgroundColor(BG_BLACK),
+        Print(format!("┌{}┐", sep)),
+    )?;
+    queue!(out,
+        MoveTo(bx, by + 1),
+        Print(format!("│ {:<width$} │", "Help — Keybindings", width = bw - 4)),
+    )?;
+    let keys = [
+        ("/","Cmd mode"),("Tab","Switch"),("B","Rebuild"),
+        ("D","Deploy"),("C","Connect"),("S","Status"),
+        ("H","Health"),("L","Toggle deploy"),("↑↓","Scroll"),
+        ("Q","Quit"),("?","Help"),
+    ];
+    for (i, (key, desc)) in keys.iter().enumerate() {
+        queue!(out,
+            MoveTo(bx, by + 3 + i as u16),
+            Print(format!("│  {:<6} {:<width$} │", key, desc, width = bw - 13)),
+        )?;
     }
-    let sep = "─".repeat(bw as usize - 2);
-    engine.draw_text(bx, by, &format!("┌{}┐", sep), FG_CYAN, BG_BLACK);
-    engine.draw_text(bx, by + 1, &format!("│ {:<width$} │", "Resource Adjustment (requires VM restart)", width = bw as usize - 4), FG_WHITE, BG_BLACK);
-    engine.draw_text(bx, by + 2, &format!("│ {:<width$} │", "", width = bw as usize - 4), FG_CYAN, BG_BLACK);
+    queue!(out,
+        MoveTo(bx, by + 3 + keys.len() as u16),
+        Print(format!("└{}┘", sep)),
+        ResetColor,
+    )?;
+    Ok(())
+}
 
+fn render_resize_overlay(out: &mut impl Write, app: &App, w: u16) -> Result<()> {
+    if !matches!(&app.mode, Mode::Resize { .. }) { return Ok(()); }
+    let bx = 6u16; let by = 5u16;
+    let bw = (w - 12) as usize;
+    let sep = "─".repeat(bw.saturating_sub(2));
+    queue!(out,
+        MoveTo(bx, by), SetForegroundColor(FG_CYAN), SetBackgroundColor(BG_BLACK),
+        Print(format!("┌{}┐", sep)),
+        MoveTo(bx, by + 1), Print(format!("│ {:<width$} │", "Resource Adjustment (requires VM restart)", width = bw - 4)),
+    )?;
     if let Mode::Resize { field, value, .. } = &app.mode {
-        let ram = format!("RAM (MB)");
-        let cpu = format!("CPU Cores");
-        let disk = format!("Disk (GB)");
-
         let ram_fg = if matches!(field, ResizeField::Ram) { FG_YELLOW } else { FG_GRAY };
         let cpu_fg = if matches!(field, ResizeField::Cpu) { FG_YELLOW } else { FG_GRAY };
-        let disk_fg = if matches!(field, ResizeField::Disk) { FG_YELLOW } else { FG_GRAY };
-        let confirm_fg = if matches!(field, ResizeField::Confirm) { FG_YELLOW } else { FG_GRAY };
-
-        let edit_line = match field {
-            ResizeField::Ram => format!("  RAM:  [{}] MB", value),
-            ResizeField::Cpu => format!("  CPU:  [{}] cores", value),
-            ResizeField::Disk => format!("  Disk: [{}] GB", value),
-            ResizeField::Confirm => format!("  --- Confirm & Show Commands ---"),
-        };
-
-        engine.draw_text(bx + 2, by + 3, &format!("  {ram}"), ram_fg, BG_BLACK);
-        engine.draw_text(bx + 2, by + 4, &format!("  {cpu}"), cpu_fg, BG_BLACK);
-        engine.draw_text(bx + 2, by + 5, &format!("  {disk}"), disk_fg, BG_BLACK);
-        engine.draw_text(bx + 2, by + 6, "  ─────────────────────────", FG_GRAY, BG_BLACK);
-        engine.draw_text(bx + 2, by + 7, &edit_line, FG_WHITE, BG_BLACK);
-        engine.draw_text(bx + 2, by + 8, "  Confirm & show commands", confirm_fg, BG_BLACK);
+        queue!(out,
+            MoveTo(bx + 2, by + 3), SetForegroundColor(ram_fg), Print("  RAM (MB)"),
+            MoveTo(bx + 2, by + 4), SetForegroundColor(cpu_fg), Print("  CPU Cores"),
+            MoveTo(bx + 2, by + 6), SetForegroundColor(FG_WHITE),
+            Print(format!("  [{value}]")),
+        )?;
     }
-
-    engine.draw_text(bx, by + bh - 1, &format!("└{}┘", sep), FG_CYAN, BG_BLACK);
+    queue!(out,
+        MoveTo(bx, by + 8),
+        Print(format!("└{}┘", sep)),
+        ResetColor,
+    )?;
+    Ok(())
 }
 
-
-fn render_commands_view(engine: &mut Engine, app: &App) {
-    let w=engine.width() as usize;
-    let h=engine.height() as usize;
-    for y in 5..h.saturating_sub(2) {
-        engine.draw_text(0, y as u16, &" ".repeat(w), FG_WHITE, BG_BLACK);
-    }
-    let max=(h.saturating_sub(7)).max(1);
-    let start=(app.command_log.len().saturating_sub(max)).saturating_add(app.log_scroll_offset).min(app.command_log.len().saturating_sub(1));
-    let mut y=5u16;
-    for line in app.command_log.iter().skip(start).take(max) {
-        let t=if line.len()>w{format!("{}…",&line[..w.saturating_sub(1)])}else{line.clone()};
-        let fg=if line.starts_with("> "){FG_YELLOW}else{FG_WHITE};
-        engine.draw_text(1, y, &t, fg, BG_BLACK);
-        y+=1;
-    }
-    if app.command_log.is_empty() {
-        engine.draw_text(1, 5, "(commands will appear here — press / to enter command mode)", FG_GRAY, BG_BLACK);
-    }
-}
-
-fn render_help_overlay(engine: &mut Engine) {
-    let w=engine.width() as usize;
-    let bx=4u16; let by=3u16;
-    let bw=(w-8) as u16; let bh=14u16;
-    // Clear box area
-    for y in by..by+bh { engine.draw_text(bx, y, &" ".repeat(bw as usize), FG_WHITE, BG_BLACK); }
-    // Border
-    let sep="─".repeat(bw as usize -2);
-    engine.draw_text(bx, by, &format!("┌{}┐", sep), FG_CYAN, BG_BLACK);
-    engine.draw_text(bx, by+1, &format!("│ {:<width$} │", "Help — Keybindings", width=bw as usize-4), FG_CYAN, BG_BLACK);
-    engine.draw_text(bx, by+2, &format!("│ {:<width$} │", "", width=bw as usize-4), FG_CYAN, BG_BLACK);
-    let keys=[
-        ("/","Command mode"),("Tab","Switch view"),("R","Build menu"),
-        ("B","Quick rebuild"),("D","Deploy"),("C","VM connect"),
-        ("S","Status refresh"),("H","Health check"),("J","Journal"),
-        ("L","Toggle deploy"),("1-9","Restart services"),("?","This help"),
-        ("↑↓","Scroll"),("PgUp/Dn","Scroll 10"),("0/End","Bottom/Top"),
-        ("Esc","Cancel/Close"),("Q","Quit"),
-    ];
-    for (i,(key,desc)) in keys.iter().enumerate(){
-        let line=format!("│  {:<8} {:<width$} │", key, desc, width=bw as usize-13);
-        engine.draw_text(bx, by+3+i as u16, &line, FG_WHITE, BG_BLACK);
-    }
-    engine.draw_text(bx, by+bh-1, &format!("└{}┘", sep), FG_CYAN, BG_BLACK);
-}
-
-fn render_tabs(engine: &mut Engine, app: &App) {
-    let tabs = [" Logs ", " Status ", " Journal ", " Commands ", " Resources "];
-    let mut x = 1u16;
-    for (i, label) in tabs.iter().enumerate() {
-        let active = match (&app.view, i) {
-            (View::Logs, 0) | (View::Status, 1) | (View::Journal, 2) | (View::Commands, 3) | (View::Resources, 4) => true,
-            _ => false,
-        };
-        let (fg, bg) = if active { (BG_BLACK, BG_CYAN) } else { (FG_GRAY, BG_BLACK) };
-        engine.draw_text(x, 4, label, fg, bg);
-        x += label.len() as u16;
-    }
-}
-
-fn render_footer(engine: &mut Engine, app: &App) {
-    let w = engine.width() as usize;
-    let h = engine.height() as usize;
-    if h < 3 { return; }
-    let footer_y = h as u16 - 2;
-
-    // Clear footer lines
-    engine.draw_text(0, footer_y, &" ".repeat(w), FG_WHITE, BG_BLACK);
-    engine.draw_text(0, footer_y + 1, &"─".repeat(w), FG_GRAY, BG_BLACK);
-
+fn render_footer(out: &mut impl Write, app: &App, w: u16, h: u16) -> Result<()> {
+    if h < 3 { return Ok(()); }
+    let y = h - 2;
     let mode_text = match &app.mode {
         Mode::Normal => {
             let status = if app.building { "● BUILDING..." } else if !app.vm_online { "VM offline — press C" } else { "● idle" };
             let status_fg = if app.building { FG_YELLOW } else if !app.vm_online { FG_RED } else { FG_GREEN };
-            engine.draw_text(2, footer_y, status, status_fg, BG_BLACK);
-            format!("  {}  │  {}/{} active  │  Q=quit B=build S=status H=health /=cmd Tab=view",
-                status, app.active_services, app.total_services)
+            queue!(out, MoveTo(0, y), SetForegroundColor(FG_GRAY), SetBackgroundColor(BG_BLACK),
+                Print(" ".repeat(w as usize)),
+                MoveTo(2, y), SetForegroundColor(status_fg), Print(status),
+                SetForegroundColor(FG_GRAY),
+                Print(format!("  │  {}/{} active  │  Q=quit B=build S=status H=health /=cmd Tab=view",
+                    app.active_services, app.total_services)),
+            )?;
+            String::new()
         }
-        Mode::Command { input, .. } => {
-            format!("  / {}", input)
-        }
+        Mode::Command { input, .. } => { format!("  / {}", input) }
         Mode::BuildMenu { cursor } => {
             let items = ["[All]", "[Changed]", "[Select]"];
             let mut s = "  Build: ".to_string();
@@ -1006,8 +960,7 @@ fn render_footer(engine: &mut Engine, app: &App) {
         Mode::BuildSelect { cursor: _, selected } => {
             let mut s = "  Select: ".to_string();
             for (i, svc) in app.services.iter().enumerate() {
-                let checked = selected.contains(&i);
-                let mark = if checked { "✓" } else { " " };
+                let mark = if selected.contains(&i) { "✓" } else { " " };
                 s.push_str(&format!(" [{}]{}", mark, &svc[5..]));
             }
             s.push_str("  Space=toggle A=all Enter=build Esc=back");
@@ -1019,92 +972,96 @@ fn render_footer(engine: &mut Engine, app: &App) {
                 ResizeField::Ram => 0, ResizeField::Cpu => 1,
                 ResizeField::Disk => 2, ResizeField::Confirm => 3,
             };
-            let mut s = format!("  Resize: {}  ", labels[idx]);
-            s.push_str("↑↓=select Enter=edit/confirm Esc=cancel");
-            s
+            format!("  Resize: {}  ↑↓=select Enter=edit/confirm Esc=cancel", labels[idx])
         }
     };
-    engine.draw_text(0, footer_y, &mode_text, FG_GRAY, BG_BLACK);
+    if !mode_text.is_empty() {
+        queue!(out, MoveTo(0, y), SetForegroundColor(FG_GRAY), SetBackgroundColor(BG_BLACK),
+            Print(&mode_text),
+        )?;
+    }
+    queue!(out, ResetColor)?;
+    Ok(())
+}
+
+fn render_all(out: &mut impl Write, app: &App, log_buf: &[String]) -> Result<()> {
+    let (w, h) = terminal::size()?;
+    // Clear full screen first
+    execute!(out, Clear(ClearType::All))?;
+
+    render_header(out, app, w)?;
+    render_tabs(out, app, w)?;
+
+    // Clear content area
+    for y in 5..h.saturating_sub(2) {
+        queue!(out, MoveTo(0, y), SetBackgroundColor(BG_BLACK),
+            Print(" ".repeat(w as usize)),
+        )?;
+    }
+
+    match app.view {
+        View::Logs => render_logs(out, app, log_buf, w, h)?,
+        View::Status => render_status_view(out, app, w, h)?,
+        View::Journal => render_journal_view(out, app, w, h)?,
+        View::Commands => render_commands_view(out, app, w, h)?,
+        View::Resources => render_resources_view(out, app, w, h)?,
+    }
+
+    render_footer(out, app, w, h)?;
+
+    if app.show_help { render_help_overlay(out, w)?; }
+    render_resize_overlay(out, app, w)?;
+
+    out.flush()?;
+    Ok(())
 }
 
 // ═══ Main ════════════════════════════════════════════════════════════════
 
 fn main() -> Result<()> {
-    // Shared tokio runtime for all background tasks (no per-task Runtime::new())
     let rt = tokio::runtime::Runtime::new()?;
     let _guard = rt.enter();
 
     let args = Args::parse();
     let mut app = App::new(&args)?;
 
-    // Apply crossterm PR #815 raw mode fix on Windows BEFORE Engine::new().
-    // The Input Actor thread starts during Engine::new() and reads the console
-    // mode at that point. Without ENABLE_EXTENDED_FLAGS, the console driver
-    // eats key events instead of forwarding them.
-    // See: https://github.com/crossterm-rs/crossterm/pull/815
+    // Windows raw mode fix BEFORE terminal setup (sets ENABLE_EXTENDED_FLAGS)
     #[cfg(windows)]
-    win_raw_fix::apply();
+    let _mode_before = win_raw_fix::apply_and_report();
 
-    let mut engine = Engine::new()?;
-    let w = engine.width() as usize;
-    let h = engine.height() as usize;
+    // Setup crossterm terminal
+    terminal::enable_raw_mode()?;
 
-    // StreamWidget for main log area
-    let log_rect = Rect::new(0, 5, w as u16, h.saturating_sub(7) as u16);
-    let mut stream = StreamWidget::new(log_rect);
-    stream.set_fg(FG_WHITE);
+    // Re-apply AFTER enable_raw_mode() — crossterm 0.28.1 may incorrectly
+    // clear flags we need. This is a belt-and-suspenders approach.
+    #[cfg(windows)]
+    let _mode_after = win_raw_fix::apply_and_report();
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen, Hide, Clear(ClearType::All))?;
 
-    // Event channel for background tasks
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<AppEvent>();
-
-    // Bridge connection event channel (persistent SSE)
     let (conn_tx, mut conn_rx) = mpsc::unbounded_channel::<ConnEvent>();
+    let mut log_buf: Vec<String> = Vec::new();
 
-    // Start persistent bridge connection (non-blocking, auto-reconnects)
+    // Start bridge
+    push_log(&mut log_buf, &format!("[BRIDGE] Connecting to bridge at {}:{}...", app.vm_host, app.vm_bridge_port));
     let _bridge = if app.vm_bridge_port > 0 {
-        push_log(&mut stream, &mut engine,
-            &format!("[BRIDGE] Connecting to bridge at {}:{}...", app.vm_host, app.vm_bridge_port));
-        Some(BridgeConnection::start(
-            app.vm_host.clone(),
-            app.vm_bridge_port,
-            conn_tx.clone(),
-        ))
-    } else {
-        push_log(&mut stream, &mut engine, "[BRIDGE] Bridge mode disabled (--vm-bridge-port 0)");
-        None
-    };
+        Some(BridgeConnection::start(app.vm_host.clone(), app.vm_bridge_port, conn_tx.clone()))
+    } else { None };
 
-    // Start persistent SSH master session (second independent health channel).
-    // All build/deploy commands multiplex over this master = no handshake overhead.
-    push_log(&mut stream, &mut engine,
-        &format!("[SSH] Opening persistent master session to {}:{}...", app.vm_host, app.vm_port));
-    let _ssh_session = SshSession::start(
-        app.vm_host.clone(),
-        app.vm_port,
-        app.ssh_key.clone(),
-        conn_tx.clone(),
-    );
+    // Start SSH master
+    push_log(&mut log_buf, &format!("[SSH] Opening persistent master session to {}:{}...", app.vm_host, app.vm_port));
+    let _ssh_session = SshSession::start(app.vm_host.clone(), app.vm_port, app.ssh_key.clone(), conn_tx.clone());
 
     // File watcher
     let _watcher = if app.do_watch {
         Some(start_file_watcher(app.workspace.clone(), app.frontend_dir.clone(), event_tx.clone())?)
     } else { None };
 
-    // Welcome
-    push_log(&mut stream, &mut engine, "[SYSTEM] IORA Dev Watch ready. Checking VM...");
+    push_log(&mut log_buf, "[SYSTEM] IORA Dev Watch ready. Checking VM...");
+    render_all(&mut stdout, &app, &log_buf)?;
 
-    // Initial render
-    engine.clear();
-    render_header(&mut engine, &app);
-    render_tabs(&mut engine, &app);
-    stream.render(engine.buffer_mut());
-    render_footer(&mut engine, &app);
-    engine.request_redraw();
-
-    // Initial VM check — try bridge first (fast), fall back to SSH.
-    // The bridge connection already runs in background and will emit
-    // VmStatus events via ConnEvent. We still do a one-shot SSH check
-    // so SSH access is verified early.
+    // Initial VM check + initial build
     let tx = event_tx.clone();
     let (vmh, vmp, sk) = (app.vm_host.clone(), app.vm_port, app.ssh_key.clone());
     let (ws, vmws) = (app.workspace.clone(), app.vm_workspace.clone());
@@ -1113,67 +1070,80 @@ fn main() -> Result<()> {
     let do_build = !app.no_initial_build;
     let bridge_port = app.vm_bridge_port;
     tokio::spawn(async move {
-            // If bridge mode is enabled, let the bridge connection handle
-            // online/offline events. We just verify SSH as a one-shot.
-            let mut a = App::dummy(vmh.clone(), vmp, sk.clone(), ws, vmws, fe, rr, cd, svcs);
-            // Quick bridge health check first (fast)
-            if bridge_port > 0 {
-                if let Ok(()) = connection::health_check(&vmh, bridge_port).await {
-                    let _ = tx.send(AppEvent::BuildOutput(
-                        format!("[BRIDGE] Bridge responsive at {}:{}", vmh, bridge_port)
-                    ));
-                }
+        let mut a = App::dummy(vmh.clone(), vmp, sk.clone(), ws, vmws, fe, rr, cd, svcs);
+        if bridge_port > 0 {
+            if let Ok(()) = connection::health_check(&vmh, bridge_port).await {
+                let _ = tx.send(AppEvent::BuildOutput(format!("[BRIDGE] Bridge responsive at {}:{}", vmh, bridge_port)));
             }
-            // Then verify SSH for build/deploy capability
-            if a.check_vm().await {
-                let _=tx.send(AppEvent::VmStatus(true));
-                let _=tx.send(AppEvent::BuildOutput(format!("[SYSTEM] SSH to {}:{} OK", vmh, vmp)));
-                a.refresh_services().await;
-                let _=tx.send(AppEvent::BuildOutput(format!("[SYSTEM] {}/{} services active", a.active_services, a.total_services)));
-                if do_build {
-                    let _=tx.send(AppEvent::BuildOutput("[SYSTEM] Starting initial build...".into()));
-                    let _=a.build_rust(None, &tx).await;
-                    let _=a.build_frontend(&tx).await;
-                    if a.auto_deploy {
-                        let _=a.deploy_binaries(&tx).await;
-                    }
-                    let _=tx.send(AppEvent::BuildComplete);
+        }
+        if a.check_vm().await {
+            let _ = tx.send(AppEvent::VmStatus(true));
+            let _ = tx.send(AppEvent::BuildOutput(format!("[SYSTEM] SSH to {}:{} OK", vmh, vmp)));
+            a.refresh_services().await;
+            let _ = tx.send(AppEvent::BuildOutput(format!("[SYSTEM] {}/{} services active", a.active_services, a.total_services)));
+            if do_build {
+                let _ = tx.send(AppEvent::BuildOutput("[SYSTEM] Starting initial build...".into()));
+                let _ = a.build_rust(None, &tx).await;
+                let _ = a.build_frontend(&tx).await;
+                if a.auto_deploy {
+                    let _ = a.deploy_binaries(&tx).await;
                 }
+                let _ = tx.send(AppEvent::BuildComplete);
+            }
+        } else {
+            let _ = tx.send(AppEvent::VmStatus(false));
+            let _ = tx.send(AppEvent::BuildOutput(if cfg!(windows) {
+                "[SYSTEM] SSH offline — start with .\\dev-local.ps1, then press C".into()
             } else {
-                let _=tx.send(AppEvent::VmStatus(false));
-                let _=tx.send(AppEvent::BuildOutput(if cfg!(windows) {
-                    "[SYSTEM] SSH offline — start with .\\dev-local.ps1, then press C".into()
-                } else {
-                    "[SYSTEM] SSH offline — start with ./dev-local.sh, then press C".into()
-                }));
-            }
-        
-                    });
+                "[SYSTEM] SSH offline — start with ./dev-local.sh, then press C".into()
+            }));
+        }
+    });
 
-    // Main loop
     let mut last_vm_check = Instant::now();
     let loop_tx = event_tx.clone();
-    loop {
-        let mut pending = Vec::new();
-        // 0. Poll before anything
-        while let Some(event) = engine.poll_input() { pending.push(event); }
 
-        // 1. Drain background events
+    // Dedicated input thread — event::read() blocks correctly on Windows
+    // console input, while event::poll() can be unreliable in some configs.
+    let (input_tx, mut input_rx) = mpsc::unbounded_channel::<crossterm::event::Event>();
+    std::thread::spawn(move || {
+        loop {
+            match event::read() {
+                Ok(ev) => {
+                    if input_tx.send(ev).is_err() { break; }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Main event loop
+    loop {
+        // Poll input events from the dedicated thread
+        while let Ok(ev) = input_rx.try_recv() {
+            match ev {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    handle_key(&mut app, key, &mut log_buf, &loop_tx);
+                }
+                Event::Resize(_, _) => {
+                    let _ = render_all(&mut stdout, &app, &log_buf);
+                }
+                _ => {}
+            }
+        }
+
+        // Drain async build events
         while let Ok(event) = event_rx.try_recv() {
             match event {
                 AppEvent::BuildOutput(line) => {
-                    // Auto-scroll to bottom unless user manually scrolled up
-                    if app.log_scroll_offset == 0 {
-                        stream.scroll_down(usize::MAX);
-                    }
-                    push_log(&mut stream, &mut engine, &line);
+                    push_log(&mut log_buf, &line);
                     app.dirty = true;
                 }
                 AppEvent::BuildComplete => {
                     app.building = false;
                     app.build_start = None;
+                    push_log(&mut log_buf, "[SYSTEM] Build complete");
                     app.dirty = true;
-                    push_log(&mut stream, &mut engine, "[SYSTEM] Build complete");
                 }
                 AppEvent::VmStatus(online) => {
                     app.vm_online = online;
@@ -1190,9 +1160,10 @@ fn main() -> Result<()> {
                     } else { 0.0 };
                     app.resource_history.push(cpu, ram_pct);
                     app.resource_data = data;
-                    if app.view == View::Resources {
-                        app.dirty = true;
-                    }
+                    app.dirty = true;
+                }
+                AppEvent::HealthCheckComplete => {
+                    app.health_check_in_flight = false;
                 }
                 AppEvent::FileChange { rust_crates, frontend } => {
                     for c in &rust_crates {
@@ -1202,8 +1173,8 @@ fn main() -> Result<()> {
                     if frontend { app.changed_fe = true; }
                     if app.do_watch && !app.building && app.vm_online && app.auto_deploy {
                         if !app.changed_rust.is_empty() || app.changed_fe {
-                            push_log(&mut stream, &mut engine, "[WATCH] Changes detected — auto-rebuilding...");
-                            app.building = true; app.build_start = Some(Instant::now()); app.dirty = true;
+                            push_log(&mut log_buf, "[WATCH] Changes detected — auto-rebuilding...");
+                            app.building = true; app.build_start = Some(Instant::now());
                             let only = if !app.changed_rust.is_empty() { Some(app.changed_rust.clone()) } else { None };
                             let tx2 = loop_tx.clone();
                             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
@@ -1211,513 +1182,73 @@ fn main() -> Result<()> {
                             let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
                             let svcs2 = app.services.clone();
                             tokio::spawn(async move {
-                                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                    a.vm_online = true;
-                                    let _=a.build_rust(only, &tx2).await;
-                                    let _=a.build_frontend(&tx2).await;
-                                    let _=a.deploy_binaries(&tx2).await;
-                                    let _=tx2.send(AppEvent::BuildComplete);
-                                
-                    });
+                                let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                                a.vm_online = true;
+                                let _ = a.build_rust(only, &tx2).await;
+                                let _ = a.build_frontend(&tx2).await;
+                                let _ = a.deploy_binaries(&tx2).await;
+                                let _ = tx2.send(AppEvent::BuildComplete);
+                            });
                         }
                     }
                 }
             }
         }
 
-        // 1a. Drain bridge connection events (persistent SSE heartbeats)
+        // Drain connection events
         while let Ok(conn_event) = conn_rx.try_recv() {
             match conn_event {
                 ConnEvent::Online { build, hostname } => {
                     app.bridge_connected = true;
-                    // VM is online if either bridge or SSH is connected
-                    if !app.vm_online {
-                        app.vm_online = true;
-                        app.dirty = true;
-                    }
-                    push_log(&mut stream, &mut engine,
-                        &format!("[BRIDGE] Connected — {} (build {})", hostname, build));
+                    if !app.vm_online { app.vm_online = true; }
+                    push_log(&mut log_buf, &format!("[BRIDGE] Connected — {} (build {})", hostname, build));
+                    app.dirty = true;
                 }
                 ConnEvent::Offline => {
                     app.bridge_connected = false;
-                    // VM offline only if both channels are down
-                    if !app.ssh_connected {
-                        app.vm_online = false;
-                    }
+                    if !app.ssh_connected { app.vm_online = false; }
                     app.bridge_uptime = 0;
                     app.bridge_mem_avail = 0;
                     app.bridge_loadavg.clear();
+                    push_log(&mut log_buf, "[BRIDGE] Connection lost — auto-reconnecting...");
                     app.dirty = true;
-                    push_log(&mut stream, &mut engine, "[BRIDGE] Connection lost — auto-reconnecting...");
                 }
                 ConnEvent::SshOnline => {
                     app.ssh_connected = true;
-                    if !app.vm_online {
-                        app.vm_online = true;
-                        app.dirty = true;
-                        push_log(&mut stream, &mut engine, "[SSH] Master session established (commands now instant via multiplexing)");
-                    }
+                    if !app.vm_online { app.vm_online = true; }
+                    push_log(&mut log_buf, "[SSH] Master session established");
+                    app.dirty = true;
                 }
                 ConnEvent::SshOffline => {
                     app.ssh_connected = false;
-                    if !app.bridge_connected {
-                        app.vm_online = false;
-                    }
+                    if !app.bridge_connected { app.vm_online = false; }
+                    push_log(&mut log_buf, "[SSH] Master session lost — auto-reconnecting...");
                     app.dirty = true;
-                    push_log(&mut stream, &mut engine, "[SSH] Master session lost — auto-reconnecting...");
                 }
                 ConnEvent::Heartbeat { uptime_seconds, mem_available_bytes, loadavg } => {
                     app.bridge_uptime = uptime_seconds;
                     app.bridge_mem_avail = mem_available_bytes;
                     app.bridge_loadavg = loadavg;
-                    // Heartbeat proves bridge is alive
-                    if !app.bridge_connected {
-                        app.bridge_connected = true;
-                        app.vm_online = true;
-                        app.dirty = true;
-                    }
+                    if !app.bridge_connected { app.bridge_connected = true; app.vm_online = true; }
                     app.dirty = true;
                 }
                 ConnEvent::Error(msg) => {
-                    push_log(&mut stream, &mut engine, &format!("[CONN] {}", msg));
+                    push_log(&mut log_buf, &format!("[CONN] {}", msg));
+                    app.dirty = true;
                 }
             }
         }
 
-        // 1b. Poll after drain (catch keys during event processing)
-        while let Some(event) = engine.poll_input() { pending.push(event); }
-
-        // 2. Render full frame if dirty (only clear header/footer — StreamWidget handles its own area)
+        // Re-render if dirty
         if app.dirty {
-            let w = engine.width() as usize;
-            let h = engine.height() as usize;
-            // Clear header rows only (0-4)
-            for y in 0..5u16 { engine.draw_text(0, y, &" ".repeat(w), FG_WHITE, BG_BLACK); }
-            // Clear footer rows (h-2, h-1)
-            for y in (h.saturating_sub(2) as u16)..(h as u16) { engine.draw_text(0, y, &" ".repeat(w), FG_WHITE, BG_BLACK); }
-            render_header(&mut engine, &app);
-            render_tabs(&mut engine, &app);
-            // Render content area based on active view
-            match app.view {
-                View::Logs => {
-                    stream.render(engine.buffer_mut());
-                    // Scroll indicator (top-right of log area)
-                    if app.log_scroll_offset > 0 {
-                        let ind = format!("[↑{} lines | 0=bottom]", app.log_scroll_offset);
-                        let x = w.saturating_sub(ind.len() + 2) as u16;
-                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
-                    }
-                }
-                View::Status => { render_status_view(&mut engine, &app);
-                    if app.log_scroll_offset > 0 {
-                        let ind = format!("[↑{} | 0=top]", app.log_scroll_offset);
-                        let x = w.saturating_sub(ind.len() + 2) as u16;
-                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
-                    }
-                }
-                View::Journal => { render_journal_view(&mut engine, &app);
-                    if app.log_scroll_offset > 0 {
-                        let ind = format!("[↑{} | 0=top]", app.log_scroll_offset);
-                        let x = w.saturating_sub(ind.len() + 2) as u16;
-                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
-                    }
-                }
-                View::Commands => { render_commands_view(&mut engine, &app);
-                    if app.log_scroll_offset > 0 {
-                        let ind = format!("[↑{} | 0=top]", app.log_scroll_offset);
-                        let x = w.saturating_sub(ind.len() + 2) as u16;
-                        engine.draw_text(x, 5, &ind, FG_YELLOW, BG_BLACK);
-                    }
-                }
-                View::Resources => { render_resources_view(&mut engine, &app); }
-            }
-            render_footer(&mut engine, &app);
-            if app.show_help { render_help_overlay(&mut engine); }
-            // Resource resize overlay (drawn on top)
-            render_resize_overlay(&mut engine, &app);
-            engine.request_update();  // faster: diff-only, no full redraw
+            let _ = render_all(&mut stdout, &app, &log_buf);
             app.dirty = false;
         }
 
-        // 2b. Poll after render (catch keys during draw)
-        while let Some(event) = engine.poll_input() { pending.push(event); }
-
-        // 3. Process pending input events (collected at loop start)
-        for event in pending {
-            match event {
-                InputEvent::Resize { width, height } => {
-                    engine.handle_resize(width, height);
-                    engine.clear();
-                    stream.set_bounds(Rect::new(0, 5, width, height.saturating_sub(7)));
-                    app.dirty = true;
-                }
-                InputEvent::Key { code, .. } => {
-                    app.dirty = true;
-                    let is_cmd = matches!(&app.mode, Mode::Command { .. });
-                    let is_menu = matches!(&app.mode, Mode::BuildMenu { .. });
-                    let is_select = matches!(&app.mode, Mode::BuildSelect { .. });
-                    let is_resize = matches!(&app.mode, Mode::Resize { .. });
-
-                    if is_cmd {
-                        if let Mode::Command { input, cursor } = &mut app.mode {
-                            match code {
-                                KeyCode::Esc => app.mode = Mode::Normal,
-                                KeyCode::Enter => {
-                                    let cmd = input.clone();
-                                    app.mode = Mode::Normal;
-                                    app.command_log.push_back(format!("> {}", cmd));
-                                    if app.command_log.len() > 200 { app.command_log.pop_front(); }
-                                    app.run_command(&cmd, &mut stream, &mut engine, &loop_tx);
-                                }
-                                KeyCode::Char(c) => { input.insert(*cursor, c); *cursor += 1; }
-                                KeyCode::Backspace => { if *cursor > 0 { input.remove(*cursor-1); *cursor -= 1; } }
-                                KeyCode::Left => { if *cursor > 0 { *cursor -= 1; } }
-                                KeyCode::Right => { if *cursor < input.len() { *cursor += 1; } }
-                                _ => {}
-                            }
-                        }
-                    } else if is_menu {
-                        if let Mode::BuildMenu { cursor } = &mut app.mode {
-                            match code {
-                                KeyCode::Esc => app.mode = Mode::Normal,
-                                KeyCode::Up => { *cursor = cursor.saturating_sub(1); }
-                                KeyCode::Down => { *cursor = (*cursor+1).min(2); }
-                                KeyCode::Enter => {
-                                    let choice = *cursor;
-                                    if choice == 2 {
-                                        app.mode = Mode::BuildSelect { cursor: 0, selected: HashSet::new() };
-                                    } else {
-                                        app.mode = Mode::Normal;
-                                        if !app.vm_online { push_log(&mut stream, &mut engine, "[BUILD] VM offline"); }
-                                        else if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
-                                        else {
-                                            app.building = true; app.build_start = Some(Instant::now());
-                                            let only = if choice == 1 && !app.changed_rust.is_empty() { Some(app.changed_rust.clone()) } else { None };
-                                            let tx2 = loop_tx.clone();
-                                            let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                            let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                            let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                            let svcs2 = app.services.clone();
-                                            push_log(&mut stream, &mut engine, &format!("[BUILD] Build: {}", ["All","Changed"][choice]));
-                                            tokio::spawn(async move {
-                                                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                                    a.vm_online = true;
-                                                    let _=a.build_rust(only, &tx2).await;
-                                                    let _=a.build_frontend(&tx2).await;
-                                                    let _=tx2.send(AppEvent::BuildComplete);
-                                                
-                    });
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    } else if is_select {
-                        if let Mode::BuildSelect { cursor, selected } = &mut app.mode {
-                            match code {
-                                KeyCode::Esc => app.mode = Mode::BuildMenu { cursor: 2 },
-                                KeyCode::Up => { *cursor = cursor.saturating_sub(1); }
-                                KeyCode::Down => { *cursor = (*cursor+1).min(app.services.len().saturating_sub(1)); }
-                                KeyCode::Char(' ') => {
-                                    if selected.contains(cursor) { selected.remove(cursor); }
-                                    else { selected.insert(*cursor); }
-                                }
-                                KeyCode::Char('a') => {
-                                    if selected.len() == app.services.len() { selected.clear(); }
-                                    else { for i in 0..app.services.len() { selected.insert(i); } }
-                                }
-                                KeyCode::Enter => {
-                                    if selected.is_empty() { app.mode = Mode::BuildMenu { cursor: 2 }; }
-                                    else {
-                                        let only: HashSet<String> = selected.iter().map(|&i| app.services[i].clone()).collect();
-                                        app.mode = Mode::Normal;
-                                        if !app.vm_online { push_log(&mut stream, &mut engine, "[BUILD] VM offline"); }
-                                        else if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
-                                        else {
-                                            app.building = true; app.build_start = Some(Instant::now());
-                                            let tx2 = loop_tx.clone();
-                                            let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                            let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                            let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                            let svcs2 = app.services.clone();
-                                            push_log(&mut stream, &mut engine, &format!("[BUILD] Build: {} services", only.len()));
-                                            tokio::spawn(async move {
-                                                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                                    a.vm_online = true;
-                                                    let _=a.build_rust(Some(only), &tx2).await;
-                                                    let _=tx2.send(AppEvent::BuildComplete);
-                                                
-                    });
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    } else if is_resize {
-                        // Extract resource info before borrowing app.mode mutably
-                        let current_ram = (app.resource_data.ram_total_bytes / 1_048_576).max(4096);
-                        let current_cpu = app.resource_data.cpu_cores_total.max(2);
-                        let current_disk = (app.resource_data.disk_total_bytes / 1_073_741_824).max(20);
-
-                        if let Mode::Resize { field, value, cursor } = &mut app.mode {
-                            match code {
-                                KeyCode::Esc => app.mode = Mode::Normal,
-                                KeyCode::Up => {
-                                    *field = match field {
-                                        ResizeField::Ram => ResizeField::Confirm,
-                                        ResizeField::Cpu => ResizeField::Ram,
-                                        ResizeField::Disk => ResizeField::Cpu,
-                                        ResizeField::Confirm => ResizeField::Disk,
-                                    };
-                                }
-                                KeyCode::Down => {
-                                    *field = match field {
-                                        ResizeField::Ram => ResizeField::Cpu,
-                                        ResizeField::Cpu => ResizeField::Disk,
-                                        ResizeField::Disk => ResizeField::Confirm,
-                                        ResizeField::Confirm => ResizeField::Ram,
-                                    };
-                                }
-                                KeyCode::Enter => {
-                                    if matches!(field, ResizeField::Confirm) {
-                                        // Generate resize commands
-                                        let ram_mb = value.parse::<u64>().ok().filter(|&v| v > 0).unwrap_or(current_ram);
-                                        let cpu = value.parse::<u32>().ok().filter(|&v| v > 0).unwrap_or(current_cpu);
-                                        let disk_gb = value.parse::<u64>().ok().filter(|&v| v > 0).unwrap_or(current_disk);
-                                        push_log(&mut stream, &mut engine,
-                                            &format!("[RESIZE] New allocation: {}MB RAM, {} cores, {}GB disk", ram_mb, cpu, disk_gb));
-                                        push_log(&mut stream, &mut engine,
-                                            "# To apply: set env vars and run dev-local.sh --reboot");
-                                        push_log(&mut stream, &mut engine,
-                                            &format!("IORA_DEV_RAM={}M IORA_DEV_CPUS={} ./dev-local.sh --reboot", ram_mb, cpu));
-                                        app.mode = Mode::Normal;
-                                        app.view = View::Logs;
-                                    } else {
-                                        let current = match field {
-                                            ResizeField::Ram => current_ram.to_string(),
-                                            ResizeField::Cpu => current_cpu.to_string(),
-                                            ResizeField::Disk => current_disk.to_string(),
-                                            ResizeField::Confirm => String::new(),
-                                        };
-                                        *value = current;
-                                        *cursor = value.len();
-                                    }
-                                }
-                                KeyCode::Backspace => {
-                                    if *cursor > 0 { value.remove(*cursor - 1); *cursor -= 1; }
-                                }
-                                KeyCode::Left => { if *cursor > 0 { *cursor -= 1; } }
-                                KeyCode::Right => { if *cursor < value.len() { *cursor += 1; } }
-                                KeyCode::Char(c) if c.is_ascii_digit() => {
-                                    value.insert(*cursor, c); *cursor += 1;
-                                }
-                                _ => {}
-                            }
-                        }
-                    } else {
-                        // Normal mode keys
-                        match code {
-                            KeyCode::Esc if app.show_help => { app.show_help = false; app.dirty = true; }
-                            KeyCode::Char('q') | KeyCode::Char('Q') => app.should_quit = true,
-                            KeyCode::Char('?') => app.show_help = !app.show_help,
-                            KeyCode::Char('/') => app.mode = Mode::Command { input: String::new(), cursor: 0 },
-                            KeyCode::Tab => {
-                                app.view = match app.view {
-                                    View::Logs => View::Status,
-                                    View::Status => View::Journal,
-                                    View::Journal => View::Commands,
-                                    View::Commands => View::Resources,
-                                    View::Resources => View::Logs,
-                                };
-                            }
-                            // Scroll in all views
-                            KeyCode::Up if app.view != View::Logs => { app.log_scroll_offset = app.log_scroll_offset.saturating_add(1); app.dirty = true; }
-                            KeyCode::Down if app.view != View::Logs => { app.log_scroll_offset = app.log_scroll_offset.saturating_sub(1); app.dirty = true; }
-                            KeyCode::End | KeyCode::Char('0') if app.view != View::Logs => { app.log_scroll_offset = 0; app.dirty = true; }
-                            KeyCode::Up if app.view == View::Logs => { stream.scroll_up(1); app.log_scroll_offset += 1; app.dirty = true; }
-                            KeyCode::Down if app.view == View::Logs => { if app.log_scroll_offset > 0 { stream.scroll_down(1); app.log_scroll_offset -= 1; } app.dirty = true; }
-                            KeyCode::PageUp if app.view == View::Logs => { stream.scroll_up(10); app.log_scroll_offset += 10; app.dirty = true; }
-                            KeyCode::PageDown if app.view == View::Logs => { let n = app.log_scroll_offset.min(10); stream.scroll_down(n); app.log_scroll_offset -= n; app.dirty = true; }
-                            KeyCode::Home if app.view == View::Logs => { stream.scroll_up(usize::MAX); app.log_scroll_offset = usize::MAX; app.dirty = true; }
-                            KeyCode::End | KeyCode::Char('0') if app.view == View::Logs => { stream.scroll_down(usize::MAX); app.log_scroll_offset = 0; app.dirty = true; }
-                            KeyCode::Char('r')  => app.mode = Mode::BuildMenu { cursor: 0 },
-                            KeyCode::Char('R') => { app.view = View::Resources; app.dirty = true; }
-                            KeyCode::Enter if app.view == View::Resources => {
-                                // Open resource adjustment dialog
-                                let ram = (app.resource_data.ram_total_bytes / 1_048_576).max(4096);
-                                let cpu = app.resource_data.cpu_cores_total.max(2);
-                                let disk = (app.resource_data.disk_total_bytes / 1_073_741_824).max(20);
-                                app.mode = Mode::Resize {
-                                    field: ResizeField::Ram,
-                                    value: String::new(),
-                                    cursor: 0,
-                                };
-                                push_log(&mut stream, &mut engine,
-                                    &format!("[RESIZE] Current: {}MB RAM, {} cores, {}GB disk", ram, cpu, disk));
-                            }
-                            KeyCode::Char('b') | KeyCode::Char('B') => {
-                                if app.building { push_log(&mut stream, &mut engine, "[BUILD] Already building"); }
-                                else if !app.vm_online { push_log(&mut stream, &mut engine, "[BUILD] VM offline"); }
-                                else {
-                                    app.building = true; app.build_start = Some(Instant::now());
-                                    push_log(&mut stream, &mut engine, "[BUILD] Full rebuild");
-                                    let tx2 = loop_tx.clone();
-                                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                    let svcs2 = app.services.clone();
-                                    tokio::spawn(async move {
-                                            let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                            a.vm_online = true;
-                                            let _=a.build_rust(None, &tx2).await;
-                                            let _=a.build_frontend(&tx2).await;
-                                            let _=tx2.send(AppEvent::BuildComplete);
-                                        
-                    });
-                                }
-                            }
-                            KeyCode::Char('c') | KeyCode::Char('C') => {
-                                push_log(&mut stream, &mut engine, "[VM] Checking...");
-                                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                let svcs2 = app.services.clone();
-                                let c_tx = loop_tx.clone();
-                                let was_online = app.vm_online;
-                                tokio::spawn(async move {
-                                        let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                        a.check_vm().await;
-                                        if a.vm_online { a.refresh_services().await; }
-                                        let _=c_tx.send(AppEvent::BuildOutput(
-                                            if a.vm_online { if was_online {"[VM] Connected!"} else {"[VM] Came online!"} }
-                                            else {"[VM] Still offline"}.into()
-                                        ));
-                                    
-                    });
-                            }
-                            KeyCode::Char('d') | KeyCode::Char('D') => {
-                                if !app.vm_online { push_log(&mut stream, &mut engine, "[DEPLOY] VM offline"); }
-                                else {
-                                    let tx2 = loop_tx.clone();
-                                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                    let svcs2 = app.services.clone();
-                                    tokio::spawn(async move {
-                                            let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                            a.vm_online = true; let _=a.deploy_binaries(&tx2).await;
-                                        
-                    });
-                                }
-                            }
-                            KeyCode::Char('l') | KeyCode::Char('L') => {
-                                app.auto_deploy = !app.auto_deploy;
-                                push_log(&mut stream, &mut engine, &format!("[CONFIG] Auto-deploy: {}", if app.auto_deploy {"ON"} else {"OFF"}));
-                            }
-                            KeyCode::Char('s') | KeyCode::Char('S') => {
-                                app.view = View::Status;
-                                if app.vm_online {
-                                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                    let svcs2 = app.services.clone();
-                                    let tx2 = loop_tx.clone();
-                                    tokio::spawn(async move {
-                                            let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                            a.fetch_service_status().await;
-                                            let _=tx2.send(AppEvent::ServiceStatus(a.service_status.clone()));
-                                        
-                    });
-                                }
-                            }
-                            KeyCode::Char('h') | KeyCode::Char('H') => {
-                                push_log(&mut stream, &mut engine, "[HEALTH] Checking...");
-                                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                let svcs2 = app.services.clone();
-                                let tx2 = loop_tx.clone();
-                                tokio::spawn(async move {
-                                        let a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                        if let Ok(h) = a.ssh_exec("curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null || echo FAIL").await {
-                                            let _=tx2.send(AppEvent::BuildOutput(if h.contains("\"status\":\"ok\"") {"[HEALTH] ✓ API OK"} else {"[HEALTH] ✗ API unreachable"}.into()));
-                                        }
-                                        if let Ok(d) = a.ssh_exec("df -h / 2>/dev/null | tail -1").await {
-                                            let _=tx2.send(AppEvent::BuildOutput(format!("[HEALTH] Disk: {}", d.trim())));
-                                        }
-                                    
-                    });
-                            }
-                            KeyCode::Char('j') | KeyCode::Char('J') => {
-                                app.view = View::Journal;
-                                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                let svcs2 = app.services.clone();
-                                let tx2 = loop_tx.clone();
-                                tokio::spawn(async move {
-                                        let a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                        if let Ok(l) = a.ssh_exec("journalctl -u iora-home --no-pager -n 30 2>/dev/null").await {
-                                            for line in l.lines() { let _=tx2.send(AppEvent::BuildOutput(format!("  {}", line))); }
-                                        }
-                                    
-                    });
-                            }
-                            KeyCode::Char('1')|KeyCode::Char('2')|KeyCode::Char('3')|KeyCode::Char('4')|
-                            KeyCode::Char('5')|KeyCode::Char('6')|KeyCode::Char('7')|KeyCode::Char('8')|KeyCode::Char('9') => {
-                                let idx = match code { KeyCode::Char(c) => (c as u8 - b'1') as usize, _ => 0 };
-                                if idx < app.services.len() && app.vm_online {
-                                    let svc = app.services[idx].clone();
-                                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
-                                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
-                                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
-                                    let svcs2 = app.services.clone();
-                                    let tx2 = loop_tx.clone();
-                                    push_log(&mut stream, &mut engine, &format!("[RESTART] {}", svc));
-                                    tokio::spawn(async move {
-                                            let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                                            let st = a.restart_service(&svc).await;
-                                            let _=tx2.send(AppEvent::BuildOutput(format!("[RESTART] {} → {}", svc, st)));
-                                        
-                    });
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if app.should_quit { break; }
-
-        // 4. Build animation + VM check
-        // Animate spinner at ~10 fps, not every 5 ms loop tick (used to repaint 200×/sec).
-        if app.building {
-            let now = Instant::now();
-            if now.duration_since(app.last_frame_tick) >= Duration::from_millis(100) {
-                app.build_frame = app.build_frame.wrapping_add(1);
-                app.last_frame_tick = now;
-                app.dirty = true;
-            }
-        }
-        // 4. Periodic VM health check (SSH fallback).
-        // When bridge is active, we rely on SSE heartbeats (every 5s) for
-        // VM liveness. SSH checks run at reduced frequency (30s) and only
-        // provide service counts and deeper health data.
-        // NEVER run SSH health checks during builds — the VM is clearly
-        // alive if cargo is still compiling. SSH may timeout under heavy
-        // CPU load (especially TCG emulation), causing false offline detection.
-        let check_interval = if app.vm_bridge_port > 0 && app.vm_online {
-            Duration::from_secs(30) // Bridge is active; slower SSH poll
-        } else {
-            Duration::from_secs(6)  // No bridge; fast SSH polling
-        };
-        if !app.building && last_vm_check.elapsed() >= check_interval {
+        // Periodic VM health check (skip during builds, 30s minimum interval)
+        if !app.building && !app.health_check_in_flight && last_vm_check.elapsed() >= Duration::from_secs(30) {
             last_vm_check = Instant::now();
+            app.health_check_in_flight = true;
             let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
             let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
             let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
@@ -1725,67 +1256,295 @@ fn main() -> Result<()> {
             let tx2 = loop_tx.clone();
             let was_online = app.vm_online;
             tokio::spawn(async move {
-                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
-                    a.check_vm().await;
-                    // Only update SSH-based status if bridge is NOT active
-                    // (bridge handles online/offline via SSE)
-                    if a.vm_online {
-                        a.refresh_services().await;
-                        let _=tx2.send(AppEvent::BuildOutput(
-                            format!("[SSH] {}/{} services active", a.active_services, a.total_services)
-                        ));
-                    }
-                    if was_online != a.vm_online {
-                        let _=tx2.send(AppEvent::VmStatus(a.vm_online));
-                        let _=tx2.send(AppEvent::BuildOutput(
-                            if a.vm_online {"[SSH] VM reachable via SSH"} else {"[SSH] SSH connection lost"}.into()
-                        ));
-                    }
-                
-                    });
-        }
-
-        // 4b. Periodic resource collection (every 5s when Resources tab is visible)
-        if app.view == View::Resources
-            && app.vm_online
-            && app.last_resource_collect.elapsed() >= Duration::from_secs(5)
-        {
-            app.last_resource_collect = Instant::now();
-            let (vmh2, vmp2, sk2) = (app.vm_host.clone(), app.vm_port, app.ssh_key.clone());
-            let tx2 = loop_tx.clone();
-            let prev_data = Some(app.resource_data.clone());
-            tokio::spawn(async move {
-                match resources::collect_resources(&vmh2, vmp2, &sk2, prev_data.as_ref()).await {
-                    Ok(data) => {
-                        let _ = tx2.send(AppEvent::ResourceUpdate(data));
-                    }
-                    Err(_) => {
-                        // Resource collection failed silently — VM might be busy
-                    }
+                let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                a.check_vm().await;
+                if a.vm_online {
+                    a.refresh_services().await;
+                    let _ = tx2.send(AppEvent::BuildOutput(
+                        format!("[SSH] {}/{} services active", a.active_services, a.total_services)
+                    ));
                 }
+                // Only emit status changes when VM comes BACK online (not disconnects)
+                if !was_online && a.vm_online {
+                    let _ = tx2.send(AppEvent::VmStatus(true));
+                    let _ = tx2.send(AppEvent::BuildOutput("[SSH] VM reachable via SSH".into()));
+                }
+                // Signal check complete
+                let _ = tx2.send(AppEvent::HealthCheckComplete);
             });
         }
 
-        std::thread::sleep(Duration::from_millis(5));
+        if app.should_quit { break; }
+
+        std::thread::sleep(Duration::from_millis(100));
     }
 
-    // Engine drop handles cleanup automatically
+    // Cleanup
+    terminal::disable_raw_mode()?;
+    execute!(stdout, LeaveAlternateScreen, Show)?;
     println!("bye.");
     Ok(())
 }
 
+fn handle_key(app: &mut App, key: KeyEvent, log_buf: &mut Vec<String>, tx: &mpsc::UnboundedSender<AppEvent>) {
+    app.dirty = true;
+    let is_cmd = matches!(&app.mode, Mode::Command { .. });
+    let is_menu = matches!(&app.mode, Mode::BuildMenu { .. });
+    let is_select = matches!(&app.mode, Mode::BuildSelect { .. });
+
+    if is_cmd {
+        if let Mode::Command { input, cursor } = &mut app.mode {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('\x1b') => app.mode = Mode::Normal,
+                KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n') => {
+                    let cmd = input.clone();
+                    app.mode = Mode::Normal;
+                    app.command_log.push_back(format!("> {}", cmd));
+                    if app.command_log.len() > 200 { app.command_log.pop_front(); }
+                    app.run_command(&cmd, log_buf, tx);
+                }
+                KeyCode::Char(c) => { input.insert(*cursor, c); *cursor += 1; }
+                KeyCode::Backspace | KeyCode::Char('\x7f') | KeyCode::Char('\x08') => { if *cursor > 0 { input.remove(*cursor - 1); *cursor -= 1; } }
+                KeyCode::Left => { if *cursor > 0 { *cursor -= 1; } }
+                KeyCode::Right => { if *cursor < input.len() { *cursor += 1; } }
+                _ => {}
+            }
+        }
+    } else if is_menu {
+        if let Mode::BuildMenu { cursor } = &mut app.mode {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('\x1b') => app.mode = Mode::Normal,
+                KeyCode::Up => { *cursor = cursor.saturating_sub(1); }
+                KeyCode::Down => { *cursor = (*cursor + 1).min(2); }
+                KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n') => {
+                    let choice = *cursor;
+                    if choice == 2 {
+                        app.mode = Mode::BuildSelect { cursor: 0, selected: HashSet::new() };
+                    } else {
+                        app.mode = Mode::Normal;
+                        if !app.vm_online { push_log(log_buf, "[BUILD] VM offline"); return; }
+                        if app.building { push_log(log_buf, "[BUILD] Already building"); return; }
+                        app.building = true; app.build_start = Some(Instant::now());
+                        let only = if choice == 1 && !app.changed_rust.is_empty() { Some(app.changed_rust.clone()) } else { None };
+                        let tx2 = tx.clone();
+                        let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                        let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                        let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                        let svcs2 = app.services.clone();
+                        push_log(log_buf, &format!("[BUILD] Build: {}", ["All","Changed"][choice]));
+                        tokio::spawn(async move {
+                            let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                            a.vm_online = true;
+                            let _ = a.build_rust(only, &tx2).await;
+                            let _ = a.build_frontend(&tx2).await;
+                            let _ = tx2.send(AppEvent::BuildComplete);
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    } else if is_select {
+        if let Mode::BuildSelect { cursor, selected } = &mut app.mode {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('\x1b') => app.mode = Mode::BuildMenu { cursor: 2 },
+                KeyCode::Up => { *cursor = cursor.saturating_sub(1); }
+                KeyCode::Down => { *cursor = (*cursor + 1).min(app.services.len().saturating_sub(1)); }
+                KeyCode::Char(' ') => {
+                    if selected.contains(cursor) { selected.remove(cursor); }
+                    else { selected.insert(*cursor); }
+                }
+                KeyCode::Char('a') | KeyCode::Char('A') => {
+                    if selected.len() == app.services.len() { selected.clear(); }
+                    else { for i in 0..app.services.len() { selected.insert(i); } }
+                }
+                KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n') => {
+                    if selected.is_empty() { app.mode = Mode::BuildMenu { cursor: 2 }; return; }
+                    let only: HashSet<String> = selected.iter().map(|&i| app.services[i].clone()).collect();
+                    app.mode = Mode::Normal;
+                    if !app.vm_online { push_log(log_buf, "[BUILD] VM offline"); return; }
+                    if app.building { push_log(log_buf, "[BUILD] Already building"); return; }
+                    app.building = true; app.build_start = Some(Instant::now());
+                    let tx2 = tx.clone();
+                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                    let svcs2 = app.services.clone();
+                    push_log(log_buf, &format!("[BUILD] Build: {} services", only.len()));
+                    tokio::spawn(async move {
+                        let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                        a.vm_online = true;
+                        let _ = a.build_rust(Some(only), &tx2).await;
+                        let _ = tx2.send(AppEvent::BuildComplete);
+                    });
+                }
+                _ => {}
+            }
+        }
+    } else {
+        // Normal mode keys
+        match key.code {
+            KeyCode::Esc => { app.show_help = false; }
+            // Fallback: crossterm on some Windows configs sends Char('\x1b') instead of Esc
+            KeyCode::Char('\x1b') if !is_cmd => { app.show_help = false; }
+            KeyCode::Char('q') | KeyCode::Char('Q') => { app.should_quit = true; return; }
+            KeyCode::Char('?') => { app.show_help = !app.show_help; }
+            KeyCode::Char('/') => { app.mode = Mode::Command { input: String::new(), cursor: 0 }; }
+            KeyCode::Tab | KeyCode::Char('\t') => {
+                app.view = match app.view {
+                    View::Logs => View::Status,
+                    View::Status => View::Journal,
+                    View::Journal => View::Commands,
+                    View::Commands => View::Resources,
+                    View::Resources => View::Logs,
+                };
+            }
+            KeyCode::Up => { app.log_scroll_offset = app.log_scroll_offset.saturating_add(1); }
+            KeyCode::Down => { app.log_scroll_offset = app.log_scroll_offset.saturating_sub(1); }
+            KeyCode::PageUp => { app.log_scroll_offset = app.log_scroll_offset.saturating_add(10); }
+            KeyCode::PageDown => { app.log_scroll_offset = app.log_scroll_offset.saturating_sub(10); }
+            KeyCode::Home => { app.log_scroll_offset = 0; }
+            KeyCode::End => { app.log_scroll_offset = 0; }
+            KeyCode::Char('r') => { app.mode = Mode::BuildMenu { cursor: 0 }; }
+            KeyCode::Char('R') => { app.view = View::Resources; }
+            KeyCode::Char('b') | KeyCode::Char('B') => {
+                if app.building { push_log(log_buf, "[BUILD] Already building"); return; }
+                if !app.vm_online { push_log(log_buf, "[BUILD] VM offline"); return; }
+                app.building = true; app.build_start = Some(Instant::now());
+                push_log(log_buf, "[BUILD] Full rebuild");
+                let tx2 = tx.clone();
+                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                let svcs2 = app.services.clone();
+                tokio::spawn(async move {
+                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                    a.vm_online = true;
+                    let _ = a.build_rust(None, &tx2).await;
+                    let _ = a.build_frontend(&tx2).await;
+                    let _ = tx2.send(AppEvent::BuildComplete);
+                });
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                push_log(log_buf, "[VM] Checking...");
+                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                let svcs2 = app.services.clone();
+                let c_tx = tx.clone();
+                let was_online = app.vm_online;
+                tokio::spawn(async move {
+                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                    a.check_vm().await;
+                    if a.vm_online { a.refresh_services().await; }
+                    let _ = c_tx.send(AppEvent::BuildOutput(
+                        if a.vm_online { if was_online {"[VM] Connected!"} else {"[VM] Came online!"} }
+                        else {"[VM] Still offline"}.into()
+                    ));
+                });
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                if !app.vm_online { push_log(log_buf, "[DEPLOY] VM offline"); return; }
+                let tx2 = tx.clone();
+                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                let svcs2 = app.services.clone();
+                tokio::spawn(async move {
+                    let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                    a.vm_online = true; let _ = a.deploy_binaries(&tx2).await;
+                });
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                app.auto_deploy = !app.auto_deploy;
+                push_log(log_buf, &format!("[CONFIG] Auto-deploy: {}", if app.auto_deploy {"ON"} else {"OFF"}));
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                app.view = View::Status;
+                if app.vm_online {
+                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                    let svcs2 = app.services.clone();
+                    let tx2 = tx.clone();
+                    tokio::spawn(async move {
+                        let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                        a.fetch_service_status().await;
+                        let _ = tx2.send(AppEvent::ServiceStatus(a.service_status.clone()));
+                    });
+                }
+            }
+            KeyCode::Char('h') | KeyCode::Char('H') => {
+                push_log(log_buf, "[HEALTH] Checking...");
+                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                let svcs2 = app.services.clone();
+                let tx2 = tx.clone();
+                tokio::spawn(async move {
+                    let a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                    if let Ok(h) = a.ssh_exec("curl -sf --max-time 3 http://127.0.0.1:8126/api/health 2>/dev/null || echo FAIL").await {
+                        let _ = tx2.send(AppEvent::BuildOutput(if h.contains("\"status\":\"ok\"") {"[HEALTH] ✓ API OK"} else {"[HEALTH] ✗ API unreachable"}.into()));
+                    }
+                    if let Ok(d) = a.ssh_exec("df -h / 2>/dev/null | tail -1").await {
+                        let _ = tx2.send(AppEvent::BuildOutput(format!("[HEALTH] Disk: {}", d.trim())));
+                    }
+                });
+            }
+            KeyCode::Char('j') | KeyCode::Char('J') => {
+                app.view = View::Journal;
+                let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                let svcs2 = app.services.clone();
+                let tx2 = tx.clone();
+                tokio::spawn(async move {
+                    let a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                    if let Ok(l) = a.ssh_exec("journalctl -u iora-home --no-pager -n 30 2>/dev/null").await {
+                        for line in l.lines() { let _ = tx2.send(AppEvent::BuildOutput(format!("  {}", line))); }
+                    }
+                });
+            }
+            KeyCode::Char('1')|KeyCode::Char('2')|KeyCode::Char('3')|KeyCode::Char('4')|
+            KeyCode::Char('5')|KeyCode::Char('6')|KeyCode::Char('7')|KeyCode::Char('8')|KeyCode::Char('9') => {
+                let idx = match key.code { KeyCode::Char(c) => (c as u8 - b'1') as usize, _ => 0 };
+                if idx < app.services.len() && app.vm_online {
+                    let svc = app.services[idx].clone();
+                    let (vmh2,vmp2,sk2) = (app.vm_host.clone(),app.vm_port,app.ssh_key.clone());
+                    let (ws2,vmws2) = (app.workspace.clone(),app.vm_workspace.clone());
+                    let (rr2,cd2,fe2) = (app.repo_root.clone(),app.cache_dir.clone(),app.frontend_dir.clone());
+                    let svcs2 = app.services.clone();
+                    let tx2 = tx.clone();
+                    push_log(log_buf, &format!("[RESTART] {}", svc));
+                    tokio::spawn(async move {
+                        let mut a = App::dummy(vmh2,vmp2,sk2,ws2,vmws2,fe2,rr2,cd2,svcs2);
+                        let st = a.restart_service(&svc).await;
+                        let _ = tx2.send(AppEvent::BuildOutput(format!("[RESTART] {} → {}", svc, st)));
+                    });
+                }
+            }
+            ref code => {
+                push_log(log_buf, &format!("[KEY] {:?}", code));
+            }
+        }
+    }
+}
+
 // ═══ Windows raw mode fix ════════════════════════════════════════════
-// crossterm 0.28.1 (used by flywheel-compositor 0.1.5) has a bug on
-// Windows where ENABLE_EXTENDED_FLAGS is not set. Without it,
-// ENABLE_QUICK_EDIT_MODE is silently ignored and the console driver
-// eats key events instead of forwarding them to the application.
-// This module applies the fix from crossterm PR #815 manually.
+// crossterm 0.28.1 has a bug on Windows where ENABLE_EXTENDED_FLAGS is
+// not set during enable_raw_mode(). Without it, ENABLE_QUICK_EDIT_MODE
+// is silently ignored and the console driver eats key events instead of
+// forwarding them to the application.
+// This module applies the fix from crossterm PR #815 manually BEFORE
+// crossterm::terminal::enable_raw_mode() is called.
 // See: https://github.com/crossterm-rs/crossterm/pull/815
 #[cfg(windows)]
 mod win_raw_fix {
     use std::ffi::c_void;
 
     const STD_INPUT_HANDLE: u32 = 0xFFFF_FFF6u32; // -10
+    const STD_OUTPUT_HANDLE: u32 = 0xFFFF_FFF5u32; // -11
+    const DISABLE_NEWLINE_AUTO_RETURN: u32 = 0x0008;
     const ENABLE_EXTENDED_FLAGS: u32 = 0x0080;
     const ENABLE_INSERT_MODE: u32 = 0x0020;
     const ENABLE_QUICK_EDIT_MODE: u32 = 0x0040;
@@ -1799,30 +1558,38 @@ mod win_raw_fix {
         fn SetConsoleMode(hConsoleHandle: *mut c_void, dwMode: u32) -> i32;
     }
 
-    /// Apply the missing console mode flags before flywheel/crossterm
-    /// initializes. crossterm 0.28.1 only removes ENABLE_LINE_INPUT,
-    /// ENABLE_ECHO_INPUT, and ENABLE_PROCESSED_INPUT. It does NOT set
-    /// ENABLE_EXTENDED_FLAGS, which is required for ENABLE_QUICK_EDIT_MODE
-    /// and proper key event forwarding on Windows.
-    pub fn apply() {
+    /// Apply the missing console mode flags before crossterm initializes.
+    /// crossterm 0.28.1 only removes ENABLE_LINE_INPUT, ENABLE_ECHO_INPUT,
+    /// and ENABLE_PROCESSED_INPUT. It does NOT set ENABLE_EXTENDED_FLAGS,
+    /// which is required for ENABLE_QUICK_EDIT_MODE and proper key event
+    /// forwarding on Windows.
+    /// Returns current mode flags as hex on success, empty string on failure.
+    pub fn apply_and_report() -> String {
+        let mut result = String::new();
         unsafe {
+            // Fix input handle
             let handle = GetStdHandle(STD_INPUT_HANDLE);
-            if handle.is_null() {
-                return;
+            if !handle.is_null() {
+                let mut mode: u32 = 0;
+                if GetConsoleMode(handle, &mut mode) != 0 {
+                    mode |= ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE;
+                    // Explicitly DISABLE VT input — it can cause the console
+                    // to swallow Tab/Enter/Esc on some Windows builds.
+                    mode &= !(ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_MOUSE_INPUT | ENABLE_WINDOW_INPUT);
+                    SetConsoleMode(handle, mode);
+                    result = format!("0x{:08X}", mode);
+                }
             }
-            let mut mode: u32 = 0;
-            if GetConsoleMode(handle, &mut mode) == 0 {
-                return;
+            // Also fix stdout: disable newline auto-return (containerd/console approach)
+            let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+            if !stdout_handle.is_null() {
+                let mut mode: u32 = 0;
+                if GetConsoleMode(stdout_handle, &mut mode) != 0 {
+                    mode |= DISABLE_NEWLINE_AUTO_RETURN;
+                    SetConsoleMode(stdout_handle, mode);
+                }
             }
-            // Enable extended flags (required for quick-edit + insert mode)
-            mode |= ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE;
-            // Check if VT input is supported before setting it
-            if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) != 0 {
-                mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
-            }
-            // Remove mouse/window input (these interfere with raw mode)
-            mode &= !(ENABLE_MOUSE_INPUT | ENABLE_WINDOW_INPUT);
-            SetConsoleMode(handle, mode);
         }
+        result
     }
 }
