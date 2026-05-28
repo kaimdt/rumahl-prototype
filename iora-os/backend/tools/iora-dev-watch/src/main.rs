@@ -1103,8 +1103,8 @@ fn main() -> Result<()> {
     let mut last_vm_check = Instant::now();
     let loop_tx = event_tx.clone();
 
-    // Dedicated input thread — event::read() blocks correctly on Windows
-    // console input, while event::poll() can be unreliable in some configs.
+    // Dedicated input thread — blocking event::read() is the most reliable
+    // Windows input method. The thread isolates input from rendering.
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<crossterm::event::Event>();
     std::thread::spawn(move || {
         loop {
@@ -1117,8 +1117,19 @@ fn main() -> Result<()> {
         }
     });
 
+    // Periodic console mode re-application — prevents Windows from
+    // silently resetting raw mode on some Insider builds.
+    let mut last_mode_fix = Instant::now();
+
     // Main event loop
     loop {
+        // Re-apply raw mode fix every 5 seconds (belt-and-suspenders)
+        #[cfg(windows)]
+        if last_mode_fix.elapsed() >= Duration::from_secs(5) {
+            win_raw_fix::apply_and_report();
+            last_mode_fix = Instant::now();
+        }
+
         // Poll input events from the dedicated thread
         while let Ok(ev) = input_rx.try_recv() {
             match ev {
@@ -1276,7 +1287,7 @@ fn main() -> Result<()> {
 
         if app.should_quit { break; }
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(16));
     }
 
     // Cleanup
@@ -1403,8 +1414,8 @@ fn handle_key(app: &mut App, key: KeyEvent, log_buf: &mut Vec<String>, tx: &mpsc
             KeyCode::Down => { app.log_scroll_offset = app.log_scroll_offset.saturating_sub(1); }
             KeyCode::PageUp => { app.log_scroll_offset = app.log_scroll_offset.saturating_add(10); }
             KeyCode::PageDown => { app.log_scroll_offset = app.log_scroll_offset.saturating_sub(10); }
-            KeyCode::Home => { app.log_scroll_offset = 0; }
-            KeyCode::End => { app.log_scroll_offset = 0; }
+            KeyCode::Home => { app.log_scroll_offset = log_buf.len().saturating_sub(1); }
+            KeyCode::End | KeyCode::Char('0') => { app.log_scroll_offset = 0; }
             KeyCode::Char('r') => { app.mode = Mode::BuildMenu { cursor: 0 }; }
             KeyCode::Char('R') => { app.view = View::Resources; }
             KeyCode::Char('b') | KeyCode::Char('B') => {
