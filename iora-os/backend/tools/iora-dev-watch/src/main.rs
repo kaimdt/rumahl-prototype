@@ -174,7 +174,8 @@ impl App {
         let mut args = vec![
             "-o".into(),"StrictHostKeyChecking=no".into(),
             "-o".into(),"IdentitiesOnly=yes".into(),"-o".into(),"LogLevel=ERROR".into(),
-            "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=30".into(),
+            "-o".into(),"ConnectTimeout=10".into(),"-o".into(),"ServerAliveInterval=60".into(),
+            "-o".into(),"ServerAliveCountMax=30".into(),"-o".into(),"TCPKeepAlive=yes".into(),
             "-o".into(),"AddressFamily=inet".into(),
         ];
         #[cfg(unix)]
@@ -220,7 +221,7 @@ impl App {
 
     async fn ssh_exec(&self, cmd: &str) -> Result<String> {
         let mut args = self.ssh_args(); args.push(cmd.into());
-        let result = tokio::time::timeout(Duration::from_secs(10),
+        let result = tokio::time::timeout(Duration::from_secs(30),
             TokioCommand::new("ssh").args(&args).output()).await.context("timeout")?;
         Ok(String::from_utf8_lossy(&result?.stdout).into())
     }

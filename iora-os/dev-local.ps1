@@ -597,26 +597,31 @@ datasource_list: [ NoCloud ]
 write_files:
   - path: /etc/resolv.conf
     content: |
-      nameserver 1.1.1.1
       nameserver 8.8.8.8
-      nameserver 8.8.4.4
+      nameserver 1.1.1.1
+      options use-vc
+    permissions: '0644'
+  - path: /etc/systemd/resolved.conf.d/disable-stub.conf
+    content: |
+      [Resolve]
+      DNSStubListener=no
+      LLMNR=no
+      MulticastDNS=no
     permissions: '0644'
 
 bootcmd:
   - sleep 3
-  - ip link set eth0 up || true
+  - ip link set enp0s2 up || ip link set eth0 up || true
   - sleep 2
+  - 'sysctl -w net.ipv6.conf.all.disable_ipv6=1 || true'
+  - 'sysctl -w net.ipv6.conf.default.disable_ipv6=1 || true'
 
-package_update: true
+package_update: false
 package_upgrade: false
-
-packages:
-  - rsync
-  - curl
-  - ca-certificates
 
 runcmd:
   - mkdir -p /etc/iora && touch /etc/iora/ssh-ready
+  - 'systemctl restart systemd-resolved 2>/dev/null || true'
   - 'systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true'
 
 final_message: "IORA Dev VM ready."

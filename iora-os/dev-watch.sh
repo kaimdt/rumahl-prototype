@@ -126,9 +126,10 @@ SSH_OPTS=(
     -o UserKnownHostsFile=/dev/null
     -o IdentitiesOnly=yes
     -o LogLevel=ERROR
-    -o ServerAliveInterval=30
-    -o ServerAliveCountMax=3
+    -o ServerAliveInterval=60
+    -o ServerAliveCountMax=30
     -o ConnectTimeout=10
+    -o TCPKeepAlive=yes
     -o AddressFamily=inet
     -o ControlMaster=auto
     -o "ControlPath=$SSH_SOCK_DIR/cm-%C"
@@ -401,7 +402,6 @@ build_rust() {
     # Auto-install Rust/cargo if missing (e.g. fresh VM)
     if ! ssh_vm "su - iora -c 'test -f /home/iora/.cargo/bin/cargo && echo OK'" 2>/dev/null | grep -q OK; then
         log "Rust not found in VM. Installing..."
-        ssh_vm "echo 'nameserver 1.1.1.1' > /etc/resolv.conf; echo 'nameserver 8.8.8.8' >> /etc/resolv.conf" 2>/dev/null
         ssh_vm "su - iora -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'" 2>&1 | tail -3
         ssh_vm "su - iora -c '/home/iora/.cargo/bin/cargo --version'" 2>/dev/null && ok "Rust installed" || { err "Rust install failed"; return 1; }
     fi
