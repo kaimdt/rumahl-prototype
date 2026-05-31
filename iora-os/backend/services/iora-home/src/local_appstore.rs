@@ -1234,6 +1234,7 @@ fn permission_risk_level(permission: &str) -> &'static str {
         | "AppDatabaseManage"
         | "WebhookManage"
         | "AppQueueManage"
+        | "AppSecretsManage"
         | "ThemeManage"
         | "AssistTaskManage"
         | "GitHubWrite" => "critical",
@@ -1273,6 +1274,8 @@ fn permission_risk_level(permission: &str) -> &'static str {
         | "MediaAccess"
         | "FileShareRead"
         | "AppStorageRead"
+        | "AppRuntimeAuditRead"
+        | "AppSecretsRead"
         | "AppScheduleRead"
         | "WebhookRead"
         | "ThemeSelect"

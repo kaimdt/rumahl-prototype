@@ -2159,6 +2159,26 @@ async fn main() -> anyhow::Result<()> {
             post(app_runtime_handler::app_http_request),
         )
         .route(
+            "/api/apps/:app_id/audit",
+            get(app_runtime_handler::list_audit),
+        )
+        .route(
+            "/api/apps/:app_id/network/probe",
+            post(app_runtime_handler::network_probe),
+        )
+        .route(
+            "/api/apps/:app_id/secrets",
+            get(app_runtime_handler::list_secrets).post(app_runtime_handler::create_secret),
+        )
+        .route(
+            "/api/apps/:app_id/secrets/:secret_id",
+            put(app_runtime_handler::update_secret).delete(app_runtime_handler::delete_secret),
+        )
+        .route(
+            "/api/apps/:app_id/secrets/:secret_id/reveal",
+            post(app_runtime_handler::reveal_secret),
+        )
+        .route(
             "/api/apps/assist/integrations",
             get(app_assist_integrations),
         )

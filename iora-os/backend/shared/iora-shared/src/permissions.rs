@@ -132,6 +132,10 @@ pub enum Permission {
     AppActionExecute,
     AppQueueManage,
     ExternalHttpRequest,
+    AppRuntimeAuditRead,
+    AppSecretsRead,
+    AppSecretsWrite,
+    AppSecretsManage,
 
     // Theme permissions
     /// Install custom themes from app/plugin manifests
@@ -462,6 +466,10 @@ impl Permission {
             Permission::AppActionExecute => "App-Aktionen im Auftrag eines Benutzers ausführen",
             Permission::AppQueueManage => "App-Laufzeitjobs und Warteschlangen verwalten",
             Permission::ExternalHttpRequest => "Externe HTTP- und API-Anfragen ausführen",
+            Permission::AppRuntimeAuditRead => "App-Laufzeit-Audit lesen",
+            Permission::AppSecretsRead => "App-eigene Secrets lesen und verwenden",
+            Permission::AppSecretsWrite => "App-eigene Secrets speichern und aktualisieren",
+            Permission::AppSecretsManage => "App-eigene Secrets verwalten und löschen",
             Permission::ThemeInstall => "Installieren von Themes aus App-/Plugin-Manifesten",
             Permission::ThemeManage => {
                 "Verwalten installierter Themes (aktivieren/deaktivieren/deinstallieren)"
@@ -496,6 +504,8 @@ impl Permission {
             | Permission::AppStorageRead
             | Permission::AppScheduleRead
             | Permission::WebhookRead
+            | Permission::AppRuntimeAuditRead
+            | Permission::AppSecretsRead
             | Permission::AssistContextRead
             | Permission::AssistEventsSubscribe
             | Permission::GitHubRead
@@ -524,6 +534,7 @@ impl Permission {
             | Permission::WebhookCreate
             | Permission::WebhookUpdate
             | Permission::AppActionExecute
+            | Permission::AppSecretsWrite
             | Permission::AssistChat
             | Permission::AssistTaskCreate
             | Permission::AssistToolExecute => RiskLevel::Medium,
@@ -574,6 +585,7 @@ impl Permission {
             | Permission::AppDatabaseManage
             | Permission::WebhookManage
             | Permission::AppQueueManage
+            | Permission::AppSecretsManage
             | Permission::ThemeManage
             | Permission::AssistTaskManage
             | Permission::GitHubWrite => RiskLevel::Critical,
@@ -604,7 +616,10 @@ impl Permission {
             Permission::WebhookCreate |
             Permission::WebhookRead |
             Permission::AppActionExecute |
+            Permission::AppRuntimeAuditRead |
             Permission::ExternalHttpRequest |
+            Permission::AppSecretsRead |
+            Permission::AppSecretsWrite |
             Permission::AssistContextRead |
             Permission::AssistEventsSubscribe |
             Permission::AssistChat |
@@ -648,6 +663,7 @@ impl Permission {
             Permission::WebhookManage |
             Permission::AppQueueManage |
             Permission::ExternalHttpRequest |
+            Permission::AppSecretsManage |
             Permission::ThemeManage |
             Permission::AssistChat |
             Permission::AssistTaskCreate |
