@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -339,6 +339,231 @@ impl PiDevController {
             .unwrap_or_default()
     }
 
+    /// Run a one-shot pi.dev agent task inside the session's container using the
+    /// real `pi --mode json` CLI. Each emitted JSON-Lines event is parsed and
+    /// rebroadcast as a [`PiDevSessionEvent`], and every tool call is evaluated
+    /// against the session's security policy. A hard denial terminates the
+    /// session; an approval-required verdict raises a [`SecurityAlert`].
+    ///
+    /// `provider`/`model` select the model backend (e.g. `ora` for IORA Assist,
+    /// or `anthropic`/`openai`/`google`). They are passed through to `pi`.
+    pub async fn run_task(
+        self: &Arc<Self>,
+        session_id: &str,
+        prompt: &str,
+        provider: Option<String>,
+        model: Option<String>,
+    ) -> Result<Option<i64>, String> {
+        let session = self.get_session(session_id).await.ok_or("Session not found")?;
+        let container_id = session
+            .docker_container_id
+            .clone()
+            .ok_or("Session container is not running yet")?;
+
+        // Build the enforcement policy from the session configuration.
+        let policy = self.security.create_policy(&session.config);
+
+        let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
+
+        // Consume parsed JSONL lines concurrently while the agent runs.
+        let consumer = {
+            let this = self.clone();
+            let sid = session_id.to_string();
+            tokio::spawn(async move {
+                while let Some(line) = line_rx.recv().await {
+                    this.handle_pi_line(&sid, &policy, &line).await;
+                }
+            })
+        };
+
+        let result = self
+            .docker
+            .run_pi_task(
+                &container_id,
+                prompt,
+                provider.as_deref(),
+                model.as_deref(),
+                line_tx,
+            )
+            .await;
+
+        // `line_tx` is dropped when `run_pi_task` returns; the consumer then ends.
+        let _ = consumer.await;
+
+        match result {
+            Ok(code) => {
+                let status = if code.unwrap_or(0) == 0 {
+                    SessionStatus::Completed
+                } else {
+                    SessionStatus::Failed {
+                        error: format!("pi exited with code {:?}", code),
+                    }
+                };
+                let status_for_event = status.clone();
+                self.update_session(session_id, |s| {
+                    s.status = status;
+                })
+                .await;
+                let _ = self.event_tx.send(PiDevSessionEvent::StatusChanged {
+                    session_id: session_id.to_string(),
+                    status: status_for_event,
+                });
+                Ok(code)
+            }
+            Err(e) => {
+                let err = e.clone();
+                self.update_session(session_id, |s| {
+                    s.status = SessionStatus::Failed { error: err };
+                })
+                .await;
+                let _ = self.event_tx.send(PiDevSessionEvent::StatusChanged {
+                    session_id: session_id.to_string(),
+                    status: SessionStatus::Failed { error: e.clone() },
+                });
+                Err(e)
+            }
+        }
+    }
+
+    /// Parse a single line of `pi --mode json` output and broadcast the
+    /// corresponding session event, enforcing the security policy on tool calls.
+    async fn handle_pi_line(
+        self: &Arc<Self>,
+        session_id: &str,
+        policy: &SecurityPolicy,
+        line: &str,
+    ) {
+        let value: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => {
+                // Non-JSON output (e.g. plain logs) — forward verbatim.
+                let _ = self.event_tx.send(PiDevSessionEvent::Output {
+                    session_id: session_id.to_string(),
+                    line: line.to_string(),
+                });
+                return;
+            }
+        };
+
+        let event_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        match event_type {
+            "tool_execution_start" => {
+                let tool = value
+                    .get("tool")
+                    .and_then(|t| t.as_str())
+                    .or_else(|| value.get("name").and_then(|t| t.as_str()))
+                    .unwrap_or("unknown");
+                let args = value
+                    .get("arguments")
+                    .cloned()
+                    .or_else(|| value.get("args").cloned())
+                    .unwrap_or_else(|| serde_json::json!({}));
+
+                self.update_session(session_id, |s| s.tool_calls_made += 1).await;
+
+                let verdict: ActionVerdict = self
+                    .security
+                    .evaluate_action(session_id, policy, tool, &args)
+                    .await;
+
+                if verdict.allowed {
+                    let _ = self.event_tx.send(PiDevSessionEvent::ToolExecuted {
+                        session_id: session_id.to_string(),
+                        tool: tool.to_string(),
+                        args_summary: summarize_args(&args),
+                        result: "started".to_string(),
+                    });
+                } else {
+                    let event = SecurityEvent {
+                        id: verdict
+                            .event_id
+                            .clone()
+                            .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                        event_type: if verdict.requires_approval {
+                            "requires_approval".to_string()
+                        } else {
+                            "denied".to_string()
+                        },
+                        description: verdict
+                            .reason
+                            .clone()
+                            .unwrap_or_else(|| format!("Tool '{}' blocked by policy", tool)),
+                        severity: if verdict.requires_approval {
+                            "medium".to_string()
+                        } else {
+                            "high".to_string()
+                        },
+                        timestamp: chrono::Utc::now(),
+                        metadata: HashMap::new(),
+                    };
+                    self.update_session(session_id, |s| {
+                        s.security_events.push(event.clone());
+                    })
+                    .await;
+                    let _ = self.event_tx.send(PiDevSessionEvent::SecurityAlert {
+                        session_id: session_id.to_string(),
+                        event,
+                        requires_approval: verdict.requires_approval,
+                    });
+
+                    // Hard denial → terminate the session for safety.
+                    if !verdict.requires_approval {
+                        warn!(
+                            "Terminating session {} due to denied tool '{}'",
+                            session_id, tool
+                        );
+                        let _ = self.stop_session(session_id).await;
+                    }
+                }
+            }
+            "tool_execution_end" => {
+                let tool = value
+                    .get("tool")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown");
+                let result = value
+                    .get("result")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("completed");
+                let _ = self.event_tx.send(PiDevSessionEvent::ToolExecuted {
+                    session_id: session_id.to_string(),
+                    tool: tool.to_string(),
+                    args_summary: String::new(),
+                    result: truncate(result, 500),
+                });
+            }
+            "message_end" => {
+                if let Some(content) = extract_message_text(&value) {
+                    let _ = self.event_tx.send(PiDevSessionEvent::Output {
+                        session_id: session_id.to_string(),
+                        line: content,
+                    });
+                }
+            }
+            "agent_start" => {
+                let _ = self.event_tx.send(PiDevSessionEvent::Progress {
+                    session_id: session_id.to_string(),
+                    message: "Agent started".to_string(),
+                    percent: 0.0,
+                });
+            }
+            "agent_end" => {
+                let _ = self.event_tx.send(PiDevSessionEvent::Progress {
+                    session_id: session_id.to_string(),
+                    message: "Agent finished".to_string(),
+                    percent: 100.0,
+                });
+            }
+            other => {
+                // Forward unrecognised events verbatim for transparency.
+                let _ = self.event_tx.send(PiDevSessionEvent::Output {
+                    session_id: session_id.to_string(),
+                    line: format!("[{}] {}", other, line),
+                });
+            }
+        }
+    }
+
     // ─── Internal helpers ───────────────────────────────────────────────────
 
     async fn update_session<F>(&self, session_id: &str, f: F)
@@ -398,6 +623,70 @@ impl PiDevController {
                 }
             }
         }
+    }
+}
+
+// ─── Helpers for pi.dev JSONL event parsing ─────────────────────────────────
+
+/// Build a short, human-readable summary of a tool call's arguments.
+fn summarize_args(args: &serde_json::Value) -> String {
+    match args {
+        serde_json::Value::Object(map) => {
+            let parts: Vec<String> = map
+                .iter()
+                .take(4)
+                .map(|(k, v)| {
+                    let val = match v {
+                        serde_json::Value::String(s) => truncate(s, 80),
+                        other => truncate(&other.to_string(), 80),
+                    };
+                    format!("{}={}", k, val)
+                })
+                .collect();
+            truncate(&parts.join(", "), 300)
+        }
+        other => truncate(&other.to_string(), 300),
+    }
+}
+
+/// Truncate a string to at most `max` characters, appending an ellipsis marker.
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max).collect();
+        format!("{}…", truncated)
+    }
+}
+
+/// Extract the assistant text content from a pi.dev `message_end` event.
+fn extract_message_text(value: &serde_json::Value) -> Option<String> {
+    // Common shapes: { message: { content: "..." } } or
+    // { message: { content: [ { type: "text", text: "..." } ] } }
+    let content = value
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .or_else(|| value.get("content"))?;
+
+    match content {
+        serde_json::Value::String(s) => {
+            let t = s.trim();
+            (!t.is_empty()).then(|| t.to_string())
+        }
+        serde_json::Value::Array(items) => {
+            let text: String = items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .and_then(|t| t.as_str())
+                        .or_else(|| item.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            let t = text.trim();
+            (!t.is_empty()).then(|| t.to_string())
+        }
+        _ => None,
     }
 }
 

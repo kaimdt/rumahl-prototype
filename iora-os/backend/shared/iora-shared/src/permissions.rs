@@ -162,6 +162,16 @@ pub enum Permission {
 
     // Agentic coding: spawn ephemeral sandbox containers for autonomous coding agents
     AgentContainerSpawn,
+
+    // --- New in v2.4: Extended App/Plugin capabilities ---
+    /// Provide AI tools (functions) that IORA Assist / pi.dev agents can call
+    AssistToolProvide,
+    /// Expose an RPC service for discovery and invocation by other apps
+    ServiceExport,
+    /// Invoke RPC services exposed by other apps
+    ServiceCall,
+    /// Register lifecycle / system event hooks
+    LifecycleHookRegister,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -492,6 +502,14 @@ impl Permission {
             Permission::AgentContainerSpawn => {
                 "Sandbox-Container für autonome Coding-Agenten erstellen und ausführen"
             }
+            Permission::AssistToolProvide => {
+                "KI-Tools bereitstellen, die IORA Assist / pi.dev-Agenten aufrufen können"
+            }
+            Permission::ServiceExport => "Einen RPC-Dienst für andere Apps bereitstellen",
+            Permission::ServiceCall => "RPC-Dienste anderer Apps aufrufen",
+            Permission::LifecycleHookRegister => {
+                "Lifecycle-/System-Ereignis-Hooks registrieren"
+            }
         }
     }
 
@@ -543,7 +561,10 @@ impl Permission {
             | Permission::AppSecretsWrite
             | Permission::AssistChat
             | Permission::AssistTaskCreate
-            | Permission::AssistToolExecute => RiskLevel::Medium,
+            | Permission::AssistToolExecute
+            | Permission::AssistToolProvide
+            | Permission::ServiceExport
+            | Permission::LifecycleHookRegister => RiskLevel::Medium,
             Permission::ThemeSelect => RiskLevel::Low,
             Permission::ThemeInstall => RiskLevel::Medium,
 
@@ -571,7 +592,8 @@ impl Permission {
             | Permission::MessagingWildcard
             | Permission::ExternalHttpRequest
             | Permission::GitHubPullRequestComment
-            | Permission::GitHubWorkflowTrigger => RiskLevel::High,
+            | Permission::GitHubWorkflowTrigger
+            | Permission::ServiceCall => RiskLevel::High,
 
             Permission::SystemControl
             | Permission::SystemRestart
@@ -635,6 +657,13 @@ impl Permission {
             Permission::GitHubRead |
             Permission::GitHubPullRequestRead
         ) || matches!(self, Permission::ThemeInstall | Permission::ThemeSelect)
+            || matches!(
+                self,
+                Permission::AssistToolProvide
+                    | Permission::ServiceExport
+                    | Permission::ServiceCall
+                    | Permission::LifecycleHookRegister
+            )
     }
 
     /// Check if permission requires explicit user consent
@@ -679,7 +708,8 @@ impl Permission {
             Permission::GitHubWrite |
             Permission::GitHubPullRequestComment |
             Permission::GitHubWorkflowTrigger |
-            Permission::AgentContainerSpawn
+            Permission::AgentContainerSpawn |
+            Permission::ServiceCall
         )
     }
 

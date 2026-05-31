@@ -1,6 +1,7 @@
 //! IORA Shared – common types, plugin system, and utilities used across all IORA programs.
 
 pub mod api_gateway;
+pub mod app_capabilities;
 pub mod app_database;
 pub mod app_manifest;
 pub mod app_messaging;

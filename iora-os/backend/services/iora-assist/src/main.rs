@@ -4568,6 +4568,48 @@ async fn stop_pidev_session(
     }
 }
 
+#[derive(Deserialize)]
+struct RunPiDevTaskRequest {
+    prompt: String,
+    provider: Option<String>,
+    model: Option<String>,
+}
+
+/// Run a one-shot `pi --mode json` agent task inside an existing session's
+/// container. Returns 202 immediately; progress is streamed over the session
+/// event SSE channel (`/api/assist/pidev/sessions/:id/events`).
+async fn run_pidev_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<RunPiDevTaskRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let session = state
+        .pi_dev
+        .get_session(&id)
+        .await
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))?;
+    if session.docker_container_id.is_none() {
+        return Err((
+            StatusCode::CONFLICT,
+            "Session container is not running yet".to_string(),
+        ));
+    }
+
+    let RunPiDevTaskRequest {
+        prompt,
+        provider,
+        model,
+    } = req;
+    let controller = state.pi_dev.clone();
+    tokio::spawn(async move {
+        if let Err(e) = controller.run_task(&id, &prompt, provider, model).await {
+            tracing::error!("pi.dev task failed for session {}: {}", id, e);
+        }
+    });
+
+    Ok(StatusCode::ACCEPTED)
+}
+
 async fn stream_pidev_events(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -5687,6 +5729,7 @@ async fn main() -> anyhow::Result<()> {
         // ─── Pi.dev Docker Sandbox & Plugin Management ───
         .route("/api/assist/pidev/sessions", get(list_pidev_sessions).post(create_pidev_session))
         .route("/api/assist/pidev/sessions/:id", get(get_pidev_session).delete(stop_pidev_session))
+        .route("/api/assist/pidev/sessions/:id/run", post(run_pidev_task))
         .route("/api/assist/pidev/sessions/:id/events", get(stream_pidev_events))
         .route("/api/assist/pidev/sessions/:id/approve", post(approve_pidev_action))
         .route("/api/assist/pidev/sessions/:id/deny", post(deny_pidev_action))
