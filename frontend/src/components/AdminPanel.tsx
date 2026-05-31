@@ -11653,6 +11653,8 @@ function ThemesTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [themeSearch, setThemeSearch] = useState('')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'file' | 'app' | 'system'>('all')
   const { refreshThemes } = useTheme()
 
   const load = useCallback(async () => {
@@ -11844,6 +11846,16 @@ function ThemesTab({ token }: { token: string }) {
 
   const installed = themes?.installed || []
   const builtin = themes?.builtin || []
+  const enabledInstalled = installed.filter(t => t.enabled).length
+  const filteredInstalled = installed.filter(t => {
+    const q = themeSearch.trim().toLowerCase()
+    const matchesSearch = !q || [t.name, t.id, t.description, t.developer, t.source]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(q))
+    const matchesSource = sourceFilter === 'all'
+      || (sourceFilter === 'system' ? t.system : t.source === sourceFilter)
+    return matchesSearch && matchesSource
+  })
 
   const allThemeOptions = [
     { id: 'auto', name: 'Automatisch (Tageszeit)', preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
@@ -11859,6 +11871,47 @@ function ThemesTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Installiert</div>
+          <div className="text-lg font-semibold text-foreground">{installed.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Aktiv</div>
+          <div className="text-lg font-semibold text-success">{enabledInstalled}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Integriert</div>
+          <div className="text-lg font-semibold text-accent">{builtin.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Standard</div>
+          <div className="text-sm font-semibold text-foreground truncate mt-1">{defaultTheme?.theme_id || 'auto'}</div>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+        <div className="relative flex-1">
+          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
+          <input
+            value={themeSearch}
+            onChange={(event) => setThemeSearch(event.target.value)}
+            placeholder="Themes nach Name, ID, Entwickler oder Quelle suchen..."
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+          />
+        </div>
+        <div className="flex gap-1 overflow-x-auto">
+          {(['all', 'file', 'app', 'system'] as const).map(source => (
+            <button
+              key={source}
+              onClick={() => setSourceFilter(source)}
+              className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors whitespace-nowrap ${sourceFilter === source ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
+            >
+              {source === 'all' ? 'Alle' : source === 'file' ? 'Manuell' : source === 'app' ? 'App/Plugin' : 'System'}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Default Theme Section */}
       <AdminCard icon={Palette} title="Standard-Theme">
@@ -11925,11 +11978,12 @@ function ThemesTab({ token }: { token: string }) {
           </div>
         ) : (
           <div className="grid gap-3">
-            {installed.map((t) => {
+            {filteredInstalled.map((t) => {
               let cssVars: Record<string, string> = {}
               try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
               const bgColor = cssVars['background'] || cssVars['bg'] || '#1a1d2e'
               const accentColor = cssVars['accent'] || cssVars['primary'] || '#6366f1'
+              const isDefault = defaultTheme?.theme_id === t.id
               return (
                 <div key={t.id} className="flex items-center gap-4 p-4 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02]">
                   <div className="w-12 h-12 rounded-xl shrink-0 border border-foreground/10" style={{ background: `linear-gradient(135deg, ${bgColor} 0%, ${accentColor} 100%)` }} />
@@ -11938,15 +11992,23 @@ function ThemesTab({ token }: { token: string }) {
                       <p className="text-sm font-medium text-foreground">{t.name}</p>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-foreground/40">v{t.version}</span>
                       {t.system && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">System</span>}
-                      {defaultTheme?.theme_id === t.id && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">Standard</span>}
+                      {isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">Standard</span>}
                     </div>
                     {t.description && <p className="text-xs text-foreground/50 mt-0.5 truncate">{t.description}</p>}
-                    <p className="text-[10px] text-foreground/30 mt-0.5">Von {t.developer || 'Unbekannt'} · {t.source === 'file' ? 'Manuell' : 'App/Plugin'}</p>
+                    <p className="text-[10px] text-foreground/30 mt-0.5">Von {t.developer || 'Unbekannt'} · ID {t.id} · {t.source === 'file' ? 'Manuell' : 'App/Plugin'}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full ${t.enabled ? 'bg-success/10 text-success' : 'bg-foreground/5 text-foreground/40'}`}>
                       {t.enabled ? <Check size={10} /> : <EyeSlash size={10} />} {t.enabled ? 'Aktiv' : 'Inaktiv'}
                     </span>
+                    <button
+                      onClick={() => saveDefaultTheme(t.id)}
+                      disabled={isDefault || !t.enabled}
+                      className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-accent/10 text-accent hover:bg-accent/20 transition-all disabled:opacity-40 disabled:hover:bg-accent/10"
+                      title={t.enabled ? 'Als Standard setzen' : 'Inaktive Themes können nicht als Standard gesetzt werden'}
+                    >
+                      Standard
+                    </button>
                     {!t.system && (
                       <>
                         <button onClick={() => cloneTheme(t.id, t.name)} className="p-2 rounded-lg text-foreground/30 hover:text-accent hover:bg-accent/10 transition-all" title="Klonen"><Copy size={14} /></button>
@@ -11958,6 +12020,11 @@ function ThemesTab({ token }: { token: string }) {
                 </div>
               )
             })}
+            {filteredInstalled.length === 0 && (
+              <div className="text-center py-10 text-xs text-foreground/45">
+                Keine Themes für den aktuellen Filter.
+              </div>
+            )}
           </div>
         )}
       </AdminCard>

@@ -4,7 +4,7 @@ import {
   Terminal, Warning, X, Clock, ArrowClockwise,
   Code, PlugsConnected, Globe, Star, Info, CaretDown, CaretUp,
   Stack, CubeFocus, DownloadSimple, ArrowSquareOut,
-  Hammer, Play as PlayIcon, ArrowsClockwise, ArrowRight
+  Hammer, Play as PlayIcon, ArrowsClockwise, ArrowRight, ShieldWarning, ListChecks
 } from '@phosphor-icons/react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { adminFetch, InlineSpinner } from './AdminPanel'
@@ -40,6 +40,9 @@ interface AppDetail {
   installed_at: string
   source: string
   permissions: string[]
+  permission_grants?: PermissionGrant[]
+  denied_permissions?: string[]
+  permission_audit?: PermissionAuditEntry[]
   custom_pages: CustomPage[]
   ports: Array<{ internal: number; external: number; protocol: string }>
   docker_config: any
@@ -63,6 +66,48 @@ interface AppDetail {
   is_bundle?: boolean
   bundle_config?: any
   services?: any[]
+}
+
+interface PermissionGrant {
+  permission: string
+  granted_at: string
+  granted_by: string
+  risk_level?: string
+  is_active?: boolean
+}
+
+interface PermissionAuditEntry {
+  timestamp: string
+  action: string
+  permission: string
+  actor: string
+  reason?: string
+}
+
+interface AppRuntimeJobSummary {
+  id: string
+  action: string
+  status: string
+  created_at: string
+  finished_at?: string
+  error?: string
+}
+
+interface AppRuntimeAuditSummary {
+  id: string
+  event_type: string
+  status: string
+  target?: string
+  message?: string
+  timestamp: string
+}
+
+interface AppSecretSummary {
+  id: string
+  name: string
+  secret_type: string
+  updated_at: string
+  last_used_at?: string
 }
 
 interface LogEntry {
@@ -89,8 +134,14 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
   const [detail, setDetail] = useState<AppDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'info' | 'logs' | 'terminal' | 'settings' | 'pages' | 'bundle'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'permissions' | 'runtime' | 'logs' | 'terminal' | 'settings' | 'pages' | 'bundle'>('info')
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [grantedPermissions, setGrantedPermissions] = useState<string[]>([])
+  const [permissionSaving, setPermissionSaving] = useState(false)
+  const [runtimeJobs, setRuntimeJobs] = useState<AppRuntimeJobSummary[]>([])
+  const [runtimeAudit, setRuntimeAudit] = useState<AppRuntimeAuditSummary[]>([])
+  const [appSecrets, setAppSecrets] = useState<AppSecretSummary[]>([])
+  const [runtimeLoadNote, setRuntimeLoadNote] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [terminalCommand, setTerminalCommand] = useState('')
   const [terminalOutput, setTerminalOutput] = useState('')
@@ -120,14 +171,33 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     setSelectedTerminalService('')
     setTerminalHistory([])
     setTerminalHistoryIndex(-1)
+    setGrantedPermissions([])
+    setRuntimeJobs([])
+    setRuntimeAudit([])
+    setAppSecrets([])
+    setRuntimeLoadNote('')
 
     ;(async () => {
       try {
         const data = await adminFetch(`/api/apps/${appId}/detail`, token) as AppDetail
         setDetail(data)
         setLogs(data.recent_logs || [])
+        const activeGrants = (data.permission_grants || [])
+          .filter(grant => grant.is_active !== false)
+          .map(grant => grant.permission)
+        setGrantedPermissions(activeGrants.length > 0 ? activeGrants : (data.permissions || []).filter(permission => !(data.denied_permissions || []).includes(permission)))
         const firstService = typeof data.services?.[0]?.name === 'string' ? data.services[0].name : ''
         setSelectedTerminalService(firstService)
+        const notes: string[] = []
+        const [jobs, audit, secrets] = await Promise.all([
+          adminFetch(`/api/apps/${appId}/jobs`, token).catch((e) => { notes.push(`Jobs: ${(e as Error).message}`); return null }),
+          adminFetch(`/api/apps/${appId}/audit`, token).catch((e) => { notes.push(`Audit: ${(e as Error).message}`); return null }),
+          adminFetch(`/api/apps/${appId}/secrets`, token).catch((e) => { notes.push(`Secrets: ${(e as Error).message}`); return null }),
+        ])
+        setRuntimeJobs(((jobs as any)?.jobs || []).slice(-12))
+        setRuntimeAudit(((audit as any)?.events || []).slice(-20))
+        setAppSecrets(((secrets as any)?.secrets || []).slice(-12))
+        setRuntimeLoadNote(notes.length > 0 ? notes.join(' · ') : '')
       } catch (e) {
         setError((e as Error).message)
       }
@@ -354,6 +424,41 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
     }
   }
 
+  const openSettings = () => {
+    if (!appId) return
+    window.location.href = `/app-settings/${appId}`
+  }
+
+  const savePermissions = async () => {
+    if (!appId || !detail) return
+    setPermissionSaving(true)
+    try {
+      const denied = detail.permissions.filter(permission => !grantedPermissions.includes(permission))
+      const data = await adminFetch(`/api/apps/${appId}/permissions`, token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ granted_permissions: grantedPermissions, denied_permissions: denied }),
+      }) as { permission_grants: PermissionGrant[]; denied_permissions: string[]; permission_audit: PermissionAuditEntry[] }
+      setDetail(prev => prev ? {
+        ...prev,
+        permission_grants: data.permission_grants,
+        denied_permissions: data.denied_permissions,
+        permission_audit: data.permission_audit,
+      } : prev)
+      toast.success('Berechtigungen aktualisiert')
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setPermissionSaving(false)
+  }
+
+  const togglePermission = (permission: string) => {
+    setGrantedPermissions(current => current.includes(permission)
+      ? current.filter(item => item !== permission)
+      : [...current, permission])
+  }
+
   const downloadCompose = () => {
     if (!appId) return
     const baseUrl = getBackendUrl()
@@ -465,6 +570,10 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                     <Globe size={12} /> Öffnen
                   </button>
                 )}
+                <button onClick={openSettings}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/10 text-foreground/80 rounded text-[10px] font-semibold hover:bg-foreground/15 transition-colors">
+                  <Gear size={12} /> Einstellungen
+                </button>
               </div>
             )}
           </DialogTitle>
@@ -474,6 +583,8 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
         <div className="flex gap-1 p-1.5 bg-foreground/[0.07] border border-foreground/10 mx-4 mt-3 rounded-lg flex-shrink-0">
           {([
             'info',
+            'permissions',
+            'runtime',
             'logs',
             ...(detail?.dev_terminal_available ? ['terminal' as const] : []),
             'settings',
@@ -490,12 +601,16 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               }`}
             >
               {tab === 'info' && <Info size={12} />}
+              {tab === 'permissions' && <ShieldCheck size={12} />}
+              {tab === 'runtime' && <ListChecks size={12} />}
               {tab === 'logs' && <Terminal size={12} />}
               {tab === 'terminal' && <Terminal size={12} />}
               {tab === 'settings' && <Gear size={12} />}
               {tab === 'pages' && <Code size={12} />}
               {tab === 'bundle' && <Stack size={12} />}
               {tab === 'info' ? 'Info'
+                : tab === 'permissions' ? 'Rechte'
+                : tab === 'runtime' ? 'Runtime'
                 : tab === 'logs' ? `Logs (${logs.length})`
                 : tab === 'terminal' ? 'Terminal'
                 : tab === 'settings' ? 'Einstellungen'
@@ -590,6 +705,163 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Permissions Tab */}
+              {activeTab === 'permissions' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                      <div className="text-[10px] text-green-300/80 font-semibold uppercase">Gewährt</div>
+                      <div className="text-lg font-semibold text-green-300">{grantedPermissions.length}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <div className="text-[10px] text-red-300/80 font-semibold uppercase">Entzogen</div>
+                      <div className="text-lg font-semibold text-red-300">{detail.permissions.length - grantedPermissions.length}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase">Gesamt</div>
+                      <div className="text-lg font-semibold text-foreground">{detail.permissions.length}</div>
+                    </div>
+                  </div>
+
+                  {detail.permissions.length === 0 ? (
+                    <div className="p-6 rounded-lg bg-foreground/[0.06] border border-foreground/10 text-center">
+                      <ShieldCheck size={24} className="mx-auto mb-2 text-foreground/55" />
+                      <p className="text-xs text-foreground/85 font-semibold">Keine angeforderten Berechtigungen</p>
+                      <p className="text-[10px] text-foreground/60 mt-1">Diese App fordert keine zusätzlichen Plattformrechte an.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {detail.permissions.map(permission => {
+                        const grant = detail.permission_grants?.find(item => item.permission === permission)
+                        const checked = grantedPermissions.includes(permission)
+                        const risk = grant?.risk_level || 'medium'
+                        return (
+                          <label key={permission} className={`flex items-center gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${checked ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => togglePermission(permission)}
+                              className="w-4 h-4 accent-green-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-semibold text-foreground font-mono truncate">{permission}</div>
+                              <div className="text-[10px] text-foreground/55">
+                                Risiko: {risk} · {checked ? 'aktiv' : 'blockiert'}
+                              </div>
+                            </div>
+                            <span className={`text-[10px] px-2 py-1 rounded font-semibold ${checked ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                              {checked ? 'Gewährt' : 'Entzogen'}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                    <div className="text-[10px] text-foreground/65">
+                      Änderungen wirken sofort auf Runtime-Bridges, App-Start und geschützte Funktionen.
+                    </div>
+                    <button
+                      onClick={savePermissions}
+                      disabled={permissionSaving}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-40 flex items-center gap-1.5"
+                    >
+                      {permissionSaving ? <InlineSpinner size={12} /> : <ShieldCheck size={12} />}
+                      Speichern
+                    </button>
+                  </div>
+
+                  {(detail.permission_audit?.length ?? 0) > 0 && (
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Letzte Permission-Änderungen</div>
+                      <div className="space-y-1 max-h-32 overflow-auto">
+                        {detail.permission_audit!.slice(-8).reverse().map((entry, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[10px] text-foreground/70">
+                            <span className={entry.action === 'granted' ? 'text-green-300' : 'text-red-300'}>{entry.action}</span>
+                            <span className="font-mono text-foreground/85 truncate">{entry.permission}</span>
+                            <span className="ml-auto text-foreground/45">{new Date(entry.timestamp).toLocaleString('de-DE')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Runtime Tab */}
+              {activeTab === 'runtime' && (
+                <div className="space-y-3">
+                  {runtimeLoadNote && (
+                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-200 flex items-start gap-2">
+                      <ShieldWarning size={14} className="mt-0.5 flex-shrink-0" />
+                      <span>{runtimeLoadNote}</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase">Jobs</div>
+                      <div className="text-lg font-semibold text-foreground">{runtimeJobs.length}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase">Audit</div>
+                      <div className="text-lg font-semibold text-foreground">{runtimeAudit.length}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase">Secrets</div>
+                      <div className="text-lg font-semibold text-foreground">{appSecrets.length}</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Letzte Jobs</div>
+                      {runtimeJobs.length === 0 ? <p className="text-[10px] text-foreground/50">Keine Runtime-Jobs vorhanden.</p> : (
+                        <div className="space-y-1.5">
+                          {runtimeJobs.slice().reverse().map(job => (
+                            <div key={job.id} className="p-2 rounded bg-background/50 border border-foreground/5">
+                              <div className="flex items-center gap-2 text-[10px]">
+                                <span className="font-mono text-foreground/85 truncate">{job.action}</span>
+                                <span className="ml-auto text-foreground/55">{job.status}</span>
+                              </div>
+                              {job.error && <div className="text-[9px] text-red-300 mt-1 truncate">{job.error}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Secrets</div>
+                      {appSecrets.length === 0 ? <p className="text-[10px] text-foreground/50">Keine sichtbaren App-Secrets.</p> : (
+                        <div className="space-y-1.5">
+                          {appSecrets.map(secret => (
+                            <div key={secret.id} className="flex items-center gap-2 p-2 rounded bg-background/50 border border-foreground/5 text-[10px]">
+                              <span className="font-semibold text-foreground truncate">{secret.name}</span>
+                              <span className="ml-auto px-1.5 py-0.5 rounded bg-accent/10 text-accent">{secret.secret_type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
+                    <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Runtime-Audit</div>
+                    {runtimeAudit.length === 0 ? <p className="text-[10px] text-foreground/50">Keine Audit-Einträge sichtbar.</p> : (
+                      <div className="space-y-1 max-h-44 overflow-auto">
+                        {runtimeAudit.slice().reverse().map(entry => (
+                          <div key={entry.id} className="grid grid-cols-[120px_1fr_auto] gap-2 text-[10px] text-foreground/70 p-1 rounded hover:bg-foreground/5">
+                            <span className="font-mono text-foreground/85">{entry.event_type}</span>
+                            <span className="truncate">{entry.target || entry.message || '-'}</span>
+                            <span className={entry.status === 'succeeded' ? 'text-green-300' : entry.status === 'failed' || entry.status === 'blocked' ? 'text-red-300' : 'text-foreground/50'}>{entry.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -769,7 +1041,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                       </p>
                     </div>
                     <button
-                      onClick={() => { window.location.href = `/app-settings/${appId}` }}
+                      onClick={openSettings}
                       className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:bg-accent/90 flex items-center gap-1.5 flex-shrink-0"
                     >
                       Öffnen

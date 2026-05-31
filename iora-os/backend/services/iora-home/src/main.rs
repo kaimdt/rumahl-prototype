@@ -2201,6 +2201,7 @@ async fn main() -> anyhow::Result<()> {
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
         .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
+        .route("/api/apps/:app_id/permissions", put(app_permissions_update))
         .route("/api/apps/:app_id/terminal/exec", post(app_terminal_exec))
         .route(
             "/api/apps/:app_id/terminal/sessions",
@@ -7511,6 +7512,44 @@ async fn supervisor_apps_get(
         "permission_grants": app.permission_grants,
         "denied_permissions": app.denied_permissions,
         "permission_audit": app.permission_audit,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct AppPermissionsUpdateRequest {
+    granted_permissions: Vec<String>,
+    #[serde(default)]
+    denied_permissions: Vec<String>,
+}
+
+async fn app_permissions_update(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppPermissionsUpdateRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let updated = state
+        .local_appstore
+        .update_permissions(
+            &app_id,
+            body.granted_permissions,
+            body.denied_permissions,
+            "app-permissions-ui",
+        )
+        .await
+        .map_err(|e| {
+            let message = e.to_string();
+            if message.contains("not found") {
+                ErrorResponse::not_found(message)
+            } else {
+                ErrorResponse::internal(message)
+            }
+        })?;
+    Ok(Json(json!({
+        "success": true,
+        "app_id": updated.id,
+        "permission_grants": updated.permission_grants,
+        "denied_permissions": updated.denied_permissions,
+        "permission_audit": updated.permission_audit,
     })))
 }
 

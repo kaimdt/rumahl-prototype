@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Cpu, HardDrive, Globe, Plus, Cube, Lightning, ArrowClockwise, Play, Pause, TrashSimple } from '@phosphor-icons/react'
+import { Cpu, HardDrive, Globe, Plus, Cube, Lightning, ArrowClockwise, Play, Pause, TrashSimple, MagnifyingGlass, Gear, ShieldCheck } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 
 // Export Phase 2 components
@@ -438,6 +438,8 @@ export function PluginsTab({ token }: { token: string }) {
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [executing, setExecuting] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -468,21 +470,71 @@ export function PluginsTab({ token }: { token: string }) {
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorMessage>{error}</ErrorMessage>
 
+  const pluginTypes = Array.from(new Set(plugins.map(([plugin]) => plugin.plugin_type))).filter(Boolean)
+  const filteredPlugins = plugins.filter(([plugin]) => {
+    const matchesType = typeFilter === 'all' || plugin.plugin_type === typeFilter
+    const q = query.trim().toLowerCase()
+    const matchesQuery = !q || [plugin.name, plugin.id, plugin.description, plugin.author, plugin.plugin_type]
+      .some(value => value.toLowerCase().includes(q))
+    return matchesType && matchesQuery
+  })
+  const executions = plugins.reduce((sum, [, stats]) => sum + (stats?.total_executions || 0), 0)
+  const failures = plugins.reduce((sum, [, stats]) => sum + (stats?.failed_executions || 0), 0)
+  const networkEnabled = plugins.filter(([plugin]) => plugin.sandbox_config.allow_network).length
+
   return (
     <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Plugins</div>
+          <div className="text-lg font-semibold text-foreground">{plugins.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Ausführungen</div>
+          <div className="text-lg font-semibold text-accent">{executions}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Fehler</div>
+          <div className="text-lg font-semibold text-red-300">{failures}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Netzwerk</div>
+          <div className="text-lg font-semibold text-cyan-300">{networkEnabled}</div>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+        <div className="relative flex-1">
+          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Plugins nach Name, ID, Autor oder Typ suchen..."
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+          />
+        </div>
+        <div className="flex gap-1 overflow-x-auto">
+          <button onClick={() => setTypeFilter('all')} className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${typeFilter === 'all' ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>Alle</button>
+          {pluginTypes.map(type => (
+            <button key={type} onClick={() => setTypeFilter(type)} className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors whitespace-nowrap ${typeFilter === type ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>{type}</button>
+          ))}
+        </div>
+      </div>
+
       {/* Plugins List */}
-      <AdminCard title={`Plugins (${plugins.length})`} icon={Lightning}>
+      <AdminCard title={`Plugins (${filteredPlugins.length}/${plugins.length})`} icon={Lightning}>
         {plugins.length === 0 ? (
           <p className="text-xs text-foreground/50 text-center py-4">Keine Plugins installiert.</p>
         ) : (
           <div className="space-y-2">
-            {plugins.map(([plugin, stats], i) => (
-              <div key={i} className="p-3 rounded-lg bg-foreground/3 hover:bg-foreground/5 transition-colors">
+            {filteredPlugins.map(([plugin, stats], i) => (
+              <div key={i} className="p-3 rounded-xl bg-foreground/[0.03] border border-foreground/10 hover:bg-foreground/[0.06] transition-colors">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-semibold text-foreground flex items-center gap-2">
                       {plugin.name}
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-accent/15 text-accent">{plugin.plugin_type}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-foreground/10 text-foreground/60">{plugin.id}</span>
                     </div>
                     <div className="text-[10px] text-foreground/40">{plugin.description}</div>
                     <div className="text-[10px] text-foreground/40 mt-0.5">v{plugin.version} • {plugin.author}</div>
@@ -500,10 +552,10 @@ export function PluginsTab({ token }: { token: string }) {
                       <span className="text-foreground/40">Max RAM:</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.max_memory_mb}MB</span>
                     </div>
                     <div className="p-1 rounded bg-foreground/5">
-                      <span className="text-foreground/40">Netzwerk:</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.allow_network ? '✓' : '✗'}</span>
+                      <span className="text-foreground/40">Netzwerk:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_network ? 'text-cyan-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_network ? 'Erlaubt' : 'Blockiert'}</span>
                     </div>
                     <div className="p-1 rounded bg-foreground/5">
-                      <span className="text-foreground/40">Dateisystem:</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.allow_file_system ? '✓' : '✗'}</span>
+                      <span className="text-foreground/40">Dateisystem:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_file_system ? 'text-yellow-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_file_system ? 'Erlaubt' : 'Blockiert'}</span>
                     </div>
                   </div>
                 </div>
@@ -540,7 +592,7 @@ export function PluginsTab({ token }: { token: string }) {
                 {/* Permissions */}
                 {plugin.permissions.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-foreground/5">
-                    <div className="text-[10px] text-foreground/40 mb-1">Berechtigungen:</div>
+                    <div className="text-[10px] text-foreground/40 mb-1 flex items-center gap-1"><ShieldCheck size={11} /> Berechtigungen ({plugin.permissions.length}):</div>
                     <div className="flex flex-wrap gap-1">
                       {plugin.permissions.map((perm, j) => (
                         <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/5 text-foreground/60">{perm}</span>
@@ -555,9 +607,16 @@ export function PluginsTab({ token }: { token: string }) {
                     className="flex items-center gap-1 px-2 py-1 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors disabled:opacity-40">
                     {executing === plugin.id ? <InlineSpinner size={12} /> : <Lightning size={12} />} Ausführen
                   </button>
+                  <button onClick={() => { window.location.href = `/app-settings/${plugin.id}` }}
+                    className="flex items-center gap-1 px-2 py-1 bg-foreground/5 text-foreground/70 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors">
+                    <Gear size={12} /> Einstellungen
+                  </button>
                 </div>
               </div>
             ))}
+            {filteredPlugins.length === 0 && (
+              <p className="text-xs text-foreground/50 text-center py-6">Keine Plugins für den aktuellen Filter.</p>
+            )}
           </div>
         )}
       </AdminCard>

@@ -423,6 +423,76 @@ impl LocalAppStore {
         v
     }
 
+    pub async fn update_permissions(
+        &self,
+        app_id: &str,
+        granted_permissions: Vec<String>,
+        denied_permissions: Vec<String>,
+        actor: &str,
+    ) -> Result<InstalledApp> {
+        let now = now_iso();
+        let mut inner = self.inner.write().await;
+        let app = inner
+            .apps
+            .get_mut(app_id)
+            .ok_or_else(|| anyhow!("app '{}' not found", app_id))?;
+        let requested: std::collections::HashSet<String> = app.manifest.permissions.iter().cloned().collect();
+        let granted: std::collections::HashSet<String> = granted_permissions
+            .into_iter()
+            .filter(|permission| requested.contains(permission))
+            .collect();
+        let denied: std::collections::HashSet<String> = denied_permissions
+            .into_iter()
+            .filter(|permission| requested.contains(permission))
+            .collect();
+
+        let mut grants = Vec::new();
+        let mut denied_list = Vec::new();
+        for permission in &app.manifest.permissions {
+            if granted.contains(permission) && !denied.contains(permission) {
+                grants.push(AppPermissionGrant {
+                    permission: permission.clone(),
+                    granted_at: now.clone(),
+                    granted_by: actor.to_string(),
+                    risk_level: permission_risk_level(permission).to_string(),
+                    is_active: true,
+                });
+                app.permission_audit.push(AppPermissionAuditEntry {
+                    timestamp: now.clone(),
+                    action: "granted".to_string(),
+                    permission: permission.clone(),
+                    actor: actor.to_string(),
+                    reason: Some("Updated from app permissions UI".to_string()),
+                });
+            } else {
+                denied_list.push(permission.clone());
+                app.permission_audit.push(AppPermissionAuditEntry {
+                    timestamp: now.clone(),
+                    action: "denied".to_string(),
+                    permission: permission.clone(),
+                    actor: actor.to_string(),
+                    reason: Some("Updated from app permissions UI".to_string()),
+                });
+            }
+        }
+        app.permission_grants = grants;
+        app.denied_permissions = denied_list;
+        let updated = app.clone();
+        let list: Vec<InstalledApp> = inner.apps.values().cloned().collect();
+        drop(inner);
+
+        let bytes = serde_json::to_vec_pretty(&list).context("serialising index")?;
+        let path = self.base_dir.join(INDEX_FILE);
+        let tmp = path.with_extension("json.tmp");
+        tokio::fs::write(&tmp, bytes)
+            .await
+            .context("writing tmp index")?;
+        tokio::fs::rename(&tmp, &path)
+            .await
+            .context("rotating index")?;
+        Ok(updated)
+    }
+
     pub async fn jobs(&self) -> Vec<InstallJob> {
         let inner = self.inner.read().await;
         let mut v: Vec<InstallJob> = inner.jobs.values().cloned().collect();

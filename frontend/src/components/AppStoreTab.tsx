@@ -330,7 +330,20 @@ function InstalledAppsView({
   onAppClick: (appId: string) => void
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [kindFilter, setKindFilter] = useState<'all' | 'app' | 'plugin' | 'system'>('all')
+  const [installedSearch, setInstalledSearch] = useState('')
   const integrationsByApp = new Map(integrations.map(integration => [integration.id, integration]))
+  const filteredApps = apps.filter(app => {
+    const matchesKind = kindFilter === 'all' || (app.kind || 'app') === kindFilter
+    const query = installedSearch.trim().toLowerCase()
+    const matchesSearch = !query || [app.name, app.id, app.developer, app.description, app.kind]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(query))
+    return matchesKind && matchesSearch
+  })
+  const runningCount = apps.filter(app => app.status === 'running').length
+  const pluginCount = apps.filter(app => app.kind === 'plugin').length
+  const integrationCount = integrations.length
 
   const startApp = async (appId: string) => {
     setActionLoading(`start-${appId}`)
@@ -420,6 +433,48 @@ function InstalledAppsView({
 
   return (
     <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Installiert</div>
+          <div className="text-lg font-semibold text-foreground">{apps.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Läuft</div>
+          <div className="text-lg font-semibold text-green-400">{runningCount}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Plugins</div>
+          <div className="text-lg font-semibold text-accent">{pluginCount}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Integrationen</div>
+          <div className="text-lg font-semibold text-cyan-300">{integrationCount}</div>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+        <div className="relative flex-1">
+          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
+          <input
+            value={installedSearch}
+            onChange={(event) => setInstalledSearch(event.target.value)}
+            placeholder="Installierte Apps, Plugins oder IDs suchen..."
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+          />
+        </div>
+        <div className="flex gap-1">
+          {(['all', 'app', 'plugin', 'system'] as const).map(kind => (
+            <button
+              key={kind}
+              onClick={() => setKindFilter(kind)}
+              className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${kindFilter === kind ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
+            >
+              {kind === 'all' ? 'Alle' : kind === 'app' ? 'Apps' : kind === 'plugin' ? 'Plugins' : 'System'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {apps.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-20 h-20 rounded-3xl bg-foreground/[0.04] flex items-center justify-center mx-auto mb-4">
@@ -430,7 +485,7 @@ function InstalledAppsView({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2">
-          {apps.map((app) => (
+          {filteredApps.map((app) => (
             (() => {
               const integration = integrationsByApp.get(app.id)
               const surfaces = integration?.surfaces || []
@@ -661,7 +716,7 @@ function InstalledAppsView({
                       </button>
                     )}
                     <button
-                      onClick={() => window.open(`/app-settings/${app.id}`, '_blank')}
+                      onClick={() => { window.location.href = `/app-settings/${app.id}` }}
                       className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
                     >
                       <Gear size={12} /> Einstellungen
@@ -705,6 +760,11 @@ function InstalledAppsView({
               )
             })()
           ))}
+          {filteredApps.length === 0 && (
+            <div className="text-center py-10 text-xs text-foreground/45">
+              Keine installierten Einträge für den aktuellen Filter.
+            </div>
+          )}
         </div>
       )}
     </div>
