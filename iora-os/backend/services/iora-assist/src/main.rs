@@ -74,8 +74,7 @@ use self_evolution::{
 
 use sandbox::SandboxManager;
 use agent_task_executor::AgentTaskExecutor;
-use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel};
-use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
+use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel, BridgeState, ControlResult};use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
 use system_event_bus::{SystemEventBus, SystemEvent};
 use system_guard::{SystemGuard, SystemState, LoopDetection, ProtectionRule};
 use model_router::{ModelRouter, RoutingDecision, TaskCategory, RouterConfig};
@@ -4613,6 +4612,45 @@ async fn run_pidev_task(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Return the live LocalUp-style bridge state for a session: aggregated tool
+/// calls, file changes, messages, and metrics derived from the agent stream.
+async fn get_pidev_bridge(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<BridgeState>, StatusCode> {
+    match state.pi_dev.bridge_state(&id).await {
+        Some(bridge) => Ok(Json(bridge)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+#[derive(Deserialize)]
+struct ControlPiDevRequest {
+    /// One of: ping, pause, resume, set_model, set_thinking, get_state, reset, cancel.
+    command: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    thinking: Option<String>,
+}
+
+/// Send a LocalUp-style control command to a pi.dev session (pause/resume,
+/// set model/thinking, get state, reset, cancel).
+async fn control_pidev_session(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ControlPiDevRequest>,
+) -> Result<Json<ControlResult>, (StatusCode, String)> {
+    match state
+        .pi_dev
+        .send_control_command(&id, &req.command, req.model, req.thinking)
+        .await
+    {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
 async fn stream_pidev_events(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -5779,6 +5817,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/pidev/sessions", get(list_pidev_sessions).post(create_pidev_session))
         .route("/api/assist/pidev/sessions/:id", get(get_pidev_session).delete(stop_pidev_session))
         .route("/api/assist/pidev/sessions/:id/run", post(run_pidev_task))
+        .route("/api/assist/pidev/sessions/:id/bridge", get(get_pidev_bridge))
+        .route("/api/assist/pidev/sessions/:id/control", post(control_pidev_session))
         .route("/api/assist/pidev/sessions/:id/events", get(stream_pidev_events))
         .route("/api/assist/pidev/sessions/:id/approve", post(approve_pidev_action))
         .route("/api/assist/pidev/sessions/:id/deny", post(deny_pidev_action))

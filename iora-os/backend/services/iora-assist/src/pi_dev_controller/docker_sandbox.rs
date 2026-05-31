@@ -86,12 +86,27 @@ impl DockerSandbox {
         ];
 
         // Plugin install + pi.dev startup command
+        //
+        // When `IORA_PI_EXTENSION_PATH` is set on the host, the IORA bridge
+        // extension is mounted read-only into the container and loaded via
+        // `pi -e`, giving interactive sessions LocalUp-style live monitoring and
+        // remote control. When unset, behaviour is unchanged.
+        let mut binds = vec![workspace_bind, sandbox_bind];
+        let ext_flag = match std::env::var("IORA_PI_EXTENSION_PATH") {
+            Ok(host_path) if !host_path.trim().is_empty() => {
+                binds.push(format!("{}:/opt/iora/iora-bridge.ts:ro", host_path));
+                " -e /opt/iora/iora-bridge.ts".to_string()
+            }
+            _ => String::new(),
+        };
+
         let start_cmd = if config.plugin_packages.is_empty() {
-            "exec npx pi serve --port 3000 --host 0.0.0.0".to_string()
+            format!("exec npx pi serve --port 3000 --host 0.0.0.0{}", ext_flag)
         } else {
             format!(
-                "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0",
-                config.plugin_packages.join(" ")
+                "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0{}",
+                config.plugin_packages.join(" "),
+                ext_flag
             )
         };
 
@@ -101,7 +116,7 @@ impl DockerSandbox {
             .and_then(|c| parse_cpu(c));
 
         let host_config = BollardHostConfig {
-            binds: Some(vec![workspace_bind, sandbox_bind]),
+            binds: Some(binds),
             memory: memory_bytes,
             nano_cpus,
             cap_drop: Some(vec!["ALL".to_string()]),

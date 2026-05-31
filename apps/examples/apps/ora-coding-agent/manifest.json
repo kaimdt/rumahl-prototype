@@ -134,6 +134,38 @@
       "method": "POST",
       "requires_confirmation": true,
       "tags": ["coding"]
+    },
+    {
+      "name": "bridge_status",
+      "description": "Get a live snapshot of the coding agent: task counts, capacity and recent tasks.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "handler": "/tools/bridge_status",
+      "method": "POST",
+      "requires_confirmation": false,
+      "tags": ["coding", "status", "bridge"]
+    },
+    {
+      "name": "agent_control",
+      "description": "Send a control command to the coding agent: ping, get_state, cancel, cancel_all.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["ping", "get_state", "cancel", "cancel_all"],
+            "description": "The control command to execute."
+          },
+          "task_id": { "type": "string", "description": "Task id (required for the cancel command)." }
+        },
+        "required": ["command"]
+      },
+      "handler": "/tools/agent_control",
+      "method": "POST",
+      "requires_confirmation": true,
+      "tags": ["coding", "control", "bridge"]
     }
   ],
   "lifecycle_hooks": {

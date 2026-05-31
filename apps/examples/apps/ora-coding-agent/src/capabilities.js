@@ -136,6 +136,78 @@ function registerCapabilityRoutes(app, { store, runner }) {
     res.json({ ok: true, cancelled });
   });
 
+  // bridge_status — LocalUp-style live snapshot of the coding agent: task
+  // counts, capacity, and the most recent tasks. Mirrors the IORA Assist
+  // pi.dev BridgeState so a dashboard can monitor the agent uniformly.
+  app.post('/tools/bridge_status', (_req, res) => {
+    const tasks = store.list();
+    const byStatus = tasks.reduce((acc, t) => {
+      acc[t.status] = (acc[t.status] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({
+      ok: true,
+      bridge: {
+        type: 'coding_agent_bridge',
+        extension_version: '1.0.0',
+        ts: Date.now(),
+        queued: runner.queue ? runner.queue.length : (byStatus.queued || 0),
+        running: runner.active ? runner.active.size : (byStatus.running || 0),
+        total: tasks.length,
+        task_stats: {
+          queued: byStatus.queued || 0,
+          running: byStatus.running || 0,
+          succeeded: byStatus.succeeded || 0,
+          failed: byStatus.failed || 0,
+          cancelled: byStatus.cancelled || 0,
+        },
+        recent: tasks.slice(0, 10).map(publicTask),
+      },
+    });
+  });
+
+  // agent_control — LocalUp-style remote control for the coding agent.
+  // Supports ping, get_state, cancel (one task) and cancel_all.
+  app.post('/tools/agent_control', (req, res) => {
+    const command = (req.body && req.body.command ? String(req.body.command) : '').trim().toLowerCase();
+    switch (command) {
+      case 'ping':
+        return res.json({ ok: true, command, message: 'pong — coding agent bridge active' });
+      case 'get_state': {
+        const tasks = store.list();
+        return res.json({
+          ok: true,
+          command,
+          running: runner.active ? runner.active.size : 0,
+          queued: runner.queue ? runner.queue.length : 0,
+          total: tasks.length,
+        });
+      }
+      case 'cancel': {
+        const taskId = (req.body && (req.body.task_id || req.body.taskId)) || null;
+        if (!taskId) return res.status(400).json({ ok: false, error: 'task_id is required for cancel' });
+        const task = store.get(taskId);
+        if (!task) return res.status(404).json({ ok: false, error: 'task not found' });
+        return res.json({ ok: true, command, cancelled: runner.cancel(task.id) });
+      }
+      case 'cancel_all': {
+        let cancelled = 0;
+        for (const task of store.list()) {
+          if (task.status === 'queued' || task.status === 'running') {
+            try {
+              if (runner.cancel(task.id)) cancelled += 1;
+            } catch (err) {
+              log.warn('agent_control cancel_all failed for task', { taskId: task.id, error: err.message });
+            }
+          }
+        }
+        return res.json({ ok: true, command, cancelled });
+      }
+      default:
+        return res.status(400).json({ ok: false, error: `unknown command: ${command || '(empty)'}` });
+    }
+  });
+
   // ─── Exposed Service (inter-app RPC) ─────────────────────────────────────
   // base_path: /services/coding-agent — callable by other installed apps.
 
