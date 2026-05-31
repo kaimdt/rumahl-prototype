@@ -67,7 +67,7 @@ const VM_HEALTH_INTERVAL_S: u64 = 30;
 const LOG_BUFFER_CAP: usize = 5000;
 const CMD_LOG_CAP: usize = 200;
 const RESOURCE_INTERVAL_S: u64 = 3;
-const SELF_HEAL_INTERVAL_S: u64 = 45;
+const SELF_HEAL_INTERVAL_S: u64 = 20;
 const STATUS_REFRESH_INTERVAL_S: u64 = 8;
 
 // ═══ CLI ═════════════════════════════════════════════════════════════════
@@ -144,7 +144,7 @@ impl Backend {
     async fn refresh_services(&self) -> usize {
         if self.services.is_empty() { return 0; }
         let cmd = format!(
-            "for s in {}; do systemctl is-active $s 2>/dev/null || echo unknown; done",
+            "for s in {}; do st=$(systemctl is-active \"$s\" 2>/dev/null); [ -n \"$st\" ] || st=unknown; printf '%s\\n' \"$st\"; done",
             self.services.join(" ")
         );
         match self.ssh_exec(&cmd).await {
@@ -156,8 +156,19 @@ impl Backend {
     async fn fetch_service_status(&self) -> Vec<(String, bool)> {
         let mut result = Vec::with_capacity(self.services.len());
         if self.services.is_empty() { return result; }
+        // Probe multiple bin directories — IORA OS may use /usr/local/bin or
+        // /opt/iora/bin depending on the image. Reporting "binary missing"
+        // when it's just installed elsewhere caused phantom auto-builds.
         let script = format!(
-            "for s in {}; do printf '%s|%s\\n' \"$(systemctl is-active $s 2>/dev/null || echo unknown)\" \"$(test -f /usr/bin/$s && echo yes || echo no)\"; done",
+            "for s in {}; do \
+                bin=no; \
+                for d in /usr/bin /usr/local/bin /opt/iora/bin /home/iora/.cargo/bin; do \
+                    if [ -x \"$d/$s\" ]; then bin=yes; break; fi; \
+                done; \
+                st=$(systemctl is-active \"$s\" 2>/dev/null); \
+                [ -n \"$st\" ] || st=unknown; \
+                printf '%s|%s\\n' \"$st\" \"$bin\"; \
+             done",
             self.services.join(" ")
         );
         if let Ok(output) = self.ssh_exec(&script).await {
@@ -263,21 +274,78 @@ impl Backend {
         ));
     }
 
+    /// Hard-reset deployment state on the VM: wipe persisted bin-hashes and
+    /// remove every iora-* binary from the standard install dirs. Used by the
+    /// force-redeploy command (Shift-D) when binaries are reported missing
+    /// despite a previous deploy claiming success — typically because /usr/bin
+    /// is a tmpfs that gets wiped on VM reboot while /var/lib persists.
+    async fn wipe_hashes_and_bins(&self, tx: &mpsc::UnboundedSender<AppEvent>) {
+        let _ = tx.send(AppEvent::Log(
+            "[DEPLOY] Wiping bin-hashes + removing iora-* from /usr/bin /usr/local/bin /opt/iora/bin".into(),
+        ));
+        let script = r#"set +e
+rm -rf /var/lib/iora/.bin-hashes 2>/dev/null
+for d in /usr/bin /usr/local/bin /opt/iora/bin; do
+    [ -d "$d" ] && find "$d" -maxdepth 1 -name 'iora-*' -type f -delete 2>/dev/null
+done
+echo "wiped"
+"#;
+        if let Ok(out) = self.ssh_exec(script).await {
+            for line in out.lines() {
+                if !line.trim().is_empty() {
+                    let _ = tx.send(AppEvent::Log(format!("[DEPLOY] {line}")));
+                }
+            }
+        }
+    }
+
     async fn deploy_binaries(&self, tx: mpsc::UnboundedSender<AppEvent>) {
         let _ = tx.send(AppEvent::Log("[DEPLOY] Deploying...".into()));
         let script = self.deploy_script();
+        // Stream the deploy via spawn() instead of ssh_exec(): the script can
+        // easily exceed the 60s ssh_exec timeout when 27+ systemd units need
+        // daemon-reload/enable/restart. Streaming also gives live progress.
         let cmd = format!(
-            "cat > /tmp/iora-deploy.sh << 'DEPLOYEOF'\n{}\nDEPLOYEOF\nbash /tmp/iora-deploy.sh && rm -f /tmp/iora-deploy.sh",
+            "cat > /tmp/iora-deploy.sh << 'DEPLOYEOF'\n{}\nDEPLOYEOF\nbash /tmp/iora-deploy.sh; rc=$?; rm -f /tmp/iora-deploy.sh; exit $rc",
             script
         );
-        match self.ssh_exec(&cmd).await {
-            Ok(out) => {
-                for line in out.lines() {
-                    if !line.trim().is_empty() { let _ = tx.send(AppEvent::Log(format!("[DEPLOY] {}", line))); }
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let mut args = self.ssh_args();
+        args.push(cmd);
+        let spawn = bg_cmd("ssh").args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+        let mut child = match spawn {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = tx.send(AppEvent::Log(format!("[DEPLOY] ✗ spawn: {e}")));
+                return;
+            }
+        };
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let tx_out = tx.clone();
+        let tx_err = tx.clone();
+        let t1 = tokio::spawn(async move {
+            if let Some(s) = stdout {
+                let mut lines = BufReader::new(s).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let _ = tx_out.send(AppEvent::Log(format!("[DEPLOY] {line}")));
                 }
             }
-            Err(e) => { let _ = tx.send(AppEvent::Log(format!("[DEPLOY] ✗ {e}"))); }
-        }
+        });
+        let t2 = tokio::spawn(async move {
+            if let Some(s) = stderr {
+                let mut lines = BufReader::new(s).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let _ = tx_err.send(AppEvent::Log(format!("[DEPLOY] ! {line}")));
+                }
+            }
+        });
+        let _ = t1.await;
+        let _ = t2.await;
+        let _ = child.wait().await;
         let active = self.refresh_services().await;
         let _ = tx.send(AppEvent::ServiceCount(active));
     }
@@ -288,22 +356,79 @@ impl Backend {
         format!(r#"#!/bin/bash
 set +e
 mkdir -p /var/lib/iora/.bin-hashes
+# Pick a writable system bin dir. /usr/bin is read-only on the IORA OS
+# (buildroot squashfs) image; /usr/local/bin is the persistent overlay.
+INSTALL_DIR=/usr/bin
+if ! touch "$INSTALL_DIR/.iora-write-test" 2>/dev/null; then
+    INSTALL_DIR=/usr/local/bin
+    mkdir -p "$INSTALL_DIR"
+fi
+rm -f "$INSTALL_DIR/.iora-write-test" 2>/dev/null
+echo "install_dir: $INSTALL_DIR"
 deployed=0
 skipped=0
 restart_list=""
 home_changed=0
+units_added=0
+reload_needed=0
 for svc in {svc_list}; do
-    bin="{ws}/target/debug/$svc"
-    [ -f "$bin" ] || {{ echo "skip $svc (not built)"; continue; }}
+    # Locate the freshest binary across debug/ and release/.
+    bin=""
+    for cand in "{ws}/target/debug/$svc" "{ws}/target/release/$svc"; do
+        [ -x "$cand" ] && bin="$cand" && break
+    done
+    if [ -z "$bin" ]; then
+        echo "skip $svc (not built)"
+        continue
+    fi
     short="${{svc#iora-}}"
     cur=$(sha256sum "$bin" | awk '{{print $1}}')
     prev=$(cat "/var/lib/iora/.bin-hashes/$svc" 2>/dev/null)
-    if [ "$cur" = "$prev" ] && [ -f "/usr/bin/$svc" ]; then
+    # Look for an already-installed copy in any standard bin dir.
+    # Must match the dirs probed by fetch_service_status — otherwise we
+    # mark as "skip" while Status reports "binary missing".
+    installed_at=""
+    for d in /usr/bin /usr/local/bin /opt/iora/bin /home/iora/.cargo/bin; do
+        if [ -x "$d/$svc" ]; then installed_at="$d/$svc"; break; fi
+    done
+    # Dev-VMs can boot IORA OS units with hardening drop-ins copied from the
+    # image. On this kernel/buildroot combo those namespace options can fail
+    # before the binary starts (systemd status=226/NAMESPACE). Keep dev
+    # services runnable while preserving the real service units.
+    mkdir -p "/etc/systemd/system/$svc.service.d" "/etc/iora/db-credentials" "/opt/iora/build/$svc/data" /tmp/iora-sandboxes /var/log/iora "/var/lib/iora/$svc"
+    cat > "/etc/systemd/system/$svc.service.d/30-dev-namespaces.conf" <<'NSDROP'
+[Service]
+ProtectSystem=no
+ProtectHome=no
+PrivateTmp=no
+PrivateDevices=no
+PrivateUsers=no
+PrivateMounts=no
+PrivateNetwork=no
+NoNewPrivileges=no
+RestrictNamespaces=no
+RestrictAddressFamilies=
+SystemCallFilter=
+ReadWritePaths=
+ReadOnlyPaths=
+InaccessiblePaths=
+BindPaths=
+BindReadOnlyPaths=
+TemporaryFileSystem=
+NSDROP
+    reload_needed=1
+    if [ "$cur" = "$prev" ] && [ -n "$installed_at" ]; then
         skipped=$((skipped+1))
+        st=$(systemctl is-active "$svc" 2>/dev/null)
+        if [ "$st" != "active" ]; then restart_list="$restart_list $svc"; fi
         continue
     fi
-    install -m 0755 "$bin" "/usr/bin/$svc" || {{ echo "install FAILED $svc"; continue; }}
-    mkdir -p "/etc/iora/db-credentials" "/opt/iora/build/$svc/data" "/etc/systemd/system/$svc.service.d"
+    if ! install -m 0755 "$bin" "$INSTALL_DIR/$svc" 2>/tmp/iora-install.err; then
+        echo "install FAILED $svc: $(cat /tmp/iora-install.err 2>/dev/null)"
+        rm -f /tmp/iora-install.err
+        continue
+    fi
+    rm -f /tmp/iora-install.err
     [ -f "/etc/iora/db-credentials/$svc.env" ] || echo "DATABASE_URL=postgres://root:iora@localhost/iora_$short" > "/etc/iora/db-credentials/$svc.env"
     if [ ! -f "/etc/iora/$svc.env" ]; then
         if [ "$svc" = "iora-home" ]; then
@@ -312,14 +437,50 @@ for svc in {svc_list}; do
             printf 'DATABASE_URL=postgres://root:iora@localhost:5432/iora_%s\nRUST_LOG=%s=debug\n' "$short" "$svc" > "/etc/iora/$svc.env"
         fi
     fi
+    # Auto-install a minimal systemd unit if none exists yet so the binary
+    # actually gets started — otherwise install succeeds but Status keeps
+    # showing the service as inactive/failed forever. We defer daemon-reload
+    # to one batched call at the end (per-iteration reload would take 30+s
+    # for 27 services and blow the ssh timeout).
+    if ! systemctl list-unit-files "$svc.service" --no-legend 2>/dev/null | grep -q "^$svc\.service"; then
+        cat > "/etc/systemd/system/$svc.service" <<UNIT
+[Unit]
+Description=$svc (auto-installed by iora-dev-watch)
+After=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/iora/$svc.env
+EnvironmentFile=-/etc/iora/db-credentials/$svc.env
+ExecStart=$INSTALL_DIR/$svc
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        units_added=1
+    fi
     echo "$cur" > "/var/lib/iora/.bin-hashes/$svc"
     restart_list="$restart_list $svc"
     [ "$svc" = "iora-home" ] && home_changed=1
     deployed=$((deployed+1))
-    echo "✓ $svc"
+    echo "✓ $svc -> $INSTALL_DIR/$svc"
 done
+# Single batched daemon-reload (much faster than per-service).
+if [ "$units_added" = "1" ]; then
+    reload_needed=1
+fi
+if [ "$reload_needed" = "1" ]; then
+    systemctl daemon-reload 2>/dev/null
+fi
+# Fire restarts in parallel and bound the wait — a stuck service must not
+# block the whole deploy past the ssh timeout.
 for svc in $restart_list; do
-    (systemctl reset-failed "$svc" 2>/dev/null; systemctl restart "$svc" 2>/dev/null || systemctl start "$svc" 2>/dev/null) &
+    (
+        systemctl reset-failed "$svc" 2>/dev/null
+        timeout 8 systemctl restart "$svc" 2>/dev/null \
+            || timeout 8 systemctl start "$svc" 2>/dev/null
+    ) &
 done
 wait
 if [ "$home_changed" = "1" ] && [ ! -f /var/lib/iora/.admin-role-fixed ]; then
@@ -337,10 +498,22 @@ echo "result: deployed=$deployed skipped=$skipped"
     async fn build_frontend(&self, tx: mpsc::UnboundedSender<AppEvent>, auto_deploy: bool) {
         let fe = match &self.frontend_dir { Some(d) => d.clone(), None => return };
         let _ = tx.send(AppEvent::Log("──[Frontend]──".into()));
+        // If dist/ already exists (pre-built by dev-local.ps1), skip build
+        if fe.join("dist").is_dir() && !fe.join("node_modules").is_dir() {
+            let _ = tx.send(AppEvent::Log("[FE] Using pre-built dist/ (from dev-local.ps1)".into()));
+            if auto_deploy { self.deploy_frontend(tx).await; }
+            return;
+        }
+        // On Windows, npm is npm.cmd — use cmd /c to invoke it
+        #[cfg(windows)]
+        let npm_cmd = "cmd";
+        #[cfg(not(windows))]
+        let npm_cmd = "npm";
         if !fe.join("node_modules").is_dir() {
             let _ = tx.send(AppEvent::Log("[FE] npm install...".into()));
-            let st = bg_cmd("npm")
-                .args(["install", "--no-audit", "--no-fund"])
+            let mut cmd = bg_cmd(npm_cmd);
+            #[cfg(windows)] { cmd.arg("/c").arg("npm"); }
+            let st = cmd.args(["install", "--no-audit", "--no-fund"])
                 .current_dir(&fe)
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -351,14 +524,24 @@ echo "result: deployed=$deployed skipped=$skipped"
             }
         }
         let _ = tx.send(AppEvent::Log("[FE] npm run build...".into()));
-        let out = match bg_cmd("npm").args(["run", "build"])
+        let mut cmd = bg_cmd(npm_cmd);
+        #[cfg(windows)] { cmd.arg("/c").arg("npm"); }
+        let out = match cmd.args(["run", "build"])
             .current_dir(&fe)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output().await
         {
             Ok(o) => o,
-            Err(e) => { let _ = tx.send(AppEvent::Log(format!("[FE] ✗ {e}"))); return; }
+            Err(e) => {
+                let _ = tx.send(AppEvent::Log(format!("[FE] npm not available ({e})")));
+                // Fallback: check if dist/ exists from dev-local.ps1
+                if fe.join("dist").is_dir() {
+                    let _ = tx.send(AppEvent::Log("[FE] Using pre-built dist/ instead".into()));
+                    if auto_deploy { self.deploy_frontend(tx).await; }
+                }
+                return;
+            }
         };
         for line in String::from_utf8_lossy(&out.stdout).lines() {
             if !line.trim().is_empty() { let _ = tx.send(AppEvent::Log(format!("[FE] {}", line))); }
@@ -438,18 +621,69 @@ echo "result: deployed=$deployed skipped=$skipped"
         if !self.check_vm().await {
             return;
         }
-        let script = r#"set +e
+        let svc_list = self.services.join(" ");
+        let script = format!(r#"set +e
 out=""
 missing=""
-# 0) Detect missing iora-* binaries (especially iora-dev-bridge).
-#    The watcher will see the `missing:` lines and auto-trigger a build.
-for b in iora-dev-bridge iora-home iora-core; do
-    if [ ! -x "/usr/bin/$b" ]; then
-        missing="${missing}${b} "
+mkdir -p /var/lib/iora/.bin-hashes
+# 0) Detect missing iora-* binaries across every standard bin directory.
+#    Always include the bridge so it gets auto-bootstrapped even when no
+#    services were discovered yet.
+for b in iora-dev-bridge {svc_list}; do
+    found=""
+    for d in /usr/bin /usr/local/bin /opt/iora/bin /home/iora/.cargo/bin; do
+        if [ -x "$d/$b" ]; then found="$d/$b"; break; fi
+    done
+    if [ -z "$found" ]; then
+        missing="${{missing}}${{b}} "
+        # Drop any stale hash so the next deploy is forced to (re)install.
+        rm -f "/var/lib/iora/.bin-hashes/$b"
     fi
 done
 if [ -n "$missing" ]; then
-    out="${out}missing: ${missing}\n"
+    out="${{out}}missing: ${{missing}}\n"
+fi
+# 0b) IORA OS production units are strongly sandboxed. In the dev VM this can
+#     fail at systemd namespace setup time (status=226/NAMESPACE), before the
+#     service binary is even executed. Keep the real unit files intact and add
+#     a dev-only drop-in that relaxes namespace features whenever needed.
+reload_needed=0
+for svc in {svc_list}; do
+    if systemctl list-unit-files "$svc.service" --no-legend 2>/dev/null | grep -q "^$svc\.service"; then
+        mkdir -p "/etc/systemd/system/$svc.service.d" /tmp/iora-sandboxes /var/log/iora "/var/lib/iora/$svc" "/opt/iora/build/$svc/data"
+        tmp="/tmp/iora-dev-namespaces-$svc.conf"
+        cat > "$tmp" <<'NSDROP'
+[Service]
+ProtectSystem=no
+ProtectHome=no
+PrivateTmp=no
+PrivateDevices=no
+PrivateUsers=no
+PrivateMounts=no
+PrivateNetwork=no
+NoNewPrivileges=no
+RestrictNamespaces=no
+RestrictAddressFamilies=
+SystemCallFilter=
+ReadWritePaths=
+ReadOnlyPaths=
+InaccessiblePaths=
+BindPaths=
+BindReadOnlyPaths=
+TemporaryFileSystem=
+NSDROP
+        dst="/etc/systemd/system/$svc.service.d/30-dev-namespaces.conf"
+        if ! cmp -s "$tmp" "$dst" 2>/dev/null; then
+            mv "$tmp" "$dst"
+            reload_needed=1
+            out="${{out}}dev-namespace-relax $svc\n"
+        else
+            rm -f "$tmp"
+        fi
+    fi
+done
+if [ "$reload_needed" = "1" ]; then
+    systemctl daemon-reload 2>/dev/null
 fi
 # 1) iora-dev-bridge: start it if a unit file exists but it's not active.
 bridge_state=$(systemctl is-active iora-dev-bridge 2>/dev/null)
@@ -459,45 +693,57 @@ if [ "$bridge_state" != "active" ]; then
         systemctl start iora-dev-bridge 2>/dev/null
         sleep 1
         new=$(systemctl is-active iora-dev-bridge 2>/dev/null)
-        out="${out}bridge ${bridge_state:-missing} -> ${new}\n"
-    elif [ -x /usr/bin/iora-dev-bridge ]; then
-        # Unit missing but binary present — install a minimal unit and start it.
-        cat > /etc/systemd/system/iora-dev-bridge.service <<'UNIT'
+        out="${{out}}bridge ${{bridge_state:-missing}} -> ${{new}}\n"
+    else
+        bridge_bin=""
+        for d in /usr/bin /usr/local/bin /opt/iora/bin; do
+            if [ -x "$d/iora-dev-bridge" ]; then bridge_bin="$d/iora-dev-bridge"; break; fi
+        done
+        if [ -n "$bridge_bin" ]; then
+            cat > /etc/systemd/system/iora-dev-bridge.service <<UNIT
 [Unit]
 Description=IORA Dev Bridge (auto-installed by iora-dev-watch)
 After=network-online.target
 [Service]
-ExecStart=/usr/bin/iora-dev-bridge
+ExecStart=$bridge_bin
 Restart=always
 RestartSec=2
 [Install]
 WantedBy=multi-user.target
 UNIT
-        systemctl daemon-reload 2>/dev/null
-        systemctl enable --now iora-dev-bridge 2>/dev/null
-        new=$(systemctl is-active iora-dev-bridge 2>/dev/null)
-        out="${out}bridge installed-unit -> ${new}\n"
-    else
-        out="${out}bridge unavailable (no unit, no binary)\n"
+            systemctl daemon-reload 2>/dev/null
+            systemctl enable --now iora-dev-bridge 2>/dev/null
+            new=$(systemctl is-active iora-dev-bridge 2>/dev/null)
+            out="${{out}}bridge installed-unit -> ${{new}}\n"
+        else
+            out="${{out}}bridge unavailable (no unit, no binary)\n"
+        fi
     fi
 fi
-# 2) Reset+restart any failed iora-* units.
-failed=$(systemctl list-units --failed --no-legend --plain 2>/dev/null | awk '/^iora-/{print $1}')
-for u in $failed; do
+# 2) Reset+restart configured services that are not active. This handles both
+#    failed units and skipped deploys where the binary is already current but
+#    the service still needs to be started.
+for svc in {svc_list}; do
+    systemctl list-unit-files "$svc.service" --no-legend 2>/dev/null | grep -q "^$svc\.service" || continue
+    u="$svc.service"
+    state=$(systemctl is-active "$u" 2>/dev/null)
+    [ "$state" = "active" ] && continue
     systemctl reset-failed "$u" 2>/dev/null
-    systemctl restart "$u" 2>/dev/null
+    timeout 8 systemctl restart "$u" 2>/dev/null || timeout 8 systemctl start "$u" 2>/dev/null
     sleep 1
     s=$(systemctl is-active "$u" 2>/dev/null)
-    out="${out}restart ${u} -> ${s}\n"
+    out="${{out}}restart ${{u}} ${{state:-unknown}} -> ${{s}}\n"
 done
 # 3) Disk pressure warning.
 used=$(df --output=pcent / 2>/dev/null | tail -1 | tr -d ' %')
 if [ -n "$used" ] && [ "$used" -ge 90 ]; then
-    out="${out}disk root ${used}% full\n"
+    out="${{out}}disk root ${{used}}% full\n"
 fi
 printf '%s' "$out"
-"#;
-        if let Ok(output) = self.ssh_exec(script).await {
+"#);
+        if let Ok(output) = self.ssh_exec(&script).await {
+            let output = output.replace("\\n", "\n");
+            let valid_crates: HashSet<String> = self.services.iter().cloned().collect();
             let mut missing_crates: HashSet<String> = HashSet::new();
             for line in output.lines() {
                 let line = line.trim();
@@ -506,7 +752,10 @@ printf '%s' "$out"
                 // AutoBuildMissing event so the main loop can kick a build.
                 if let Some(rest) = line.strip_prefix("missing:") {
                     for crate_name in rest.split_whitespace() {
-                        missing_crates.insert(crate_name.to_string());
+                        let crate_name = crate_name.trim_matches(|c: char| c == ',' || c == ';');
+                        if valid_crates.contains(crate_name) {
+                            missing_crates.insert(crate_name.to_string());
+                        }
                     }
                 }
                 let _ = tx.send(AppEvent::Log(format!("[HEAL] {line}")));
@@ -611,16 +860,69 @@ impl AppState {
     }
 
     fn push_log(&mut self, line: impl Into<String>) {
-        if self.log_buf.len() >= LOG_BUFFER_CAP { self.log_buf.pop_front(); }
-        self.log_buf.push_back(line.into());
+        for sanitized in sanitize_log(&line.into()) {
+            if self.log_buf.len() >= LOG_BUFFER_CAP { self.log_buf.pop_front(); }
+            self.log_buf.push_back(sanitized);
+        }
         self.dirty = true;
     }
 
     fn push_cmd_log(&mut self, line: impl Into<String>) {
-        if self.command_log.len() >= CMD_LOG_CAP { self.command_log.pop_front(); }
-        self.command_log.push_back(line.into());
+        for sanitized in sanitize_log(&line.into()) {
+            if self.command_log.len() >= CMD_LOG_CAP { self.command_log.pop_front(); }
+            self.command_log.push_back(sanitized);
+        }
         self.dirty = true;
     }
+}
+
+/// Strip control chars (ANSI escapes, bare \r, NUL, etc.) from a captured
+/// line of subprocess output and split it on \r/\n so progress-overwrites
+/// (e.g. vite's in-place rewrites) become individual log entries instead of
+/// one mangled super-line. Without this, ratatui renders the raw control
+/// bytes as visible garbage and adjacent rendered cells appear corrupted.
+fn sanitize_log(raw: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for chunk in raw.split(|c: char| c == '\r' || c == '\n') {
+        let mut cleaned = String::with_capacity(chunk.len());
+        let mut chars = chunk.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                // ANSI escape — consume until terminator.
+                match chars.peek() {
+                    Some(&'[') => {
+                        chars.next();
+                        // CSI: parameters then a final byte 0x40..=0x7e.
+                        for cc in chars.by_ref() {
+                            let v = cc as u32;
+                            if (0x40..=0x7e).contains(&v) { break; }
+                        }
+                    }
+                    Some(&']') => {
+                        chars.next();
+                        // OSC: terminate at BEL or ESC \\.
+                        while let Some(cc) = chars.next() {
+                            if cc == '\x07' { break; }
+                            if cc == '\x1b' {
+                                if matches!(chars.peek(), Some(&'\\')) { chars.next(); }
+                                break;
+                            }
+                        }
+                    }
+                    _ => { chars.next(); }
+                }
+            } else if c == '\t' {
+                cleaned.push(' ');
+            } else if !c.is_control() {
+                cleaned.push(c);
+            }
+        }
+        let trimmed = cleaned.trim_end();
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
 }
 
 // ═══ Helpers ═════════════════════════════════════════════════════════════
@@ -656,7 +958,10 @@ fn find_frontend(r: &PathBuf) -> Option<PathBuf> {
 
 fn discover_services(w: &PathBuf) -> Vec<String> {
     let mut v = Vec::new();
-    for sub in &["services", "tools", "apps/system", "dev"] {
+    // Only long-running IORA OS systemd targets belong here. CLI/tools crates
+    // such as iora-cli, iora-sign or iora-db-manager are buildable packages,
+    // but not services the watcher should deploy/restart/status-check.
+    for sub in &["services", "apps/system", "dev"] {
         let b = w.join(sub);
         if !b.is_dir() { continue; }
         if let Ok(e) = std::fs::read_dir(&b) {
@@ -743,10 +1048,14 @@ fn spawn_build(
     });
 }
 
-fn spawn_deploy(state: &mut AppState, tx: mpsc::UnboundedSender<AppEvent>) {
+fn spawn_deploy(state: &mut AppState, tx: mpsc::UnboundedSender<AppEvent>, force: bool) {
     if !state.vm_online { state.push_log("[DEPLOY] VM offline"); return; }
     let backend = state.backend.clone();
-    tokio::spawn(async move { backend.deploy_binaries(tx).await; });
+    if force { state.push_log("[DEPLOY] Force-redeploy: wiping hashes & re-installing all"); }
+    tokio::spawn(async move {
+        if force { backend.wipe_hashes_and_bins(&tx).await; }
+        backend.deploy_binaries(tx).await;
+    });
 }
 
 fn spawn_check_vm(state: &AppState, tx: mpsc::UnboundedSender<AppEvent>) {
@@ -915,6 +1224,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         KeyCode::PageDown => state.log_scroll = state.log_scroll.saturating_sub(10),
         KeyCode::Home => state.log_scroll = state.log_buf.len().saturating_sub(1),
         KeyCode::End => state.log_scroll = 0,
+        // '0' jumps back to the newest entry (bottom of Logs / Status).
+        KeyCode::Char('0') => state.log_scroll = 0,
         KeyCode::Char('b') | KeyCode::Char('B') => {
             state.push_log("[BUILD] Full rebuild");
             spawn_build(state, None, true, true, tx.clone());
@@ -925,7 +1236,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             state.push_log("[VM] Checking...");
             spawn_check_vm(state, tx.clone());
         }
-        KeyCode::Char('d') | KeyCode::Char('D') => spawn_deploy(state, tx.clone()),
+        KeyCode::Char('d') => spawn_deploy(state, tx.clone(), false),
+        KeyCode::Char('D') => spawn_deploy(state, tx.clone(), true),
         KeyCode::Char('l') | KeyCode::Char('L') => {
             state.auto_deploy = !state.auto_deploy;
             let s = format!("[CONFIG] Auto-deploy: {}", if state.auto_deploy {"ON"} else {"OFF"});
@@ -978,7 +1290,8 @@ fn run_command(state: &mut AppState, input: &str, tx: &mpsc::UnboundedSender<App
             let only = if changed && !state.changed_rust.is_empty() { Some(state.changed_rust.clone()) } else { None };
             spawn_build(state, only, rust, fe, tx.clone());
         }
-        "deploy" | "d" => spawn_deploy(state, tx.clone()),
+        "deploy" | "d" => spawn_deploy(state, tx.clone(), false),
+        "redeploy" | "force-deploy" | "force" => spawn_deploy(state, tx.clone(), true),
         "restart" => {
             if parts.len() < 2 { state.push_log("[CMD] Usage: restart <service>"); return; }
             spawn_restart(state, parts[1].into(), tx.clone());
@@ -1215,10 +1528,26 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             Span::styled(notes.to_string(), Style::default().fg(Color::DarkGray)),
         ])));
     }
+    // Apply scroll: log_scroll counts rows skipped from the bottom.
+    // Row 0 is the header — keep it pinned, scroll only the body.
+    let body_height = chunks[1].height.saturating_sub(2) as usize; // borders
+    let header = rows.remove(0);
+    let body_total = rows.len();
+    let visible_body = body_height.saturating_sub(1); // header row consumes one
+    let end = body_total.saturating_sub(s.log_scroll);
+    let start = end.saturating_sub(visible_body);
+    let mut visible: Vec<ListItem> = Vec::with_capacity(visible_body + 1);
+    visible.push(header);
+    if start < end { visible.extend(rows.drain(start..end)); }
+    let scroll_hint = if s.log_scroll > 0 {
+        format!(" Services on {} [↑{}] ", s.backend.vm_host, s.log_scroll)
+    } else {
+        format!(" Services on {} ", s.backend.vm_host)
+    };
     let list_block = Block::default().borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(format!(" Services on {} ", s.backend.vm_host));
-    f.render_widget(List::new(rows).block(list_block), chunks[1]);
+        .title(scroll_hint);
+    f.render_widget(List::new(visible).block(list_block), chunks[1]);
 }
 
 fn render_journal(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
@@ -1342,7 +1671,7 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             Line::from(vec![
                 Span::raw(" "), status,
                 Span::styled(
-                    "   Q=quit  B=build  D=deploy  S=status  H=health  R=resize-build  J=journal  W=watch  L=auto-deploy  /=cmd  Tab=view  ?=help",
+                    "   Q=quit  B=build  D=deploy  Shift+D=force-redeploy  S=status  H=health  R=resize-build  J=journal  W=watch  L=auto-deploy  0=bottom  /=cmd  Tab=view  ?=help",
                     Style::default().fg(Color::DarkGray),
                 ),
             ])
@@ -1737,7 +2066,18 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
         AppEvent::VmReachable(ok) => {
             let was = state.vm_online;
             state.vm_online = ok;
-            if ok && !was { state.push_log("[VM] Reachable via SSH"); }
+            if ok && !was {
+                state.push_log("[VM] Reachable via SSH");
+                // Newly online — fire self-heal immediately so missing binaries
+                // (e.g. /usr/bin wiped by the VM's tmpfs after a reboot) get
+                // detected and auto-rebuilt within seconds instead of waiting
+                // for the periodic heal tick.
+                if !state.building {
+                    let backend = state.backend.clone();
+                    let txc = tx.clone();
+                    tokio::spawn(async move { backend.self_heal(txc).await; });
+                }
+            }
             if !ok && was { state.push_log("[VM] No longer reachable"); }
         }
         AppEvent::ServiceCount(n) => state.active_services = n,

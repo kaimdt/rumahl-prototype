@@ -13,14 +13,6 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use pnet::datalink::{self, NetworkInterface};
-use pnet::packet::arp::ArpPacket;
-use pnet::packet::dhcp::DhcpPacket;
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::Packet;
 use serde::{Deserialize, Serialize};
 use iora_shared::system_config;
 use sqlx::{PgPool, Row};
@@ -45,7 +37,6 @@ use tower_http::cors::CorsLayer;
 
 const DEFAULT_PORT: u16 = 8103;
 const SCAN_INTERVAL_SECS: u64 = 60; // Scan network every 60 seconds
-const DHCP_PORTS: [u16; 2] = [67, 68]; // DHCP server and client ports
 
 // ─── Data Structures ────────────────────────────────────────────────────────
 
@@ -84,20 +75,6 @@ struct MonitoringConfig {
 }
 
 // ─── Network Monitoring ─────────────────────────────────────────────────────
-
-/// Get active network interface
-fn get_active_interface() -> Option<NetworkInterface> {
-    let interfaces = datalink::interfaces();
-
-    // Prefer non-loopback interfaces that are up
-    interfaces
-        .into_iter()
-        .find(|iface| {
-            !iface.is_loopback()
-                && iface.is_up()
-                && !iface.ips.is_empty()
-        })
-}
 
 /// Scan ARP table to discover devices
 async fn scan_arp_table(state: &AppState) -> Result<Vec<NetworkDevice>> {
