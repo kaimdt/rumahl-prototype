@@ -52,7 +52,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # Pinned dependencies to resolve version conflicts
-libsqlite3-sys = "0.28"
+libsqlite3-sys = "0.30.1"
 
 [profile.release]
 opt-level = 3

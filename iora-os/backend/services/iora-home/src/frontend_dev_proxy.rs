@@ -28,6 +28,7 @@ pub fn is_dev_proxy_enabled() -> Option<String> {
 /// This handler forwards the request to the dev server specified by IORA_FRONTEND_DEV_URL,
 /// preserving headers and handling both regular HTTP requests and WebSocket upgrades
 /// (for Vite's HMR).
+#[allow(dead_code)]
 pub async fn proxy_to_vite_dev(req: Request) -> Response {
     let dev_url = match is_dev_proxy_enabled() {
         Some(url) => url,

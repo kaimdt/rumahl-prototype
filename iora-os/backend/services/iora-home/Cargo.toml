@@ -72,7 +72,7 @@ base64 = "0.22"
 
 # SQLite for per-app databases (via sqlx, consistent with other workspace crates)
 # rusqlite was removed to avoid libsqlite3-sys version conflict with sqlx-sqlite.
-# Pin libsqlite3-sys to 0.28 via workspace (matching sqlx-sqlite 0.8's requirement) so that
+# Pin libsqlite3-sys via workspace (matching sqlx-sqlite 0.8's requirement) so that
 # any transitive dependency that needs libsqlite3-sys gets the same version.
 
 # Cron expression parsing

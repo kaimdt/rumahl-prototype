@@ -95,6 +95,7 @@ pub struct BackgroundConfig {
     pub updated_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundTrigger {
     pub id: String,

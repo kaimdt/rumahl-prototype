@@ -123,11 +123,6 @@ impl HomeAssistantClient {
         format!("Bearer {}", self.token.read().await)
     }
 
-    /// Helper: build the full URL for a HA API call
-    async fn api_url(&self, path: &str) -> String {
-        format!("{}{}", self.base_url.read().await, path)
-    }
-
     /// Get all entity states (uses poll_client — slow path)
     pub async fn get_states(&self) -> Result<Vec<EntityState>> {
         let url = format!("{}/api/states", self.base_url.read().await);

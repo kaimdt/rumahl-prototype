@@ -15,6 +15,7 @@ pub enum AuthIdentity {
     Jwt(auth::Claims),
     ApiKey {
         user_id: String,
+        #[allow(dead_code)]
         key_id: String,
         permissions: Vec<String>,
     },

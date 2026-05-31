@@ -76,6 +76,7 @@ pub fn maybe_decrypt(value: &str) -> String {
 }
 
 /// Returns `true` if the value carries the encrypted-blob prefix.
+#[allow(dead_code)]
 pub fn is_encrypted(value: &str) -> bool {
     value.starts_with(PREFIX)
 }

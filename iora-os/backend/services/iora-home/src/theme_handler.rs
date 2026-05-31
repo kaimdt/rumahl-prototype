@@ -730,6 +730,7 @@ pub struct SetUserThemeRequest {
     #[serde(default)] pub overrides: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ThemeZipInstallBody {
     pub zip_data: String,

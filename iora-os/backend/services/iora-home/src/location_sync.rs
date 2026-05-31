@@ -417,6 +417,7 @@ pub struct LocationPoint {
     pub recorded_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncStatus {
     pub entity_id: String,
@@ -429,6 +430,7 @@ pub struct SyncStatus {
     pub last_error: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminSystemNotification {
     pub id: String,
