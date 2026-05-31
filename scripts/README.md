@@ -63,9 +63,17 @@ powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1 -FullWork
 powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1 -SkipFrontend
 ```
 
+Linux/macOS:
+```bash
+bash scripts/iora-health-suite.sh --full-workspace
+bash scripts/iora-health-suite.sh --skip-frontend
+```
+
 **What it checks:**
 - `iora-home` migration registration
 - warning scan for module-scope frontend URL caches
+- cross-platform script coverage (`*.ps1` files must have sibling `*.sh` files)
+- app/plugin/theme example manifests and build wrappers
 - `cargo build -p iora-dev-watch`
 - `cargo build -p iora-home`
 - optional full Rust workspace build
@@ -82,9 +90,45 @@ asynchronously.
 powershell -ExecutionPolicy Bypass -File scripts/check-frontend-config-cache.ps1
 ```
 
-Use `-FailOnFinding` in CI once the existing findings have been cleaned up.
+Linux/macOS:
+```bash
+bash scripts/check-frontend-config-cache.sh
+```
 
-### 6. Minimal Configuration (`docker-compose.minimal.yml`)
+Use `-FailOnFinding` in CI once the existing findings have been cleaned up.
+For Linux/macOS, use `--fail-on-finding`.
+
+### 6. Cross-Platform Script Pair Check
+
+Ensures every PowerShell script in the repository has a same-directory `.sh`
+counterpart for Linux and macOS workflows.
+
+**Usage:**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-cross-platform-scripts.ps1
+```
+
+Linux/macOS:
+```bash
+bash scripts/check-cross-platform-scripts.sh
+```
+
+### 7. App/Plugin/Theme Example Check
+
+Validates example app, plugin, and theme manifests and checks that each example
+ships both `build.ps1` and `build.sh`.
+
+**Usage:**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-app-plugin-theme-examples.ps1
+```
+
+Linux/macOS:
+```bash
+bash scripts/check-app-plugin-theme-examples.sh
+```
+
+### 8. Minimal Configuration (`docker-compose.minimal.yml`)
 
 Minimal IORA configuration with only critical services.
 
@@ -104,7 +148,7 @@ docker compose -f docker-compose.minimal.yml up -d
 - Disk: ~2GB
 - CPU: <5% idle
 
-### 7. IORA OS Startup Validator (IORA OS only)
+### 9. IORA OS Startup Validator (IORA OS only)
 
 Automatically validates services during IORA OS boot.
 

@@ -33,7 +33,15 @@ Invoke-Check "Migration registration" {
 }
 
 Invoke-Check "Frontend config cache scan" {
-    & (Join-Path $RepoRoot "scripts/check-frontend-config-cache.ps1") -RepoRoot $RepoRoot
+    & (Join-Path $RepoRoot "scripts/check-frontend-config-cache.ps1") -RepoRoot $RepoRoot -FailOnFinding
+}
+
+Invoke-Check "Cross-platform script pairs" {
+    & (Join-Path $RepoRoot "scripts/check-cross-platform-scripts.ps1") -RepoRoot $RepoRoot
+}
+
+Invoke-Check "App/plugin/theme examples" {
+    & (Join-Path $RepoRoot "scripts/check-app-plugin-theme-examples.ps1") -RepoRoot $RepoRoot
 }
 
 Invoke-Check "iora-dev-watch build" {
