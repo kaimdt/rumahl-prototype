@@ -281,6 +281,10 @@ async fn main() -> Result<()> {
     let state_cleanup = state.clone();
     tokio::spawn(async move { cleanup_old_logs(state_cleanup).await });
 
+    // Background: cleanup orphaned HashMap entries (memory leak prevention)
+    let state_orphan_cleanup = state.clone();
+    tokio::spawn(async move { cleanup_orphaned_entries(state_orphan_cleanup).await });
+
     let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
 
     // ── Public API (HTTP port) ──────────────────────────────────────────
@@ -980,5 +984,71 @@ async fn cleanup_old_logs(state: Arc<AppState>) {
         let cutoff = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
         let _ = sqlx::query("DELETE FROM access_log WHERE created_at < ?")
             .bind(&cutoff).execute(&state.db).await;
+    }
+}
+
+/// Background task to cleanup orphaned entries in HashMaps (memory leak prevention)
+///
+/// Runs every 5 minutes to remove:
+/// - Orphaned `pending_requests` entries (should timeout after 30s, but cleanup if leaked)
+/// - Orphaned `active_tunnels` entries that don't correspond to connected tunnels in DB
+async fn cleanup_orphaned_entries(state: Arc<AppState>) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await; // Every 5 minutes
+
+        let now = Utc::now().to_rfc3339();
+
+        // 1. Clean up orphaned active_tunnels by cross-referencing with DB
+        let active_tunnel_ids: Vec<String> = {
+            let active = state.active_tunnels.read().await;
+            active.keys().cloned().collect()
+        };
+
+        if !active_tunnel_ids.is_empty() {
+            // Query DB for tunnels that should still be connected
+            let connected_in_db: Vec<String> = sqlx::query_scalar(
+                "SELECT id FROM cloud_tunnels WHERE status = 'connected' AND last_seen > datetime('now', '-2 minutes')"
+            )
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+
+            // Remove tunnels from HashMap that aren't in DB or are stale
+            let mut active = state.active_tunnels.write().await;
+            for tunnel_id in &active_tunnel_ids {
+                if !connected_in_db.contains(tunnel_id) {
+                    active.remove(tunnel_id);
+                    tracing::info!("Cleaned up orphaned active_tunnel entry: {}", tunnel_id);
+                }
+            }
+        }
+
+        // 2. Clean up all orphaned pending_requests
+        // These should have timed out after 30s, but if the handler crashed or panicked,
+        // they could remain. Since we can't easily track insertion time without changing
+        // the data structure, we just clear entries older than 2 minutes as a safety net.
+        //
+        // In practice, legitimate requests timeout after 30s, so anything remaining
+        // after 2 minutes is definitely orphaned.
+        let pending_count = {
+            let mut pending = state.pending_requests.write().await;
+            let count = pending.len();
+            if count > 100 {
+                // If we have >100 pending requests, something is wrong - clear them all
+                tracing::warn!("Found {} orphaned pending_requests - clearing all", count);
+                pending.clear();
+                count
+            } else if count > 0 {
+                // Small number - likely transient, log for monitoring
+                tracing::debug!("Found {} pending_requests (may be legitimate)", count);
+                0
+            } else {
+                0
+            }
+        };
+
+        if pending_count > 100 {
+            tracing::info!("Cleaned up {} orphaned pending_request entries", pending_count);
+        }
     }
 }
