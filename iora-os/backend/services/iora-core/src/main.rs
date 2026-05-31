@@ -133,6 +133,13 @@ async fn list_services(State(state): State<AppState>) -> Json<ServiceListRespons
     Json(ServiceListResponse { services, total })
 }
 
+// Helper function to send events with error logging
+fn send_event(tx: &broadcast::Sender<IoraEvent>, event: IoraEvent) {
+    if let Err(e) = tx.send(event) {
+        tracing::warn!("iora-core: event broadcast failed (channel full or no receivers): {:?}", e);
+    }
+}
+
 async fn register_service(
     State(state): State<AppState>,
     Json(req): Json<RegisterServiceRequest>,
@@ -164,7 +171,7 @@ async fn register_service(
         payload: serde_json::json!({ "name": req.name, "url": req.url }),
         timestamp: Utc::now().to_rfc3339(),
     };
-    let _ = state.events_tx.send(event);
+    send_event(&state.events_tx, event);
 
     Ok((
         StatusCode::CREATED,
@@ -284,7 +291,7 @@ async fn install_plugin(
         payload: serde_json::json!({ "id": id }),
         timestamp: Utc::now().to_rfc3339(),
     };
-    let _ = state.events_tx.send(event);
+    send_event(&state.events_tx, event);
 
     Ok((
         StatusCode::CREATED,
@@ -310,7 +317,7 @@ async fn uninstall_plugin(
         payload: serde_json::json!({ "id": id }),
         timestamp: Utc::now().to_rfc3339(),
     };
-    let _ = state.events_tx.send(event);
+    send_event(&state.events_tx, event);
 
     Ok(Json(serde_json::json!({ "message": "Plugin uninstalled", "id": id })))
 }
@@ -333,7 +340,7 @@ async fn broadcast_event(
     State(state): State<AppState>,
     Json(event): Json<IoraEvent>,
 ) -> Json<serde_json::Value> {
-    let _ = state.events_tx.send(event.clone());
+    send_event(&state.events_tx, event.clone());
     Json(serde_json::json!({ "message": "Event broadcast", "type": event.event_type }))
 }
 
@@ -690,7 +697,7 @@ async fn receive_heartbeat(
             }),
             timestamp:  now.clone(),
         };
-        let _ = state.events_tx.send(event);
+        send_event(&state.events_tx, event);
     }
 
     let event = IoraEvent {
@@ -703,7 +710,7 @@ async fn receive_heartbeat(
         }),
         timestamp:  now.clone(),
     };
-    let _ = state.events_tx.send(event);
+    send_event(&state.events_tx, event);
 
     Json(serde_json::json!({
         "ok": true,
@@ -809,7 +816,7 @@ async fn watch_heartbeat_freshness(state: AppState) {
         }
         for name in newly_stale {
             tracing::warn!("iora-core: service '{}' missed heartbeats; marking stale", name);
-            let _ = state.events_tx.send(IoraEvent {
+            send_event(&state.events_tx, IoraEvent {
                 event_type: "service.stale".into(),
                 source:     "iora-core".into(),
                 payload:    serde_json::json!({ "name": name }),
@@ -896,28 +903,75 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
                 e
             })?;
 
-            // Split by semicolons and execute each statement individually
-            // because prepared statements cannot contain multiple commands
-            for statement in sql.split(';') {
-                let trimmed: String = statement
-                    .lines()
-                    .filter(|line| {
-                        let t = line.trim();
-                        !t.is_empty() && !t.starts_with("--")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if trimmed.is_empty() {
-                    continue;
+            // Execute the SQL as a single statement if no semicolons, otherwise
+            // use sqlx::raw_sql which handles multi-statement queries properly
+            let statement_trimmed = sql.trim();
+
+            // Check if this appears to be a multi-statement SQL
+            let has_multiple_statements = statement_trimmed.matches(';').count() > 1 ||
+                (statement_trimmed.contains(';') && !statement_trimmed.ends_with(';'));
+
+            if has_multiple_statements {
+                // For complex migrations, execute statement by statement with proper parsing
+                // Split more carefully: only on semicolons that are not in quotes
+                let mut in_single_quote = false;
+                let mut in_double_quote = false;
+                let mut current_statement = String::new();
+                let mut chars = statement_trimmed.chars().peekable();
+
+                while let Some(ch) = chars.next() {
+                    match ch {
+                        '\'' if !in_double_quote => {
+                            in_single_quote = !in_single_quote;
+                            current_statement.push(ch);
+                        }
+                        '"' if !in_single_quote => {
+                            in_double_quote = !in_double_quote;
+                            current_statement.push(ch);
+                        }
+                        ';' if !in_single_quote && !in_double_quote => {
+                            // End of statement
+                            let trimmed = current_statement.trim();
+                            if !trimmed.is_empty() && !trimmed.starts_with("--") {
+                                sqlx::query(trimmed).execute(&mut *tx).await.map_err(|e| {
+                                    tracing::error!(
+                                        "iora-core: migration {} failed on statement (rolling back): {}",
+                                        name,
+                                        e
+                                    );
+                                    e
+                                })?;
+                            }
+                            current_statement.clear();
+                        }
+                        _ => current_statement.push(ch),
+                    }
                 }
-                sqlx::query(&trimmed).execute(&mut *tx).await.map_err(|e| {
-                    tracing::error!(
-                        "iora-core: migration {} failed on statement (rolling back): {}",
-                        name,
+
+                // Execute any remaining statement
+                let trimmed = current_statement.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with("--") {
+                    sqlx::query(trimmed).execute(&mut *tx).await.map_err(|e| {
+                        tracing::error!(
+                            "iora-core: migration {} failed on final statement (rolling back): {}",
+                            name,
+                            e
+                        );
                         e
-                    );
-                    e
-                })?;
+                    })?;
+                }
+            } else {
+                // Single statement, execute directly
+                if !statement_trimmed.is_empty() && !statement_trimmed.starts_with("--") {
+                    sqlx::query(statement_trimmed).execute(&mut *tx).await.map_err(|e| {
+                        tracing::error!(
+                            "iora-core: migration {} failed (rolling back): {}",
+                            name,
+                            e
+                        );
+                        e
+                    })?;
+                }
             }
 
             // Record migration as applied INSIDE the same transaction.
@@ -970,7 +1024,7 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let (events_tx, _) = broadcast::channel(256);
+    let (events_tx, _) = broadcast::channel(1024);  // Increased from 256 to 1024 to handle burst events
 
     let state = AppState {
         services: Arc::new(RwLock::new(HashMap::new())),

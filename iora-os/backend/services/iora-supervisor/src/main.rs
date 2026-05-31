@@ -1050,15 +1050,33 @@ fn safe_compose_token(value: &str) -> String {
         .collect::<String>()
 }
 
-fn compose_project_dir(req: &ComposeProjectRequest) -> std::path::PathBuf {
-    if let Some(dir) = req.compose_dir.as_deref().filter(|d| !d.trim().is_empty()) {
-        return std::path::PathBuf::from(dir);
-    }
-    let app_id = safe_compose_token(&req.app_id);
-    std::env::var("IORA_LOCAL_APPS_DIR")
+fn compose_project_dir(req: &ComposeProjectRequest) -> Result<std::path::PathBuf, String> {
+    // Define allowed base directory
+    let base_dir = std::env::var("IORA_LOCAL_APPS_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"))
-        .join(app_id)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"));
+
+    if let Some(dir) = req.compose_dir.as_deref().filter(|d| !d.trim().is_empty()) {
+        let requested_path = std::path::PathBuf::from(dir);
+
+        // Canonicalize to resolve symlinks and ".." components
+        let canonical_path = requested_path.canonicalize()
+            .map_err(|e| format!("Invalid compose_dir path: {}", e))?;
+
+        // Ensure the canonical path is within the allowed base directory
+        if !canonical_path.starts_with(&base_dir) {
+            return Err(format!(
+                "compose_dir must be within {:?}, got {:?}",
+                base_dir, canonical_path
+            ));
+        }
+
+        return Ok(canonical_path);
+    }
+
+    // Default: app-specific subdirectory
+    let app_id = safe_compose_token(&req.app_id);
+    Ok(base_dir.join(app_id))
 }
 
 fn docker_cli_path() -> String {
@@ -1078,7 +1096,10 @@ async fn compose_status_for_project(
         compose_dir: None,
         prepare_mode: None,
     };
-    let compose_dir = compose_project_dir(&req);
+    let compose_dir = match compose_project_dir(&req) {
+        Ok(dir) => dir,
+        Err(e) => return Err(e),
+    };
     let output = Command::new(docker_cli_path())
         .args([
             "compose",
@@ -1185,7 +1206,15 @@ async fn compose_up(req: web::Json<ComposeProjectRequest>) -> impl Responder {
         }));
     }
 
-    let compose_dir = compose_project_dir(&req);
+    let compose_dir = match compose_project_dir(&req) {
+        Ok(dir) => dir,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid compose_dir: {e}")
+            }));
+        }
+    };
     if let Err(e) = tokio::fs::create_dir_all(&compose_dir).await {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
@@ -1247,7 +1276,15 @@ async fn compose_down(req: web::Json<ComposeProjectRequest>) -> impl Responder {
         }));
     }
 
-    let compose_dir = compose_project_dir(&req);
+    let compose_dir = match compose_project_dir(&req) {
+        Ok(dir) => dir,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid compose_dir: {e}")
+            }));
+        }
+    };
     let result = Command::new(docker_cli_path())
         .args(["compose", "-p", &project_name, "down", "--remove-orphans"])
         .current_dir(&compose_dir)
@@ -1294,7 +1331,15 @@ async fn compose_prepare(req: web::Json<ComposeProjectRequest>) -> impl Responde
         }));
     }
 
-    let compose_dir = compose_project_dir(&req);
+    let compose_dir = match compose_project_dir(&req) {
+        Ok(dir) => dir,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Invalid compose_dir: {e}")
+            }));
+        }
+    };
     if let Err(e) = tokio::fs::create_dir_all(&compose_dir).await {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
