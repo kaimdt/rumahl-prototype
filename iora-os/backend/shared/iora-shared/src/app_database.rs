@@ -26,7 +26,6 @@ pub enum DatabaseBackend {
     Sqlite,
 }
 
-
 /// Database configuration in the app manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppDatabaseConfig {
@@ -77,9 +76,15 @@ pub struct SqliteConfig {
     pub backup_interval_minutes: u32,
 }
 
-fn default_true() -> bool { true }
-fn default_max_db_size() -> u64 { 100 * 1024 * 1024 }
-fn default_backup_interval() -> u32 { 1440 }
+fn default_true() -> bool {
+    true
+}
+fn default_max_db_size() -> u64 {
+    100 * 1024 * 1024
+}
+fn default_backup_interval() -> u32 {
+    1440
+}
 
 impl Default for SqliteConfig {
     fn default() -> Self {
@@ -105,8 +110,12 @@ pub struct PostgresConfig {
     pub max_connections: u32,
 }
 
-fn default_schema() -> String { "public".to_string() }
-fn default_max_connections() -> u32 { 5 }
+fn default_schema() -> String {
+    "public".to_string()
+}
+fn default_max_connections() -> u32 {
+    5
+}
 
 /// Database status response
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -20,11 +20,11 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::Deserialize;
-use sha2::{Sha256, Digest};
-use tokio::fs;
 use iora_shared::app_storage::*;
 use iora_shared::upload_store::atomic_write_async;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use tokio::fs;
 
 /// Storage backend base path
 const STORAGE_BASE_DIR: &str = "data/app-storage";
@@ -113,7 +113,9 @@ pub struct ListFilesQuery {
     pub offset: usize,
 }
 
-fn default_list_limit() -> usize { 50 }
+fn default_list_limit() -> usize {
+    50
+}
 
 /// List stored files for an app
 pub async fn list_files(
@@ -156,16 +158,20 @@ pub async fn upload_file(
 ) -> Result<Json<StoreFileResponse>, (StatusCode, String)> {
     let file_dir = state.app_file_dir(&app_id);
     fs::create_dir_all(&file_dir).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create storage dir: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create storage dir: {}", e),
+        )
     })?;
 
     // Decode base64 content
-    let content = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &req.content,
-    ).map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Invalid base64 content: {}", e))
-    })?;
+    let content = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.content)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid base64 content: {}", e),
+            )
+        })?;
 
     let size_bytes = content.len() as u64;
 
@@ -213,9 +219,14 @@ pub async fn upload_file(
     let storage_path = file_dir.join(&file_id);
 
     // Write file atomically (tmp + rename) via shared upload store.
-    atomic_write_async(&storage_path, &content).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e))
-    })?;
+    atomic_write_async(&storage_path, &content)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write file: {}", e),
+            )
+        })?;
 
     let now = Utc::now().to_rfc3339();
 
@@ -243,11 +254,19 @@ pub async fn upload_file(
     };
     metadatas.push(stored);
     let meta_json = serde_json::to_string(&metadatas).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize metadata: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize metadata: {}", e),
+        )
     })?;
-    atomic_write_async(&meta_path, meta_json.as_bytes()).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write metadata: {}", e))
-    })?;
+    atomic_write_async(&meta_path, meta_json.as_bytes())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write metadata: {}", e),
+            )
+        })?;
 
     let url = format!("/api/apps/{}/storage/files/{}", app_id, file_id);
 
@@ -275,16 +294,19 @@ pub async fn get_file(
         return Err((StatusCode::NOT_FOUND, "No files stored".to_string()));
     };
 
-    let file_info = metadatas.into_iter().find(|f| f.id == file_id)
+    let file_info = metadatas
+        .into_iter()
+        .find(|f| f.id == file_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
-    let content = fs::read(&file_info.storage_path).await
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("File not found on disk: {}", e)))?;
+    let content = fs::read(&file_info.storage_path).await.map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("File not found on disk: {}", e),
+        )
+    })?;
 
-    let b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &content,
-    );
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &content);
 
     Ok(Json(serde_json::json!({
         "id": file_info.id,
@@ -312,9 +334,8 @@ pub async fn delete_file(
         return Err((StatusCode::NOT_FOUND, "No files stored".to_string()));
     };
 
-    let (remaining, removed): (Vec<StoredFile>, Vec<StoredFile>) = metadatas
-        .into_iter()
-        .partition(|f| f.id != file_id);
+    let (remaining, removed): (Vec<StoredFile>, Vec<StoredFile>) =
+        metadatas.into_iter().partition(|f| f.id != file_id);
 
     if removed.is_empty() {
         return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
@@ -327,13 +348,23 @@ pub async fn delete_file(
 
     // Update metadata
     let meta_json = serde_json::to_string(&remaining).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize: {}", e),
+        )
     })?;
-    atomic_write_async(&meta_path, meta_json.as_bytes()).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write metadata: {}", e))
-    })?;
+    atomic_write_async(&meta_path, meta_json.as_bytes())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write metadata: {}", e),
+            )
+        })?;
 
-    Ok(Json(serde_json::json!({ "success": true, "deleted": file_id })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "deleted": file_id }),
+    ))
 }
 
 /// List key-value entries
@@ -346,8 +377,12 @@ pub async fn list_kv(
         return Ok(Json(Vec::new()));
     }
 
-    let content = fs::read_to_string(&kv_path).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read KV: {}", e)))?;
+    let content = fs::read_to_string(&kv_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read KV: {}", e),
+        )
+    })?;
     let entries: Vec<KvEntry> = serde_json::from_str(&content).unwrap_or_default();
     Ok(Json(entries))
 }
@@ -360,7 +395,10 @@ pub async fn set_kv(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let app_dir = state.base_dir.join(&app_id);
     fs::create_dir_all(&app_dir).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create dir: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create dir: {}", e),
+        )
     })?;
 
     let kv_path = state.app_kv_path(&app_id);
@@ -389,11 +427,19 @@ pub async fn set_kv(
     }
 
     let content = serde_json::to_string(&entries).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize: {}", e),
+        )
     })?;
-    atomic_write_async(&kv_path, content.as_bytes()).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write KV: {}", e))
-    })?;
+    atomic_write_async(&kv_path, content.as_bytes())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write KV: {}", e),
+            )
+        })?;
 
     Ok(Json(serde_json::json!({ "success": true, "key": key })))
 }
@@ -408,11 +454,17 @@ pub async fn get_kv(
         return Err((StatusCode::NOT_FOUND, "KV store is empty".to_string()));
     }
 
-    let content = fs::read_to_string(&kv_path).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read KV: {}", e)))?;
+    let content = fs::read_to_string(&kv_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read KV: {}", e),
+        )
+    })?;
     let entries: Vec<KvEntry> = serde_json::from_str(&content).unwrap_or_default();
 
-    entries.into_iter().find(|e| e.key == key)
+    entries
+        .into_iter()
+        .find(|e| e.key == key)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Key '{}' not found", key)))
         .map(Json)
 }
@@ -427,8 +479,12 @@ pub async fn delete_kv(
         return Err((StatusCode::NOT_FOUND, "KV store is empty".to_string()));
     }
 
-    let content = fs::read_to_string(&kv_path).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read KV: {}", e)))?;
+    let content = fs::read_to_string(&kv_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read KV: {}", e),
+        )
+    })?;
     let mut entries: Vec<KvEntry> = serde_json::from_str(&content).unwrap_or_default();
 
     let before = entries.len();
@@ -439,11 +495,19 @@ pub async fn delete_kv(
     }
 
     let json = serde_json::to_string(&entries).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize: {}", e),
+        )
     })?;
-    atomic_write_async(&kv_path, json.as_bytes()).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write KV: {}", e))
-    })?;
+    atomic_write_async(&kv_path, json.as_bytes())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write KV: {}", e),
+            )
+        })?;
 
     Ok(Json(serde_json::json!({ "success": true, "deleted": key })))
 }

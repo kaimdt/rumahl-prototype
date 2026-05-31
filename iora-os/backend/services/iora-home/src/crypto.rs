@@ -12,7 +12,7 @@
 //! readable until they get re-saved through the API.
 
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng, generic_array::GenericArray, rand_core::RngCore},
+    aead::{generic_array::GenericArray, rand_core::RngCore, Aead, KeyInit, OsRng},
     Aes256Gcm,
 };
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};

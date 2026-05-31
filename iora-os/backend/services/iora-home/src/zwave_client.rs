@@ -106,11 +106,16 @@ impl ZwaveClient {
 
     /// Refresh node list from HA entity cache
     pub async fn refresh_from_entities(&self, entities: &[crate::EntityState]) {
-        let zwave_entities: Vec<&crate::EntityState> = entities.iter()
+        let zwave_entities: Vec<&crate::EntityState> = entities
+            .iter()
             .filter(|e| {
-                e.attributes.get("integration").and_then(|v| v.as_str()) == Some("zwave_js") ||
-                e.attributes.get("source").and_then(|v| v.as_str()).map(|s| s.contains("zwave")).unwrap_or(false) ||
-                e.entity_id.contains("zwave")
+                e.attributes.get("integration").and_then(|v| v.as_str()) == Some("zwave_js")
+                    || e.attributes
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains("zwave"))
+                        .unwrap_or(false)
+                    || e.entity_id.contains("zwave")
             })
             .collect();
 
@@ -118,16 +123,22 @@ impl ZwaveClient {
         let mut seen = std::collections::HashSet::new();
 
         for entity in &zwave_entities {
-            let node_name = entity.attributes.get("friendly_name")
+            let node_name = entity
+                .attributes
+                .get("friendly_name")
                 .and_then(|v| v.as_str())
                 .unwrap_or(&entity.entity_id)
                 .to_string();
 
-            let node_id_attr = entity.attributes.get("node_id")
+            let node_id_attr = entity
+                .attributes
+                .get("node_id")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
 
-            let device_id = entity.attributes.get("device_id")
+            let device_id = entity
+                .attributes
+                .get("device_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or(&entity.entity_id)
                 .to_string();
@@ -136,12 +147,37 @@ impl ZwaveClient {
                 nodes.push(ZwaveNode {
                     node_id: node_id_attr,
                     name: node_name,
-                    device_type: entity.entity_id.split('.').next().unwrap_or("unknown").to_string(),
-                    manufacturer: entity.attributes.get("manufacturer").and_then(|v| v.as_str()).map(String::from),
-                    product: entity.attributes.get("model").and_then(|v| v.as_str()).map(String::from),
-                    is_secure: entity.attributes.get("is_secure").and_then(|v| v.as_bool()).unwrap_or(false),
-                    is_routing: entity.attributes.get("is_routing").and_then(|v| v.as_bool()).unwrap_or(false),
-                    is_beaming: entity.attributes.get("is_beaming").and_then(|v| v.as_bool()).unwrap_or(false),
+                    device_type: entity
+                        .entity_id
+                        .split('.')
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    manufacturer: entity
+                        .attributes
+                        .get("manufacturer")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    product: entity
+                        .attributes
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    is_secure: entity
+                        .attributes
+                        .get("is_secure")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    is_routing: entity
+                        .attributes
+                        .get("is_routing")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    is_beaming: entity
+                        .attributes
+                        .get("is_beaming")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                     status: entity.state.clone(),
                     reachable: ZwaveNodeState::from_str(&entity.state).is_reachable(),
                     last_seen: Some(entity.last_updated.clone()),

@@ -80,8 +80,8 @@ mod tracker {
                 .into_iter()
                 .filter(|e| e.entity_id.starts_with("person."))
                 .filter_map(|e| {
-                    let attrs: HaPersonAttributes =
-                        serde_json::from_value(e.attributes.clone()).unwrap_or(HaPersonAttributes {
+                    let attrs: HaPersonAttributes = serde_json::from_value(e.attributes.clone())
+                        .unwrap_or(HaPersonAttributes {
                             friendly_name: None,
                             latitude: None,
                             longitude: None,
@@ -333,7 +333,9 @@ mod tracker {
             let active = self.active.read().await;
             let now = Utc::now();
 
-            for (rule_id, rule_type, trigger_config, action_config, cooldown, last_triggered) in rules {
+            for (rule_id, rule_type, trigger_config, action_config, cooldown, last_triggered) in
+                rules
+            {
                 if let Some(last) = last_triggered {
                     if (now - last).num_seconds() < cooldown as i64 {
                         continue;
@@ -385,7 +387,10 @@ mod tracker {
             let service = action["service"].as_str().unwrap_or("");
             let mut call_data = action.get("data").cloned().unwrap_or(serde_json::json!({}));
 
-            info!("Automation {}: calling {} on {}", rule_id, service, entity_id);
+            info!(
+                "Automation {}: calling {} on {}",
+                rule_id, service, entity_id
+            );
 
             let (domain, service_name) = service
                 .split_once('/')

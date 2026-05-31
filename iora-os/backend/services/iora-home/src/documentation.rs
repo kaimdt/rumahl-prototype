@@ -1,8 +1,4 @@
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::Path, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::path::{Path as FsPath, PathBuf};
 use tokio::fs;
@@ -47,8 +43,8 @@ pub struct DocContent {
 pub async fn get_docs_config() -> Json<DocsConfig> {
     // Check multiple locations for docs-config.json
     let search_paths = vec![
-        PathBuf::from("/opt/iora/docs/docs-config.json"),  // IORA OS production
-        PathBuf::from("docs/docs-config.json"),              // Development / fallback
+        PathBuf::from("/opt/iora/docs/docs-config.json"), // IORA OS production
+        PathBuf::from("docs/docs-config.json"),           // Development / fallback
     ];
 
     for docs_path in &search_paths {
@@ -134,10 +130,7 @@ fn embedded_doc(path: &str) -> Option<(&'static str, &'static str)> {
             "Dashboard im Überblick",
             include_str!("../docs_embedded/dashboard.md"),
         )),
-        "embedded/admin.md" => Some((
-            "Admin Panel",
-            include_str!("../docs_embedded/admin.md"),
-        )),
+        "embedded/admin.md" => Some(("Admin Panel", include_str!("../docs_embedded/admin.md"))),
         "embedded/global-config.md" => Some((
             "Globale Konfiguration",
             include_str!("../docs_embedded/global-config.md"),
@@ -150,10 +143,7 @@ fn embedded_doc(path: &str) -> Option<(&'static str, &'static str)> {
             "Developer Mode",
             include_str!("../docs_embedded/developer-mode.md"),
         )),
-        "embedded/api.md" => Some((
-            "API Referenz",
-            include_str!("../docs_embedded/api.md"),
-        )),
+        "embedded/api.md" => Some(("API Referenz", include_str!("../docs_embedded/api.md"))),
         _ => None,
     }
 }

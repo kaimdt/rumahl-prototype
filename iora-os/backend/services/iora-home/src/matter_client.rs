@@ -76,7 +76,10 @@ impl MatterClient {
     /// Initialize with saved config
     pub async fn init(&self, config: MatterConfig) {
         *self.config.write().await = config;
-        info!("Matter: Initialized (enabled={})", self.config.read().await.enabled);
+        info!(
+            "Matter: Initialized (enabled={})",
+            self.config.read().await.enabled
+        );
     }
 
     /// Update configuration
@@ -87,11 +90,16 @@ impl MatterClient {
 
     /// Refresh device list from Home Assistant entity cache
     pub async fn refresh_from_entities(self: &Arc<Self>, entities: &[crate::EntityState]) {
-        let matter_entities: Vec<&crate::EntityState> = entities.iter()
+        let matter_entities: Vec<&crate::EntityState> = entities
+            .iter()
             .filter(|e| {
-                e.entity_id.contains("matter") ||
-                e.attributes.get("integration").and_then(|v| v.as_str()) == Some("matter") ||
-                e.attributes.get("source").and_then(|v| v.as_str()).map(|s| s.contains("matter")).unwrap_or(false)
+                e.entity_id.contains("matter")
+                    || e.attributes.get("integration").and_then(|v| v.as_str()) == Some("matter")
+                    || e.attributes
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains("matter"))
+                        .unwrap_or(false)
             })
             .collect();
 
@@ -100,24 +108,41 @@ impl MatterClient {
 
         for entity in &matter_entities {
             // Try to extract device info from attributes
-            let device_name = entity.attributes.get("friendly_name")
+            let device_name = entity
+                .attributes
+                .get("friendly_name")
                 .and_then(|v| v.as_str())
                 .unwrap_or(&entity.entity_id)
                 .to_string();
 
-            let device_id = entity.attributes.get("device_id")
+            let device_id = entity
+                .attributes
+                .get("device_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or(&entity.entity_id)
                 .to_string();
 
             if seen_devices.insert(device_id.clone()) {
-                let device_type = entity.entity_id.split('.').next().unwrap_or("unknown").to_string();
+                let device_type = entity
+                    .entity_id
+                    .split('.')
+                    .next()
+                    .unwrap_or("unknown")
+                    .to_string();
                 devices.push(MatterDevice {
                     node_id: device_id,
                     name: device_name,
                     device_type,
-                    vendor: entity.attributes.get("manufacturer").and_then(|v| v.as_str()).map(String::from),
-                    model: entity.attributes.get("model").and_then(|v| v.as_str()).map(String::from),
+                    vendor: entity
+                        .attributes
+                        .get("manufacturer")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    model: entity
+                        .attributes
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     endpoint_count: 1,
                     reachable: entity.state != "unavailable",
                     last_seen: Some(entity.last_updated.clone()),

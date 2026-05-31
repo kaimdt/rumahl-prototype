@@ -68,9 +68,15 @@ pub struct ScheduledTask {
     pub tags: Vec<String>,
 }
 
-fn default_enabled() -> bool { true }
-fn default_max_retries() -> u32 { 3 }
-fn default_retry_delay() -> u64 { 60 }
+fn default_enabled() -> bool {
+    true
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_retry_delay() -> u64 {
+    60
+}
 
 /// Create a scheduled task request
 #[derive(Debug, Deserialize)]
@@ -167,4 +173,6 @@ pub struct ScheduleWebhookTarget {
     pub secret: Option<String>,
 }
 
-fn default_webhook_method() -> String { "POST".to_string() }
+fn default_webhook_method() -> String {
+    "POST".to_string()
+}

@@ -57,7 +57,10 @@ impl HomekitClient {
     }
 
     pub async fn update_config(&self, config: HomekitConfig) {
-        info!("HomeKit: Config updated (enabled={}, bridge={})", config.enabled, config.bridge_name);
+        info!(
+            "HomeKit: Config updated (enabled={}, bridge={})",
+            config.enabled, config.bridge_name
+        );
         *self.config.write().await = config;
     }
 
@@ -66,7 +69,11 @@ impl HomekitClient {
     }
 
     /// Refresh accessory list from HA entity cache
-    pub async fn refresh_from_entities(&self, entities: &[crate::EntityState], ha_has_homekit: bool) {
+    pub async fn refresh_from_entities(
+        &self,
+        entities: &[crate::EntityState],
+        ha_has_homekit: bool,
+    ) {
         *self.bridge_available.write().await = ha_has_homekit;
 
         let hk_entities: Vec<&crate::EntityState> = entities.iter()
@@ -83,12 +90,16 @@ impl HomekitClient {
 
         for entity in &hk_entities {
             if seen.insert(entity.entity_id.clone()) {
-                let name = entity.attributes.get("friendly_name")
+                let name = entity
+                    .attributes
+                    .get("friendly_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&entity.entity_id)
                     .to_string();
 
-                let accessory_type = entity.attributes.get("homekit_type")
+                let accessory_type = entity
+                    .attributes
+                    .get("homekit_type")
                     .and_then(|v| v.as_str())
                     .unwrap_or(entity.entity_id.split('.').next().unwrap_or("unknown"))
                     .to_string();

@@ -68,15 +68,7 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
     for prefix in ["iora-app-", "iora-bundle-"] {
         let project = format!("{prefix}{app_id}");
         let out = Command::new("docker")
-            .args([
-                "compose",
-                "-p",
-                &project,
-                "ps",
-                "--all",
-                "--format",
-                "json",
-            ])
+            .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
             .output()
             .await;
 
@@ -288,7 +280,8 @@ impl Default for CrashTracker {
 /// im Crash-Fall einen Restart mit exponentiellem Backoff (max. 5 Versuche, dann
 /// wird der Status auf "stopped" gesetzt und ein Error-Log geschrieben).
 pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path::PathBuf) {
-    let trackers: Arc<RwLock<HashMap<String, CrashTracker>>> = Arc::new(RwLock::new(HashMap::new()));
+    let trackers: Arc<RwLock<HashMap<String, CrashTracker>>> =
+        Arc::new(RwLock::new(HashMap::new()));
     let interval = Duration::from_secs(30);
     const MAX_CONSECUTIVE_RESTARTS: u32 = 5;
 
@@ -487,4 +480,3 @@ async fn restart_app_inplace(
         Err(e) => Err(format!("docker konnte nicht aufgerufen werden: {e}")),
     }
 }
-

@@ -9,7 +9,7 @@
 //! - Centralize control over external integrations
 
 use axum::{
-    extract::{State, Query, Path},
+    extract::{Path, Query, State},
     http::StatusCode,
     Extension, Json,
 };
@@ -79,22 +79,18 @@ pub struct DesktopSettingsUpdate {
 
 pub async fn get_desktop_extensions() -> Result<Json<DesktopExtensionManifest>, StatusCode> {
     Ok(Json(DesktopExtensionManifest {
-        custom_elements: vec![
-            DesktopCustomElement {
-                id: "desktop-status-card".to_string(),
-                tag: "desktop-status-card".to_string(),
-                description: "A custom desktop status widget for IORA Home pages.".to_string(),
-                documentation_url: None,
-            },
-        ],
-        custom_pages: vec![
-            DesktopCustomPage {
-                id: "desktop-settings".to_string(),
-                title: "Desktop Einstellungen".to_string(),
-                url: "/desktop-settings".to_string(),
-                description: "A desktop-specific settings page exposed to IORA Home.".to_string(),
-            },
-        ],
+        custom_elements: vec![DesktopCustomElement {
+            id: "desktop-status-card".to_string(),
+            tag: "desktop-status-card".to_string(),
+            description: "A custom desktop status widget for IORA Home pages.".to_string(),
+            documentation_url: None,
+        }],
+        custom_pages: vec![DesktopCustomPage {
+            id: "desktop-settings".to_string(),
+            title: "Desktop Einstellungen".to_string(),
+            url: "/desktop-settings".to_string(),
+            description: "A desktop-specific settings page exposed to IORA Home.".to_string(),
+        }],
     }))
 }
 
@@ -235,7 +231,10 @@ pub async fn register_desktop(
     .await;
 
     if let Err(e) = upsert {
-        warn!("Failed to persist desktop registration for {}: {}", req.device_id, e);
+        warn!(
+            "Failed to persist desktop registration for {}: {}",
+            req.device_id, e
+        );
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -279,12 +278,42 @@ pub async fn receive_metrics(
 
     // Create sensor entities in Home Assistant
     let sensors = vec![
-        (format!("sensor.iora_desktop_{}_cpu", device_name), metrics.cpu_usage, "%", "CPU Usage"),
-        (format!("sensor.iora_desktop_{}_memory", device_name), metrics.memory_percent, "%", "Memory Usage"),
-        (format!("sensor.iora_desktop_{}_disk", device_name), metrics.disk_percent, "%", "Disk Usage"),
-        (format!("sensor.iora_desktop_{}_network_rx", device_name), metrics.network_rx_mb as f32, "MB", "Network RX"),
-        (format!("sensor.iora_desktop_{}_network_tx", device_name), metrics.network_tx_mb as f32, "MB", "Network TX"),
-        (format!("sensor.iora_desktop_{}_uptime", device_name), metrics.uptime_secs as f32, "s", "Uptime"),
+        (
+            format!("sensor.iora_desktop_{}_cpu", device_name),
+            metrics.cpu_usage,
+            "%",
+            "CPU Usage",
+        ),
+        (
+            format!("sensor.iora_desktop_{}_memory", device_name),
+            metrics.memory_percent,
+            "%",
+            "Memory Usage",
+        ),
+        (
+            format!("sensor.iora_desktop_{}_disk", device_name),
+            metrics.disk_percent,
+            "%",
+            "Disk Usage",
+        ),
+        (
+            format!("sensor.iora_desktop_{}_network_rx", device_name),
+            metrics.network_rx_mb as f32,
+            "MB",
+            "Network RX",
+        ),
+        (
+            format!("sensor.iora_desktop_{}_network_tx", device_name),
+            metrics.network_tx_mb as f32,
+            "MB",
+            "Network TX",
+        ),
+        (
+            format!("sensor.iora_desktop_{}_uptime", device_name),
+            metrics.uptime_secs as f32,
+            "s",
+            "Uptime",
+        ),
     ];
 
     let mut errors = 0;
@@ -360,12 +389,10 @@ pub async fn get_entities(
     let user_id = identity.user_id();
     info!("Desktop client requesting entities: user_id={}", user_id);
 
-    let ha_states = state.ha_client.get_states()
-        .await
-        .map_err(|e| {
-            warn!("Failed to fetch entities from HA: {}", e);
-            StatusCode::BAD_GATEWAY
-        })?;
+    let ha_states = state.ha_client.get_states().await.map_err(|e| {
+        warn!("Failed to fetch entities from HA: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
 
     let entities: Vec<HaEntity> = ha_states
         .into_iter()
@@ -426,11 +453,15 @@ pub async fn call_service(
     }
 
     // Call HA service (use call_service_fast for better performance)
-    state.ha_client
+    state
+        .ha_client
         .call_service_fast(&req.domain, &req.service, json!(service_data))
         .await
         .map_err(|e| {
-            warn!("Failed to call HA service {}.{}: {}", req.domain, req.service, e);
+            warn!(
+                "Failed to call HA service {}.{}: {}",
+                req.domain, req.service, e
+            );
             StatusCode::BAD_GATEWAY
         })?;
 
@@ -462,7 +493,11 @@ pub async fn queue_command(
 ) -> Result<StatusCode, StatusCode> {
     // Only admins can queue system commands
     if !identity.is_admin() {
-        warn!("Non-admin user {} attempted to queue command: {}", identity.user_id(), req.command);
+        warn!(
+            "Non-admin user {} attempted to queue command: {}",
+            identity.user_id(),
+            req.command
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -472,14 +507,19 @@ pub async fn queue_command(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    info!("Queuing command '{}' for desktop client: {}", req.command, req.device_id);
+    info!(
+        "Queuing command '{}' for desktop client: {}",
+        req.command, req.device_id
+    );
 
     // Store command in database for desktop client to poll
-    match sqlx::query("INSERT INTO desktop_commands (device_id, command, status) VALUES ($1, $2, 'pending')")
-        .bind(&req.device_id)
-        .bind(&req.command)
-        .execute(&state.db_pool)
-        .await
+    match sqlx::query(
+        "INSERT INTO desktop_commands (device_id, command, status) VALUES ($1, $2, 'pending')",
+    )
+    .bind(&req.device_id)
+    .bind(&req.command)
+    .execute(&state.db_pool)
+    .await
     {
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => {
@@ -515,7 +555,10 @@ pub async fn get_pending_commands(
     let device_id = match params.get("device_id") {
         Some(id) => id,
         None => {
-            warn!("get_pending_commands called without device_id by user {}", identity.user_id());
+            warn!(
+                "get_pending_commands called without device_id by user {}",
+                identity.user_id()
+            );
             return Err(StatusCode::BAD_REQUEST);
         }
     };
@@ -557,7 +600,11 @@ pub async fn ack_command(
     Extension(identity): Extension<AuthIdentity>,
     Path(command_id): Path<i32>,
 ) -> Result<StatusCode, StatusCode> {
-    info!("Desktop client {} acknowledging command {}", identity.user_id(), command_id);
+    info!(
+        "Desktop client {} acknowledging command {}",
+        identity.user_id(),
+        command_id
+    );
 
     let result = sqlx::query(
         "UPDATE desktop_commands SET status = 'acknowledged', updated_at = NOW() WHERE id = $1 AND status = 'pending'"
@@ -593,36 +640,53 @@ fn is_service_allowed(domain: &str, service: &str) -> bool {
     }
 
     // Allow media player controls
-    if domain == "media_player" && matches!(
-        service,
-        "turn_on" | "turn_off" | "toggle" | "media_play" | "media_pause" |
-        "media_stop" | "media_next_track" | "media_previous_track" |
-        "volume_up" | "volume_down" | "volume_set" | "volume_mute"
-    ) {
+    if domain == "media_player"
+        && matches!(
+            service,
+            "turn_on"
+                | "turn_off"
+                | "toggle"
+                | "media_play"
+                | "media_pause"
+                | "media_stop"
+                | "media_next_track"
+                | "media_previous_track"
+                | "volume_up"
+                | "volume_down"
+                | "volume_set"
+                | "volume_mute"
+        )
+    {
         return true;
     }
 
     // Allow climate controls
-    if domain == "climate" && matches!(
-        service,
-        "set_temperature" | "set_hvac_mode" | "set_preset_mode"
-    ) {
+    if domain == "climate"
+        && matches!(
+            service,
+            "set_temperature" | "set_hvac_mode" | "set_preset_mode"
+        )
+    {
         return true;
     }
 
     // Allow cover controls
-    if domain == "cover" && matches!(
-        service,
-        "open_cover" | "close_cover" | "stop_cover" | "set_cover_position"
-    ) {
+    if domain == "cover"
+        && matches!(
+            service,
+            "open_cover" | "close_cover" | "stop_cover" | "set_cover_position"
+        )
+    {
         return true;
     }
 
     // Allow fan controls
-    if domain == "fan" && matches!(
-        service,
-        "turn_on" | "turn_off" | "toggle" | "set_percentage" | "set_preset_mode"
-    ) {
+    if domain == "fan"
+        && matches!(
+            service,
+            "turn_on" | "turn_off" | "toggle" | "set_percentage" | "set_preset_mode"
+        )
+    {
         return true;
     }
 
@@ -647,7 +711,10 @@ fn is_service_allowed(domain: &str, service: &str) -> bool {
     }
 
     // Allow input controls
-    if matches!(domain, "input_boolean" | "input_select" | "input_number" | "input_text" | "input_datetime") {
+    if matches!(
+        domain,
+        "input_boolean" | "input_select" | "input_number" | "input_text" | "input_datetime"
+    ) {
         return true;
     }
 

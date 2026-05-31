@@ -80,7 +80,11 @@ pub async fn try_authenticate(
             let mut parts = pair.splitn(2, '=');
             let key = parts.next()?;
             let value = parts.next()?;
-            if key == "token" { Some(value) } else { None }
+            if key == "token" {
+                Some(value)
+            } else {
+                None
+            }
         }) {
             // Check if it looks like an API key (starts with "mdt_")
             if token.starts_with("mdt_") {
@@ -117,7 +121,13 @@ async fn try_api_key_auth(key: &str, state: &AppState) -> Option<AuthIdentity> {
     }
 
     // Check rate limit
-    if state.config_repo.check_rate_limit(&api_key.id, api_key.rate_limit).await.ok() != Some(true) {
+    if state
+        .config_repo
+        .check_rate_limit(&api_key.id, api_key.rate_limit)
+        .await
+        .ok()
+        != Some(true)
+    {
         return None;
     }
 
@@ -128,8 +138,8 @@ async fn try_api_key_auth(key: &str, state: &AppState) -> Option<AuthIdentity> {
         let _ = repo.update_api_key_last_used(&key_id).await;
     });
 
-    let permissions: Vec<String> = serde_json::from_str(&api_key.permissions)
-        .unwrap_or_else(|_| vec!["read".to_string()]);
+    let permissions: Vec<String> =
+        serde_json::from_str(&api_key.permissions).unwrap_or_else(|_| vec!["read".to_string()]);
 
     Some(AuthIdentity::ApiKey {
         user_id: api_key.user_id,
@@ -147,22 +157,26 @@ pub async fn require_auth(
 ) -> Result<Response, StatusCode> {
     let state = state.0;
     let identity = try_authenticate(
-        request.headers()
+        request
+            .headers()
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
-        request.headers()
+        request
+            .headers()
             .get("x-api-key")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         request.uri().query().map(|s| s.to_string()),
         &state,
-    ).await;
+    )
+    .await;
 
     match identity {
         Some(id) => {
             // For service calls, require X-Action-Intent header (CSRF protection)
-            let has_intent = request.headers()
+            let has_intent = request
+                .headers()
                 .get("x-action-intent")
                 .and_then(|v| v.to_str().ok())
                 .map(|v| !v.is_empty())
@@ -200,17 +214,20 @@ pub async fn require_admin(
 ) -> Result<Response, StatusCode> {
     let state = state.0;
     let identity = try_authenticate(
-        request.headers()
+        request
+            .headers()
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
-        request.headers()
+        request
+            .headers()
             .get("x-api-key")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         request.uri().query().map(|s| s.to_string()),
         &state,
-    ).await;
+    )
+    .await;
 
     match identity {
         Some(id) if id.is_admin() => {
@@ -236,17 +253,20 @@ pub async fn require_authenticated(
 ) -> Result<Response, StatusCode> {
     let state = state.0;
     let identity = try_authenticate(
-        request.headers()
+        request
+            .headers()
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
-        request.headers()
+        request
+            .headers()
             .get("x-api-key")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
         request.uri().query().map(|s| s.to_string()),
         &state,
-    ).await;
+    )
+    .await;
 
     match identity {
         Some(id) => {

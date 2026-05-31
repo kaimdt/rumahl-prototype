@@ -1,8 +1,8 @@
+use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
-use rumqttc::{AsyncClient, MqttOptions, QoS, Event, Packet};
 
 /// Holds the MQTT connection configuration
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -22,7 +22,10 @@ impl Default for MqttConfig {
             port: 1883,
             username: None,
             password: None,
-            client_id: format!("mdt-dashboard-{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+            client_id: format!(
+                "mdt-dashboard-{}",
+                uuid::Uuid::new_v4().to_string()[..8].to_string()
+            ),
             use_tls: false,
         }
     }
@@ -150,7 +153,11 @@ impl MqttClient {
                         };
 
                         // Update topic value map
-                        mqtt_ref.topic_values.write().await.insert(publish.topic.clone(), msg.clone());
+                        mqtt_ref
+                            .topic_values
+                            .write()
+                            .await
+                            .insert(publish.topic.clone(), msg.clone());
 
                         // Store recent messages (keep last 100)
                         let mut recent = mqtt_ref.recent_messages.write().await;
@@ -240,7 +247,12 @@ impl MqttClient {
 
     /// Get current status
     pub async fn status(&self) -> MqttStatus {
-        let config_safe = self.config.read().await.as_ref().map(|c| MqttConfigSafe::from(c));
+        let config_safe = self
+            .config
+            .read()
+            .await
+            .as_ref()
+            .map(|c| MqttConfigSafe::from(c));
         MqttStatus {
             connected: *self.connected.read().await,
             config: config_safe,

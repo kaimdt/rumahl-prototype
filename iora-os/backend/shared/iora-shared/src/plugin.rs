@@ -4,9 +4,9 @@
 //! They do not run independently but are called when needed by the system.
 //! Plugins can register APIs and widgets which are isolated from the core system.
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use tokio::sync::RwLock;
 
 use crate::api_gateway::ApiEndpoint;
@@ -35,8 +35,8 @@ pub struct SandboxConfig {
 impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
-            max_execution_time_ms: 5000,  // 5 seconds
-            max_memory_mb: 128,            // 128 MB
+            max_execution_time_ms: 5000, // 5 seconds
+            max_memory_mb: 128,          // 128 MB
             allow_network: false,
             allow_file_system: false,
         }
@@ -183,13 +183,16 @@ impl PluginRegistry {
 
         // Initialize stats
         let mut stats = self.execution_stats.write().await;
-        stats.insert(id, PluginStats {
-            total_executions: 0,
-            successful_executions: 0,
-            failed_executions: 0,
-            total_duration_ms: 0,
-            last_execution: None,
-        });
+        stats.insert(
+            id,
+            PluginStats {
+                total_executions: 0,
+                successful_executions: 0,
+                failed_executions: 0,
+                total_duration_ms: 0,
+                last_execution: None,
+            },
+        );
 
         Ok(())
     }
@@ -220,8 +223,14 @@ impl PluginRegistry {
             .collect()
     }
 
-    pub async fn execute(&self, plugin_id: &str, input: serde_json::Value) -> anyhow::Result<PluginExecutionResult> {
-        let plugin = self.get(plugin_id).await
+    pub async fn execute(
+        &self,
+        plugin_id: &str,
+        input: serde_json::Value,
+    ) -> anyhow::Result<PluginExecutionResult> {
+        let plugin = self
+            .get(plugin_id)
+            .await
             .ok_or_else(|| anyhow::anyhow!("Plugin '{}' not found", plugin_id))?;
 
         let result = plugin.execute(input).await?;
@@ -260,4 +269,3 @@ impl PluginRegistry {
             .collect()
     }
 }
-

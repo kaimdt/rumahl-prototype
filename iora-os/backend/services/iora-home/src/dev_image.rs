@@ -27,10 +27,10 @@ impl DevImageInfo {
     pub fn detect() -> Self {
         let is_os_dev = Path::new("/etc/iora/os-dev-mode").exists();
         let dev_token_present = Path::new("/etc/iora/dev-token").exists();
-        let bridge_unit_installed =
-            Path::new("/etc/systemd/system/iora-dev-bridge.service").exists()
-                || Path::new("/lib/systemd/system/iora-dev-bridge.service").exists()
-                || Path::new("/usr/lib/systemd/system/iora-dev-bridge.service").exists();
+        let bridge_unit_installed = Path::new("/etc/systemd/system/iora-dev-bridge.service")
+            .exists()
+            || Path::new("/lib/systemd/system/iora-dev-bridge.service").exists()
+            || Path::new("/usr/lib/systemd/system/iora-dev-bridge.service").exists();
         let developer_app_unit_installed =
             Path::new("/etc/systemd/system/iora-developer-app.service").exists()
                 || Path::new("/lib/systemd/system/iora-developer-app.service").exists()

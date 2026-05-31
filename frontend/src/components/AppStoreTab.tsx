@@ -46,6 +46,8 @@ interface AppInfo {
   docker_config?: any
   bundle_config?: any
   services?: any[]
+  permission_grants?: Array<{ permission: string; risk_level?: string; is_active?: boolean }>
+  denied_permissions?: string[]
 }
 
 interface PortInfo {
@@ -839,6 +841,10 @@ function ZipUploadView({
   const [uploading, setUploading] = useState(false)
   const [manifest, setManifest] = useState<AppManifest | null>(null)
   const [manifestError, setManifestError] = useState<string | null>(null)
+  const [grantedPermissions, setGrantedPermissions] = useState<string[]>([])
+  const [permissionConsent, setPermissionConsent] = useState(false)
+  const [replaceExisting, setReplaceExisting] = useState(false)
+  const [duplicateAppId, setDuplicateAppId] = useState<string | null>(null)
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -847,6 +853,10 @@ function ZipUploadView({
     setFile(selectedFile)
     setManifest(null)
     setManifestError(null)
+    setGrantedPermissions([])
+    setPermissionConsent(false)
+    setReplaceExisting(false)
+    setDuplicateAppId(null)
 
     try {
       const { extractManifestFromZip } = await import('../lib/zip')
@@ -867,6 +877,15 @@ function ZipUploadView({
       }
 
       setManifest(extractedManifest)
+      setGrantedPermissions(extractedManifest.permissions || [])
+      setPermissionConsent((extractedManifest.permissions || []).length === 0)
+      try {
+        const installed = await adminFetch('/api/appstore/installed', token) as { apps?: AppInfo[] }
+        const duplicate = installed.apps?.find(app => app.id === extractedManifest.id)
+        setDuplicateAppId(duplicate?.id || null)
+      } catch {
+        setDuplicateAppId(null)
+      }
       toast.success('manifest.json erfolgreich gelesen')
     } catch (err) {
       console.error('Manifest extraction failed:', err)
@@ -877,6 +896,15 @@ function ZipUploadView({
 
   const uploadAndInstall = async () => {
     if (!file) return
+    const requestedPermissions = manifest?.permissions || []
+    if (requestedPermissions.length > 0 && !permissionConsent) {
+      toast.error('Bitte bestätige die Berechtigungen vor der Installation.')
+      return
+    }
+    if (duplicateAppId && !replaceExisting) {
+      toast.error('Diese App ist bereits installiert. Aktiviere Ersetzen, um fortzufahren.')
+      return
+    }
 
     setUploading(true)
     try {
@@ -893,6 +921,9 @@ function ZipUploadView({
               zip_data: base64,
               file_name: fileRef.name,
               manifest: manifest || undefined,
+              granted_permissions: requestedPermissions.filter(permission => grantedPermissions.includes(permission)),
+              denied_permissions: requestedPermissions.filter(permission => !grantedPermissions.includes(permission)),
+              replace_existing: replaceExisting,
             }),
           }) as { install_id?: string }
 
@@ -991,6 +1022,67 @@ function ZipUploadView({
                 )}
               </div>
             )}
+            {manifest.permissions && manifest.permissions.length > 0 && (
+              <div className="pt-2 mt-2 border-t border-green-500/15 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold text-foreground">Berechtigungen</span>
+                  <button
+                    type="button"
+                    onClick={() => setGrantedPermissions(
+                      grantedPermissions.length === manifest.permissions.length ? [] : manifest.permissions
+                    )}
+                    className="text-[10px] text-accent hover:text-accent/80"
+                  >
+                    {grantedPermissions.length === manifest.permissions.length ? 'Alle entziehen' : 'Alle gewähren'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {manifest.permissions.map(permission => {
+                    const checked = grantedPermissions.includes(permission)
+                    return (
+                      <label
+                        key={permission}
+                        className="flex items-center gap-2 p-2 rounded bg-foreground/5 border border-foreground/10 text-[10px] text-foreground/70"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setGrantedPermissions(current =>
+                            checked
+                              ? current.filter(item => item !== permission)
+                              : [...current, permission]
+                          )}
+                          className="accent-accent"
+                        />
+                        <span className="truncate" title={permission}>{permission}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <label className="flex items-start gap-2 text-[10px] text-foreground/65">
+                  <input
+                    type="checkbox"
+                    checked={permissionConsent}
+                    onChange={(event) => setPermissionConsent(event.target.checked)}
+                    className="mt-0.5 accent-accent"
+                  />
+                  <span>Ausgewählte Berechtigungen für diese Installation speichern.</span>
+                </label>
+              </div>
+            )}
+            {duplicateAppId && (
+              <div className="pt-2 mt-2 border-t border-orange-500/20">
+                <label className="flex items-start gap-2 text-[10px] text-orange-300">
+                  <input
+                    type="checkbox"
+                    checked={replaceExisting}
+                    onChange={(event) => setReplaceExisting(event.target.checked)}
+                    className="mt-0.5 accent-orange-400"
+                  />
+                  <span>Bestehende Installation von {duplicateAppId} ersetzen. Die App muss gestoppt sein.</span>
+                </label>
+              </div>
+            )}
           </div>
         )}
 
@@ -1018,7 +1110,7 @@ function ZipUploadView({
 
         <button
           onClick={uploadAndInstall}
-          disabled={!file || uploading}
+          disabled={!file || uploading || Boolean(manifest?.permissions?.length && !permissionConsent) || Boolean(duplicateAppId && !replaceExisting)}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {uploading ? (

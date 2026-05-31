@@ -237,16 +237,25 @@ impl StreamManager {
     }
 
     /// Get a broadcast sender for a stream (for publishing frames)
-    pub async fn get_relay_tx(&self, stream_id: &str) -> Option<(broadcast::Sender<Vec<u8>>, Arc<RwLock<Vec<Vec<u8>>>>)> {
+    pub async fn get_relay_tx(
+        &self,
+        stream_id: &str,
+    ) -> Option<(broadcast::Sender<Vec<u8>>, Arc<RwLock<Vec<Vec<u8>>>>)> {
         let streams = self.streams.read().await;
-        streams.get(stream_id).map(|s| (s.relay_tx.clone(), s.segment_buffer.clone()))
+        streams
+            .get(stream_id)
+            .map(|s| (s.relay_tx.clone(), s.segment_buffer.clone()))
     }
 
     /// Subscribe to a stream's relay channel (for viewing frames)
     pub async fn subscribe(
         &self,
         stream_id: &str,
-    ) -> Option<(broadcast::Receiver<Vec<u8>>, Arc<std::sync::atomic::AtomicU32>, Vec<Vec<u8>>)> {
+    ) -> Option<(
+        broadcast::Receiver<Vec<u8>>,
+        Arc<std::sync::atomic::AtomicU32>,
+        Vec<Vec<u8>>,
+    )> {
         let (rx, counter, seg_buf) = {
             let streams = self.streams.read().await;
             match streams.get(stream_id) {
@@ -312,7 +321,9 @@ pub async fn handle_stream_ingest(socket: WebSocket, manager: Arc<StreamManager>
                     if !manager.validate_ingest(&auth.stream_id, &auth.token).await {
                         let _ = ws_tx
                             .send(Message::Text(
-                                serde_json::json!({"type":"auth_failed","message":"Invalid token"}).to_string().into(),
+                                serde_json::json!({"type":"auth_failed","message":"Invalid token"})
+                                    .to_string()
+                                    .into(),
                             ))
                             .await;
                         return;
@@ -322,14 +333,18 @@ pub async fn handle_stream_ingest(socket: WebSocket, manager: Arc<StreamManager>
                         None => return,
                     };
                     let _ = ws_tx
-                        .send(Message::Text(serde_json::json!({"type":"auth_ok"}).to_string().into()))
+                        .send(Message::Text(
+                            serde_json::json!({"type":"auth_ok"}).to_string().into(),
+                        ))
                         .await;
                     (auth.stream_id, tx, init_store)
                 }
                 Err(_) => {
                     let _ = ws_tx
                         .send(Message::Text(
-                            serde_json::json!({"type":"error","message":"Invalid auth message"}).to_string().into(),
+                            serde_json::json!({"type":"error","message":"Invalid auth message"})
+                                .to_string()
+                                .into(),
                         ))
                         .await;
                     return;
@@ -341,7 +356,9 @@ pub async fn handle_stream_ingest(socket: WebSocket, manager: Arc<StreamManager>
 
     // 2) Mark stream as live & clear old segment buffer
     manager.set_live(&stream_id).await;
-    { segment_buffer.write().await.clear(); }
+    {
+        segment_buffer.write().await.clear();
+    }
     info!("Stream ingest connected: {}", stream_id);
 
     // 3) Relay incoming binary frames to all viewers
@@ -392,41 +409,45 @@ pub async fn handle_stream_watch(socket: WebSocket, manager: Arc<StreamManager>)
                 stream_id: String,
             }
             match serde_json::from_str::<WatchMsg>(&text) {
-                Ok(watch) => {
-                    match manager.subscribe(&watch.stream_id).await {
-                        Some((rx, counter, init)) => {
-                            let _ = ws_tx
-                                .send(Message::Text(
-                                    serde_json::json!({
-                                        "type": "watching",
-                                        "stream_id": watch.stream_id
-                                    })
-                                    .to_string().into(),
-                                ))
-                                .await;
-                            (watch.stream_id, rx, counter, init)
-                        }
-                        None => {
-                            let _ = ws_tx
-                                .send(Message::Text(
-                                    serde_json::json!({
-                                        "type": "error",
-                                        "message": "Stream not found"
-                                    })
-                                    .to_string().into(),
-                                ))
-                                .await;
-                            return;
-                        }
+                Ok(watch) => match manager.subscribe(&watch.stream_id).await {
+                    Some((rx, counter, init)) => {
+                        let _ = ws_tx
+                            .send(Message::Text(
+                                serde_json::json!({
+                                    "type": "watching",
+                                    "stream_id": watch.stream_id
+                                })
+                                .to_string()
+                                .into(),
+                            ))
+                            .await;
+                        (watch.stream_id, rx, counter, init)
                     }
-                }
+                    None => {
+                        let _ = ws_tx
+                            .send(Message::Text(
+                                serde_json::json!({
+                                    "type": "error",
+                                    "message": "Stream not found"
+                                })
+                                .to_string()
+                                .into(),
+                            ))
+                            .await;
+                        return;
+                    }
+                },
                 Err(_) => return,
             }
         }
         _ => return,
     };
 
-    info!("Viewer connected to stream: {} ({} buffered chunks)", stream_id, buffered_chunks.len());
+    info!(
+        "Viewer connected to stream: {} ({} buffered chunks)",
+        stream_id,
+        buffered_chunks.len()
+    );
 
     // 2) Send all buffered chunks so the viewer gets a complete sequence
     //    (init segment + all subsequent frames since last MediaRecorder restart).

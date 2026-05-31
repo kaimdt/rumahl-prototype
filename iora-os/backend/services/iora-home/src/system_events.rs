@@ -158,12 +158,7 @@ static GLOBAL_SINK: OnceLock<mpsc::UnboundedSender<RawIngest>> = OnceLock::new()
 
 /// Called from the global tracing layer. Returns silently if the system log
 /// hasn't been constructed yet (during early boot, before the DB is open).
-pub fn capture_from_tracing(
-    severity: Severity,
-    source: &str,
-    message: &str,
-    meta: EventMeta,
-) {
+pub fn capture_from_tracing(severity: Severity, source: &str, message: &str, meta: EventMeta) {
     // Avoid loops: any event coming from this module would otherwise re-enter
     // here forever (the persist path itself emits tracing events on failure).
     if meta
@@ -219,7 +214,13 @@ impl SystemEventLog {
     // ── Public emit API ───────────────────────────────────────────────
 
     pub async fn report_error(&self, source: &str, message: impl Into<String>) {
-        self.emit(Severity::Error, source, message.into(), EventMeta::default()).await;
+        self.emit(
+            Severity::Error,
+            source,
+            message.into(),
+            EventMeta::default(),
+        )
+        .await;
     }
 
     pub async fn report_error_with(
@@ -230,7 +231,8 @@ impl SystemEventLog {
     ) {
         let mut meta = EventMeta::default();
         meta.extra = Some(details);
-        self.emit(Severity::Error, source, message.into(), meta).await;
+        self.emit(Severity::Error, source, message.into(), meta)
+            .await;
     }
 
     /// Report an error with the full `std::error::Error` cause chain
@@ -244,32 +246,38 @@ impl SystemEventLog {
         let mut chain = String::new();
         let mut cur: Option<&dyn std::error::Error> = Some(err);
         while let Some(e) = cur {
-            if !chain.is_empty() { chain.push_str("\n  caused by: "); }
+            if !chain.is_empty() {
+                chain.push_str("\n  caused by: ");
+            }
             chain.push_str(&e.to_string());
             cur = e.source();
         }
         let mut meta = EventMeta::default();
         meta.error_chain = Some(chain);
-        self.emit(Severity::Error, source, message.into(), meta).await;
+        self.emit(Severity::Error, source, message.into(), meta)
+            .await;
     }
 
     pub async fn report_warn(&self, source: &str, message: impl Into<String>) {
-        self.emit(Severity::Warning, source, message.into(), EventMeta::default()).await;
+        self.emit(
+            Severity::Warning,
+            source,
+            message.into(),
+            EventMeta::default(),
+        )
+        .await;
     }
 
-    pub async fn report_warn_with(
-        &self,
-        source: &str,
-        message: impl Into<String>,
-        details: Value,
-    ) {
+    pub async fn report_warn_with(&self, source: &str, message: impl Into<String>, details: Value) {
         let mut meta = EventMeta::default();
         meta.extra = Some(details);
-        self.emit(Severity::Warning, source, message.into(), meta).await;
+        self.emit(Severity::Warning, source, message.into(), meta)
+            .await;
     }
 
     pub async fn report_info(&self, source: &str, message: impl Into<String>) {
-        self.emit(Severity::Info, source, message.into(), EventMeta::default()).await;
+        self.emit(Severity::Info, source, message.into(), EventMeta::default())
+            .await;
     }
 
     /// Generic emit with full metadata control.
@@ -330,15 +338,35 @@ impl SystemEventLog {
             // explicit `extra` was provided so the API consumer always sees
             // *something* even for tracing-captured events.
             let mut obj = serde_json::Map::new();
-            if let Some(v) = &ev.meta.user_id { obj.insert("user_id".into(), json!(v)); }
-            if let Some(v) = &ev.meta.request_path { obj.insert("request_path".into(), json!(v)); }
-            if let Some(v) = &ev.meta.request_method { obj.insert("request_method".into(), json!(v)); }
-            if let Some(v) = &ev.meta.status_code { obj.insert("status_code".into(), json!(v)); }
-            if let Some(v) = &ev.meta.file { obj.insert("file".into(), json!(v)); }
-            if let Some(v) = &ev.meta.line { obj.insert("line".into(), json!(v)); }
-            if let Some(v) = &ev.meta.target { obj.insert("target".into(), json!(v)); }
-            if let Some(v) = &ev.meta.error_chain { obj.insert("error_chain".into(), json!(v)); }
-            if obj.is_empty() { None } else { Some(Value::Object(obj)) }
+            if let Some(v) = &ev.meta.user_id {
+                obj.insert("user_id".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.request_path {
+                obj.insert("request_path".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.request_method {
+                obj.insert("request_method".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.status_code {
+                obj.insert("status_code".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.file {
+                obj.insert("file".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.line {
+                obj.insert("line".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.target {
+                obj.insert("target".into(), json!(v));
+            }
+            if let Some(v) = &ev.meta.error_chain {
+                obj.insert("error_chain".into(), json!(v));
+            }
+            if obj.is_empty() {
+                None
+            } else {
+                Some(Value::Object(obj))
+            }
         });
 
         // UPSERT group + return current count.
@@ -397,7 +425,9 @@ impl SystemEventLog {
         // Update hot cache.
         {
             let mut buf = self.cache.write().await;
-            if buf.len() >= HOT_CACHE { buf.pop_front(); }
+            if buf.len() >= HOT_CACHE {
+                buf.pop_front();
+            }
             buf.push_back(RawIngest {
                 severity: ev.severity,
                 source: ev.source.clone(),
@@ -604,9 +634,11 @@ impl SystemEventLog {
     }
 
     pub async fn clear_all(&self) -> sqlx::Result<()> {
-        sqlx::query("TRUNCATE system_event_occurrences, system_event_groups RESTART IDENTITY CASCADE")
-            .execute(&self.db)
-            .await?;
+        sqlx::query(
+            "TRUNCATE system_event_occurrences, system_event_groups RESTART IDENTITY CASCADE",
+        )
+        .execute(&self.db)
+        .await?;
         self.cache.write().await.clear();
         Ok(())
     }
@@ -630,5 +662,9 @@ fn fingerprint(severity: Severity, source: &str, message: &str) -> String {
     let digest = hasher.finalize();
     // 16-char prefix — collision-safe for hundreds of millions of distinct
     // events while staying short enough to use in URLs and UI.
-    digest.iter().take(8).map(|b| format!("{:02x}", b)).collect()
+    digest
+        .iter()
+        .take(8)
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }

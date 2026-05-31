@@ -53,7 +53,9 @@ pub struct ThemeFont {
     pub is_monospace: bool,
 }
 
-fn default_font_format() -> String { "woff2".to_string() }
+fn default_font_format() -> String {
+    "woff2".to_string()
+}
 
 /// Icon font configuration.
 /// Can reference a file inside the theme ZIP or an external URL.
@@ -117,7 +119,9 @@ pub struct WidgetTemplateVariant {
     pub responsive: String,
 }
 
-fn default_responsive() -> String { "all".to_string() }
+fn default_responsive() -> String {
+    "all".to_string()
+}
 
 /// Widget template collection for a single widget type.
 /// Maps widget types ("light", "switch", "climate", etc.) to their theme templates.
@@ -136,7 +140,9 @@ pub struct WidgetTemplate {
     pub replace_default: bool,
 }
 
-fn default_replace() -> bool { true }
+fn default_replace() -> bool {
+    true
+}
 
 // ════════════════════════════════════════════════════════════════
 
@@ -234,7 +240,9 @@ pub struct ThemeDefinition {
     pub widget_templates: Vec<WidgetTemplate>,
 }
 
-fn default_theme_source() -> String { "inline".to_string() }
+fn default_theme_source() -> String {
+    "inline".to_string()
+}
 
 /// A theme that has been installed in the system (DB row).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,8 +397,12 @@ pub struct SplashConfig {
     pub exit_animation: String,
 }
 
-fn default_splash_duration() -> u64 { 2200 }
-fn default_exit_animation() -> String { "fade".to_string() }
+fn default_splash_duration() -> u64 {
+    2200
+}
+fn default_exit_animation() -> String {
+    "fade".to_string()
+}
 
 /// Page transition configuration.
 /// Controls how pages animate when the user navigates between them.
@@ -413,8 +425,12 @@ pub struct PageTransitionConfig {
     pub custom_name: Option<String>,
 }
 
-fn default_transition_type() -> String { "fade".to_string() }
-fn default_transition_duration() -> f64 { 0.35 }
+fn default_transition_type() -> String {
+    "fade".to_string()
+}
+fn default_transition_duration() -> f64 {
+    0.35
+}
 
 /// Spring physics configuration for motion animations.
 /// Used by both page transitions and widget animations.
@@ -431,9 +447,15 @@ pub struct SpringConfig {
     pub mass: f64,
 }
 
-fn default_stiffness() -> f64 { 300.0 }
-fn default_damping() -> f64 { 30.0 }
-fn default_mass() -> f64 { 1.0 }
+fn default_stiffness() -> f64 {
+    300.0
+}
+fn default_damping() -> f64 {
+    30.0
+}
+fn default_mass() -> f64 {
+    1.0
+}
 
 /// Widget entrance animation configuration.
 /// Controls how widgets animate when they appear on a page.
@@ -453,9 +475,15 @@ pub struct WidgetAnimationConfig {
     pub spring: Option<SpringConfig>,
 }
 
-fn default_widget_style() -> String { "fade-up".to_string() }
-fn default_widget_duration() -> f64 { 0.4 }
-fn default_stagger() -> f64 { 0.03 }
+fn default_widget_style() -> String {
+    "fade-up".to_string()
+}
+fn default_widget_duration() -> f64 {
+    0.4
+}
+fn default_stagger() -> f64 {
+    0.03
+}
 
 /// Complete theme animation configuration.
 /// Bundles all animation-related settings for a theme.
@@ -505,8 +533,8 @@ pub struct ThemeDesignMode {
 /// Time range for auto-switching
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeRange {
-    pub start: String,  // "06:00"
-    pub end: String,    // "18:00"
+    pub start: String, // "06:00"
+    pub end: String,   // "18:00"
 }
 
 /// Theme's auto-switching behavior (overrides built-in time-based logic)
@@ -523,7 +551,9 @@ pub struct ThemeAutoBehavior {
     pub default_mode: Option<String>,
 }
 
-fn default_auto_mode() -> String { "time".to_string() }
+fn default_auto_mode() -> String {
+    "time".to_string()
+}
 
 /// Accent color preset offered by a theme
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -547,7 +577,9 @@ pub struct ThemeAccentControl {
     pub presets: Option<Vec<AccentPreset>>,
 }
 
-fn default_accent_mode() -> String { "user".to_string() }
+fn default_accent_mode() -> String {
+    "user".to_string()
+}
 
 /// How the theme controls glass effects
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -563,7 +595,9 @@ pub struct ThemeGlassControl {
     pub opacity: Option<String>,
 }
 
-fn default_glass_mode() -> String { "user".to_string() }
+fn default_glass_mode() -> String {
+    "user".to_string()
+}
 
 /// Option for a select-type custom setting
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -716,12 +750,24 @@ pub struct ModalThemeConfig {
     pub shadow: String,
 }
 
-fn default_modal_backdrop() -> String { "blur".to_string() }
-fn default_backdrop_blur() -> i32 { 16 }
-fn default_backdrop_opacity() -> f64 { 0.6 }
-fn default_modal_animation() -> String { "scale".to_string() }
-fn default_close_style() -> String { "x".to_string() }
-fn default_shadow_level() -> String { "md".to_string() }
+fn default_modal_backdrop() -> String {
+    "blur".to_string()
+}
+fn default_backdrop_blur() -> i32 {
+    16
+}
+fn default_backdrop_opacity() -> f64 {
+    0.6
+}
+fn default_modal_animation() -> String {
+    "scale".to_string()
+}
+fn default_close_style() -> String {
+    "x".to_string()
+}
+fn default_shadow_level() -> String {
+    "md".to_string()
+}
 
 /// Notification theming configuration.
 ///
@@ -762,11 +808,21 @@ pub struct NotificationThemeConfig {
     pub auto_dismiss_ms: i32,
 }
 
-fn default_notif_position() -> String { "bottom-right".to_string() }
-fn default_notif_animation() -> String { "slide-right".to_string() }
-fn default_notif_icon_size() -> i32 { 20 }
-fn default_notif_max() -> i32 { 5 }
-fn default_notif_timeout() -> i32 { 5000 }
+fn default_notif_position() -> String {
+    "bottom-right".to_string()
+}
+fn default_notif_animation() -> String {
+    "slide-right".to_string()
+}
+fn default_notif_icon_size() -> i32 {
+    20
+}
+fn default_notif_max() -> i32 {
+    5
+}
+fn default_notif_timeout() -> i32 {
+    5000
+}
 
 /// Night mode / light-off overlay customization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -797,9 +853,15 @@ pub struct NightModeConfig {
     pub reduce_motion: bool,
 }
 
-fn default_night_opacity() -> f64 { 0.88 }
-fn default_night_transition() -> i32 { 600 }
-fn default_night_blend() -> String { "normal".to_string() }
+fn default_night_opacity() -> f64 {
+    0.88
+}
+fn default_night_transition() -> i32 {
+    600
+}
+fn default_night_blend() -> String {
+    "normal".to_string()
+}
 
 /// Complete theme capabilities – what a theme can control beyond colors.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -851,7 +913,9 @@ pub struct DefaultThemeConfig {
     pub apply_to_new_users: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for DefaultThemeConfig {
     fn default() -> Self {

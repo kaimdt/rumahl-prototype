@@ -27,7 +27,7 @@ use crate::AppState;
 #[derive(Debug, Serialize)]
 pub struct LogSource {
     pub id: String,
-    pub kind: &'static str,    // "service" | "app" | "plugin" | "docker" | "self"
+    pub kind: &'static str, // "service" | "app" | "plugin" | "docker" | "self"
     pub transport: &'static str, // "systemd" | "docker" | "buffer"
     pub name: String,
     pub running: bool,
@@ -50,9 +50,7 @@ fn clamp_lines(n: Option<usize>) -> usize {
 /// Center can stream. Failures from individual probes (e.g. docker not
 /// installed) are absorbed: the source list always reflects what is
 /// *currently* discoverable on this host.
-pub async fn list_log_sources(
-    State(state): State<AppState>,
-) -> Json<Value> {
+pub async fn list_log_sources(State(state): State<AppState>) -> Json<Value> {
     let mut sources: Vec<LogSource> = Vec::new();
 
     // 1) In-process buffer (always available)
@@ -105,7 +103,9 @@ pub async fn list_log_sources(
     let apps = state.local_appstore.list().await;
     for app in apps {
         let container = format!("iora-app-{}", app.id);
-        let running = is_docker_container_running(&container).await.unwrap_or(false);
+        let running = is_docker_container_running(&container)
+            .await
+            .unwrap_or(false);
         sources.push(LogSource {
             id: format!("app:{}", app.id),
             kind: "app",
@@ -117,7 +117,9 @@ pub async fn list_log_sources(
     }
 
     // 5) Plugin sandbox (single shared container hosts every plugin)
-    let sandbox_running = is_docker_container_running("iora-plugin-sandbox").await.unwrap_or(false);
+    let sandbox_running = is_docker_container_running("iora-plugin-sandbox")
+        .await
+        .unwrap_or(false);
     let plugins = state.plugin_sandbox.list().await;
     sources.push(LogSource {
         id: "plugin:sandbox".into(),
@@ -255,7 +257,9 @@ fn self_buffer_logs(lines: usize) -> Json<Value> {
         vec![]
     };
     let total = crate::LOG_BUFFER.read().map(|b| b.len()).unwrap_or(0);
-    let latest = crate::LOG_ID_COUNTER.load(Ordering::Relaxed).saturating_sub(1);
+    let latest = crate::LOG_ID_COUNTER
+        .load(Ordering::Relaxed)
+        .saturating_sub(1);
     Json(json!({
         "source_id": "self:iora-home",
         "transport": "buffer",
@@ -377,8 +381,7 @@ async fn is_docker_container_running(name: &str) -> Result<bool, String> {
 /// Resolve the iora-supervisor base URL. Defaults to the well-known port 8097
 /// on localhost. Override with `IORA_SUPERVISOR_URL`.
 fn supervisor_base() -> String {
-    std::env::var("IORA_SUPERVISOR_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8097".to_string())
+    std::env::var("IORA_SUPERVISOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8097".to_string())
 }
 
 /// Call `GET /api/supervisor/containers` and return `(name, running)` pairs
@@ -528,7 +531,6 @@ async fn read_docker_logs(container: &str, lines: usize) -> Result<Vec<String>, 
 fn is_safe_token(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 128
-        && s.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | ':')
-        })
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | ':'))
 }

@@ -44,7 +44,9 @@ impl AppWebhooksState {
     }
 
     fn deliveries_path(&self, app_id: &str, webhook_id: &str) -> PathBuf {
-        self.base_dir.join(app_id).join(format!("deliveries_{}.json", webhook_id))
+        self.base_dir
+            .join(app_id)
+            .join(format!("deliveries_{}.json", webhook_id))
     }
 
     async fn load_webhooks(&self, app_id: &str) -> Vec<AppWebhook> {
@@ -60,10 +62,14 @@ impl AppWebhooksState {
 
     async fn save_webhooks(&self, app_id: &str, hooks: &[AppWebhook]) -> Result<(), String> {
         if let Some(parent) = self.webhooks_path(app_id).parent() {
-            fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(hooks).map_err(|e| e.to_string())?;
-        fs::write(self.webhooks_path(app_id), &content).await.map_err(|e| e.to_string())?;
+        fs::write(self.webhooks_path(app_id), &content)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }
@@ -110,7 +116,9 @@ pub async fn create_webhook(
     let public_url = format!("/api/webhooks/apps/{}/{}", app_id, webhook.id);
 
     hooks.push(webhook);
-    state.save_webhooks(&app_id, &hooks).await
+    state
+        .save_webhooks(&app_id, &hooks)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     info!("Created webhook for app '{}'", app_id);
@@ -128,8 +136,15 @@ pub async fn get_webhook(
     AxumPath((app_id, hook_id)): AxumPath<(String, String)>,
 ) -> Result<Json<AppWebhook>, (StatusCode, String)> {
     let hooks = state.load_webhooks(&app_id).await;
-    hooks.into_iter().find(|h| h.id == hook_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Webhook '{}' not found", hook_id)))
+    hooks
+        .into_iter()
+        .find(|h| h.id == hook_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Webhook '{}' not found", hook_id),
+            )
+        })
         .map(Json)
 }
 
@@ -141,27 +156,51 @@ pub async fn update_webhook(
 ) -> Result<Json<AppWebhook>, (StatusCode, String)> {
     let mut hooks = state.load_webhooks(&app_id).await;
 
-    let hook = hooks.iter_mut().find(|h| h.id == hook_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Webhook '{}' not found", hook_id)))?;
+    let hook = hooks.iter_mut().find(|h| h.id == hook_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Webhook '{}' not found", hook_id),
+        )
+    })?;
 
-    if let Some(name) = req.name { hook.name = name; }
-    if let Some(desc) = req.description { hook.description = desc; }
-    if let Some(method) = req.method { hook.method = method; }
-    if let Some(url) = req.target_url { hook.target_url = url; }
-    if let Some(mapping) = req.header_mapping { hook.header_mapping = mapping; }
+    if let Some(name) = req.name {
+        hook.name = name;
+    }
+    if let Some(desc) = req.description {
+        hook.description = desc;
+    }
+    if let Some(method) = req.method {
+        hook.method = method;
+    }
+    if let Some(url) = req.target_url {
+        hook.target_url = url;
+    }
+    if let Some(mapping) = req.header_mapping {
+        hook.header_mapping = mapping;
+    }
     if let Some(verify) = req.verify_signature {
         if verify && hook.secret.is_none() {
             hook.secret = Some(uuid::Uuid::new_v4().to_string());
         }
         hook.verify_signature = verify;
     }
-    if let Some(enabled) = req.enabled { hook.enabled = enabled; }
-    if let Some(retries) = req.max_retries { hook.max_retries = retries; }
-    if let Some(rate) = req.rate_limit_per_minute { hook.rate_limit_per_minute = rate; }
-    if let Some(timeout) = req.timeout_seconds { hook.timeout_seconds = timeout; }
+    if let Some(enabled) = req.enabled {
+        hook.enabled = enabled;
+    }
+    if let Some(retries) = req.max_retries {
+        hook.max_retries = retries;
+    }
+    if let Some(rate) = req.rate_limit_per_minute {
+        hook.rate_limit_per_minute = rate;
+    }
+    if let Some(timeout) = req.timeout_seconds {
+        hook.timeout_seconds = timeout;
+    }
 
     let updated = hook.clone();
-    state.save_webhooks(&app_id, &hooks).await
+    state
+        .save_webhooks(&app_id, &hooks)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(updated))
@@ -177,10 +216,15 @@ pub async fn delete_webhook(
     hooks.retain(|h| h.id != hook_id);
 
     if hooks.len() == before {
-        return Err((StatusCode::NOT_FOUND, format!("Webhook '{}' not found", hook_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Webhook '{}' not found", hook_id),
+        ));
     }
 
-    state.save_webhooks(&app_id, &hooks).await
+    state
+        .save_webhooks(&app_id, &hooks)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     // Clean up delivery logs
@@ -188,7 +232,9 @@ pub async fn delete_webhook(
     let _ = fs::remove_file(&deliveries_path).await;
 
     info!("Deleted webhook '{}' for app '{}'", hook_id, app_id);
-    Ok(Json(serde_json::json!({ "success": true, "deleted": hook_id })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "deleted": hook_id }),
+    ))
 }
 
 /// Test a webhook (simulate a delivery)
@@ -197,8 +243,12 @@ pub async fn test_webhook(
     AxumPath((app_id, hook_id)): AxumPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let hooks = state.load_webhooks(&app_id).await;
-    let hook = hooks.into_iter().find(|h| h.id == hook_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Webhook '{}' not found", hook_id)))?;
+    let hook = hooks.into_iter().find(|h| h.id == hook_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Webhook '{}' not found", hook_id),
+        )
+    })?;
 
     let public_url = format!("/api/webhooks/apps/{}/{}", app_id, hook_id);
 
@@ -223,8 +273,12 @@ pub async fn get_webhook_logs(
         return Ok(Json(Vec::new()));
     }
 
-    let content = fs::read_to_string(&path).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read logs: {}", e)))?;
+    let content = fs::read_to_string(&path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read logs: {}", e),
+        )
+    })?;
     let deliveries: Vec<WebhookDelivery> = serde_json::from_str(&content).unwrap_or_default();
 
     Ok(Json(deliveries))
@@ -246,8 +300,14 @@ pub async fn get_webhook_stats(
     };
 
     let total = deliveries.len() as u64;
-    let successful = deliveries.iter().filter(|d| d.response.status_code < 400).count() as u64;
-    let failed = deliveries.iter().filter(|d| d.response.status_code >= 400).count() as u64;
+    let successful = deliveries
+        .iter()
+        .filter(|d| d.response.status_code < 400)
+        .count() as u64;
+    let failed = deliveries
+        .iter()
+        .filter(|d| d.response.status_code >= 400)
+        .count() as u64;
     let total_retries = deliveries.iter().filter(|d| d.attempt > 1).count() as u64;
     let avg_duration = if !deliveries.is_empty() {
         deliveries.iter().map(|d| d.duration_ms).sum::<u64>() as f64 / deliveries.len() as f64

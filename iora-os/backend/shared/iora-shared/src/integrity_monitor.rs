@@ -2,10 +2,10 @@
 //!
 //! Detects and prevents tampering with running Apps and Plugins
 
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
-use anyhow::{Result, bail};
 
 /// Integrity status of an app/plugin
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,10 +24,7 @@ pub enum IntegrityStatus {
 #[serde(rename_all = "snake_case")]
 pub enum IntegrityViolation {
     /// Runtime code modification detected
-    CodeInjection {
-        app_id: String,
-        details: String,
-    },
+    CodeInjection { app_id: String, details: String },
     /// Loaded library doesn't match manifest
     LibraryTampering {
         app_id: String,
@@ -36,10 +33,7 @@ pub enum IntegrityViolation {
         actual_hash: String,
     },
     /// Suspicious memory access pattern
-    MemoryManipulation {
-        app_id: String,
-        details: String,
-    },
+    MemoryManipulation { app_id: String, details: String },
     /// File access outside granted permissions
     UnauthorizedFileAccess {
         app_id: String,
@@ -53,15 +47,9 @@ pub enum IntegrityViolation {
         port: u16,
     },
     /// Attempt to load external code
-    ExternalCodeLoad {
-        app_id: String,
-        source: String,
-    },
+    ExternalCodeLoad { app_id: String, source: String },
     /// Attempt to create/modify tokens
-    TokenForgeryAttempt {
-        app_id: String,
-        details: String,
-    },
+    TokenForgeryAttempt { app_id: String, details: String },
 }
 
 /// Checksum information for integrity verification
@@ -127,7 +115,11 @@ impl IntegrityMonitor {
     }
 
     /// Register an app/plugin for monitoring
-    pub async fn register_app(&self, app_id: String, checksums: HashMap<String, String>) -> Result<()> {
+    pub async fn register_app(
+        &self,
+        app_id: String,
+        checksums: HashMap<String, String>,
+    ) -> Result<()> {
         let mut monitored = self.monitored.write().await;
 
         let data = MonitoringData {
@@ -166,7 +158,8 @@ impl IntegrityMonitor {
     pub async fn check_integrity(&self, app_id: &str) -> Result<IntegrityStatus> {
         let monitored = self.monitored.read().await;
 
-        let _data = monitored.get(app_id)
+        let _data = monitored
+            .get(app_id)
             .ok_or_else(|| anyhow::anyhow!("App '{}' not registered for monitoring", app_id))?;
 
         // Check for violations
@@ -180,7 +173,10 @@ impl IntegrityMonitor {
                     }
                 }
                 // Non-critical violations
-                return Ok(IntegrityStatus::Suspicious(format!("{} violations detected", app_violations.len())));
+                return Ok(IntegrityStatus::Suspicious(format!(
+                    "{} violations detected",
+                    app_violations.len()
+                )));
             }
         }
 
@@ -188,7 +184,12 @@ impl IntegrityMonitor {
     }
 
     /// Record a network connection
-    pub async fn record_network_connection(&self, app_id: &str, destination: &str, port: u16) -> Result<()> {
+    pub async fn record_network_connection(
+        &self,
+        app_id: &str,
+        destination: &str,
+        port: u16,
+    ) -> Result<()> {
         let mut monitored = self.monitored.write().await;
 
         let mut violation_to_record: Option<IntegrityViolation> = None;
@@ -241,7 +242,12 @@ impl IntegrityMonitor {
     }
 
     /// Record a file access
-    pub async fn record_file_access(&self, app_id: &str, file_path: &str, operation: &str) -> Result<()> {
+    pub async fn record_file_access(
+        &self,
+        app_id: &str,
+        file_path: &str,
+        operation: &str,
+    ) -> Result<()> {
         let mut monitored = self.monitored.write().await;
 
         if let Some(data) = monitored.get_mut(app_id) {
@@ -266,7 +272,8 @@ impl IntegrityMonitor {
                 self.record_violation(IntegrityViolation::ExternalCodeLoad {
                     app_id: app_id.to_string(),
                     source: source.to_string(),
-                }).await;
+                })
+                .await;
 
                 bail!("External code loading is blocked. Enable Developer Mode in IORA Control Center to allow.");
             }
@@ -288,16 +295,22 @@ impl IntegrityMonitor {
                     self.record_violation(IntegrityViolation::ExternalCodeLoad {
                         app_id: app_id.to_string(),
                         source: source.to_string(),
-                    }).await;
+                    })
+                    .await;
 
-                    bail!("External source '{}' not whitelisted for app '{}'", source, app_id);
+                    bail!(
+                        "External source '{}' not whitelisted for app '{}'",
+                        source,
+                        app_id
+                    );
                 }
             } else {
                 // No whitelist defined for this app
                 self.record_violation(IntegrityViolation::ExternalCodeLoad {
                     app_id: app_id.to_string(),
                     source: source.to_string(),
-                }).await;
+                })
+                .await;
 
                 bail!("App '{}' not configured for external code loading", app_id);
             }
@@ -312,7 +325,9 @@ impl IntegrityMonitor {
         *mode = enabled;
 
         if enabled {
-            tracing::warn!("Developer Mode ENABLED - External code loading is now allowed for configured apps");
+            tracing::warn!(
+                "Developer Mode ENABLED - External code loading is now allowed for configured apps"
+            );
         } else {
             tracing::info!("Developer Mode DISABLED - External code loading is blocked");
         }
@@ -342,7 +357,8 @@ impl IntegrityMonitor {
             IntegrityViolation::UnauthorizedNetwork { app_id, .. } => app_id,
             IntegrityViolation::ExternalCodeLoad { app_id, .. } => app_id,
             IntegrityViolation::TokenForgeryAttempt { app_id, .. } => app_id,
-        }.clone();
+        }
+        .clone();
 
         let mut violations = self.violations.write().await;
         let app_violations = violations.entry(app_id.clone()).or_insert_with(Vec::new);
@@ -367,10 +383,11 @@ impl IntegrityMonitor {
 
     /// Check if a violation is critical
     fn is_critical_violation(&self, violation: &IntegrityViolation) -> bool {
-        matches!(violation,
-            IntegrityViolation::CodeInjection { .. } |
-            IntegrityViolation::LibraryTampering { .. } |
-            IntegrityViolation::TokenForgeryAttempt { .. }
+        matches!(
+            violation,
+            IntegrityViolation::CodeInjection { .. }
+                | IntegrityViolation::LibraryTampering { .. }
+                | IntegrityViolation::TokenForgeryAttempt { .. }
         )
     }
 
@@ -440,7 +457,9 @@ fn is_internal_host(host: &str) -> bool {
 fn host_matches(pattern: &str, host: &str) -> bool {
     let pattern = pattern.trim().to_ascii_lowercase();
     let host = host.trim().to_ascii_lowercase();
-    if pattern == host { return true; }
+    if pattern == host {
+        return true;
+    }
     if let Some(suffix) = pattern.strip_prefix("*.") {
         return host == suffix || host.ends_with(&format!(".{}", suffix));
     }
@@ -455,9 +474,14 @@ mod tests {
     async fn test_external_code_blocked_by_default() {
         let monitor = IntegrityMonitor::new();
 
-        monitor.register_app("test.app".to_string(), HashMap::new()).await.unwrap();
+        monitor
+            .register_app("test.app".to_string(), HashMap::new())
+            .await
+            .unwrap();
 
-        let result = monitor.check_external_code_load("test.app", "https://evil.com/code.js").await;
+        let result = monitor
+            .check_external_code_load("test.app", "https://evil.com/code.js")
+            .await;
         assert!(result.is_err());
 
         let violations = monitor.get_violations("test.app").await;
@@ -468,11 +492,22 @@ mod tests {
     async fn test_external_code_allowed_with_developer_mode() {
         let monitor = IntegrityMonitor::new();
 
-        monitor.register_app("test.app".to_string(), HashMap::new()).await.unwrap();
+        monitor
+            .register_app("test.app".to_string(), HashMap::new())
+            .await
+            .unwrap();
         monitor.set_developer_mode(true).await.unwrap();
-        monitor.add_external_source("test.app".to_string(), "https://cdn.example.com/*".to_string()).await.unwrap();
+        monitor
+            .add_external_source(
+                "test.app".to_string(),
+                "https://cdn.example.com/*".to_string(),
+            )
+            .await
+            .unwrap();
 
-        let result = monitor.check_external_code_load("test.app", "https://cdn.example.com/code.js").await;
+        let result = monitor
+            .check_external_code_load("test.app", "https://cdn.example.com/code.js")
+            .await;
         assert!(result.is_ok());
     }
 
@@ -480,16 +515,21 @@ mod tests {
     async fn test_integrity_status() {
         let monitor = IntegrityMonitor::new();
 
-        monitor.register_app("test.app".to_string(), HashMap::new()).await.unwrap();
+        monitor
+            .register_app("test.app".to_string(), HashMap::new())
+            .await
+            .unwrap();
 
         let status = monitor.check_integrity("test.app").await.unwrap();
         assert_eq!(status, IntegrityStatus::Intact);
 
         // Add a violation
-        monitor.record_violation(IntegrityViolation::ExternalCodeLoad {
-            app_id: "test.app".to_string(),
-            source: "https://evil.com/code.js".to_string(),
-        }).await;
+        monitor
+            .record_violation(IntegrityViolation::ExternalCodeLoad {
+                app_id: "test.app".to_string(),
+                source: "https://evil.com/code.js".to_string(),
+            })
+            .await;
 
         let status = monitor.check_integrity("test.app").await.unwrap();
         assert!(matches!(status, IntegrityStatus::Suspicious(_)));

@@ -13,7 +13,7 @@
 //! }
 //! ```
 
-use serde::{Serialize};
+use serde::Serialize;
 use std::collections::HashSet;
 
 // ─── Validation Result Types ──────────────────────────────────────────
@@ -69,11 +69,16 @@ impl ValidationResult {
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.issues.iter().any(|i| i.severity == ValidationSeverity::Error)
+        !self
+            .issues
+            .iter()
+            .any(|i| i.severity == ValidationSeverity::Error)
     }
 
     pub fn has_warnings(&self) -> bool {
-        self.issues.iter().any(|i| i.severity == ValidationSeverity::Warning)
+        self.issues
+            .iter()
+            .any(|i| i.severity == ValidationSeverity::Warning)
     }
 
     pub fn add_error(&mut self, field: &str, message: &str, suggestion: Option<&str>) {
@@ -102,7 +107,18 @@ fn get_str<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     json.get(key).and_then(|v| v.as_str())
 }
 
-fn get_obj<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+fn get_manifest_str<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    get_str(json, key).or_else(|| {
+        json.get("metadata")
+            .and_then(|m| m.get(key))
+            .and_then(|v| v.as_str())
+    })
+}
+
+fn get_obj<'a>(
+    json: &'a serde_json::Value,
+    key: &str,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
     json.get(key).and_then(|v| v.as_object())
 }
 
@@ -110,16 +126,28 @@ fn get_obj<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a serde_json:
 
 /// Valid required CSS variable names for themes
 const REQUIRED_THEME_VARS: &[&str] = &[
-    "background", "foreground", "card", "accent",
-    "border", "muted",
+    "background",
+    "foreground",
+    "card",
+    "accent",
+    "border",
+    "muted",
 ];
 
 /// Recommended CSS variable names
 const RECOMMENDED_THEME_VARS: &[&str] = &[
-    "primary", "secondary", "popover",
-    "accent-foreground", "muted-foreground", "card-foreground",
-    "ring", "success", "destructive",
-    "radius", "glass-bg", "glass-blur",
+    "primary",
+    "secondary",
+    "popover",
+    "accent-foreground",
+    "muted-foreground",
+    "card-foreground",
+    "ring",
+    "success",
+    "destructive",
+    "radius",
+    "glass-bg",
+    "glass-blur",
 ];
 
 /// Validate a theme manifest (JSON value)
@@ -145,28 +173,49 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     } else {
         let id_val = id.as_ref().unwrap();
         if id_val.contains(' ') {
-            result.add_error("id", "Die Theme-ID darf keine Leerzeichen enthalten.",
-                Some(&format!("Ersetze Leerzeichen durch Bindestriche, z.B. \"{}\"", id_val.replace(' ', "-"))));
+            result.add_error(
+                "id",
+                "Die Theme-ID darf keine Leerzeichen enthalten.",
+                Some(&format!(
+                    "Ersetze Leerzeichen durch Bindestriche, z.B. \"{}\"",
+                    id_val.replace(' ', "-")
+                )),
+            );
         }
         if id_val.chars().any(|c| c.is_uppercase()) {
-            result.add_warning("id", "Theme-ID enthält Großbuchstaben. Kleinschreibung wird empfohlen.",
-                Some(&format!("Verwende \"{}\"", id_val.to_lowercase())));
+            result.add_warning(
+                "id",
+                "Theme-ID enthält Großbuchstaben. Kleinschreibung wird empfohlen.",
+                Some(&format!("Verwende \"{}\"", id_val.to_lowercase())),
+            );
         }
     }
 
     if name.as_ref().is_none_or(|s| s.is_empty()) {
-        result.add_error("name", "Der Theme-Name fehlt. Gib deinem Theme einen aussagekräftigen Namen.",
-            Some("Füge \"name\": \"Mein Theme\" hinzu."));
+        result.add_error(
+            "name",
+            "Der Theme-Name fehlt. Gib deinem Theme einen aussagekräftigen Namen.",
+            Some("Füge \"name\": \"Mein Theme\" hinzu."),
+        );
     }
 
     if get_str(&theme_json, "version").is_none() {
-        result.add_error("version", "Die Version fehlt. Jedes Theme braucht eine semantische Version.",
-            Some("Füge \"version\": \"1.0.0\" hinzu."));
+        result.add_error(
+            "version",
+            "Die Version fehlt. Jedes Theme braucht eine semantische Version.",
+            Some("Füge \"version\": \"1.0.0\" hinzu."),
+        );
     } else {
         let ver = get_str(&theme_json, "version").unwrap();
         if !ver.chars().all(|c| c.is_ascii_digit() || c == '.') {
-            result.add_error("version", "Die Version muss im Format X.Y.Z sein (z.B. \"1.0.0\").",
-                Some(&format!("Korrigiere \"{}\" zu einem gültigen Semver-Format.", ver)));
+            result.add_error(
+                "version",
+                "Die Version muss im Format X.Y.Z sein (z.B. \"1.0.0\").",
+                Some(&format!(
+                    "Korrigiere \"{}\" zu einem gültigen Semver-Format.",
+                    ver
+                )),
+            );
         }
     }
 
@@ -202,9 +251,11 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
         for (key, val) in vars {
             if let Some(val_str) = val.as_str() {
                 if val_str.is_empty() {
-                    result.add_error(&format!("css_variables.{}", key),
+                    result.add_error(
+                        &format!("css_variables.{}", key),
                         &format!("Die CSS-Variable \"--{}\" ist leer.", key),
-                        Some("Gib einen gültigen Farbwert an (oklch, hex, rgb, hsl)."));
+                        Some("Gib einen gültigen Farbwert an (oklch, hex, rgb, hsl)."),
+                    );
                 }
                 // Basic color format check
                 let is_valid_color = val_str.starts_with("oklch(")
@@ -214,25 +265,43 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
                     || val_str.starts_with("oklch")
                     || val_str == "transparent"
                     || val_str == "none";
-                if !is_valid_color && !val_str.contains("px") && !val_str.contains("rem") && !val_str.contains("s") {
-                    result.add_warning(&format!("css_variables.{}", key),
-                        &format!("Unerwarteter Wert für \"--{}\": \"{}\". Erwarte einen Farbwert.", key, val_str),
-                        Some("Verwende oklch(), #hex, rgb(), hsl() oder 'transparent'."));
+                if !is_valid_color
+                    && !val_str.contains("px")
+                    && !val_str.contains("rem")
+                    && !val_str.contains("s")
+                {
+                    result.add_warning(
+                        &format!("css_variables.{}", key),
+                        &format!(
+                            "Unerwarteter Wert für \"--{}\": \"{}\". Erwarte einen Farbwert.",
+                            key, val_str
+                        ),
+                        Some("Verwende oklch(), #hex, rgb(), hsl() oder 'transparent'."),
+                    );
                 }
             }
         }
 
         // Check for recommended variables (non-blocking for child themes too)
         if !has_parent {
-            let missing_rec: Vec<String> = RECOMMENDED_THEME_VARS.iter()
+            let missing_rec: Vec<String> = RECOMMENDED_THEME_VARS
+                .iter()
                 .filter(|r| !vars.contains_key(**r))
                 .map(|r| r.to_string())
                 .collect();
             if !missing_rec.is_empty() {
-                result.add_warning("css_variables",
-                    &format!("Empfohlene Variablen fehlen: {}. Diese verbessern das Theme-Erlebnis.",
-                        missing_rec.iter().map(|s| format!("--{}", s)).collect::<Vec<_>>().join(", ")),
-                    Some("Erwäge, diese Variablen für bessere Kontrolle hinzuzufügen."));
+                result.add_warning(
+                    "css_variables",
+                    &format!(
+                        "Empfohlene Variablen fehlen: {}. Diese verbessern das Theme-Erlebnis.",
+                        missing_rec
+                            .iter()
+                            .map(|s| format!("--{}", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    Some("Erwäge, diese Variablen für bessere Kontrolle hinzuzufügen."),
+                );
             }
         }
     } else {
@@ -254,9 +323,11 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
                     Some("Füge \"css_files\": [\"theme.css\"] hinzu oder ändere source zu \"inline\"."));
             }
         } else {
-            result.add_warning("css_files",
+            result.add_warning(
+                "css_files",
                 "source ist \"file\" aber kein css_files-Array gefunden.",
-                Some("Füge \"css_files\": [\"theme.css\"] hinzu."));
+                Some("Füge \"css_files\": [\"theme.css\"] hinzu."),
+            );
         }
     }
 
@@ -266,14 +337,24 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
             let font_name_str = format!("Font #{}", i + 1);
             let font_name = get_str(font, "name").unwrap_or(&font_name_str);
             if get_str(font, "family").is_none() {
-                result.add_error(&format!("fonts[{}]", i),
-                    &format!("Font \"{}\" hat keine \"family\"-Angabe (CSS font-family).", font_name),
-                    Some("Füge \"family\": \"'Font Name', fallback\" hinzu."));
+                result.add_error(
+                    &format!("fonts[{}]", i),
+                    &format!(
+                        "Font \"{}\" hat keine \"family\"-Angabe (CSS font-family).",
+                        font_name
+                    ),
+                    Some("Füge \"family\": \"'Font Name', fallback\" hinzu."),
+                );
             }
             if get_str(font, "url").is_none() {
-                result.add_error(&format!("fonts[{}]", i),
-                    &format!("Font \"{}\" hat keine \"url\" (Google Fonts URL oder Dateipfad).", font_name),
-                    Some("Füge eine URL zur Schriftart hinzu."));
+                result.add_error(
+                    &format!("fonts[{}]", i),
+                    &format!(
+                        "Font \"{}\" hat keine \"url\" (Google Fonts URL oder Dateipfad).",
+                        font_name
+                    ),
+                    Some("Füge eine URL zur Schriftart hinzu."),
+                );
             }
         }
     } else {
@@ -283,7 +364,10 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     }
 
     // ─── Widget Templates ─────────────────────────────────────────
-    if let Some(widgets) = theme_json.get("widget_templates").and_then(|v| v.as_array()) {
+    if let Some(widgets) = theme_json
+        .get("widget_templates")
+        .and_then(|v| v.as_array())
+    {
         for (i, wt) in widgets.iter().enumerate() {
             if get_str(wt, "widget_type").is_none() {
                 result.add_error(&format!("widget_templates[{}]", i),
@@ -298,14 +382,18 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
                 }
                 for (j, variant) in variants.iter().enumerate() {
                     if get_str(variant, "template").is_none() {
-                        result.add_error(&format!("widget_templates[{}].variants[{}]", i, j),
+                        result.add_error(
+                            &format!("widget_templates[{}].variants[{}]", i, j),
                             "Variante hat keinen \"template\"-Pfad zur HTML-Datei.",
-                            Some("Füge \"template\": \"widgets/light.html\" hinzu."));
+                            Some("Füge \"template\": \"widgets/light.html\" hinzu."),
+                        );
                     }
                     if get_str(variant, "name").is_none() {
-                        result.add_error(&format!("widget_templates[{}].variants[{}]", i, j),
+                        result.add_error(
+                            &format!("widget_templates[{}].variants[{}]", i, j),
                             "Variante hat keinen \"name\" (z.B. \"default\", \"compact\").",
-                            Some("Füge \"name\": \"default\" hinzu."));
+                            Some("Füge \"name\": \"default\" hinzu."),
+                        );
                     }
                 }
             } else {
@@ -319,12 +407,18 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     // ─── Capabilities ─────────────────────────────────────────────
     if theme_json.get("capabilities").is_some() {
         // Validate design modes if present
-        if let Some(modes) = theme_json.get("capabilities").and_then(|c| c.get("design_modes")).and_then(|m| m.as_array()) {
+        if let Some(modes) = theme_json
+            .get("capabilities")
+            .and_then(|c| c.get("design_modes"))
+            .and_then(|m| m.as_array())
+        {
             for (i, mode) in modes.iter().enumerate() {
                 if get_str(mode, "id").is_none() {
-                    result.add_error(&format!("capabilities.design_modes[{}]", i),
+                    result.add_error(
+                        &format!("capabilities.design_modes[{}]", i),
                         "Design-Modus hat keine \"id\".",
-                        Some("Füge \"id\": \"mein-modus\" hinzu."));
+                        Some("Füge \"id\": \"mein-modus\" hinzu."),
+                    );
                 }
                 let time_start = get_str(mode, "time_start");
                 let time_end = get_str(mode, "time_end");
@@ -334,8 +428,20 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
                         Some("Füge sowohl time_start als auch time_end hinzu (Format: \"HH:MM\")."));
                 }
                 if let (Some(ts), Some(te)) = (time_start, time_end) {
-                    if !is_valid_time(ts) { result.add_error(&format!("capabilities.design_modes[{}].time_start", i), "Ungültiges Zeitformat.", Some("Verwende \"HH:MM\" (z.B. \"06:00\").")); }
-                    if !is_valid_time(te) { result.add_error(&format!("capabilities.design_modes[{}].time_end", i), "Ungültiges Zeitformat.", Some("Verwende \"HH:MM\" (z.B. \"22:00\").")); }
+                    if !is_valid_time(ts) {
+                        result.add_error(
+                            &format!("capabilities.design_modes[{}].time_start", i),
+                            "Ungültiges Zeitformat.",
+                            Some("Verwende \"HH:MM\" (z.B. \"06:00\")."),
+                        );
+                    }
+                    if !is_valid_time(te) {
+                        result.add_error(
+                            &format!("capabilities.design_modes[{}].time_end", i),
+                            "Ungültiges Zeitformat.",
+                            Some("Verwende \"HH:MM\" (z.B. \"22:00\")."),
+                        );
+                    }
                 }
             }
         }
@@ -344,9 +450,11 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
     // ─── parent_theme ─────────────────────────────────────────────
     if let Some(parent) = get_str(&theme_json, "parent_theme") {
         if parent == id.unwrap_or("") {
-            result.add_error("parent_theme",
+            result.add_error(
+                "parent_theme",
                 "Ein Theme kann nicht sein eigenes Parent sein (zirkuläre Referenz).",
-                Some("Entferne parent_theme oder verwende ein anderes Theme als Basis."));
+                Some("Entferne parent_theme oder verwende ein anderes Theme als Basis."),
+            );
         }
     }
 
@@ -357,62 +465,115 @@ pub fn validate_theme_manifest(json: &serde_json::Value) -> ValidationResult {
 
 /// Valid required permissions that we know about
 const KNOWN_PERMISSIONS: &[&str] = &[
-    "AppStorageRead", "AppStorageWrite", "AppStorageDelete", "AppStorageManage",
-    "AppDatabaseSqlite", "AppDatabaseManage",
-    "AppScheduleCreate", "AppScheduleRead", "AppScheduleUpdate", "AppScheduleDelete",
-    "MessagingPublish", "MessagingSubscribe", "MessagingWildcard", "MessagingDirect",
-    "WebhookCreate", "WebhookRead", "WebhookUpdate", "WebhookDelete", "WebhookManage",
+    "AppStorageRead",
+    "AppStorageWrite",
+    "AppStorageDelete",
+    "AppStorageManage",
+    "AppDatabaseSqlite",
+    "AppDatabaseManage",
+    "AppScheduleCreate",
+    "AppScheduleRead",
+    "AppScheduleUpdate",
+    "AppScheduleDelete",
+    "MessagingPublish",
+    "MessagingSubscribe",
+    "MessagingWildcard",
+    "MessagingDirect",
+    "WebhookCreate",
+    "WebhookRead",
+    "WebhookUpdate",
+    "WebhookDelete",
+    "WebhookManage",
     "ThemeInstall",
-    "HttpClient", "WebSocket", "EntityRead", "EntityWrite",
+    "HttpClient",
+    "WebSocket",
+    "EntityRead",
+    "EntityWrite",
+    "ReadCache",
+    "WriteCache",
+    "ReadSystemInfo",
+    "ReadData",
+    "WriteData",
+    "Notifications",
+    "homeassistant",
+    "storage",
+    "ai",
 ];
 
 /// Validate an app or plugin manifest
 pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
     let app_type = get_str(json, "type").unwrap_or("app");
-    let mut result = ValidationResult::new(if app_type == "plugin" { "plugin" } else { "app" });
+    let mut result = ValidationResult::new(if app_type == "plugin" || app_type == "service" {
+        "plugin"
+    } else {
+        "app"
+    });
 
-    let id = get_str(json, "id");
-    let name = get_str(json, "name");
+    let id = get_manifest_str(json, "id");
+    let name = get_manifest_str(json, "name");
     result.manifest_id = id.map(|s| s.to_string());
     result.manifest_name = name.map(|s| s.to_string());
 
     // ─── Required fields ──────────────────────────────────────────
     if id.as_ref().is_none_or(|s| s.is_empty()) {
-        result.add_error("id", "Die App-ID fehlt. Jede App/Plugin braucht eine eindeutige ID.",
-            Some("Füge \"id\": \"meine-app\" hinzu."));
+        result.add_error(
+            "id",
+            "Die App-ID fehlt. Jede App/Plugin braucht eine eindeutige ID.",
+            Some("Füge \"id\": \"meine-app\" hinzu."),
+        );
     } else {
         let id_val = id.as_ref().unwrap();
         if id_val.contains(' ') {
-            result.add_error("id", "Die App-ID darf keine Leerzeichen enthalten.",
-                Some(&format!("Verwende \"{}\"", id_val.replace(' ', "-"))));
+            result.add_error(
+                "id",
+                "Die App-ID darf keine Leerzeichen enthalten.",
+                Some(&format!("Verwende \"{}\"", id_val.replace(' ', "-"))),
+            );
         }
     }
 
     if name.as_ref().is_none_or(|s| s.is_empty()) {
-        result.add_error("name", "Der Name fehlt.",
-            Some("Füge \"name\": \"Meine App\" hinzu."));
+        result.add_error(
+            "name",
+            "Der Name fehlt.",
+            Some("Füge \"name\": \"Meine App\" hinzu."),
+        );
     }
 
-    if get_str(json, "version").is_none() {
-        result.add_error("version", "Die Version fehlt.",
-            Some("Füge \"version\": \"1.0.0\" hinzu."));
+    if get_manifest_str(json, "version").is_none() {
+        result.add_error(
+            "version",
+            "Die Version fehlt.",
+            Some("Füge \"version\": \"1.0.0\" hinzu."),
+        );
     }
 
     // ─── Type validation ──────────────────────────────────────────
     match app_type {
-        "app" | "plugin" => {},
-        "" => result.add_error("type", "Der \"type\" fehlt. Muss \"app\" oder \"plugin\" sein.",
-            Some("Füge \"type\": \"app\" oder \"type\": \"plugin\" hinzu.")),
-        other => result.add_error("type", &format!("Unbekannter Typ \"{}\". Erlaubt sind nur \"app\" und \"plugin\".", other),
-            Some("Ändere zu \"type\": \"app\" oder \"type\": \"plugin\".")),
+        "app" | "plugin" | "service" => {}
+        "" => result.add_error(
+            "type",
+            "Der \"type\" fehlt. Muss \"app\" oder \"plugin\" sein.",
+            Some("Füge \"type\": \"app\" oder \"type\": \"plugin\" hinzu."),
+        ),
+        other => result.add_error(
+            "type",
+            &format!(
+                "Unbekannter Typ \"{}\". Erlaubt sind nur \"app\" und \"plugin\".",
+                other
+            ),
+            Some("Ändere zu \"type\": \"app\" oder \"type\": \"plugin\"."),
+        ),
     }
 
     // Plugin-specific checks
-    if app_type == "plugin"
-        && json.get("plugin_type").is_none() {
-            result.add_error("plugin_type", "Plugin-Typ fehlt (z.B. \"widget\", \"theme\", \"automation\").",
-                Some("Füge \"plugin_type\": \"widget\" hinzu."));
-        }
+    if app_type == "plugin" && json.get("plugin_type").is_none() {
+        result.add_error(
+            "plugin_type",
+            "Plugin-Typ fehlt (z.B. \"widget\", \"theme\", \"automation\").",
+            Some("Füge \"plugin_type\": \"widget\" hinzu."),
+        );
+    }
 
     // App-specific checks
     if app_type == "app" {
@@ -430,9 +591,11 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
         for (i, perm) in perms.iter().enumerate() {
             if let Some(p_str) = perm.as_str() {
                 if !seen.insert(p_str) {
-                    result.add_warning(&format!("permissions[{}]", i),
+                    result.add_warning(
+                        &format!("permissions[{}]", i),
                         &format!("Doppelte Permission \"{}\".", p_str),
-                        Some("Entferne die doppelte Permission."));
+                        Some("Entferne die doppelte Permission."),
+                    );
                 }
                 if !KNOWN_PERMISSIONS.contains(&p_str) {
                     result.add_warning(&format!("permissions[{}]", i),
@@ -440,26 +603,45 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
                         Some("Überprüfe die Schreibweise oder verwende eine bekannte Permission."));
                 }
             } else {
-                result.add_error(&format!("permissions[{}]", i),
+                result.add_error(
+                    &format!("permissions[{}]", i),
                     "Permission ist kein String.",
-                    Some("Jede Permission muss ein Text sein, z.B. \"EntityRead\"."));
+                    Some("Jede Permission muss ein Text sein, z.B. \"EntityRead\"."),
+                );
             }
         }
     }
 
     // ─── Bundle validation ────────────────────────────────────────
     if let Some(bundle) = json.get("bundle") {
-        if bundle.get("services").is_none() || bundle.get("services").and_then(|s| s.as_array()).map(|a| a.is_empty()).unwrap_or(true) {
-            result.add_error("bundle.services", "Bundle-Konfiguration hat keine Services.",
-                Some("Füge \"services\": [{ \"name\": \"...\", \"image\": \"...\" }] hinzu."));
+        if bundle.get("services").is_none()
+            || bundle
+                .get("services")
+                .and_then(|s| s.as_array())
+                .map(|a| a.is_empty())
+                .unwrap_or(true)
+        {
+            result.add_error(
+                "bundle.services",
+                "Bundle-Konfiguration hat keine Services.",
+                Some("Füge \"services\": [{ \"name\": \"...\", \"image\": \"...\" }] hinzu."),
+            );
         }
     }
 
     // ─── Docker validation ────────────────────────────────────────
     if let Some(docker) = json.get("docker") {
-        if docker.get("image").is_none() {
-            result.add_error("docker.image", "Docker-Konfiguration hat kein \"image\".",
-                Some("Füge \"image\": \"nginx:latest\" hinzu."));
+        let has_image = docker
+            .get("image")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty());
+        let has_base_image = docker
+            .get("base_image")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty());
+        if !has_image && !has_base_image {
+            result.add_error("docker.image", "Docker-Konfiguration hat weder \"image\" noch \"base_image\".",
+                Some("Füge \"image\": \"nginx:latest\" oder \"base_image\": \"node:18-alpine\" hinzu."));
         }
     }
 
@@ -472,7 +654,10 @@ pub fn validate_app_manifest(json: &serde_json::Value) -> ValidationResult {
 pub fn validate_manifest(json: &serde_json::Value) -> ValidationResult {
     // Check if it's a theme (has css_variables)
     let has_theme_fields = json.get("css_variables").is_some()
-        || json.get("theme").and_then(|t| t.get("css_variables")).is_some();
+        || json
+            .get("theme")
+            .and_then(|t| t.get("css_variables"))
+            .is_some();
 
     // Check if it's an app/plugin (has type field)
     let has_app_type = json.get("type").and_then(|v| v.as_str()).is_some();
@@ -486,8 +671,16 @@ pub fn validate_manifest(json: &serde_json::Value) -> ValidationResult {
         let theme_result = validate_theme_manifest(json);
         let app_result = validate_app_manifest(json);
 
-        let theme_errors = theme_result.issues.iter().filter(|i| i.severity == ValidationSeverity::Error).count();
-        let app_errors = app_result.issues.iter().filter(|i| i.severity == ValidationSeverity::Error).count();
+        let theme_errors = theme_result
+            .issues
+            .iter()
+            .filter(|i| i.severity == ValidationSeverity::Error)
+            .count();
+        let app_errors = app_result
+            .issues
+            .iter()
+            .filter(|i| i.severity == ValidationSeverity::Error)
+            .count();
 
         if theme_errors <= app_errors {
             theme_result
@@ -500,9 +693,13 @@ pub fn validate_manifest(json: &serde_json::Value) -> ValidationResult {
 // ─── Helpers ──────────────────────────────────────────────────────────
 
 fn is_valid_time(time: &str) -> bool {
-    if time.len() != 5 { return false; }
+    if time.len() != 5 {
+        return false;
+    }
     let parts: Vec<&str> = time.split(':').collect();
-    if parts.len() != 2 { return false; }
+    if parts.len() != 2 {
+        return false;
+    }
     if let (Ok(h), Ok(m)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
         return h < 24 && m < 60;
     }
@@ -529,7 +726,11 @@ mod tests {
             }
         });
         let result = validate_theme_manifest(&json);
-        assert!(result.is_valid(), "Expected valid, got errors: {:?}", result.issues);
+        assert!(
+            result.is_valid(),
+            "Expected valid, got errors: {:?}",
+            result.issues
+        );
     }
 
     #[test]
@@ -568,7 +769,11 @@ mod tests {
             "docker": { "image": "nginx:latest" }
         });
         let result = validate_app_manifest(&json);
-        assert!(result.is_valid(), "Expected valid, got errors: {:?}", result.issues);
+        assert!(
+            result.is_valid(),
+            "Expected valid, got errors: {:?}",
+            result.issues
+        );
     }
 
     #[test]
@@ -583,7 +788,11 @@ mod tests {
             "description": "A test"
         });
         let result = validate_app_manifest(&json);
-        assert!(result.is_valid(), "Expected valid, got errors: {:?}", result.issues);
+        assert!(
+            result.is_valid(),
+            "Expected valid, got errors: {:?}",
+            result.issues
+        );
     }
 
     #[test]
@@ -604,6 +813,10 @@ mod tests {
             }
         });
         let result = validate_theme_manifest(&json);
-        assert!(result.is_valid(), "Expected valid wrapped theme, got errors: {:?}", result.issues);
+        assert!(
+            result.is_valid(),
+            "Expected valid wrapped theme, got errors: {:?}",
+            result.issues
+        );
     }
 }

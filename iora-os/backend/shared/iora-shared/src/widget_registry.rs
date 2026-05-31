@@ -4,8 +4,8 @@
 //! in the IORA dashboard. Provides crash isolation - if an App/Plugin crashes,
 //! its widgets become unavailable but don't affect other widgets or the system.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,15 +21,15 @@ pub struct WidgetDefaultView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WidgetDefinition {
     pub id: String,
-    pub provider_id: String,      // App or Plugin ID
+    pub provider_id: String, // App or Plugin ID
     pub provider_type: ProviderType,
     pub name: String,
     pub description: String,
     pub widget_type: WidgetType,
-    pub component_url: String,    // URL to widget component (for dynamic loading)
+    pub component_url: String, // URL to widget component (for dynamic loading)
     pub config_schema: Option<serde_json::Value>,
     pub default_config: Option<serde_json::Value>,
-    pub default_view: Option<WidgetDefaultView>,  // Fallback view when provider unavailable
+    pub default_view: Option<WidgetDefaultView>, // Fallback view when provider unavailable
     pub permissions: Vec<String>,
     pub registered_at: String,
     pub is_available: bool,
@@ -180,7 +180,8 @@ impl WidgetRegistry {
     pub async fn create_instance(&self, instance: WidgetInstance) -> anyhow::Result<()> {
         // Check if widget exists (but don't require it to be available)
         let widgets = self.widgets.read().await;
-        let _widget = widgets.get(&instance.widget_id)
+        let _widget = widgets
+            .get(&instance.widget_id)
             .ok_or_else(|| anyhow::anyhow!("Widget '{}' not found", instance.widget_id))?;
 
         // Widget availability no longer blocks instance creation
@@ -199,7 +200,8 @@ impl WidgetRegistry {
     /// Delete a widget instance
     pub async fn delete_instance(&self, instance_id: &str) -> anyhow::Result<()> {
         let mut instances = self.instances.write().await;
-        instances.remove(instance_id)
+        instances
+            .remove(instance_id)
             .ok_or_else(|| anyhow::anyhow!("Widget instance '{}' not found", instance_id))?;
         Ok(())
     }

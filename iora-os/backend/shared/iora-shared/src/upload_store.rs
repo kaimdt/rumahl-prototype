@@ -213,7 +213,9 @@ impl SecureUploadStore {
         // Pre-flight: declared sizes.
         let mut declared_total: u64 = 0;
         for i in 0..archive.len() {
-            let entry = archive.by_index(i).map_err(|e| anyhow!("ZIP entry {}: {}", i, e))?;
+            let entry = archive
+                .by_index(i)
+                .map_err(|e| anyhow!("ZIP entry {}: {}", i, e))?;
             let sz = entry.size();
             if sz > limits.max_per_file {
                 bail!(
@@ -268,7 +270,10 @@ impl SecureUploadStore {
                 .read_to_end(&mut buf)
                 .with_context(|| format!("read ZIP entry {}", raw_name))?;
             if buf.len() as u64 > limits.max_per_file {
-                bail!("ZIP entry '{}' actual size exceeds per-file limit", raw_name);
+                bail!(
+                    "ZIP entry '{}' actual size exceeds per-file limit",
+                    raw_name
+                );
             }
             actual_total = actual_total.saturating_add(buf.len() as u64);
             if actual_total > limits.max_total_uncompressed {
@@ -620,7 +625,9 @@ mod tests {
     fn store_roundtrip() {
         let dir = tempdir_like();
         let store = SecureUploadStore::new(&dir).unwrap();
-        let stored = store.store_bytes("scope/x", Some("hello.txt"), b"hi").unwrap();
+        let stored = store
+            .store_bytes("scope/x", Some("hello.txt"), b"hi")
+            .unwrap();
         assert_eq!(stored.size_bytes, 2);
         let bytes = store.read("scope/x", &stored.id).unwrap();
         assert_eq!(bytes, b"hi");
@@ -630,10 +637,7 @@ mod tests {
 
     fn tempdir_like() -> PathBuf {
         let mut p = std::env::temp_dir();
-        p.push(format!(
-            "iora-upload-store-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        p.push(format!("iora-upload-store-test-{}", uuid::Uuid::new_v4()));
         p
     }
 }

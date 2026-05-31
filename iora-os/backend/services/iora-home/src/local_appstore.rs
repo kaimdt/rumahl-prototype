@@ -22,6 +22,7 @@
 // Windows / unprivileged dev envs.
 
 use anyhow::{anyhow, Context as _, Result};
+use iora_shared::manifest_validator::{self, ValidationSeverity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
@@ -75,6 +76,8 @@ pub struct InstalledApp {
     #[serde(default = "default_status")]
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_started_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_stopped_at: Option<String>,
@@ -103,9 +106,48 @@ pub struct InstalledApp {
     /// Bundle configuration (services, network, volumes) if is_bundle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle_config: Option<serde_json::Value>,
+    /// Permissions explicitly granted for this installed app/plugin.
+    #[serde(default)]
+    pub permission_grants: Vec<AppPermissionGrant>,
+    /// Permissions requested by the manifest but not granted.
+    #[serde(default)]
+    pub denied_permissions: Vec<String>,
+    /// Install-time permission audit entries.
+    #[serde(default)]
+    pub permission_audit: Vec<AppPermissionAuditEntry>,
 }
 
-fn default_status() -> String { "stopped".to_string() }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppPermissionGrant {
+    pub permission: String,
+    pub granted_at: String,
+    pub granted_by: String,
+    pub risk_level: String,
+    #[serde(default = "default_true")]
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppPermissionAuditEntry {
+    pub timestamp: String,
+    pub action: String,
+    pub permission: String,
+    pub actor: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InstallOptions {
+    pub replace_existing: bool,
+    pub granted_permissions: Option<Vec<String>>,
+    pub denied_permissions: Vec<String>,
+    pub actor: Option<String>,
+}
+
+fn default_status() -> String {
+    "stopped".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomPageEntry {
@@ -125,7 +167,9 @@ pub struct CustomPageEntry {
     pub iframe_config: Option<serde_json::Value>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortMapping {
@@ -134,7 +178,9 @@ pub struct PortMapping {
     pub protocol: String,
 }
 
-fn default_kind() -> String { "app".to_string() }
+fn default_kind() -> String {
+    "app".to_string()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -179,10 +225,20 @@ pub struct LogEntry {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InstallEvent {
-    Snapshot { installed: Vec<InstalledApp>, jobs: Vec<InstallJob> },
-    JobUpdated { job: InstallJob },
-    AppsChanged { installed: Vec<InstalledApp> },
-    LogEntry { app_id: String, entry: LogEntry },
+    Snapshot {
+        installed: Vec<InstalledApp>,
+        jobs: Vec<InstallJob>,
+    },
+    JobUpdated {
+        job: InstallJob,
+    },
+    AppsChanged {
+        installed: Vec<InstalledApp>,
+    },
+    LogEntry {
+        app_id: String,
+        entry: LogEntry,
+    },
 }
 
 const MAX_APP_LOG_LINES: usize = 500;
@@ -242,43 +298,63 @@ impl LocalAppStore {
     async fn reload_index(&self) -> Result<()> {
         let path = self.base_dir.join(INDEX_FILE);
         let apps = match tokio::fs::read(&path).await {
-            Ok(bytes) => {
-                serde_json::from_slice::<Vec<InstalledApp>>(&bytes)
-                    .unwrap_or_else(|e| {
-                        tracing::warn!("local-apps index corrupted ({e}); starting empty");
-                        Vec::new()
-                    })
-            }
+            Ok(bytes) => serde_json::from_slice::<Vec<InstalledApp>>(&bytes).unwrap_or_else(|e| {
+                tracing::warn!("local-apps index corrupted ({e}); starting empty");
+                Vec::new()
+            }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e).context("reading local-apps index"),
         };
         // Populate custom_pages and docker_config from manifest extra for
         // apps that were installed before these fields were added.
+        let mut changed = false;
         let enriched: Vec<InstalledApp> = apps
             .into_iter()
             .map(|mut a| {
                 if a.enabled && !a.autostart {
                     a.autostart = true;
+                    changed = true;
+                }
+                if a.status == "installing" || a.status == "starting" {
+                    a.status = "error".to_string();
+                    a.error_message =
+                        Some("Recovered after interrupted install/runtime preparation".to_string());
+                    changed = true;
                 }
                 if a.custom_pages.is_empty() {
                     if let Some(cp) = a.manifest.extra.get("custom_pages") {
-                        if let Ok(pages) = serde_json::from_value::<Vec<CustomPageEntry>>(cp.clone()) {
+                        if let Ok(pages) =
+                            serde_json::from_value::<Vec<CustomPageEntry>>(cp.clone())
+                        {
                             a.custom_pages = pages;
+                            changed = true;
                         }
                     }
                 }
                 if a.docker_config.is_none() {
                     a.docker_config = a.manifest.extra.get("docker").cloned();
+                    if a.docker_config.is_some() {
+                        changed = true;
+                    }
                 }
                 if !a.is_bundle && a.bundle_config.is_none() {
                     if let Some(bundle) = a.manifest.extra.get("bundle") {
                         a.is_bundle = true;
                         a.bundle_config = Some(bundle.clone());
+                        changed = true;
                     }
                 }
                 a
             })
             .collect();
+
+        if changed {
+            let bytes = serde_json::to_vec_pretty(&enriched)
+                .context("serialising recovered local-apps index")?;
+            tokio::fs::write(&path, bytes)
+                .await
+                .context("writing recovered local-apps index")?;
+        }
 
         let mut inner = self.inner.write().await;
         inner.apps = enriched.into_iter().map(|a| (a.id.clone(), a)).collect();
@@ -291,19 +367,22 @@ impl LocalAppStore {
         let bytes = serde_json::to_vec_pretty(&list).context("serialising index")?;
         let path = self.base_dir.join(INDEX_FILE);
         let tmp = path.with_extension("json.tmp");
-        tokio::fs::write(&tmp, bytes).await.context("writing tmp index")?;
-        tokio::fs::rename(&tmp, &path).await.context("rotating index")?;
+        tokio::fs::write(&tmp, bytes)
+            .await
+            .context("writing tmp index")?;
+        tokio::fs::rename(&tmp, &path)
+            .await
+            .context("rotating index")?;
         Ok(())
     }
 
     async fn reload_jobs(&self) -> Result<()> {
         let path = self.base_dir.join(JOBS_FILE);
         let jobs = match tokio::fs::read(&path).await {
-            Ok(bytes) => serde_json::from_slice::<Vec<InstallJob>>(&bytes)
-                .unwrap_or_else(|e| {
-                    tracing::warn!("install history corrupted ({e}); starting empty");
-                    Vec::new()
-                }),
+            Ok(bytes) => serde_json::from_slice::<Vec<InstallJob>>(&bytes).unwrap_or_else(|e| {
+                tracing::warn!("install history corrupted ({e}); starting empty");
+                Vec::new()
+            }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e).context("reading install history"),
         };
@@ -319,7 +398,8 @@ impl LocalAppStore {
 
     async fn persist_jobs(&self) -> Result<()> {
         let inner = self.inner.read().await;
-        let list: Vec<InstallJob> = inner.job_order
+        let list: Vec<InstallJob> = inner
+            .job_order
             .iter()
             .filter_map(|id| inner.jobs.get(id).cloned())
             .collect();
@@ -327,8 +407,12 @@ impl LocalAppStore {
         let bytes = serde_json::to_vec_pretty(&list).context("serialising install history")?;
         let path = self.base_dir.join(JOBS_FILE);
         let tmp = path.with_extension("json.tmp");
-        tokio::fs::write(&tmp, bytes).await.context("writing tmp install history")?;
-        tokio::fs::rename(&tmp, &path).await.context("rotating install history")?;
+        tokio::fs::write(&tmp, bytes)
+            .await
+            .context("writing tmp install history")?;
+        tokio::fs::rename(&tmp, &path)
+            .await
+            .context("rotating install history")?;
         Ok(())
     }
 
@@ -365,7 +449,10 @@ impl LocalAppStore {
             let Some(job) = inner.jobs.get(&id) else {
                 return Ok(false);
             };
-            if !matches!(job.status, InstallStatus::Succeeded | InstallStatus::Failed | InstallStatus::Canceled) {
+            if !matches!(
+                job.status,
+                InstallStatus::Succeeded | InstallStatus::Failed | InstallStatus::Canceled
+            ) {
                 anyhow::bail!("aktive Installation kann nicht aus der Historie entfernt werden");
             }
             inner.job_order.retain(|job_id| *job_id != id);
@@ -406,6 +493,7 @@ impl LocalAppStore {
             enabled: true,
             autostart: true,
             status: "running".to_string(),
+            error_message: None,
             last_started_at: Some(now_iso()),
             last_stopped_at: None,
             installed_at: now_iso(),
@@ -428,7 +516,11 @@ impl LocalAppStore {
             ports: Vec::new(),
             is_bundle: false,
             bundle_config: None,
-        }).await
+            permission_grants: Vec::new(),
+            denied_permissions: Vec::new(),
+            permission_audit: Vec::new(),
+        })
+        .await
     }
 
     /// Register ORA Share as a built-in system app.
@@ -445,6 +537,7 @@ impl LocalAppStore {
             enabled: true,
             autostart: true,
             status: "running".to_string(),
+            error_message: None,
             last_started_at: Some(now_iso()),
             last_stopped_at: None,
             installed_at: now_iso(),
@@ -486,6 +579,9 @@ impl LocalAppStore {
             ports: Vec::new(),
             is_bundle: false,
             bundle_config: None,
+            permission_grants: Vec::new(),
+            denied_permissions: Vec::new(),
+            permission_audit: Vec::new(),
         }).await
     }
 
@@ -503,6 +599,7 @@ impl LocalAppStore {
             enabled: true,
             autostart: true,
             status: "running".to_string(),
+            error_message: None,
             last_started_at: Some(now_iso()),
             last_stopped_at: None,
             installed_at: now_iso(),
@@ -544,6 +641,9 @@ impl LocalAppStore {
             ports: Vec::new(),
             is_bundle: false,
             bundle_config: None,
+            permission_grants: Vec::new(),
+            denied_permissions: Vec::new(),
+            permission_audit: Vec::new(),
         }).await
     }
 
@@ -682,6 +782,16 @@ impl LocalAppStore {
 
     /// Spawn an install task and return the job id immediately.
     pub fn start_install(self: &Arc<Self>, file_name: String, zip_bytes: Vec<u8>) -> Uuid {
+        self.start_install_with_options(file_name, zip_bytes, InstallOptions::default())
+    }
+
+    /// Spawn an install task with explicit install options and return the job id immediately.
+    pub fn start_install_with_options(
+        self: &Arc<Self>,
+        file_name: String,
+        zip_bytes: Vec<u8>,
+        options: InstallOptions,
+    ) -> Uuid {
         let id = Uuid::new_v4();
         let job = InstallJob {
             id,
@@ -701,7 +811,7 @@ impl LocalAppStore {
         let store = Arc::clone(self);
         tokio::spawn(async move {
             store.upsert_job(&job).await;
-            let _ = store.run_install(id, file_name, zip_bytes).await;
+            let _ = store.run_install(id, file_name, zip_bytes, options).await;
         });
         id
     }
@@ -721,7 +831,9 @@ impl LocalAppStore {
         if let Err(e) = self.persist_jobs().await {
             tracing::warn!("failed to persist install history: {e:#}");
         }
-        let _ = self.events.send(InstallEvent::JobUpdated { job: job.clone() });
+        let _ = self
+            .events
+            .send(InstallEvent::JobUpdated { job: job.clone() });
     }
 
     async fn update_job<F>(&self, id: Uuid, f: F)
@@ -749,8 +861,16 @@ impl LocalAppStore {
         }
     }
 
-    async fn run_install(self: Arc<Self>, id: Uuid, file_name: String, zip_bytes: Vec<u8>) -> Result<()> {
-        let res = self.run_install_inner(id, &file_name, zip_bytes).await;
+    async fn run_install(
+        self: Arc<Self>,
+        id: Uuid,
+        file_name: String,
+        zip_bytes: Vec<u8>,
+        options: InstallOptions,
+    ) -> Result<()> {
+        let res = self
+            .run_install_inner(id, &file_name, zip_bytes, options)
+            .await;
         match res {
             Ok(app) => {
                 self.update_job(id, |j| {
@@ -761,7 +881,10 @@ impl LocalAppStore {
                     j.app_id = Some(app.id.clone());
                     j.app_name = Some(app.name.clone());
                     j.app_version = Some(app.version.clone());
-                    j.log.push(format!("[ok] App '{}' v{} installiert.", app.name, app.version));
+                    j.log.push(format!(
+                        "[ok] App '{}' v{} installiert.",
+                        app.name, app.version
+                    ));
                 })
                 .await;
                 let _ = self.events.send(InstallEvent::AppsChanged {
@@ -785,13 +908,22 @@ impl LocalAppStore {
         }
     }
 
-    async fn run_install_inner(&self, id: Uuid, file_name: &str, zip_bytes: Vec<u8>) -> Result<InstalledApp> {
+    async fn run_install_inner(
+        &self,
+        id: Uuid,
+        file_name: &str,
+        zip_bytes: Vec<u8>,
+        options: InstallOptions,
+    ) -> Result<InstalledApp> {
         // 1) Extract.
         self.update_job(id, |j| {
             j.status = InstallStatus::Extracting;
             j.progress = 5;
             j.message = format!("Entpacke {file_name}…");
-            j.log.push(format!("[start] datei={} ({} bytes)", file_name, j.size_bytes));
+            j.log.push(format!(
+                "[start] datei={} ({} bytes)",
+                file_name, j.size_bytes
+            ));
         })
         .await;
 
@@ -800,13 +932,14 @@ impl LocalAppStore {
         let id_for_progress = id;
         let events = self.events.clone();
 
-        let extract_result = tokio::task::spawn_blocking(move || -> Result<(AppManifest, PathBuf)> {
-            extract_zip(&zip_bytes, &store_dir, id_for_progress, &events)
-        })
-        .await
-        .map_err(|e| anyhow!("extract task panicked: {e}"))??;
+        let extract_result =
+            tokio::task::spawn_blocking(move || -> Result<(AppManifest, PathBuf)> {
+                extract_zip(&zip_bytes, &store_dir, id_for_progress, &events)
+            })
+            .await
+            .map_err(|e| anyhow!("extract task panicked: {e}"))??;
 
-        let (manifest, app_dir) = extract_result;
+        let (manifest, staging_dir) = extract_result;
 
         // 2) Validate.
         self.update_job(id, |j| {
@@ -823,8 +956,30 @@ impl LocalAppStore {
         })
         .await;
 
-        if manifest.id.trim().is_empty() {
-            return Err(anyhow!("manifest.json: 'id' fehlt"));
+        let manifest_json =
+            serde_json::to_value(&manifest).context("serialising manifest for validation")?;
+        let validation = manifest_validator::validate_app_manifest(&manifest_json);
+        if !validation.is_valid() {
+            let errors: Vec<String> = validation
+                .issues
+                .iter()
+                .filter(|issue| issue.severity == ValidationSeverity::Error)
+                .map(|issue| format!("{}: {}", issue.field, issue.message))
+                .collect();
+            let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+            return Err(anyhow!("manifest.json ungültig: {}", errors.join("; ")));
+        }
+
+        for warning in validation
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == ValidationSeverity::Warning)
+        {
+            self.update_job(id, |j| {
+                j.log
+                    .push(format!("[warn] {}: {}", warning.field, warning.message));
+            })
+            .await;
         }
 
         // 3) Register.
@@ -850,6 +1005,38 @@ impl LocalAppStore {
         let bundle_config = manifest.extra.get("bundle").cloned();
 
         let needs_runtime_prep = docker_config.is_some() || bundle_config.is_some();
+        let requested_permissions = manifest.permissions.clone();
+        let (permission_grants, denied_permissions, permission_audit) = build_permission_grants(
+            &requested_permissions,
+            options.granted_permissions.as_deref(),
+            &options.denied_permissions,
+            options.actor.as_deref().unwrap_or("local-appstore"),
+        );
+
+        let replacing_existing = {
+            let inner = self.inner.read().await;
+            inner.apps.get(&manifest.id).cloned()
+        };
+        if let Some(existing) = replacing_existing.as_ref() {
+            if !options.replace_existing {
+                let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+                return Err(anyhow!(
+                    "App '{}' ist bereits installiert. Sende replace_existing=true, um sie bewusst zu ersetzen.",
+                    manifest.id
+                ));
+            }
+            if matches!(
+                existing.status.as_str(),
+                "running" | "starting" | "installing"
+            ) {
+                let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+                return Err(anyhow!(
+                    "App '{}' ist aktuell im Status '{}'. Stoppe sie vor dem Ersetzen.",
+                    manifest.id,
+                    existing.status
+                ));
+            }
+        }
 
         let app = InstalledApp {
             id: manifest.id.clone(),
@@ -866,6 +1053,7 @@ impl LocalAppStore {
             } else {
                 "stopped".to_string()
             },
+            error_message: None,
             last_started_at: None,
             last_stopped_at: Some(now_iso()),
             installed_at: now_iso(),
@@ -873,7 +1061,7 @@ impl LocalAppStore {
             kind: manifest
                 .r#type
                 .clone()
-                .filter(|t| t == "plugin")
+                .filter(|t| t == "plugin" || t == "service")
                 .map(|_| "plugin".to_string())
                 .unwrap_or_else(|| "app".to_string()),
             system: false,
@@ -883,7 +1071,20 @@ impl LocalAppStore {
             ports: Vec::new(),
             is_bundle,
             bundle_config,
+            permission_grants,
+            denied_permissions,
+            permission_audit,
         };
+
+        let app_dir = self.base_dir.join(&app.id);
+        if app_dir.exists() {
+            tokio::fs::remove_dir_all(&app_dir).await.with_context(|| {
+                format!("ersetze vorhandenes App-Verzeichnis {}", app_dir.display())
+            })?;
+        }
+        tokio::fs::rename(&staging_dir, &app_dir)
+            .await
+            .with_context(|| format!("verschiebe App aus Staging nach {}", app_dir.display()))?;
 
         // Persist manifest.json next to the extracted files (not strictly
         // necessary because we already keep it in the index, but useful
@@ -898,7 +1099,34 @@ impl LocalAppStore {
         drop(inner);
         self.persist_index().await?;
 
+        self.append_log(
+            &app.id,
+            LogEntry {
+                timestamp: now_iso(),
+                level: "INFO".to_string(),
+                message: format!(
+                    "Installiert mit {} gewährten und {} abgelehnten Berechtigungen.",
+                    app.permission_grants.len(),
+                    app.denied_permissions.len()
+                ),
+                source: "permission-audit".to_string(),
+            },
+        );
+
         Ok(app)
+    }
+
+    pub async fn has_permission(&self, app_id: &str, permission: &str) -> bool {
+        let inner = self.inner.read().await;
+        inner
+            .apps
+            .get(app_id)
+            .map(|app| {
+                app.permission_grants
+                    .iter()
+                    .any(|grant| grant.is_active && grant.permission == permission)
+            })
+            .unwrap_or(false)
     }
 
     pub fn base_dir(&self) -> &Path {
@@ -908,10 +1136,7 @@ impl LocalAppStore {
     /// Append a log entry for a specific app.
     pub fn append_log(&self, app_id: &str, entry: LogEntry) {
         {
-            let mut logs_map = self
-                .app_logs
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
+            let mut logs_map = self.app_logs.lock().unwrap_or_else(|p| p.into_inner());
             let logs = logs_map.entry(app_id.to_string()).or_default();
             logs.push(entry.clone());
             if logs.len() > MAX_APP_LOG_LINES {
@@ -927,21 +1152,127 @@ impl LocalAppStore {
 
     /// Get all log entries for a specific app.
     pub async fn get_logs(&self, app_id: &str) -> Vec<LogEntry> {
-        let logs_map = self
-            .app_logs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let logs_map = self.app_logs.lock().unwrap_or_else(|p| p.into_inner());
         logs_map.get(app_id).cloned().unwrap_or_default()
     }
 
     /// Get all log entries across all apps.
     pub async fn get_all_logs(&self) -> HashMap<String, Vec<LogEntry>> {
-        let logs_map = self
-            .app_logs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let logs_map = self.app_logs.lock().unwrap_or_else(|p| p.into_inner());
         logs_map.clone()
     }
+}
+
+fn build_permission_grants(
+    requested: &[String],
+    granted_override: Option<&[String]>,
+    denied_override: &[String],
+    actor: &str,
+) -> (
+    Vec<AppPermissionGrant>,
+    Vec<String>,
+    Vec<AppPermissionAuditEntry>,
+) {
+    let now = now_iso();
+    let granted: std::collections::HashSet<String> = granted_override
+        .map(|items| items.iter().cloned().collect())
+        .unwrap_or_else(|| requested.iter().cloned().collect());
+    let denied: std::collections::HashSet<String> = denied_override.iter().cloned().collect();
+
+    let mut grants = Vec::new();
+    let mut denied_permissions = Vec::new();
+    let mut audit = Vec::new();
+
+    for permission in requested {
+        if granted.contains(permission) && !denied.contains(permission) {
+            grants.push(AppPermissionGrant {
+                permission: permission.clone(),
+                granted_at: now.clone(),
+                granted_by: actor.to_string(),
+                risk_level: permission_risk_level(permission).to_string(),
+                is_active: true,
+            });
+            audit.push(AppPermissionAuditEntry {
+                timestamp: now.clone(),
+                action: "granted".to_string(),
+                permission: permission.clone(),
+                actor: actor.to_string(),
+                reason: Some("Granted during ZIP install".to_string()),
+            });
+        } else {
+            denied_permissions.push(permission.clone());
+            audit.push(AppPermissionAuditEntry {
+                timestamp: now.clone(),
+                action: "denied".to_string(),
+                permission: permission.clone(),
+                actor: actor.to_string(),
+                reason: Some("Denied during ZIP install".to_string()),
+            });
+        }
+    }
+
+    (grants, denied_permissions, audit)
+}
+
+fn permission_risk_level(permission: &str) -> &'static str {
+    match permission {
+        "SystemControl"
+        | "SystemRestart"
+        | "PluginManager"
+        | "CreateUser"
+        | "ModifyUser"
+        | "DeleteUser"
+        | "FileShareManage"
+        | "DeveloperAccess"
+        | "InterAppCommunication"
+        | "LiveMetrics"
+        | "DirectDeploy"
+        | "DebugAccess"
+        | "LiveLogs"
+        | "HotReload"
+        | "AppStorageManage"
+        | "AppDatabaseManage"
+        | "WebhookManage"
+        | "ThemeManage" => "critical",
+        "CreateEntities" | "DeleteEntities" | "StorageDelete" | "NetworkOutbound"
+        | "NetworkInbound" | "NetworkLocalAccess" | "DatabaseCreate" | "DatabaseDelete"
+        | "FileSystemExecute" | "InstallPlugins" | "UninstallPlugins" | "CameraAccess"
+        | "MicrophoneAccess" | "LocationPrecise" | "NetworkScan" | "FileShareWrite"
+        | "FileShareDelete" | "AppStorageDelete" | "AppScheduleDelete" | "WebhookDelete"
+        | "AppDatabaseSqlite" | "MessagingWildcard" | "NetworkAccess" => "high",
+        "ReadEntities" | "StorageRead" | "SystemInfo" | "DatabaseRead" | "ReadNotifications"
+        | "FileSystemRead" | "ReadUserData" | "MediaAccess" | "FileShareRead"
+        | "AppStorageRead" | "AppScheduleRead" | "WebhookRead" | "ThemeSelect" | "ReadCache"
+        | "ReadSystemInfo" => "low",
+        _ => "medium",
+    }
+}
+
+fn parse_app_manifest(bytes: &[u8]) -> Result<AppManifest> {
+    let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
+
+    let metadata = value.get("metadata").cloned();
+    if let (Some(object), Some(metadata)) = (
+        value.as_object_mut(),
+        metadata.as_ref().and_then(|v| v.as_object()),
+    ) {
+        for key in ["id", "name", "version", "developer", "description"] {
+            if !object.contains_key(key) {
+                if let Some(metadata_value) = metadata.get(key) {
+                    object.insert(key.to_string(), metadata_value.clone());
+                }
+            }
+        }
+    }
+
+    if value.get("developer").is_none() {
+        value["developer"] = serde_json::Value::String("Unknown".to_string());
+    }
+    if value.get("description").is_none() {
+        value["description"] = serde_json::Value::String(String::new());
+    }
+
+    serde_json::from_value(value).map_err(Into::into)
 }
 
 fn extract_zip(
@@ -1007,7 +1338,7 @@ fn extract_zip(
         let mut f = zip.by_index(manifest_idx)?;
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).context("lese manifest.json")?;
-        serde_json::from_slice(&buf).context("parse manifest.json")?
+        parse_app_manifest(&buf).context("parse manifest.json")?
     };
 
     // Sanitize id (filesystem-safe).
@@ -1022,7 +1353,7 @@ fn extract_zip(
         ));
     }
 
-    let target_dir = base.join(&manifest.id);
+    let target_dir = base.join(".install-tmp").join(job_id.to_string());
     if target_dir.exists() {
         std::fs::remove_dir_all(&target_dir).ok();
     }

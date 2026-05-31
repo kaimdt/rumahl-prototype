@@ -55,7 +55,6 @@ pub enum SettingVisibility {
     ReadOnly,
 }
 
-
 /// Top-level grouping shown as tabs/sections in the Control Center UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -629,8 +628,8 @@ mod tests {
 
     #[test]
     fn validate_url() {
-        let def = SettingBuilder::new("x.url", "X", SettingCategory::System, SettingType::Url)
-            .build();
+        let def =
+            SettingBuilder::new("x.url", "X", SettingCategory::System, SettingType::Url).build();
         assert!(def.validate(&serde_json::json!("http://x")).is_ok());
         assert!(def.validate(&serde_json::json!("ftp://x")).is_err());
         assert!(def.validate(&serde_json::json!("")).is_ok());
@@ -647,8 +646,8 @@ mod tests {
 
     #[test]
     fn redact_secret() {
-        let def = SettingBuilder::new("x.s", "X", SettingCategory::System, SettingType::Secret)
-            .build();
+        let def =
+            SettingBuilder::new("x.s", "X", SettingCategory::System, SettingType::Secret).build();
         assert_eq!(
             def.redact(&serde_json::json!("supersecret")),
             serde_json::json!("••••••••")

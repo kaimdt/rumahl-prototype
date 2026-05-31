@@ -2,11 +2,11 @@
 //!
 //! Provides time-limited access tokens with cryptographic signatures
 
+use anyhow::{bail, Result};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey, Algorithm};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
-use anyhow::{Result, bail};
 
 use crate::permissions::{Permission, ProviderType};
 
@@ -90,11 +90,12 @@ impl TokenManager {
     pub async fn issue_token(&self, request: TokenRequest) -> Result<AccessToken> {
         // Validate duration based on provider type
         let max_duration = match request.provider_type {
-            ProviderType::Plugin => 900,   // 15 minutes for plugins
-            ProviderType::App => 86400,    // 24 hours for apps
+            ProviderType::Plugin => 900, // 15 minutes for plugins
+            ProviderType::App => 86400,  // 24 hours for apps
         };
 
-        let duration = request.duration_seconds
+        let duration = request
+            .duration_seconds
             .unwrap_or(max_duration)
             .min(max_duration);
 
@@ -170,7 +171,8 @@ impl TokenManager {
             provider_type: claims.provider_type,
             permissions: claims.permissions,
             duration_seconds: Some(86400), // 24 hours
-        }).await
+        })
+        .await
     }
 
     /// Revoke a token
@@ -196,7 +198,10 @@ impl TokenManager {
             .collect();
 
         for token_id in tokens_to_revoke {
-            revoked.insert(token_id.clone(), format!("All tokens revoked for {}", provider_id));
+            revoked.insert(
+                token_id.clone(),
+                format!("All tokens revoked for {}", provider_id),
+            );
             active.remove(&token_id);
         }
 
@@ -208,14 +213,16 @@ impl TokenManager {
         let now = chrono::Utc::now().timestamp();
         let mut limits = self.rate_limits.write().await;
 
-        let counters = limits.entry(app_id.to_string()).or_insert_with(|| RateLimitCounters {
-            last_minute: 0,
-            last_hour: 0,
-            last_day: 0,
-            minute_reset: now + 60,
-            hour_reset: now + 3600,
-            day_reset: now + 86400,
-        });
+        let counters = limits
+            .entry(app_id.to_string())
+            .or_insert_with(|| RateLimitCounters {
+                last_minute: 0,
+                last_hour: 0,
+                last_day: 0,
+                minute_reset: now + 60,
+                hour_reset: now + 3600,
+                day_reset: now + 86400,
+            });
 
         // Reset counters if needed
         if now >= counters.minute_reset {
@@ -311,7 +318,10 @@ mod tests {
         };
 
         let token = manager.issue_token(request).await.unwrap();
-        manager.revoke_token(&token.token_id, "Test revocation".to_string()).await.unwrap();
+        manager
+            .revoke_token(&token.token_id, "Test revocation".to_string())
+            .await
+            .unwrap();
 
         let result = manager.validate_token(&token.token).await;
         assert!(result.is_err());

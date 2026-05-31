@@ -7,9 +7,9 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub display_name: Option<String>,
-    #[serde(skip_serializing)]  // Never send password hash to client
+    #[serde(skip_serializing)] // Never send password hash to client
     pub password_hash: Option<String>,
-    #[serde(skip_serializing)]  // Never send pin hash to client
+    #[serde(skip_serializing)] // Never send pin hash to client
     pub pin_hash: Option<String>,
     pub avatar_url: Option<String>,
     pub role: String,
@@ -89,7 +89,7 @@ pub struct BackgroundConfig {
     pub id: String,
     pub profile_id: String,
     pub background_type: String, // 'static', 'slideshow', 'video', 'gradient'
-    pub config: String, // JSON string
+    pub config: String,          // JSON string
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -100,7 +100,7 @@ pub struct BackgroundConfig {
 pub struct BackgroundTrigger {
     pub id: String,
     pub profile_id: String,
-    pub trigger_type: String, // 'time', 'entity_state', 'event'
+    pub trigger_type: String,   // 'time', 'entity_state', 'event'
     pub trigger_config: String, // JSON string
     pub background_config_id: String,
     pub priority: i32,
@@ -338,7 +338,7 @@ pub struct ApiKey {
     #[serde(skip_serializing)]
     pub key_hash: String,
     pub key_prefix: String,
-    pub permissions: String,  // JSON array
+    pub permissions: String, // JSON array
     pub rate_limit: i32,
     pub last_used_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -351,7 +351,7 @@ pub struct ApiKey {
 pub struct ApiKeyWithSecret {
     pub id: String,
     pub name: String,
-    pub key: String,  // Only returned on creation
+    pub key: String, // Only returned on creation
     pub key_prefix: String,
     pub permissions: Vec<String>,
     pub rate_limit: i32,

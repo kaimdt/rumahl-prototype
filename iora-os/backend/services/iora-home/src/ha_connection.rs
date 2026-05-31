@@ -162,7 +162,11 @@ impl HaConnectionManager {
 
     /// Check if a specific integration is available in HA
     pub async fn has_integration(&self, domain: &str) -> bool {
-        self.integrations.read().await.iter().any(|i| i.domain == domain && i.available)
+        self.integrations
+            .read()
+            .await
+            .iter()
+            .any(|i| i.domain == domain && i.available)
     }
 
     pub async fn status(&self) -> HaConnectionStatus {
@@ -272,18 +276,21 @@ async fn detect_integrations(
         .await;
 
     let loaded_components: Vec<String> = match resp {
-        Ok(r) if r.status().is_success() => {
-            r.json::<Vec<String>>().await.unwrap_or_default()
-        }
+        Ok(r) if r.status().is_success() => r.json::<Vec<String>>().await.unwrap_or_default(),
         _ => Vec::new(),
     };
 
-    known.iter().map(|(domain, title)| {
-        let available = loaded_components.iter().any(|c| c == domain || c.starts_with(&format!("{}.", domain)));
-        HaIntegration {
-            domain: domain.to_string(),
-            title: title.to_string(),
-            available,
-        }
-    }).collect()
+    known
+        .iter()
+        .map(|(domain, title)| {
+            let available = loaded_components
+                .iter()
+                .any(|c| c == domain || c.starts_with(&format!("{}.", domain)));
+            HaIntegration {
+                domain: domain.to_string(),
+                title: title.to_string(),
+                available,
+            }
+        })
+        .collect()
 }

@@ -7,7 +7,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{app_storage::StorageConfig, app_database::AppDatabaseConfig, app_scheduler::ScheduleConfig, app_messaging::MessagingConfig, app_webhooks::WebhookConfig};
+use crate::{
+    app_database::AppDatabaseConfig, app_messaging::MessagingConfig, app_scheduler::ScheduleConfig,
+    app_storage::StorageConfig, app_webhooks::WebhookConfig,
+};
 
 /// Complete app/plugin manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]

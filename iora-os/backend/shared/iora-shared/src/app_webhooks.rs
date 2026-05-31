@@ -31,7 +31,6 @@ pub enum WebhookMethod {
     Delete,
 }
 
-
 /// A registered webhook
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppWebhook {
@@ -84,9 +83,15 @@ pub struct AppWebhook {
     pub created_at: String,
 }
 
-fn default_enabled() -> bool { true }
-fn default_max_retries() -> u32 { 3 }
-fn default_timeout() -> u64 { 30 }
+fn default_enabled() -> bool {
+    true
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_timeout() -> u64 {
+    30
+}
 
 /// Request to register a new webhook
 #[derive(Debug, Deserialize)]

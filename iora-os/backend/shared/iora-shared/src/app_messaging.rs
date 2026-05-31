@@ -29,7 +29,6 @@ pub enum ChannelType {
     System,
 }
 
-
 /// A message channel
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageChannel {
@@ -61,8 +60,12 @@ pub struct MessageChannel {
     pub max_message_size_bytes: u64,
 }
 
-fn default_retention() -> u64 { 3600 }
-fn default_max_message_size() -> u64 { 1024 * 100 } // 100 KB
+fn default_retention() -> u64 {
+    3600
+}
+fn default_max_message_size() -> u64 {
+    1024 * 100
+} // 100 KB
 
 /// A message published to a channel
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +94,9 @@ pub struct Message {
     pub ttl_seconds: u64,
 }
 
-fn default_ttl() -> u64 { 300 } // 5 minutes
+fn default_ttl() -> u64 {
+    300
+} // 5 minutes
 
 /// Message priority
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -104,7 +109,6 @@ pub enum MessagePriority {
     High,
     Critical,
 }
-
 
 /// Subscription to a message channel
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -88,7 +88,10 @@ pub fn validate_resource_limits(
                                 "Speicherlimit {}MB überschreitet System-Maximum von {}MB.",
                                 mem_mb, capabilities.max_memory_mb
                             ),
-                            Some(&format!("Reduziere das Limit auf maximal \"{}M\".", capabilities.max_memory_mb))
+                            Some(&format!(
+                                "Reduziere das Limit auf maximal \"{}M\".",
+                                capabilities.max_memory_mb
+                            )),
                         );
                     }
                 } else {
@@ -110,7 +113,10 @@ pub fn validate_resource_limits(
                                 "CPU-Limit {} überschreitet System-Maximum von {} Kernen.",
                                 cpu_cores, capabilities.max_cpu_cores
                             ),
-                            Some(&format!("Reduziere das Limit auf maximal \"{}\".", capabilities.max_cpu_cores))
+                            Some(&format!(
+                                "Reduziere das Limit auf maximal \"{}\".",
+                                capabilities.max_cpu_cores
+                            )),
                         );
                     }
                 } else {
@@ -129,7 +135,10 @@ pub fn validate_resource_limits(
         if let Some(services) = bundle.get("services").and_then(|v| v.as_array()) {
             for (i, service) in services.iter().enumerate() {
                 if let Some(resources) = service.get("resources") {
-                    let service_name = service.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let service_name = service
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
 
                     if let Some(mem_str) = resources.get("memory").and_then(|v| v.as_str()) {
                         if let Some(mem_mb) = parse_memory_limit(mem_str) {
@@ -140,7 +149,10 @@ pub fn validate_resource_limits(
                                         "Service \"{}\" Speicherlimit {}MB überschreitet Maximum.",
                                         service_name, mem_mb
                                     ),
-                                    Some(&format!("Reduziere auf maximal \"{}M\".", capabilities.max_memory_mb))
+                                    Some(&format!(
+                                        "Reduziere auf maximal \"{}M\".",
+                                        capabilities.max_memory_mb
+                                    )),
                                 );
                             }
                         }
@@ -161,7 +173,10 @@ pub fn validate_resource_limits(
                         "Speicherlimit von {}GB überschreitet verfügbaren Speicher von {}GB.",
                         max_size_gb, capabilities.available_storage_gb
                     ),
-                    Some(&format!("Reduziere auf maximal {} Bytes.", capabilities.available_storage_gb * 1024 * 1024 * 1024))
+                    Some(&format!(
+                        "Reduziere auf maximal {} Bytes.",
+                        capabilities.available_storage_gb * 1024 * 1024 * 1024
+                    )),
                 );
             }
         }
@@ -187,7 +202,7 @@ pub fn validate_dependencies(
                     "App benötigt IORA Version {} aber System hat Version {}.",
                     min_version, context.system_capabilities.min_iora_version
                 ),
-                Some("Aktualisiere IORA oder verwende eine kompatible App-Version.")
+                Some("Aktualisiere IORA oder verwende eine kompatible App-Version."),
             );
         }
     }
@@ -200,7 +215,7 @@ pub fn validate_dependencies(
         result.add_error(
             "docker",
             "App benötigt Docker aber System unterstützt kein Docker.",
-            Some("Installiere Docker oder verwende eine alternative App ohne Docker-Anforderung.")
+            Some("Installiere Docker oder verwende eine alternative App ohne Docker-Anforderung."),
         );
     }
 
@@ -208,7 +223,7 @@ pub fn validate_dependencies(
         result.add_error(
             "bundle",
             "App verwendet Bundle-Format aber System unterstützt keine Bundles.",
-            Some("Aktualisiere IORA auf eine Version mit Bundle-Unterstützung.")
+            Some("Aktualisiere IORA auf eine Version mit Bundle-Unterstützung."),
         );
     }
 
@@ -224,7 +239,10 @@ pub fn validate_dependencies(
                                 "App ist nicht kompatibel mit bereits installierter App \"{}\".",
                                 app_id
                             ),
-                            Some(&format!("Deinstalliere \"{}\" vor der Installation dieser App.", app_id))
+                            Some(&format!(
+                                "Deinstalliere \"{}\" vor der Installation dieser App.",
+                                app_id
+                            )),
                         );
                     }
                 }
@@ -238,8 +256,11 @@ pub fn validate_dependencies(
                     if !context.installed_apps.contains_key(app_id) {
                         result.add_error(
                             "dependencies.requires",
-                            &format!("App benötigt \"{}\" aber diese ist nicht installiert.", app_id),
-                            Some(&format!("Installiere \"{}\" zuerst.", app_id))
+                            &format!(
+                                "App benötigt \"{}\" aber diese ist nicht installiert.",
+                                app_id
+                            ),
+                            Some(&format!("Installiere \"{}\" zuerst.", app_id)),
                         );
                     }
                 }
@@ -264,7 +285,7 @@ pub fn validate_security_policy(
                     perms.len(),
                     policy.max_permissions_per_app
                 ),
-                Some("Reduziere die Anzahl der angeforderten Permissions.")
+                Some("Reduziere die Anzahl der angeforderten Permissions."),
             );
         }
 
@@ -278,7 +299,7 @@ pub fn validate_security_policy(
                             "Permission \"{}\" ist durch Security-Policy blockiert.",
                             perm_str
                         ),
-                        Some("Entferne diese Permission oder kontaktiere den Administrator.")
+                        Some("Entferne diese Permission oder kontaktiere den Administrator."),
                     );
                 }
             }
@@ -287,12 +308,16 @@ pub fn validate_security_policy(
 
     // Check network access requirements
     if policy.require_network_whitelist {
-        if manifest.get("permissions").and_then(|p| p.as_array()).map(|perms| {
-            perms.iter().any(|p| p.as_str() == Some("NetworkAccess"))
-        }).unwrap_or(false) {
+        if manifest
+            .get("permissions")
+            .and_then(|p| p.as_array())
+            .map(|perms| perms.iter().any(|p| p.as_str() == Some("NetworkAccess")))
+            .unwrap_or(false)
+        {
             // App has NetworkAccess permission, check for whitelist
             if let Some(network) = manifest.get("network_access") {
-                let has_domains = network.get("allowed_domains")
+                let has_domains = network
+                    .get("allowed_domains")
                     .and_then(|d| d.as_array())
                     .map(|arr| !arr.is_empty())
                     .unwrap_or(false);
@@ -301,7 +326,7 @@ pub fn validate_security_policy(
                     result.add_error(
                         "network_access.allowed_domains",
                         "Security-Policy erfordert Domain-Whitelist für NetworkAccess.",
-                        Some("Füge \"allowed_domains\": [\"example.com\"] hinzu.")
+                        Some("Füge \"allowed_domains\": [\"example.com\"] hinzu."),
                     );
                 }
             } else {
@@ -336,20 +361,26 @@ pub fn validate_plugin_sandbox(manifest: &Value, result: &mut ValidationResult) 
     if manifest.get("type").and_then(|t| t.as_str()) == Some("plugin") {
         if let Some(sandbox) = manifest.get("sandbox") {
             // Max execution time
-            if let Some(max_time) = sandbox.get("max_execution_time_ms").and_then(|v| v.as_u64()) {
+            if let Some(max_time) = sandbox
+                .get("max_execution_time_ms")
+                .and_then(|v| v.as_u64())
+            {
                 if max_time > 300000 {
                     // 5 minutes
                     result.add_warning(
                         "sandbox.max_execution_time_ms",
-                        &format!("Maximale Ausführungszeit von {}ms ist sehr hoch (>5 Minuten).", max_time),
-                        Some("Erwäge eine kürzere Ausführungszeit für bessere Responsiveness.")
+                        &format!(
+                            "Maximale Ausführungszeit von {}ms ist sehr hoch (>5 Minuten).",
+                            max_time
+                        ),
+                        Some("Erwäge eine kürzere Ausführungszeit für bessere Responsiveness."),
                     );
                 }
                 if max_time == 0 {
                     result.add_error(
                         "sandbox.max_execution_time_ms",
                         "Maximale Ausführungszeit kann nicht 0 sein.",
-                        Some("Setze einen vernünftigen Wert wie 5000 (5 Sekunden).")
+                        Some("Setze einen vernünftigen Wert wie 5000 (5 Sekunden)."),
                     );
                 }
             }
@@ -361,14 +392,14 @@ pub fn validate_plugin_sandbox(manifest: &Value, result: &mut ValidationResult) 
                     result.add_warning(
                         "sandbox.max_memory_mb",
                         &format!("Maximaler Speicher von {}MB ist sehr hoch (>2GB).", max_mem),
-                        Some("Plugins sollten weniger Speicher verwenden.")
+                        Some("Plugins sollten weniger Speicher verwenden."),
                     );
                 }
                 if max_mem < 32 {
                     result.add_warning(
                         "sandbox.max_memory_mb",
                         &format!("Maximaler Speicher von {}MB könnte zu wenig sein.", max_mem),
-                        Some("Erwäge mindestens 64MB für stabile Plugin-Ausführung.")
+                        Some("Erwäge mindestens 64MB für stabile Plugin-Ausführung."),
                     );
                 }
             }
@@ -389,7 +420,11 @@ fn parse_memory_limit(limit: &str) -> Option<u64> {
     let limit = limit.trim().to_uppercase();
 
     if limit.ends_with('G') {
-        limit.trim_end_matches('G').parse::<u64>().ok().map(|v| v * 1024)
+        limit
+            .trim_end_matches('G')
+            .parse::<u64>()
+            .ok()
+            .map(|v| v * 1024)
     } else if limit.ends_with('M') {
         limit.trim_end_matches('M').parse::<u64>().ok()
     } else {
@@ -407,7 +442,10 @@ fn parse_cpu_limit(limit: &str) -> Option<f64> {
 fn is_version_compatible(required: &str, available: &str) -> bool {
     // Simple version comparison (major.minor.patch)
     let req_parts: Vec<u32> = required.split('.').filter_map(|s| s.parse().ok()).collect();
-    let avail_parts: Vec<u32> = available.split('.').filter_map(|s| s.parse().ok()).collect();
+    let avail_parts: Vec<u32> = available
+        .split('.')
+        .filter_map(|s| s.parse().ok())
+        .collect();
 
     if req_parts.is_empty() || avail_parts.is_empty() {
         return false;
