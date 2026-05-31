@@ -7058,6 +7058,8 @@ async fn local_appstore_app_delete(
         state.local_appstore.uninstall(&app_id).await
     };
     result.map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+    // Best-effort: drop any capabilities this app registered with iora-assist.
+    spawn_remove_app_capabilities(state.clone(), app_id.clone());
     Ok(Json(
         json!({ "success": true, "app_id": app_id, "force": force }),
     ))
@@ -8975,6 +8977,76 @@ async fn supervisor_compose_prepare(
     }
 }
 
+/// Push an installed app's declared assist tools / exposed services to
+/// iora-assist so the agent can discover and call them. Best-effort: failures
+/// are logged but never block install. The capability definitions live in the
+/// manifest's catch-all `extra` map under `assist_tools` / `exposed_services`.
+fn spawn_push_app_capabilities(state: AppState, app: local_appstore::InstalledApp) {
+    tokio::spawn(async move {
+        let extra = &app.manifest.extra;
+        let tools = extra
+            .get("assist_tools")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let services = extra
+            .get("exposed_services")
+            .cloned()
+            .unwrap_or(Value::Null);
+        if tools.is_null() && services.is_null() {
+            return; // app declares no capabilities — nothing to register
+        }
+        let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+        let url = format!(
+            "{}/api/assist/apps/{}/capabilities",
+            base.trim_end_matches('/'),
+            app.id
+        );
+        let body = json!({
+            "app_name": app.name,
+            "tools": if tools.is_null() { json!([]) } else { tools },
+            "services": if services.is_null() { json!([]) } else { services },
+        });
+        match state.http_client.post(&url).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!("Pushed app capabilities for '{}' to iora-assist", app.id);
+            }
+            Ok(resp) => {
+                tracing::warn!(
+                    "iora-assist rejected capabilities for '{}': HTTP {}",
+                    app.id,
+                    resp.status()
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to push app capabilities for '{}' to iora-assist: {}",
+                    app.id,
+                    err
+                );
+            }
+        }
+    });
+}
+
+/// Remove an app's capabilities from iora-assist on uninstall (best-effort).
+fn spawn_remove_app_capabilities(state: AppState, app_id: String) {
+    tokio::spawn(async move {
+        let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+        let url = format!(
+            "{}/api/assist/apps/{}/capabilities",
+            base.trim_end_matches('/'),
+            app_id
+        );
+        if let Err(err) = state.http_client.delete(&url).send().await {
+            tracing::warn!(
+                "Failed to remove app capabilities for '{}' from iora-assist: {}",
+                app_id,
+                err
+            );
+        }
+    });
+}
+
 fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
     tokio::spawn(async move {
         for _ in 0..300 {
@@ -8992,6 +9064,10 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                     let Some(app) = installed.into_iter().find(|app| app.id == app_id) else {
                         return;
                     };
+                    // Push any declared assist tools / exposed services to
+                    // iora-assist so the agent can discover and call them. This
+                    // runs for every app type (not just Docker apps).
+                    spawn_push_app_capabilities(state.clone(), app.clone());
                     if app.docker_config.is_none() && app.bundle_config.is_none() {
                         let _ = state.local_appstore.set_status(&app_id, "stopped").await;
                         return;

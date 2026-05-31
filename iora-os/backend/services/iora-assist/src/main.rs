@@ -41,6 +41,7 @@ mod subagents;
 mod github;
 mod models_registry;
 mod pi_dev_controller;
+mod app_capability_registry;
 mod system_event_bus;
 mod system_guard;
 mod model_router;
@@ -74,6 +75,7 @@ use self_evolution::{
 use sandbox::SandboxManager;
 use agent_task_executor::AgentTaskExecutor;
 use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel};
+use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
 use system_event_bus::{SystemEventBus, SystemEvent};
 use system_guard::{SystemGuard, SystemState, LoopDetection, ProtectionRule};
 use model_router::{ModelRouter, RoutingDecision, TaskCategory, RouterConfig};
@@ -115,6 +117,7 @@ struct AppState {
     github_actions: Arc<GitHubActionExecutor>,
     models_registry: Option<Arc<models_registry::ModelsRegistry>>,
     pi_dev: Arc<PiDevController>,
+    app_capabilities: Arc<AppCapabilityRegistry>,
     event_bus: Arc<SystemEventBus>,
     guard: Arc<SystemGuard>,
     router: Arc<ModelRouter>,
@@ -4685,6 +4688,47 @@ async fn install_pidev_plugin(
     StatusCode::NOT_IMPLEMENTED
 }
 
+// ─── App Capability Registry Handlers ──────────────────────────────────────
+
+/// Register (or replace) the assist tools / exposed services an installed app
+/// provides. Called by iora-home on app install and on its own startup.
+async fn register_app_capabilities(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(mut caps): Json<AppCapabilities>,
+) -> impl IntoResponse {
+    // The path is the source of truth for the app id.
+    caps.app_id = app_id;
+    let (tools, services) = state.app_capabilities.register(caps).await;
+    info!(
+        "Registered app capabilities: {} tool(s), {} service(s)",
+        tools, services
+    );
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "registered": true, "tools": tools, "services": services })),
+    )
+}
+
+/// Remove all capabilities for an app. Called by iora-home on uninstall.
+async fn unregister_app_capabilities(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let removed = state.app_capabilities.unregister(&app_id).await;
+    (StatusCode::OK, Json(serde_json::json!({ "removed": removed })))
+}
+
+/// List all registered app capabilities, grouped by app.
+async fn list_app_capabilities(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.app_capabilities.list().await)
+}
+
+/// Flat list of every registered app-provided tool (for agent / UI discovery).
+async fn list_app_tools(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.app_capabilities.list_tools().await)
+}
+
 /// Unified system event stream – admin live log for all background activity
 async fn stream_system_events(
     State(state): State<AppState>,
@@ -5497,6 +5541,10 @@ async fn main() -> anyhow::Result<()> {
     let pi_dev = Arc::new(PiDevController::new(sandbox_base));
     info!("Pi.dev controller initialized");
 
+    // Registry for app-/plugin-provided assist tools and exposed RPC services.
+    let app_capabilities = Arc::new(AppCapabilityRegistry::new());
+    info!("App capability registry initialized");
+
     // Initialize system event bus
     let event_bus = Arc::new(SystemEventBus::new(4096));
     event_bus.system_event("startup", "IORA Assist system event bus initialized", "info");
@@ -5550,6 +5598,7 @@ async fn main() -> anyhow::Result<()> {
         github_actions,
         models_registry,
         pi_dev,
+        app_capabilities,
         event_bus,
         guard,
         router,
@@ -5736,6 +5785,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assist/pidev/sessions/:id/security", get(get_pidev_security_events))
         .route("/api/assist/pidev/plugins", get(list_pidev_plugins))
         .route("/api/assist/pidev/plugins/install", post(install_pidev_plugin))
+        // ─── App Capability Registry (app-provided assist tools & services) ───
+        .route("/api/assist/apps/:app_id/capabilities", post(register_app_capabilities).delete(unregister_app_capabilities))
+        .route("/api/assist/apps/capabilities", get(list_app_capabilities))
+        .route("/api/assist/tools", get(list_app_tools))
         // ─── System Event Stream (admin live log) ───
         .route("/api/assist/system/events", get(stream_system_events))
         // ─── System Guard – Protection & Control ───
