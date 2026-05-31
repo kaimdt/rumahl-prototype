@@ -124,6 +124,25 @@ interface ExtensionDef {
   placeholderKey: string
 }
 
+interface AppAssistIntegration {
+  id: string
+  name: string
+  version: string
+  developer?: string
+  description?: string
+  enabled: boolean
+  status?: string
+  assist?: {
+    enabled?: boolean
+    name?: string
+    description?: string
+    capabilities?: string[]
+    events?: string[]
+  }
+  permissions?: string[]
+  denied_permissions?: string[]
+}
+
 const BUILTIN_EXTENSIONS: ExtensionDef[] = [
   { id: 'search',     icon: MagnifyingGlass, endpoint: '/api/assist/tools/search',     placeholderKey: 'ai.extQueryPlaceholder' },
   { id: 'scrape',     icon: Globe,           endpoint: '/api/assist/tools/scrape',     placeholderKey: 'ai.extUrlPlaceholder' },
@@ -137,8 +156,27 @@ function ExtensionsPanel() {
   const [extResult, setExtResult] = useState<string | null>(null)
   const [extError, setExtError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
+  const [appIntegrations, setAppIntegrations] = useState<AppAssistIntegration[]>([])
+  const [loadingApps, setLoadingApps] = useState(false)
 
   const current = BUILTIN_EXTENSIONS.find(e => e.id === activeExt) ?? BUILTIN_EXTENSIONS[0]
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingApps(true)
+    fetch(`${getBackendUrl() || ''}/api/apps/assist/integrations`)
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+      .then((data: { integrations?: AppAssistIntegration[] }) => {
+        if (!cancelled) setAppIntegrations(data.integrations ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setAppIntegrations([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingApps(false)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const run = useCallback(async () => {
     const value = extInput.trim()
@@ -176,6 +214,45 @@ function ExtensionsPanel() {
       <div className="flex items-center gap-1.5">
         <Plugs size={14} className="text-foreground/60" />
         <p className="text-[11px] uppercase tracking-wide text-foreground/60">{t('ai.extensions')}</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold text-foreground/70">App-Integrationen</p>
+          {loadingApps && <Spinner size={12} className="animate-spin text-foreground/40" />}
+        </div>
+        {appIntegrations.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {appIntegrations.map(app => (
+              <div key={app.id} className="rounded-lg border border-foreground/10 bg-foreground/5 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <Robot size={16} className={app.enabled ? 'text-accent mt-0.5' : 'text-foreground/35 mt-0.5'} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-xs font-semibold text-foreground truncate">{app.assist?.name || app.name}</p>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${app.enabled ? 'bg-green-500/10 text-green-300' : 'bg-foreground/10 text-foreground/45'}`}>
+                        {app.enabled ? 'aktiv' : 'inaktiv'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-foreground/45 truncate">{app.developer || app.id} · {app.version}</p>
+                  </div>
+                </div>
+                {(app.assist?.description || app.description) && (
+                  <p className="text-[10px] text-foreground/60 leading-snug line-clamp-2">{app.assist?.description || app.description}</p>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {(app.assist?.capabilities || app.permissions || []).slice(0, 5).map(capability => (
+                    <span key={capability} className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                      {capability}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-foreground/40">Noch keine App hat Assist-Capabilities registriert.</p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">

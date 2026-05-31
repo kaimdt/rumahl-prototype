@@ -66,6 +66,13 @@ interface CustomPage {
   iframe?: boolean
 }
 
+interface AppIntegrationInfo {
+  id: string
+  surfaces?: string[]
+  integrations?: unknown[]
+  granted_permissions?: string[]
+}
+
 interface AppManifest {
   id: string
   name: string
@@ -96,6 +103,7 @@ export function AppStoreTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [integrations, setIntegrations] = useState<AppIntegrationInfo[]>([])
   // App detail dialog
   const [detailAppId, setDetailAppId] = useState<string | null>(null)
   // On OS-dev images the Developer App may replace/delete *any* app,
@@ -180,6 +188,13 @@ export function AppStoreTab({ token }: { token: string }) {
           system: true,
           ports: [{ internal: 8177, external: 8177, protocol: 'tcp' }],
         }]
+      }
+
+      try {
+        const integrationData = await adminFetch('/api/apps/integrations', token) as { integrations?: AppIntegrationInfo[] }
+        setIntegrations(integrationData.integrations || [])
+      } catch {
+        setIntegrations([])
       }
 
       setApps(appList)
@@ -269,7 +284,7 @@ export function AppStoreTab({ token }: { token: string }) {
           ) : error ? (
             <ErrorMessage>{error}</ErrorMessage>
           ) : (
-            <InstalledAppsView apps={apps} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
+            <InstalledAppsView apps={apps} integrations={integrations} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
           )}
         </>
       )}
@@ -299,6 +314,7 @@ export function AppStoreTab({ token }: { token: string }) {
 
 function InstalledAppsView({
   apps,
+  integrations,
   token,
   onReload,
   getTrustBadge,
@@ -306,6 +322,7 @@ function InstalledAppsView({
   onAppClick,
 }: {
   apps: AppInfo[]
+  integrations: AppIntegrationInfo[]
   token: string
   onReload: () => void
   getTrustBadge: (level: string) => React.ReactNode
@@ -313,6 +330,7 @@ function InstalledAppsView({
   onAppClick: (appId: string) => void
 }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const integrationsByApp = new Map(integrations.map(integration => [integration.id, integration]))
 
   const startApp = async (appId: string) => {
     setActionLoading(`start-${appId}`)
@@ -413,6 +431,10 @@ function InstalledAppsView({
       ) : (
         <div className="grid grid-cols-1 gap-2">
           {apps.map((app) => (
+            (() => {
+              const integration = integrationsByApp.get(app.id)
+              const surfaces = integration?.surfaces || []
+              return (
             <div
               key={app.id}
               className="glass-card rounded-2xl p-4 hover:border-accent/20 transition-all cursor-pointer"
@@ -538,6 +560,11 @@ function InstalledAppsView({
                 {(app.custom_pages?.length ?? 0) > 0 && (
                   <span className="text-[10px] text-foreground/40 ml-auto">
                     {app.custom_pages!.length} Seite{(app.custom_pages!.length !== 1) ? 'n' : ''}
+                  </span>
+                )}
+                {surfaces.length > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" title={surfaces.join(', ')}>
+                    <Lightning size={11} weight="fill" /> {surfaces.length} Integration{surfaces.length !== 1 ? 'en' : ''}
                   </span>
                 )}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
@@ -675,6 +702,8 @@ function InstalledAppsView({
                 )}
               </div>
             </div>
+              )
+            })()
           ))}
         </div>
       )}

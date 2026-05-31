@@ -37,6 +37,7 @@ use utoipa_swagger_ui::SwaggerUi;
 mod app_database_handler;
 mod app_lifecycle;
 mod app_messaging_handler;
+mod app_runtime_handler;
 mod app_scheduler_handler;
 mod app_storage_handler;
 mod app_webhooks_handler;
@@ -2133,6 +2134,45 @@ async fn main() -> anyhow::Result<()> {
         // (like the Developer App) on demand when developer mode is toggled.
         .route("/api/local-store/register", post(local_store_register))
         // App custom pages — returns all custom_pages from installed and running apps.
+        .route(
+            "/api/apps/integrations",
+            get(app_runtime_handler::app_integrations),
+        )
+        .route(
+            "/api/apps/:app_id/capabilities",
+            get(app_runtime_handler::app_capabilities),
+        )
+        .route(
+            "/api/apps/:app_id/jobs",
+            get(app_runtime_handler::list_jobs).post(app_runtime_handler::run_job),
+        )
+        .route(
+            "/api/apps/:app_id/jobs/:job_id",
+            get(app_runtime_handler::get_job),
+        )
+        .route(
+            "/api/apps/:app_id/jobs/:job_id/cancel",
+            post(app_runtime_handler::cancel_job),
+        )
+        .route(
+            "/api/apps/:app_id/http",
+            post(app_runtime_handler::app_http_request),
+        )
+        .route(
+            "/api/apps/assist/integrations",
+            get(app_assist_integrations),
+        )
+        .route("/api/apps/:app_id/assist/context", get(app_assist_context))
+        .route("/api/apps/:app_id/assist/events", get(app_assist_events))
+        .route(
+            "/api/apps/:app_id/assist/tasks",
+            post(app_assist_create_task),
+        )
+        .route("/api/apps/:app_id/assist/chat", post(app_assist_chat))
+        .route(
+            "/api/apps/:app_id/assist/github/*path",
+            any(app_assist_github_proxy),
+        )
         .route("/api/apps/pages", get(app_pages_list))
         // Live App-Status (Docker-realer Container-State) als SSE-Stream.
         .route("/api/apps/status/stream", get(apps_status_stream))
@@ -6495,6 +6535,370 @@ async fn proxy_assist(
     forward_request_to(&state, &base, req).await
 }
 
+async fn app_assist_integrations(State(state): State<AppState>) -> Json<Value> {
+    let apps = state.local_appstore.list().await;
+    let integrations: Vec<Value> = apps
+        .into_iter()
+        .filter_map(|app| {
+            let assist = app
+                .manifest
+                .extra
+                .get("assist")
+                .cloned()
+                .unwrap_or(json!({}));
+            let assist_enabled = assist
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let granted: Vec<String> = app
+                .permission_grants
+                .iter()
+                .filter(|grant| grant.is_active)
+                .map(|grant| grant.permission.clone())
+                .collect();
+            let has_assist_grant = granted.iter().any(|permission| {
+                permission.starts_with("Assist") || permission.starts_with("GitHub")
+            });
+            if !assist_enabled && !has_assist_grant {
+                return None;
+            }
+            Some(json!({
+                "id": app.id,
+                "name": app.name,
+                "version": app.version,
+                "developer": app.developer,
+                "description": app.description,
+                "icon": app.icon,
+                "enabled": app.enabled,
+                "status": app.status,
+                "assist": assist,
+                "permissions": granted,
+                "denied_permissions": app.denied_permissions,
+            }))
+        })
+        .collect();
+
+    let total = integrations.len();
+    Json(json!({
+        "integrations": integrations,
+        "total": total,
+    }))
+}
+
+async fn app_assist_context(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistContextRead").await {
+        return err.into_response();
+    }
+    forward_request_to_assist_path(&state, req, "/api/assist/context".to_string(), None).await
+}
+
+async fn app_assist_events(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistEventsSubscribe").await {
+        return err.into_response();
+    }
+    forward_request_to_assist_path(
+        &state,
+        req,
+        "/api/assist/notifications/stream".to_string(),
+        None,
+    )
+    .await
+}
+
+async fn app_assist_create_task(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistTaskCreate").await {
+        return err.into_response();
+    }
+    let enriched = match enrich_app_assist_body(req.into_body(), &app_id, "agent_task").await {
+        Ok(bytes) => bytes,
+        Err(err) => return err.into_response(),
+    };
+    forward_body_to_assist_path(
+        &state,
+        reqwest::Method::POST,
+        "/api/assist/agent/tasks".to_string(),
+        enriched,
+    )
+    .await
+}
+
+async fn app_assist_chat(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistChat").await {
+        return err.into_response();
+    }
+    let enriched = match enrich_app_assist_body(req.into_body(), &app_id, "chat").await {
+        Ok(bytes) => bytes,
+        Err(err) => return err.into_response(),
+    };
+    forward_body_to_assist_path(
+        &state,
+        reqwest::Method::POST,
+        "/api/assist/chat".to_string(),
+        enriched,
+    )
+    .await
+}
+
+async fn app_assist_github_proxy(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let method = req.method().clone();
+    let permission = github_permission_for(&method, &path);
+    if let Err(err) = require_any_app_permission(&state, &app_id, &permission).await {
+        return err.into_response();
+    }
+    forward_request_to_assist_path(&state, req, format!("/api/assist/github/{path}"), None).await
+}
+
+async fn require_app_permission(
+    state: &AppState,
+    app_id: &str,
+    permission: &str,
+) -> Result<(), ErrorResponse> {
+    if state
+        .local_appstore
+        .has_permission(app_id, permission)
+        .await
+    {
+        Ok(())
+    } else {
+        Err(ErrorResponse::forbidden(format!(
+            "app '{}' requires permission '{}' for this Assist capability",
+            app_id, permission
+        )))
+    }
+}
+
+async fn require_any_app_permission(
+    state: &AppState,
+    app_id: &str,
+    permissions: &[&str],
+) -> Result<(), ErrorResponse> {
+    for permission in permissions {
+        if state
+            .local_appstore
+            .has_permission(app_id, permission)
+            .await
+        {
+            return Ok(());
+        }
+    }
+    Err(ErrorResponse::forbidden(format!(
+        "app '{}' requires one of these permissions: {}",
+        app_id,
+        permissions.join(", ")
+    )))
+}
+
+fn github_permission_for<'a>(method: &axum::http::Method, path: &str) -> Vec<&'a str> {
+    let is_read = matches!(
+        *method,
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    );
+    if is_read && path.contains("/pulls") {
+        return vec!["GitHubPullRequestRead", "GitHubRead"];
+    }
+    if is_read {
+        return vec!["GitHubRead"];
+    }
+    if path.contains("/pulls") && path.contains("/comment") {
+        return vec!["GitHubPullRequestComment", "GitHubWrite"];
+    }
+    if path.contains("/workflows") {
+        return vec!["GitHubWorkflowTrigger", "GitHubWrite"];
+    }
+    vec!["GitHubWrite"]
+}
+
+async fn enrich_app_assist_body(
+    body: axum::body::Body,
+    app_id: &str,
+    capability: &str,
+) -> Result<Vec<u8>, ErrorResponse> {
+    let body_bytes = axum::body::to_bytes(body, 2 * 1024 * 1024)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("Failed to read app Assist body: {e}")))?;
+    let mut payload = if body_bytes.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_slice::<Value>(&body_bytes).map_err(|e| {
+            ErrorResponse::bad_request(format!("App Assist request body must be JSON: {e}"))
+        })?
+    };
+    if !payload.is_object() {
+        payload = json!({ "payload": payload });
+    }
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "origin".to_string(),
+            json!({
+                "kind": "app",
+                "app_id": app_id,
+                "capability": capability,
+                "via": "iora-home-app-assist-bridge",
+            }),
+        );
+    }
+    serde_json::to_vec(&payload)
+        .map_err(|e| ErrorResponse::internal(format!("Failed to encode app Assist body: {e}")))
+}
+
+async fn forward_body_to_assist_path(
+    state: &AppState,
+    method: reqwest::Method,
+    target_path: String,
+    body: Vec<u8>,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+    let url = format!("{}{}", base.trim_end_matches('/'), target_path);
+    forward_reqwest_request(
+        state,
+        method,
+        &url,
+        reqwest::header::HeaderMap::new(),
+        body,
+        &base,
+    )
+    .await
+}
+
+async fn forward_request_to_assist_path(
+    state: &AppState,
+    req: axum::extract::Request,
+    target_path: String,
+    body_override: Option<Vec<u8>>,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+    let method = req.method().clone();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+    let mut header_map = reqwest::header::HeaderMap::new();
+    for (name, value) in req.headers().iter() {
+        let n = name.as_str().to_ascii_lowercase();
+        if matches!(
+            n.as_str(),
+            "host" | "content-length" | "connection" | "transfer-encoding" | "upgrade"
+        ) {
+            continue;
+        }
+        if let (Ok(rname), Ok(rvalue)) = (
+            reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+            reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            header_map.append(rname, rvalue);
+        }
+    }
+    let body = match body_override {
+        Some(bytes) => bytes,
+        None => match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+            Ok(bytes) => bytes.to_vec(),
+            Err(e) => {
+                return ErrorResponse::bad_request(format!("Failed to read body: {e}"))
+                    .into_response();
+            }
+        },
+    };
+    let method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
+        Ok(method) => method,
+        Err(_) => return (StatusCode::METHOD_NOT_ALLOWED, "method").into_response(),
+    };
+    let url = format!("{}{}{}", base.trim_end_matches('/'), target_path, query);
+    forward_reqwest_request(state, method, &url, header_map, body, &base).await
+}
+
+async fn forward_reqwest_request(
+    state: &AppState,
+    method: reqwest::Method,
+    url: &str,
+    headers: reqwest::header::HeaderMap,
+    body: Vec<u8>,
+    upstream_label: &str,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use futures_util::TryStreamExt;
+
+    let upstream = state
+        .http_client
+        .request(method, url)
+        .headers(headers)
+        .body(body)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await;
+
+    match upstream {
+        Ok(resp) => {
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut builder = axum::http::Response::builder().status(status);
+            let is_event_stream = resp
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.to_ascii_lowercase().contains("text/event-stream"))
+                .unwrap_or(false);
+            for (name, value) in resp.headers().iter() {
+                let n = name.as_str().to_ascii_lowercase();
+                if matches!(
+                    n.as_str(),
+                    "connection"
+                        | "transfer-encoding"
+                        | "content-length"
+                        | "content-encoding"
+                        | "upgrade"
+                        | "trailer"
+                ) {
+                    continue;
+                }
+                if let (Ok(hn), Ok(hv)) = (
+                    axum::http::HeaderName::from_bytes(name.as_str().as_bytes()),
+                    axum::http::HeaderValue::from_bytes(value.as_bytes()),
+                ) {
+                    builder = builder.header(hn, hv);
+                }
+            }
+            if is_event_stream {
+                let stream = resp.bytes_stream().map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Assist stream error: {e}"))
+                });
+                return builder.body(Body::from_stream(stream)).unwrap_or_else(|_| {
+                    (StatusCode::BAD_GATEWAY, "proxy stream build failed").into_response()
+                });
+            }
+            let bytes = resp.bytes().await.unwrap_or_default();
+            builder
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| (StatusCode::BAD_GATEWAY, "proxy build failed").into_response())
+        }
+        Err(e) => ErrorResponse::service_unavailable(format!(
+            "Upstream Assist service not reachable at {}: {}",
+            upstream_label, e
+        ))
+        .into_response(),
+    }
+}
+
 async fn proxy_watchdog(
     State(state): State<AppState>,
     req: axum::extract::Request,
@@ -6651,7 +7055,7 @@ async fn local_appstore_app_enable(
     {
         if !app.denied_permissions.is_empty() {
             return Err(ErrorResponse::forbidden(format!(
-                "app '{}' kann nicht aktiviert werden, weil Berechtigungen nicht gewährt wurden: {}",
+                "app '{}' cannot be enabled because permissions were not granted: {}",
                 app_id,
                 app.denied_permissions.join(", ")
             )));
@@ -7161,7 +7565,7 @@ async fn supervisor_apps_start(
 
     if !app_meta.denied_permissions.is_empty() {
         return Err(ErrorResponse::forbidden(format!(
-            "app '{}' kann nicht gestartet werden, weil Berechtigungen nicht gewährt wurden: {}",
+            "app '{}' cannot be started because permissions were not granted: {}",
             app_id,
             app_meta.denied_permissions.join(", ")
         )));

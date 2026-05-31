@@ -5,6 +5,7 @@
 //! and custom page creation.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::{
@@ -120,6 +121,11 @@ pub struct AppManifest {
     /// The theme will be available for users to select in the Settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<crate::theme::ThemeDefinition>,
+
+    /// Forward-compatible extension metadata for capabilities that are not yet
+    /// represented by a dedicated typed manifest field.
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

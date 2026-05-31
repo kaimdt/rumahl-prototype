@@ -967,7 +967,7 @@ impl LocalAppStore {
                 .map(|issue| format!("{}: {}", issue.field, issue.message))
                 .collect();
             let _ = tokio::fs::remove_dir_all(&staging_dir).await;
-            return Err(anyhow!("manifest.json ungültig: {}", errors.join("; ")));
+            return Err(anyhow!("manifest.json is invalid: {}", errors.join("; ")));
         }
 
         for warning in validation
@@ -1021,7 +1021,7 @@ impl LocalAppStore {
             if !options.replace_existing {
                 let _ = tokio::fs::remove_dir_all(&staging_dir).await;
                 return Err(anyhow!(
-                    "App '{}' ist bereits installiert. Sende replace_existing=true, um sie bewusst zu ersetzen.",
+                    "App '{}' is already installed. Send replace_existing=true to replace it explicitly.",
                     manifest.id
                 ));
             }
@@ -1031,7 +1031,7 @@ impl LocalAppStore {
             ) {
                 let _ = tokio::fs::remove_dir_all(&staging_dir).await;
                 return Err(anyhow!(
-                    "App '{}' ist aktuell im Status '{}'. Stoppe sie vor dem Ersetzen.",
+                    "App '{}' is currently in status '{}'. Stop it before replacing it.",
                     manifest.id,
                     existing.status
                 ));
@@ -1079,12 +1079,12 @@ impl LocalAppStore {
         let app_dir = self.base_dir.join(&app.id);
         if app_dir.exists() {
             tokio::fs::remove_dir_all(&app_dir).await.with_context(|| {
-                format!("ersetze vorhandenes App-Verzeichnis {}", app_dir.display())
+                format!("replacing existing app directory {}", app_dir.display())
             })?;
         }
         tokio::fs::rename(&staging_dir, &app_dir)
             .await
-            .with_context(|| format!("verschiebe App aus Staging nach {}", app_dir.display()))?;
+            .with_context(|| format!("moving app from staging to {}", app_dir.display()))?;
 
         // Persist manifest.json next to the extracted files (not strictly
         // necessary because we already keep it in the index, but useful
@@ -1105,7 +1105,7 @@ impl LocalAppStore {
                 timestamp: now_iso(),
                 level: "INFO".to_string(),
                 message: format!(
-                    "Installiert mit {} gewährten und {} abgelehnten Berechtigungen.",
+                    "Installed with {} granted and {} denied permissions.",
                     app.permission_grants.len(),
                     app.denied_permissions.len()
                 ),
@@ -1233,17 +1233,55 @@ fn permission_risk_level(permission: &str) -> &'static str {
         | "AppStorageManage"
         | "AppDatabaseManage"
         | "WebhookManage"
-        | "ThemeManage" => "critical",
-        "CreateEntities" | "DeleteEntities" | "StorageDelete" | "NetworkOutbound"
-        | "NetworkInbound" | "NetworkLocalAccess" | "DatabaseCreate" | "DatabaseDelete"
-        | "FileSystemExecute" | "InstallPlugins" | "UninstallPlugins" | "CameraAccess"
-        | "MicrophoneAccess" | "LocationPrecise" | "NetworkScan" | "FileShareWrite"
-        | "FileShareDelete" | "AppStorageDelete" | "AppScheduleDelete" | "WebhookDelete"
-        | "AppDatabaseSqlite" | "MessagingWildcard" | "NetworkAccess" => "high",
-        "ReadEntities" | "StorageRead" | "SystemInfo" | "DatabaseRead" | "ReadNotifications"
-        | "FileSystemRead" | "ReadUserData" | "MediaAccess" | "FileShareRead"
-        | "AppStorageRead" | "AppScheduleRead" | "WebhookRead" | "ThemeSelect" | "ReadCache"
-        | "ReadSystemInfo" => "low",
+        | "AppQueueManage"
+        | "ThemeManage"
+        | "AssistTaskManage"
+        | "GitHubWrite" => "critical",
+        "CreateEntities"
+        | "DeleteEntities"
+        | "StorageDelete"
+        | "NetworkOutbound"
+        | "NetworkInbound"
+        | "NetworkLocalAccess"
+        | "DatabaseCreate"
+        | "DatabaseDelete"
+        | "FileSystemExecute"
+        | "InstallPlugins"
+        | "UninstallPlugins"
+        | "CameraAccess"
+        | "MicrophoneAccess"
+        | "LocationPrecise"
+        | "NetworkScan"
+        | "FileShareWrite"
+        | "FileShareDelete"
+        | "AppStorageDelete"
+        | "AppScheduleDelete"
+        | "WebhookDelete"
+        | "AppDatabaseSqlite"
+        | "MessagingWildcard"
+        | "NetworkAccess"
+        | "ExternalHttpRequest"
+        | "GitHubPullRequestComment"
+        | "GitHubWorkflowTrigger" => "high",
+        "ReadEntities"
+        | "StorageRead"
+        | "SystemInfo"
+        | "DatabaseRead"
+        | "ReadNotifications"
+        | "FileSystemRead"
+        | "ReadUserData"
+        | "MediaAccess"
+        | "FileShareRead"
+        | "AppStorageRead"
+        | "AppScheduleRead"
+        | "WebhookRead"
+        | "ThemeSelect"
+        | "ReadCache"
+        | "ReadSystemInfo"
+        | "AssistContextRead"
+        | "AssistEventsSubscribe"
+        | "GitHubRead"
+        | "GitHubPullRequestRead" => "low",
         _ => "medium",
     }
 }

@@ -128,6 +128,11 @@ pub enum Permission {
     WebhookDelete,
     WebhookManage,
 
+    // Generic app runtime permissions
+    AppActionExecute,
+    AppQueueManage,
+    ExternalHttpRequest,
+
     // Theme permissions
     /// Install custom themes from app/plugin manifests
     ThemeInstall,
@@ -135,6 +140,21 @@ pub enum Permission {
     ThemeManage,
     /// Select and apply themes per user
     ThemeSelect,
+
+    // Assist integration permissions
+    AssistContextRead,
+    AssistEventsSubscribe,
+    AssistChat,
+    AssistTaskCreate,
+    AssistTaskManage,
+    AssistToolExecute,
+
+    // GitHub integration permissions via IORA Assist
+    GitHubRead,
+    GitHubWrite,
+    GitHubPullRequestRead,
+    GitHubPullRequestComment,
+    GitHubWorkflowTrigger,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -439,11 +459,25 @@ impl Permission {
             Permission::WebhookUpdate => "Aktualisieren von Webhook-Endpunkten",
             Permission::WebhookDelete => "Löschen von Webhook-Endpunkten",
             Permission::WebhookManage => "Verwaltung aller Webhooks (Admin)",
+            Permission::AppActionExecute => "App-Aktionen im Auftrag eines Benutzers ausführen",
+            Permission::AppQueueManage => "App-Laufzeitjobs und Warteschlangen verwalten",
+            Permission::ExternalHttpRequest => "Externe HTTP- und API-Anfragen ausführen",
             Permission::ThemeInstall => "Installieren von Themes aus App-/Plugin-Manifesten",
             Permission::ThemeManage => {
                 "Verwalten installierter Themes (aktivieren/deaktivieren/deinstallieren)"
             }
             Permission::ThemeSelect => "Auswählen und Anwenden von Themes pro Benutzer",
+            Permission::AssistContextRead => "IORA Assist Kontext lesen",
+            Permission::AssistEventsSubscribe => "IORA Assist Ereignisse abonnieren",
+            Permission::AssistChat => "Nachrichten an IORA Assist senden",
+            Permission::AssistTaskCreate => "IORA Assist Agent-Aufgaben erstellen",
+            Permission::AssistTaskManage => "IORA Assist Agent-Aufgaben verwalten",
+            Permission::AssistToolExecute => "IORA Assist Tools ausführen",
+            Permission::GitHubRead => "GitHub-Daten über IORA Assist lesen",
+            Permission::GitHubWrite => "GitHub-Daten über IORA Assist schreiben",
+            Permission::GitHubPullRequestRead => "GitHub Pull Requests über IORA Assist lesen",
+            Permission::GitHubPullRequestComment => "GitHub Pull Requests kommentieren",
+            Permission::GitHubWorkflowTrigger => "GitHub Workflows starten",
         }
     }
 
@@ -461,7 +495,11 @@ impl Permission {
             | Permission::FileShareRead
             | Permission::AppStorageRead
             | Permission::AppScheduleRead
-            | Permission::WebhookRead => RiskLevel::Low,
+            | Permission::WebhookRead
+            | Permission::AssistContextRead
+            | Permission::AssistEventsSubscribe
+            | Permission::GitHubRead
+            | Permission::GitHubPullRequestRead => RiskLevel::Low,
 
             Permission::ControlEntities
             | Permission::StorageWrite
@@ -484,7 +522,11 @@ impl Permission {
             | Permission::MessagingSubscribe
             | Permission::MessagingDirect
             | Permission::WebhookCreate
-            | Permission::WebhookUpdate => RiskLevel::Medium,
+            | Permission::WebhookUpdate
+            | Permission::AppActionExecute
+            | Permission::AssistChat
+            | Permission::AssistTaskCreate
+            | Permission::AssistToolExecute => RiskLevel::Medium,
             Permission::ThemeSelect => RiskLevel::Low,
             Permission::ThemeInstall => RiskLevel::Medium,
 
@@ -509,7 +551,10 @@ impl Permission {
             | Permission::AppScheduleDelete
             | Permission::WebhookDelete
             | Permission::AppDatabaseSqlite
-            | Permission::MessagingWildcard => RiskLevel::High,
+            | Permission::MessagingWildcard
+            | Permission::ExternalHttpRequest
+            | Permission::GitHubPullRequestComment
+            | Permission::GitHubWorkflowTrigger => RiskLevel::High,
 
             Permission::SystemControl
             | Permission::SystemRestart
@@ -528,7 +573,10 @@ impl Permission {
             | Permission::AppStorageManage
             | Permission::AppDatabaseManage
             | Permission::WebhookManage
-            | Permission::ThemeManage => RiskLevel::Critical,
+            | Permission::AppQueueManage
+            | Permission::ThemeManage
+            | Permission::AssistTaskManage
+            | Permission::GitHubWrite => RiskLevel::Critical,
         }
     }
 
@@ -554,7 +602,16 @@ impl Permission {
             Permission::MessagingPublish |
             Permission::MessagingSubscribe |
             Permission::WebhookCreate |
-            Permission::WebhookRead
+            Permission::WebhookRead |
+            Permission::AppActionExecute |
+            Permission::ExternalHttpRequest |
+            Permission::AssistContextRead |
+            Permission::AssistEventsSubscribe |
+            Permission::AssistChat |
+            Permission::AssistTaskCreate |
+            Permission::AssistToolExecute |
+            Permission::GitHubRead |
+            Permission::GitHubPullRequestRead
         ) || matches!(self, Permission::ThemeInstall | Permission::ThemeSelect)
     }
 
@@ -589,7 +646,16 @@ impl Permission {
             Permission::AppDatabaseManage |
             Permission::MessagingWildcard |
             Permission::WebhookManage |
-            Permission::ThemeManage
+            Permission::AppQueueManage |
+            Permission::ExternalHttpRequest |
+            Permission::ThemeManage |
+            Permission::AssistChat |
+            Permission::AssistTaskCreate |
+            Permission::AssistTaskManage |
+            Permission::AssistToolExecute |
+            Permission::GitHubWrite |
+            Permission::GitHubPullRequestComment |
+            Permission::GitHubWorkflowTrigger
         )
     }
 
