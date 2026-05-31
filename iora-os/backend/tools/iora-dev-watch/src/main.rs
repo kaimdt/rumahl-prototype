@@ -42,7 +42,7 @@ use std::{
     sync::{atomic::{AtomicBool, Ordering}, Arc},
     time::{Duration, Instant},
 };
-use tokio::{process::Command as TokioCommand, sync::mpsc, time::interval};
+use tokio::{process::Command as TokioCommand, sync::{mpsc, oneshot}, time::interval};
 
 /// Spawn a TokioCommand configured for headless background use:
 /// stdin pinned to NUL so the child never competes with our input thread for
@@ -782,6 +782,7 @@ printf '%s' "$out"
 #[derive(Debug, Clone)]
 enum AppEvent {
     Log(String),
+    ServiceLog { service: String, line: String },
     BuildComplete,
     VmReachable(bool),
     ServiceCount(usize),
@@ -797,7 +798,7 @@ enum AppEvent {
 // ═══ App state ═══════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, PartialEq)]
-enum View { Logs, Status, Journal, Commands, Resources, Deploy }
+enum View { Logs, Status, ServiceLog, Journal, Commands, Resources, Deploy }
 
 #[derive(Debug, Clone)]
 enum Mode {
@@ -836,8 +837,12 @@ struct AppState {
     mode: Mode,
     show_help: bool,
     log_buf: VecDeque<String>,
+    service_log_buf: VecDeque<String>,
+    service_log_service: Option<String>,
+    service_log_stop: Option<oneshot::Sender<()>>,
     command_log: VecDeque<String>,
     log_scroll: usize,
+    service_log_scroll: usize,
 
     // Resources
     resource_data: ResourceData,
@@ -870,8 +875,12 @@ impl AppState {
             last_auto_build_trigger: None,
             view: View::Logs, mode: Mode::Normal, show_help: false,
             log_buf: VecDeque::with_capacity(LOG_BUFFER_CAP),
+            service_log_buf: VecDeque::with_capacity(LOG_BUFFER_CAP),
+            service_log_service: None,
+            service_log_stop: None,
             command_log: VecDeque::with_capacity(CMD_LOG_CAP),
             log_scroll: 0,
+            service_log_scroll: 0,
             resource_data: ResourceData::default(),
             resource_history: ResourceHistory::new(60),
             deploy_cursor: 0,
@@ -897,6 +906,20 @@ impl AppState {
             self.log_buf.push_back(sanitized);
         }
         self.dirty = true;
+    }
+
+    fn push_service_log(&mut self, line: impl Into<String>) {
+        for sanitized in sanitize_log(&line.into()) {
+            if self.service_log_buf.len() >= LOG_BUFFER_CAP { self.service_log_buf.pop_front(); }
+            self.service_log_buf.push_back(sanitized);
+        }
+        self.dirty = true;
+    }
+
+    fn stop_service_log(&mut self) {
+        if let Some(stop) = self.service_log_stop.take() {
+            let _ = stop.send(());
+        }
     }
 
     fn push_cmd_log(&mut self, line: impl Into<String>) {
@@ -1229,24 +1252,65 @@ fn spawn_journal_one(state: &AppState, svc: &str, tx: mpsc::UnboundedSender<AppE
     });
 }
 
-fn spawn_service_detail(state: &AppState, svc: &str, tx: mpsc::UnboundedSender<AppEvent>) {
+fn spawn_service_live_log(state: &mut AppState, svc: String, tx: mpsc::UnboundedSender<AppEvent>) {
+    state.stop_service_log();
+    state.service_log_buf.clear();
+    state.service_log_scroll = 0;
+    state.service_log_service = Some(svc.clone());
+    state.view = View::ServiceLog;
+    state.push_service_log(format!("[LIVE] {svc} — connecting..."));
+
     let backend = state.backend.clone();
-    let svc = svc.to_string();
+    let (stop_tx, mut stop_rx) = oneshot::channel();
+    state.service_log_stop = Some(stop_tx);
+
     tokio::spawn(async move {
-        let _ = tx.send(AppEvent::Log(format!("── {} ──", svc)));
-        // Status + active time
-        let cmd = format!(
-            "echo 'Status:' $(systemctl is-active {svc} 2>/dev/null || echo unknown); \
-             echo 'Since:' $(systemctl show {svc} -p ActiveEnterTimestamp --value 2>/dev/null | cut -d' ' -f2-); \
-             echo 'Memory:' $(systemctl show {svc} -p MemoryCurrent --value 2>/dev/null || echo 'N/A'); \
-             echo 'PID:' $(systemctl show {svc} -p MainPID --value 2>/dev/null || echo 'N/A'); \
-             echo 'Binary:' $(test -f /usr/bin/{svc} && echo /usr/bin/{svc} || echo 'not installed'); \
-             echo '--- last 10 log lines ---'; \
-             journalctl -u {svc} --no-pager -n 10 2>/dev/null || echo '(no log)'"
-        );
-        if let Ok(out) = backend.ssh_exec(&cmd).await {
-            for line in out.lines() {
-                let _ = tx.send(AppEvent::Log(format!("  {}", line)));
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let mut args = backend.ssh_args();
+        args.push(format!(
+            "journalctl -u {svc} --no-pager -n 80 -f 2>&1 || echo '(no journal for {svc})'"
+        ));
+
+        let mut child = match bg_cmd("ssh")
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = tx.send(AppEvent::ServiceLog { service: svc, line: format!("[LIVE] spawn failed: {e}") });
+                return;
+            }
+        };
+
+        let Some(stdout) = child.stdout.take() else {
+            let _ = tx.send(AppEvent::ServiceLog { service: svc.clone(), line: "[LIVE] stdout unavailable".into() });
+            let _ = child.kill().await;
+            return;
+        };
+        let mut lines = BufReader::new(stdout).lines();
+        let _ = tx.send(AppEvent::ServiceLog { service: svc.clone(), line: "[LIVE] connected".into() });
+
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => {
+                    let _ = child.kill().await;
+                    break;
+                }
+                line = lines.next_line() => {
+                    match line {
+                        Ok(Some(line)) => {
+                            let _ = tx.send(AppEvent::ServiceLog { service: svc.clone(), line });
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::ServiceLog { service: svc.clone(), line: format!("[LIVE] read failed: {e}") });
+                            break;
+                        }
+                    }
+                }
             }
         }
     });
@@ -1280,13 +1344,6 @@ fn spawn_restart(state: &AppState, svc: String, tx: mpsc::UnboundedSender<AppEve
 
 fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<AppEvent>) {
     state.dirty = true;
-
-    // Universal diagnostic for Enter key
-    if key.code == KeyCode::Enter {
-        let mode_str = match &state.mode { Mode::Normal => "Normal", Mode::Command{..} => "Command", Mode::BuildMenu{..} => "BuildMenu", Mode::BuildSelect{..} => "BuildSelect", Mode::DeploySelect{..} => "DeploySelect" };
-        let view_str = match &state.view { View::Logs => "Logs", View::Status => "Status", View::Journal => "Journal", View::Commands => "Commands", View::Resources => "Resources", View::Deploy => "Deploy" };
-        state.push_log(format!("[KEY] Enter | mode={mode_str} view={view_str} cursor={}", state.status_cursor));
-    }
 
     // Ctrl-C always quits
     if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
@@ -1414,7 +1471,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Tab => {
             state.view = match state.view {
                 View::Logs => View::Status,
-                View::Status => View::Journal,
+                View::Status => View::ServiceLog,
+                View::ServiceLog => View::Journal,
                 View::Journal => View::Commands,
                 View::Commands => View::Resources,
                 View::Resources => View::Deploy,
@@ -1432,7 +1490,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             state.view = match state.view {
                 View::Logs => View::Deploy,
                 View::Status => View::Logs,
-                View::Journal => View::Status,
+                View::ServiceLog => View::Status,
+                View::Journal => View::ServiceLog,
                 View::Commands => View::Journal,
                 View::Resources => View::Commands,
                 View::Deploy => View::Resources,
@@ -1476,7 +1535,12 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         }
         KeyCode::Enter if state.view == View::Status => {
             if let Some(svc) = selected_status_service(state) {
-                spawn_service_detail(state, &svc, tx.clone());
+                spawn_service_live_log(state, svc, tx.clone());
+            } else {
+                state.service_log_buf.clear();
+                state.service_log_service = None;
+                state.view = View::ServiceLog;
+                state.push_service_log("[LIVE] No service selected");
             }
             return;
         }
@@ -1511,6 +1575,27 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             let row = selected_status_row(state).saturating_add(1);
             set_status_cursor(state, row);
             return;
+        }
+        KeyCode::Up if state.view == View::ServiceLog => {
+            state.service_log_scroll = state.service_log_scroll.saturating_add(1); return;
+        }
+        KeyCode::Down if state.view == View::ServiceLog => {
+            state.service_log_scroll = state.service_log_scroll.saturating_sub(1); return;
+        }
+        KeyCode::PageUp if state.view == View::ServiceLog => {
+            state.service_log_scroll = state.service_log_scroll.saturating_add(10); return;
+        }
+        KeyCode::PageDown if state.view == View::ServiceLog => {
+            state.service_log_scroll = state.service_log_scroll.saturating_sub(10); return;
+        }
+        KeyCode::Home if state.view == View::ServiceLog => {
+            state.service_log_scroll = state.service_log_buf.len().saturating_sub(1); return;
+        }
+        KeyCode::End if state.view == View::ServiceLog => {
+            state.service_log_scroll = 0; return;
+        }
+        KeyCode::Char('0') if state.view == View::ServiceLog => {
+            state.service_log_scroll = 0; return;
         }
         KeyCode::Up => state.log_scroll = state.log_scroll.saturating_add(1),
         KeyCode::Down => state.log_scroll = state.log_scroll.saturating_sub(1),
@@ -1635,6 +1720,7 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
     match state.view {
         View::Logs => render_logs(f, chunks[2], state),
         View::Status => render_status(f, chunks[2], state),
+        View::ServiceLog => render_service_log(f, chunks[2], state),
         View::Journal => render_journal(f, chunks[2], state),
         View::Commands => render_commands(f, chunks[2], state),
         View::Resources => render_resources(f, chunks[2], state),
@@ -1701,10 +1787,10 @@ fn render_header(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
 }
 
 fn render_tabs(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
-    let titles = vec!["Logs", "Status", "Journal", "Commands", "Resources", "Deploy"];
+    let titles = vec!["Logs", "Status", "Service Log", "Journal", "Commands", "Resources", "Deploy"];
     let idx = match s.view {
-        View::Logs => 0, View::Status => 1, View::Journal => 2,
-        View::Commands => 3, View::Resources => 4, View::Deploy => 5,
+        View::Logs => 0, View::Status => 1, View::ServiceLog => 2, View::Journal => 3,
+        View::Commands => 4, View::Resources => 5, View::Deploy => 6,
     };
     let tabs = Tabs::new(titles)
         .select(idx)
@@ -1862,6 +1948,29 @@ fn render_journal(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let block = Block::default().borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Journal ");
+    f.render_widget(List::new(items).block(block), area);
+}
+
+fn render_service_log(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
+    let h = area.height.saturating_sub(2) as usize;
+    let total = s.service_log_buf.len();
+    let scroll = s.service_log_scroll.min(total.saturating_sub(1));
+    let end = total.saturating_sub(scroll);
+    let start = end.saturating_sub(h);
+    let items: Vec<ListItem> = s.service_log_buf.iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .map(|l| ListItem::new(Line::styled(l.as_str(), log_style(l))))
+        .collect();
+    let service = s.service_log_service.as_deref().unwrap_or("no service selected");
+    let title = if total > h {
+        format!(" Live Service Log: {service} [{}..{} / {}] ", start + 1, end, total)
+    } else {
+        format!(" Live Service Log: {service} ")
+    };
+    let block = Block::default().borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(title);
     f.render_widget(List::new(items).block(block), area);
 }
 
@@ -2095,7 +2204,7 @@ fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         Line::from("  E          Deploy tab (multi-select)"),
         Line::from("  C          Check VM"),
         Line::from("  S          Status view + refresh"),
-        Line::from("  ↑↓ Status  Select service   Enter   Detail view"),
+        Line::from("  ↑↓ Status  Select service   Enter   Live service log"),
         Line::from("  L Status   Journal for selected service"),
         Line::from("  J          Journal (iora-home log)"),
         Line::from("  H          Health probe (API + disk)"),
@@ -2418,6 +2527,7 @@ async fn main() -> Result<()> {
     }
 
     // Cleanup
+    state.stop_service_log();
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -2429,6 +2539,11 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
     state.dirty = true;
     match ev {
         AppEvent::Log(line) => state.push_log(line),
+        AppEvent::ServiceLog { service, line } => {
+            if state.service_log_service.as_deref() == Some(service.as_str()) {
+                state.push_service_log(line);
+            }
+        }
         AppEvent::BuildComplete => {
             let dur = state.build_start.map(|t| t.elapsed().as_secs()).unwrap_or(0);
             state.building = false;

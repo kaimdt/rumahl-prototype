@@ -97,8 +97,21 @@ Before executing destructive commands or making deep architectural changes, the 
 11. NEVER CHANGE TYPES OR INTERFACES WITHOUT PERMISSION: Do NOT modify type definitions, database schemas, API contracts, or shared interfaces without explicit user approval. Such changes can have unforeseen downstream effects across the entire system.
 12. PRESERVE COMMENTS & DOCUMENTATION: NEVER remove, shorten, or rewrite existing code comments, docstrings, or inline documentation — even if they appear redundant or overly verbose to you. These often contain context, intent, or institutional knowledge that is not obvious from the code alone.
 13. ALWAYS TEST BEFORE DECLARING COMPLETION: NEVER mark a task as finished without verifying that the changes actually work. Run builds, execute tests, or perform manual verification steps BEFORE declaring anything complete. A change is only "done" when it has been verified to work correctly.
-14. SUMMARIZE LARGE CHANGES: After completing a substantial change (multi-file edits, architectural modifications, new features), you MUST provide a concise summary covering: what was changed, why, affected files, and any important notes for future reference.
+14. SUMMARIZE LARGE CHANGES: After completing a substantial change (multi-file edits, architectural modifications, new features), you MUST provide a concise summary in the following structured format:
+   - **What was changed**: Brief description of the modifications made.
+   - **Why**: The problem that was solved or the goal that was achieved.
+   - **Files affected**: List of all changed files.
+   - **Verification**: Build/test result confirming the change works.
+   - **Notes**: Anything else worth mentioning (trade-offs, follow-ups, open questions).
 15. OFFER SUGGESTIONS WHEN APPROPRIATE: When you notice related improvements, potential edge cases, or better approaches during your work, proactively offer them as suggestions to the user. Do NOT implement them without asking, but DO bring them to the user's attention so they can make informed decisions.
+16. DIAGNOSE BEFORE OPERATING: Before changing any code, take time to understand the root cause. Read targeted file sections, trace the logic, and form a clear mental model of what is actually broken. Do NOT start coding based on surface symptoms or assumptions — a wrong fix is worse than no fix. If a cargo build fails, you MUST read the compiler error completely and understand the affected lines. Do NOT guess the fix by blindly changing code in multiple places. If you do not understand the error after reading the affected code, STOP immediately and ask the user for guidance.
+17. ITERATIVE BUILD-VERIFY-REFINE CYCLE: After each change, build and verify. If your changes introduce new compiler warnings, linter warnings, or test failures, fix them immediately — do NOT leave them behind for later. Repeat the cycle until you have a clean build with zero new warnings.
+18. MAKE MINIMAL, SELF-CONTAINED EDITS: Focus each edit on exactly what needs to change to solve the problem. Do NOT refactor surrounding code, restructure unrelated logic, or bundle multiple unrelated fixes into a single change. Each edit should be as small as possible while still solving the problem completely.
+
+## 🛑 EMERGENCY BRAKE (WHEN STUCK)
+
+1. COMPILER ERROR LOOP DETECTION: If the compiler or linter throws the same error 3 times in a row despite your fixes, STOP. Do NOT attempt a 4th fix. Present the full error to the user along with what you have already tried and ask for guidance.
+2. NO INDEPENDENT DEPENDENCY INSTALLATION: If a required dependency or crate is missing from a Cargo.toml, NEVER install it or add it to the manifest independently. Ask the user first — dependencies have licensing, security, and maintenance implications.
 
 ## 🛠️ STANDARD WORKFLOWS
 
