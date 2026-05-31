@@ -847,6 +847,8 @@ struct AppState {
     deploy_cursor: usize,
     deploy_selected: HashSet<usize>,
     notify_on_ready: bool,
+    status_cursor: usize,
+    help_scroll: usize,
 
     should_quit: bool,
     dirty: bool,
@@ -874,6 +876,8 @@ impl AppState {
             deploy_cursor: 0,
             deploy_selected: HashSet::new(),
             notify_on_ready: true,
+            status_cursor: 0,
+            help_scroll: 0,
             should_quit: false, dirty: true,
         }
     }
@@ -1160,6 +1164,61 @@ fn spawn_journal(state: &AppState, tx: mpsc::UnboundedSender<AppEvent>) {
     });
 }
 
+fn spawn_journal_one(state: &AppState, svc: &str, tx: mpsc::UnboundedSender<AppEvent>) {
+    let backend = state.backend.clone();
+    let svc = svc.to_string();
+    tokio::spawn(async move {
+        let cmd = format!("journalctl -u {svc} --no-pager -n 80 2>/dev/null || echo '(no journal for {svc})'");
+        if let Ok(l) = backend.ssh_exec(&cmd).await {
+            for line in l.lines() {
+                let _ = tx.send(AppEvent::Log(format!("  {}", line)));
+            }
+        }
+    });
+}
+
+fn spawn_service_detail(state: &AppState, svc: &str, tx: mpsc::UnboundedSender<AppEvent>) {
+    let backend = state.backend.clone();
+    let svc = svc.to_string();
+    tokio::spawn(async move {
+        let _ = tx.send(AppEvent::Log(format!("── {} ──", svc)));
+        // Status + active time
+        let cmd = format!(
+            "echo 'Status:' $(systemctl is-active {svc} 2>/dev/null || echo unknown); \
+             echo 'Since:' $(systemctl show {svc} -p ActiveEnterTimestamp --value 2>/dev/null | cut -d' ' -f2-); \
+             echo 'Memory:' $(systemctl show {svc} -p MemoryCurrent --value 2>/dev/null || echo 'N/A'); \
+             echo 'PID:' $(systemctl show {svc} -p MainPID --value 2>/dev/null || echo 'N/A'); \
+             echo 'Binary:' $(test -f /usr/bin/{svc} && echo /usr/bin/{svc} || echo 'not installed'); \
+             echo '--- last 10 log lines ---'; \
+             journalctl -u {svc} --no-pager -n 10 2>/dev/null || echo '(no log)'"
+        );
+        if let Ok(out) = backend.ssh_exec(&cmd).await {
+            for line in out.lines() {
+                let _ = tx.send(AppEvent::Log(format!("  {}", line)));
+            }
+        }
+    });
+}
+
+fn export_log(state: &AppState) {
+    let path = state.backend.repo_root.join("iora-os/.cache/dev-watch-log.txt");
+    let mut f = match std::fs::File::create(&path) {
+        Ok(f) => f,
+        Err(_) => { return; }
+    };
+    use std::io::Write;
+    for line in &state.log_buf {
+        let _ = writeln!(f, "{}", line);
+    }
+    // Open the file automatically
+    #[cfg(windows)]
+    { let _ = std::process::Command::new("cmd").arg("/c").arg("start").arg("").arg(path.to_str().unwrap_or("")).spawn(); }
+    #[cfg(target_os = "macos")]
+    { let _ = std::process::Command::new("open").arg(&path).spawn(); }
+    #[cfg(target_os = "linux")]
+    { let _ = std::process::Command::new("xdg-open").arg(&path).spawn(); }
+}
+
 fn spawn_restart(state: &AppState, svc: String, tx: mpsc::UnboundedSender<AppEvent>) {
     let backend = state.backend.clone();
     tokio::spawn(async move { backend.restart_service(svc, tx).await; });
@@ -1282,9 +1341,11 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
 
     // Normal-mode keys
     match key.code {
-        KeyCode::Esc => state.show_help = false,
+        KeyCode::Esc => { state.show_help = false; }
+        KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1); return; }
+        KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1); return; }
         KeyCode::Char('q') | KeyCode::Char('Q') => state.should_quit = true,
-        KeyCode::Char('?') => state.show_help = !state.show_help,
+        KeyCode::Char('?') => { state.show_help = !state.show_help; state.help_scroll = 0; }
         KeyCode::Char('/') => state.mode = Mode::Command { input: String::new() },
         KeyCode::Tab => {
             state.view = match state.view {
@@ -1301,6 +1362,18 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             if state.view == View::Status && state.vm_online && !state.building {
                 spawn_fetch_status(state, tx.clone());
             }
+            return;
+        }
+        KeyCode::BackTab => {
+            state.view = match state.view {
+                View::Logs => View::Deploy,
+                View::Status => View::Logs,
+                View::Journal => View::Status,
+                View::Commands => View::Journal,
+                View::Resources => View::Commands,
+                View::Deploy => View::Resources,
+            };
+            state.log_scroll = 0;
             return;
         }
         // Deploy view keys
@@ -1337,7 +1410,45 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             state.push_log(format!("[CONFIG] Notify on ready: {}", if state.notify_on_ready {"ON"} else {"OFF"}));
             return;
         }
+        KeyCode::Enter if state.view == View::Status => {
+            state.push_log(format!("[DEBUG] Enter on Status, cursor={}", state.status_cursor));
+            if state.status_cursor < state.backend.services.len() {
+                let svc = state.backend.services[state.status_cursor].clone();
+                spawn_service_detail(state, &svc, tx.clone());
+            }
+            return;
+        }
+        // L on Status/Deploy: view live journal for selected service
+        KeyCode::Char('l') if state.view == View::Status => {
+            if state.status_cursor < state.backend.services.len() {
+                let svc = state.backend.services[state.status_cursor].clone();
+                state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
+                spawn_journal_one(state, &svc, tx.clone());
+            }
+            return;
+        }
+        KeyCode::Char('l') if state.view == View::Deploy => {
+            if state.deploy_cursor < state.backend.services.len() {
+                let svc = state.backend.services[state.deploy_cursor].clone();
+                state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
+                spawn_journal_one(state, &svc, tx.clone());
+            }
+            return;
+        }
+        // X: export log buffer to file
+        KeyCode::Char('x') | KeyCode::Char('X') => {
+            export_log(state);
+            state.push_log("[EXPORT] Log written to iora-os/.cache/dev-watch-log.txt");
+            return;
+        }
         KeyCode::Esc => { state.show_help = false; }
+        KeyCode::Up if state.view == View::Status => {
+            state.status_cursor = state.status_cursor.saturating_sub(1); return;
+        }
+        KeyCode::Down if state.view == View::Status => {
+            let n = state.backend.services.len();
+            state.status_cursor = (state.status_cursor + 1).min(n.saturating_sub(1)); return;
+        }
         KeyCode::Up => state.log_scroll = state.log_scroll.saturating_add(1),
         KeyCode::Down => state.log_scroll = state.log_scroll.saturating_sub(1),
         KeyCode::PageUp => state.log_scroll = state.log_scroll.saturating_add(10),
@@ -1468,7 +1579,7 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
     }
     render_footer(f, chunks[3], state);
 
-    if state.show_help { render_help(f, area); }
+    if state.show_help { render_help(f, area, state); }
 }
 
 fn render_header(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
@@ -1651,27 +1762,35 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         } else if status == "failed" {
             "will be auto-restarted by self-heal"
         } else { "" };
+        let row_style = if i == s.status_cursor {
+            Style::default().bg(Color::DarkGray)
+        } else { Style::default() };
         rows.push(ListItem::new(Line::from(vec![
             Span::styled(format!(" {} ", marker), st_style),
             Span::styled(format!("{:<28} ", svc), Style::default().fg(Color::White)),
             Span::styled(format!("{:<12} ", status), st_style),
             Span::styled(format!("{:<8} ", bin), bin_style),
             Span::styled(notes.to_string(), Style::default().fg(Color::DarkGray)),
-        ])));
+        ])).style(row_style));
     }
-    // Apply scroll: log_scroll counts rows skipped from the bottom.
+    // Auto-scroll: keep the highlighted row (status_cursor) visible.
     // Row 0 is the header — keep it pinned, scroll only the body.
     let body_height = chunks[1].height.saturating_sub(2) as usize; // borders
     let header = rows.remove(0);
     let body_total = rows.len();
     let visible_body = body_height.saturating_sub(1); // header row consumes one
-    let end = body_total.saturating_sub(s.log_scroll);
-    let start = end.saturating_sub(visible_body);
+    // Compute visible range so status_cursor is always in view
+    let cursor = s.status_cursor.min(body_total.saturating_sub(1));
+    let start = if body_total <= visible_body { 0 }
+        else if cursor < visible_body / 2 { 0 }
+        else if cursor >= body_total.saturating_sub(visible_body / 2) { body_total.saturating_sub(visible_body) }
+        else { cursor.saturating_sub(visible_body / 2) };
+    let end = (start + visible_body).min(body_total);
     let mut visible: Vec<ListItem> = Vec::with_capacity(visible_body + 1);
     visible.push(header);
     if start < end { visible.extend(rows.drain(start..end)); }
-    let scroll_hint = if s.log_scroll > 0 {
-        format!(" Services on {} [↑{}] ", s.backend.vm_host, s.log_scroll)
+    let scroll_hint = if body_total > visible_body {
+        format!(" Services on {} [{}..{} / {}] ", s.backend.vm_host, start + 1, end, body_total)
     } else {
         format!(" Services on {} ", s.backend.vm_host)
     };
@@ -1895,11 +2014,18 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         }
     };
     f.render_widget(Paragraph::new(line), area);
+    // If terminal is narrow, render a second hint line
+    if area.width < 120 {
+        let hint2 = Paragraph::new("  ?=help  X=export-log  N=notify  E=deploy-tab  ↑↓ on Status=select  L=journal  Enter=details")
+            .style(Style::default().fg(Color::DarkGray));
+        let r2 = Rect { y: area.y + 1, height: 1, ..area };
+        f.render_widget(hint2, r2);
+    }
 }
 
-fn render_help(f: &mut ratatui::Frame, area: Rect) {
+fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let w = (area.width / 2).max(50).min(area.width);
-    let h = 18u16.min(area.height);
+    let h = 22u16.min(area.height);
     let x = (area.width - w) / 2;
     let y = (area.height - h) / 2;
     let rect = Rect::new(x, y, w, h);
@@ -1909,25 +2035,32 @@ fn render_help(f: &mut ratatui::Frame, area: Rect) {
         Line::from(Span::styled("  Help — Keybindings", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
         Line::from(""),
         Line::from("  /          Command mode (then type 'help')"),
-        Line::from("  Tab        Cycle view"),
+        Line::from("  Tab        Next tab    Shift+Tab   Previous tab"),
         Line::from("  B          Full rebuild (Rust + FE)"),
         Line::from("  r          Build menu (All/Changed/Select)"),
         Line::from("  D          Deploy binaries"),
+        Line::from("  E          Deploy tab (multi-select)"),
         Line::from("  C          Check VM"),
         Line::from("  S          Status view + refresh"),
-        Line::from("  J          Journal (last 30 lines of iora-home)"),
+        Line::from("  ↑↓ Status  Select service   Enter   Detail view"),
+        Line::from("  L Status   Journal for selected service"),
+        Line::from("  J          Journal (iora-home log)"),
         Line::from("  H          Health probe (API + disk)"),
         Line::from("  W          Toggle watch"),
-        Line::from("  L          Toggle auto-deploy"),
+        Line::from("  N          Toggle notify-on-ready"),
+        Line::from("  X          Export log to file"),
         Line::from("  R          Resources view"),
         Line::from("  1-9        Restart service by index"),
         Line::from("  ↑↓ PgUp PgDn Home End   Scroll logs"),
         Line::from("  Q / Esc    Quit / close help"),
     ];
+    let visible_h = h.saturating_sub(2) as usize;
+    let skip = s.help_scroll.min(keys.len().saturating_sub(visible_h));
+    let visible: Vec<Line> = keys.into_iter().skip(skip).take(visible_h).collect();
     let block = Block::default().borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(" Help ");
-    f.render_widget(Paragraph::new(keys).block(block).wrap(Wrap { trim: false }), rect);
+        .title(format!(" Help [{}/{}] ", skip + 1, skip + visible.len()));
+    f.render_widget(Paragraph::new(visible).block(block).wrap(Wrap { trim: false }), rect);
 }
 
 // ═══ Main loop ═══════════════════════════════════════════════════════════
@@ -2270,6 +2403,8 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
             state.active_services = s.iter().filter(|(s, _)| s == "active").count();
             state.service_status = s;
             state.last_status_refresh = Some(Instant::now());
+            // Clamp cursor to still-valid range
+            state.status_cursor = state.status_cursor.min(state.backend.services.len().saturating_sub(1));
         }
         AppEvent::Resource(d) => {
             let cpu = d.cpu_percent;
