@@ -21,7 +21,11 @@
     "GitHubPullRequestRead",
     "GitHubPullRequestComment",
     "GitHubWrite",
-    "AgentContainerSpawn"
+    "AgentContainerSpawn",
+    "AssistToolProvide",
+    "ServiceExport",
+    "ServiceCall",
+    "LifecycleHookRegister"
   ],
   "endpoints": [
     {
@@ -65,6 +69,120 @@
       "method": "GET",
       "description": "Health check for IORA supervisor.",
       "requires_auth": false
+    }
+  ],
+  "assist_tools": [
+    {
+      "name": "start_coding_task",
+      "description": "Start an agentic coding task: clone a GitHub repository, run the pi coding agent against a natural-language prompt, commit the result and push a work branch. Use this when the user asks to implement, fix, refactor or change code in a repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": { "type": "string", "description": "Repository in 'owner/name' form, e.g. 'iora/dashboard'." },
+          "prompt": { "type": "string", "description": "What the agent should do, in natural language." },
+          "base_branch": { "type": "string", "description": "Branch to start from. Defaults to 'main'." },
+          "provider": { "type": "string", "description": "Optional pi provider: ora | anthropic | openai | google." },
+          "model": { "type": "string", "description": "Optional model identifier for the provider." }
+        },
+        "required": ["repo", "prompt"]
+      },
+      "handler": "/tools/start_coding_task",
+      "method": "POST",
+      "requires_confirmation": true,
+      "tags": ["coding", "github", "agent"]
+    },
+    {
+      "name": "get_coding_task",
+      "description": "Get the current status and result (work branch, commit, summary) of a previously started coding task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string", "description": "The id returned by start_coding_task." }
+        },
+        "required": ["task_id"]
+      },
+      "handler": "/tools/get_coding_task",
+      "method": "POST",
+      "requires_confirmation": false,
+      "tags": ["coding", "status"]
+    },
+    {
+      "name": "list_coding_tasks",
+      "description": "List the most recent agentic coding tasks with their status.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Maximum number of tasks to return (1-100, default 20)." }
+        }
+      },
+      "handler": "/tools/list_coding_tasks",
+      "method": "POST",
+      "requires_confirmation": false,
+      "tags": ["coding", "status"]
+    },
+    {
+      "name": "cancel_coding_task",
+      "description": "Cancel a queued or running coding task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string", "description": "The id of the task to cancel." }
+        },
+        "required": ["task_id"]
+      },
+      "handler": "/tools/cancel_coding_task",
+      "method": "POST",
+      "requires_confirmation": true,
+      "tags": ["coding"]
+    }
+  ],
+  "lifecycle_hooks": {
+    "hooks": [
+      { "event": "on_install", "handler": "/hooks/on_install" },
+      { "event": "on_uninstall", "handler": "/hooks/on_uninstall" },
+      { "event": "on_config_changed", "handler": "/hooks/on_config_changed" }
+    ]
+  },
+  "exposed_services": [
+    {
+      "id": "coding.agent",
+      "name": "ORA Coding Agent",
+      "description": "Inter-app RPC service to start and query agentic coding tasks from other IORA apps.",
+      "version": "1.0.0",
+      "base_path": "/services/coding-agent",
+      "required_permission": "ServiceCall",
+      "methods": [
+        {
+          "name": "start_task",
+          "description": "Start an agentic coding task and return the created task.",
+          "method": "POST",
+          "path": "/tasks",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "repo": { "type": "string" },
+              "prompt": { "type": "string" },
+              "base_branch": { "type": "string" },
+              "provider": { "type": "string" },
+              "model": { "type": "string" }
+            },
+            "required": ["repo", "prompt"]
+          },
+          "output_schema": { "type": "object" }
+        },
+        {
+          "name": "get_task",
+          "description": "Fetch the status and result of a coding task by id.",
+          "method": "POST",
+          "path": "/tasks/get",
+          "input_schema": {
+            "type": "object",
+            "properties": { "task_id": { "type": "string" } },
+            "required": ["task_id"]
+          },
+          "output_schema": { "type": "object" }
+        }
+      ]
     }
   ],
   "custom_pages": [

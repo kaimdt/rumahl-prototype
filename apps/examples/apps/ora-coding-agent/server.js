@@ -7,6 +7,7 @@ const log = require('./src/log');
 const github = require('./src/github');
 const TaskStore = require('./src/store');
 const AgentRunner = require('./src/runner');
+const { registerCapabilityRoutes, createCodingTask } = require('./src/capabilities');
 
 const app = express();
 const store = new TaskStore(config.dataDir);
@@ -91,29 +92,26 @@ app.get('/api/tasks/:id', guard, (req, res) => {
 
 app.post('/api/tasks', guard, (req, res) => {
   const { repoFullName, cloneUrl, baseBranch, prompt, provider, model, title, installationId } = req.body || {};
-  if (!prompt || !prompt.trim()) {
-    return res.status(400).json({ error: 'prompt is required' });
+  const result = createCodingTask(
+    store,
+    runner,
+    {
+      source: 'manual',
+      title,
+      prompt,
+      repoFullName,
+      cloneUrl,
+      baseBranch,
+      provider,
+      model,
+      installationId,
+    },
+    'ui',
+  );
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error });
   }
-  if (!cloneUrl && !repoFullName) {
-    return res.status(400).json({ error: 'cloneUrl or repoFullName is required' });
-  }
-  const resolvedCloneUrl =
-    cloneUrl || (repoFullName ? `https://github.com/${repoFullName}.git` : null);
-
-  const task = store.create({
-    source: 'manual',
-    title: title || `Task: ${prompt.slice(0, 60)}`,
-    prompt: prompt.trim(),
-    repoFullName: repoFullName || null,
-    cloneUrl: resolvedCloneUrl,
-    baseBranch: baseBranch || 'main',
-    provider: provider || config.defaultProvider,
-    model: model || config.defaultModel,
-    installationId: installationId || config.githubDefaultInstallationId || null,
-    requestedBy: 'ui',
-  });
-  runner.enqueue(task);
-  res.status(201).json({ task });
+  res.status(201).json({ task: result.task });
 });
 
 app.post('/api/tasks/:id/cancel', guard, (req, res) => {
@@ -153,6 +151,14 @@ app.get('/api/tasks/:id/logs', guard, (req, res) => {
     store.off('task:update', onUpdate);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Extended capability surface (assist tools, exposed RPC service, lifecycle
+// hooks). These are internal service-to-service endpoints invoked by IORA
+// Assist / the capability registry and other apps — not user-facing, so they
+// are not behind the management `guard`.
+// ---------------------------------------------------------------------------
+registerCapabilityRoutes(app, { store, runner });
 
 // ---------------------------------------------------------------------------
 // Static UI
