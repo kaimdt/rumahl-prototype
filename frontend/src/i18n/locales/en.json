@@ -421,6 +421,16 @@
     "clonePrompt": "Name for the cloned theme",
     "cloneIdPrompt": "ID for the cloned theme",
     "themeSettings": "Theme Settings",
+    "overview": {
+      "installed": "Installed",
+      "active": "Active",
+      "builtin": "Built-in",
+      "search": "Search themes by name, ID, developer, or source...",
+      "appPlugin": "App/Plugin",
+      "setAsDefault": "Set as default",
+      "inactiveDefaultBlocked": "Inactive themes cannot be set as default",
+      "noFiltered": "No themes match the current filter."
+    },
     "steamParticles": "Steam Particles",
     "gearSpeed": "Gear Speed",
     "vignette": "Vignette Effect",
@@ -459,7 +469,56 @@
     "untrusted": "Untrusted",
     "bundle": "Bundle",
     "openApp": "Open",
-    "forceUninstall": "Force Uninstall"
+    "forceUninstall": "Force Uninstall",
+    "overview": {
+      "installed": "Installed",
+      "running": "Running",
+      "integrations": "Integrations",
+      "searchInstalled": "Search installed apps, plugins, or IDs...",
+      "installedAt": "Installed",
+      "lastStart": "Last start",
+      "noFilteredEntries": "No installed entries match the current filter."
+    },
+    "detail": {
+      "permissionsUpdated": "Permissions updated",
+      "tabs": {
+        "permissions": "Permissions",
+        "pages": "Pages"
+      },
+      "permissions": {
+        "granted": "Granted",
+        "denied": "Denied",
+        "total": "Total",
+        "noneTitle": "No requested permissions",
+        "noneDesc": "This app does not request additional platform permissions.",
+        "risk": "Risk",
+        "active": "active",
+        "blocked": "blocked",
+        "saveHint": "Changes apply immediately to runtime bridges, app startup, and protected features.",
+        "recentChanges": "Recent permission changes"
+      },
+      "runtime": {
+        "latestJobs": "Latest jobs",
+        "noJobs": "No runtime jobs available.",
+        "noSecrets": "No visible app secrets.",
+        "noAudit": "No audit entries visible."
+      }
+    }
+  },
+  "plugins": {
+    "overview": {
+      "executions": "Executions",
+      "failures": "Failures",
+      "network": "Network",
+      "search": "Search plugins by name, ID, author, or type...",
+      "noneInstalled": "No plugins installed.",
+      "allowed": "Allowed",
+      "blocked": "Blocked",
+      "filesystem": "Filesystem",
+      "lastExecution": "Last execution",
+      "execute": "Execute",
+      "noFiltered": "No plugins match the current filter."
+    }
   },
   "auth": {
     "login": "Login",

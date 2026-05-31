@@ -422,6 +422,16 @@
     "clonePrompt": "Name for the cloned theme",
     "cloneIdPrompt": "ID for the cloned theme",
     "themeSettings": "Theme-Einstellungen",
+    "overview": {
+      "installed": "Installiert",
+      "active": "Aktiv",
+      "builtin": "Integriert",
+      "search": "Themes nach Name, ID, Entwickler oder Quelle suchen...",
+      "appPlugin": "App/Plugin",
+      "setAsDefault": "Als Standard setzen",
+      "inactiveDefaultBlocked": "Inaktive Themes können nicht als Standard gesetzt werden",
+      "noFiltered": "Keine Themes für den aktuellen Filter."
+    },
     "steamParticles": "Steam Particles",
     "gearSpeed": "Gear Speed",
     "vignette": "Vignette Effect",
@@ -460,7 +470,56 @@
     "untrusted": "Untrusted",
     "bundle": "Bundle",
     "openApp": "Open",
-    "forceUninstall": "Force Uninstall"
+    "forceUninstall": "Force Uninstall",
+    "overview": {
+      "installed": "Installiert",
+      "running": "Läuft",
+      "integrations": "Integrationen",
+      "searchInstalled": "Installierte Apps, Plugins oder IDs suchen...",
+      "installedAt": "Installiert",
+      "lastStart": "Letzter Start",
+      "noFilteredEntries": "Keine installierten Einträge für den aktuellen Filter."
+    },
+    "detail": {
+      "permissionsUpdated": "Berechtigungen aktualisiert",
+      "tabs": {
+        "permissions": "Rechte",
+        "pages": "Seiten"
+      },
+      "permissions": {
+        "granted": "Gewährt",
+        "denied": "Entzogen",
+        "total": "Gesamt",
+        "noneTitle": "Keine angeforderten Berechtigungen",
+        "noneDesc": "Diese App fordert keine zusätzlichen Plattformrechte an.",
+        "risk": "Risiko",
+        "active": "aktiv",
+        "blocked": "blockiert",
+        "saveHint": "Änderungen wirken sofort auf Runtime-Bridges, App-Start und geschützte Funktionen.",
+        "recentChanges": "Letzte Permission-Änderungen"
+      },
+      "runtime": {
+        "latestJobs": "Letzte Jobs",
+        "noJobs": "Keine Runtime-Jobs vorhanden.",
+        "noSecrets": "Keine sichtbaren App-Secrets.",
+        "noAudit": "Keine Audit-Einträge sichtbar."
+      }
+    }
+  },
+  "plugins": {
+    "overview": {
+      "executions": "Ausführungen",
+      "failures": "Fehler",
+      "network": "Netzwerk",
+      "search": "Plugins nach Name, ID, Autor oder Typ suchen...",
+      "noneInstalled": "Keine Plugins installiert.",
+      "allowed": "Erlaubt",
+      "blocked": "Blockiert",
+      "filesystem": "Dateisystem",
+      "lastExecution": "Letzte Ausführung",
+      "execute": "Ausführen",
+      "noFiltered": "Keine Plugins für den aktuellen Filter."
+    }
   },
   "auth": {
     "login": "Anmelden",

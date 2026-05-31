@@ -329,6 +329,8 @@ function InstalledAppsView({
   isOsDev: boolean
   onAppClick: (appId: string) => void
 }) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language?.startsWith('de') ? 'de-DE' : 'en-US'
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | 'app' | 'plugin' | 'system'>('all')
   const [installedSearch, setInstalledSearch] = useState('')
@@ -435,19 +437,19 @@ function InstalledAppsView({
     <div className="space-y-3">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Installiert</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.installed')}</div>
           <div className="text-lg font-semibold text-foreground">{apps.length}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Läuft</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.running')}</div>
           <div className="text-lg font-semibold text-green-400">{runningCount}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Plugins</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
           <div className="text-lg font-semibold text-accent">{pluginCount}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Integrationen</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.integrations')}</div>
           <div className="text-lg font-semibold text-cyan-300">{integrationCount}</div>
         </div>
       </div>
@@ -458,7 +460,7 @@ function InstalledAppsView({
           <input
             value={installedSearch}
             onChange={(event) => setInstalledSearch(event.target.value)}
-            placeholder="Installierte Apps, Plugins oder IDs suchen..."
+            placeholder={t('apps.overview.searchInstalled')}
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
           />
         </div>
@@ -469,7 +471,7 @@ function InstalledAppsView({
               onClick={() => setKindFilter(kind)}
               className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${kindFilter === kind ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
             >
-              {kind === 'all' ? 'Alle' : kind === 'app' ? 'Apps' : kind === 'plugin' ? 'Plugins' : 'System'}
+              {kind === 'all' ? t('common.all') : kind === 'app' ? t('navigation.apps') : kind === 'plugin' ? t('navigation.plugins') : t('admin.system')}
             </button>
           ))}
         </div>
@@ -719,7 +721,7 @@ function InstalledAppsView({
                       onClick={() => { window.location.href = `/app-settings/${app.id}` }}
                       className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
                     >
-                      <Gear size={12} /> Einstellungen
+                      <Gear size={12} /> {t('settings.title')}
                     </button>
                     <button
                       onClick={() => uninstallApp(app.id)}
@@ -745,12 +747,12 @@ function InstalledAppsView({
               </div>
 
               <div className="mt-2 text-[10px] text-foreground/30">
-                Installiert: {new Date(app.installed_at).toLocaleDateString('de-DE', {
+                {t('apps.overview.installedAt')}: {new Date(app.installed_at).toLocaleDateString(locale, {
                   year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                 })}
                 {app.last_started_at && (
                   <span className="ml-2">
-                    · Letzter Start: {new Date(app.last_started_at).toLocaleDateString('de-DE', {
+                    · {t('apps.overview.lastStart')}: {new Date(app.last_started_at).toLocaleDateString(locale, {
                       year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                     })}
                   </span>
@@ -762,7 +764,7 @@ function InstalledAppsView({
           ))}
           {filteredApps.length === 0 && (
             <div className="text-center py-10 text-xs text-foreground/45">
-              Keine installierten Einträge für den aktuellen Filter.
+              {t('apps.overview.noFilteredEntries')}
             </div>
           )}
         </div>

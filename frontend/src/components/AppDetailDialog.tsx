@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Cube, Play, Pause, TrashSimple, ShieldCheck, Gear,
   Terminal, Warning, X, Clock, ArrowClockwise,
@@ -131,6 +132,8 @@ interface AppDetailDialogProps {
 const DEFAULT_ICON = '/default-app-icon.svg'
 
 export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDialogProps) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language?.startsWith('de') ? 'de-DE' : 'en-US'
   const [detail, setDetail] = useState<AppDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -445,7 +448,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
         denied_permissions: data.denied_permissions,
         permission_audit: data.permission_audit,
       } : prev)
-      toast.success('Berechtigungen aktualisiert')
+      toast.success(t('apps.detail.permissionsUpdated'))
       onReload()
     } catch (e) {
       toast.error((e as Error).message)
@@ -572,7 +575,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                 )}
                 <button onClick={openSettings}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/10 text-foreground/80 rounded text-[10px] font-semibold hover:bg-foreground/15 transition-colors">
-                  <Gear size={12} /> Einstellungen
+                  <Gear size={12} /> {t('settings.title')}
                 </button>
               </div>
             )}
@@ -609,12 +612,12 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
               {tab === 'pages' && <Code size={12} />}
               {tab === 'bundle' && <Stack size={12} />}
               {tab === 'info' ? 'Info'
-                : tab === 'permissions' ? 'Rechte'
+                : tab === 'permissions' ? t('apps.detail.tabs.permissions')
                 : tab === 'runtime' ? 'Runtime'
                 : tab === 'logs' ? `Logs (${logs.length})`
                 : tab === 'terminal' ? 'Terminal'
-                : tab === 'settings' ? 'Einstellungen'
-                : tab === 'pages' ? 'Seiten'
+                : tab === 'settings' ? t('settings.title')
+                : tab === 'pages' ? t('apps.detail.tabs.pages')
                 : 'Bundle'}
             </button>
           ))}
@@ -713,15 +716,15 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-2">
                     <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                      <div className="text-[10px] text-green-300/80 font-semibold uppercase">Gewährt</div>
+                      <div className="text-[10px] text-green-300/80 font-semibold uppercase">{t('apps.detail.permissions.granted')}</div>
                       <div className="text-lg font-semibold text-green-300">{grantedPermissions.length}</div>
                     </div>
                     <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                      <div className="text-[10px] text-red-300/80 font-semibold uppercase">Entzogen</div>
+                      <div className="text-[10px] text-red-300/80 font-semibold uppercase">{t('apps.detail.permissions.denied')}</div>
                       <div className="text-lg font-semibold text-red-300">{detail.permissions.length - grantedPermissions.length}</div>
                     </div>
                     <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
-                      <div className="text-[10px] text-foreground/60 font-semibold uppercase">Gesamt</div>
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase">{t('apps.detail.permissions.total')}</div>
                       <div className="text-lg font-semibold text-foreground">{detail.permissions.length}</div>
                     </div>
                   </div>
@@ -729,8 +732,8 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                   {detail.permissions.length === 0 ? (
                     <div className="p-6 rounded-lg bg-foreground/[0.06] border border-foreground/10 text-center">
                       <ShieldCheck size={24} className="mx-auto mb-2 text-foreground/55" />
-                      <p className="text-xs text-foreground/85 font-semibold">Keine angeforderten Berechtigungen</p>
-                      <p className="text-[10px] text-foreground/60 mt-1">Diese App fordert keine zusätzlichen Plattformrechte an.</p>
+                      <p className="text-xs text-foreground/85 font-semibold">{t('apps.detail.permissions.noneTitle')}</p>
+                      <p className="text-[10px] text-foreground/60 mt-1">{t('apps.detail.permissions.noneDesc')}</p>
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -749,11 +752,11 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                             <div className="flex-1 min-w-0">
                               <div className="text-xs font-semibold text-foreground font-mono truncate">{permission}</div>
                               <div className="text-[10px] text-foreground/55">
-                                Risiko: {risk} · {checked ? 'aktiv' : 'blockiert'}
+                                {t('apps.detail.permissions.risk')}: {risk} · {checked ? t('apps.detail.permissions.active') : t('apps.detail.permissions.blocked')}
                               </div>
                             </div>
                             <span className={`text-[10px] px-2 py-1 rounded font-semibold ${checked ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-                              {checked ? 'Gewährt' : 'Entzogen'}
+                              {checked ? t('apps.detail.permissions.granted') : t('apps.detail.permissions.denied')}
                             </span>
                           </label>
                         )
@@ -763,7 +766,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
                   <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
                     <div className="text-[10px] text-foreground/65">
-                      Änderungen wirken sofort auf Runtime-Bridges, App-Start und geschützte Funktionen.
+                      {t('apps.detail.permissions.saveHint')}
                     </div>
                     <button
                       onClick={savePermissions}
@@ -771,19 +774,19 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                       className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-40 flex items-center gap-1.5"
                     >
                       {permissionSaving ? <InlineSpinner size={12} /> : <ShieldCheck size={12} />}
-                      Speichern
+                      {t('common.save')}
                     </button>
                   </div>
 
                   {(detail.permission_audit?.length ?? 0) > 0 && (
                     <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
-                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Letzte Permission-Änderungen</div>
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">{t('apps.detail.permissions.recentChanges')}</div>
                       <div className="space-y-1 max-h-32 overflow-auto">
                         {detail.permission_audit!.slice(-8).reverse().map((entry, i) => (
                           <div key={i} className="flex items-center gap-2 text-[10px] text-foreground/70">
                             <span className={entry.action === 'granted' ? 'text-green-300' : 'text-red-300'}>{entry.action}</span>
                             <span className="font-mono text-foreground/85 truncate">{entry.permission}</span>
-                            <span className="ml-auto text-foreground/45">{new Date(entry.timestamp).toLocaleString('de-DE')}</span>
+                            <span className="ml-auto text-foreground/45">{new Date(entry.timestamp).toLocaleString(locale)}</span>
                           </div>
                         ))}
                       </div>
@@ -818,8 +821,8 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
-                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Letzte Jobs</div>
-                      {runtimeJobs.length === 0 ? <p className="text-[10px] text-foreground/50">Keine Runtime-Jobs vorhanden.</p> : (
+                      <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">{t('apps.detail.runtime.latestJobs')}</div>
+                      {runtimeJobs.length === 0 ? <p className="text-[10px] text-foreground/50">{t('apps.detail.runtime.noJobs')}</p> : (
                         <div className="space-y-1.5">
                           {runtimeJobs.slice().reverse().map(job => (
                             <div key={job.id} className="p-2 rounded bg-background/50 border border-foreground/5">
@@ -835,7 +838,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
                     </div>
                     <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
                       <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Secrets</div>
-                      {appSecrets.length === 0 ? <p className="text-[10px] text-foreground/50">Keine sichtbaren App-Secrets.</p> : (
+                      {appSecrets.length === 0 ? <p className="text-[10px] text-foreground/50">{t('apps.detail.runtime.noSecrets')}</p> : (
                         <div className="space-y-1.5">
                           {appSecrets.map(secret => (
                             <div key={secret.id} className="flex items-center gap-2 p-2 rounded bg-background/50 border border-foreground/5 text-[10px]">
@@ -850,7 +853,7 @@ export function AppDetailDialog({ appId, token, onClose, onReload }: AppDetailDi
 
                   <div className="p-3 rounded-lg bg-foreground/[0.06] border border-foreground/10">
                     <div className="text-[10px] text-foreground/60 font-semibold uppercase tracking-wider mb-2">Runtime-Audit</div>
-                    {runtimeAudit.length === 0 ? <p className="text-[10px] text-foreground/50">Keine Audit-Einträge sichtbar.</p> : (
+                    {runtimeAudit.length === 0 ? <p className="text-[10px] text-foreground/50">{t('apps.detail.runtime.noAudit')}</p> : (
                       <div className="space-y-1 max-h-44 overflow-auto">
                         {runtimeAudit.slice().reverse().map(entry => (
                           <div key={entry.id} className="grid grid-cols-[120px_1fr_auto] gap-2 text-[10px] text-foreground/70 p-1 rounded hover:bg-foreground/5">

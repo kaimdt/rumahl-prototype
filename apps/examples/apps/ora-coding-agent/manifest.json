@@ -1,0 +1,241 @@
+{
+  "id": "ora-coding-agent",
+  "name": "ORA Coding Agent",
+  "version": "1.0.0",
+  "developer": "IORA Team",
+  "description": "Bridges GitHub and IORA Assist for agentic coding. Mention the bot (e.g. @ora) in a Pull Request to spawn an isolated container that clones the repo, runs the pi coding agent (powered by IORA Assist or an external provider), commits the result and reports back on the PR. Tasks can also be started directly from the app UI, similar to GitHub Copilot.",
+  "icon": "https://raw.githubusercontent.com/iora/assets/main/ora-coding-agent.png",
+  "type": "app",
+  "permissions": [
+    "NetworkAccess",
+    "NetworkOutbound",
+    "NetworkInbound",
+    "SystemInfo",
+    "ExternalHttpRequest",
+    "AppStorageRead",
+    "AppStorageWrite",
+    "AssistChat",
+    "AssistTaskCreate",
+    "AssistTaskManage",
+    "GitHubRead",
+    "GitHubPullRequestRead",
+    "GitHubPullRequestComment",
+    "GitHubWrite",
+    "AgentContainerSpawn"
+  ],
+  "endpoints": [
+    {
+      "path": "/webhook/github",
+      "method": "POST",
+      "description": "GitHub App webhook receiver (issue_comment, pull_request, pull_request_review_comment). Verifies the HMAC-SHA256 signature and triggers an agent run when the bot is mentioned.",
+      "requires_auth": false
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "description": "List agentic coding tasks with status and metadata.",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "description": "Start an agentic coding task manually (repo, base branch, prompt, provider, model).",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks/:id",
+      "method": "GET",
+      "description": "Get a single task with its full result and metadata.",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks/:id/logs",
+      "method": "GET",
+      "description": "Server-Sent-Events stream of live agent log/event lines for a task.",
+      "requires_auth": true
+    },
+    {
+      "path": "/api/tasks/:id/cancel",
+      "method": "POST",
+      "description": "Cancel a queued or running task.",
+      "requires_auth": true
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "description": "Health check for IORA supervisor.",
+      "requires_auth": false
+    }
+  ],
+  "custom_pages": [
+    {
+      "id": "ora-coding-agent",
+      "title": "ORA Coding Agent",
+      "icon": "GitBranch",
+      "url": "/apps/ora-coding-agent/",
+      "show_in_nav": true,
+      "order": 120
+    }
+  ],
+  "settings_schema": {
+    "title": "ORA Coding Agent Einstellungen",
+    "description": "Konfiguriere die GitHub App Anbindung sowie die KI-Provider für das Agentic Coding.",
+    "fields": [
+      {
+        "key": "bot_mention",
+        "label": "Bot-Erwähnung (Trigger)",
+        "description": "Der @-Name, auf den der Bot in PR-Kommentaren reagiert (ohne @).",
+        "type": "text",
+        "default": "ora",
+        "required": true
+      },
+      {
+        "key": "github_app_id",
+        "label": "GitHub App ID",
+        "description": "Die numerische App-ID deiner GitHub App.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "github_app_private_key",
+        "label": "GitHub App Private Key (PEM)",
+        "description": "Der private Schlüssel der GitHub App im PEM-Format.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "key": "github_webhook_secret",
+        "label": "GitHub Webhook Secret",
+        "description": "Das in der GitHub App konfigurierte Webhook-Secret (zur Signaturprüfung).",
+        "type": "password",
+        "required": true
+      },
+      {
+        "key": "github_default_installation_id",
+        "label": "Standard Installation ID",
+        "description": "Optionale Fallback-Installation-ID, falls der Webhook keine mitliefert.",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "default_provider",
+        "label": "Standard KI-Provider",
+        "description": "Welcher pi-Provider standardmäßig genutzt wird.",
+        "type": "select",
+        "default": "ora",
+        "options": [
+          { "value": "ora", "label": "IORA Assist (ORA AI)" },
+          { "value": "anthropic", "label": "Anthropic (Claude)" },
+          { "value": "openai", "label": "OpenAI" },
+          { "value": "google", "label": "Google Gemini" }
+        ]
+      },
+      {
+        "key": "default_model",
+        "label": "Standard Modell",
+        "description": "Modell-Bezeichner für den Standard-Provider (z.B. ora-default, claude-sonnet-4, gpt-4o).",
+        "type": "text",
+        "default": "ora-default"
+      },
+      {
+        "key": "ora_base_url",
+        "label": "ORA AI Base URL (OpenAI-kompatibel)",
+        "description": "OpenAI-kompatibler Endpunkt von IORA Assist, z.B. http://iora-assist:8092/v1",
+        "type": "text",
+        "default": "http://iora-assist:8092/v1"
+      },
+      {
+        "key": "ora_api_key",
+        "label": "ORA AI API Key",
+        "description": "API-Key für den IORA Assist Endpunkt (falls erforderlich).",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "anthropic_api_key",
+        "label": "Anthropic API Key",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "openai_api_key",
+        "label": "OpenAI API Key",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "google_api_key",
+        "label": "Google Gemini API Key",
+        "type": "password",
+        "required": false
+      },
+      {
+        "key": "runner_mode",
+        "label": "Ausführungsmodus",
+        "description": "docker = isolierter Container pro Task (empfohlen). local = Ausführung im App-Container (nur für Entwicklung/Tests).",
+        "type": "select",
+        "default": "docker",
+        "options": [
+          { "value": "docker", "label": "Docker-Container (isoliert)" },
+          { "value": "local", "label": "Lokal im App-Container (Dev)" }
+        ]
+      },
+      {
+        "key": "agent_image",
+        "label": "Agent Container Image",
+        "description": "Docker-Image für den Coding-Agenten (enthält git + pi).",
+        "type": "text",
+        "default": "ora-coding-agent-runtime:latest"
+      },
+      {
+        "key": "agent_timeout_seconds",
+        "label": "Agent Timeout (Sekunden)",
+        "description": "Maximale Laufzeit eines Agent-Laufs bevor er abgebrochen wird.",
+        "type": "number",
+        "default": 1800,
+        "validation": { "min": 60, "max": 14400 }
+      },
+      {
+        "key": "max_concurrent_tasks",
+        "label": "Max. parallele Tasks",
+        "type": "number",
+        "default": 2,
+        "validation": { "min": 1, "max": 10 }
+      }
+    ]
+  },
+  "docker": {
+    "auto_build": true,
+    "base_image": "node:20-bookworm-slim",
+    "working_dir": "/app",
+    "install_cmd": "npm install --omit=dev",
+    "start_cmd": "node server.js",
+    "internal_ports": [
+      { "port": 3000, "protocol": "tcp", "description": "HTTP API, GitHub webhook and UI" }
+    ],
+    "environment": {
+      "NODE_ENV": "production",
+      "PORT": "3000",
+      "DATA_DIR": "/app/data"
+    },
+    "volumes": [
+      "ora-coding-agent-data:/app/data",
+      "/var/run/docker.sock:/var/run/docker.sock"
+    ],
+    "health_check": {
+      "endpoint": "/health",
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3
+    }
+  },
+  "store_metadata": {
+    "category": "Entwicklung",
+    "tags": ["github", "ai", "agent", "coding", "pi", "ci", "automation"],
+    "screenshots": [],
+    "min_iora_version": "2.1.0",
+    "homepage": "https://github.com/iora/ora-coding-agent",
+    "source_url": "https://github.com/iora/ora-coding-agent",
+    "license": "MIT"
+  }
+}

@@ -11648,6 +11648,7 @@ function ThemeMarketplace({ token, onInstall }: { token: string; onInstall: () =
 
 // ── Themes Tab ────────────────────────────────────────────────────────
 function ThemesTab({ token }: { token: string }) {
+  const { t: tr } = useTranslation()
   const [themes, setThemes] = useState<{ builtin: ThemeDef[]; installed: InstalledThemeDef[] } | null>(null)
   const [defaultTheme, setDefaultTheme] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -11873,19 +11874,19 @@ function ThemesTab({ token }: { token: string }) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Installiert</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.installed')}</div>
           <div className="text-lg font-semibold text-foreground">{installed.length}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Aktiv</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.active')}</div>
           <div className="text-lg font-semibold text-success">{enabledInstalled}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Integriert</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.builtin')}</div>
           <div className="text-lg font-semibold text-accent">{builtin.length}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Standard</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('common.default')}</div>
           <div className="text-sm font-semibold text-foreground truncate mt-1">{defaultTheme?.theme_id || 'auto'}</div>
         </div>
       </div>
@@ -11896,7 +11897,7 @@ function ThemesTab({ token }: { token: string }) {
           <input
             value={themeSearch}
             onChange={(event) => setThemeSearch(event.target.value)}
-            placeholder="Themes nach Name, ID, Entwickler oder Quelle suchen..."
+            placeholder={tr('themes.overview.search')}
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
           />
         </div>
@@ -11907,7 +11908,7 @@ function ThemesTab({ token }: { token: string }) {
               onClick={() => setSourceFilter(source)}
               className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors whitespace-nowrap ${sourceFilter === source ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
             >
-              {source === 'all' ? 'Alle' : source === 'file' ? 'Manuell' : source === 'app' ? 'App/Plugin' : 'System'}
+              {source === 'all' ? tr('common.all') : source === 'file' ? tr('common.manual') : source === 'app' ? tr('themes.overview.appPlugin') : tr('admin.system')}
             </button>
           ))}
         </div>
@@ -12005,9 +12006,9 @@ function ThemesTab({ token }: { token: string }) {
                       onClick={() => saveDefaultTheme(t.id)}
                       disabled={isDefault || !t.enabled}
                       className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-accent/10 text-accent hover:bg-accent/20 transition-all disabled:opacity-40 disabled:hover:bg-accent/10"
-                      title={t.enabled ? 'Als Standard setzen' : 'Inaktive Themes können nicht als Standard gesetzt werden'}
+                      title={t.enabled ? tr('themes.overview.setAsDefault') : tr('themes.overview.inactiveDefaultBlocked')}
                     >
-                      Standard
+                      {tr('common.default')}
                     </button>
                     {!t.system && (
                       <>
@@ -12022,7 +12023,7 @@ function ThemesTab({ token }: { token: string }) {
             })}
             {filteredInstalled.length === 0 && (
               <div className="text-center py-10 text-xs text-foreground/45">
-                Keine Themes für den aktuellen Filter.
+                {tr('themes.overview.noFiltered')}
               </div>
             )}
           </div>

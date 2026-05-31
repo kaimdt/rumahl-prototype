@@ -159,6 +159,9 @@ pub enum Permission {
     GitHubPullRequestRead,
     GitHubPullRequestComment,
     GitHubWorkflowTrigger,
+
+    // Agentic coding: spawn ephemeral sandbox containers for autonomous coding agents
+    AgentContainerSpawn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -486,6 +489,9 @@ impl Permission {
             Permission::GitHubPullRequestRead => "GitHub Pull Requests über IORA Assist lesen",
             Permission::GitHubPullRequestComment => "GitHub Pull Requests kommentieren",
             Permission::GitHubWorkflowTrigger => "GitHub Workflows starten",
+            Permission::AgentContainerSpawn => {
+                "Sandbox-Container für autonome Coding-Agenten erstellen und ausführen"
+            }
         }
     }
 
@@ -588,7 +594,8 @@ impl Permission {
             | Permission::AppSecretsManage
             | Permission::ThemeManage
             | Permission::AssistTaskManage
-            | Permission::GitHubWrite => RiskLevel::Critical,
+            | Permission::GitHubWrite
+            | Permission::AgentContainerSpawn => RiskLevel::Critical,
         }
     }
 
@@ -671,7 +678,8 @@ impl Permission {
             Permission::AssistToolExecute |
             Permission::GitHubWrite |
             Permission::GitHubPullRequestComment |
-            Permission::GitHubWorkflowTrigger
+            Permission::GitHubWorkflowTrigger |
+            Permission::AgentContainerSpawn
         )
     }
 

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Cpu, HardDrive, Globe, Plus, Cube, Lightning, ArrowClockwise, Play, Pause, TrashSimple, MagnifyingGlass, Gear, ShieldCheck } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 
@@ -433,6 +434,8 @@ interface PluginStats {
 type PluginWithStats = [PluginMetadata, PluginStats | null]
 
 export function PluginsTab({ token }: { token: string }) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language?.startsWith('de') ? 'de-DE' : 'en-US'
   const [plugins, setPlugins] = useState<PluginWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -486,19 +489,19 @@ export function PluginsTab({ token }: { token: string }) {
     <div className="space-y-3">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Plugins</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
           <div className="text-lg font-semibold text-foreground">{plugins.length}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Ausführungen</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.executions')}</div>
           <div className="text-lg font-semibold text-accent">{executions}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Fehler</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.failures')}</div>
           <div className="text-lg font-semibold text-red-300">{failures}</div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-[10px] text-foreground/50 font-semibold uppercase">Netzwerk</div>
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('plugins.overview.network')}</div>
           <div className="text-lg font-semibold text-cyan-300">{networkEnabled}</div>
         </div>
       </div>
@@ -509,12 +512,12 @@ export function PluginsTab({ token }: { token: string }) {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Plugins nach Name, ID, Autor oder Typ suchen..."
+            placeholder={t('plugins.overview.search')}
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
           />
         </div>
         <div className="flex gap-1 overflow-x-auto">
-          <button onClick={() => setTypeFilter('all')} className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${typeFilter === 'all' ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>Alle</button>
+          <button onClick={() => setTypeFilter('all')} className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${typeFilter === 'all' ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>{t('common.all')}</button>
           {pluginTypes.map(type => (
             <button key={type} onClick={() => setTypeFilter(type)} className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors whitespace-nowrap ${typeFilter === type ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>{type}</button>
           ))}
@@ -524,7 +527,7 @@ export function PluginsTab({ token }: { token: string }) {
       {/* Plugins List */}
       <AdminCard title={`Plugins (${filteredPlugins.length}/${plugins.length})`} icon={Lightning}>
         {plugins.length === 0 ? (
-          <p className="text-xs text-foreground/50 text-center py-4">Keine Plugins installiert.</p>
+          <p className="text-xs text-foreground/50 text-center py-4">{t('plugins.overview.noneInstalled')}</p>
         ) : (
           <div className="space-y-2">
             {filteredPlugins.map(([plugin, stats], i) => (
@@ -552,10 +555,10 @@ export function PluginsTab({ token }: { token: string }) {
                       <span className="text-foreground/40">Max RAM:</span> <span className="font-semibold text-foreground/70">{plugin.sandbox_config.max_memory_mb}MB</span>
                     </div>
                     <div className="p-1 rounded bg-foreground/5">
-                      <span className="text-foreground/40">Netzwerk:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_network ? 'text-cyan-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_network ? 'Erlaubt' : 'Blockiert'}</span>
+                      <span className="text-foreground/40">{t('plugins.overview.network')}:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_network ? 'text-cyan-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_network ? t('plugins.overview.allowed') : t('plugins.overview.blocked')}</span>
                     </div>
                     <div className="p-1 rounded bg-foreground/5">
-                      <span className="text-foreground/40">Dateisystem:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_file_system ? 'text-yellow-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_file_system ? 'Erlaubt' : 'Blockiert'}</span>
+                      <span className="text-foreground/40">{t('plugins.overview.filesystem')}:</span> <span className={`font-semibold ${plugin.sandbox_config.allow_file_system ? 'text-yellow-300' : 'text-foreground/50'}`}>{plugin.sandbox_config.allow_file_system ? t('plugins.overview.allowed') : t('plugins.overview.blocked')}</span>
                     </div>
                   </div>
                 </div>
@@ -580,7 +583,7 @@ export function PluginsTab({ token }: { token: string }) {
                     </div>
                     {stats.last_execution && (
                       <div className="text-[10px] text-foreground/40 mt-1">
-                        Letzte Ausführung: {new Date(stats.last_execution).toLocaleString('de-DE')}
+                        {t('plugins.overview.lastExecution')}: {new Date(stats.last_execution).toLocaleString(locale)}
                       </div>
                     )}
                     <div className="text-[10px] text-foreground/40 mt-0.5">
@@ -592,7 +595,7 @@ export function PluginsTab({ token }: { token: string }) {
                 {/* Permissions */}
                 {plugin.permissions.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-foreground/5">
-                    <div className="text-[10px] text-foreground/40 mb-1 flex items-center gap-1"><ShieldCheck size={11} /> Berechtigungen ({plugin.permissions.length}):</div>
+                    <div className="text-[10px] text-foreground/40 mb-1 flex items-center gap-1"><ShieldCheck size={11} /> {t('apps.permissions')} ({plugin.permissions.length}):</div>
                     <div className="flex flex-wrap gap-1">
                       {plugin.permissions.map((perm, j) => (
                         <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-foreground/5 text-foreground/60">{perm}</span>
@@ -605,17 +608,17 @@ export function PluginsTab({ token }: { token: string }) {
                 <div className="flex items-center gap-2 mt-2">
                   <button onClick={() => executePlugin(plugin.id)} disabled={executing === plugin.id}
                     className="flex items-center gap-1 px-2 py-1 bg-accent/15 text-accent rounded text-[10px] font-semibold hover:bg-accent/25 transition-colors disabled:opacity-40">
-                    {executing === plugin.id ? <InlineSpinner size={12} /> : <Lightning size={12} />} Ausführen
+                    {executing === plugin.id ? <InlineSpinner size={12} /> : <Lightning size={12} />} {t('plugins.overview.execute')}
                   </button>
                   <button onClick={() => { window.location.href = `/app-settings/${plugin.id}` }}
                     className="flex items-center gap-1 px-2 py-1 bg-foreground/5 text-foreground/70 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors">
-                    <Gear size={12} /> Einstellungen
+                    <Gear size={12} /> {t('settings.title')}
                   </button>
                 </div>
               </div>
             ))}
             {filteredPlugins.length === 0 && (
-              <p className="text-xs text-foreground/50 text-center py-6">Keine Plugins für den aktuellen Filter.</p>
+              <p className="text-xs text-foreground/50 text-center py-6">{t('plugins.overview.noFiltered')}</p>
             )}
           </div>
         )}
