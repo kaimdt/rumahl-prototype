@@ -555,8 +555,8 @@ if (-not (Test-Path $IMG_CACHE)) {
 
 # ── Step 2: VM disk overlay ────────────────────────────────────────────────
 if (-not (Test-Path $VM_DISK)) {
-    Write-Info "Creating VM disk overlay (20G)..."
-    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+    Write-Info "Creating VM disk overlay (40G)..."
+    & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
     if ($LASTEXITCODE -ne 0) { Stop-WithError "qemu-img create failed." }
 }
 
@@ -785,7 +785,7 @@ if ($existingProc) {
                 if (-not $qemuProc.HasExited) { Microsoft.PowerShell.Management\Stop-Process -Id $qemuProc.Id -Force -ErrorAction SilentlyContinue }
                 # WHPX can corrupt the overlay; recreate it
                 Remove-Item $VM_DISK -Force -ErrorAction SilentlyContinue
-                & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 20G | Out-Null
+                & $QEMU_IMG create -f qcow2 -b $IMG_CACHE -F qcow2 $VM_DISK 40G | Out-Null
                 $useWhpx = $false
             }
         }

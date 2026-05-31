@@ -229,6 +229,16 @@ impl Backend {
         let label = if let Some(ref c) = only { format!("{} crates", c.len()) } else { "all".into() };
         let _ = tx.send(AppEvent::Log(format!("──[Rust — {}]──", label)));
         let _ = self.ssh_exec("su - iora -c 'test -f /home/iora/.cargo/bin/cargo || curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal' 2>&1").await;
+
+        // Check disk space — clean only incremental cache (not deps/)
+        let disk_check = self.ssh_exec("df -BG /home/iora/iora/iora-os/backend | tail -1 | awk '{print $4}' | tr -d 'G'").await;
+        let free_gb: u32 = disk_check.as_ref().ok().and_then(|s| s.trim().parse().ok()).unwrap_or(99);
+        if free_gb < 5 {
+            let _ = tx.send(AppEvent::Log(format!("[RUST] Disk low ({free_gb}G free), cleaning incremental cache...")));
+            // Remove only incremental compilation cache (~5-10GB), not compiled deps
+            let _ = self.ssh_exec("find /home/iora/iora/iora-os/backend/target -type d -name incremental -exec rm -rf {} + 2>/dev/null; find /home/iora/iora/iora-os/backend/target -name '*.d' -delete 2>/dev/null; echo OK").await;
+        }
+
         self.sync_sources(&tx).await;
         let cmd = self.build_rust_cmd(only.as_ref());
         let full = format!("su - iora -c '{}' 2>&1", cmd);

@@ -476,7 +476,12 @@ pub(crate) struct HaRuntimeConfig {
 
 impl HaRuntimeConfig {
     pub fn is_configured(&self) -> bool {
-        !self.url.is_empty() && !self.token.is_empty()
+        if self.url.trim().is_empty() || self.token.trim().is_empty() {
+            return false;
+        }
+        reqwest::Url::parse(self.url.trim())
+            .map(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+            .unwrap_or(false)
     }
 }
 
@@ -4069,6 +4074,11 @@ async fn get_states(
     // Serve from cache if populated
     if state.entity_cache.is_populated().await {
         return Ok(Json(state.entity_cache.get_all().await));
+    }
+    let ha_config = load_ha_runtime_config_from_pool(&state.db_pool).await;
+    if !ha_config.is_configured() {
+        state.entity_cache.set_ha_connected(false);
+        return Ok(Json(Vec::new()));
     }
     // Fallback to direct HA call on first request before cache is warm
     match state.ha_client.get_states().await {

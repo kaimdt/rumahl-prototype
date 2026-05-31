@@ -60,6 +60,7 @@ async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         ("028_theme_widget_templates", include_str!("../../migrations/028_theme_widget_templates.sql")),
         ("029_theme_performance_indexes", include_str!("../../migrations/029_theme_performance_indexes.sql")),
         ("030_hot_path_indexes", include_str!("../../migrations/030_hot_path_indexes.sql")),
+        ("031_system_events", include_str!("../../migrations/031_system_events.sql")),
     ];
 
     // Apply each migration if not already applied
