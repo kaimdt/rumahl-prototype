@@ -67,7 +67,7 @@ const VM_HEALTH_INTERVAL_S: u64 = 30;
 const LOG_BUFFER_CAP: usize = 5000;
 const CMD_LOG_CAP: usize = 200;
 const RESOURCE_INTERVAL_S: u64 = 3;
-const SELF_HEAL_INTERVAL_S: u64 = 20;
+const SELF_HEAL_INTERVAL_S: u64 = 60;
 const STATUS_REFRESH_INTERVAL_S: u64 = 8;
 
 // ═══ CLI ═════════════════════════════════════════════════════════════════
@@ -797,7 +797,7 @@ enum AppEvent {
 // ═══ App state ═══════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, PartialEq)]
-enum View { Logs, Status, Journal, Commands, Resources }
+enum View { Logs, Status, Journal, Commands, Resources, Deploy }
 
 #[derive(Debug, Clone)]
 enum Mode {
@@ -805,6 +805,7 @@ enum Mode {
     Command { input: String },
     BuildMenu { cursor: usize },
     BuildSelect { cursor: usize, selected: HashSet<usize> },
+    DeploySelect { cursor: usize, selected: HashSet<usize> },
 }
 
 struct AppState {
@@ -842,6 +843,11 @@ struct AppState {
     resource_data: ResourceData,
     resource_history: ResourceHistory,
 
+    // Deploy tab
+    deploy_cursor: usize,
+    deploy_selected: HashSet<usize>,
+    notify_on_ready: bool,
+
     should_quit: bool,
     dirty: bool,
 }
@@ -865,12 +871,22 @@ impl AppState {
             log_scroll: 0,
             resource_data: ResourceData::default(),
             resource_history: ResourceHistory::new(60),
+            deploy_cursor: 0,
+            deploy_selected: HashSet::new(),
+            notify_on_ready: true,
             should_quit: false, dirty: true,
         }
     }
 
     fn push_log(&mut self, line: impl Into<String>) {
         for sanitized in sanitize_log(&line.into()) {
+            // Skip duplicate [HEAL] lines — self-heal runs periodically and
+            // would otherwise flood the log with identical restart messages.
+            if sanitized.starts_with("[HEAL]") {
+                if self.log_buf.back().map_or(false, |last| last == &sanitized) {
+                    continue;
+                }
+            }
             if self.log_buf.len() >= LOG_BUFFER_CAP { self.log_buf.pop_front(); }
             self.log_buf.push_back(sanitized);
         }
@@ -994,9 +1010,11 @@ fn start_file_watcher(
     workspace: PathBuf,
     fe: Option<PathBuf>,
     tx: mpsc::UnboundedSender<AppEvent>,
+    valid_services: Vec<String>,
 ) -> Result<RecommendedWatcher> {
     let dirs: Vec<PathBuf> = ["services", "shared", "tools", "apps", "dev"]
         .iter().map(|s| workspace.join(s)).filter(|p| p.is_dir()).collect();
+    let service_set: HashSet<String> = valid_services.into_iter().collect();
     let mut w: RecommendedWatcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(ev) = res else { return };
         if !matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) { return; }
@@ -1008,7 +1026,16 @@ fn start_file_watcher(
             if s.ends_with(".rs") {
                 for c in p.components().rev() {
                     let cn = c.as_os_str().to_string_lossy();
-                    if cn.starts_with("iora-") { rust.insert(cn.to_string()); break; }
+                    if cn.starts_with("iora-") {
+                        // If the changed crate is a shared library (not a service binary),
+                        // rebuild everything — all services depend on shared crates.
+                        if service_set.contains(cn.as_ref()) {
+                            rust.insert(cn.to_string());
+                        } else {
+                            rust.insert("__workspace__".into());
+                        }
+                        break;
+                    }
                 }
             }
             if s.contains("Cargo.toml") || s.contains("Cargo.lock") {
@@ -1065,6 +1092,24 @@ fn spawn_deploy(state: &mut AppState, tx: mpsc::UnboundedSender<AppEvent>, force
     tokio::spawn(async move {
         if force { backend.wipe_hashes_and_bins(&tx).await; }
         backend.deploy_binaries(tx).await;
+    });
+}
+
+fn spawn_deploy_selected(state: &AppState, svcs: Vec<String>, tx: mpsc::UnboundedSender<AppEvent>) {
+    if !state.vm_online { return; }
+    let backend = state.backend.clone();
+    let ws = backend.vm_workspace.clone();
+    tokio::spawn(async move {
+        let _ = tx.send(AppEvent::Log("[DEPLOY] Deploying selected...".into()));
+        for svc in &svcs {
+            let cmd = format!(
+                "bin={ws}/target/debug/{svc}; [ -f \"$bin\" ] && {{ install -m 0755 \"$bin\" /usr/bin/{svc} && systemctl restart {svc} 2>/dev/null && echo \"DEPLOY: ✓ {svc}\"; }} || echo \"DEPLOY: ✗ {svc} (not built)\"",
+            );
+            match backend.ssh_exec(&cmd).await {
+                Ok(out) => { let _ = tx.send(AppEvent::Log(out.trim().to_string())); }
+                Err(e) => { let _ = tx.send(AppEvent::Log(format!("[DEPLOY] ✗ {svc}: {e}"))); }
+            }
+        }
     });
 }
 
@@ -1204,6 +1249,34 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             state.mode = Mode::BuildSelect { cursor: cur, selected: sel };
             return;
         }
+        Mode::DeploySelect { cursor, selected } => {
+            let mut cur = *cursor;
+            let mut sel = selected.clone();
+            let n = state.backend.services.len();
+            match key.code {
+                KeyCode::Esc => { state.mode = Mode::Normal; return; }
+                KeyCode::Up => cur = cur.saturating_sub(1),
+                KeyCode::Down => cur = (cur + 1).min(n.saturating_sub(1)),
+                KeyCode::Char(' ') => {
+                    if sel.contains(&cur) { sel.remove(&cur); } else { sel.insert(cur); }
+                }
+                KeyCode::Char('a') | KeyCode::Char('A') => {
+                    if sel.len() == n { sel.clear(); }
+                    else { for i in 0..n { sel.insert(i); } }
+                }
+                KeyCode::Enter => {
+                    if sel.is_empty() { state.mode = Mode::Normal; return; }
+                    let svcs: Vec<String> = sel.iter().map(|&i| state.backend.services[i].clone()).collect();
+                    state.mode = Mode::Normal;
+                    state.push_log(format!("[DEPLOY] {} services", svcs.len()));
+                    spawn_deploy_selected(state, svcs, tx.clone());
+                    return;
+                }
+                _ => {}
+            }
+            state.mode = Mode::DeploySelect { cursor: cur, selected: sel };
+            return;
+        }
         Mode::Normal => {}
     }
 
@@ -1219,7 +1292,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
                 View::Status => View::Journal,
                 View::Journal => View::Commands,
                 View::Commands => View::Resources,
-                View::Resources => View::Logs,
+                View::Resources => View::Deploy,
+                View::Deploy => View::Logs,
             };
             state.log_scroll = 0;
             // Refresh status immediately when switching to the Status view
@@ -1227,7 +1301,43 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             if state.view == View::Status && state.vm_online && !state.building {
                 spawn_fetch_status(state, tx.clone());
             }
+            return;
         }
+        // Deploy view keys
+        KeyCode::Char(' ') if state.view == View::Deploy => {
+            if state.deploy_selected.contains(&state.deploy_cursor) {
+                state.deploy_selected.remove(&state.deploy_cursor);
+            } else { state.deploy_selected.insert(state.deploy_cursor); }
+            return;
+        }
+        KeyCode::Char('a') | KeyCode::Char('A') if state.view == View::Deploy => {
+            let n = state.backend.services.len();
+            if state.deploy_selected.len() == n { state.deploy_selected.clear(); }
+            else { for i in 0..n { state.deploy_selected.insert(i); } }
+            return;
+        }
+        KeyCode::Up if state.view == View::Deploy => {
+            state.deploy_cursor = state.deploy_cursor.saturating_sub(1); return;
+        }
+        KeyCode::Down if state.view == View::Deploy => {
+            let n = state.backend.services.len();
+            state.deploy_cursor = (state.deploy_cursor + 1).min(n.saturating_sub(1)); return;
+        }
+        KeyCode::Enter if state.view == View::Deploy => {
+            if !state.deploy_selected.is_empty() {
+                let svcs: Vec<String> = state.deploy_selected.iter()
+                    .map(|&i| state.backend.services[i].clone()).collect();
+                state.push_log(format!("[DEPLOY] {} services", svcs.len()));
+                spawn_deploy_selected(state, svcs, tx.clone());
+            }
+            return;
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            state.notify_on_ready = !state.notify_on_ready;
+            state.push_log(format!("[CONFIG] Notify on ready: {}", if state.notify_on_ready {"ON"} else {"OFF"}));
+            return;
+        }
+        KeyCode::Esc => { state.show_help = false; }
         KeyCode::Up => state.log_scroll = state.log_scroll.saturating_add(1),
         KeyCode::Down => state.log_scroll = state.log_scroll.saturating_sub(1),
         KeyCode::PageUp => state.log_scroll = state.log_scroll.saturating_add(10),
@@ -1241,6 +1351,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             spawn_build(state, None, true, true, tx.clone());
         }
         KeyCode::Char('r') => state.mode = Mode::BuildMenu { cursor: 0 },
+        KeyCode::Char('e') => { state.view = View::Deploy; state.log_scroll = 0; },
         KeyCode::Char('R') => { state.view = View::Resources; state.log_scroll = 0; }
         KeyCode::Char('c') | KeyCode::Char('C') => {
             state.push_log("[VM] Checking...");
@@ -1353,6 +1464,7 @@ fn ui(f: &mut ratatui::Frame, state: &AppState) {
         View::Journal => render_journal(f, chunks[2], state),
         View::Commands => render_commands(f, chunks[2], state),
         View::Resources => render_resources(f, chunks[2], state),
+        View::Deploy => render_deploy(f, chunks[2], state),
     }
     render_footer(f, chunks[3], state);
 
@@ -1397,19 +1509,28 @@ fn render_header(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         Span::styled(watch_text, watch_style),
         Span::raw(format!("   Services: {}/{}", s.active_services, s.backend.services.len())),
     ]);
+    // Append ready indicator when all services are up
+    let all_ready = s.vm_online && s.bridge_connected && s.ssh_connected
+        && !s.building && s.active_services == s.backend.services.len();
+    let display = if all_ready {
+        let mut spans = line.spans.clone();
+        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled("✓ READY", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+        Line::from(spans)
+    } else { line };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
         .title(Span::styled(" IORA Dev Watch ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
-    let p = Paragraph::new(line).block(block);
+    let p = Paragraph::new(display).block(block);
     f.render_widget(p, area);
 }
 
 fn render_tabs(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
-    let titles = vec!["Logs", "Status", "Journal", "Commands", "Resources"];
+    let titles = vec!["Logs", "Status", "Journal", "Commands", "Resources", "Deploy"];
     let idx = match s.view {
         View::Logs => 0, View::Status => 1, View::Journal => 2,
-        View::Commands => 3, View::Resources => 4,
+        View::Commands => 3, View::Resources => 4, View::Deploy => 5,
     };
     let tabs = Tabs::new(titles)
         .select(idx)
@@ -1672,6 +1793,43 @@ fn render_resources(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     f.render_widget(sparks, chunks[6]);
 }
 
+fn render_deploy(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
+    let block = Block::default().borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Deploy ");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let n = s.backend.services.len();
+    let visible_h = inner.height.saturating_sub(1) as usize;
+    let mut lines: Vec<Line> = Vec::new();
+    for i in 0..n {
+        let svc = &s.backend.services[i];
+        let label = svc.strip_prefix("iora-").unwrap_or(svc);
+        let checked = if s.deploy_selected.contains(&i) { "✓" } else { " " };
+        let cursor = if i == s.deploy_cursor { ">" } else { " " };
+        let style = if i == s.deploy_cursor {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else if s.deploy_selected.contains(&i) {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        lines.push(Line::from(vec![
+            Span::raw(format!("{cursor} [{checked}] ")),
+            Span::styled(label.to_string(), style),
+        ]));
+    }
+    let scroll = (s.deploy_cursor.saturating_sub(visible_h.saturating_sub(1))).min(s.deploy_cursor);
+    let visible: Vec<Line> = lines.iter().skip(scroll).take(visible_h).cloned().collect();
+    f.render_widget(List::new(visible).block(Block::default()), inner);
+
+    // Footer hint
+    let hint = Paragraph::new("Space=toggle  A=all  Enter=deploy  ↑↓=scroll  Tab=next  Esc=back  N=notify")
+        .style(Style::default().fg(Color::DarkGray));
+    f.render_widget(hint, Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner });
+}
+
 fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let line = match &s.mode {
         Mode::Normal => {
@@ -1681,7 +1839,7 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             Line::from(vec![
                 Span::raw(" "), status,
                 Span::styled(
-                    "   Q=quit  B=build  D=deploy  Shift+D=force-redeploy  S=status  H=health  R=resize-build  J=journal  W=watch  L=auto-deploy  0=bottom  /=cmd  Tab=view  ?=help",
+                    "   Q=quit  B=build  D=deploy  Shift+D=force-redeploy  E=deploy-select  S=status  H=health  R=build-menu  J=journal  W=watch  L=auto-deploy  0=bottom  /=cmd  Tab=view  ?=help",
                     Style::default().fg(Color::DarkGray),
                 ),
             ])
@@ -1716,6 +1874,22 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
                 spans.push(Span::styled(format!(" [{mark}]{label}"), style));
             }
             spans.push(Span::styled("  Space=toggle A=all Enter=build Esc=back",
+                Style::default().fg(Color::DarkGray)));
+            Line::from(spans)
+        }
+        Mode::DeploySelect { cursor, selected } => {
+            let mut spans = vec![Span::styled(" Deploy: ", Style::default().fg(Color::Cyan))];
+            for (i, svc) in s.backend.services.iter().enumerate() {
+                let mark = if selected.contains(&i) { "✓" } else { " " };
+                let style = if i == *cursor {
+                    Style::default().fg(Color::Black).bg(Color::Yellow)
+                } else if selected.contains(&i) {
+                    Style::default().fg(Color::Green)
+                } else { Style::default().fg(Color::DarkGray) };
+                let label = svc.strip_prefix("iora-").unwrap_or(svc);
+                spans.push(Span::styled(format!(" [{mark}]{label}"), style));
+            }
+            spans.push(Span::styled("  Space=toggle A=all Enter=deploy Esc=back",
                 Style::default().fg(Color::DarkGray)));
             Line::from(spans)
         }
@@ -1770,6 +1944,7 @@ async fn main() -> Result<()> {
     let ssh_key = args.ssh_key.clone().map(PathBuf::from)
         .unwrap_or_else(|| cache_dir.join("iora-dev-key"));
     let services = discover_services(&workspace);
+    let services_for_watcher = services.clone();
 
     let backend = Backend {
         vm_host: args.vm_host.clone(),
@@ -1816,7 +1991,7 @@ async fn main() -> Result<()> {
 
     // File watcher
     let _watcher = if state.do_watch {
-        Some(start_file_watcher(workspace.clone(), frontend_dir.clone(), app_tx.clone())?)
+        Some(start_file_watcher(workspace.clone(), frontend_dir.clone(), app_tx.clone(), services_for_watcher)?)
     } else { None };
 
     // Initial VM check + optional build
