@@ -1744,13 +1744,20 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
             .unwrap_or_default();
 
         // Get resource usage stats
-        let mut stats_stream = data.docker.stats(&container_id, Some(StatsOptions {
-            stream: false,
-            one_shot: true,
-        }));
-        let resource_usage = match futures_util::TryStreamExt::try_next(&mut stats_stream).await
-        {
-            Ok(Some(stats)) => {
+        // Wrap stats collection in timeout to prevent hanging and ensure cleanup
+        let resource_usage = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            async {
+                let mut stats_stream = data.docker.stats(&container_id, Some(StatsOptions {
+                    stream: false,
+                    one_shot: true,
+                }));
+                let result = futures_util::TryStreamExt::try_next(&mut stats_stream).await;
+                drop(stats_stream);  // Explicit cleanup to release Docker API resources
+                result
+            }
+        ).await {
+            Ok(Ok(Some(stats))) => {
                 let cpu_percent = calculate_cpu_percent(&stats);
                 let memory_usage = stats.memory_stats.usage.unwrap_or(0);
                 let memory_limit = stats.memory_stats.limit.unwrap_or(0);
@@ -1778,7 +1785,15 @@ async fn list_apps_detailed(data: web::Data<AppState>) -> impl Responder {
                     network_tx_bytes: network_tx,
                 })
             }
-            _ => None,
+            Ok(Ok(None)) => None,
+            Ok(Err(e)) => {
+                tracing::warn!("Failed to get stats for container {}: {}", container_id, e);
+                None
+            }
+            Err(_) => {
+                tracing::warn!("Stats collection timeout for container {}", container_id);
+                None
+            }
         };
 
         let app_info = DetailedAppInfo {

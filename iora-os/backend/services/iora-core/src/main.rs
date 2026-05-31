@@ -667,6 +667,7 @@ async fn receive_heartbeat(
 
     // Always refresh registration metadata: a service may have moved
     // ports or been redeployed with a new build between heartbeats.
+    // Check inside the lock to prevent race condition with duplicate registration events
     let was_known = entry.heartbeat_count > 0;
     if !beat.url.is_empty() {
         entry.url = beat.url.clone();
@@ -686,8 +687,7 @@ async fn receive_heartbeat(
     entry.stale            = false;
     entry.heartbeat_count  = entry.heartbeat_count.saturating_add(1);
 
-    drop(map);
-
+    // Send registration event while still holding the lock to prevent duplicate events
     if !was_known {
         let event = IoraEvent {
             event_type: "service.registered".to_string(),
@@ -699,6 +699,8 @@ async fn receive_heartbeat(
         };
         send_event(&state.events_tx, event);
     }
+
+    drop(map);
 
     let event = IoraEvent {
         event_type: "service.heartbeat".to_string(),
