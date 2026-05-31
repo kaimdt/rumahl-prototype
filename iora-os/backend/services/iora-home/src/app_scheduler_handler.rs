@@ -9,7 +9,6 @@
 //!   POST   /api/apps/:app_id/schedules/:id/trigger – Manually trigger
 //!   GET    /api/apps/:app_id/schedules/:id/logs – Get execution logs
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -21,9 +20,8 @@ use axum::{
 };
 use chrono::Utc;
 use cron::Schedule as CronSchedule;
-use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::info;
 
 use iora_shared::app_scheduler::*;
 

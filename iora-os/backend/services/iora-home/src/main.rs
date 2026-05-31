@@ -2030,7 +2030,6 @@ async fn detect_setup_wizard() -> (Option<String>, bool) {
     }
 
     const CHECK_PORTS: &[u16] = &[8080, 80];
-    let conn_timeout = Duration::from_secs(2);
 
     // Helper: try connecting to addr:port.
     async fn try_connect(host: &str, port: u16) -> bool {
@@ -5694,7 +5693,6 @@ async fn apps_status_stream(
     State(state): State<AppState>,
 ) -> axum::response::Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
     use axum::response::sse::{Event, KeepAlive, Sse};
-    use tokio_stream::StreamExt as _;
 
     let stream = futures_util::stream::unfold(state, |state| async move {
         let apps = state.local_appstore.list().await;
@@ -7389,10 +7387,6 @@ async fn try_docker_compose_down(app_id: &str) -> Option<String> {
         match result {
             Ok(output) if output.status.success() => {
                 docker_present = true;
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if !stderr.trim().is_empty() && stderr.contains("Removed") {
-                    any_success = true;
-                }
                 // success ohne "Removed" bedeutet: Project gab es nicht (no-op)
                 any_success = true;
             }
@@ -7483,7 +7477,7 @@ async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
 async fn app_proxy_handler(
     State(state): State<AppState>,
     axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
-    req: axum::extract::Request,
+    _req: axum::extract::Request,
 ) -> axum::response::Response {
     use axum::body::Body;
     use axum::http::{Response, StatusCode};
@@ -8407,7 +8401,7 @@ async fn core_plugins_enable(
     State(state): State<AppState>,
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let app = state
+    state
         .local_appstore
         .enable(&plugin_id, true)
         .await
@@ -8423,7 +8417,7 @@ async fn core_plugins_disable(
     State(state): State<AppState>,
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let app = state
+    state
         .local_appstore
         .enable(&plugin_id, false)
         .await
@@ -16104,6 +16098,7 @@ async fn internal_create_system_notification(
 /// Health check
 ///
 /// Returns system health status including HA connection, entity count, and connected clients.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/health", tag = "health",
     responses((status = 200, description = "Health status", body = Value))
 )]
@@ -16112,6 +16107,7 @@ async fn api_doc_health() {}
 /// Register new user
 ///
 /// Create a new user account. Returns JWT token and user data.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/register", tag = "auth",
     request_body(content = Value, description = "{ username, password, display_name? }"),
     responses(
@@ -16124,6 +16120,7 @@ async fn api_doc_auth_register() {}
 /// Login with credentials
 ///
 /// Authenticate with username and password. Returns JWT token.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/login", tag = "auth",
     request_body(content = Value, description = "{ username, password, remember_me? }"),
     responses(
@@ -16136,6 +16133,7 @@ async fn api_doc_auth_login() {}
 /// Verify JWT token
 ///
 /// Verify the bearer token and return the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/auth/verify", tag = "auth",
     security(("bearer" = [])),
     responses(
@@ -16148,6 +16146,7 @@ async fn api_doc_auth_verify() {}
 /// Login with PIN
 ///
 /// Authenticate with user ID and PIN for quick user switching on shared devices.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/pin-login", tag = "auth",
     request_body(content = Value, description = "{ user_id, pin }"),
     responses(
@@ -16161,6 +16160,7 @@ async fn api_doc_auth_pin_login() {}
 /// List all users
 ///
 /// Returns a list of all users with id, username, display_name, avatar_url, and has_pin flag.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/auth/users", tag = "auth",
     responses((status = 200, description = "User list", body = Vec<Value>))
 )]
@@ -16169,6 +16169,7 @@ async fn api_doc_auth_users() {}
 /// Set login PIN
 ///
 /// Set or update the login PIN for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/pin", tag = "auth",
     security(("bearer" = [])),
     request_body(content = Value, description = "{ pin: string (4-6 digits) }"),
@@ -16182,6 +16183,7 @@ async fn api_doc_auth_set_pin() {}
 /// Remove login PIN
 ///
 /// Remove the login PIN for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/auth/pin", tag = "auth",
     security(("bearer" = [])),
     responses(
@@ -16194,12 +16196,14 @@ async fn api_doc_auth_remove_pin() {}
 /// Get all entity states
 ///
 /// Returns all cached Home Assistant entity states. Updated in real-time via WebSocket.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/states", tag = "entities",
     responses((status = 200, description = "Array of entity states", body = Vec<Value>))
 )]
 async fn api_doc_get_states() {}
 
 /// Get single entity state
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/states/{entity_id}", tag = "entities",
     params(("entity_id" = String, Path, description = "Entity ID (e.g. light.living_room)")),
     responses(
@@ -16212,6 +16216,7 @@ async fn api_doc_get_state() {}
 /// Call Home Assistant service
 ///
 /// Dispatch a service call to HA. Requires JWT auth. Uses WebSocket when connected, REST fallback otherwise.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/services/{domain}/{service}", tag = "services",
     security(("bearer" = [])),
     params(
@@ -16226,6 +16231,7 @@ async fn api_doc_call_service() {}
 /// Get entity history
 ///
 /// Proxy to Home Assistant history API. Returns state history for the given period.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/history/period/{start_time}", tag = "history",
     params(("start_time" = String, Path, description = "ISO 8601 start time")),
     responses((status = 200, description = "History data", body = Value))
@@ -16235,6 +16241,7 @@ async fn api_doc_get_history() {}
 /// Upload background image
 ///
 /// Upload a background image (jpg, png, webp, gif). Max recommended size: 10MB.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/uploads/background", tag = "uploads",
     security(("bearer" = [])),
     responses(
@@ -16248,6 +16255,7 @@ async fn api_doc_upload_background() {}
 /// Get entities by domain
 ///
 /// Filter cached entities by domain (e.g. light, sensor, climate).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/entities/domain/{domain}", tag = "entities",
     params(("domain" = String, Path, description = "Entity domain")),
     responses((status = 200, description = "Filtered entity list", body = Vec<Value>))
@@ -16257,6 +16265,7 @@ async fn api_doc_get_entities_by_domain() {}
 /// Search entities
 ///
 /// Search entities by name or entity_id substring.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/entities/search", tag = "entities",
     params(("q" = String, Query, description = "Search query")),
     responses((status = 200, description = "Matching entities", body = Vec<Value>))
@@ -16266,6 +16275,7 @@ async fn api_doc_search_entities() {}
 /// System statistics
 ///
 /// Returns CPU usage, memory, uptime, database size, entity count, cache metrics, and HA connection status.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/system/stats", tag = "system",
     responses((status = 200, description = "System stats", body = Value))
 )]
@@ -16274,12 +16284,14 @@ async fn api_doc_system_stats() {}
 /// Home Assistant info
 ///
 /// Returns HA connection status, entity count, domain breakdown, and version information.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/system/ha-info", tag = "system",
     responses((status = 200, description = "HA info", body = Value))
 )]
 async fn api_doc_ha_info() {}
 
 /// Create user
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/users", tag = "config",
     request_body(content = Value, description = "{ username, password, display_name? }"),
     responses((status = 200, description = "User created", body = Value))
@@ -16287,6 +16299,7 @@ async fn api_doc_ha_info() {}
 async fn api_doc_create_user() {}
 
 /// Get user by username
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/users/{username}", tag = "config",
     params(("username" = String, Path, description = "Username")),
     responses(
@@ -16299,6 +16312,7 @@ async fn api_doc_get_user() {}
 /// Update user profile
 ///
 /// Update username and/or display name.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/config/users/by-id/{user_id}", tag = "config",
     security(("bearer" = [])),
     params(("user_id" = String, Path, description = "User ID")),
@@ -16310,6 +16324,7 @@ async fn api_doc_update_user() {}
 /// Register device
 ///
 /// Register a new device for settings sync and terminal mode.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/devices", tag = "config",
     request_body(content = Value, description = "{ device_name, device_type?, user_agent? }"),
     responses((status = 200, description = "Device registered", body = Value))
@@ -16317,6 +16332,7 @@ async fn api_doc_update_user() {}
 async fn api_doc_register_device() {}
 
 /// Create configuration profile
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles", tag = "config",
     request_body(content = Value, description = "{ name, profile_type, owner_id }"),
     responses((status = 200, description = "Profile created", body = Value))
@@ -16326,6 +16342,7 @@ async fn api_doc_create_profile() {}
 /// Get profile data
 ///
 /// Returns full profile with pages, theme, and background configuration.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/profiles/{profile_id}", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     responses(
@@ -16338,6 +16355,7 @@ async fn api_doc_get_profile() {}
 /// Save dashboard pages
 ///
 /// Save all pages with widgets, layouts, and ordering for a profile.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/pages", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ pages: DashboardPage[] }"),
@@ -16346,6 +16364,7 @@ async fn api_doc_get_profile() {}
 async fn api_doc_save_pages() {}
 
 /// Save theme settings
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/theme", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ sleep_mode, auto_theme, selected_theme$1 }"),
@@ -16356,6 +16375,7 @@ async fn api_doc_save_theme() {}
 /// Save background configuration
 ///
 /// Save global background config (static image, slideshow, video, or gradient).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/background", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ background_type, config, is_active }"),
@@ -16366,6 +16386,7 @@ async fn api_doc_save_background() {}
 /// Get page layouts
 ///
 /// Returns all page grid layouts (cols, rows, gap) for a profile.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/profiles/{profile_id}/layouts", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     responses((status = 200, description = "Page layouts", body = Vec<Value>))
@@ -16373,6 +16394,7 @@ async fn api_doc_save_background() {}
 async fn api_doc_get_page_layouts() {}
 
 /// Save page layout
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/layouts", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ page_id, cols, rows, gap }"),
@@ -16383,6 +16405,7 @@ async fn api_doc_save_page_layout() {}
 /// Get all page settings
 ///
 /// Returns per-page settings (card style, background override, custom CSS, padding) for all pages in a profile.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/profiles/{profile_id}/page-settings", tag = "page-settings",
     params(("profile_id" = String, Path, description = "Profile ID")),
     responses((status = 200, description = "Array of page settings", body = Vec<Value>))
@@ -16392,6 +16415,7 @@ async fn api_doc_get_page_settings() {}
 /// Save page settings
 ///
 /// Create or update settings for a specific page. Supports card_style, per-page background override, custom_css, hide_header, and padding.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/page-settings", tag = "page-settings",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ page_id, card_style?, background_type?, background_config?, custom_css?, hide_header?, padding? }"),
@@ -16402,6 +16426,7 @@ async fn api_doc_save_page_settings() {}
 /// Delete page settings
 ///
 /// Remove per-page settings, reverting to global defaults.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/config/profiles/{profile_id}/page-settings/{page_id}", tag = "page-settings",
     params(
         ("profile_id" = String, Path, description = "Profile ID"),
@@ -16414,6 +16439,7 @@ async fn api_doc_delete_page_settings() {}
 /// Save user preference
 ///
 /// Save a key-value preference for a user (synced across devices).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/preferences/{user_id}", tag = "config",
     params(("user_id" = String, Path, description = "User ID")),
     request_body(content = Value, description = "{ key, value, device_id? }"),
@@ -16424,6 +16450,7 @@ async fn api_doc_save_preference() {}
 /// Get user preferences
 ///
 /// Returns all preferences for a user as key-value pairs.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/preferences/{user_id}", tag = "config",
     params(("user_id" = String, Path, description = "User ID")),
     responses((status = 200, description = "Preferences map", body = Value))
@@ -16433,6 +16460,7 @@ async fn api_doc_get_preferences() {}
 /// Dashboard status
 ///
 /// Returns dashboard status and diagnostics for the HA custom integration.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/integration/status", tag = "integration",
     responses((status = 200, description = "Dashboard status with entity counts, connection info", body = Value))
 )]
@@ -16441,6 +16469,7 @@ async fn api_doc_integration_status() {}
 /// Send command
 ///
 /// Send commands from the HA integration (refresh_entities, set_theme, navigate, etc.).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/integration/command", tag = "integration",
     request_body(content = Value, description = "{ command, ...params }"),
     responses((status = 200, description = "Command executed"))
@@ -16450,6 +16479,7 @@ async fn api_doc_integration_command() {}
 /// Get dashboard settings
 ///
 /// Returns current dashboard settings (screensaver, auto_theme, brightness, etc.).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/integration/settings", tag = "integration",
     responses((status = 200, description = "Dashboard settings", body = Value))
 )]
@@ -16458,6 +16488,7 @@ async fn api_doc_integration_get_settings() {}
 /// Update dashboard settings
 ///
 /// Update dashboard settings from the HA integration.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/integration/settings", tag = "integration",
     request_body(content = Value, description = "Settings to update"),
     responses((status = 200, description = "Settings updated"))
@@ -16469,6 +16500,7 @@ async fn api_doc_integration_set_settings() {}
 /// List my API keys
 ///
 /// Returns all API keys for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/keys", tag = "api-keys",
     security(("bearer" = [])),
     responses((status = 200, description = "API keys list", body = Vec<Value>))
@@ -16478,6 +16510,7 @@ async fn api_doc_list_api_keys() {}
 /// Create API key
 ///
 /// Generate a new API key for programmatic access. The raw key is only returned once.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/keys", tag = "api-keys",
     security(("bearer" = [])),
     request_body(content = Value, description = "{ name, permissions?: string[], rate_limit?: number, expires_in_days?: number }"),
@@ -16491,6 +16524,7 @@ async fn api_doc_create_api_key() {}
 /// Update API key
 ///
 /// Update name, permissions, rate limit, or active status of an API key.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/keys/{key_id}", tag = "api-keys",
     security(("bearer" = [])),
     params(("key_id" = String, Path, description = "API key ID")),
@@ -16502,6 +16536,7 @@ async fn api_doc_update_api_key() {}
 /// Delete API key
 ///
 /// Permanently revoke and delete an API key.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/keys/{key_id}", tag = "api-keys",
     security(("bearer" = [])),
     params(("key_id" = String, Path, description = "API key ID")),
@@ -16514,6 +16549,7 @@ async fn api_doc_delete_api_key() {}
 /// Admin: List all users
 ///
 /// Returns all users with admin details. Requires admin access.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/users", tag = "admin",
     security(("bearer" = [])),
     responses((status = 200, description = "All users with admin info"))
@@ -16523,6 +16559,7 @@ async fn api_doc_admin_list_users() {}
 /// Admin: Set user admin status
 ///
 /// Promote or demote a user to/from admin role.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/admin/users/{user_id}/admin", tag = "admin",
     security(("bearer" = [])),
     params(("user_id" = String, Path, description = "User ID")),
@@ -16534,6 +16571,7 @@ async fn api_doc_admin_set_admin() {}
 /// Admin: List all API keys
 ///
 /// Returns all API keys across all users.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/api-keys", tag = "admin",
     security(("bearer" = [])),
     responses((status = 200, description = "All API keys"))
@@ -16543,6 +16581,7 @@ async fn api_doc_admin_list_all_api_keys() {}
 /// Admin: HA Configuration
 ///
 /// Returns Home Assistant core configuration (location, units, version, etc.).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/config", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA configuration"))
@@ -16552,6 +16591,7 @@ async fn api_doc_admin_ha_config() {}
 /// Admin: HA Integrations
 ///
 /// Returns all loaded HA components/integrations and entity domain breakdown.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/integrations", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA integrations and components"))
@@ -16561,6 +16601,7 @@ async fn api_doc_admin_ha_integrations() {}
 /// Admin: HA Devices
 ///
 /// Returns all HA devices grouped by device class.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/devices", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA devices"))
@@ -16570,6 +16611,7 @@ async fn api_doc_admin_ha_devices() {}
 /// Admin: HA Automations
 ///
 /// Returns all automation entities with their status and last triggered time.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/automations", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA automations"))
@@ -16579,6 +16621,7 @@ async fn api_doc_admin_ha_automations() {}
 /// Admin: HA Services
 ///
 /// Returns all available HA services organized by domain.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/services", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA services"))
@@ -16588,6 +16631,7 @@ async fn api_doc_admin_ha_services() {}
 /// Admin: HA Logs
 ///
 /// Returns recent Home Assistant error log entries.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/logs", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA error logs"))
@@ -16597,6 +16641,7 @@ async fn api_doc_admin_ha_logs() {}
 /// Admin: MQTT Status
 ///
 /// Returns MQTT-related entities, broker status, and device information.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/mqtt", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "MQTT information"))
@@ -16606,6 +16651,7 @@ async fn api_doc_admin_ha_mqtt() {}
 /// Admin: Matter Status
 ///
 /// Returns Matter-related entities and fabric information.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/matter", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "Matter information"))
@@ -16615,6 +16661,7 @@ async fn api_doc_admin_ha_matter() {}
 /// Admin: HA Add-ons
 ///
 /// Returns installed add-ons (Supervisor) or update entities as fallback.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/addons", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA add-ons"))
@@ -16624,6 +16671,7 @@ async fn api_doc_admin_ha_addons() {}
 /// Admin: HA Supervisor
 ///
 /// Returns Supervisor system information (only available on HA OS / Supervised).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/supervisor", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "Supervisor info"))
@@ -16633,6 +16681,7 @@ async fn api_doc_admin_ha_supervisor() {}
 /// Admin: Database Info
 ///
 /// Returns database size and table row counts.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/system/database", tag = "admin",
     security(("bearer" = [])),
     responses((status = 200, description = "Database statistics"))
@@ -16646,6 +16695,7 @@ async fn api_doc_admin_database_info() {}
 /// List calendars
 ///
 /// Returns all available calendar entities from Home Assistant.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/calendars", tag = "calendars",
     security(("bearer" = []), ("api_key" = [])),
     responses(
@@ -16658,6 +16708,7 @@ async fn api_doc_get_calendars() {}
 /// Get calendar events
 ///
 /// Returns events for a specific calendar entity within a time range. Defaults to 30 days from now.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/calendars/{entity_id}/events", tag = "calendars",
     security(("bearer" = []), ("api_key" = [])),
     params(
@@ -16679,6 +16730,7 @@ async fn api_doc_get_calendar_events() {}
 /// Get current time
 ///
 /// Returns the current server date, time, timezone, and UNIX timestamp.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/time", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     responses((status = 200, description = "Current time info", body = Value))
@@ -16688,6 +16740,7 @@ async fn api_doc_get_current_time() {}
 /// List all lights
 ///
 /// Returns all light entities with their state, brightness, color mode, and attributes.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/lights", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     responses((status = 200, description = "Array of light entities", body = Value))
@@ -16697,6 +16750,7 @@ async fn api_doc_get_all_lights() {}
 /// Control a light
 ///
 /// Turn on/off/toggle a light entity with optional brightness, color temperature, RGB color, and transition.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/lights/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Light entity ID (e.g. light.living_room)")),
@@ -16711,6 +16765,7 @@ async fn api_doc_control_light() {}
 /// List all media players
 ///
 /// Returns all media player entities with their current state, media info, and volume.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/media_players", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     responses((status = 200, description = "Array of media player entities", body = Value))
@@ -16720,6 +16775,7 @@ async fn api_doc_get_all_media_players() {}
 /// Control a media player
 ///
 /// Control playback, volume, and mute for a media player entity.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/media_players/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Media player entity ID (e.g. media_player.living_room)")),
@@ -16734,6 +16790,7 @@ async fn api_doc_control_media_player() {}
 /// Get sensor value
 ///
 /// Returns the state and all attributes for a specific sensor entity.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/sensors/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Sensor entity ID (e.g. sensor.temperature_outdoor)")),
@@ -16747,6 +16804,7 @@ async fn api_doc_get_sensor() {}
 /// Press a button
 ///
 /// Triggers a button entity (fires the press service).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/buttons/{entity_id}/press", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Button entity ID (e.g. button.restart)")),
@@ -16760,6 +16818,7 @@ async fn api_doc_press_button() {}
 /// Control a switch
 ///
 /// Turn on, off, or toggle a switch entity.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/switches/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Switch entity ID (e.g. switch.garden_pump)")),
@@ -16774,6 +16833,7 @@ async fn api_doc_control_switch() {}
 /// Get NINA settings
 ///
 /// Returns current NINA warning system configuration including enabled state, monitored ARS regions, and poll interval.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/nina/settings", tag = "nina",
     security(("bearer" = []), ("api_key" = [])),
     responses(
@@ -16786,6 +16846,7 @@ async fn api_doc_get_nina_settings() {}
 /// Save NINA settings
 ///
 /// Update NINA warning system configuration. When enabled, triggers an immediate poll of configured regions.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/nina/settings", tag = "nina",
     security(("bearer" = []), ("api_key" = [])),
     request_body(content = Value, description = "{ enabled: bool, ars_regions: [{ars: string, name: string}], poll_interval_minutes: number }"),
@@ -16799,6 +16860,7 @@ async fn api_doc_save_nina_settings() {}
 /// Get NINA warnings
 ///
 /// Returns currently cached NINA warnings from all monitored regions.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/nina/warnings", tag = "nina",
     security(("bearer" = []), ("api_key" = [])),
     responses(
@@ -16812,6 +16874,7 @@ async fn api_doc_get_nina_warnings() {}
 ///
 /// Broadcasts a test warning to all connected WebSocket clients. The warning auto-clears after 30 seconds.
 /// Requires admin privileges.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/admin/nina/test-warning", tag = "nina",
     security(("bearer" = [])),
     request_body(content = Value, description = "{ level: 'info'|'warning'|'critical'|'emergency', headline: string, description: string }"),
@@ -16830,6 +16893,7 @@ async fn api_doc_admin_test_warning() {}
 /// List webhooks
 ///
 /// Returns all webhook registrations for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/webhooks", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     responses(
@@ -16844,6 +16908,7 @@ async fn api_doc_list_webhooks() {}
 /// Register a new outgoing webhook. The webhook will receive HTTP POST requests with JSON payloads
 /// when matching events occur. Optionally provide a `secret` for HMAC-SHA256 signature verification
 /// via the `X-Webhook-Signature` header.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/webhooks", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     request_body(content = Value, description = "{ name: string, url: string, secret?: string, events?: string[], headers?: object }"),
@@ -16857,6 +16922,7 @@ async fn api_doc_create_webhook() {}
 /// Update webhook
 ///
 /// Update an existing webhook's name, URL, secret, event filters, custom headers, or active state.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/webhooks/{webhook_id}", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(("webhook_id" = String, Path, description = "Webhook ID")),
@@ -16871,6 +16937,7 @@ async fn api_doc_update_webhook() {}
 /// Delete webhook
 ///
 /// Delete a webhook and all its delivery history.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/webhooks/{webhook_id}", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(("webhook_id" = String, Path, description = "Webhook ID")),
@@ -16884,6 +16951,7 @@ async fn api_doc_delete_webhook() {}
 /// Test webhook
 ///
 /// Send a test payload to the webhook URL and return the delivery result.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/webhooks/{webhook_id}/test", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(("webhook_id" = String, Path, description = "Webhook ID")),
@@ -16898,6 +16966,7 @@ async fn api_doc_test_webhook() {}
 /// Webhook delivery log
 ///
 /// Returns recent delivery attempts for a webhook, ordered by most recent first.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/webhooks/{webhook_id}/deliveries", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(
@@ -16914,6 +16983,7 @@ async fn api_doc_get_webhook_deliveries() {}
 /// Admin: list all webhooks
 ///
 /// Returns all webhook registrations across all users. Requires admin privileges.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/webhooks", tag = "webhooks",
     security(("bearer_auth" = [])),
     responses(
@@ -16931,6 +17001,7 @@ async fn api_doc_admin_list_webhooks() {}
 /// Server-Sent Events stream for real-time entity state changes. Supports filtering by
 /// `domains` (comma-separated) and `entity_ids` (comma-separated) query parameters.
 /// Events: `connected`, `state_changed`, `warning`.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/events/stream", tag = "realtime",
     params(
         ("domains" = Option<String>, Query, description = "Comma-separated domain filter (e.g. light,switch)"),
@@ -16946,6 +17017,7 @@ async fn api_doc_sse_event_stream() {}
 ///
 /// Server-Sent Events stream for system-level events including health checks,
 /// watchdog alerts, anomaly detection, and error messages.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/events/system", tag = "realtime",
     responses(
         (status = 200, description = "SSE system event stream", content_type = "text/event-stream")
@@ -16964,6 +17036,7 @@ async fn api_doc_sse_system_stream() {}
 /// **Subscribe**: `{ "namespace": "entities", "event": "subscribe", "data": { "domains": ["light"], "entity_ids": [] } }`
 /// **Unsubscribe**: `{ "namespace": "entities", "event": "unsubscribe" }`
 /// **Ping**: `{ "event": "ping" }` → `{ "event": "pong" }`
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/ws/realtime", tag = "realtime",
     responses(
         (status = 101, description = "WebSocket upgrade – namespace-based realtime connection")

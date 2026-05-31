@@ -617,6 +617,16 @@ echo "result: deployed=$deployed skipped=$skipped"
         let _ = tx.send(AppEvent::Log(format!("[RESTART] {svc} → {st}")));
     }
 
+    async fn service_action(&self, svc: String, action: &'static str, tx: mpsc::UnboundedSender<AppEvent>) {
+        let cmd = match action {
+            "start" => format!("systemctl start {svc} 2>/dev/null || true; sleep 1; systemctl is-active {svc} 2>/dev/null | tr -d '\\n'"),
+            "stop" => format!("systemctl stop {svc} 2>/dev/null || true; sleep 1; systemctl is-active {svc} 2>/dev/null | tr -d '\\n'"),
+            _ => format!("systemctl is-active {svc} 2>/dev/null | tr -d '\\n'"),
+        };
+        let st = self.ssh_exec(&cmd).await.unwrap_or_else(|_| "?".into());
+        let _ = tx.send(AppEvent::Log(format!("[SERVICE] {action} {svc} → {st}")));
+    }
+
     /// Run autonomous self-healing checks on the VM over SSH.
     ///
     /// Currently handles:
@@ -1340,6 +1350,11 @@ fn spawn_restart(state: &AppState, svc: String, tx: mpsc::UnboundedSender<AppEve
     tokio::spawn(async move { backend.restart_service(svc, tx).await; });
 }
 
+fn spawn_service_action(state: &AppState, svc: String, action: &'static str, tx: mpsc::UnboundedSender<AppEvent>) {
+    let backend = state.backend.clone();
+    tokio::spawn(async move { backend.service_action(svc, action, tx).await; });
+}
+
 // ═══ Input / commands ════════════════════════════════════════════════════
 
 fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<AppEvent>) {
@@ -1457,7 +1472,15 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
 
     // Normal-mode keys
     match key.code {
-        KeyCode::Esc => { state.show_help = false; }
+        KeyCode::Esc => {
+            if state.show_help {
+                state.show_help = false;
+            } else if state.view == View::ServiceLog {
+                state.stop_service_log();
+                state.view = View::Status;
+            }
+            return;
+        }
         KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1); return; }
         KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1); return; }
         KeyCode::PageUp if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(6); return; }
@@ -1531,6 +1554,34 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Char('n') | KeyCode::Char('N') => {
             state.notify_on_ready = !state.notify_on_ready;
             state.push_log(format!("[CONFIG] Notify on ready: {}", if state.notify_on_ready {"ON"} else {"OFF"}));
+            return;
+        }
+        KeyCode::Char('r') if state.view == View::Status => {
+            if let Some(svc) = selected_status_service(state) {
+                state.push_log(format!("[RESTART] {svc}"));
+                spawn_restart(state, svc, tx.clone());
+            }
+            return;
+        }
+        KeyCode::Char('u') | KeyCode::Char('U') if state.view == View::Status => {
+            if let Some(svc) = selected_status_service(state) {
+                state.push_log(format!("[SERVICE] start {svc}"));
+                spawn_service_action(state, svc, "start", tx.clone());
+            }
+            return;
+        }
+        KeyCode::Char('k') | KeyCode::Char('K') if state.view == View::Status => {
+            if let Some(svc) = selected_status_service(state) {
+                state.push_log(format!("[SERVICE] stop {svc}"));
+                spawn_service_action(state, svc, "stop", tx.clone());
+            }
+            return;
+        }
+        KeyCode::Char('d') if state.view == View::Status => {
+            if let Some(svc) = selected_status_service(state) {
+                state.push_log(format!("[DEPLOY] {svc}"));
+                spawn_deploy_selected(state, vec![svc], tx.clone());
+            }
             return;
         }
         KeyCode::Enter if state.view == View::Status => {
@@ -1611,7 +1662,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
         }
         KeyCode::Char('r') => state.mode = Mode::BuildMenu { cursor: 0 },
         KeyCode::Char('e') => { state.view = View::Deploy; state.log_scroll = 0; },
-        KeyCode::Char('R') => { state.view = View::Resources; state.log_scroll = 0; }
+        KeyCode::Char('E') => state.mode = Mode::DeploySelect { cursor: 0, selected: HashSet::new() },
+        KeyCode::Char('R') => { state.view = View::Resources; state.log_scroll = 0; },
         KeyCode::Char('c') | KeyCode::Char('C') => {
             state.push_log("[VM] Checking...");
             spawn_check_vm(state, tx.clone());
@@ -2117,12 +2169,15 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             let status: Span = if s.building { Span::styled("● BUILDING", Style::default().fg(Color::Yellow)) }
                 else if !s.vm_online { Span::styled("VM offline — press C", Style::default().fg(Color::Red)) }
                 else { Span::styled("● idle", Style::default().fg(Color::Green)) };
+            let keys = match s.view {
+                View::Status => "   ↑↓=select  Enter=live-log  r=restart  u=start  k=stop  d=deploy-selected  L=journal  S=refresh  Tab=view  ?=help",
+                View::ServiceLog => "   Live service log  Esc=back/stop  ↑↓/PgUp/PgDn=scroll  0/End=bottom  Tab=view  ?=help",
+                View::Deploy => "   Space=toggle  A=all  Enter=deploy selected  E=deploy-select  Tab=view  ?=help",
+                _ => "   Q=quit  B=build  D=deploy  Shift+D=force-redeploy  e=deploy-tab  E=deploy-select  S=status  H=health  R=resources  r=build-menu  J=journal  W=watch  L=auto-deploy  0=bottom  /=cmd  Tab=view  ?=help",
+            };
             Line::from(vec![
                 Span::raw(" "), status,
-                Span::styled(
-                    "   Q=quit  B=build  D=deploy  Shift+D=force-redeploy  E=deploy-select  S=status  H=health  R=build-menu  J=journal  W=watch  L=auto-deploy  0=bottom  /=cmd  Tab=view  ?=help",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(keys, Style::default().fg(Color::DarkGray)),
             ])
         }
         Mode::Command { input } => Line::from(vec![
@@ -2178,7 +2233,7 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     f.render_widget(Paragraph::new(line), area);
     // If terminal is narrow, render a second hint line
     if area.width < 120 {
-        let hint2 = Paragraph::new("  ?=help  X=export-log  N=notify  E=deploy-tab  ↑↓ on Status=select  L=journal  Enter=details")
+        let hint2 = Paragraph::new("  ?=help  X=export-log  N=notify  Status: Enter=live-log r=restart u=start k=stop d=deploy")
             .style(Style::default().fg(Color::DarkGray));
         let r2 = Rect { y: area.y + 1, height: 1, ..area };
         f.render_widget(hint2, r2);
@@ -2201,10 +2256,11 @@ fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         Line::from("  B          Full rebuild (Rust + FE)"),
         Line::from("  r          Build menu (All/Changed/Select)"),
         Line::from("  D          Deploy binaries"),
-        Line::from("  E          Deploy tab (multi-select)"),
+        Line::from("  e / E      Deploy tab / deploy select menu"),
         Line::from("  C          Check VM"),
         Line::from("  S          Status view + refresh"),
         Line::from("  ↑↓ Status  Select service   Enter   Live service log"),
+        Line::from("  r/u/k/d Status  Restart/start/stop/deploy selected service"),
         Line::from("  L Status   Journal for selected service"),
         Line::from("  J          Journal (iora-home log)"),
         Line::from("  H          Health probe (API + disk)"),

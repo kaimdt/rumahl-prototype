@@ -11,7 +11,6 @@
 //!   POST   /api/apps/:app_id/messaging/inbox/:id/read – Mark as read
 //!   GET    /api/apps/messaging/events           – SSE stream of messages
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -23,12 +22,11 @@ use axum::{
 };
 use chrono::Utc;
 use futures_util::Stream;
-use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use tracing::{info, warn};
+use tracing::info;
 
 use iora_shared::app_messaging::*;
 

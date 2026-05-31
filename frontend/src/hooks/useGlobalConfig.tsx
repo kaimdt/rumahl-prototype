@@ -35,12 +35,9 @@ interface GlobalConfigContextType {
   setSetting: (key: string, value: unknown) => Promise<void>
 }
 
-const BOOTSTRAP_BACKEND = getBackendUrl()
-const BOOTSTRAP_ASSIST = getAssistUrl()
-
 const GlobalConfigContext = createContext<GlobalConfigContextType>({
-  backend_url: BOOTSTRAP_BACKEND,
-  assist_url: BOOTSTRAP_ASSIST,
+  backend_url: '',
+  assist_url: '',
   loaded: false,
   allSettings: [],
   refresh: async () => {},
@@ -61,8 +58,8 @@ const GlobalConfigContext = createContext<GlobalConfigContextType>({
  * correct URLs.
  */
 export function GlobalConfigProvider({ children }: { children: ReactNode }) {
-  const [backendUrlState, setBackendUrlState] = useState(BOOTSTRAP_BACKEND)
-  const [assistUrlState, setAssistUrlState] = useState(BOOTSTRAP_ASSIST)
+  const [backendUrlState, setBackendUrlState] = useState(() => getBackendUrl())
+  const [assistUrlState, setAssistUrlState] = useState(() => getAssistUrl())
   const [allSettings, setAllSettings] = useState<GlobalSetting[]>([])
   const [loaded, setLoaded] = useState(false)
 

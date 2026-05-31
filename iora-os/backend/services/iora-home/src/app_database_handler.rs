@@ -21,13 +21,12 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
-    Column, ConnectOptions, Connection, Row, ValueRef,
+    Column, ConnectOptions, Row, ValueRef,
 };
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::info;
 
 use iora_shared::app_database::*;
 
@@ -229,7 +228,7 @@ pub async fn database_status(
 
     let backup_dir = state.backup_dir.join(&app_id);
     let latest_backup = if backup_dir.exists() {
-        let mut entries = fs::read_dir(&backup_dir).await.ok();
+        let entries = fs::read_dir(&backup_dir).await.ok();
         let mut backups = Vec::new();
         if let Some(mut entries) = entries {
             while let Ok(Some(entry)) = entries.next_entry().await {

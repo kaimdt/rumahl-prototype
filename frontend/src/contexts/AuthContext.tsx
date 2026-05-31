@@ -79,7 +79,7 @@ function writePersistedToken(token: string | null, _rememberMe: boolean) {
   localStorage.setItem('ha-auth-token', JSON.stringify(token))
 }
 
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const response = await fetch(`${API_BASE}/api/auth/verify`, {
+        const response = await fetch(`${apiBase()}/api/auth/verify`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string, rememberMe = true) => {
     setIsLoading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/auth/login`, {
+      const response = await fetch(`${apiBase()}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -172,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithPin = useCallback(async (userId: string, pin: string) => {
     setIsLoading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/auth/pin-login`, {
+      const response = await fetch(`${apiBase()}/api/auth/pin-login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -200,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (username: string, password: string, displayName?: string) => {
     setIsLoading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/auth/register`, {
+      const response = await fetch(`${apiBase()}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -229,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('Nicht angemeldet')
     }
 
-    const response = await fetch(`${API_BASE}/api/config/users/by-id/${user.id}`, {
+    const response = await fetch(`${apiBase()}/api/config/users/by-id/${user.id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

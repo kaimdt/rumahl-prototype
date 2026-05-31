@@ -254,7 +254,7 @@ impl LocalAppStore {
         };
         // Populate custom_pages and docker_config from manifest extra for
         // apps that were installed before these fields were added.
-        let mut enriched: Vec<InstalledApp> = apps
+        let enriched: Vec<InstalledApp> = apps
             .into_iter()
             .map(|mut a| {
                 if a.enabled && !a.autostart {

@@ -28,7 +28,6 @@ pub struct StorageQuota {
 
 fn default_file_limit() -> u64 { 10 * 1024 * 1024 }
 fn default_kv_limit() -> u32 { 1000 }
-fn default_kv_entry_limit() -> u32 { 100 }
 fn default_file_size_limit() -> u64 { 5 * 1024 * 1024 }
 
 impl Default for StorageQuota {

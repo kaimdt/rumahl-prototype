@@ -5,7 +5,7 @@
 // the user interacts — no waiting for React to mount.
 
 import { getBackendUrl } from '@/lib/config'
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 let wsInstance: WebSocket | null = null
 let reconnectTimeout: number | undefined
@@ -66,9 +66,10 @@ function connectWebSocket() {
   // otherwise fall back to current host (works when served by backend).
   // In dev mode (Vite dev server on :5173), connect to backend directly.
   let wsUrl: string
-  if (API_BASE) {
+  const base = apiBase()
+  if (base) {
     try {
-      const url = new URL(API_BASE)
+      const url = new URL(base)
       const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
       wsUrl = `${protocol}//${url.host}/ws`
     } catch {

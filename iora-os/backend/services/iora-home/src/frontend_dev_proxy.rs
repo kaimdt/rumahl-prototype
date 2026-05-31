@@ -11,7 +11,7 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{HeaderMap, HeaderValue, StatusCode, Uri},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use tracing::{debug, error, warn};

@@ -125,7 +125,7 @@ function getCustomThemePreview(theme: InstalledTheme): string {
   return 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
 }
 
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 // ─── System stats types ──────────────────────────────────────────────
 interface SystemStats {
@@ -469,11 +469,11 @@ function LoginPinSection() {
     if (!token) return
     const parsed = (() => { try { return JSON.parse(token) } catch { return token } })() as string
 
-    fetch(`${API_BASE}/api/auth/verify`, { headers: { Authorization: `Bearer ${parsed}` } })
+    fetch(`${apiBase()}/api/auth/verify`, { headers: { Authorization: `Bearer ${parsed}` } })
       .then(res => res.ok ? res.json() : null)
       .then((currentUser: { id?: string } | null) => {
         if (!currentUser?.id) return
-        return fetch(`${API_BASE}/api/auth/users`).then(r => r.ok ? r.json() : []).then((users: { id: string; has_pin: boolean }[]) => {
+        return fetch(`${apiBase()}/api/auth/users`).then(r => r.ok ? r.json() : []).then((users: { id: string; has_pin: boolean }[]) => {
           const me = users.find(u => u.id === currentUser.id)
           if (mounted && me) setHasLoginPin(me.has_pin)
         })
@@ -498,7 +498,7 @@ function LoginPinSection() {
 
     setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}/api/auth/pin`, {
+      const res = await fetch(`${apiBase()}/api/auth/pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${parsed}` },
         body: JSON.stringify({ pin: loginPin }),
@@ -525,7 +525,7 @@ function LoginPinSection() {
 
     setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}/api/auth/pin`, {
+      const res = await fetch(`${apiBase()}/api/auth/pin`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${parsed}` },
       })

@@ -38,7 +38,53 @@ Validates service dependencies and configuration before starting.
 - Service dependencies are correct
 - Service startup order is valid
 
-### 3. Minimal Configuration (`docker-compose.minimal.yml`)
+### 3. IORA Home Migration Registration Check (`scripts/check-iora-migrations.ps1`)
+
+Validates that every `iora-home/migrations/*.sql` file is embedded in
+`iora-home/src/db/mod.rs` and that migration numbers have no gaps.
+
+**Usage:**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-iora-migrations.ps1
+```
+
+### 4. Local Development Health Suite (`scripts/iora-health-suite.ps1`)
+
+Runs a fast local confidence suite for the current checkout.
+
+**Usage:**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1
+```
+
+**Optional:**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1 -FullWorkspace
+powershell -ExecutionPolicy Bypass -File scripts/iora-health-suite.ps1 -SkipFrontend
+```
+
+**What it checks:**
+- `iora-home` migration registration
+- warning scan for module-scope frontend URL caches
+- `cargo build -p iora-dev-watch`
+- `cargo build -p iora-home`
+- optional full Rust workspace build
+- frontend build unless `-SkipFrontend` is used
+
+### 5. Frontend Config Cache Scan (`scripts/check-frontend-config-cache.ps1`)
+
+Warns when frontend files appear to cache `getBackendUrl()` or `getAssistUrl()`
+in module-scope constants. Those values can be stale because global config loads
+asynchronously.
+
+**Usage:**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-frontend-config-cache.ps1
+```
+
+Use `-FailOnFinding` in CI once the existing findings have been cleaned up.
+
+### 6. Minimal Configuration (`docker-compose.minimal.yml`)
 
 Minimal IORA configuration with only critical services.
 
@@ -58,7 +104,7 @@ docker compose -f docker-compose.minimal.yml up -d
 - Disk: ~2GB
 - CPU: <5% idle
 
-### 4. IORA OS Startup Validator (IORA OS only)
+### 7. IORA OS Startup Validator (IORA OS only)
 
 Automatically validates services during IORA OS boot.
 

@@ -3,7 +3,6 @@ import { useLocalStorage } from '@/lib/storage'
 import type { DashboardPage, DashboardWidget } from '@/lib/types'
 import { DEFAULT_HOME_WIDGETS } from '@/lib/layoutTemplates'
 import { wsOnMessage } from '@/lib/wsConnection'
-import { getBackendUrl } from '@/lib/config'
 import { loadSettingsFromBackend, pushAllSettingsToBackend } from '@/lib/settingsSync'
 import { loadLightEnhancementSettingsFromBackend } from '@/lib/lightEnhancements'
 import { parseStoredToken, authFetch } from '@/lib/authHelpers'
@@ -314,8 +313,6 @@ function extractDocPath(path: string): string | null {
 }
 
 // ── Backend sync helpers ──────────────────────────────────────────────
-
-const API_BASE = getBackendUrl()
 
 interface BackendPageWidget {
   id: string

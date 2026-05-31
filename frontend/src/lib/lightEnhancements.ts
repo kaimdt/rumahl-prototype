@@ -1,9 +1,6 @@
 import { storage } from '@/lib/storage'
 import { authFetch } from '@/lib/authHelpers'
 
-import { getBackendUrl } from '@/lib/config'
-const API_BASE = getBackendUrl()
-
 export interface LightEnhancementSettings {
   showSubModalNavButtons: boolean
   showRgbHexInGroupMembers: boolean

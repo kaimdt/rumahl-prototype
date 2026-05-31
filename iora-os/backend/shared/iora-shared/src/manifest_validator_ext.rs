@@ -9,8 +9,7 @@
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-use crate::manifest_validator::{ValidationResult, ValidationSeverity};
-use crate::permissions::Permission;
+use crate::manifest_validator::ValidationResult;
 
 /// Extended validation context
 pub struct ValidationContext {

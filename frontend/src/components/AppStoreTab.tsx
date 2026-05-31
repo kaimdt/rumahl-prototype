@@ -8,7 +8,6 @@ import {
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
-import { extractManifestFromZip } from '../lib/zip'
 import { AppDetailDialog } from './AppDetailDialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -850,6 +849,7 @@ function ZipUploadView({
     setManifestError(null)
 
     try {
+      const { extractManifestFromZip } = await import('../lib/zip')
       const extractedManifest = await extractManifestFromZip(selectedFile)
 
       // Validate manifest before setting it

@@ -19,7 +19,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 
-use crate::local_appstore::{self, InstalledApp, LocalAppStore, LogEntry};
+use crate::local_appstore::{InstalledApp, LocalAppStore, LogEntry};
 
 /// Tatsächlicher Zustand der Container einer App (aus `docker compose ps`).
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -177,7 +177,6 @@ pub async fn wait_until_running(
     max_wait_secs: u64,
 ) -> Result<AppDockerStatus, String> {
     let deadline = std::time::Instant::now() + Duration::from_secs(max_wait_secs);
-    let mut last: Option<AppDockerStatus> = None;
     loop {
         let status = match docker_compose_status(app_id).await {
             Some(s) => s,
@@ -195,13 +194,10 @@ pub async fn wait_until_running(
             ));
         }
 
-        last = Some(status);
-
         if std::time::Instant::now() >= deadline {
-            let s = last.unwrap_or_default();
             return Err(format!(
                 "Timeout nach {max_wait_secs}s: nur {}/{} Container laufen. Services: {:?}",
-                s.running, s.total, s.services
+                status.running, status.total, status.services
             ));
         }
 
@@ -492,5 +488,3 @@ async fn restart_app_inplace(
     }
 }
 
-// Re-export, damit main.rs eine stabile API hat
-pub use local_appstore::LogEntry as _LogEntry;

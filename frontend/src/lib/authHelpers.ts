@@ -4,7 +4,7 @@
 
 import { getBackendUrl } from '@/lib/config'
 
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 /** Parse a stored token string (may be JSON-wrapped or plain) */
 export function parseStoredToken(raw: string | null): string | null {
@@ -46,7 +46,7 @@ export function authHeaders(extra?: Record<string, string>): Record<string, stri
  * Automatically adds the Authorization header if a token exists.
  */
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const url = path.startsWith('http') ? path : `${apiBase()}${path}`
   const token = getAuthToken()
   const headers = new Headers(init?.headers)
   if (token && !headers.has('Authorization')) {

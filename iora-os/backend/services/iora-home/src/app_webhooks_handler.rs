@@ -10,7 +10,6 @@
 //!   GET    /api/apps/:app_id/webhooks/:id/logs   – Get delivery logs
 //!   GET    /api/apps/:app_id/webhooks/:id/stats  – Get webhook stats
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,17 +19,13 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::info;
 
 use iora_shared::app_webhooks::*;
 
 /// Webhooks data directory
 const WEBHOOKS_BASE_DIR: &str = "data/app-webhooks";
-
-/// Maximum delivery logs per webhook
-const MAX_DELIVERY_LOGS: usize = 200;
 
 #[derive(Clone)]
 pub struct AppWebhooksState {

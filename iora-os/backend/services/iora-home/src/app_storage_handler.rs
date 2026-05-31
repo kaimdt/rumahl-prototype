@@ -11,7 +11,7 @@
 //!   DELETE /api/apps/:app_id/storage/kv/:key        – Delete a KV entry
 //!   GET    /api/apps/:app_id/storage/usage          – Get storage usage
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -20,11 +20,9 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Sha256, Digest};
 use tokio::fs;
-use tracing::{error, info, warn};
-
 use iora_shared::app_storage::*;
 use iora_shared::upload_store::atomic_write_async;
 
@@ -123,7 +121,6 @@ pub async fn list_files(
     AxumPath(app_id): AxumPath<String>,
     Query(query): Query<ListFilesQuery>,
 ) -> Result<Json<Vec<StoredFile>>, (StatusCode, String)> {
-    let file_dir = state.app_file_dir(&app_id);
     let meta_path = state.app_meta_path(&app_id);
 
     let metadatas: Vec<StoredFile> = if meta_path.exists() {

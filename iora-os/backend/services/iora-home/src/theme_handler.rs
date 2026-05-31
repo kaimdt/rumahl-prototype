@@ -21,7 +21,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use base64::Engine as _;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path as FsPath, PathBuf};
@@ -39,8 +38,6 @@ use crate::db::DbPool;
 // ─── Constants ──────────────────────────────────────────────────────
 
 /// Base directory for extracted theme files.
-const THEMES_DIR: &str = "data/themes";
-
 // ─── ThemeState (inner state type) ──────────────────────────────────
 
 #[derive(Clone)]

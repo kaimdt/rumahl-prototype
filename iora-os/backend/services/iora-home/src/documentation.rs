@@ -6,7 +6,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path as FsPath, PathBuf};
 use tokio::fs;
-use tracing::{error, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DocsConfig {
