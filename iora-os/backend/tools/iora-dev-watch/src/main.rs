@@ -848,6 +848,7 @@ struct AppState {
     deploy_selected: HashSet<usize>,
     notify_on_ready: bool,
     status_cursor: usize,
+    status_selected: Option<String>,
     help_scroll: usize,
 
     should_quit: bool,
@@ -877,6 +878,7 @@ impl AppState {
             deploy_selected: HashSet::new(),
             notify_on_ready: true,
             status_cursor: 0,
+            status_selected: None,
             help_scroll: 0,
             should_quit: false, dirty: true,
         }
@@ -904,6 +906,56 @@ impl AppState {
         }
         self.dirty = true;
     }
+}
+
+fn service_status_rank(status: &str) -> u8 {
+    match status {
+        "failed" => 0,
+        "activating" | "deactivating" => 1,
+        "inactive" => 2,
+        "active" => 3,
+        _ => 4,
+    }
+}
+
+fn sorted_status_indices(state: &AppState) -> Vec<usize> {
+    let mut indexed: Vec<usize> = (0..state.backend.services.len()).collect();
+    indexed.sort_by_key(|&i| {
+        let status = state.service_status.get(i).map(|(s, _)| s.as_str()).unwrap_or("?");
+        (service_status_rank(status), state.backend.services[i].as_str())
+    });
+    indexed
+}
+
+fn selected_status_row(state: &AppState) -> usize {
+    let sorted = sorted_status_indices(state);
+    if sorted.is_empty() {
+        return 0;
+    }
+    if let Some(selected) = state.status_selected.as_deref() {
+        if let Some(row) = sorted.iter().position(|&i| state.backend.services[i] == selected) {
+            return row;
+        }
+    }
+    state.status_cursor.min(sorted.len().saturating_sub(1))
+}
+
+fn set_status_cursor(state: &mut AppState, row: usize) {
+    let sorted = sorted_status_indices(state);
+    if sorted.is_empty() {
+        state.status_cursor = 0;
+        state.status_selected = None;
+        return;
+    }
+    let row = row.min(sorted.len().saturating_sub(1));
+    state.status_cursor = row;
+    state.status_selected = Some(state.backend.services[sorted[row]].clone());
+}
+
+fn selected_status_service(state: &AppState) -> Option<String> {
+    let sorted = sorted_status_indices(state);
+    let row = selected_status_row(state);
+    sorted.get(row).map(|&i| state.backend.services[i].clone())
 }
 
 /// Strip control chars (ANSI escapes, bare \r, NUL, etc.) from a captured
@@ -1229,6 +1281,13 @@ fn spawn_restart(state: &AppState, svc: String, tx: mpsc::UnboundedSender<AppEve
 fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<AppEvent>) {
     state.dirty = true;
 
+    // Universal diagnostic for Enter key
+    if key.code == KeyCode::Enter {
+        let mode_str = match &state.mode { Mode::Normal => "Normal", Mode::Command{..} => "Command", Mode::BuildMenu{..} => "BuildMenu", Mode::BuildSelect{..} => "BuildSelect", Mode::DeploySelect{..} => "DeploySelect" };
+        let view_str = match &state.view { View::Logs => "Logs", View::Status => "Status", View::Journal => "Journal", View::Commands => "Commands", View::Resources => "Resources", View::Deploy => "Deploy" };
+        state.push_log(format!("[KEY] Enter | mode={mode_str} view={view_str} cursor={}", state.status_cursor));
+    }
+
     // Ctrl-C always quits
     if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
         state.should_quit = true;
@@ -1342,8 +1401,13 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
     // Normal-mode keys
     match key.code {
         KeyCode::Esc => { state.show_help = false; }
-        KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1); return; }
-        KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1); return; }
+        KeyCode::Up if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(1); return; }
+        KeyCode::Down if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(1); return; }
+        KeyCode::PageUp if state.show_help => { state.help_scroll = state.help_scroll.saturating_sub(6); return; }
+        KeyCode::PageDown if state.show_help => { state.help_scroll = state.help_scroll.saturating_add(6); return; }
+        KeyCode::Home if state.show_help => { state.help_scroll = 0; return; }
+        KeyCode::End if state.show_help => { state.help_scroll = usize::MAX; return; }
+        KeyCode::Char('0') if state.show_help => { state.help_scroll = 0; return; }
         KeyCode::Char('q') | KeyCode::Char('Q') => state.should_quit = true,
         KeyCode::Char('?') => { state.show_help = !state.show_help; state.help_scroll = 0; }
         KeyCode::Char('/') => state.mode = Mode::Command { input: String::new() },
@@ -1411,17 +1475,14 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             return;
         }
         KeyCode::Enter if state.view == View::Status => {
-            state.push_log(format!("[DEBUG] Enter on Status, cursor={}", state.status_cursor));
-            if state.status_cursor < state.backend.services.len() {
-                let svc = state.backend.services[state.status_cursor].clone();
+            if let Some(svc) = selected_status_service(state) {
                 spawn_service_detail(state, &svc, tx.clone());
             }
             return;
         }
         // L on Status/Deploy: view live journal for selected service
         KeyCode::Char('l') if state.view == View::Status => {
-            if state.status_cursor < state.backend.services.len() {
-                let svc = state.backend.services[state.status_cursor].clone();
+            if let Some(svc) = selected_status_service(state) {
                 state.push_log(format!("[JOURNAL] {} — last 80 lines:", svc));
                 spawn_journal_one(state, &svc, tx.clone());
             }
@@ -1441,13 +1502,15 @@ fn handle_key(state: &mut AppState, key: KeyEvent, tx: &mpsc::UnboundedSender<Ap
             state.push_log("[EXPORT] Log written to iora-os/.cache/dev-watch-log.txt");
             return;
         }
-        KeyCode::Esc => { state.show_help = false; }
         KeyCode::Up if state.view == View::Status => {
-            state.status_cursor = state.status_cursor.saturating_sub(1); return;
+            let row = selected_status_row(state).saturating_sub(1);
+            set_status_cursor(state, row);
+            return;
         }
         KeyCode::Down if state.view == View::Status => {
-            let n = state.backend.services.len();
-            state.status_cursor = (state.status_cursor + 1).min(n.saturating_sub(1)); return;
+            let row = selected_status_row(state).saturating_add(1);
+            set_status_cursor(state, row);
+            return;
         }
         KeyCode::Up => state.log_scroll = state.log_scroll.saturating_add(1),
         KeyCode::Down => state.log_scroll = state.log_scroll.saturating_sub(1),
@@ -1722,25 +1785,16 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         .title(" Service Overview ");
     f.render_widget(Paragraph::new(summary).block(summary_block), chunks[0]);
 
-    // Service list — sorted: failed first, then inactive, then active.
-    let mut indexed: Vec<usize> = (0..total).collect();
-    indexed.sort_by_key(|&i| {
-        let st = s.service_status.get(i).map(|(s, _)| s.as_str()).unwrap_or("?");
-        match st {
-            "failed" => 0,
-            "activating" | "deactivating" => 1,
-            "inactive" => 2,
-            "active" => 3,
-            _ => 4,
-        }
-    });
+    // Service list — sorted: failed first, then transitioning, inactive, active.
+    let indexed = sorted_status_indices(s);
+    let selected_row = selected_status_row(s);
 
     let mut rows: Vec<ListItem> = Vec::with_capacity(total + 1);
     rows.push(ListItem::new(Line::styled(
         format!("  {:<28} {:<12} {:<8} {}", "Service", "Status", "Binary", "Notes"),
         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
     )));
-    for i in indexed {
+    for (row, i) in indexed.into_iter().enumerate() {
         let svc = &s.backend.services[i];
         let (status, has_bin) = s.service_status.get(i)
             .map(|(s, b)| (s.as_str(), *b))
@@ -1762,7 +1816,7 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         } else if status == "failed" {
             "will be auto-restarted by self-heal"
         } else { "" };
-        let row_style = if i == s.status_cursor {
+        let row_style = if row == selected_row {
             Style::default().bg(Color::DarkGray)
         } else { Style::default() };
         rows.push(ListItem::new(Line::from(vec![
@@ -1773,14 +1827,13 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
             Span::styled(notes.to_string(), Style::default().fg(Color::DarkGray)),
         ])).style(row_style));
     }
-    // Auto-scroll: keep the highlighted row (status_cursor) visible.
+    // Auto-scroll: keep the highlighted row visible.
     // Row 0 is the header — keep it pinned, scroll only the body.
     let body_height = chunks[1].height.saturating_sub(2) as usize; // borders
     let header = rows.remove(0);
     let body_total = rows.len();
     let visible_body = body_height.saturating_sub(1); // header row consumes one
-    // Compute visible range so status_cursor is always in view
-    let cursor = s.status_cursor.min(body_total.saturating_sub(1));
+    let cursor = selected_row.min(body_total.saturating_sub(1));
     let start = if body_total <= visible_body { 0 }
         else if cursor < visible_body / 2 { 0 }
         else if cursor >= body_total.saturating_sub(visible_body / 2) { body_total.saturating_sub(visible_body) }
@@ -2025,7 +2078,7 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
 
 fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
     let w = (area.width / 2).max(50).min(area.width);
-    let h = 22u16.min(area.height);
+    let h = 16u16.min(area.height);
     let x = (area.width - w) / 2;
     let y = (area.height - h) / 2;
     let rect = Rect::new(x, y, w, h);
@@ -2051,15 +2104,17 @@ fn render_help(f: &mut ratatui::Frame, area: Rect, s: &AppState) {
         Line::from("  X          Export log to file"),
         Line::from("  R          Resources view"),
         Line::from("  1-9        Restart service by index"),
-        Line::from("  ↑↓ PgUp PgDn Home End   Scroll logs"),
+        Line::from("  ↑↓ PgUp PgDn Home End   Scroll logs/help"),
         Line::from("  Q / Esc    Quit / close help"),
     ];
     let visible_h = h.saturating_sub(2) as usize;
-    let skip = s.help_scroll.min(keys.len().saturating_sub(visible_h));
+    let total = keys.len();
+    let skip = s.help_scroll.min(total.saturating_sub(visible_h));
     let visible: Vec<Line> = keys.into_iter().skip(skip).take(visible_h).collect();
+    let end = skip + visible.len();
     let block = Block::default().borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(format!(" Help [{}/{}] ", skip + 1, skip + visible.len()));
+        .title(format!(" Help [{}-{}/{}] ", skip + 1, end, total));
     f.render_widget(Paragraph::new(visible).block(block).wrap(Wrap { trim: false }), rect);
 }
 
@@ -2403,8 +2458,8 @@ fn handle_app_event(state: &mut AppState, ev: AppEvent, tx: &mpsc::UnboundedSend
             state.active_services = s.iter().filter(|(s, _)| s == "active").count();
             state.service_status = s;
             state.last_status_refresh = Some(Instant::now());
-            // Clamp cursor to still-valid range
-            state.status_cursor = state.status_cursor.min(state.backend.services.len().saturating_sub(1));
+            let row = selected_status_row(state);
+            set_status_cursor(state, row);
         }
         AppEvent::Resource(d) => {
             let cpu = d.cpu_percent;
