@@ -379,7 +379,17 @@ if ($Watcher) {
         } finally { Pop-Location }
     }
     Write-Info "Launching IORA Dev Watch TUI..."
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$dashBin' --vm-host 127.0.0.1 --vm-port $SshPort --ssh-key $SSH_KEY"
+    # IMPORTANT: launch the exe DIRECTLY via Start-Process -FilePath. Do NOT
+    # wrap in `powershell -NoExit -Command "& '...'"` or `cmd /c "..."` — a
+    # shell parent intercepts stdin, breaks crossterm's raw mode, and on cmd
+    # the nested-quotes parsing fails ("Die Syntax für den Dateinamen ... ist
+    # falsch"). Direct launch makes the watcher own its console.
+    $watcherArgs = @(
+        '--vm-host', '127.0.0.1',
+        '--vm-port', "$SshPort",
+        '--ssh-key', "$SSH_KEY"
+    )
+    Start-Process -FilePath $dashBin -ArgumentList $watcherArgs
     Write-Success "Dev Watch TUI launched in new terminal"
     exit 0
 }
@@ -1075,7 +1085,15 @@ if (-not $NoWatch) {
     }
     if (Test-Path $dashBin) {
         Write-Info "Launching IORA Dev Watch TUI..."
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$dashBin' --vm-host 127.0.0.1 --vm-port $SshPort --ssh-key $SSH_KEY" | Out-Null
+        # See comment above (-Watcher branch): launch the exe DIRECTLY so the
+        # TUI owns its console. Any shell wrapper (powershell -NoExit / cmd /c)
+        # breaks raw mode + key handling and is fragile to quote escaping.
+        $watcherArgs = @(
+            '--vm-host', '127.0.0.1',
+            '--vm-port', "$SshPort",
+            '--ssh-key', "$SSH_KEY"
+        )
+        Start-Process -FilePath $dashBin -ArgumentList $watcherArgs | Out-Null
     }
 }
 

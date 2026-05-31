@@ -6,6 +6,7 @@
 //! Resource adjustment: detects the current QEMU allocation and generates
 //! the appropriate IORA_DEV_RAM/IORA_DEV_CPUS environment-variable commands
 //! for the next dev-local.sh run.
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
@@ -87,11 +88,18 @@ pub async fn ssh_collect(
     ssh_key: &std::path::Path,
     cmd: &str,
 ) -> Result<String> {
-    let output = tokio::process::Command::new("ssh")
+    let mut command = tokio::process::Command::new("ssh");
+    command
         .args(&ssh_args(host, port, ssh_key))
         .arg(cmd)
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let output = command
         .output()
         .await
         .context("ssh resource collection")?;
@@ -126,10 +134,13 @@ pub async fn collect_resources(
 ) -> Result<ResourceData> {
     // Single SSH call: cat all files, pipe through a script that outputs
     // delimited fields. Much faster than 3 separate SSH connections.
+    // The `---` marker MUST come before df so the df line never lands in the
+    // /proc parse loop (it contains '/' which would confuse the loadavg
+    // heuristic and produce huge bogus load values).
     let script = r#"
 cat /proc/stat /proc/meminfo /proc/uptime /proc/loadavg 2>/dev/null
-df -B1 / 2>/dev/null | tail -1
 echo "---"
+df -B1 / 2>/dev/null | tail -1
 "#;
 
     let raw = ssh_collect(host, port, ssh_key, script).await?;
@@ -211,12 +222,21 @@ echo "---"
             }
         }
 
-        // Load average (single line: "1.23 0.89 0.67 3/456 12345")
+        // Load average (single line: "1.23 0.89 0.67 3/456 12345").
+        // Distinguish from df by requiring the first three fields to parse
+        // as small floats (load averages are typically < 1000).
         if line.contains('/') && line.split_whitespace().count() >= 5 {
             let fields: Vec<&str> = line.split_whitespace().collect();
-            data.load_1m = fields[0].parse().unwrap_or(0.0);
-            data.load_5m = fields[1].parse().unwrap_or(0.0);
-            data.load_15m = fields[2].parse().unwrap_or(0.0);
+            let f0: Option<f64> = fields[0].parse().ok();
+            let f1: Option<f64> = fields[1].parse().ok();
+            let f2: Option<f64> = fields[2].parse().ok();
+            if let (Some(a), Some(b), Some(c)) = (f0, f1, f2) {
+                if a < 10_000.0 && b < 10_000.0 && c < 10_000.0 {
+                    data.load_1m = a;
+                    data.load_5m = b;
+                    data.load_15m = c;
+                }
+            }
         }
     }
 

@@ -10,6 +10,7 @@
 //! On disconnect, the connection manager retries with exponential backoff
 //! (1s → 2s → 4s → ... → 60s max), then stays at 60s intervals forever.
 //! This ensures the watcher always reconnects, even after long VM downtime.
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use reqwest::Client as HttpClient;
@@ -483,12 +484,17 @@ async fn ssh_master_loop(
 
         let args = ssh_master_args(&host, port, &ssh_key);
 
-        match tokio::process::Command::new("ssh")
+        let mut command = tokio::process::Command::new("ssh");
+        command
             .args(&args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        match command.spawn()
         {
             Ok(mut child) => {
                 // SSH master is running! Reset backoff, emit online.
