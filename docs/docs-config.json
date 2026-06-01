@@ -190,25 +190,119 @@
       ]
     },
     {
-      "section": "System Enhancements",
+      "section": "Advanced Topics",
       "icon": "star",
       "items": [
         {
-          "title": "Domain Validation & Resource Management",
-          "path": "DOMAIN_VALIDATION_AND_RESOURCE_MANAGEMENT.md",
+          "title": "Architecture (Full Reference)",
+          "path": "architecture/overview.md",
           "highlight": true
         },
         {
-          "title": "Network Access & Documentation",
-          "path": "NETWORK_ACCESS_AND_DOCUMENTATION_SUMMARY.md"
+          "title": "App & Plugin System (v2.3)",
+          "path": "system/app-plugin-system.md",
+          "highlight": true
+        },
+        {
+          "title": "Database Architecture",
+          "path": "system/database.md"
+        },
+        {
+          "title": "Port Reference",
+          "path": "system/ports.md"
+        },
+        {
+          "title": "Database Security",
+          "path": "database-security.md"
+        },
+        {
+          "title": "SDK Documentation",
+          "path": "sdks/iora-sdk.md"
+        },
+        {
+          "title": "Domain Validation & Resources",
+          "path": "architecture/domain-validation-and-resource-management.md"
         },
         {
           "title": "Port & Network Features",
-          "path": "PORT_MANAGEMENT_AND_SYSTEM_ENHANCEMENTS.md"
+          "path": "architecture/port-management-and-system-enhancements.md"
         },
         {
-          "title": "Enhancement Summary",
-          "path": "SYSTEM_ENHANCEMENTS_SUMMARY.md"
+          "title": "Configuration System",
+          "path": "architecture/configuration-system.md"
+        }
+      ]
+    },
+    {
+      "section": "Deployment & Ops",
+      "icon": "server",
+      "items": [
+        {
+          "title": "Docker & IORA OS",
+          "path": "deployment/docker-and-iora-os.md",
+          "highlight": true
+        },
+        {
+          "title": "Installation Validation",
+          "path": "deployment/installation-validation.md"
+        },
+        {
+          "title": "Alpine Migration",
+          "path": "deployment/alpine-migration.md"
+        },
+        {
+          "title": "Multi-Format Build",
+          "path": "deployment/multi-format-build.md"
+        }
+      ]
+    },
+    {
+      "section": "AI & Integrations",
+      "icon": "brain",
+      "items": [
+        {
+          "title": "ORA AI Overview",
+          "path": "ai/README.md",
+          "highlight": true
+        },
+        {
+          "title": "Home Assistant Integration",
+          "path": "integrations/integration-guide.md"
+        },
+        {
+          "title": "App Store Guide",
+          "path": "apps/store-guide.md"
+        },
+        {
+          "title": "Plugin Isolation",
+          "path": "apps/plugin-isolation.md"
+        }
+      ]
+    },
+    {
+      "section": "Development Deep-Dive",
+      "icon": "wrench",
+      "items": [
+        {
+          "title": "Best Practices",
+          "path": "development/best-practices.md",
+          "highlight": true
+        },
+        {
+          "title": "Error Handling Guide",
+          "path": "development/error-handling-guide.md"
+        },
+        {
+          "title": "App Theming",
+          "path": "development/app-theming.md"
+        },
+        {
+          "title": "Theme System",
+          "path": "development/theme-system.md"
+        },
+        {
+          "title": "Dynamic Overview",
+          "path": "frontend/dynamic-overview-guide.md"
         }
       ]
     }

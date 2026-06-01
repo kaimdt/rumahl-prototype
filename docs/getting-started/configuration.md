@@ -1,0 +1,284 @@
+# Configuration Guide
+
+This guide covers all configuration options for IORA services.
+
+## Table of Contents
+
+- [Environment Variables](#environment-variables)
+- [Service Configuration](#service-configuration)
+- [Database Configuration](#database-configuration)
+- [AI Provider Configuration](#ai-provider-configuration)
+- [Security Configuration](#security-configuration)
+- [Network Configuration](#network-configuration)
+
+## Environment Variables
+
+IORA services are configured through environment variables. Create a `.env` file in the repository root (copy from `.env.example`).
+
+### Shared Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `IORA_ENV` | Environment mode (`development` or `production`) | `development` |
+| `RUST_LOG` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
+
+### Database
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://iora:iora_password@localhost:5432/iora_home` |
+| `POSTGRES_USER` | PostgreSQL user | `iora` |
+| `POSTGRES_PASSWORD` | PostgreSQL password | *(required)* |
+| `POSTGRES_DB` | PostgreSQL database name | `iora_home` |
+
+### Home Assistant Integration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HA_URL` | Home Assistant URL | `http://homeassistant.local:8123` |
+| `HA_TOKEN` | Long-Lived Access Token | *(optional)* |
+
+### JWT Authentication
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `JWT_SECRET` | Secret key for JWT token signing | *(auto-generated in dev)* |
+| `JWT_EXPIRY_HOURS` | Token expiry time | `24` |
+
+## Service Configuration
+
+### iora-home (Main API)
+
+Port: `3001` (dev) / `8126` (production)
+
+```env
+PORT=8126
+DATABASE_URL=postgres://iora:password@localhost:5432/iora_home
+HA_URL=http://homeassistant.local:8123
+HA_TOKEN=eyJ...
+JWT_SECRET=your-secret-key
+RUST_LOG=info
+```
+
+### iora-core (Orchestrator)
+
+Port: `8090`
+
+```env
+PORT=8090
+DATABASE_URL=postgres://iora:password@localhost:5432/iora_core
+```
+
+### iora-assist (AI Assistant)
+
+Port: `8092`
+
+```env
+PORT=8092
+ORA_AI_PROVIDER=local          # openai, anthropic, local, desktop
+ORA_AI_API_KEY=sk-...          # For OpenAI/Anthropic
+ORA_AI_BASE_URL=http://localhost:11434  # For local/desktop
+ORA_AI_MODEL=llama3.2
+```
+
+### iora-security
+
+Port: `8095`
+
+```env
+PORT=8095
+SECURITY_DB_PATH=/var/lib/iora/security.db
+SECURITY_DB_KEY=<64-hex-char-key>
+AUTO_LOCKDOWN_ENABLED=true
+LOCKDOWN_THRESHOLD_CRITICAL=5
+THREAT_LEVEL_THRESHOLD=7
+```
+
+### iora-supervisor
+
+Port: `8097`
+
+```env
+PORT=8097
+RUST_LOG=info
+```
+
+### iora-gateway
+
+Port: `8096`
+
+```env
+PORT=8096
+GATEWAY_DB_PATH=/var/lib/iora/gateway.db
+SMTP_SERVER=smtp.example.com:587
+SMTP_USERNAME=noreply@example.com
+SMTP_PASSWORD=<secure-password>
+ENABLE_SANDBOXING=true
+```
+
+## Database Configuration
+
+### PostgreSQL
+
+IORA uses PostgreSQL 16. The database is configured in `docker-compose.yml`:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: iora
+      POSTGRES_PASSWORD: iora_password
+      POSTGRES_DB: iora_home
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+```
+
+**Multiple databases:**
+- `iora_home` – Main application data (users, pages, entities)
+- `iora_core` – Service registry, system events
+- `iora_secrets` – Encrypted secrets
+
+**Connection string format:**
+```
+postgres://<user>:<password>@<host>:<port>/<database>
+```
+
+### App SQLite Databases
+
+Individual apps can have their own SQLite database:
+
+```json
+{
+  "database": {
+    "backend": "sqlite",
+    "sqlite": {
+      "wal_mode": true,
+      "max_size_bytes": 104857600
+    }
+  }
+}
+```
+
+See [App Database Guide](../development/app-database.md).
+
+## AI Provider Configuration
+
+ORA AI supports multiple providers. Configure via `ORA_AI_PROVIDER`:
+
+### OpenAI
+
+```env
+ORA_AI_PROVIDER=openai
+ORA_AI_API_KEY=sk-proj-...
+ORA_AI_MODEL=gpt-4o-mini
+```
+
+### Anthropic Claude
+
+```env
+ORA_AI_PROVIDER=anthropic
+ORA_AI_API_KEY=sk-ant-...
+ORA_AI_MODEL=claude-3-5-sonnet-20241022
+```
+
+### Local AI (Ollama)
+
+```env
+ORA_AI_PROVIDER=local
+ORA_AI_BASE_URL=http://localhost:11434
+ORA_AI_MODEL=llama3.2
+```
+
+### Desktop AI (via IORA Desktop)
+
+```env
+ORA_AI_PROVIDER=desktop
+ORA_AI_BASE_URL=http://localhost:11435
+```
+
+## Security Configuration
+
+### Secrets Master Key
+
+The secrets service requires a 32-byte (64 hex characters) master key:
+
+```env
+SECRETS_MASTER_KEY=<64-hex-char-key>
+```
+
+Generate one:
+```bash
+openssl rand -hex 32
+```
+
+### Security Database Key
+
+```env
+SECURITY_DB_KEY=<64-hex-char-key>
+```
+
+### IP Whitelist
+
+```env
+WHITELIST_IPS=127.0.0.1,::1,10.0.0.0/8,192.168.1.0/24
+```
+
+## Network Configuration
+
+### Port Management
+
+See the [Port Reference](../system/ports.md) for the complete port map.
+
+Change service ports via the `PORT` environment variable:
+
+```env
+PORT=8080   # Override default port
+```
+
+### Reverse Proxy
+
+For production deployments behind NGINX, see [Port Management & System Enhancements](../architecture/port-management-and-system-enhancements.md).
+
+### Domain Access Control
+
+Apps can be restricted to specific domains:
+
+```json
+{
+  "network_access": {
+    "allowed_domains": ["api.example.com", "*.cdn.example.com"],
+    "allowed_local_ips": ["192.168.1.100", "10.0.0.0/24"]
+  }
+}
+```
+
+## Configuration File Locations
+
+### IORA OS
+
+| File | Location |
+|------|----------|
+| Service configs | `/etc/iora/*.env` |
+| Binaries | `/opt/iora/bin/` |
+| Runtime data | `/var/lib/iora/` |
+| Security DB | `/var/lib/iora/security.db` |
+| Gateway DB | `/var/lib/iora/gateway.db` |
+| App data | `/var/lib/iora/local-apps/{app_id}/` |
+
+### Docker
+
+Configuration is passed via environment variables in `docker-compose.yml` or `.env` file.
+
+### Development
+
+Configuration via `.env` in the repository root or environment variables.
+
+## Next Steps
+
+- [App Development Guide](../development/app-development.md)
+- [Security Guide](../security/README.md)
+- [Docker Configuration Guide](../guides/docker-config.md)
+- [Troubleshooting Guide](../guides/troubleshooting.md)
