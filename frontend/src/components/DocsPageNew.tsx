@@ -9,6 +9,7 @@ import {
   ChatText, Robot, Key, Package, Brain,
 } from '@phosphor-icons/react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 interface DocsConfig {
@@ -155,7 +156,10 @@ export function DocsPage() {
   }
 
   const renderMarkdown = (content: string) => {
-    const html = marked(content)
+    // Await not needed for marked string return if no async extensions, but marked can be sync or async depending on config.
+    // By default marked(content) is string when no async features are used.
+    const rawHtml = marked(content) as string
+    const sanitizedHtml = DOMPurify.sanitize(rawHtml)
     return (
       <div
         className="prose prose-sm max-w-none
@@ -177,7 +181,7 @@ export function DocsPage() {
           prose-blockquote:border-l-[3px] prose-blockquote:border-accent/30 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-foreground/50 prose-blockquote:my-4
           prose-img:rounded-xl prose-img:border prose-img:border-foreground/[0.06] prose-img:my-4
           prose-hr:border-foreground/[0.06] prose-hr:my-6"
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
       />
     )
   }

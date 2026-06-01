@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { GridFour } from '@phosphor-icons/react'
+import DOMPurify from 'dompurify'
 import { usePageNavigation } from '@/contexts/PageNavigationContext'
 import { LightWidget } from '@/components/widgets/LightWidget'
 import { ClimateWidget } from '@/components/widgets/ClimateWidget'
@@ -648,6 +649,12 @@ export function RenderWidget({
   }
 }
 
+function SafeStyle({ css }: { css: string }) {
+  if (!css) return null
+  const sanitized = DOMPurify.sanitize(`<style>${css}</style>`, { ALLOWED_TAGS: ['style'], FORCE_BODY: true })
+  return <div dangerouslySetInnerHTML={{ __html: sanitized }} style={{ display: 'none' }} />
+}
+
 function getPageLayoutFromStorage(pageId: string): { cols: number; gap: number; rows: number } {
   try {
     const raw = localStorage.getItem('ha-page-designer-layouts')
@@ -757,17 +764,11 @@ export function CustomPageRenderer({
   return (
     <div className="space-y-4" style={effectivePadding !== undefined ? { padding: `0 ${effectivePadding}px` } : undefined}>
       {/* Inject global custom CSS (all pages) */}
-      {globalCustomCss && (
-        <style dangerouslySetInnerHTML={{ __html: globalCustomCss }} />
-      )}
+      {globalCustomCss && <SafeStyle css={globalCustomCss} />}
       {/* Inject per-user custom CSS (overrides global) */}
-      {userCustomCss && (
-        <style dangerouslySetInnerHTML={{ __html: userCustomCss }} />
-      )}
+      {userCustomCss && <SafeStyle css={userCustomCss} />}
       {/* Inject per-page custom CSS (overrides global + user) */}
-      {ps?.custom_css && (
-        <style dangerouslySetInnerHTML={{ __html: ps.custom_css }} />
-      )}
+      {ps?.custom_css && <SafeStyle css={ps.custom_css} />}
 
       {!hideTitle && !effectiveHideHeader && (
         <h3 className="text-xl font-medium text-foreground px-1">{page.name}</h3>
