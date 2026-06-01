@@ -2216,27 +2216,32 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_default_dir_uses_base_plus_app_id() {
-        let tmp = env::temp_dir().join("iora-test-default");
-        fs::create_dir_all(&tmp).unwrap();
-        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
-
-        let req = make_req("my-app", None);
-        let result = compose_project_dir(&req).unwrap();
-        // result is base_dir.join(app_id) where base_dir is canonicalized
-        let canonical_base = tmp.canonicalize().unwrap();
-        assert_eq!(result, canonical_base.join("my-app"));
-
-        fs::remove_dir_all(&tmp).ok();
-    }
+    /// Mutex to serialize tests that modify the IORA_LOCAL_APPS_DIR env var.
+    /// Without this, parallel test execution causes race conditions on the shared env var.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn canonical_base(tmp: &std::path::Path) -> std::path::PathBuf {
         tmp.canonicalize().unwrap()
     }
 
     #[test]
+    fn test_default_dir_uses_base_plus_app_id() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let tmp = env::temp_dir().join("iora-test-default");
+        fs::create_dir_all(&tmp).unwrap();
+        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
+
+        let req = make_req("my-app", None);
+        let result = compose_project_dir(&req).unwrap();
+        let cb = canonical_base(&tmp);
+        assert_eq!(result, cb.join("my-app"));
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
     fn test_valid_dir_within_base() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let tmp = env::temp_dir().join("iora-test-valid");
         fs::create_dir_all(&tmp).unwrap();
         env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
@@ -2253,6 +2258,7 @@ mod tests {
 
     #[test]
     fn test_path_traversal_rejected() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let tmp = env::temp_dir().join("iora-test-traversal");
         fs::create_dir_all(&tmp).unwrap();
         env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
@@ -2271,6 +2277,7 @@ mod tests {
 
     #[test]
     fn test_absolute_path_outside_base_rejected() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let tmp = env::temp_dir().join("iora-test-outside");
         fs::create_dir_all(&tmp).unwrap();
         env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
@@ -2283,14 +2290,15 @@ mod tests {
 
     #[test]
     fn test_empty_compose_dir_uses_default() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let tmp = env::temp_dir().join("iora-test-empty");
         fs::create_dir_all(&tmp).unwrap();
         env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
 
         let req = make_req("app1", Some(""));
         let result = compose_project_dir(&req).unwrap();
-        let canonical_base = tmp.canonicalize().unwrap();
-        assert_eq!(result, canonical_base.join("app1"),
+        let cb = canonical_base(&tmp);
+        assert_eq!(result, cb.join("app1"),
             "Empty compose_dir should default to base_dir/app_id");
 
         fs::remove_dir_all(&tmp).ok();
