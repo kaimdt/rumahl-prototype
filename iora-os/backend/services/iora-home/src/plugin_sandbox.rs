@@ -376,13 +376,7 @@ async fn image_exists(image: &str) -> Result<bool> {
 
 async fn container_state(name: &str) -> Result<ContainerState> {
     let out = Command::new("docker")
-        .args([
-            "container",
-            "inspect",
-            "-f",
-            "{{.State.Status}}",
-            name,
-        ])
+        .args(["container", "inspect", "-f", "{{.State.Status}}", name])
         .output()
         .await?;
     if !out.status.success() {

@@ -21,13 +21,12 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
-    Column, ConnectOptions, Connection, Row, ValueRef,
+    Column, ConnectOptions, Row, ValueRef,
 };
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::info;
 
 use iora_shared::app_database::*;
 
@@ -56,13 +55,19 @@ impl AppDatabaseState {
     }
 
     /// Open a sqlite connection to the given path, creating the file if it doesn't exist.
-    async fn open_conn(&self, app_id: &str) -> Result<sqlx::sqlite::SqliteConnection, (StatusCode, String)> {
+    async fn open_conn(
+        &self,
+        app_id: &str,
+    ) -> Result<sqlx::sqlite::SqliteConnection, (StatusCode, String)> {
         let db_path = self.db_path(app_id);
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
             .create_if_missing(true);
         options.connect().await.map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to open SQLite database: {}", e))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to open SQLite database: {}", e),
+            )
         })
     }
 }
@@ -88,9 +93,10 @@ fn row_val_to_json(row: &SqliteRow, idx: usize) -> serde_json::Value {
         return serde_json::json!(f);
     }
     if let Ok(b) = row.try_get::<Vec<u8>, _>(idx) {
-        return serde_json::json!(
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b)
-        );
+        return serde_json::json!(base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            &b
+        ));
     }
     serde_json::Value::Null
 }
@@ -105,13 +111,19 @@ pub async fn provision_database(
 
     // Check if already exists
     if db_path.exists() {
-        return Err((StatusCode::CONFLICT, format!("Database for app '{}' already exists", app_id)));
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Database for app '{}' already exists", app_id),
+        ));
     }
 
     // Create directory
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).await.map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create DB directory: {}", e))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create DB directory: {}", e),
+            )
         })?;
     }
 
@@ -125,7 +137,10 @@ pub async fn provision_database(
             .await
             .map_err(|e| {
                 let _ = std::fs::remove_file(&db_path);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to enable WAL mode: {}", e))
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to enable WAL mode: {}", e),
+                )
             })?;
     }
 
@@ -136,23 +151,29 @@ pub async fn provision_database(
         .await
         .map_err(|e| {
             let _ = std::fs::remove_file(&db_path);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to set max page count: {}", e))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to set max page count: {}", e),
+            )
         })?;
 
     // Run init SQL (each statement individually)
     for sql in &config.init_sql {
-        sqlx::query(sql)
-            .execute(&mut conn)
-            .await
-            .map_err(|e| {
-                let _ = std::fs::remove_file(&db_path);
-                (StatusCode::BAD_REQUEST, format!("Init SQL failed: {} (sql: {})", e, sql))
-            })?;
+        sqlx::query(sql).execute(&mut conn).await.map_err(|e| {
+            let _ = std::fs::remove_file(&db_path);
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Init SQL failed: {} (sql: {})", e, sql),
+            )
+        })?;
     }
 
     drop(conn);
 
-    info!("Provisioned SQLite database for app '{}' at {:?}", app_id, db_path);
+    info!(
+        "Provisioned SQLite database for app '{}' at {:?}",
+        app_id, db_path
+    );
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -171,7 +192,10 @@ pub async fn drop_database(
     let db_path = state.db_path(&app_id);
 
     if !db_path.exists() {
-        return Err((StatusCode::NOT_FOUND, format!("No database found for app '{}'", app_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No database found for app '{}'", app_id),
+        ));
     }
 
     // Remove the database file and WAL/SHM files
@@ -206,7 +230,10 @@ pub async fn database_status(
     }
 
     let metadata = std::fs::metadata(&db_path).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read DB metadata: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read DB metadata: {}", e),
+        )
     })?;
 
     // Count tables
@@ -217,11 +244,10 @@ pub async fn database_status(
         .await
     {
         Ok(mut conn) => {
-            let row: Result<(i64,), _> = sqlx::query_as(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-            )
-                .fetch_one(&mut conn)
-                .await;
+            let row: Result<(i64,), _> =
+                sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                    .fetch_one(&mut conn)
+                    .await;
             row.ok().map(|(count,)| count as u32)
         }
         Err(_) => None,
@@ -229,11 +255,16 @@ pub async fn database_status(
 
     let backup_dir = state.backup_dir.join(&app_id);
     let latest_backup = if backup_dir.exists() {
-        let mut entries = fs::read_dir(&backup_dir).await.ok();
+        let entries = fs::read_dir(&backup_dir).await.ok();
         let mut backups = Vec::new();
         if let Some(mut entries) = entries {
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if entry.file_type().await.map(|t| t.is_file()).unwrap_or(false) {
+                if entry
+                    .file_type()
+                    .await
+                    .map(|t| t.is_file())
+                    .unwrap_or(false)
+                {
                     if let Ok(modified) = entry.metadata().await.map(|m| m.modified().ok()) {
                         if let Some(time) = modified {
                             let datetime: chrono::DateTime<Utc> = time.into();
@@ -279,7 +310,10 @@ pub async fn list_tables(
         .read_only(true)
         .create_if_missing(false);
     let mut conn = options.connect().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to open database: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to open database: {}", e),
+        )
     })?;
 
     let rows: Vec<(String,)> = sqlx::query_as(
@@ -307,7 +341,10 @@ pub async fn execute_sql(
     let db_path = state.db_path(&app_id);
 
     if !db_path.exists() {
-        return Err((StatusCode::NOT_FOUND, format!("No database for app '{}'. Provision one first.", app_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No database for app '{}'. Provision one first.", app_id),
+        ));
     }
 
     let start = std::time::Instant::now();
@@ -317,7 +354,10 @@ pub async fn execute_sql(
         .read_only(false)
         .create_if_missing(false);
     let mut conn = options.connect().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to open database: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to open database: {}", e),
+        )
     })?;
 
     // Determine if this is a query (SELECT-like) or a mutation statement
@@ -333,19 +373,12 @@ pub async fn execute_sql(
         let rows = sqlx::query(&req.sql)
             .fetch_all(&mut conn)
             .await
-            .map_err(|e| {
-                (StatusCode::BAD_REQUEST, format!("SQL query error: {}", e))
-            })?;
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("SQL query error: {}", e)))?;
 
         // Extract column names from the first row (if any)
         let columns: Vec<String> = rows
             .first()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .map(|c| c.name().to_string())
-                    .collect()
-            })
+            .map(|row| row.columns().iter().map(|c| c.name().to_string()).collect())
             .unwrap_or_default();
 
         let json_rows: Vec<Vec<serde_json::Value>> = rows
@@ -373,9 +406,7 @@ pub async fn execute_sql(
     let result = sqlx::query(&req.sql)
         .execute(&mut conn)
         .await
-        .map_err(|e| {
-            (StatusCode::BAD_REQUEST, format!("SQL execute error: {}", e))
-        })?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("SQL execute error: {}", e)))?;
 
     let duration = start.elapsed().as_millis() as u64;
 
@@ -397,12 +428,18 @@ pub async fn backup_database(
     let db_path = state.db_path(&app_id);
 
     if !db_path.exists() {
-        return Err((StatusCode::NOT_FOUND, format!("No database for app '{}'", app_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No database for app '{}'", app_id),
+        ));
     }
 
     let backup_dir = state.backup_dir.join(&app_id);
     fs::create_dir_all(&backup_dir).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create backup dir: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create backup dir: {}", e),
+        )
     })?;
 
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
@@ -411,10 +448,16 @@ pub async fn backup_database(
 
     // Copy the database file (simple file-level backup)
     fs::copy(&db_path, &backup_path).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to backup database: {}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to backup database: {}", e),
+        )
     })?;
 
-    info!("Backed up database for app '{}' to {:?}", app_id, backup_path);
+    info!(
+        "Backed up database for app '{}' to {:?}",
+        app_id, backup_path
+    );
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -434,14 +477,26 @@ pub async fn list_backups(
         return Ok(Json(Vec::new()));
     }
 
-    let mut entries = fs::read_dir(&backup_dir).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to list backups: {}", e)))?;
+    let mut entries = fs::read_dir(&backup_dir).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to list backups: {}", e),
+        )
+    })?;
 
     let mut backups = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if entry.file_type().await.map(|t| t.is_file()).unwrap_or(false) {
+        if entry
+            .file_type()
+            .await
+            .map(|t| t.is_file())
+            .unwrap_or(false)
+        {
             if let Ok(meta) = entry.metadata().await {
-                let modified: chrono::DateTime<Utc> = meta.modified().ok().map(|t| t.into())
+                let modified: chrono::DateTime<Utc> = meta
+                    .modified()
+                    .ok()
+                    .map(|t| t.into())
                     .unwrap_or_else(Utc::now);
                 backups.push(serde_json::json!({
                     "name": entry.file_name().to_string_lossy(),

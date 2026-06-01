@@ -9,8 +9,8 @@
 //!   POST   /api/apps/:app_id/schedules/:id/trigger – Manually trigger
 //!   GET    /api/apps/:app_id/schedules/:id/logs – Get execution logs
 
-use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::{
@@ -19,14 +19,24 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use cron::Schedule as CronSchedule;
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::info;
 
 use iora_shared::app_scheduler::*;
 
 /// Scheduler data directory
 const SCHEDULER_BASE_DIR: &str = "data/app-schedules";
+
+/// Validate that `expr` is a parsable cron expression.
+fn validate_cron(expr: &str) -> Result<(), (StatusCode, String)> {
+    CronSchedule::from_str(expr).map(|_| ()).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid cron expression '{}': {}", expr, e),
+        )
+    })
+}
 
 #[derive(Clone)]
 pub struct AppSchedulerState {
@@ -61,10 +71,14 @@ impl AppSchedulerState {
 
     async fn save_tasks(&self, app_id: &str, tasks: &[ScheduledTask]) -> Result<(), String> {
         if let Some(parent) = self.tasks_path(app_id).parent() {
-            fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(tasks).map_err(|e| e.to_string())?;
-        fs::write(self.tasks_path(app_id), &content).await.map_err(|e| e.to_string())?;
+        fs::write(self.tasks_path(app_id), &content)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }
@@ -84,6 +98,10 @@ pub async fn create_schedule(
     AxumPath(app_id): AxumPath<String>,
     Json(req): Json<CreateScheduleRequest>,
 ) -> Result<Json<ScheduledTask>, (StatusCode, String)> {
+    if let Some(ref expr) = req.cron_expression {
+        validate_cron(expr)?;
+    }
+
     let mut tasks = state.load_tasks(&app_id).await;
 
     let task = ScheduledTask {
@@ -101,7 +119,9 @@ pub async fn create_schedule(
     };
 
     tasks.push(task.clone());
-    state.save_tasks(&app_id, &tasks).await
+    state
+        .save_tasks(&app_id, &tasks)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     info!("Created schedule '{}' for app '{}'", task.id, app_id);
@@ -114,8 +134,15 @@ pub async fn get_schedule(
     AxumPath((app_id, task_id)): AxumPath<(String, String)>,
 ) -> Result<Json<ScheduledTask>, (StatusCode, String)> {
     let tasks = state.load_tasks(&app_id).await;
-    tasks.into_iter().find(|t| t.id == task_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Task '{}' not found", task_id)))
+    tasks
+        .into_iter()
+        .find(|t| t.id == task_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Task '{}' not found", task_id),
+            )
+        })
         .map(Json)
 }
 
@@ -127,22 +154,49 @@ pub async fn update_schedule(
 ) -> Result<Json<ScheduledTask>, (StatusCode, String)> {
     let mut tasks = state.load_tasks(&app_id).await;
 
-    let task = tasks.iter_mut().find(|t| t.id == task_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Task '{}' not found", task_id)))?;
+    let task = tasks.iter_mut().find(|t| t.id == task_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Task '{}' not found", task_id),
+        )
+    })?;
 
-    if let Some(name) = req.name { task.name = name; }
-    if let Some(st) = req.schedule_type { task.schedule_type = st; }
-    if let Some(cron) = req.cron_expression { task.cron_expression = Some(cron); }
-    if let Some(interval) = req.interval_seconds { task.interval_seconds = Some(interval); }
-    if let Some(run_at) = req.run_at { task.run_at = Some(run_at); }
-    if let Some(payload) = req.payload { task.payload = payload; }
-    if let Some(enabled) = req.enabled { task.enabled = enabled; }
-    if let Some(retries) = req.max_retries { task.max_retries = retries; }
-    if let Some(delay) = req.retry_delay_seconds { task.retry_delay_seconds = delay; }
-    if let Some(tags) = req.tags { task.tags = tags; }
+    if let Some(name) = req.name {
+        task.name = name;
+    }
+    if let Some(st) = req.schedule_type {
+        task.schedule_type = st;
+    }
+    if let Some(cron) = req.cron_expression {
+        validate_cron(&cron)?;
+        task.cron_expression = Some(cron);
+    }
+    if let Some(interval) = req.interval_seconds {
+        task.interval_seconds = Some(interval);
+    }
+    if let Some(run_at) = req.run_at {
+        task.run_at = Some(run_at);
+    }
+    if let Some(payload) = req.payload {
+        task.payload = payload;
+    }
+    if let Some(enabled) = req.enabled {
+        task.enabled = enabled;
+    }
+    if let Some(retries) = req.max_retries {
+        task.max_retries = retries;
+    }
+    if let Some(delay) = req.retry_delay_seconds {
+        task.retry_delay_seconds = delay;
+    }
+    if let Some(tags) = req.tags {
+        task.tags = tags;
+    }
 
     let updated = task.clone();
-    state.save_tasks(&app_id, &tasks).await
+    state
+        .save_tasks(&app_id, &tasks)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     info!("Updated schedule '{}' for app '{}'", task_id, app_id);
@@ -159,14 +213,21 @@ pub async fn delete_schedule(
     tasks.retain(|t| t.id != task_id);
 
     if tasks.len() == before {
-        return Err((StatusCode::NOT_FOUND, format!("Task '{}' not found", task_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Task '{}' not found", task_id),
+        ));
     }
 
-    state.save_tasks(&app_id, &tasks).await
+    state
+        .save_tasks(&app_id, &tasks)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     info!("Deleted schedule '{}' for app '{}'", task_id, app_id);
-    Ok(Json(serde_json::json!({ "success": true, "deleted": task_id })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "deleted": task_id }),
+    ))
 }
 
 /// Manually trigger a task
@@ -175,8 +236,12 @@ pub async fn trigger_schedule(
     AxumPath((app_id, task_id)): AxumPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tasks = state.load_tasks(&app_id).await;
-    let task = tasks.into_iter().find(|t| t.id == task_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Task '{}' not found", task_id)))?;
+    let task = tasks.into_iter().find(|t| t.id == task_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Task '{}' not found", task_id),
+        )
+    })?;
 
     // Log the manual trigger
     let mut logs: Vec<TaskExecutionLog> = Vec::new();
@@ -225,11 +290,16 @@ pub async fn get_task_logs(
         return Ok(Json(Vec::new()));
     }
 
-    let content = fs::read_to_string(&logs_path).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read logs: {}", e)))?;
+    let content = fs::read_to_string(&logs_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read logs: {}", e),
+        )
+    })?;
 
     let all_logs: Vec<TaskExecutionLog> = serde_json::from_str(&content).unwrap_or_default();
-    let task_logs: Vec<TaskExecutionLog> = all_logs.into_iter()
+    let task_logs: Vec<TaskExecutionLog> = all_logs
+        .into_iter()
         .filter(|l| l.task_id == task_id)
         .collect();
 

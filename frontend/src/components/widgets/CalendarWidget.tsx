@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { CaretLeft, CaretRight, CalendarBlank, Clock, MapPin, Circle, CalendarDots } from '@phosphor-icons/react'
 import { authFetch } from '@/lib/authHelpers'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'

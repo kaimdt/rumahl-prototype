@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -60,6 +61,14 @@ import { LightEnhancementsSettings } from '@/components/LightEnhancementsSetting
 import { OverviewConfiguration } from '@/components/OverviewConfiguration'
 import { CssSettingsSection } from '@/components/CssSettings'
 import { useLocalStorage } from '@/lib/storage'
+import {
+  getAutoContrastMode,
+  getEffectiveAutoContrastMode,
+  getDeviceTier,
+  setAutoContrastMode,
+  subscribeAutoContrast,
+  type AutoContrastMode,
+} from '@/lib/autoContrast'
 import { useTheme } from '@/contexts/ThemeContext'
 import { ThemeSettingsPanel } from '@/components/ThemeSettingsPanel'
 import { ThemeEditor } from '@/components/ThemeEditor'
@@ -71,7 +80,13 @@ import type { ThemeDefinition } from '@/contexts/ThemeContext'
 
 function ThemeSettingsPanelWrapper() {
   const { capabilities } = useTheme()
-  if (!capabilities?.custom_settings?.length) return null
+  const hasContent = !!(
+    capabilities?.design_modes?.length ||
+    capabilities?.accent_control?.presets?.length ||
+    capabilities?.glass_control ||
+    capabilities?.custom_settings?.length
+  )
+  if (!hasContent) return null
   return (
     <div className="p-4 rounded-2xl glass-card border-foreground/10">
       <ThemeSettingsPanel />
@@ -110,7 +125,7 @@ function getCustomThemePreview(theme: InstalledTheme): string {
   return 'linear-gradient(135deg, #1a1d2e 0%, #2a2d4e 100%)'
 }
 
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 // ─── System stats types ──────────────────────────────────────────────
 interface SystemStats {
@@ -314,6 +329,7 @@ function SliderRow({
   onChange: (v: number) => void
   disabled?: boolean
 }) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -327,7 +343,10 @@ function SliderRow({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
-        className="w-full h-1.5 bg-foreground/10 rounded-full appearance-none cursor-pointer disabled:opacity-40 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-sm [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
+        style={{
+          background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, oklch(from var(--foreground) l c h / 0.10) ${pct}%, oklch(from var(--foreground) l c h / 0.10) 100%)`,
+        }}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:opacity-40 transition-shadow focus:outline-none focus:ring-2 focus:ring-accent/30 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_0_3px_oklch(from_var(--accent)_l_c_h/0.18)] [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:border-0"
       />
     </div>
   )
@@ -450,11 +469,11 @@ function LoginPinSection() {
     if (!token) return
     const parsed = (() => { try { return JSON.parse(token) } catch { return token } })() as string
 
-    fetch(`${API_BASE}/api/auth/verify`, { headers: { Authorization: `Bearer ${parsed}` } })
+    fetch(`${apiBase()}/api/auth/verify`, { headers: { Authorization: `Bearer ${parsed}` } })
       .then(res => res.ok ? res.json() : null)
       .then((currentUser: { id?: string } | null) => {
         if (!currentUser?.id) return
-        return fetch(`${API_BASE}/api/auth/users`).then(r => r.ok ? r.json() : []).then((users: { id: string; has_pin: boolean }[]) => {
+        return fetch(`${apiBase()}/api/auth/users`).then(r => r.ok ? r.json() : []).then((users: { id: string; has_pin: boolean }[]) => {
           const me = users.find(u => u.id === currentUser.id)
           if (mounted && me) setHasLoginPin(me.has_pin)
         })
@@ -479,7 +498,7 @@ function LoginPinSection() {
 
     setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}/api/auth/pin`, {
+      const res = await fetch(`${apiBase()}/api/auth/pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${parsed}` },
         body: JSON.stringify({ pin: loginPin }),
@@ -506,7 +525,7 @@ function LoginPinSection() {
 
     setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}/api/auth/pin`, {
+      const res = await fetch(`${apiBase()}/api/auth/pin`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${parsed}` },
       })
@@ -832,6 +851,18 @@ interface SettingsPageProps {
     setAutoBrightness: (v: boolean) => void
     overlayStrength: number
     setOverlayStrength: (v: number) => void
+    colorTemperature: number
+    setColorTemperature: (v: number) => void
+    scheduleEnabled: boolean
+    setScheduleEnabled: (v: boolean) => void
+    startTime: string
+    setStartTime: (v: string) => void
+    endTime: string
+    setEndTime: (v: string) => void
+    applyAlways: boolean
+    setApplyAlways: (v: boolean) => void
+    isActive: boolean
+    isScheduleActive: boolean
   }
   // Screensaver
   screensaverSettings: {
@@ -1339,8 +1370,26 @@ export function SettingsPage(props: SettingsPageProps) {
 
             {/* Night Mode */}
             <SettingsSection icon={Moon} title={t("settings.nightMode")} description={t("settings.nightModeDesc")}>
+              {/* Live status pill */}
+              <div className="flex items-center justify-between rounded-xl bg-foreground/[0.04] border border-foreground/8 px-4 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${nightModeSettings.isActive ? 'bg-amber-400' : 'bg-foreground/25'}`}
+                    style={nightModeSettings.isActive ? { boxShadow: '0 0 8px rgba(251,191,36,0.55)' } : undefined}
+                  />
+                  <span className="text-[12px] text-foreground/75 font-medium">
+                    {nightModeSettings.isActive ? t('settings.nightFilterActive') : t('settings.nightFilterInactive')}
+                  </span>
+                </div>
+                {nightModeSettings.scheduleEnabled && (
+                  <span className="text-[10px] uppercase tracking-wider text-foreground/45">
+                    {nightModeSettings.startTime}–{nightModeSettings.endTime}
+                  </span>
+                )}
+              </div>
+
               <ToggleRow
-                label="Nachtfilter"
+                label={t("settings.nightFilter")}
                 description={t("settings.nightFilterDesc")}
                 checked={nightModeSettings.nightFilterEnabled}
                 onCheckedChange={nightModeSettings.setNightFilterEnabled}
@@ -1348,27 +1397,73 @@ export function SettingsPage(props: SettingsPageProps) {
               {nightModeSettings.nightFilterEnabled && (
                 <div className="space-y-4 p-4 rounded-xl bg-foreground/[0.04] border border-foreground/8">
                   <SliderRow
-                    label="Blaulichtfilter"
+                    label={t("settings.colorTemperature")}
+                    value={nightModeSettings.colorTemperature}
+                    min={1500}
+                    max={6500}
+                    unit=" K"
+                    onChange={nightModeSettings.setColorTemperature}
+                  />
+                  <SliderRow
+                    label={t("settings.blueLightFilter")}
                     value={nightModeSettings.blueLightReduction}
                     min={0}
                     max={100}
                     unit="%"
                     onChange={nightModeSettings.setBlueLightReduction}
                   />
-                  <ToggleRow
-                    label="Auto-Helligkeit"
-                    description={t("settings.brightnessAdjustDesc")}
-                    checked={nightModeSettings.autoBrightness}
-                    onCheckedChange={nightModeSettings.setAutoBrightness}
-                  />
                   <SliderRow
-                    label="Nacht-Overlay"
+                    label={t("settings.nightOverlay")}
                     value={nightModeSettings.overlayStrength}
                     min={0}
                     max={100}
                     unit="%"
                     onChange={nightModeSettings.setOverlayStrength}
                   />
+                  <ToggleRow
+                    label={t("settings.autoBrightness")}
+                    description={t("settings.brightnessAdjustDesc")}
+                    checked={nightModeSettings.autoBrightness}
+                    onCheckedChange={nightModeSettings.setAutoBrightness}
+                  />
+                  <ToggleRow
+                    label={t("settings.nightApplyAlways")}
+                    description={t("settings.nightApplyAlwaysDesc")}
+                    checked={nightModeSettings.applyAlways}
+                    onCheckedChange={nightModeSettings.setApplyAlways}
+                  />
+                  <ToggleRow
+                    label={t("settings.nightSchedule")}
+                    description={t("settings.nightScheduleDesc")}
+                    checked={nightModeSettings.scheduleEnabled}
+                    onCheckedChange={nightModeSettings.setScheduleEnabled}
+                  />
+                  {nightModeSettings.scheduleEnabled && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] uppercase tracking-wider text-foreground/55">
+                          {t("settings.nightStartTime")}
+                        </span>
+                        <input
+                          type="time"
+                          value={nightModeSettings.startTime}
+                          onChange={(e) => nightModeSettings.setStartTime(e.target.value)}
+                          className="w-full h-10 px-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow"
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] uppercase tracking-wider text-foreground/55">
+                          {t("settings.nightEndTime")}
+                        </span>
+                        <input
+                          type="time"
+                          value={nightModeSettings.endTime}
+                          onChange={(e) => nightModeSettings.setEndTime(e.target.value)}
+                          className="w-full h-10 px-3 rounded-xl bg-foreground/[0.04] border border-foreground/8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow"
+                        />
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
             </SettingsSection>
@@ -1674,6 +1769,10 @@ function AdditionalSettings() {
   const [reducedAnimations, setReducedAnimations] = useLocalStorage('ha-animations-reduced', false)
   const [fontSize, setFontSize] = useLocalStorage<'small' | 'normal' | 'large'>('ha-font-size', 'normal')
   const [compactWidgets, setCompactWidgets] = useLocalStorage('ha-widget-compact', false)
+  const [autoContrast, setAutoContrastState] = React.useState<AutoContrastMode>(() => getAutoContrastMode())
+  React.useEffect(() => subscribeAutoContrast(setAutoContrastState), [])
+  const deviceTier = React.useMemo(() => getDeviceTier(), [])
+  const effectiveMode = getEffectiveAutoContrastMode()
 
   return (
     <>
@@ -1757,6 +1856,42 @@ function AdditionalSettings() {
           checked={compactWidgets}
           onCheckedChange={setCompactWidgets}
         />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-medium text-foreground/55">Automatischer Textkontrast</p>
+            <span className="text-[10px] text-foreground/55">
+              Gerät: <span className="text-foreground/85 font-mono">{deviceTier}</span>
+              {autoContrast === 'auto' && (
+                <> · aktiv: <span className="text-foreground/85 font-mono">{effectiveMode}</span></>
+              )}
+            </span>
+          </div>
+          <p className="text-[11px] text-foreground/50 -mt-1">
+            Passt Textfarben auf Glas- und Custom-Theme-Flächen automatisch an (WCAG AA). Einstellung gilt pro Nutzer.
+          </p>
+          <div className="grid grid-cols-5 gap-2">
+            {([
+              { id: 'off' as const,      label: 'Aus',       desc: 'Keine Anpassung' },
+              { id: 'light' as const,    label: 'Sparsam',   desc: 'Nur bei Theme-Wechsel' },
+              { id: 'balanced' as const, label: 'Ausgewogen',desc: 'Nur sichtbarer Bereich' },
+              { id: 'full' as const,     label: 'Vollst.',   desc: 'Komplett, reaktiv' },
+              { id: 'auto' as const,     label: 'Auto',      desc: 'Nach Geräteleistung' },
+            ]).map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setAutoContrastMode(opt.id)}
+                className={`p-2.5 rounded-xl border-2 transition-all text-center ${
+                  autoContrast === opt.id
+                    ? 'border-accent bg-accent/10'
+                    : 'border-foreground/10 bg-foreground/[0.04] hover:border-foreground/20'
+                }`}
+              >
+                <p className="text-xs font-medium">{opt.label}</p>
+                <p className="text-[10px] text-foreground/55 leading-tight mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
       </SettingsSection>
     </>
   )

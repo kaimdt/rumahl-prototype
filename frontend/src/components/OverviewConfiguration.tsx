@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { useDynamicOverview } from '@/contexts/DynamicOverviewContext'
 import type { OverviewVariant } from '@/contexts/DynamicOverviewContext'
 import { Switch } from '@/components/ui/switch'

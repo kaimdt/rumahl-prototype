@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLocalStorage } from '@/lib/storage'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useTranslation } from 'react-i18next'

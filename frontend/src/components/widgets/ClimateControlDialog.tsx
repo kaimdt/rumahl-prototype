@@ -8,7 +8,7 @@ import {
 import { Flame, Snowflake, Fan, Wind } from '@phosphor-icons/react'
 import type { ClimateEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 
 import { ArcSlider } from '@/components/ui/arc-slider'
 import { EntityHistoryPanel } from './EntityHistoryPanel'

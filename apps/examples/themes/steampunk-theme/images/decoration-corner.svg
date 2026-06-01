@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="brassGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e8c547"/>
+      <stop offset="30%" stop-color="#d4a017"/>
+      <stop offset="70%" stop-color="#b8860b"/>
+      <stop offset="100%" stop-color="#8b6914"/>
+    </linearGradient>
+    <radialGradient id="copperRiv" cx="35%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#e8a34a"/>
+      <stop offset="50%" stop-color="#cd7f32"/>
+      <stop offset="100%" stop-color="#8b5a2b"/>
+    </radialGradient>
+    <filter id="glow">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-color="#d4a017" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <!-- Corner filigree - top-left architecture -->
+  <g filter="url(#glow)">
+    <!-- Main border line (inverted L shape from corner) -->
+    <path d="M0,0 L60,0 L60,2 L2,2 L2,60 L0,60 Z" fill="url(#brassGrad)" opacity="0.7"/>
+    <!-- Ornate curve -->
+    <path d="M4,4 Q25,2 40,20 Q50,35 55,55" fill="none" stroke="url(#brassGrad)" stroke-width="1.5" opacity="0.8" stroke-linecap="round"/>
+    <!-- Inner filigree scroll -->
+    <path d="M16,16 Q30,10 38,22 Q42,30 38,36 Q32,44 24,42 Q18,40 20,34 Q22,28 28,28" fill="none" stroke="url(#brassGrad)" stroke-width="1" opacity="0.5" stroke-linecap="round"/>
+    <!-- Small corner gear -->
+    <g transform="translate(22,22)" opacity="0.5">
+      <circle r="8" fill="none" stroke="#d4a017" stroke-width="1"/>
+      <circle r="4" fill="none" stroke="#b8860b" stroke-width="0.7"/>
+      <circle r="2" fill="#cd7f32"/>
+      <g fill="#d4a017">
+        <rect x="-1.5" y="-10.5" width="3" height="4" rx="0.8"/>
+        <rect x="-1.5" y="6.5" width="3" height="4" rx="0.8"/>
+        <rect x="-10.5" y="-1.5" width="4" height="3" rx="0.8"/>
+        <rect x="6.5" y="-1.5" width="4" height="3" rx="0.8"/>
+        <rect x="5" y="-9" width="3" height="4" rx="0.8" transform="rotate(45,6.5,-7)"/>
+        <rect x="-8" y="-9" width="3" height="4" rx="0.8" transform="rotate(-45,-6.5,-7)"/>
+        <rect x="5" y="5" width="3" height="4" rx="0.8" transform="rotate(-45,6.5,7)"/>
+        <rect x="-8" y="5" width="3" height="4" rx="0.8" transform="rotate(45,-6.5,7)"/>
+      </g>
+    </g>
+  </g>
+  <!-- Rivets -->
+  <circle cx="12" cy="12" r="3" fill="url(#copperRiv)" stroke="#6b4226" stroke-width="0.5" opacity="0.6"/>
+  <circle cx="40" cy="4" r="2.5" fill="url(#copperRiv)" stroke="#6b4226" stroke-width="0.5" opacity="0.5"/>
+  <circle cx="4" cy="40" r="2.5" fill="url(#copperRiv)" stroke="#6b4226" stroke-width="0.5" opacity="0.5"/>
+  <circle cx="55" cy="6" r="1.5" fill="url(#copperRiv)" stroke="#6b4226" stroke-width="0.4" opacity="0.35"/>
+  <circle cx="6" cy="55" r="1.5" fill="url(#copperRiv)" stroke="#6b4226" stroke-width="0.4" opacity="0.35"/>
+  <!-- Decorative dots -->
+  <circle cx="30" cy="8" r="1" fill="#d4a017" opacity="0.4"/>
+  <circle cx="8" cy="30" r="1" fill="#d4a017" opacity="0.4"/>
+  <circle cx="50" cy="12" r="0.8" fill="#b8860b" opacity="0.3"/>
+  <circle cx="12" cy="50" r="0.8" fill="#b8860b" opacity="0.3"/>
+</svg>

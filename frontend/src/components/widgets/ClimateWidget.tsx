@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { ThermometerSimple, Flame, Snowflake, Fan, Wind } from '@phosphor-icons/react'
 import type { ClimateEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'

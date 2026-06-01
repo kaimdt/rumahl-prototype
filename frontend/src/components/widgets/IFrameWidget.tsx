@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Globe, ArrowsOutSimple, ArrowSquareOut, ArrowClockwise, WarningCircle } from '@phosphor-icons/react'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'

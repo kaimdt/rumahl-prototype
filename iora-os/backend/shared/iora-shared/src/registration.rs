@@ -3,18 +3,18 @@
 //! Apps and Plugins must register with IORA before accessing the API.
 //! This provides security and control over what code can access system resources.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistrationStatus {
-    Pending,       // Waiting for approval
-    Approved,      // Registered and can access API
-    Rejected,      // Registration denied
-    Suspended,     // Temporarily disabled
-    Revoked,       // Permanently revoked
+    Pending,   // Waiting for approval
+    Approved,  // Registered and can access API
+    Rejected,  // Registration denied
+    Suspended, // Temporarily disabled
+    Revoked,   // Permanently revoked
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,7 +27,7 @@ pub struct RegistrationRequest {
     pub author: String,
     pub website: Option<String>,
     pub requested_permissions: Vec<String>,
-    pub signature: Option<String>,  // Cryptographic signature for verification
+    pub signature: Option<String>, // Cryptographic signature for verification
     pub metadata: serde_json::Value,
 }
 
@@ -47,10 +47,10 @@ pub struct Registration {
     pub version: String,
     pub status: RegistrationStatus,
     pub granted_permissions: Vec<String>,
-    pub api_token: String,  // Unique token for API access
+    pub api_token: String, // Unique token for API access
     pub registered_at: String,
     pub approved_at: Option<String>,
-    pub approved_by: Option<String>,  // Admin user ID
+    pub approved_by: Option<String>, // Admin user ID
     pub notes: Option<String>,
 }
 
@@ -74,14 +74,23 @@ impl RegistrationRegistry {
 
         // Check if provider is already registered
         let registrations = self.registrations.read().await;
-        if registrations.values().any(|r| r.provider_id == request.provider_id) {
+        if registrations
+            .values()
+            .any(|r| r.provider_id == request.provider_id)
+        {
             anyhow::bail!("Provider '{}' is already registered", request.provider_id);
         }
         drop(registrations);
 
         // Check if there's already a pending request
-        if pending.values().any(|r| r.provider_id == request.provider_id) {
-            anyhow::bail!("Provider '{}' already has a pending registration request", request.provider_id);
+        if pending
+            .values()
+            .any(|r| r.provider_id == request.provider_id)
+        {
+            anyhow::bail!(
+                "Provider '{}' already has a pending registration request",
+                request.provider_id
+            );
         }
 
         pending.insert(request_id.clone(), request);
@@ -96,7 +105,8 @@ impl RegistrationRegistry {
         granted_permissions: Vec<String>,
     ) -> anyhow::Result<Registration> {
         let mut pending = self.pending_requests.write().await;
-        let request = pending.remove(request_id)
+        let request = pending
+            .remove(request_id)
             .ok_or_else(|| anyhow::anyhow!("Registration request '{}' not found", request_id))?;
 
         let registration = Registration {
@@ -121,9 +131,14 @@ impl RegistrationRegistry {
     }
 
     /// Reject a registration request
-    pub async fn reject_request(&self, request_id: &str, reason: Option<String>) -> anyhow::Result<()> {
+    pub async fn reject_request(
+        &self,
+        request_id: &str,
+        reason: Option<String>,
+    ) -> anyhow::Result<()> {
         let mut pending = self.pending_requests.write().await;
-        let request = pending.remove(request_id)
+        let request = pending
+            .remove(request_id)
             .ok_or_else(|| anyhow::anyhow!("Registration request '{}' not found", request_id))?;
 
         // Create a rejected registration record for audit trail
@@ -151,9 +166,9 @@ impl RegistrationRegistry {
     /// Check if a provider is registered and approved
     pub async fn is_approved(&self, provider_id: &str) -> bool {
         let registrations = self.registrations.read().await;
-        registrations.values().any(|r|
-            r.provider_id == provider_id && r.status == RegistrationStatus::Approved
-        )
+        registrations
+            .values()
+            .any(|r| r.provider_id == provider_id && r.status == RegistrationStatus::Approved)
     }
 
     /// Get registration by provider ID
@@ -179,7 +194,8 @@ impl RegistrationRegistry {
     /// Verify API token and check permissions
     pub async fn verify_token(&self, api_token: &str, required_permission: &str) -> bool {
         if let Some(reg) = self.get_by_token(api_token).await {
-            reg.granted_permissions.contains(&required_permission.to_string())
+            reg.granted_permissions
+                .contains(&required_permission.to_string())
         } else {
             false
         }

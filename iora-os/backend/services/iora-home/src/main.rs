@@ -1,15 +1,28 @@
+use anyhow::Context;
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State, WebSocketUpgrade},
     http::{header, HeaderMap, StatusCode, Uri},
-    response::{IntoResponse, Response, sse::{Event as SseEvent, KeepAlive, Sse}},
+    response::{
+        sse::{Event as SseEvent, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
     routing::{any, delete, get, get_service, post, put},
     Extension, Json, Router,
 };
+use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, collections::VecDeque, convert::Infallible, net::{Ipv4Addr, SocketAddr}, path::Path as FsPath, sync::Arc, time::Duration};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use futures_util::Stream;
+use std::{
+    collections::HashMap,
+    collections::VecDeque,
+    convert::Infallible,
+    net::{Ipv4Addr, SocketAddr},
+    path::Path as FsPath,
+    sync::Arc,
+    time::Duration,
+};
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
@@ -17,59 +30,65 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
-use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme, ApiKey, ApiKeyValue};
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-mod ha_client;
-mod ha_websocket;
-mod websocket;
-mod db;
-mod auth;
-mod middleware;
-mod entity_cache;
-mod ha_cache;
-mod mqtt_client;
-mod matter_client;
-mod local_appstore;
-mod dev_image;
-mod ha_connection;
+mod app_database_handler;
 mod app_lifecycle;
+mod app_messaging_handler;
+mod app_runtime_handler;
+mod app_scheduler_handler;
+mod app_storage_handler;
+mod app_webhooks_handler;
+mod auth;
+mod ble_client;
+mod crypto;
+mod db;
+mod desktop_gateway;
+mod dev_image;
+mod documentation;
+mod entity_cache;
+mod frontend_dev_proxy;
+mod ha_cache;
+mod ha_client;
+mod ha_connection;
+mod ha_websocket;
+mod homekit_client;
+mod local_appstore;
+mod location_sync;
+mod logs_handler;
+mod matter_client;
+mod middleware;
+mod mqtt_client;
+mod notification_dispatcher;
+mod person_tracker;
 mod plugin_sandbox;
+mod streaming;
+mod system_events;
+mod theme_handler;
+mod websocket;
 mod zigbee_client;
 mod zwave_client;
-mod ble_client;
-mod homekit_client;
-mod streaming;
-mod person_tracker;
-mod location_sync;
-mod desktop_gateway;
-mod notification_dispatcher;
-mod documentation;
-mod app_storage_handler;
-mod app_database_handler;
-mod app_scheduler_handler;
-mod app_messaging_handler;
-mod app_webhooks_handler;
-mod theme_handler;
 
-use ha_client::HomeAssistantClient;
-use ha_websocket::HAWebSocket;
-use db::{init_db, DbPool, repositories::ConfigRepository};
+use ble_client::BleClient;
+use db::{init_db, repositories::ConfigRepository, DbPool};
 use entity_cache::EntityStateCache;
 use ha_cache::HaDataCache;
-use mqtt_client::MqttClient;
-use matter_client::MatterClient;
+use ha_client::HomeAssistantClient;
 use ha_connection::HaConnectionManager;
-use zigbee_client::ZigbeeClient;
-use zwave_client::ZwaveClient;
-use ble_client::BleClient;
+use ha_websocket::HAWebSocket;
 use homekit_client::HomekitClient;
+use iora_shared::settings::{SettingDefinition, SettingsRegistry};
+use iora_shared::system_config;
+use matter_client::MatterClient;
+use mqtt_client::MqttClient;
 use notification_dispatcher::NotificationDispatcher;
 use streaming::StreamManager;
-use iora_shared::settings::{SettingsRegistry, SettingDefinition};
-use iora_shared::system_config;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use zigbee_client::ZigbeeClient;
+use zwave_client::ZwaveClient;
 
 /// Per-entity service call buffer that coalesces rapid-fire requests.
 ///
@@ -82,6 +101,276 @@ use tokio::net::TcpStream;
 pub struct ServiceCallBuffer {
     /// entity_id → latest pending call data (None means drain task should exit)
     pending: tokio::sync::Mutex<HashMap<String, Option<BufferedCall>>>,
+}
+
+#[derive(Clone)]
+struct AppTerminalSession {
+    id: String,
+    app_id: String,
+    project: String,
+    service: String,
+    created_at: String,
+    input_tx: tokio::sync::mpsc::Sender<TerminalInputPayload>,
+    output_tx: tokio::sync::broadcast::Sender<String>,
+    child: Arc<tokio::sync::Mutex<tokio::process::Child>>,
+}
+
+struct TerminalInputPayload {
+    input: String,
+    append_newline: bool,
+}
+
+#[derive(Default)]
+pub struct AppTerminalManager {
+    sessions: tokio::sync::RwLock<HashMap<String, Arc<AppTerminalSession>>>,
+}
+
+impl AppTerminalManager {
+    async fn resolve_target(
+        &self,
+        app_id: &str,
+        requested_service: Option<&str>,
+    ) -> Result<(String, String), String> {
+        use tokio::process::Command;
+
+        for prefix in ["iora-app-", "iora-bundle-"] {
+            let project = format!("{prefix}{app_id}");
+            let out = Command::new("docker")
+                .args(["compose", "-p", &project, "ps", "--services", "--all"])
+                .output()
+                .await;
+
+            match out {
+                Ok(o) if o.status.success() => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    let services: Vec<String> = stdout
+                        .lines()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .collect();
+
+                    if services.is_empty() {
+                        continue;
+                    }
+
+                    let service = if let Some(req) = requested_service {
+                        if services.iter().any(|s| s == req) {
+                            req.to_string()
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        services[0].clone()
+                    };
+
+                    return Ok((project, service));
+                }
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err("Docker CLI is unavailable on this host".to_string());
+                }
+                Err(_) => continue,
+            }
+        }
+
+        Err(format!(
+            "No running compose project found for app '{app_id}'"
+        ))
+    }
+
+    async fn create_session(
+        self: &Arc<Self>,
+        app_id: &str,
+        requested_service: Option<String>,
+    ) -> Result<Arc<AppTerminalSession>, String> {
+        use tokio::process::Command;
+
+        let (project, service) = self
+            .resolve_target(app_id, requested_service.as_deref())
+            .await?;
+
+        let mut child = Command::new("docker")
+            .args([
+                "compose", "-p", &project, "exec", "-T", "-i", &service, "sh",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn terminal session: {e}"))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Terminal stdin unavailable".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Terminal stdout unavailable".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Terminal stderr unavailable".to_string())?;
+
+        let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<TerminalInputPayload>(128);
+        let (output_tx, _unused) = tokio::sync::broadcast::channel::<String>(512);
+
+        let session = Arc::new(AppTerminalSession {
+            id: uuid::Uuid::new_v4().to_string(),
+            app_id: app_id.to_string(),
+            project,
+            service,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            input_tx,
+            output_tx: output_tx.clone(),
+            child: Arc::new(tokio::sync::Mutex::new(child)),
+        });
+
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(session.id.clone(), session.clone());
+        }
+
+        // stdin writer task
+        tokio::spawn(async move {
+            let mut writer = stdin;
+            while let Some(payload) = input_rx.recv().await {
+                let mut input = payload.input;
+                if payload.append_newline && !input.ends_with('\n') {
+                    input.push('\n');
+                }
+                if writer.write_all(input.as_bytes()).await.is_err() {
+                    break;
+                }
+                if writer.flush().await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // stdout reader task
+        {
+            let tx = output_tx.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stdout);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let _ = tx.send(line.clone());
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // stderr reader task
+        {
+            let tx = output_tx.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let _ = tx.send(format!("[stderr] {}", line));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // process watcher
+        {
+            let manager = Arc::clone(self);
+            let sid = session.id.clone();
+            let child = Arc::clone(&session.child);
+            let tx = output_tx;
+            tokio::spawn(async move {
+                loop {
+                    let done = {
+                        let mut locked = child.lock().await;
+                        match locked.try_wait() {
+                            Ok(Some(status)) => {
+                                let _ = tx.send(format!(
+                                    "\n[session closed] exit code: {}\n",
+                                    status.code().unwrap_or(-1)
+                                ));
+                                true
+                            }
+                            Ok(None) => false,
+                            Err(_) => {
+                                let _ = tx.send(
+                                    "\n[session closed] failed to query process status\n"
+                                        .to_string(),
+                                );
+                                true
+                            }
+                        }
+                    };
+
+                    if done {
+                        let mut sessions = manager.sessions.write().await;
+                        sessions.remove(&sid);
+                        break;
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                }
+            });
+        }
+
+        Ok(session)
+    }
+
+    async fn get_session(&self, session_id: &str) -> Option<Arc<AppTerminalSession>> {
+        self.sessions.read().await.get(session_id).cloned()
+    }
+
+    async fn send_input(
+        &self,
+        session_id: &str,
+        input: String,
+        append_newline: bool,
+    ) -> Result<(), String> {
+        let session = self
+            .get_session(session_id)
+            .await
+            .ok_or_else(|| "Terminal session not found".to_string())?;
+        session
+            .input_tx
+            .send(TerminalInputPayload {
+                input,
+                append_newline,
+            })
+            .await
+            .map_err(|_| "Terminal session is closed".to_string())
+    }
+
+    async fn close_session(&self, session_id: &str) -> bool {
+        let session = {
+            let mut sessions = self.sessions.write().await;
+            sessions.remove(session_id)
+        };
+
+        let Some(session) = session else {
+            return false;
+        };
+
+        let _ = session
+            .output_tx
+            .send("\n[session closed by user]\n".to_string());
+        let mut child = session.child.lock().await;
+        let _ = child.kill().await;
+        true
+    }
 }
 
 struct BufferedCall {
@@ -113,12 +402,20 @@ impl ServiceCallBuffer {
             // Reserve the slot so subsequent calls know a drain task exists
             map.insert(entity_id.to_string(), None);
             // Return the call data for immediate dispatch
-            Some(BufferedCall { domain, service, data })
+            Some(BufferedCall {
+                domain,
+                service,
+                data,
+            })
         } else {
             // Drain task already running — just buffer the latest value
             map.insert(
                 entity_id.to_string(),
-                Some(BufferedCall { domain, service, data }),
+                Some(BufferedCall {
+                    domain,
+                    service,
+                    data,
+                }),
             );
             None
         }
@@ -163,6 +460,9 @@ pub struct AppState {
     pub homekit_client: Arc<HomekitClient>,
     pub stream_manager: Arc<StreamManager>,
     pub notification_dispatcher: Arc<NotificationDispatcher>,
+    /// Centralised system-event log + broadcaster for background tasks.
+    /// See [`system_events`].
+    pub system_events: Arc<system_events::SystemEventLog>,
     /// Generic settings registry – schema for all user-configurable IORA values.
     /// See [`iora_shared::settings`].
     pub settings_registry: Arc<SettingsRegistry>,
@@ -178,7 +478,6 @@ pub struct AppState {
     pub plugin_sandbox: Arc<plugin_sandbox::PluginSandbox>,
 
     // --- New v2.1: Extended App Capabilities ---
-
     /// App file and key-value storage handler
     pub app_storage: Arc<app_storage_handler::AppStorageState>,
 
@@ -196,6 +495,9 @@ pub struct AppState {
 
     /// Theme manager – file-based themes
     pub theme_manager: Arc<theme_handler::ThemeState>,
+
+    /// Interactive app terminal sessions (Developer Mode only).
+    pub terminal_manager: Arc<AppTerminalManager>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -206,7 +508,12 @@ pub(crate) struct HaRuntimeConfig {
 
 impl HaRuntimeConfig {
     pub fn is_configured(&self) -> bool {
-        !self.url.is_empty() && !self.token.is_empty()
+        if self.url.trim().is_empty() || self.token.trim().is_empty() {
+            return false;
+        }
+        reqwest::Url::parse(self.url.trim())
+            .map(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+            .unwrap_or(false)
     }
 }
 
@@ -305,32 +612,63 @@ pub struct ErrorResponse {
 
 impl ErrorResponse {
     pub fn internal(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::INTERNAL_SERVER_ERROR }
+        Self {
+            error: error.into(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        }
     }
     pub fn unauthorized(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::UNAUTHORIZED }
+        Self {
+            error: error.into(),
+            status: StatusCode::UNAUTHORIZED,
+        }
     }
     pub fn not_found(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::NOT_FOUND }
+        Self {
+            error: error.into(),
+            status: StatusCode::NOT_FOUND,
+        }
     }
     pub fn bad_request(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::BAD_REQUEST }
+        Self {
+            error: error.into(),
+            status: StatusCode::BAD_REQUEST,
+        }
     }
     pub fn conflict(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::CONFLICT }
+        Self {
+            error: error.into(),
+            status: StatusCode::CONFLICT,
+        }
+    }
+    pub fn forbidden(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            status: StatusCode::FORBIDDEN,
+        }
     }
     pub fn service_unavailable(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::SERVICE_UNAVAILABLE }
+        Self {
+            error: error.into(),
+            status: StatusCode::SERVICE_UNAVAILABLE,
+        }
     }
     pub fn bad_gateway(error: impl Into<String>) -> Self {
-        Self { error: error.into(), status: StatusCode::BAD_GATEWAY }
+        Self {
+            error: error.into(),
+            status: StatusCode::BAD_GATEWAY,
+        }
     }
 }
 
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response {
         METRICS.http_errors_total.fetch_add(1, Ordering::Relaxed);
-        (self.status, Json(serde_json::json!({ "error": self.error }))).into_response()
+        (
+            self.status,
+            Json(serde_json::json!({ "error": self.error })),
+        )
+            .into_response()
     }
 }
 
@@ -476,9 +814,10 @@ impl Modify for SecurityAddon {
         );
         components.add_security_scheme(
             "api_key",
-            SecurityScheme::ApiKey(ApiKey::Header(
-                ApiKeyValue::with_description("X-API-Key", "API key from /api/keys"),
-            )),
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
+                "X-API-Key",
+                "API key from /api/keys",
+            ))),
         );
     }
 }
@@ -546,7 +885,8 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => {
                     return Err(anyhow::anyhow!(
                         "Database init failed after {} attempts: {}",
-                        attempt, e
+                        attempt,
+                        e
                     ));
                 }
             }
@@ -581,7 +921,6 @@ async fn main() -> anyhow::Result<()> {
     // Initialize Home Assistant client (REST – used for history/forecasts)
     let ha_client = Arc::new(HomeAssistantClient::new(ha_url.clone(), ha_token.clone()));
 
-
     // Start person tracker background service (HA-only)
     if ha_configured {
         let person_tracker = person_tracker::PersonTracker::new(db_pool.clone(), ha_client.clone());
@@ -590,7 +929,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Start location history sync service (HA-only)
     if ha_configured {
-        let location_sync = location_sync::LocationSyncService::new(db_pool.clone(), ha_client.clone());
+        let location_sync =
+            location_sync::LocationSyncService::new(db_pool.clone(), ha_client.clone());
         location_sync.start();
     }
 
@@ -599,6 +939,37 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize configuration repository
     let config_repo = Arc::new(ConfigRepository::new(db_pool.clone()));
+
+    // Ensure JWT secret exists in system_preferences.
+    // Priority: existing DB value > env var > auto-generated crypto-random bytes.
+    if config_repo
+        .get_system_preference("jwt_secret")
+        .await
+        .map(|p| p.is_none())
+        .unwrap_or(true)
+    {
+        use rand::RngCore;
+        let mut bytes = [0u8; 64];
+        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        use base64::Engine as _;
+        let secret = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let save_req = db::models::SaveSystemPreferenceRequest {
+            preference_key: "jwt_secret".to_string(),
+            preference_value: serde_json::Value::String(secret.clone()),
+        };
+        if let Err(e) = config_repo.save_system_preference(save_req).await {
+            warn!("Failed to persist auto-generated JWT secret: {e}");
+        } else {
+            iora_shared::system_config::persist_jwt_secret(&secret);
+            info!("Auto-generated and persisted JWT secret");
+        }
+    } else {
+        // Secret exists in DB — seed the system_config cache so jwt_secret()
+        // picks it up without needing an env var.
+        if let Ok(Some(pref)) = config_repo.get_system_preference("jwt_secret").await {
+            iora_shared::system_config::persist_jwt_secret(&pref.preference_value);
+        }
+    }
 
     // First-boot admin bootstrap.
     // The setup wizard (board/iora/iora-setup/setup-server.py) writes the
@@ -623,7 +994,7 @@ async fn main() -> anyhow::Result<()> {
         .timeout(std::time::Duration::from_secs(15))
         .tcp_keepalive(std::time::Duration::from_secs(60))
         .build()
-        .expect("Failed to build HTTP client");
+        .context("Failed to build HTTP client")?;
 
     // Initialize persistent WebSocket connection to Home Assistant.
     // This replaces REST API polling AND provides instant service call dispatch.
@@ -654,6 +1025,43 @@ async fn main() -> anyhow::Result<()> {
         ws_manager.clone(),
         ha_client.clone(),
     ));
+    let system_events = system_events::SystemEventLog::new(db_pool.clone(), ws_manager.clone());
+
+    // ── local_appstore init ──────────────────────────────────────────
+    let local_appstore = match local_appstore::LocalAppStore::open().await {
+        Ok(s) => s,
+        Err(e) => {
+            if cfg!(target_os = "linux") {
+                anyhow::bail!("local-appstore init failed; persistent storage is required: {e:#}");
+            }
+            warn!("local-appstore init failed ({e:#}); falling back to temporary storage only");
+            // open() only fails if the directory cannot be created;
+            // retry into a temp dir so the rest of the server still
+            // starts.
+            std::env::set_var(
+                "IORA_LOCAL_APPS_DIR",
+                std::env::temp_dir().join("iora-local-apps"),
+            );
+            local_appstore::LocalAppStore::open()
+                .await
+                .context("fallback local-appstore init in temp dir")?
+        }
+    };
+
+    // ── plugin_sandbox init ─────────────────────────────────────────
+    let plugin_sandbox_base = std::env::var("IORA_LOCAL_APPS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps"));
+    let plugin_sandbox = match plugin_sandbox::PluginSandbox::new(&plugin_sandbox_base).await {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("plugin sandbox init failed: {e:#}");
+            // Fallback: tmpdir – Sandbox kann später re-init werden
+            plugin_sandbox::PluginSandbox::new(&std::env::temp_dir().join("iora-plugin-sandbox"))
+                .await
+                .context("plugin-sandbox tmp init")?
+        }
+    };
 
     // Create application state
     let state = AppState {
@@ -675,45 +1083,11 @@ async fn main() -> anyhow::Result<()> {
         homekit_client: homekit_client.clone(),
         stream_manager: stream_manager.clone(),
         notification_dispatcher: notification_dispatcher.clone(),
+        system_events: system_events.clone(),
         settings_registry: Arc::new(iora_shared::settings::default_registry()),
-        local_appstore: match local_appstore::LocalAppStore::open().await {
-            Ok(s) => s,
-            Err(e) => {
-                if cfg!(target_os = "linux") {
-                    anyhow::bail!("local-appstore init failed; persistent storage is required: {e:#}");
-                }
-                warn!("local-appstore init failed ({e:#}); falling back to temporary storage only");
-                // open() only fails if the directory cannot be created;
-                // retry into a temp dir so the rest of the server still
-                // starts.
-                std::env::set_var(
-                    "IORA_LOCAL_APPS_DIR",
-                    std::env::temp_dir().join("iora-local-apps"),
-                );
-                local_appstore::LocalAppStore::open()
-                    .await
-                    .expect("fallback local-appstore init in temp dir")
-            }
-        },
+        local_appstore,
         dev_image: Arc::new(dev_image::DevImageInfo::detect()),
-        plugin_sandbox: {
-            // Sandbox-Manager teilt sich das gleiche Base-Dir wie der App-Store,
-            // damit Plugin-Code persistent neben App-Daten liegt. ensure_running()
-            // wird lazy aufgerufen – hier nur das Verzeichnis vorbereiten.
-            let base = std::env::var("IORA_LOCAL_APPS_DIR")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/iora-home/local-apps"));
-            match plugin_sandbox::PluginSandbox::new(&base).await {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("plugin sandbox init failed: {e:#}");
-                    // Fallback: tmpdir – Sandbox kann später re-init werden
-                    plugin_sandbox::PluginSandbox::new(&std::env::temp_dir().join("iora-plugin-sandbox"))
-                        .await
-                        .expect("plugin-sandbox tmp init")
-                }
-            }
-        },
+        plugin_sandbox,
 
         // New v2.1: Extended App Capabilities
         app_storage: Arc::new(app_storage_handler::AppStorageState::new()),
@@ -737,6 +1111,7 @@ async fn main() -> anyhow::Result<()> {
                 });
             Arc::new(theme_handler::ThemeState::new(db_pool.clone(), &data_dir))
         },
+        terminal_manager: Arc::new(AppTerminalManager::default()),
     };
 
     // Ensure at least one admin user exists (auto-promote oldest user after migration)
@@ -843,18 +1218,44 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             if let Ok(Some(pref)) = repo.get_system_preference("mqtt_config").await {
                 if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&pref.preference_value) {
-                    if let Some(host) = cfg.get("host").and_then(|v| v.as_str()).filter(|h| !h.is_empty()) {
+                    if let Some(host) = cfg
+                        .get("host")
+                        .and_then(|v| v.as_str())
+                        .filter(|h| !h.is_empty())
+                    {
+                        // Password may be stored as an `enc:v1:<base64>` blob (preferred)
+                        // or as legacy plaintext. `maybe_decrypt` handles both.
+                        let password = cfg
+                            .get("password")
+                            .and_then(|v| v.as_str())
+                            .map(crypto::maybe_decrypt);
                         let config = mqtt_client::MqttConfig {
                             host: host.to_string(),
                             port: cfg.get("port").and_then(|v| v.as_u64()).unwrap_or(1883) as u16,
-                            username: cfg.get("username").and_then(|v| v.as_str()).map(String::from),
-                            password: cfg.get("password").and_then(|v| v.as_str()).map(String::from),
-                            client_id: cfg.get("client_id").and_then(|v| v.as_str())
+                            username: cfg
+                                .get("username")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
+                            password,
+                            client_id: cfg
+                                .get("client_id")
+                                .and_then(|v| v.as_str())
                                 .map(String::from)
-                                .unwrap_or_else(|| format!("mdt-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8])),
-                            use_tls: cfg.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
+                                .unwrap_or_else(|| {
+                                    format!(
+                                        "mdt-dashboard-{}",
+                                        &uuid::Uuid::new_v4().to_string()[..8]
+                                    )
+                                }),
+                            use_tls: cfg
+                                .get("use_tls")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
                         };
-                        info!("MQTT: Auto-connecting to {}:{} from saved config", config.host, config.port);
+                        info!(
+                            "MQTT: Auto-connecting to {}:{} from saved config",
+                            config.host, config.port
+                        );
                         match mqtt.connect(config).await {
                             Ok(()) => info!("MQTT: Auto-connect successful"),
                             Err(e) => warn!("MQTT: Auto-connect failed: {}", e),
@@ -875,31 +1276,41 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             // Matter
             if let Ok(Some(pref)) = repo.get_system_preference("matter_config").await {
-                if let Ok(cfg) = serde_json::from_str::<matter_client::MatterConfig>(&pref.preference_value) {
+                if let Ok(cfg) =
+                    serde_json::from_str::<matter_client::MatterConfig>(&pref.preference_value)
+                {
                     matter.init(cfg).await;
                 }
             }
             // Zigbee
             if let Ok(Some(pref)) = repo.get_system_preference("zigbee_config").await {
-                if let Ok(cfg) = serde_json::from_str::<zigbee_client::ZigbeeConfig>(&pref.preference_value) {
+                if let Ok(cfg) =
+                    serde_json::from_str::<zigbee_client::ZigbeeConfig>(&pref.preference_value)
+                {
                     zigbee.update_config(cfg).await;
                 }
             }
             // Z-Wave
             if let Ok(Some(pref)) = repo.get_system_preference("zwave_config").await {
-                if let Ok(cfg) = serde_json::from_str::<zwave_client::ZwaveConfig>(&pref.preference_value) {
+                if let Ok(cfg) =
+                    serde_json::from_str::<zwave_client::ZwaveConfig>(&pref.preference_value)
+                {
                     zwave.update_config(cfg).await;
                 }
             }
             // BLE
             if let Ok(Some(pref)) = repo.get_system_preference("ble_config").await {
-                if let Ok(cfg) = serde_json::from_str::<ble_client::BleConfig>(&pref.preference_value) {
+                if let Ok(cfg) =
+                    serde_json::from_str::<ble_client::BleConfig>(&pref.preference_value)
+                {
                     ble.update_config(cfg).await;
                 }
             }
             // HomeKit
             if let Ok(Some(pref)) = repo.get_system_preference("homekit_config").await {
-                if let Ok(cfg) = serde_json::from_str::<homekit_client::HomekitConfig>(&pref.preference_value) {
+                if let Ok(cfg) =
+                    serde_json::from_str::<homekit_client::HomekitConfig>(&pref.preference_value)
+                {
                     homekit.update_config(cfg).await;
                 }
             }
@@ -953,7 +1364,11 @@ async fn main() -> anyhow::Result<()> {
     let watchdog_ha_client = ha_client.clone();
     let watchdog_entity_cache = entity_cache.clone();
     let watchdog_ws_manager = ws_manager.clone();
-    tokio::spawn(background_watchdog_loop(watchdog_ha_client, watchdog_entity_cache, watchdog_ws_manager));
+    tokio::spawn(background_watchdog_loop(
+        watchdog_ha_client,
+        watchdog_entity_cache,
+        watchdog_ws_manager,
+    ));
 
     // Background scheduled actions cleanup (removes expired schedules every 5 min)
     tokio::spawn(background_schedule_cleanup());
@@ -961,24 +1376,38 @@ async fn main() -> anyhow::Result<()> {
     // Background entity anomaly detection (flags unusual state change patterns every 2 min)
     let anomaly_entity_cache = entity_cache.clone();
     let anomaly_ws_manager = ws_manager.clone();
-    tokio::spawn(background_entity_anomaly_detection(anomaly_entity_cache, anomaly_ws_manager));
+    tokio::spawn(background_entity_anomaly_detection(
+        anomaly_entity_cache,
+        anomaly_ws_manager,
+    ));
 
     // Background analytics aggregation (rolls up entity analytics every 10 min into DB)
     let stats_entity_cache = entity_cache.clone();
     let stats_db_pool = db_pool.clone();
-    tokio::spawn(background_analytics_aggregation(stats_entity_cache, stats_db_pool));
+    tokio::spawn(background_analytics_aggregation(
+        stats_entity_cache,
+        stats_db_pool,
+    ));
 
     // Background stale entity monitor (detects entities stale >1h, broadcasts warnings every 60s)
     let stale_entity_cache = entity_cache.clone();
     let stale_ws_manager = ws_manager.clone();
-    tokio::spawn(background_stale_entity_monitor(stale_entity_cache, stale_ws_manager));
+    tokio::spawn(background_stale_entity_monitor(
+        stale_entity_cache,
+        stale_ws_manager,
+    ));
 
     // Background NINA warning poller (checks NINA API every 5 min for configured regions)
     let nina_http_client = state.http_client.clone();
     let nina_config_repo = state.config_repo.clone();
     let nina_ws_manager = state.ws_manager.clone();
     let nina_db_pool = state.db_pool.clone();
-    tokio::spawn(background_nina_poller(nina_http_client, nina_config_repo, nina_ws_manager, nina_db_pool));
+    tokio::spawn(background_nina_poller(
+        nina_http_client,
+        nina_config_repo,
+        nina_ws_manager,
+        nina_db_pool,
+    ));
 
     // Background ARS regions cache warming (loads Landkreise data on startup, refreshes every 24h)
     let ars_http_client = state.http_client.clone();
@@ -988,16 +1417,26 @@ async fn main() -> anyhow::Result<()> {
     let webhook_ws = state.ws_manager.clone();
     let webhook_db = state.db_pool.clone();
     let webhook_http = state.http_client.clone();
-    tokio::spawn(background_webhook_delivery(webhook_ws, webhook_db, webhook_http));
+    let webhook_sys = state.system_events.clone();
+    tokio::spawn(background_webhook_delivery(
+        webhook_ws,
+        webhook_db,
+        webhook_http,
+        webhook_sys,
+    ));
 
     // Build router
     // Service routes protected by auth middleware
     let service_routes = Router::new()
+        .route("/api/services/:domain/:service", post(call_service))
         .route(
-            "/api/services/:domain/:service",
-            post(call_service),
+            "/api/system-events/client",
+            post(client_system_event_ingest),
         )
-        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_auth))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::require_auth,
+        ))
         .with_state(state.clone());
 
     // Admin routes (require admin JWT)
@@ -1026,30 +1465,51 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/admin/mqtt/unsubscribe", post(admin_mqtt_unsubscribe))
         .route("/api/admin/mqtt/publish", post(admin_mqtt_publish))
         .route("/api/admin/mqtt/messages", get(admin_mqtt_messages))
-        .route("/api/admin/mqtt/config", post(admin_mqtt_save_config).get(admin_mqtt_get_config))
+        .route(
+            "/api/admin/mqtt/config",
+            post(admin_mqtt_save_config).get(admin_mqtt_get_config),
+        )
         // Matter client management
         .route("/api/admin/matter/status", get(admin_matter_status))
-        .route("/api/admin/matter/config", post(admin_matter_save_config).get(admin_matter_get_config))
+        .route(
+            "/api/admin/matter/config",
+            post(admin_matter_save_config).get(admin_matter_get_config),
+        )
         .route("/api/admin/matter/refresh", post(admin_matter_refresh))
         // Zigbee client management
         .route("/api/admin/zigbee/status", get(admin_zigbee_status))
-        .route("/api/admin/zigbee/config", post(admin_zigbee_save_config).get(admin_zigbee_get_config))
+        .route(
+            "/api/admin/zigbee/config",
+            post(admin_zigbee_save_config).get(admin_zigbee_get_config),
+        )
         .route("/api/admin/zigbee/refresh", post(admin_zigbee_refresh))
         // Z-Wave client management
         .route("/api/admin/zwave/status", get(admin_zwave_status))
-        .route("/api/admin/zwave/config", post(admin_zwave_save_config).get(admin_zwave_get_config))
+        .route(
+            "/api/admin/zwave/config",
+            post(admin_zwave_save_config).get(admin_zwave_get_config),
+        )
         .route("/api/admin/zwave/refresh", post(admin_zwave_refresh))
         // Bluetooth/BLE client management
         .route("/api/admin/ble/status", get(admin_ble_status))
-        .route("/api/admin/ble/config", post(admin_ble_save_config).get(admin_ble_get_config))
+        .route(
+            "/api/admin/ble/config",
+            post(admin_ble_save_config).get(admin_ble_get_config),
+        )
         .route("/api/admin/ble/refresh", post(admin_ble_refresh))
         // HomeKit client management
         .route("/api/admin/homekit/status", get(admin_homekit_status))
-        .route("/api/admin/homekit/config", post(admin_homekit_save_config).get(admin_homekit_get_config))
+        .route(
+            "/api/admin/homekit/config",
+            post(admin_homekit_save_config).get(admin_homekit_get_config),
+        )
         .route("/api/admin/homekit/refresh", post(admin_homekit_refresh))
         // HA Connection health
         .route("/api/admin/ha/connection", get(admin_ha_connection_status))
-        .route("/api/admin/protocols/overview", get(admin_protocols_overview))
+        .route(
+            "/api/admin/protocols/overview",
+            get(admin_protocols_overview),
+        )
         .route("/api/admin/ha/supervisor", get(admin_ha_supervisor))
         .route("/api/admin/ha/scenes", get(admin_ha_scenes))
         .route("/api/admin/ha/backups", get(admin_ha_backups))
@@ -1057,66 +1517,175 @@ async fn main() -> anyhow::Result<()> {
         // Extended HA features
         .route("/api/admin/ha/logbook", get(admin_ha_logbook))
         .route("/api/admin/ha/calendars", get(admin_ha_calendars))
-        .route("/api/admin/ha/calendars/:entity_id/events", get(admin_ha_calendar_events))
+        .route(
+            "/api/admin/ha/calendars/:entity_id/events",
+            get(admin_ha_calendar_events),
+        )
         .route("/api/admin/ha/template", post(admin_ha_render_template))
-        .route("/api/admin/ha/events/:event_type", post(admin_ha_fire_event))
-        .route("/api/admin/ha/registry/entities", get(admin_ha_entity_registry))
-        .route("/api/admin/ha/registry/devices", get(admin_ha_device_registry))
+        .route(
+            "/api/admin/ha/events/:event_type",
+            post(admin_ha_fire_event),
+        )
+        .route(
+            "/api/admin/ha/registry/entities",
+            get(admin_ha_entity_registry),
+        )
+        .route(
+            "/api/admin/ha/registry/devices",
+            get(admin_ha_device_registry),
+        )
         .route("/api/admin/ha/registry/areas", get(admin_ha_area_registry))
         .route("/api/admin/system/logs", get(admin_system_logs))
         .route("/api/admin/system/database", get(admin_database_info))
         // Temp DB users
-        .route("/api/admin/system/database/temp-users", get(admin_list_temp_users).post(admin_create_temp_user))
-        .route("/api/admin/system/database/temp-users/:user_id", delete(admin_revoke_temp_user))
+        .route(
+            "/api/admin/system/database/temp-users",
+            get(admin_list_temp_users).post(admin_create_temp_user),
+        )
+        .route(
+            "/api/admin/system/database/temp-users/:user_id",
+            delete(admin_revoke_temp_user),
+        )
         // Connected devices (IORA Desktop, browser tabs, kiosks)
         .route("/api/admin/devices", get(admin_list_devices))
         .route("/api/admin/devices/:device_id", delete(admin_delete_device))
+        // Combined presence overview: users + devices + login mapping
+        .route("/api/admin/presence", get(admin_presence))
+        // Centralised system event log (background-task errors / warnings)
+        .route(
+            "/api/admin/system-events",
+            get(admin_system_events).delete(admin_clear_system_events),
+        )
+        .route(
+            "/api/admin/system-events/occurrences",
+            get(admin_system_events_occurrences),
+        )
+        .route(
+            "/api/admin/system-events/:fingerprint",
+            get(admin_system_event_detail).delete(admin_system_event_delete_group),
+        )
+        .route(
+            "/api/admin/system-events/:fingerprint/resolve",
+            post(admin_system_event_resolve),
+        )
+        .route(
+            "/api/admin/system-events/:fingerprint/unresolve",
+            post(admin_system_event_unresolve),
+        )
         // Maintenance mode
-        .route("/api/admin/maintenance", get(admin_get_maintenance).put(admin_set_maintenance))
+        .route(
+            "/api/admin/maintenance",
+            get(admin_get_maintenance).put(admin_set_maintenance),
+        )
         // Notifications & alerts
-        .route("/api/admin/notifications", get(admin_list_notifications).delete(admin_clear_notifications))
-        .route("/api/admin/notifications/:notif_id/read", put(admin_mark_notification_read))
-        .route("/api/admin/notifications/:notif_id", delete(admin_dismiss_notification))
+        .route(
+            "/api/admin/notifications",
+            get(admin_list_notifications).delete(admin_clear_notifications),
+        )
+        .route(
+            "/api/admin/notifications/:notif_id/read",
+            put(admin_mark_notification_read),
+        )
+        .route(
+            "/api/admin/notifications/:notif_id",
+            delete(admin_dismiss_notification),
+        )
         // Admin system notifications (sync alerts, system issues)
-        .route("/api/admin/system-notifications", get(admin_list_system_notifications))
-        .route("/api/admin/system-notifications/:notif_id/acknowledge", put(admin_acknowledge_system_notification))
-        .route("/api/admin/system-notifications/:notif_id/resolve", put(admin_resolve_system_notification))
-        .route("/api/admin/system-notifications/:notif_id", delete(admin_delete_system_notification))
-        .route("/api/admin/system-notifications/clear-resolved", delete(admin_clear_resolved_system_notifications))
+        .route(
+            "/api/admin/system-notifications",
+            get(admin_list_system_notifications),
+        )
+        .route(
+            "/api/admin/system-notifications/:notif_id/acknowledge",
+            put(admin_acknowledge_system_notification),
+        )
+        .route(
+            "/api/admin/system-notifications/:notif_id/resolve",
+            put(admin_resolve_system_notification),
+        )
+        .route(
+            "/api/admin/system-notifications/:notif_id",
+            delete(admin_delete_system_notification),
+        )
+        .route(
+            "/api/admin/system-notifications/clear-resolved",
+            delete(admin_clear_resolved_system_notifications),
+        )
         // Location sync management
-        .route("/api/admin/location-sync/status", get(admin_get_sync_status))
-        .route("/api/admin/location-sync/:entity_id/force-sync", post(admin_force_sync_entity))
-        .route("/api/admin/alert", get(admin_get_alert).put(admin_set_alert).delete(admin_dismiss_alert))
+        .route(
+            "/api/admin/location-sync/status",
+            get(admin_get_sync_status),
+        )
+        .route(
+            "/api/admin/location-sync/:entity_id/force-sync",
+            post(admin_force_sync_entity),
+        )
+        .route(
+            "/api/admin/alert",
+            get(admin_get_alert)
+                .put(admin_set_alert)
+                .delete(admin_dismiss_alert),
+        )
         // Warning log
-        .route("/api/admin/warnings/log", get(admin_get_warning_log).delete(admin_clear_warning_log))
+        .route(
+            "/api/admin/warnings/log",
+            get(admin_get_warning_log).delete(admin_clear_warning_log),
+        )
         // Test warnings (NINA)
-        .route("/api/admin/nina/test-warning", post(admin_send_test_warning))
+        .route(
+            "/api/admin/nina/test-warning",
+            post(admin_send_test_warning),
+        )
         // Webhooks (admin overview)
         .route("/api/admin/webhooks", get(admin_list_all_webhooks))
         // IORA Control Center: services, tasks, control mode
         .route("/api/admin/control/services", get(admin_control_services))
         .route("/api/admin/control/tasks", get(admin_control_tasks))
-        .route("/api/admin/control/tasks/:task_id/trigger", post(admin_control_trigger_task))
-        .route("/api/admin/control/tasks/:task_id/toggle", post(admin_control_toggle_task))
-        .route("/api/admin/control/mode", get(admin_control_get_mode).put(admin_control_set_mode))
+        .route(
+            "/api/admin/control/tasks/:task_id/trigger",
+            post(admin_control_trigger_task),
+        )
+        .route(
+            "/api/admin/control/tasks/:task_id/toggle",
+            post(admin_control_toggle_task),
+        )
+        .route(
+            "/api/admin/control/mode",
+            get(admin_control_get_mode).put(admin_control_set_mode),
+        )
         .route("/api/admin/control/overview", get(admin_control_overview))
         // Generic passthrough proxy to iora-control:8091 for SSH and OS-level
         // management endpoints (e.g. /api/admin/iora-control/ssh/status,
         // /api/admin/iora-control/os/disks, /api/admin/iora-control/os/reboot).
         // Uses a different prefix than /api/admin/control/ to avoid clashing
         // with the dedicated handlers above.
-        .route("/api/admin/iora-control/*path", get(admin_iora_control_proxy)
-            .post(admin_iora_control_proxy)
-            .put(admin_iora_control_proxy)
-            .delete(admin_iora_control_proxy)
-            .patch(admin_iora_control_proxy))
+        .route(
+            "/api/admin/iora-control/*path",
+            get(admin_iora_control_proxy)
+                .post(admin_iora_control_proxy)
+                .put(admin_iora_control_proxy)
+                .delete(admin_iora_control_proxy)
+                .patch(admin_iora_control_proxy),
+        )
         // IORA Log System & Metrics
         .route("/api/admin/logs", get(admin_get_logs))
         .route("/api/admin/logs/clear", post(admin_clear_logs))
         .route("/api/admin/metrics", get(admin_get_metrics))
         .route("/api/admin/metrics/live", get(admin_metrics_live_sse))
         .route("/api/admin/logs/live", get(admin_logs_live_sse))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_admin))
+        // Central per-source log viewer (services, apps, plugins, docker)
+        .route(
+            "/api/admin/logs/sources",
+            get(logs_handler::list_log_sources),
+        )
+        .route(
+            "/api/admin/logs/source/:source_id",
+            get(logs_handler::get_source_logs),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::require_admin,
+        ))
         .with_state(state.clone());
 
     // Authenticated routes (JWT or API key required)
@@ -1131,65 +1700,176 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/webhooks/:webhook_id", put(update_webhook))
         .route("/api/webhooks/:webhook_id", delete(delete_webhook))
         .route("/api/webhooks/:webhook_id/test", post(test_webhook))
-        .route("/api/webhooks/:webhook_id/deliveries", get(get_webhook_deliveries))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
+        .route(
+            "/api/webhooks/:webhook_id/deliveries",
+            get(get_webhook_deliveries),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::require_authenticated,
+        ))
         .with_state(state.clone());
 
     // ── App Extension sub-routers (each has its own state type, converted to AppState) ──
     let storage_router = Router::<Arc<app_storage_handler::AppStorageState>>::new()
-        .route("/api/apps/:app_id/storage/files", get(app_storage_handler::list_files).post(app_storage_handler::upload_file))
-        .route("/api/apps/:app_id/storage/files/:file_id", get(app_storage_handler::get_file).delete(app_storage_handler::delete_file))
-        .route("/api/apps/:app_id/storage/kv", get(app_storage_handler::list_kv))
-        .route("/api/apps/:app_id/storage/kv/:key", get(app_storage_handler::get_kv).put(app_storage_handler::set_kv).delete(app_storage_handler::delete_kv))
-        .route("/api/apps/:app_id/storage/usage", get(app_storage_handler::get_storage_usage))
+        .route(
+            "/api/apps/:app_id/storage/files",
+            get(app_storage_handler::list_files).post(app_storage_handler::upload_file),
+        )
+        .route(
+            "/api/apps/:app_id/storage/files/:file_id",
+            get(app_storage_handler::get_file).delete(app_storage_handler::delete_file),
+        )
+        .route(
+            "/api/apps/:app_id/storage/kv",
+            get(app_storage_handler::list_kv),
+        )
+        .route(
+            "/api/apps/:app_id/storage/kv/:key",
+            get(app_storage_handler::get_kv)
+                .put(app_storage_handler::set_kv)
+                .delete(app_storage_handler::delete_kv),
+        )
+        .route(
+            "/api/apps/:app_id/storage/usage",
+            get(app_storage_handler::get_storage_usage),
+        )
         .with_state(state.app_storage.clone());
 
     let db_router = Router::<Arc<app_database_handler::AppDatabaseState>>::new()
-        .route("/api/apps/:app_id/database/provision", post(app_database_handler::provision_database))
-        .route("/api/apps/:app_id/database", delete(app_database_handler::drop_database))
-        .route("/api/apps/:app_id/database/status", get(app_database_handler::database_status))
-        .route("/api/apps/:app_id/database/tables", get(app_database_handler::list_tables))
-        .route("/api/apps/:app_id/database/execute", post(app_database_handler::execute_sql))
-        .route("/api/apps/:app_id/database/backup", post(app_database_handler::backup_database))
-        .route("/api/apps/:app_id/database/backups", get(app_database_handler::list_backups))
+        .route(
+            "/api/apps/:app_id/database/provision",
+            post(app_database_handler::provision_database),
+        )
+        .route(
+            "/api/apps/:app_id/database",
+            delete(app_database_handler::drop_database),
+        )
+        .route(
+            "/api/apps/:app_id/database/status",
+            get(app_database_handler::database_status),
+        )
+        .route(
+            "/api/apps/:app_id/database/tables",
+            get(app_database_handler::list_tables),
+        )
+        .route(
+            "/api/apps/:app_id/database/execute",
+            post(app_database_handler::execute_sql),
+        )
+        .route(
+            "/api/apps/:app_id/database/backup",
+            post(app_database_handler::backup_database),
+        )
+        .route(
+            "/api/apps/:app_id/database/backups",
+            get(app_database_handler::list_backups),
+        )
         .with_state(state.app_database.clone());
 
     let scheduler_router = Router::<Arc<app_scheduler_handler::AppSchedulerState>>::new()
-        .route("/api/apps/:app_id/schedules", get(app_scheduler_handler::list_schedules).post(app_scheduler_handler::create_schedule))
-        .route("/api/apps/:app_id/schedules/:task_id", get(app_scheduler_handler::get_schedule).put(app_scheduler_handler::update_schedule).delete(app_scheduler_handler::delete_schedule))
-        .route("/api/apps/:app_id/schedules/:task_id/trigger", post(app_scheduler_handler::trigger_schedule))
-        .route("/api/apps/:app_id/schedules/:task_id/logs", get(app_scheduler_handler::get_task_logs))
+        .route(
+            "/api/apps/:app_id/schedules",
+            get(app_scheduler_handler::list_schedules).post(app_scheduler_handler::create_schedule),
+        )
+        .route(
+            "/api/apps/:app_id/schedules/:task_id",
+            get(app_scheduler_handler::get_schedule)
+                .put(app_scheduler_handler::update_schedule)
+                .delete(app_scheduler_handler::delete_schedule),
+        )
+        .route(
+            "/api/apps/:app_id/schedules/:task_id/trigger",
+            post(app_scheduler_handler::trigger_schedule),
+        )
+        .route(
+            "/api/apps/:app_id/schedules/:task_id/logs",
+            get(app_scheduler_handler::get_task_logs),
+        )
         .with_state(state.app_scheduler.clone());
 
     let webhooks_router = Router::<Arc<app_webhooks_handler::AppWebhooksState>>::new()
-        .route("/api/apps/:app_id/webhooks", get(app_webhooks_handler::list_webhooks).post(app_webhooks_handler::create_webhook))
-        .route("/api/apps/:app_id/webhooks/:hook_id", get(app_webhooks_handler::get_webhook).put(app_webhooks_handler::update_webhook).delete(app_webhooks_handler::delete_webhook))
-        .route("/api/apps/:app_id/webhooks/:hook_id/test", post(app_webhooks_handler::test_webhook))
-        .route("/api/apps/:app_id/webhooks/:hook_id/logs", get(app_webhooks_handler::get_webhook_logs))
-        .route("/api/apps/:app_id/webhooks/:hook_id/stats", get(app_webhooks_handler::get_webhook_stats))
+        .route(
+            "/api/apps/:app_id/webhooks",
+            get(app_webhooks_handler::list_webhooks).post(app_webhooks_handler::create_webhook),
+        )
+        .route(
+            "/api/apps/:app_id/webhooks/:hook_id",
+            get(app_webhooks_handler::get_webhook)
+                .put(app_webhooks_handler::update_webhook)
+                .delete(app_webhooks_handler::delete_webhook),
+        )
+        .route(
+            "/api/apps/:app_id/webhooks/:hook_id/test",
+            post(app_webhooks_handler::test_webhook),
+        )
+        .route(
+            "/api/apps/:app_id/webhooks/:hook_id/logs",
+            get(app_webhooks_handler::get_webhook_logs),
+        )
+        .route(
+            "/api/apps/:app_id/webhooks/:hook_id/stats",
+            get(app_webhooks_handler::get_webhook_stats),
+        )
         .with_state(state.app_webhooks.clone());
 
     let messaging_router = Router::<Arc<app_messaging_handler::AppMessagingState>>::new()
-        .route("/api/apps/messaging/channels", get(app_messaging_handler::list_channels).post(app_messaging_handler::register_channel))
+        .route(
+            "/api/apps/messaging/channels",
+            get(app_messaging_handler::list_channels).post(app_messaging_handler::register_channel),
+        )
         // Per-app messaging channels alias (same global list, but the frontend
         // AppSettingsPage calls it with app_id).
-        .route("/api/apps/:app_id/messaging/channels", get(app_messaging_handler::list_channels))
-        .route("/api/apps/messaging/publish", post(app_messaging_handler::publish_message))
-        .route("/api/apps/messaging/events", get(app_messaging_handler::message_stream))
-        .route("/api/apps/:app_id/messaging/subscribe", post(app_messaging_handler::subscribe))
-        .route("/api/apps/:app_id/messaging/subscriptions", get(app_messaging_handler::list_subscriptions))
-        .route("/api/apps/:app_id/messaging/subscriptions/:sub_id", delete(app_messaging_handler::unsubscribe))
-        .route("/api/apps/:app_id/messaging/direct", post(app_messaging_handler::send_direct_message))
-        .route("/api/apps/:app_id/messaging/inbox", get(app_messaging_handler::get_inbox))
-        .route("/api/apps/:app_id/messaging/inbox/:msg_id/read", post(app_messaging_handler::mark_message_read))
+        .route(
+            "/api/apps/:app_id/messaging/channels",
+            get(app_messaging_handler::list_channels),
+        )
+        .route(
+            "/api/apps/messaging/publish",
+            post(app_messaging_handler::publish_message),
+        )
+        .route(
+            "/api/apps/messaging/events",
+            get(app_messaging_handler::message_stream),
+        )
+        .route(
+            "/api/apps/:app_id/messaging/subscribe",
+            post(app_messaging_handler::subscribe),
+        )
+        .route(
+            "/api/apps/:app_id/messaging/subscriptions",
+            get(app_messaging_handler::list_subscriptions),
+        )
+        .route(
+            "/api/apps/:app_id/messaging/subscriptions/:sub_id",
+            delete(app_messaging_handler::unsubscribe),
+        )
+        .route(
+            "/api/apps/:app_id/messaging/direct",
+            post(app_messaging_handler::send_direct_message),
+        )
+        .route(
+            "/api/apps/:app_id/messaging/inbox",
+            get(app_messaging_handler::get_inbox),
+        )
+        .route(
+            "/api/apps/:app_id/messaging/inbox/:msg_id/read",
+            post(app_messaging_handler::mark_message_read),
+        )
         .with_state(state.app_messaging.clone());
 
     // Protected data routes (JWT or API key required)
     let data_routes = Router::<AppState>::new()
         // Documentation endpoints
-        .route("/api/documentation/config", get(documentation::get_docs_config))
+        .route(
+            "/api/documentation/config",
+            get(documentation::get_docs_config),
+        )
         .route("/api/documentation/list", get(documentation::list_docs))
-        .route("/api/documentation/*doc_path", get(documentation::get_doc_file))
+        .route(
+            "/api/documentation/*doc_path",
+            get(documentation::get_doc_file),
+        )
         // Merge app extension sub-routers (each was converted to Router<AppState>)
         .merge(storage_router)
         .merge(db_router)
@@ -1198,58 +1878,148 @@ async fn main() -> anyhow::Result<()> {
         .merge(messaging_router)
         // Theme API
         .route("/api/themes", get(theme_handler::list_themes))
-        .route("/api/themes/default", get(theme_handler::get_default_theme).put(theme_handler::set_default_theme))
+        .route(
+            "/api/themes/default",
+            get(theme_handler::get_default_theme).put(theme_handler::set_default_theme),
+        )
         .route("/api/themes/install", post(handle_theme_zip_install))
-        .route("/api/themes/install-from-manifest", post(theme_handler::handle_install_theme_inline))
-        .route("/api/themes/validate-manifest", post(handle_validate_manifest))
-        .route("/api/themes/:theme_id", delete(theme_handler::uninstall_theme))
-        .route("/api/themes/user/:profile_id/settings/:theme_id", get(theme_handler::get_user_theme_settings).put(theme_handler::update_user_theme_settings))
-        .route("/api/themes/user/:profile_id", get(theme_handler::get_user_theme).post(theme_handler::set_user_theme))
-        .route("/api/themes/css/:profile_id", get(theme_handler::get_theme_css))
-        .route("/api/themes/assets/:theme_id/*path", get(theme_handler::serve_theme_asset))
+        .route(
+            "/api/themes/install-from-manifest",
+            post(theme_handler::handle_install_theme_inline),
+        )
+        .route(
+            "/api/themes/validate-manifest",
+            post(handle_validate_manifest),
+        )
+        .route(
+            "/api/themes/:theme_id",
+            delete(theme_handler::uninstall_theme),
+        )
+        .route(
+            "/api/themes/user/:profile_id/settings/:theme_id",
+            get(theme_handler::get_user_theme_settings)
+                .put(theme_handler::update_user_theme_settings),
+        )
+        .route(
+            "/api/themes/user/:profile_id",
+            get(theme_handler::get_user_theme).post(theme_handler::set_user_theme),
+        )
+        .route(
+            "/api/themes/css/:profile_id",
+            get(theme_handler::get_theme_css),
+        )
+        .route(
+            "/api/themes/assets/:theme_id/*path",
+            get(theme_handler::serve_theme_asset),
+        )
+        .route(
+            "/api/themes/assets/:theme_id",
+            get(theme_handler::export_theme_bundle),
+        )
         // Home Assistant API proxy
         .route("/api/states", get(get_states))
         .route("/api/states/:entity_id", get(get_state))
         .route("/api/history/period/:start_time", get(get_history))
         .route("/api/local-history/:entity_id", get(get_local_history))
         // Weather forecast cache
-        .route("/api/weather/forecast/:entity_id/:forecast_type", get(get_cached_forecast))
-        .route("/api/weather/forecast/:entity_id/:forecast_type", post(save_cached_forecast))
+        .route(
+            "/api/weather/forecast/:entity_id/:forecast_type",
+            get(get_cached_forecast),
+        )
+        .route(
+            "/api/weather/forecast/:entity_id/:forecast_type",
+            post(save_cached_forecast),
+        )
         // Entity domain lookup & statistics
         .route("/api/entities/domain/:domain", get(get_entities_by_domain))
         .route("/api/entities/search", get(search_entities))
         .route("/api/entities/count", get(get_entity_counts))
-        .route("/api/stats/entity-history/:entity_id", get(get_entity_statistics))
+        .route(
+            "/api/stats/entity-history/:entity_id",
+            get(get_entity_statistics),
+        )
         .route("/api/stats/dashboard", get(get_dashboard_statistics))
         // System monitoring
         .route("/api/system/stats", get(get_system_stats))
         .route("/api/system/ha-info", get(get_ha_info))
         // Configuration API
         .route("/api/config/users/by-id/:user_id", put(update_user))
-        .route("/api/config/devices/:device_id/heartbeat", post(device_heartbeat))
+        .route(
+            "/api/config/devices/:device_id/heartbeat",
+            post(device_heartbeat),
+        )
         .route("/api/config/profiles", post(create_profile))
         .route("/api/config/profiles/:profile_id", get(get_profile_data))
+        .route(
+            "/api/config/users/:user_id/profiles",
+            get(list_user_profiles),
+        )
         .route("/api/config/profiles/:profile_id/pages", post(save_pages))
-        .route("/api/config/profiles/:profile_id/theme", post(save_theme_settings))
-        .route("/api/config/profiles/:profile_id/background", post(save_background_config))
-        .route("/api/config/profiles/:profile_id/layouts", get(get_page_layouts))
-        .route("/api/config/profiles/:profile_id/layouts", post(save_page_layout))
-        .route("/api/config/profiles/:profile_id/page-settings", get(get_all_page_settings))
-        .route("/api/config/profiles/:profile_id/page-settings", post(save_page_settings_handler))
-        .route("/api/config/profiles/:profile_id/page-settings/:page_id", get(get_page_settings_handler))
-        .route("/api/config/profiles/:profile_id/page-settings/:page_id", delete(delete_page_settings_handler))
-        .route("/api/config/devices/:device_id/terminal", post(set_device_terminal_mode))
-        .route("/api/config/preferences/:user_id", post(save_user_preference))
-        .route("/api/config/preferences/:user_id", get(get_user_preferences))
-        .route("/api/config/system/preferences", post(save_system_preference))
-        .route("/api/config/system/preferences", get(get_system_preferences))
+        .route(
+            "/api/config/profiles/:profile_id/theme",
+            post(save_theme_settings),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/background",
+            post(save_background_config),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/layouts",
+            get(get_page_layouts),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/layouts",
+            post(save_page_layout),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/page-settings",
+            get(get_all_page_settings),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/page-settings",
+            post(save_page_settings_handler),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/page-settings/:page_id",
+            get(get_page_settings_handler),
+        )
+        .route(
+            "/api/config/profiles/:profile_id/page-settings/:page_id",
+            delete(delete_page_settings_handler),
+        )
+        .route(
+            "/api/config/devices/:device_id/terminal",
+            post(set_device_terminal_mode),
+        )
+        .route(
+            "/api/config/preferences/:user_id",
+            post(save_user_preference),
+        )
+        .route(
+            "/api/config/preferences/:user_id",
+            get(get_user_preferences),
+        )
+        .route(
+            "/api/config/system/preferences",
+            post(save_system_preference),
+        )
+        .route(
+            "/api/config/system/preferences",
+            get(get_system_preferences),
+        )
         // Generic settings API (schema-driven – see iora_shared::settings).
         // The wizard uses /api/admin/settings/schema/wizard, the Control Center
         // uses /api/admin/settings (full schema + values).
         .route("/api/admin/settings/schema", get(admin_settings_schema))
-        .route("/api/admin/settings/schema/wizard", get(admin_settings_schema_wizard))
+        .route(
+            "/api/admin/settings/schema/wizard",
+            get(admin_settings_schema_wizard),
+        )
         .route("/api/admin/settings", get(admin_settings_list))
-        .route("/api/admin/settings/:key", get(admin_settings_get).put(admin_settings_put))
+        .route(
+            "/api/admin/settings/:key",
+            get(admin_settings_get).put(admin_settings_put),
+        )
         // Graceful stubs for endpoints that are normally served by other
         // IORA microservices (iora-supervisor, iora-core). When those
         // services aren't deployed (e.g. on a fresh install or in a
@@ -1257,23 +2027,70 @@ async fn main() -> anyhow::Result<()> {
         // an empty state instead of 404'ing into the SPA fallback (which
         // would surface as "Unexpected token '<', \"<!DOCTYPE\"...").
         .route("/api/supervisor/system/info", get(proxy_supervisor))
-        .route("/api/intelligence/overview", get(proxy_intelligence_overview))
-        .route("/api/intelligence/maintenance/run/:task", get(proxy_intelligence_maintenance_run))
+        .route(
+            "/api/intelligence/overview",
+            get(proxy_intelligence_overview),
+        )
+        .route(
+            "/api/intelligence/maintenance/run/:task",
+            get(proxy_intelligence_maintenance_run),
+        )
         .route("/api/supervisor/apps", get(supervisor_apps_list))
-        .route("/api/supervisor/apps/install", post(supervisor_apps_install))
-        .route("/api/supervisor/apps/:app_id", get(supervisor_apps_get).delete(supervisor_apps_uninstall))
-        .route("/api/supervisor/apps/:app_id/start", post(supervisor_apps_start))
-        .route("/api/supervisor/apps/:app_id/stop", post(supervisor_apps_stop))
-        .route("/api/supervisor/apps/:app_id/restart", post(supervisor_apps_restart))
+        .route(
+            "/api/supervisor/apps/install",
+            post(supervisor_apps_install),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id",
+            get(supervisor_apps_get).delete(supervisor_apps_uninstall),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/start",
+            post(supervisor_apps_start),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/stop",
+            post(supervisor_apps_stop),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/pause",
+            post(supervisor_apps_pause),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/resume",
+            post(supervisor_apps_resume),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/restart",
+            post(supervisor_apps_restart),
+        )
         // App Bundle management (v2.3 multi-container)
-        .route("/api/supervisor/apps/:app_id/compose", get(supervisor_apps_compose))
-        .route("/api/supervisor/apps/:app_id/bundle/start", post(supervisor_bundle_start))
-        .route("/api/supervisor/apps/:app_id/bundle/stop", post(supervisor_bundle_stop))
-        .route("/api/supervisor/apps/:app_id/bundle/restart", post(supervisor_bundle_restart))
-        .route("/api/supervisor/apps/:app_id/bundle/status", get(supervisor_bundle_status))
+        .route(
+            "/api/supervisor/apps/:app_id/compose",
+            get(supervisor_apps_compose),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/bundle/start",
+            post(supervisor_bundle_start),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/bundle/stop",
+            post(supervisor_bundle_stop),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/bundle/restart",
+            post(supervisor_bundle_restart),
+        )
+        .route(
+            "/api/supervisor/apps/:app_id/bundle/status",
+            get(supervisor_bundle_status),
+        )
         .route("/api/core/plugins/with-stats", get(core_plugins_list))
         .route("/api/core/plugins", get(core_plugins_list))
-        .route("/api/core/plugins/:id", get(core_plugins_get).delete(core_plugins_uninstall))
+        .route(
+            "/api/core/plugins/:id",
+            get(core_plugins_get).delete(core_plugins_uninstall),
+        )
         .route("/api/core/plugins/:id/enable", post(core_plugins_enable))
         .route("/api/core/plugins/:id/disable", post(core_plugins_disable))
         .route("/api/core/plugins/:id/execute", post(core_plugins_execute))
@@ -1290,18 +2107,92 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/appstore/search", get(proxy_appstore))
         .route("/api/appstore/install", post(local_appstore_install))
         .route("/api/appstore/jobs", get(local_appstore_jobs))
-        .route("/api/appstore/jobs/:job_id", delete(local_appstore_clear_job))
+        .route(
+            "/api/appstore/jobs/:job_id",
+            delete(local_appstore_clear_job),
+        )
         .route("/api/appstore/jobs/stream", get(local_appstore_jobs_stream))
-        .route("/api/appstore/apps/:app_id", get(local_appstore_app_get).delete(local_appstore_app_delete))
-        .route("/api/appstore/apps/:app_id/enable", post(local_appstore_app_enable))
-        .route("/api/appstore/apps/:app_id/disable", post(local_appstore_app_disable))
-        .route("/api/appstore/apps/:app_id/settings", get(proxy_appstore).post(proxy_appstore))
+        .route(
+            "/api/appstore/apps/:app_id",
+            get(local_appstore_app_get).delete(local_appstore_app_delete),
+        )
+        .route(
+            "/api/appstore/apps/:app_id/enable",
+            post(local_appstore_app_enable),
+        )
+        .route(
+            "/api/appstore/apps/:app_id/disable",
+            post(local_appstore_app_disable),
+        )
+        .route(
+            "/api/appstore/apps/:app_id/settings",
+            get(proxy_appstore).post(proxy_appstore),
+        )
         .route("/api/appstore/permissions/grant", post(proxy_appstore))
         .route("/api/appstore/settings", post(proxy_appstore))
         // Local-store registration — lets the frontend register system apps
         // (like the Developer App) on demand when developer mode is toggled.
         .route("/api/local-store/register", post(local_store_register))
         // App custom pages — returns all custom_pages from installed and running apps.
+        .route(
+            "/api/apps/integrations",
+            get(app_runtime_handler::app_integrations),
+        )
+        .route(
+            "/api/apps/:app_id/capabilities",
+            get(app_runtime_handler::app_capabilities),
+        )
+        .route(
+            "/api/apps/:app_id/jobs",
+            get(app_runtime_handler::list_jobs).post(app_runtime_handler::run_job),
+        )
+        .route(
+            "/api/apps/:app_id/jobs/:job_id",
+            get(app_runtime_handler::get_job),
+        )
+        .route(
+            "/api/apps/:app_id/jobs/:job_id/cancel",
+            post(app_runtime_handler::cancel_job),
+        )
+        .route(
+            "/api/apps/:app_id/http",
+            post(app_runtime_handler::app_http_request),
+        )
+        .route(
+            "/api/apps/:app_id/audit",
+            get(app_runtime_handler::list_audit),
+        )
+        .route(
+            "/api/apps/:app_id/network/probe",
+            post(app_runtime_handler::network_probe),
+        )
+        .route(
+            "/api/apps/:app_id/secrets",
+            get(app_runtime_handler::list_secrets).post(app_runtime_handler::create_secret),
+        )
+        .route(
+            "/api/apps/:app_id/secrets/:secret_id",
+            put(app_runtime_handler::update_secret).delete(app_runtime_handler::delete_secret),
+        )
+        .route(
+            "/api/apps/:app_id/secrets/:secret_id/reveal",
+            post(app_runtime_handler::reveal_secret),
+        )
+        .route(
+            "/api/apps/assist/integrations",
+            get(app_assist_integrations),
+        )
+        .route("/api/apps/:app_id/assist/context", get(app_assist_context))
+        .route("/api/apps/:app_id/assist/events", get(app_assist_events))
+        .route(
+            "/api/apps/:app_id/assist/tasks",
+            post(app_assist_create_task),
+        )
+        .route("/api/apps/:app_id/assist/chat", post(app_assist_chat))
+        .route(
+            "/api/apps/:app_id/assist/github/*path",
+            any(app_assist_github_proxy),
+        )
         .route("/api/apps/pages", get(app_pages_list))
         // Live App-Status (Docker-realer Container-State) als SSE-Stream.
         .route("/api/apps/status/stream", get(apps_status_stream))
@@ -1310,29 +2201,84 @@ async fn main() -> anyhow::Result<()> {
         // App logs — per-app log retrieval and live streaming.
         .route("/api/apps/:app_id/logs", get(app_logs_get))
         .route("/api/apps/:app_id/logs/stream", get(app_logs_stream))
+        .route("/api/apps/:app_id/permissions", put(app_permissions_update))
+        .route("/api/apps/:app_id/terminal/exec", post(app_terminal_exec))
+        .route(
+            "/api/apps/:app_id/terminal/sessions",
+            post(app_terminal_session_start),
+        )
+        .route(
+            "/api/apps/:app_id/terminal/sessions/:session_id/input",
+            post(app_terminal_session_input),
+        )
+        .route(
+            "/api/apps/:app_id/terminal/sessions/:session_id/stream",
+            get(app_terminal_session_stream),
+        )
+        .route(
+            "/api/apps/:app_id/terminal/sessions/:session_id",
+            delete(app_terminal_session_close),
+        )
         .route("/api/apps/:app_id/icon", get(app_icon_get))
         // App detail with full info.
         .route("/api/apps/:app_id/detail", get(app_detail_get))
         // App configuration (per-app settings using settings_schema from manifest)
         .route("/api/apps/:app_id/config/schema", get(app_config_schema))
-        .route("/api/apps/:app_id/config", get(app_config_get).put(app_config_put))
-        .route("/api/apps/:app_id/config/:key", delete(app_config_delete_key))
+        .route(
+            "/api/apps/:app_id/config",
+            get(app_config_get).put(app_config_put),
+        )
+        .route(
+            "/api/apps/:app_id/config/:key",
+            delete(app_config_delete_key),
+        )
         // Restart a known iora-* service from the Control Center.
-        .route("/api/admin/control/services/:name/restart", post(admin_control_restart_service))
+        .route(
+            "/api/admin/control/services/:name/restart",
+            post(admin_control_restart_service),
+        )
         // OS-dev-image marker / developer-mode lock info.
         .route("/api/admin/dev-image", get(admin_dev_image_info))
         .route("/api/core/registrations", get(core_registrations_list))
-        .route("/api/core/registrations/:id/approve", post(core_registrations_approve))
-        .route("/api/core/registrations/:id/reject", post(core_registrations_reject))
-        .route("/api/core/registrations/:id/suspend", post(core_registrations_suspend))
-        .route("/api/core/registrations/:id/revoke", post(core_registrations_revoke))
+        .route(
+            "/api/core/registrations/:id/approve",
+            post(core_registrations_approve),
+        )
+        .route(
+            "/api/core/registrations/:id/reject",
+            post(core_registrations_reject),
+        )
+        .route(
+            "/api/core/registrations/:id/suspend",
+            post(core_registrations_suspend),
+        )
+        .route(
+            "/api/core/registrations/:id/revoke",
+            post(core_registrations_revoke),
+        )
         .route("/api/core/security/events", get(proxy_core_security))
         .route("/api/core/security/alerts", get(proxy_core_security))
-        .route("/api/core/security/resource-usage", get(proxy_core_security))
-        .route("/api/core/updates/check", get(core_updates_check).post(core_updates_check))
+        .route(
+            "/api/core/security/alerts/:id/acknowledge",
+            post(proxy_core_security),
+        )
+        .route(
+            "/api/core/security/resource-usage",
+            get(proxy_core_security),
+        )
+        .route(
+            "/api/core/updates/check",
+            get(core_updates_check).post(core_updates_check),
+        )
         .route("/api/core/updates/history", get(core_updates_history))
-        .route("/api/core/updates/:provider_id/install", post(core_updates_install))
-        .route("/api/core/updates/:update_id/rollback", post(core_updates_rollback))
+        .route(
+            "/api/core/updates/:provider_id/install",
+            post(core_updates_install),
+        )
+        .route(
+            "/api/core/updates/:update_id/rollback",
+            post(core_updates_rollback),
+        )
         .route("/api/core/widgets", get(proxy_core))
         // ── Proxies to external IORA microservices ────────────────────────
         // Generic transparent forwarders. If the target microservice is not
@@ -1340,7 +2286,10 @@ async fn main() -> anyhow::Result<()> {
         // doesn't choke on a 404 SPA fallback).
         // iora-secrets (Port 8093)
         .route("/api/secrets", get(proxy_secrets).post(proxy_secrets))
-        .route("/api/secrets/:id", get(proxy_secrets).put(proxy_secrets).delete(proxy_secrets))
+        .route(
+            "/api/secrets/:id",
+            get(proxy_secrets).put(proxy_secrets).delete(proxy_secrets),
+        )
         .route("/api/secrets/:id/rotate", post(proxy_secrets))
         .route("/api/secrets/:id/audit", get(proxy_secrets))
         // iora-files (Port 8100)
@@ -1378,14 +2327,26 @@ async fn main() -> anyhow::Result<()> {
         // iora-connector (Port 8102)
         .route("/api/connector/tunnels", get(proxy_connector))
         .route("/api/connector/services", get(proxy_connector))
-        .route("/api/connector/pairing-tokens", get(proxy_connector).post(proxy_connector))
+        .route(
+            "/api/connector/pairing-tokens",
+            get(proxy_connector).post(proxy_connector),
+        )
         .route("/api/connector/blocked-ips", get(proxy_connector))
         .route("/api/connector/tunnels/:id", delete(proxy_connector))
         .route("/api/connector/pairing-tokens/:id", delete(proxy_connector))
         // iora-domain-validator (Port 8104; falls back to env override)
-        .route("/api/domain-validator/policy/:app_id", get(proxy_domain_validator))
-        .route("/api/domain-validator/logs/:app_id", get(proxy_domain_validator))
-        .route("/api/domain-validator/validate", post(proxy_domain_validator))
+        .route(
+            "/api/domain-validator/policy/:app_id",
+            get(proxy_domain_validator),
+        )
+        .route(
+            "/api/domain-validator/logs/:app_id",
+            get(proxy_domain_validator),
+        )
+        .route(
+            "/api/domain-validator/validate",
+            post(proxy_domain_validator),
+        )
         // iora-resource-manager (Port 8105)
         .route("/api/resources/containers", get(proxy_resources))
         .route("/api/resources/system", get(proxy_resources))
@@ -1401,20 +2362,35 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/interfaces", get(proxy_network_monitor))
         .route("/api/mqtt/topics", get(proxy_network_monitor))
         // iora-cloud (Port 8120, optional external)
-        .route("/api/admin/iora-cloud/config", get(proxy_iora_cloud).post(proxy_iora_cloud))
+        .route(
+            "/api/admin/iora-cloud/config",
+            get(proxy_iora_cloud).post(proxy_iora_cloud),
+        )
         .route("/api/config/sync/changes", get(get_sync_changes))
         // Notifications (read access for all authenticated users)
         .route("/api/notifications", get(get_notifications))
         .route("/api/notifications/send", post(notification_send))
-        .route("/api/notifications/:notif_id/read", put(mark_notification_read))
+        .route(
+            "/api/notifications/:notif_id/read",
+            put(mark_notification_read),
+        )
         .route("/api/notifications/:notif_id", delete(dismiss_notification))
         // Notification channels management
-        .route("/api/notifications/channels", get(notification_channels_list).post(notification_channel_create))
-        .route("/api/notifications/channels/:channel_id", put(notification_channel_update).delete(notification_channel_delete))
+        .route(
+            "/api/notifications/channels",
+            get(notification_channels_list).post(notification_channel_create),
+        )
+        .route(
+            "/api/notifications/channels/:channel_id",
+            put(notification_channel_update).delete(notification_channel_delete),
+        )
         .route("/api/alert/active", get(get_active_alert))
         .route("/api/warnings/active", get(get_active_warnings))
         // NINA warning endpoints
-        .route("/api/nina/settings", get(get_nina_settings).post(save_nina_settings))
+        .route(
+            "/api/nina/settings",
+            get(get_nina_settings).post(save_nina_settings),
+        )
         .route("/api/nina/warnings", get(get_nina_warnings))
         .route("/api/nina/regions", get(get_nina_regions))
         // Calendar endpoints
@@ -1430,33 +2406,68 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/buttons/:entity_id/press", post(press_button))
         .route("/api/switches/:entity_id", post(control_switch))
         // Location history (our own DB, not HA proxy)
-        .route("/api/location-history/:entity_id", get(get_location_history))
-        .route("/api/location-history/sync/status", get(get_location_sync_status))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_authenticated))
+        .route(
+            "/api/location-history/:entity_id",
+            get(get_location_history),
+        )
+        .route(
+            "/api/location-history/sync/status",
+            get(get_location_sync_status),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::require_authenticated,
+        ))
         .with_state(state.clone());
 
     let app = Router::new()
         // Swagger UI
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
         // Redirect /docs to /api/docs for convenience
-        .route("/docs", get(|| async {
-            axum::response::Redirect::temporary("/api/docs")
-        }))
+        .route(
+            "/docs",
+            get(|| async { axum::response::Redirect::temporary("/api/docs") }),
+        )
         // Health check (public)
         .route("/health", get(health_check))
         // Version endpoint (public, never cached – desktop client uses this to detect updates)
         .route("/api/version", get(get_version))
         // Maintenance status (public – frontend needs this before auth)
         .route("/api/maintenance/status", get(public_maintenance_status))
-        .route("/api/desktop/extensions", get(desktop_gateway::get_desktop_extensions))
-        .route("/api/desktop/settings", get(desktop_gateway::get_desktop_settings).post(desktop_gateway::update_desktop_settings))
-        .route("/api/desktop/register", post(desktop_gateway::register_desktop))
-        .route("/api/desktop/metrics", post(desktop_gateway::receive_metrics))
+        .route(
+            "/api/desktop/extensions",
+            get(desktop_gateway::get_desktop_extensions),
+        )
+        .route(
+            "/api/desktop/settings",
+            get(desktop_gateway::get_desktop_settings)
+                .post(desktop_gateway::update_desktop_settings),
+        )
+        .route(
+            "/api/desktop/register",
+            post(desktop_gateway::register_desktop),
+        )
+        .route(
+            "/api/desktop/metrics",
+            post(desktop_gateway::receive_metrics),
+        )
         .route("/api/desktop/entities", get(desktop_gateway::get_entities))
-        .route("/api/desktop/service/call", post(desktop_gateway::call_service))
-        .route("/api/desktop/command/execute", post(desktop_gateway::queue_command))
-        .route("/api/desktop/commands", get(desktop_gateway::get_pending_commands))
-        .route("/api/desktop/commands/:id/ack", post(desktop_gateway::ack_command))
+        .route(
+            "/api/desktop/service/call",
+            post(desktop_gateway::call_service),
+        )
+        .route(
+            "/api/desktop/command/execute",
+            post(desktop_gateway::queue_command),
+        )
+        .route(
+            "/api/desktop/commands",
+            get(desktop_gateway::get_pending_commands),
+        )
+        .route(
+            "/api/desktop/commands/:id/ack",
+            post(desktop_gateway::ack_command),
+        )
         // Authentication API (public)
         .route("/api/auth/register", post(auth_register))
         .route("/api/auth/login", post(auth_login))
@@ -1475,37 +2486,97 @@ async fn main() -> anyhow::Result<()> {
         // Public: lets the frontend decide whether to show the Overview
         // page or a "IORA Home not configured" placeholder. No auth needed
         // because the result reveals only a boolean, not the URL/token.
-        .route("/api/integration/ha/configured", get(integration_ha_configured))
-        .route("/api/integration/ha/test", post(integration_ha_test_connection))
-        .route("/api/integration/ha/reconnect", post(integration_ha_reconnect))
+        .route(
+            "/api/integration/ha/configured",
+            get(integration_ha_configured),
+        )
+        .route(
+            "/api/integration/ha/test",
+            post(integration_ha_test_connection),
+        )
+        .route(
+            "/api/integration/ha/reconnect",
+            post(integration_ha_reconnect),
+        )
         .route("/api/integration/command", post(integration_command))
         .route("/api/integration/settings", get(integration_get_settings))
         .route("/api/integration/settings", post(integration_set_settings))
-        .route("/api/integration/analytics/top", get(integration_analytics_top))
-        .route("/api/integration/analytics/entity/:entity_id", get(integration_analytics_entity))
+        .route(
+            "/api/integration/analytics/top",
+            get(integration_analytics_top),
+        )
+        .route(
+            "/api/integration/analytics/entity/:entity_id",
+            get(integration_analytics_entity),
+        )
         .route("/api/integration/health", get(integration_health_report))
-        .route("/api/integration/composite", get(integration_composite_sensors))
-        .route("/api/integration/composite", post(integration_register_composite))
+        .route(
+            "/api/integration/composite",
+            get(integration_composite_sensors),
+        )
+        .route(
+            "/api/integration/composite",
+            post(integration_register_composite),
+        )
         // Smart Scenes
         .route("/api/integration/scenes", get(integration_list_scenes))
         .route("/api/integration/scenes", post(integration_create_scene))
-        .route("/api/integration/scenes/:scene_id", delete(integration_delete_scene))
-        .route("/api/integration/scenes/:scene_id/execute", post(integration_execute_scene))
+        .route(
+            "/api/integration/scenes/:scene_id",
+            delete(integration_delete_scene),
+        )
+        .route(
+            "/api/integration/scenes/:scene_id/execute",
+            post(integration_execute_scene),
+        )
         // Entity Scheduler
-        .route("/api/integration/schedules", get(integration_list_schedules))
-        .route("/api/integration/schedules", post(integration_create_schedule))
-        .route("/api/integration/schedules/:schedule_id", delete(integration_cancel_schedule))
+        .route(
+            "/api/integration/schedules",
+            get(integration_list_schedules),
+        )
+        .route(
+            "/api/integration/schedules",
+            post(integration_create_schedule),
+        )
+        .route(
+            "/api/integration/schedules/:schedule_id",
+            delete(integration_cancel_schedule),
+        )
         // Entity Watchdog
-        .route("/api/integration/watchdogs", get(integration_list_watchdogs))
-        .route("/api/integration/watchdogs", post(integration_create_watchdog))
-        .route("/api/integration/watchdogs/:watchdog_id", delete(integration_delete_watchdog))
-        .route("/api/integration/watchdogs/check", post(integration_check_watchdogs))
+        .route(
+            "/api/integration/watchdogs",
+            get(integration_list_watchdogs),
+        )
+        .route(
+            "/api/integration/watchdogs",
+            post(integration_create_watchdog),
+        )
+        .route(
+            "/api/integration/watchdogs/:watchdog_id",
+            delete(integration_delete_watchdog),
+        )
+        .route(
+            "/api/integration/watchdogs/check",
+            post(integration_check_watchdogs),
+        )
         // Analytics snapshots
-        .route("/api/integration/analytics/history", get(integration_analytics_history))
+        .route(
+            "/api/integration/analytics/history",
+            get(integration_analytics_history),
+        )
         // Enhanced Device Control
-        .route("/api/integration/device/delayed-action", post(integration_delayed_action))
-        .route("/api/integration/device/conditional-action", post(integration_conditional_action))
-        .route("/api/integration/device/group-action", post(integration_group_action))
+        .route(
+            "/api/integration/device/delayed-action",
+            post(integration_delayed_action),
+        )
+        .route(
+            "/api/integration/device/conditional-action",
+            post(integration_conditional_action),
+        )
+        .route(
+            "/api/integration/device/group-action",
+            post(integration_group_action),
+        )
         // WebSocket endpoint
         .route("/ws", get(websocket_handler))
         // Realtime namespace WebSocket (Socket.IO-style)
@@ -1517,7 +2588,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/streams/:stream_id", put(update_stream))
         .route("/api/streams/:stream_id", delete(stop_stream))
         .route("/api/streams/:stream_id/snapshot", get(get_stream_snapshot))
-        .route("/api/streams/:stream_id/snapshot", post(post_stream_snapshot))
+        .route(
+            "/api/streams/:stream_id/snapshot",
+            post(post_stream_snapshot),
+        )
         .route("/api/streams/sender", get(stream_sender_page))
         .route("/ws/stream/ingest", get(stream_ingest_handler))
         .route("/ws/stream/watch", get(stream_watch_handler))
@@ -1532,7 +2606,10 @@ async fn main() -> anyhow::Result<()> {
         // Internal: service-to-service system-notification ingest (e.g. iora-watchdog
         // escalating a failed auto-recovery). Auth via shared `IORA_INTERNAL_TOKEN`
         // header `X-Iora-Internal-Token`. Not exposed in OpenAPI.
-        .route("/api/internal/system-notifications", post(internal_create_system_notification))
+        .route(
+            "/api/internal/system-notifications",
+            post(internal_create_system_notification),
+        )
         .nest_service("/uploads", get_service(ServeDir::new("./data/uploads")))
         // Merge protected data routes
         .merge(data_routes)
@@ -1544,12 +2621,14 @@ async fn main() -> anyhow::Result<()> {
         .merge(auth_routes)
         // Serve frontend static assets (JS, CSS, etc.) — immutable because filenames are hashed.
         // Path resolved at startup from IORA_HOME_DIST / ../dist / ./dist / /opt/iora/iora-home/dist.
-        .nest_service("/assets",
+        .nest_service(
+            "/assets",
             ServeDir::new(
                 resolve_dist_dir()
                     .map(|p| p.join("assets"))
-                    .unwrap_or_else(|| std::path::PathBuf::from("../dist/assets"))
-            ).precompressed_gzip()
+                    .unwrap_or_else(|| std::path::PathBuf::from("../dist/assets")),
+            )
+            .precompressed_gzip(),
         )
         // SPA fallback – any unmatched route gets index.html for client-side routing
         .fallback(spa_fallback)
@@ -1563,10 +2642,12 @@ async fn main() -> anyhow::Result<()> {
         // Response compression (gzip, deflate, br)
         .layer(CompressionLayer::new())
         // HTTP request counter middleware
-        .layer(axum::middleware::from_fn(|req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| async move {
-            METRICS.http_requests_total.fetch_add(1, Ordering::Relaxed);
-            next.run(req).await
-        }))
+        .layer(axum::middleware::from_fn(
+            |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| async move {
+                METRICS.http_requests_total.fetch_add(1, Ordering::Relaxed);
+                next.run(req).await
+            },
+        ))
         // Tracing layer
         .layer(TraceLayer::new_for_http())
         // Add state
@@ -1633,7 +2714,10 @@ async fn main() -> anyhow::Result<()> {
 /// and must invalidate its local file cache.
 async fn get_version() -> impl IntoResponse {
     let mut headers = HeaderMap::new();
-    headers.insert(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate".parse().unwrap());
+    headers.insert(
+        header::CACHE_CONTROL,
+        "no-store, no-cache, must-revalidate".parse().unwrap(),
+    );
     headers.insert(header::PRAGMA, "no-cache".parse().unwrap());
     headers.insert(header::EXPIRES, "0".parse().unwrap());
 
@@ -1656,8 +2740,8 @@ async fn get_version() -> impl IntoResponse {
 /// Uses file modification times and sizes — no file content reading required.
 /// The dist directory defaults to `../dist` but can be overridden via the `DIST_DIR` env var.
 fn compute_dist_hash() -> String {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
     let mut hasher = DefaultHasher::new();
     env!("CARGO_PKG_VERSION").hash(&mut hasher);
@@ -1692,7 +2776,6 @@ async fn detect_setup_wizard() -> (Option<String>, bool) {
     }
 
     const CHECK_PORTS: &[u16] = &[8080, 80];
-    let conn_timeout = Duration::from_secs(2);
 
     // Helper: try connecting to addr:port.
     async fn try_connect(host: &str, port: u16) -> bool {
@@ -1782,9 +2865,11 @@ async fn get_lan_ip() -> Option<String> {
                         // Look ahead for the device name in following lines
                         for j in (i.saturating_sub(5))..(i + 5).min(lines.len()) {
                             let l = lines[j].trim();
-                            if l.starts_with("DEV") &&
-                                (l.contains("docker") || l.contains("br-") ||
-                                 l.contains("veth") || l.contains("vnet"))
+                            if l.starts_with("DEV")
+                                && (l.contains("docker")
+                                    || l.contains("br-")
+                                    || l.contains("veth")
+                                    || l.contains("vnet"))
                             {
                                 is_docker_iface = true;
                                 break;
@@ -1896,11 +2981,13 @@ async fn get_local_ips() -> (Vec<String>, Vec<String>) {
                             match *family {
                                 "-4" => {
                                     if let Ok(parsed) = addr.parse::<Ipv4Addr>() {
-                                        if !parsed.is_loopback() && !parsed.is_link_local()
+                                        if !parsed.is_loopback()
+                                            && !parsed.is_link_local()
                                             && !parsed.is_multicast()
                                         {
                                             let oct = parsed.octets();
-                                            if oct[0] != 172 || oct[1] != 17 {  // skip Docker bridge
+                                            if oct[0] != 172 || oct[1] != 17 {
+                                                // skip Docker bridge
                                                 v4_addrs.push(format!("{} ({})", addr, iface));
                                             }
                                         }
@@ -1923,9 +3010,7 @@ async fn get_local_ips() -> (Vec<String>, Vec<String>) {
     (v4_addrs, v6_addrs)
 }
 
-async fn health_check(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let metrics = state.entity_cache.metrics();
     let connected_clients = state.ws_manager.client_count().await;
     let entity_count = state.entity_cache.count().await;
@@ -2015,7 +3100,10 @@ async fn bootstrap_admin_user(
     let is_os_dev = std::path::Path::new("/etc/iora/os-dev-mode").exists();
     let min_password_len: usize = if is_os_dev { 5 } else { 8 };
     if is_os_dev {
-        info!("Bootstrap: OS dev image detected — min password length relaxed to {}", min_password_len);
+        info!(
+            "Bootstrap: OS dev image detected — min password length relaxed to {}",
+            min_password_len
+        );
     }
 
     // The systemd unit for iora-home sets ProtectSystem=strict and only
@@ -2034,31 +3122,50 @@ async fn bootstrap_admin_user(
     let mut creds: Option<(String, String, Option<String>)> = None;
     let mut delete_json_after: Option<std::path::PathBuf> = None;
     for json_path in [&primary_json, &legacy_json] {
-    let json_present = json_path.is_file();
-    info!("Bootstrap: JSON path {} exists={}", json_path.display(), json_present);
-    if json_present && creds.is_none() {
-        match tokio::fs::read_to_string(json_path).await {
-            Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
-                Ok(v) => {
-                    let u = v.get("username").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-                    let p = v.get("password").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    let d = v.get("display_name").and_then(|x| x.as_str()).map(|s| s.to_string());
-                    if !u.is_empty() && p.len() >= min_password_len {
-                        info!("Bootstrap: JSON contains usable credentials for user='{}'", u);
-                        creds = Some((u, p, d));
-                        delete_json_after = Some(json_path.clone());
-                    } else {
-                        warn!("Bootstrap JSON at {} is incomplete (need username + password >= {} chars) — ignoring", json_path.display(), min_password_len);
+        let json_present = json_path.is_file();
+        info!(
+            "Bootstrap: JSON path {} exists={}",
+            json_path.display(),
+            json_present
+        );
+        if json_present && creds.is_none() {
+            match tokio::fs::read_to_string(json_path).await {
+                Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(v) => {
+                        let u = v
+                            .get("username")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        let p = v
+                            .get("password")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let d = v
+                            .get("display_name")
+                            .and_then(|x| x.as_str())
+                            .map(|s| s.to_string());
+                        if !u.is_empty() && p.len() >= min_password_len {
+                            info!(
+                                "Bootstrap: JSON contains usable credentials for user='{}'",
+                                u
+                            );
+                            creds = Some((u, p, d));
+                            delete_json_after = Some(json_path.clone());
+                        } else {
+                            warn!("Bootstrap JSON at {} is incomplete (need username + password >= {} chars) — ignoring", json_path.display(), min_password_len);
+                        }
                     }
+                    Err(e) => warn!("Could not parse {}: {} — ignoring", json_path.display(), e),
+                },
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    warn!("Bootstrap JSON at {} exists but is not readable by this process (EACCES). Wizard should chmod it iora:iora 0640 (or 0644).", json_path.display());
                 }
-                Err(e) => warn!("Could not parse {}: {} — ignoring", json_path.display(), e),
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                warn!("Bootstrap JSON at {} exists but is not readable by this process (EACCES). Wizard should chmod it iora:iora 0640 (or 0644).", json_path.display());
+                Err(e) => warn!("Could not read {}: {} — ignoring", json_path.display(), e),
             }
-            Err(e) => warn!("Could not read {}: {} — ignoring", json_path.display(), e),
         }
-    }
     }
 
     // Env-var fallback — explicit logging so the operator can see at a
@@ -2106,7 +3213,7 @@ async fn bootstrap_admin_user(
             // NULL password_hash") state and shout about it so the
             // operator knows to re-run the setup wizard.
             match sqlx::query_as::<_, (String, Option<String>)>(
-                "SELECT username, password_hash FROM users ORDER BY created_at LIMIT 5"
+                "SELECT username, password_hash FROM users ORDER BY created_at LIMIT 5",
             )
             .fetch_all(db_pool)
             .await
@@ -2115,7 +3222,8 @@ async fn bootstrap_admin_user(
                     info!("Bootstrap: no users in DB and no bootstrap credentials — operator can register from the UI.");
                 }
                 Ok(rows) => {
-                    let orphans: Vec<&str> = rows.iter()
+                    let orphans: Vec<&str> = rows
+                        .iter()
                         .filter(|(_, h)| h.is_none())
                         .map(|(u, _)| u.as_str())
                         .collect();
@@ -2166,8 +3274,8 @@ async fn bootstrap_admin_user(
         }
     }
 
-    let password_hash = auth::hash_password(&password)
-        .map_err(|e| anyhow::anyhow!("hash_password: {}", e))?;
+    let password_hash =
+        auth::hash_password(&password).map_err(|e| anyhow::anyhow!("hash_password: {}", e))?;
 
     info!(
         "Bootstrap: applying credentials for user='{}' (password length={} bytes, hash starts with '{}...')",
@@ -2197,7 +3305,7 @@ async fn bootstrap_admin_user(
 
     // Look for the row by username and decide insert/update/skip.
     let existing: Option<(String, Option<String>)> = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT id, password_hash FROM users WHERE username = $1"
+        "SELECT id, password_hash FROM users WHERE username = $1",
     )
     .bind(&username)
     .fetch_optional(db_pool)
@@ -2219,7 +3327,10 @@ async fn bootstrap_admin_user(
             .bind(&id)
             .execute(db_pool)
             .await?;
-            info!("Bootstrap: applied wizard credentials to user '{}' (admin=true, password updated)", username);
+            info!(
+                "Bootstrap: applied wizard credentials to user '{}' (admin=true, password updated)",
+                username
+            );
         }
         None => {
             let user_id = uuid::Uuid::new_v4().to_string();
@@ -2232,14 +3343,21 @@ async fn bootstrap_admin_user(
             .bind(&password_hash)
             .execute(db_pool)
             .await?;
-            info!("Bootstrap: seeded first admin web-user '{}' from setup wizard", username);
+            info!(
+                "Bootstrap: seeded first admin web-user '{}' from setup wizard",
+                username
+            );
         }
     }
 
     if let Some(json_path) = &delete_json_after {
         // Best-effort delete; if it fails (read-only fs etc.) we just leave it.
         if let Err(e) = tokio::fs::remove_file(json_path).await {
-            warn!("Could not remove bootstrap file {}: {}", json_path.display(), e);
+            warn!(
+                "Could not remove bootstrap file {}: {}",
+                json_path.display(),
+                e
+            );
         } else {
             info!("Removed bootstrap credential file {}", json_path.display());
         }
@@ -2302,17 +3420,24 @@ async fn bootstrap_admin_user(
 fn resolve_dist_dir() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("IORA_HOME_DIST") {
         let pb = std::path::PathBuf::from(p);
-        if pb.join("index.html").is_file() { return Some(pb); }
+        if pb.join("index.html").is_file() {
+            return Some(pb);
+        }
     }
     for rel in ["../dist", "./dist", "/opt/iora/iora-home/dist"] {
         let pb = std::path::PathBuf::from(rel);
-        if pb.join("index.html").is_file() { return Some(pb); }
+        if pb.join("index.html").is_file() {
+            return Some(pb);
+        }
     }
     None
 }
 
 /// SPA fallback – serves index.html for any route not matched by API or static files.
 /// This enables client-side routing in the React frontend.
+///
+/// When IORA_FRONTEND_DEV_URL is set, requests are proxied to the Vite dev server
+/// for hot module replacement during development.
 async fn spa_fallback(uri: Uri) -> impl IntoResponse {
     // API paths that don't match any route should return JSON, not HTML.
     // This prevents the frontend's adminFetch from receiving an HTML SPA
@@ -2333,6 +3458,86 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
         ).into_response();
     }
 
+    // Frontend Dev Proxy Mode: When IORA_FRONTEND_DEV_URL is set, proxy to Vite dev server
+    // This enables HMR (Hot Module Replacement) during frontend development
+    if let Some(dev_url) = frontend_dev_proxy::is_dev_proxy_enabled() {
+        if frontend_dev_proxy::should_proxy_path(path) {
+            info!(
+                target: "frontend_dev",
+                dev_url = %dev_url,
+                path = %path,
+                "Frontend dev proxy mode enabled, proxying to Vite dev server"
+            );
+            // Note: We need to convert Uri to Request for the proxy handler
+            // For now, fall through to show dev mode info page
+            return (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
+                format!(r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IORA Frontend Dev Mode</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 80px auto;
+            padding: 20px;
+            background: #0a0a0a;
+            color: #e5e5e5;
+        }}
+        .dev-badge {{
+            background: #f59e0b;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 6px;
+            display: inline-block;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }}
+        h1 {{ color: #3b82f6; }}
+        code {{
+            background: #1e1e1e;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #f59e0b;
+        }}
+        .info-box {{
+            background: #1e1e1e;
+            border: 1px solid #333;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }}
+        a {{ color: #60a5fa; }}
+    </style>
+</head>
+<body>
+    <div class="dev-badge">🔥 DEVELOPMENT MODE</div>
+    <h1>IORA Frontend Dev Proxy Active</h1>
+    <div class="info-box">
+        <p><strong>Backend:</strong> iora-home is running and serving the API</p>
+        <p><strong>Frontend:</strong> Proxying to <code>{}</code></p>
+        <p><strong>Environment:</strong> <code>IORA_FRONTEND_DEV_URL</code> is set</p>
+    </div>
+    <h2>Access the frontend:</h2>
+    <ul>
+        <li><strong>Direct Vite Dev Server (with HMR):</strong> <a href="{}">{}</a></li>
+        <li><strong>Via Backend (API integration):</strong> Current URL</li>
+    </ul>
+    <p><em>Note: For full HMR support, access the Vite dev server directly. The backend proxy is for API integration testing.</em></p>
+</body>
+</html>"#, dev_url, dev_url, dev_url),
+            ).into_response();
+        }
+    }
+
+    // Standard mode: Serve built frontend from dist/
     if let Some(dist) = resolve_dist_dir() {
         if let Ok(html) = tokio::fs::read_to_string(dist.join("index.html")).await {
             return (
@@ -2342,7 +3547,8 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
                     (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate"),
                 ],
                 html,
-            ).into_response();
+            )
+                .into_response();
         }
     }
     // Embedded placeholder — confirms the backend is alive and points users
@@ -2354,27 +3560,32 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
             (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate"),
         ],
         FALLBACK_INDEX_HTML,
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ---------- Integration API (used by HA custom integration) ----------
 
 /// In-memory dashboard settings controlled by the HA integration.
 /// These are stored on the backend so that connected frontends can react.
-static DASHBOARD_SETTINGS: std::sync::LazyLock<tokio::sync::RwLock<serde_json::Map<String, Value>>> =
-    std::sync::LazyLock::new(|| {
-        let mut m = serde_json::Map::new();
-        m.insert("screensaver".into(), Value::Bool(false));
-        m.insert("auto_theme".into(), Value::Bool(false));
-        m.insert("sleep_mode".into(), Value::Bool(false));
-        m.insert("webhooks".into(), Value::Bool(true));
-        m.insert("brightness".into(), serde_json::json!(100));
-        m.insert("theme".into(), Value::String("auto".into()));
-        m.insert("current_page".into(), Value::String("home".into()));
-        m.insert("maintenance_mode".into(), Value::Bool(false));
-        m.insert("maintenance_message".into(), Value::String("IORA befindet sich im Wartungsmodus.".into()));
-        tokio::sync::RwLock::new(m)
-    });
+static DASHBOARD_SETTINGS: std::sync::LazyLock<
+    tokio::sync::RwLock<serde_json::Map<String, Value>>,
+> = std::sync::LazyLock::new(|| {
+    let mut m = serde_json::Map::new();
+    m.insert("screensaver".into(), Value::Bool(false));
+    m.insert("auto_theme".into(), Value::Bool(false));
+    m.insert("sleep_mode".into(), Value::Bool(false));
+    m.insert("webhooks".into(), Value::Bool(true));
+    m.insert("brightness".into(), serde_json::json!(100));
+    m.insert("theme".into(), Value::String("auto".into()));
+    m.insert("current_page".into(), Value::String("home".into()));
+    m.insert("maintenance_mode".into(), Value::Bool(false));
+    m.insert(
+        "maintenance_message".into(),
+        Value::String("IORA befindet sich im Wartungsmodus.".into()),
+    );
+    tokio::sync::RwLock::new(m)
+});
 
 /// Composite virtual sensors — formulas registered by the HA integration that
 /// the backend evaluates against live entity states.  This enables sensors
@@ -2456,8 +3667,7 @@ async fn load_home_state_from_db(pool: &DbPool) -> anyhow::Result<()> {
                 }
             }
             "active_emergency" => {
-                *ACTIVE_EMERGENCY.write().await =
-                    if data.is_null() { None } else { Some(data) };
+                *ACTIVE_EMERGENCY.write().await = if data.is_null() { None } else { Some(data) };
             }
             _ => {}
         }
@@ -2491,11 +3701,7 @@ async fn persist_home_state_to_db(pool: &DbPool) -> anyhow::Result<()> {
         ),
         (
             "active_emergency",
-            ACTIVE_EMERGENCY
-                .read()
-                .await
-                .clone()
-                .unwrap_or(Value::Null),
+            ACTIVE_EMERGENCY.read().await.clone().unwrap_or(Value::Null),
         ),
     ];
     for (scope, data) in snapshots {
@@ -2546,9 +3752,7 @@ async fn integration_ha_configured(State(state): State<AppState>) -> impl IntoRe
 
 /// POST /api/integration/ha/test — test HA connectivity with current credentials.
 /// Returns detailed diagnostics so the user knows WHY a 401 is happening.
-async fn integration_ha_test_connection(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn integration_ha_test_connection(State(state): State<AppState>) -> Json<Value> {
     let ha_config = load_ha_runtime_config(&state.config_repo).await;
     if !ha_config.is_configured() {
         return Json(json!({
@@ -2635,9 +3839,7 @@ async fn integration_ha_test_connection(
 
 /// POST /api/integration/ha/reconnect — force HA client to reconnect with current settings.
 /// Use this after updating HA URL/token when you don't want to wait for the auto-retry.
-async fn integration_ha_reconnect(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn integration_ha_reconnect(State(state): State<AppState>) -> Json<Value> {
     let ha_config = load_ha_runtime_config(&state.config_repo).await;
     if !ha_config.is_configured() {
         return Json(json!({
@@ -2647,7 +3849,10 @@ async fn integration_ha_reconnect(
     }
 
     // Update the live client credentials
-    state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
+    state
+        .ha_client
+        .update_credentials(&ha_config.url, &ha_config.token)
+        .await;
     state.ha_connection.update_url(&ha_config.url).await;
     state.ha_connection.reset_for_reconnect();
 
@@ -2661,9 +3866,7 @@ async fn integration_ha_reconnect(
 }
 
 /// Returns dashboard status for the HA integration coordinator to poll.
-async fn integration_status(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn integration_status(State(state): State<AppState>) -> impl IntoResponse {
     let entity_count = state.entity_cache.count().await;
     let ha_connected = state.entity_cache.is_ha_connected();
     let connected_clients = state.ws_manager.client_count().await;
@@ -2672,7 +3875,10 @@ async fn integration_status(
     let uptime_secs = APP_START.elapsed().as_secs();
 
     // Count automation entities in cache
-    let active_automations = state.entity_cache.get_by_domain("automation").await
+    let active_automations = state
+        .entity_cache
+        .get_by_domain("automation")
+        .await
         .iter()
         .filter(|e| e.state == "on")
         .count();
@@ -2682,7 +3888,10 @@ async fn integration_status(
 
     // Entity health summary
     let health_report = state.entity_cache.entity_health_report(3600).await;
-    let unavailable_entities = health_report.iter().filter(|e| e.status == "unavailable").count();
+    let unavailable_entities = health_report
+        .iter()
+        .filter(|e| e.status == "unavailable")
+        .count();
     let stale_entities = health_report.iter().filter(|e| e.status == "stale").count();
 
     // Composite sensor values
@@ -2749,7 +3958,8 @@ async fn integration_get_settings() -> impl IntoResponse {
 async fn integration_set_settings(
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let updates = body.as_object()
+    let updates = body
+        .as_object()
         .ok_or_else(|| ErrorResponse::bad_request("Expected JSON object"))?;
     let mut settings = DASHBOARD_SETTINGS.write().await;
     for (key, value) in updates {
@@ -2766,7 +3976,8 @@ async fn integration_analytics_top(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let n: usize = params.get("limit")
+    let n: usize = params
+        .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(20);
     let top = state.entity_cache.top_active_entities(n).await;
@@ -2787,7 +3998,10 @@ async fn integration_analytics_entity(
             "result": "ok",
             "analytics": analytics,
         }))),
-        None => Err(ErrorResponse::not_found(format!("No analytics for {}", entity_id))),
+        None => Err(ErrorResponse::not_found(format!(
+            "No analytics for {}",
+            entity_id
+        ))),
     }
 }
 
@@ -2796,7 +4010,8 @@ async fn integration_health_report(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let threshold: u64 = params.get("stale_threshold")
+    let threshold: u64 = params
+        .get("stale_threshold")
         .and_then(|v| v.parse().ok())
         .unwrap_or(3600); // default 1 hour
     let report = state.entity_cache.entity_health_report(threshold).await;
@@ -2816,9 +4031,7 @@ async fn integration_health_report(
 }
 
 /// GET /api/integration/composite — list all composite sensors with computed values
-async fn integration_composite_sensors(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn integration_composite_sensors(State(state): State<AppState>) -> impl IntoResponse {
     let values = evaluate_composite_sensors(&state).await;
     let definitions = COMPOSITE_SENSORS.read().await;
     Json(serde_json::json!({
@@ -2833,13 +4046,18 @@ async fn integration_register_composite(
     State(_state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let sensor_id = body.get("sensor_id")
+    let sensor_id = body
+        .get("sensor_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing sensor_id"))?;
-    let _formula = body.get("formula")
+    let _formula = body
+        .get("formula")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| ErrorResponse::bad_request("Missing formula (avg|sum|min|max|diff|comfort_index|range)"))?;
-    let _entities = body.get("entities")
+        .ok_or_else(|| {
+            ErrorResponse::bad_request("Missing formula (avg|sum|min|max|diff|comfort_index|range)")
+        })?;
+    let _entities = body
+        .get("entities")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ErrorResponse::bad_request("Missing entities array"))?;
 
@@ -2857,47 +4075,92 @@ async fn integration_command(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let command = body.get("command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let command = body.get("command").and_then(|v| v.as_str()).unwrap_or("");
 
     match command {
         "refresh" => {
             // Trigger a fresh fetch of all entity states from HA
-            let entities = state.ha_client.get_states().await
+            let entities = state
+                .ha_client
+                .get_states()
+                .await
                 .map_err(|e| ErrorResponse::internal(format!("HA fetch failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
-                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
+                METRICS
+                    .entity_state_changes
+                    .fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
-            Ok(Json(serde_json::json!({"result": "ok", "action": "refresh"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "refresh"}),
+            ))
         }
         "notify" => {
             // Route through the notification dispatcher (persists + broadcasts + sends to all channels)
             let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
             let req = notification_dispatcher::DispatchRequest {
-                title: data.get("title").and_then(|v| v.as_str()).unwrap_or("Notification").to_string(),
-                message: data.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                level: data.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
-                source: data.get("source").and_then(|v| v.as_str()).unwrap_or("system").to_string(),
-                icon: data.get("icon").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                entity_id: data.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                auto_dismiss_secs: data.get("auto_dismiss_secs").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                channels: data.get("channels")
+                title: data
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Notification")
+                    .to_string(),
+                message: data
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                level: data
+                    .get("level")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("info")
+                    .to_string(),
+                source: data
+                    .get("source")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("system")
+                    .to_string(),
+                icon: data
+                    .get("icon")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                entity_id: data
+                    .get("entity_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                auto_dismiss_secs: data
+                    .get("auto_dismiss_secs")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as i32,
+                channels: data
+                    .get("channels")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default(),
-                extra_data: data.get("extra_data").cloned().unwrap_or(serde_json::Value::Null),
+                extra_data: data
+                    .get("extra_data")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
             };
             let (id, _results) = state.notification_dispatcher.dispatch(req).await;
-            Ok(Json(serde_json::json!({"result": "ok", "action": "notify", "id": id})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "notify", "id": id}),
+            ))
         }
         "alert" => {
             // Set a dashboard-wide emergency/warning alert
             let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
             let id = uuid::Uuid::new_v4().to_string();
-            let level = data.get("level").and_then(|v| v.as_str()).unwrap_or("warning");
+            let level = data
+                .get("level")
+                .and_then(|v| v.as_str())
+                .unwrap_or("warning");
             let alert = serde_json::json!({
                 "id": id,
                 "title": data.get("title").and_then(|v| v.as_str()).unwrap_or("Warnung"),
@@ -2932,7 +4195,9 @@ async fn integration_command(
             });
             state.ws_manager.broadcast_json(&event).await;
             info!("Emergency alert set: [{}] {}", level, alert["title"]);
-            Ok(Json(serde_json::json!({"result": "ok", "action": "alert", "id": id})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "alert", "id": id}),
+            ))
         }
         "dismiss_alert" => {
             *ACTIVE_EMERGENCY.write().await = None;
@@ -2942,107 +4207,155 @@ async fn integration_command(
             });
             state.ws_manager.broadcast_json(&event).await;
             info!("Emergency alert dismissed");
-            Ok(Json(serde_json::json!({"result": "ok", "action": "dismiss_alert"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "dismiss_alert"}),
+            ))
         }
         "clear_cache" => {
             // Re-fetch everything from HA (effectively clears stale data)
-            let entities = state.ha_client.get_states().await
+            let entities = state
+                .ha_client
+                .get_states()
+                .await
                 .map_err(|e| ErrorResponse::internal(format!("Cache clear failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
-                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
+                METRICS
+                    .entity_state_changes
+                    .fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
-            Ok(Json(serde_json::json!({"result": "ok", "action": "clear_cache"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "clear_cache"}),
+            ))
         }
         "set_theme" => {
-            let theme = body.get("data")
+            let theme = body
+                .get("data")
                 .and_then(|d| d.get("theme"))
                 .and_then(|t| t.as_str())
                 .unwrap_or("auto");
             let mut settings = DASHBOARD_SETTINGS.write().await;
             settings.insert("theme".into(), Value::String(theme.into()));
-            Ok(Json(serde_json::json!({"result": "ok", "action": "set_theme", "theme": theme})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "set_theme", "theme": theme}),
+            ))
         }
         "switch_page" => {
-            let page = body.get("data")
+            let page = body
+                .get("data")
                 .and_then(|d| d.get("page_id"))
                 .and_then(|p| p.as_str())
                 .unwrap_or("home");
             let mut settings = DASHBOARD_SETTINGS.write().await;
             settings.insert("current_page".into(), Value::String(page.into()));
-            Ok(Json(serde_json::json!({"result": "ok", "action": "switch_page", "page": page})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "switch_page", "page": page}),
+            ))
         }
         "set_setting" => {
-            let data = body.get("data")
+            let data = body
+                .get("data")
                 .and_then(|d| d.as_object())
                 .ok_or_else(|| ErrorResponse::bad_request("Missing data object"))?;
             let mut settings = DASHBOARD_SETTINGS.write().await;
             for (key, value) in data {
                 settings.insert(key.clone(), value.clone());
             }
-            Ok(Json(serde_json::json!({"result": "ok", "action": "set_setting"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "set_setting"}),
+            ))
         }
         "set_brightness" => {
-            let brightness = body.get("data")
+            let brightness = body
+                .get("data")
                 .and_then(|d| d.get("brightness"))
                 .and_then(|b| b.as_u64())
                 .unwrap_or(100)
                 .min(100);
             let mut settings = DASHBOARD_SETTINGS.write().await;
             settings.insert("brightness".into(), serde_json::json!(brightness));
-            Ok(Json(serde_json::json!({"result": "ok", "action": "set_brightness", "brightness": brightness})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "set_brightness", "brightness": brightness}),
+            ))
         }
         "restart" => {
             // Trigger a full re-sync (closest thing to a restart without actually stopping the process)
-            let entities = state.ha_client.get_states().await
+            let entities = state
+                .ha_client
+                .get_states()
+                .await
                 .map_err(|e| ErrorResponse::internal(format!("Restart re-sync failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
-                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
+                METRICS
+                    .entity_state_changes
+                    .fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
-            Ok(Json(serde_json::json!({"result": "ok", "action": "restart"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "restart"}),
+            ))
         }
         "register_composite_sensor" => {
-            let data = body.get("data")
+            let data = body
+                .get("data")
                 .ok_or_else(|| ErrorResponse::bad_request("Missing data"))?;
-            let sensor_id = data.get("sensor_id")
+            let sensor_id = data
+                .get("sensor_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ErrorResponse::bad_request("Missing sensor_id"))?;
             let mut sensors = COMPOSITE_SENSORS.write().await;
             sensors.insert(sensor_id.to_string(), data.clone());
-            Ok(Json(serde_json::json!({"result": "ok", "action": "register_composite_sensor", "sensor_id": sensor_id})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "register_composite_sensor", "sensor_id": sensor_id}),
+            ))
         }
         "remove_composite_sensor" => {
-            let sensor_id = body.get("data")
+            let sensor_id = body
+                .get("data")
                 .and_then(|d| d.get("sensor_id"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| ErrorResponse::bad_request("Missing sensor_id"))?;
             let mut sensors = COMPOSITE_SENSORS.write().await;
             sensors.remove(sensor_id);
-            Ok(Json(serde_json::json!({"result": "ok", "action": "remove_composite_sensor", "sensor_id": sensor_id})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "remove_composite_sensor", "sensor_id": sensor_id}),
+            ))
         }
         "reload" => {
             // Trigger a full re-sync which effectively reloads frontend data
-            let entities = state.ha_client.get_states().await
+            let entities = state
+                .ha_client
+                .get_states()
+                .await
                 .map_err(|e| ErrorResponse::internal(format!("Reload re-sync failed: {e}")))?;
             let (changed, _) = state.entity_cache.update(entities).await;
             if !changed.is_empty() {
-                METRICS.entity_state_changes.fetch_add(changed.len() as u64, Ordering::Relaxed);
+                METRICS
+                    .entity_state_changes
+                    .fetch_add(changed.len() as u64, Ordering::Relaxed);
                 state.ws_manager.broadcast_state_updates(changed).await;
             }
-            Ok(Json(serde_json::json!({"result": "ok", "action": "reload"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "reload"}),
+            ))
         }
         "set_widget_value" => {
             let _data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-            Ok(Json(serde_json::json!({"result": "ok", "action": "set_widget_value"})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "set_widget_value"}),
+            ))
         }
         "template_result" => {
             let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-            Ok(Json(serde_json::json!({"result": "ok", "action": "template_result", "data": data})))
+            Ok(Json(
+                serde_json::json!({"result": "ok", "action": "template_result", "data": data}),
+            ))
         }
-        _ => Err(ErrorResponse::bad_request(format!("Unknown command: {command}"))),
+        _ => Err(ErrorResponse::bad_request(format!(
+            "Unknown command: {command}"
+        ))),
     }
 }
 
@@ -3060,12 +4373,16 @@ async fn evaluate_composite_sensors(state: &AppState) -> Value {
 
     let mut results = serde_json::Map::new();
     for (sensor_id, def) in sensors.iter() {
-        let entity_ids: Vec<&str> = def.get("entities")
+        let entity_ids: Vec<&str> = def
+            .get("entities")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
         let formula = def.get("formula").and_then(|v| v.as_str()).unwrap_or("avg");
-        let name = def.get("name").and_then(|v| v.as_str()).unwrap_or(sensor_id);
+        let name = def
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(sensor_id);
         let unit = def.get("unit").and_then(|v| v.as_str()).unwrap_or("");
 
         // Collect numeric states
@@ -3113,14 +4430,17 @@ async fn evaluate_composite_sensors(state: &AppState) -> Value {
             }
         };
 
-        results.insert(sensor_id.clone(), serde_json::json!({
-            "name": name,
-            "value": computed.map(|v| (v * 100.0).round() / 100.0),
-            "unit": unit,
-            "formula": formula,
-            "source_count": values.len(),
-            "source_entities": entity_ids,
-        }));
+        results.insert(
+            sensor_id.clone(),
+            serde_json::json!({
+                "name": name,
+                "value": computed.map(|v| (v * 100.0).round() / 100.0),
+                "unit": unit,
+                "formula": formula,
+                "source_count": values.len(),
+                "source_entities": entity_ids,
+            }),
+        );
     }
 
     Value::Object(results)
@@ -3142,13 +4462,16 @@ async fn integration_list_scenes() -> impl IntoResponse {
 async fn integration_create_scene(
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let scene_id = body.get("scene_id")
+    let scene_id = body
+        .get("scene_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing scene_id"))?;
-    let _name = body.get("name")
+    let _name = body
+        .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing name"))?;
-    let _steps = body.get("steps")
+    let _steps = body
+        .get("steps")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ErrorResponse::bad_request("Missing steps array"))?;
 
@@ -3162,9 +4485,7 @@ async fn integration_create_scene(
 }
 
 /// DELETE /api/integration/scenes/:scene_id — remove a scene
-async fn integration_delete_scene(
-    Path(scene_id): Path<String>,
-) -> impl IntoResponse {
+async fn integration_delete_scene(Path(scene_id): Path<String>) -> impl IntoResponse {
     let mut scenes = SMART_SCENES.write().await;
     let existed = scenes.remove(&scene_id).is_some();
     Json(serde_json::json!({
@@ -3180,12 +4501,14 @@ async fn integration_execute_scene(
     Path(scene_id): Path<String>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
     let scenes = SMART_SCENES.read().await;
-    let scene = scenes.get(&scene_id)
+    let scene = scenes
+        .get(&scene_id)
         .ok_or_else(|| ErrorResponse::bad_request(format!("Scene not found: {scene_id}")))?
         .clone();
     drop(scenes);
 
-    let steps = scene.get("steps")
+    let steps = scene
+        .get("steps")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
@@ -3194,16 +4517,28 @@ async fn integration_execute_scene(
     let mut skipped = 0u32;
 
     for step in &steps {
-        let domain = step.get("domain").and_then(|v| v.as_str()).unwrap_or("homeassistant");
-        let service = step.get("service").and_then(|v| v.as_str()).unwrap_or("toggle");
+        let domain = step
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("homeassistant");
+        let service = step
+            .get("service")
+            .and_then(|v| v.as_str())
+            .unwrap_or("toggle");
         let entity_id = step.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
         let delay_ms = step.get("delay_ms").and_then(|v| v.as_u64()).unwrap_or(0);
         let step_data = step.get("data").cloned().unwrap_or(serde_json::json!({}));
 
         // Check optional condition: { "entity_id": "...", "state": "on" }
         if let Some(condition) = step.get("condition").and_then(|v| v.as_object()) {
-            let cond_entity = condition.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
-            let cond_state = condition.get("state").and_then(|v| v.as_str()).unwrap_or("");
+            let cond_entity = condition
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let cond_state = condition
+                .get("state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if !cond_entity.is_empty() && !cond_state.is_empty() {
                 if let Some(current) = state.entity_cache.get(cond_entity).await {
                     if current.state != cond_state {
@@ -3223,7 +4558,11 @@ async fn integration_execute_scene(
             svc_data.insert("entity_id".into(), Value::String(entity_id.into()));
         }
 
-        match state.ha_client.call_service_fast(domain, service, Value::Object(svc_data)).await {
+        match state
+            .ha_client
+            .call_service_fast(domain, service, Value::Object(svc_data))
+            .await
+        {
             Ok(()) => executed += 1,
             Err(e) => {
                 warn!("Scene step failed ({domain}.{service}): {e}");
@@ -3262,26 +4601,32 @@ async fn integration_create_schedule(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let schedule_id = body.get("schedule_id")
+    let schedule_id = body
+        .get("schedule_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing schedule_id"))?
         .to_string();
-    let domain = body.get("domain")
+    let domain = body
+        .get("domain")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing domain"))?
         .to_string();
-    let service = body.get("service")
+    let service = body
+        .get("service")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing service"))?
         .to_string();
-    let run_at = body.get("run_at_unix")
+    let run_at = body
+        .get("run_at_unix")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| ErrorResponse::bad_request("Missing run_at_unix (epoch seconds)"))?;
     let svc_data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
 
     let now = chrono::Utc::now().timestamp();
     if run_at <= now {
-        return Err(ErrorResponse::bad_request("run_at_unix must be in the future"));
+        return Err(ErrorResponse::bad_request(
+            "run_at_unix must be in the future",
+        ));
     }
 
     let delay_secs = (run_at - now) as u64;
@@ -3302,7 +4647,9 @@ async fn integration_create_schedule(
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
         info!("Executing scheduled action: {sid}");
-        let _ = ha_client.call_service_fast(&domain, &service, svc_data).await;
+        let _ = ha_client
+            .call_service_fast(&domain, &service, svc_data)
+            .await;
         // Remove from store after execution
         let mut schedules = SCHEDULED_ACTIONS.write().await;
         schedules.remove(&sid);
@@ -3317,9 +4664,7 @@ async fn integration_create_schedule(
 }
 
 /// DELETE /api/integration/schedules/:schedule_id — cancel a scheduled action
-async fn integration_cancel_schedule(
-    Path(schedule_id): Path<String>,
-) -> impl IntoResponse {
+async fn integration_cancel_schedule(Path(schedule_id): Path<String>) -> impl IntoResponse {
     let mut schedules = SCHEDULED_ACTIONS.write().await;
     let existed = schedules.remove(&schedule_id).is_some();
     Json(serde_json::json!({
@@ -3345,17 +4690,24 @@ async fn integration_list_watchdogs() -> impl IntoResponse {
 async fn integration_create_watchdog(
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let watchdog_id = body.get("watchdog_id")
+    let watchdog_id = body
+        .get("watchdog_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing watchdog_id"))?;
-    let _entity_id = body.get("entity_id")
+    let _entity_id = body
+        .get("entity_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing entity_id"))?;
-    let trigger = body.get("trigger")
+    let trigger = body
+        .get("trigger")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| ErrorResponse::bad_request("Missing trigger (unavailable|stale|state_equals)"))?;
+        .ok_or_else(|| {
+            ErrorResponse::bad_request("Missing trigger (unavailable|stale|state_equals)")
+        })?;
     if !["unavailable", "stale", "state_equals"].contains(&trigger) {
-        return Err(ErrorResponse::bad_request("trigger must be: unavailable, stale, or state_equals"));
+        return Err(ErrorResponse::bad_request(
+            "trigger must be: unavailable, stale, or state_equals",
+        ));
     }
 
     let mut watchdogs = ENTITY_WATCHDOGS.write().await;
@@ -3368,9 +4720,7 @@ async fn integration_create_watchdog(
 }
 
 /// DELETE /api/integration/watchdogs/:watchdog_id — remove a watchdog rule
-async fn integration_delete_watchdog(
-    Path(watchdog_id): Path<String>,
-) -> impl IntoResponse {
+async fn integration_delete_watchdog(Path(watchdog_id): Path<String>) -> impl IntoResponse {
     let mut watchdogs = ENTITY_WATCHDOGS.write().await;
     let existed = watchdogs.remove(&watchdog_id).is_some();
     Json(serde_json::json!({
@@ -3381,9 +4731,7 @@ async fn integration_delete_watchdog(
 }
 
 /// POST /api/integration/watchdogs/check — evaluate all watchdog rules NOW
-async fn integration_check_watchdogs(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn integration_check_watchdogs(State(state): State<AppState>) -> impl IntoResponse {
     let watchdogs = ENTITY_WATCHDOGS.read().await;
     let mut triggered = Vec::new();
     let now = chrono::Utc::now().timestamp();
@@ -3391,11 +4739,26 @@ async fn integration_check_watchdogs(
     for (wid, rule) in watchdogs.iter() {
         let entity_id = rule.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
         let trigger = rule.get("trigger").and_then(|v| v.as_str()).unwrap_or("");
-        let cooldown = rule.get("cooldown_secs").and_then(|v| v.as_i64()).unwrap_or(300);
-        let last_triggered = rule.get("last_triggered").and_then(|v| v.as_i64()).unwrap_or(0);
-        let action_domain = rule.get("action_domain").and_then(|v| v.as_str()).unwrap_or("homeassistant");
-        let action_service = rule.get("action_service").and_then(|v| v.as_str()).unwrap_or("toggle");
-        let action_data = rule.get("action_data").cloned().unwrap_or(serde_json::json!({}));
+        let cooldown = rule
+            .get("cooldown_secs")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(300);
+        let last_triggered = rule
+            .get("last_triggered")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let action_domain = rule
+            .get("action_domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("homeassistant");
+        let action_service = rule
+            .get("action_service")
+            .and_then(|v| v.as_str())
+            .unwrap_or("toggle");
+        let action_data = rule
+            .get("action_data")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
 
         // Cooldown check
         if now - last_triggered < cooldown {
@@ -3415,7 +4778,10 @@ async fn integration_check_watchdogs(
                     }
                 }
                 "state_equals" => {
-                    let target_state = rule.get("target_state").and_then(|v| v.as_str()).unwrap_or("");
+                    let target_state = rule
+                        .get("target_state")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     entity.state == target_state
                 }
                 _ => false,
@@ -3430,7 +4796,11 @@ async fn integration_check_watchdogs(
                 svc_data.insert("entity_id".into(), Value::String(entity_id.into()));
             }
 
-            match state.ha_client.call_service_fast(action_domain, action_service, Value::Object(svc_data)).await {
+            match state
+                .ha_client
+                .call_service_fast(action_domain, action_service, Value::Object(svc_data))
+                .await
+            {
                 Ok(()) => {
                     triggered.push(serde_json::json!({
                         "watchdog_id": wid,
@@ -3473,8 +4843,14 @@ async fn integration_analytics_history(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100);
-    let hours = params.get("hours").and_then(|v| v.parse::<i64>().ok()).unwrap_or(24);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(100);
+    let hours = params
+        .get("hours")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(24);
 
     let cutoff = chrono::Utc::now() - chrono::Duration::hours(hours);
 
@@ -3522,15 +4898,18 @@ async fn integration_delayed_action(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let domain = body.get("domain")
+    let domain = body
+        .get("domain")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing domain"))?
         .to_string();
-    let service = body.get("service")
+    let service = body
+        .get("service")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing service"))?
         .to_string();
-    let delay_secs = body.get("delay_secs")
+    let delay_secs = body
+        .get("delay_secs")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| ErrorResponse::bad_request("Missing delay_secs"))?;
     let svc_data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
@@ -3561,18 +4940,22 @@ async fn integration_conditional_action(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let domain = body.get("domain")
+    let domain = body
+        .get("domain")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing domain"))?;
-    let service = body.get("service")
+    let service = body
+        .get("service")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing service"))?;
     let svc_data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
 
-    let cond_entity = body.get("condition_entity")
+    let cond_entity = body
+        .get("condition_entity")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing condition_entity"))?;
-    let cond_state = body.get("condition_state")
+    let cond_state = body
+        .get("condition_state")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing condition_state"))?;
 
@@ -3592,7 +4975,10 @@ async fn integration_conditional_action(
         })));
     }
 
-    state.ha_client.call_service_fast(domain, service, svc_data).await
+    state
+        .ha_client
+        .call_service_fast(domain, service, svc_data)
+        .await
         .map_err(|e| ErrorResponse::internal(format!("Service call failed: {e}")))?;
 
     Ok(Json(serde_json::json!({
@@ -3608,13 +4994,16 @@ async fn integration_group_action(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-    let domain = body.get("domain")
+    let domain = body
+        .get("domain")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing domain"))?;
-    let service = body.get("service")
+    let service = body
+        .get("service")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Missing service"))?;
-    let entity_ids = body.get("entity_ids")
+    let entity_ids = body
+        .get("entity_ids")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ErrorResponse::bad_request("Missing entity_ids array"))?;
     let extra_data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
@@ -3624,12 +5013,18 @@ async fn integration_group_action(
 
     for eid_val in entity_ids {
         let eid = eid_val.as_str().unwrap_or("");
-        if eid.is_empty() { continue; }
+        if eid.is_empty() {
+            continue;
+        }
 
         let mut svc_data = extra_data.as_object().cloned().unwrap_or_default();
         svc_data.insert("entity_id".into(), Value::String(eid.into()));
 
-        match state.ha_client.call_service_fast(domain, service, Value::Object(svc_data)).await {
+        match state
+            .ha_client
+            .call_service_fast(domain, service, Value::Object(svc_data))
+            .await
+        {
             Ok(()) => succeeded += 1,
             Err(_) => failed += 1,
         }
@@ -3654,6 +5049,11 @@ async fn get_states(
     if state.entity_cache.is_populated().await {
         return Ok(Json(state.entity_cache.get_all().await));
     }
+    let ha_config = load_ha_runtime_config_from_pool(&state.db_pool).await;
+    if !ha_config.is_configured() {
+        state.entity_cache.set_ha_connected(false);
+        return Ok(Json(Vec::new()));
+    }
     // Fallback to direct HA call on first request before cache is warm
     match state.ha_client.get_states().await {
         Ok(states) => {
@@ -3663,7 +5063,10 @@ async fn get_states(
         }
         Err(e) => {
             warn!("Failed to get states: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get states: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get states: {}",
+                e
+            )))
         }
     }
 }
@@ -3675,7 +5078,10 @@ async fn get_state(
 ) -> Result<Json<EntityState>, ErrorResponse> {
     match state.entity_cache.get(&entity_id).await {
         Some(entity) => Ok(Json(entity)),
-        None => Err(ErrorResponse::not_found(format!("Entity {} not found", entity_id))),
+        None => Err(ErrorResponse::not_found(format!(
+            "Entity {} not found",
+            entity_id
+        ))),
     }
 }
 
@@ -3713,17 +5119,23 @@ async fn call_service(
                     if status >= 500 {
                         warn!("Failed to call service {}.{}: {}", domain, service, e);
                     } else {
-                        info!("Service {}.{} returned upstream status {}", domain, service, status);
+                        info!(
+                            "Service {}.{} returned upstream status {}",
+                            domain, service, status
+                        );
                     }
-                    let status_code = StatusCode::from_u16(status)
-                        .unwrap_or(StatusCode::BAD_GATEWAY);
+                    let status_code =
+                        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
                     return Err(ErrorResponse {
                         error: format!("Failed to call service: {}", e),
                         status: status_code,
                     });
                 }
                 warn!("Failed to call service {}.{}: {}", domain, service, e);
-                Err(ErrorResponse::internal(format!("Failed to call service: {}", e)))
+                Err(ErrorResponse::internal(format!(
+                    "Failed to call service: {}",
+                    e
+                )))
             }
         }
     } else {
@@ -3732,7 +5144,8 @@ async fn call_service(
         // The WebSocket `call_service` command is dispatched instantly over the
         // persistent connection. State changes arrive back via the WS
         // `state_changed` subscription — no need to poll for fresh state.
-        let entity_id = request.data
+        let entity_id = request
+            .data
             .get("entity_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -3801,7 +5214,10 @@ async fn get_history(
         Ok(history) => Ok(Json(history)),
         Err(e) => {
             warn!("Failed to get history: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get history: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get history: {}",
+                e
+            )))
         }
     }
 }
@@ -3816,10 +5232,13 @@ async fn proxy_hass_agent_media(
 ) -> Result<Response, ErrorResponse> {
     let query_str = raw_query.unwrap_or_default();
 
-    match state.ha_client.proxy_hass_agent_get(&path, &query_str).await {
+    match state
+        .ha_client
+        .proxy_hass_agent_get(&path, &query_str)
+        .await
+    {
         Ok(proxied) => {
-            let status = StatusCode::from_u16(proxied.status)
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status = StatusCode::from_u16(proxied.status).unwrap_or(StatusCode::BAD_GATEWAY);
             let mut response = Response::new(axum::body::Body::from(proxied.body));
             *response.status_mut() = status;
             if let Some(content_type) = proxied.content_type {
@@ -3831,7 +5250,10 @@ async fn proxy_hass_agent_media(
         }
         Err(e) => {
             warn!("Failed to proxy hass_agent media: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to proxy media: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to proxy media: {}",
+                e
+            )))
         }
     }
 }
@@ -3845,10 +5267,13 @@ async fn proxy_image_serve_media(
 ) -> Result<Response, ErrorResponse> {
     let query_str = raw_query.unwrap_or_default();
 
-    match state.ha_client.proxy_image_serve_get(&path, &query_str).await {
+    match state
+        .ha_client
+        .proxy_image_serve_get(&path, &query_str)
+        .await
+    {
         Ok(proxied) => {
-            let status = StatusCode::from_u16(proxied.status)
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status = StatusCode::from_u16(proxied.status).unwrap_or(StatusCode::BAD_GATEWAY);
             let mut response = Response::new(axum::body::Body::from(proxied.body));
             *response.status_mut() = status;
             if let Some(content_type) = proxied.content_type {
@@ -3860,7 +5285,10 @@ async fn proxy_image_serve_media(
         }
         Err(e) => {
             warn!("Failed to proxy image/serve media: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to proxy image media: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to proxy image media: {}",
+                e
+            )))
         }
     }
 }
@@ -3870,22 +5298,22 @@ async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| websocket::handle_socket(
-        socket,
-        state.ws_manager,
-        state.entity_cache,
-        state.ha_ws,
-        state.ha_client,
-        state.service_buffer,
-    ))
+    ws.on_upgrade(|socket| {
+        websocket::handle_socket(
+            socket,
+            state.ws_manager,
+            state.entity_cache,
+            state.ha_ws,
+            state.ha_client,
+            state.service_buffer,
+        )
+    })
 }
 
 // ─── Streaming Server Handlers ──────────────────────────────────────────
 
 /// List all active streams
-async fn list_streams(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn list_streams(State(state): State<AppState>) -> impl IntoResponse {
     Json(serde_json::json!({ "streams": state.stream_manager.list_streams().await }))
 }
 
@@ -3937,9 +5365,15 @@ async fn stop_stream(
     Path(stream_id): Path<String>,
 ) -> impl IntoResponse {
     if state.stream_manager.stop_stream(&stream_id).await {
-        (StatusCode::OK, Json(serde_json::json!({ "status": "stopped" })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "stopped" })),
+        )
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Stream not found" })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Stream not found" })),
+        )
     }
 }
 
@@ -3972,7 +5406,8 @@ async fn get_stream_snapshot(
                 (header::CACHE_CONTROL, "no-cache, no-store, must-revalidate"),
             ],
             data,
-        ).into_response(),
+        )
+            .into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
     }
 }
@@ -3986,7 +5421,11 @@ async fn post_stream_snapshot(
     if body.len() > 2 * 1024 * 1024 {
         return (StatusCode::PAYLOAD_TOO_LARGE, "Snapshot too large");
     }
-    if state.stream_manager.set_snapshot(&stream_id, body.to_vec()).await {
+    if state
+        .stream_manager
+        .set_snapshot(&stream_id, body.to_vec())
+        .await
+    {
         (StatusCode::OK, "OK")
     } else {
         (StatusCode::NOT_FOUND, "Stream not found")
@@ -4012,7 +5451,10 @@ async fn create_user(
         Ok(user) => Ok(Json(user)),
         Err(e) => {
             warn!("Failed to create user: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to create user: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to create user: {}",
+                e
+            )))
         }
     }
 }
@@ -4024,10 +5466,16 @@ async fn get_user(
 ) -> Result<Json<db::models::User>, ErrorResponse> {
     match state.config_repo.get_user_by_username(&username).await {
         Ok(Some(user)) => Ok(Json(user)),
-        Ok(None) => Err(ErrorResponse::not_found(format!("User {} not found", username))),
+        Ok(None) => Err(ErrorResponse::not_found(format!(
+            "User {} not found",
+            username
+        ))),
         Err(e) => {
             warn!("Failed to get user: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get user: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get user: {}",
+                e
+            )))
         }
     }
 }
@@ -4045,7 +5493,9 @@ async fn update_user(
                 if let Some(token) = header_value.strip_prefix("Bearer ") {
                     token
                 } else {
-                    return Err(ErrorResponse::unauthorized("Invalid authorization header format"));
+                    return Err(ErrorResponse::unauthorized(
+                        "Invalid authorization header format",
+                    ));
                 }
             }
             Err(_) => {
@@ -4053,7 +5503,9 @@ async fn update_user(
             }
         },
         None => {
-            return Err(ErrorResponse::unauthorized("No authorization header provided"));
+            return Err(ErrorResponse::unauthorized(
+                "No authorization header provided",
+            ));
         }
     };
 
@@ -4066,13 +5518,19 @@ async fn update_user(
 
     match state.config_repo.update_user(&user_id, request).await {
         Ok(Some(user)) => Ok(Json(user)),
-        Ok(None) => Err(ErrorResponse::not_found(format!("User {} not found", user_id))),
+        Ok(None) => Err(ErrorResponse::not_found(format!(
+            "User {} not found",
+            user_id
+        ))),
         Err(e) => {
             if e.to_string().contains("USERNAME_CONFLICT") {
                 return Err(ErrorResponse::conflict("Username already exists"));
             }
             warn!("Failed to update user: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to update user: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to update user: {}",
+                e
+            )))
         }
     }
 }
@@ -4086,7 +5544,10 @@ async fn register_device(
         Ok(device) => Ok(Json(device)),
         Err(e) => {
             warn!("Failed to register device: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to register device: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to register device: {}",
+                e
+            )))
         }
     }
 }
@@ -4098,10 +5559,16 @@ async fn get_device_info(
 ) -> Result<Json<db::models::Device>, ErrorResponse> {
     match state.config_repo.get_device(&device_id).await {
         Ok(Some(device)) => Ok(Json(device)),
-        Ok(None) => Err(ErrorResponse::not_found(format!("Device {} not found", device_id))),
+        Ok(None) => Err(ErrorResponse::not_found(format!(
+            "Device {} not found",
+            device_id
+        ))),
         Err(e) => {
             warn!("Failed to get device: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get device: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get device: {}",
+                e
+            )))
         }
     }
 }
@@ -4115,7 +5582,10 @@ async fn device_heartbeat(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => {
             warn!("Failed to update device heartbeat: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to update device heartbeat: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to update device heartbeat: {}",
+                e
+            )))
         }
     }
 }
@@ -4124,9 +5594,7 @@ async fn device_heartbeat(
 /// connected WebSocket clients. Powers the "Verbundene Geräte" admin
 /// tab. A device is considered "online" if its last_seen is within
 /// `online_threshold_seconds` (default 120s).
-async fn admin_list_devices(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_list_devices(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let devices = state
         .config_repo
         .list_devices()
@@ -4190,6 +5658,407 @@ async fn admin_delete_device(
     }
 }
 
+/// GET /api/admin/system-events
+/// Grouped (deduplicated) view of system events. Identical
+/// `(severity, source, message)` events are collapsed into one row with a
+/// counter so repeated failures don't bloat the UI.
+/// Query params:
+///   - `limit`         (default 200, capped at 1000)
+///   - `severity`      (`info` | `warning` | `error`, minimum threshold)
+///   - `unresolved`    (`true` to hide groups marked resolved)
+async fn admin_system_events(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200)
+        .clamp(1, 1000);
+    let min_severity = params
+        .get("severity")
+        .and_then(|s| system_events::Severity::from_str_ci(s));
+    let only_unresolved = params
+        .get("unresolved")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    let groups = state
+        .system_events
+        .list_groups(min_severity, only_unresolved, limit)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events groups query failed: {e}")))?;
+    let stats = state
+        .system_events
+        .stats()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events stats failed: {e}")))?;
+
+    Ok(Json(json!({
+        "groups": groups,
+        "stats": stats,
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
+
+/// GET /api/admin/system-events/occurrences
+/// Raw chronological log of every individual occurrence — **not**
+/// deduplicated, so each event is shown exactly as it happened.
+/// Query params:
+///   - `limit`         (default 200, capped at 2000)
+///   - `severity`      (minimum threshold filter)
+///   - `fingerprint`   (drill into a single group's history)
+///   - `origin`        (`backend` | `tracing` | `frontend`)
+async fn admin_system_events_occurrences(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(200)
+        .clamp(1, 2000);
+    let min_severity = params
+        .get("severity")
+        .and_then(|s| system_events::Severity::from_str_ci(s));
+    let origin = params
+        .get("origin")
+        .and_then(|o| match o.to_lowercase().as_str() {
+            "backend" => Some(system_events::Origin::Backend),
+            "tracing" => Some(system_events::Origin::Tracing),
+            "frontend" | "client" => Some(system_events::Origin::Frontend),
+            _ => None,
+        });
+    let fp = params.get("fingerprint").map(|s| s.as_str());
+
+    let occurrences = state
+        .system_events
+        .list_occurrences(min_severity, fp, origin, limit)
+        .await
+        .map_err(|e| {
+            ErrorResponse::internal(format!("system_events occurrences query failed: {e}"))
+        })?;
+
+    Ok(Json(json!({
+        "occurrences": occurrences,
+        "total": occurrences.len(),
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
+
+/// GET /api/admin/system-events/:fingerprint — group + recent occurrences.
+async fn admin_system_event_detail(
+    State(state): State<AppState>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let groups = state
+        .system_events
+        .list_groups(None, false, 1000)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("system_events groups query failed: {e}")))?;
+    let group = groups.into_iter().find(|g| g.fingerprint == fp);
+    let group = match group {
+        Some(g) => g,
+        None => return Err(ErrorResponse::not_found("group not found")),
+    };
+    let occurrences = state
+        .system_events
+        .list_occurrences(None, Some(&fp), None, 200)
+        .await
+        .map_err(|e| {
+            ErrorResponse::internal(format!("system_events occurrences query failed: {e}"))
+        })?;
+    Ok(Json(json!({
+        "group": group,
+        "occurrences": occurrences,
+    })))
+}
+
+/// POST /api/admin/system-events/:fingerprint/resolve
+async fn admin_system_event_resolve(
+    State(state): State<AppState>,
+    Extension(auth): Extension<middleware::AuthIdentity>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let user = auth.user_id().to_string();
+    let affected = state
+        .system_events
+        .mark_resolved(&fp, &user)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("mark_resolved failed: {e}")))?;
+    Ok(Json(json!({ "resolved": affected > 0 })))
+}
+
+/// POST /api/admin/system-events/:fingerprint/unresolve
+async fn admin_system_event_unresolve(
+    State(state): State<AppState>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let affected = state
+        .system_events
+        .unmark_resolved(&fp)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("unmark_resolved failed: {e}")))?;
+    Ok(Json(json!({ "unresolved": affected > 0 })))
+}
+
+/// DELETE /api/admin/system-events/:fingerprint — delete one group + its occurrences.
+async fn admin_system_event_delete_group(
+    State(state): State<AppState>,
+    axum::extract::Path(fp): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let affected = state
+        .system_events
+        .delete_group(&fp)
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("delete_group failed: {e}")))?;
+    Ok(Json(json!({ "deleted": affected })))
+}
+
+/// DELETE /api/admin/system-events — clear the entire persistent log.
+async fn admin_clear_system_events(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ErrorResponse> {
+    state
+        .system_events
+        .clear_all()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("clear_all failed: {e}")))?;
+    Ok(Json(json!({ "cleared": true })))
+}
+
+/// POST /api/system-events/client — frontend / client-side error ingest.
+/// Accepted from authenticated users (not just admins) so widgets and the
+/// SDK can report their own failures.
+#[derive(Deserialize)]
+struct ClientSystemEventBody {
+    severity: String,
+    source: String,
+    message: String,
+    #[serde(default)]
+    file: Option<String>,
+    #[serde(default)]
+    line: Option<i32>,
+    #[serde(default)]
+    request_path: Option<String>,
+    #[serde(default)]
+    error_chain: Option<String>,
+    #[serde(default)]
+    extra: Option<Value>,
+}
+
+async fn client_system_event_ingest(
+    State(state): State<AppState>,
+    Extension(auth): Extension<middleware::AuthIdentity>,
+    Json(body): Json<ClientSystemEventBody>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let severity = system_events::Severity::from_str_ci(&body.severity)
+        .unwrap_or(system_events::Severity::Error);
+    // Force the `client:` prefix so frontend sources are always
+    // distinguishable in the grouped view.
+    let source = if body.source.starts_with("client:") || body.source.starts_with("frontend:") {
+        body.source
+    } else {
+        format!("client:{}", body.source)
+    };
+    // Reject absurdly long messages so a runaway client can't bloat the DB.
+    let message: String = body.message.chars().take(2000).collect();
+    let mut meta = system_events::EventMeta::default();
+    meta.user_id = Some(auth.user_id().to_string());
+    meta.file = body.file;
+    meta.line = body.line;
+    meta.request_path = body.request_path;
+    meta.error_chain = body.error_chain;
+    meta.extra = body.extra;
+    state
+        .system_events
+        .report_from_client(severity, &source, message, meta)
+        .await;
+    Ok(Json(json!({ "accepted": true })))
+}
+
+/// Admin: combined presence overview. Aggregates users, devices, and the
+/// `user_devices` + `desktop_clients` link tables into a single payload so
+/// the Admin Control Center can show which users are online and on which
+/// devices they are currently logged in. A device counts as `online` when
+/// its `last_seen` is within `online_threshold_seconds`. A user counts as
+/// online when at least one of their linked devices is online.
+async fn admin_presence(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
+    let users = state
+        .config_repo
+        .list_all_users_admin()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list users: {}", e)))?;
+    let devices = state
+        .config_repo
+        .list_devices()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list devices: {}", e)))?;
+    let links = state
+        .config_repo
+        .list_user_device_links()
+        .await
+        .map_err(|e| ErrorResponse::internal(format!("Failed to list user-device links: {}", e)))?;
+    let desktop_clients = state
+        .config_repo
+        .list_desktop_clients_raw()
+        .await
+        .unwrap_or_default();
+
+    let now = chrono::Utc::now();
+    let threshold_secs: i64 = 120;
+
+    // Index devices by id for quick lookups.
+    let mut device_index: std::collections::HashMap<String, &db::models::Device> =
+        std::collections::HashMap::with_capacity(devices.len());
+    for d in &devices {
+        device_index.insert(d.id.clone(), d);
+    }
+
+    // Build user_id -> Vec<device_id> from both `user_devices` and `desktop_clients`.
+    let mut user_to_devices: std::collections::HashMap<String, Vec<(String, bool, bool)>> =
+        std::collections::HashMap::new();
+    for (user_id, device_id, is_primary) in &links {
+        user_to_devices.entry(user_id.clone()).or_default().push((
+            device_id.clone(),
+            *is_primary,
+            false,
+        ));
+    }
+    for (device_id, user_id, _name, _os, _last_seen) in &desktop_clients {
+        let entry = user_to_devices.entry(user_id.clone()).or_default();
+        if !entry.iter().any(|(d, _, _)| d == device_id) {
+            entry.push((device_id.clone(), false, true));
+        }
+    }
+    // Reverse map: device_id -> Vec<user_id>
+    let mut device_to_users: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (user_id, devs) in &user_to_devices {
+        for (device_id, _, _) in devs {
+            device_to_users
+                .entry(device_id.clone())
+                .or_default()
+                .push(user_id.clone());
+        }
+    }
+
+    let user_payload: Vec<Value> = users
+        .iter()
+        .map(|u| {
+            let devs = user_to_devices.get(&u.id).cloned().unwrap_or_default();
+            let device_entries: Vec<Value> = devs
+                .iter()
+                .map(|(device_id, is_primary, is_desktop)| {
+                    let dev = device_index.get(device_id);
+                    let (last_seen, online, name, dtype) = match dev {
+                        Some(d) => {
+                            let age = (now - d.last_seen).num_seconds();
+                            (
+                                Some(d.last_seen),
+                                age >= 0 && age <= threshold_secs,
+                                d.device_name.clone(),
+                                d.device_type.clone(),
+                            )
+                        }
+                        None => (None, false, device_id.clone(), None),
+                    };
+                    serde_json::json!({
+                        "device_id": device_id,
+                        "device_name": name,
+                        "device_type": dtype,
+                        "is_primary": is_primary,
+                        "is_desktop_client": is_desktop,
+                        "online": online,
+                        "last_seen": last_seen,
+                    })
+                })
+                .collect();
+            let any_online = device_entries
+                .iter()
+                .any(|d| d.get("online").and_then(|v| v.as_bool()).unwrap_or(false));
+            serde_json::json!({
+                "id": u.id,
+                "username": u.username,
+                "display_name": u.display_name,
+                "avatar_url": u.avatar_url,
+                "role": u.role,
+                "is_admin": u.is_admin,
+                "online": any_online,
+                "device_count": device_entries.len(),
+                "devices": device_entries,
+            })
+        })
+        .collect();
+
+    let device_payload: Vec<Value> = devices
+        .iter()
+        .map(|d| {
+            let age = (now - d.last_seen).num_seconds();
+            let online = age >= 0 && age <= threshold_secs;
+            let user_ids = device_to_users.get(&d.id).cloned().unwrap_or_default();
+            serde_json::json!({
+                "id": d.id,
+                "device_name": d.device_name,
+                "device_type": d.device_type,
+                "user_agent": d.user_agent,
+                "is_terminal": d.is_terminal,
+                "terminal_name": d.terminal_name,
+                "assigned_profile_id": d.assigned_profile_id,
+                "last_seen": d.last_seen,
+                "created_at": d.created_at,
+                "online": online,
+                "seconds_since_seen": age.max(0),
+                "user_ids": user_ids,
+            })
+        })
+        .collect();
+
+    let online_users = user_payload
+        .iter()
+        .filter(|u| u.get("online").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
+    let online_devices = device_payload
+        .iter()
+        .filter(|d| d.get("online").and_then(|v| v.as_bool()).unwrap_or(false))
+        .count();
+    let connected_ws_clients = state.ws_manager.client_count().await;
+    let ws_sessions_raw = state.ws_manager.client_snapshot().await;
+    let ws_sessions: Vec<Value> = ws_sessions_raw
+        .iter()
+        .map(|c| {
+            let age = (now - c.last_seen).num_seconds().max(0);
+            serde_json::json!({
+                "client_id": c.client_id,
+                "user_id": c.user_id,
+                "username": c.username,
+                "is_admin": c.is_admin,
+                "authenticated": c.authenticated,
+                "connected_at": c.connected_at,
+                "last_seen": c.last_seen,
+                "seconds_since_seen": age,
+            })
+        })
+        .collect();
+    let authenticated_ws_clients = ws_sessions_raw.iter().filter(|c| c.authenticated).count();
+
+    Ok(Json(serde_json::json!({
+        "users": user_payload,
+        "devices": device_payload,
+        "ws_sessions": ws_sessions,
+        "totals": {
+            "users": user_payload.len(),
+            "online_users": online_users,
+            "devices": device_payload.len(),
+            "online_devices": online_devices,
+            "connected_ws_clients": connected_ws_clients,
+            "authenticated_ws_clients": authenticated_ws_clients,
+        },
+        "online_threshold_seconds": threshold_secs,
+        "generated_at": now,
+    })))
+}
+
 /// Create a configuration profile
 async fn create_profile(
     State(state): State<AppState>,
@@ -4199,7 +6068,10 @@ async fn create_profile(
         Ok(profile) => Ok(Json(profile)),
         Err(e) => {
             warn!("Failed to create profile: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to create profile: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to create profile: {}",
+                e
+            )))
         }
     }
 }
@@ -4211,10 +6083,35 @@ async fn get_profile_data(
 ) -> Result<Json<db::models::ProfileWithData>, ErrorResponse> {
     match state.config_repo.get_profile_with_data(&profile_id).await {
         Ok(Some(data)) => Ok(Json(data)),
-        Ok(None) => Err(ErrorResponse::not_found(format!("Profile {} not found", profile_id))),
+        Ok(None) => Err(ErrorResponse::not_found(format!(
+            "Profile {} not found",
+            profile_id
+        ))),
         Err(e) => {
             warn!("Failed to get profile data: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get profile data: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get profile data: {}",
+                e
+            )))
+        }
+    }
+}
+
+/// List all configuration profiles owned by the given user. The frontend
+/// `PageNavigationContext` uses this to find an existing profile for a freshly
+/// logged-in user before creating a new one.
+async fn list_user_profiles(
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<Json<Vec<db::models::ConfigurationProfile>>, ErrorResponse> {
+    match state.config_repo.list_profiles_by_owner(&user_id).await {
+        Ok(profiles) => Ok(Json(profiles)),
+        Err(e) => {
+            warn!("Failed to list profiles for user {}: {}", user_id, e);
+            Err(ErrorResponse::internal(format!(
+                "Failed to list profiles: {}",
+                e
+            )))
         }
     }
 }
@@ -4228,12 +6125,18 @@ async fn save_pages(
     match state.config_repo.save_pages(&profile_id, pages).await {
         Ok(_) => {
             // Record sync metadata
-            let _ = state.config_repo.record_change("pages", &profile_id, "UPDATE", None).await;
+            let _ = state
+                .config_repo
+                .record_change("pages", &profile_id, "UPDATE", None)
+                .await;
             Ok(StatusCode::OK)
         }
         Err(e) => {
             warn!("Failed to save pages: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save pages: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save pages: {}",
+                e
+            )))
         }
     }
 }
@@ -4247,12 +6150,18 @@ async fn save_theme_settings(
     match state.config_repo.save_theme(&profile_id, request).await {
         Ok(theme) => {
             // Record sync metadata
-            let _ = state.config_repo.record_change("theme_settings", &profile_id, "UPDATE", None).await;
+            let _ = state
+                .config_repo
+                .record_change("theme_settings", &profile_id, "UPDATE", None)
+                .await;
             Ok(Json(theme))
         }
         Err(e) => {
             warn!("Failed to save theme: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save theme: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save theme: {}",
+                e
+            )))
         }
     }
 }
@@ -4263,15 +6172,25 @@ async fn save_background_config(
     Path(profile_id): Path<String>,
     Json(request): Json<db::models::SaveBackgroundRequest>,
 ) -> Result<Json<db::models::BackgroundConfig>, ErrorResponse> {
-    match state.config_repo.save_background(&profile_id, request).await {
+    match state
+        .config_repo
+        .save_background(&profile_id, request)
+        .await
+    {
         Ok(background) => {
             // Record sync metadata
-            let _ = state.config_repo.record_change("background_configs", &profile_id, "UPDATE", None).await;
+            let _ = state
+                .config_repo
+                .record_change("background_configs", &profile_id, "UPDATE", None)
+                .await;
             Ok(Json(background))
         }
         Err(e) => {
             warn!("Failed to save background: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save background: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save background: {}",
+                e
+            )))
         }
     }
 }
@@ -4282,15 +6201,25 @@ async fn save_user_preference(
     Path(user_id): Path<String>,
     Json(request): Json<db::models::SavePreferenceRequest>,
 ) -> Result<Json<db::models::UserPreference>, ErrorResponse> {
-    match state.config_repo.save_preference(&user_id, None, request).await {
+    match state
+        .config_repo
+        .save_preference(&user_id, None, request)
+        .await
+    {
         Ok(pref) => {
             // Record sync metadata
-            let _ = state.config_repo.record_change("user_preferences", &user_id, "UPDATE", None).await;
+            let _ = state
+                .config_repo
+                .record_change("user_preferences", &user_id, "UPDATE", None)
+                .await;
             Ok(Json(pref))
         }
         Err(e) => {
             warn!("Failed to save preference: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save preference: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save preference: {}",
+                e
+            )))
         }
     }
 }
@@ -4304,7 +6233,10 @@ async fn get_user_preferences(
         Ok(prefs) => Ok(Json(prefs)),
         Err(e) => {
             warn!("Failed to get preferences: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get preferences: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get preferences: {}",
+                e
+            )))
         }
     }
 }
@@ -4316,12 +6248,18 @@ async fn save_system_preference(
 ) -> Result<Json<db::models::SystemPreference>, ErrorResponse> {
     match state.config_repo.save_system_preference(request).await {
         Ok(pref) => {
-            let _ = state.config_repo.record_change("system_preferences", &pref.preference_key, "UPDATE", None).await;
+            let _ = state
+                .config_repo
+                .record_change("system_preferences", &pref.preference_key, "UPDATE", None)
+                .await;
             Ok(Json(pref))
         }
         Err(e) => {
             warn!("Failed to save system preference: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save system preference: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save system preference: {}",
+                e
+            )))
         }
     }
 }
@@ -4334,7 +6272,10 @@ async fn get_system_preferences(
         Ok(prefs) => Ok(Json(prefs)),
         Err(e) => {
             warn!("Failed to get system preferences: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get system preferences: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get system preferences: {}",
+                e
+            )))
         }
     }
 }
@@ -4361,9 +6302,7 @@ struct SettingValueDto {
     applied_live: Option<String>,
 }
 
-async fn admin_settings_schema(
-    State(state): State<AppState>,
-) -> Json<Vec<SettingDefinition>> {
+async fn admin_settings_schema(State(state): State<AppState>) -> Json<Vec<SettingDefinition>> {
     Json(state.settings_registry.control_center())
 }
 
@@ -4384,26 +6323,23 @@ async fn admin_settings_schema_wizard(
 
 /// Proxy to iora-intelligence for health overview.
 /// Falls back to null if intelligence service is not reachable.
-async fn proxy_intelligence_overview(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn proxy_intelligence_overview(State(state): State<AppState>) -> Json<Value> {
     let intel_url = std::env::var("INTELLIGENCE_URL")
         .ok()
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| system_config::service_url("iora-intelligence", 8099));
 
-    match state.http_client
+    match state
+        .http_client
         .get(&format!("{}/api/intelligence/overview", intel_url))
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
     {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<Value>().await {
-                Ok(data) => Json(data),
-                Err(_) => Json(json!(null)),
-            }
-        }
+        Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
+            Ok(data) => Json(data),
+            Err(_) => Json(json!(null)),
+        },
         _ => Json(json!(null)),
     }
 }
@@ -4418,18 +6354,20 @@ async fn proxy_intelligence_maintenance_run(
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| system_config::service_url("iora-intelligence", 8099));
 
-    match state.http_client
-        .get(&format!("{}/api/intelligence/maintenance/run/{}", intel_url, task))
+    match state
+        .http_client
+        .get(&format!(
+            "{}/api/intelligence/maintenance/run/{}",
+            intel_url, task
+        ))
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
     {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<Value>().await {
-                Ok(data) => Json(data),
-                Err(e) => Json(json!({"error": format!("Failed to parse response: {}", e)})),
-            }
-        }
+        Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
+            Ok(data) => Json(data),
+            Err(e) => Json(json!({"error": format!("Failed to parse response: {}", e)})),
+        },
         Ok(resp) => {
             let status = resp.status().as_u16();
             Json(json!({"error": format!("Intelligence service returned HTTP {}", status)}))
@@ -4466,8 +6404,15 @@ async fn forward_request_to(
         let n = name.as_str().to_ascii_lowercase();
         if matches!(
             n.as_str(),
-            "host" | "content-length" | "connection" | "transfer-encoding" |
-            "upgrade" | "proxy-authorization" | "proxy-authenticate" | "te" | "trailer"
+            "host"
+                | "content-length"
+                | "connection"
+                | "transfer-encoding"
+                | "upgrade"
+                | "proxy-authorization"
+                | "proxy-authenticate"
+                | "te"
+                | "trailer"
         ) {
             continue;
         }
@@ -4507,15 +6452,19 @@ async fn forward_request_to(
 
     match upstream {
         Ok(resp) => {
-            let status = StatusCode::from_u16(resp.status().as_u16())
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             let mut builder = axum::http::Response::builder().status(status);
             for (name, value) in resp.headers().iter() {
                 let n = name.as_str().to_ascii_lowercase();
                 if matches!(
                     n.as_str(),
-                    "connection" | "transfer-encoding" | "content-length" |
-                    "content-encoding" | "upgrade" | "trailer"
+                    "connection"
+                        | "transfer-encoding"
+                        | "content-length"
+                        | "content-encoding"
+                        | "upgrade"
+                        | "trailer"
                 ) {
                     continue;
                 }
@@ -4529,9 +6478,7 @@ async fn forward_request_to(
             let bytes = resp.bytes().await.unwrap_or_default();
             builder
                 .body(Body::from(bytes))
-                .unwrap_or_else(|_| {
-                    (StatusCode::BAD_GATEWAY, "proxy build failed").into_response()
-                })
+                .unwrap_or_else(|_| (StatusCode::BAD_GATEWAY, "proxy build failed").into_response())
         }
         Err(e) => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -4579,7 +6526,11 @@ async fn proxy_files_share(
     let base = microservice_url("IORA_FILES_URL", "iora-files", 8100);
     let path = req.uri().path().to_string();
     let new_path = path.replacen("/api/share/", "/api/files/shared/", 1);
-    let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
     let new_uri: axum::http::Uri = format!("{}{}", new_path, query)
         .parse()
         .unwrap_or_else(|_| req.uri().clone());
@@ -4603,6 +6554,370 @@ async fn proxy_assist(
 ) -> axum::response::Response {
     let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
     forward_request_to(&state, &base, req).await
+}
+
+async fn app_assist_integrations(State(state): State<AppState>) -> Json<Value> {
+    let apps = state.local_appstore.list().await;
+    let integrations: Vec<Value> = apps
+        .into_iter()
+        .filter_map(|app| {
+            let assist = app
+                .manifest
+                .extra
+                .get("assist")
+                .cloned()
+                .unwrap_or(json!({}));
+            let assist_enabled = assist
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let granted: Vec<String> = app
+                .permission_grants
+                .iter()
+                .filter(|grant| grant.is_active)
+                .map(|grant| grant.permission.clone())
+                .collect();
+            let has_assist_grant = granted.iter().any(|permission| {
+                permission.starts_with("Assist") || permission.starts_with("GitHub")
+            });
+            if !assist_enabled && !has_assist_grant {
+                return None;
+            }
+            Some(json!({
+                "id": app.id,
+                "name": app.name,
+                "version": app.version,
+                "developer": app.developer,
+                "description": app.description,
+                "icon": app.icon,
+                "enabled": app.enabled,
+                "status": app.status,
+                "assist": assist,
+                "permissions": granted,
+                "denied_permissions": app.denied_permissions,
+            }))
+        })
+        .collect();
+
+    let total = integrations.len();
+    Json(json!({
+        "integrations": integrations,
+        "total": total,
+    }))
+}
+
+async fn app_assist_context(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistContextRead").await {
+        return err.into_response();
+    }
+    forward_request_to_assist_path(&state, req, "/api/assist/context".to_string(), None).await
+}
+
+async fn app_assist_events(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistEventsSubscribe").await {
+        return err.into_response();
+    }
+    forward_request_to_assist_path(
+        &state,
+        req,
+        "/api/assist/notifications/stream".to_string(),
+        None,
+    )
+    .await
+}
+
+async fn app_assist_create_task(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistTaskCreate").await {
+        return err.into_response();
+    }
+    let enriched = match enrich_app_assist_body(req.into_body(), &app_id, "agent_task").await {
+        Ok(bytes) => bytes,
+        Err(err) => return err.into_response(),
+    };
+    forward_body_to_assist_path(
+        &state,
+        reqwest::Method::POST,
+        "/api/assist/agent/tasks".to_string(),
+        enriched,
+    )
+    .await
+}
+
+async fn app_assist_chat(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    if let Err(err) = require_app_permission(&state, &app_id, "AssistChat").await {
+        return err.into_response();
+    }
+    let enriched = match enrich_app_assist_body(req.into_body(), &app_id, "chat").await {
+        Ok(bytes) => bytes,
+        Err(err) => return err.into_response(),
+    };
+    forward_body_to_assist_path(
+        &state,
+        reqwest::Method::POST,
+        "/api/assist/chat".to_string(),
+        enriched,
+    )
+    .await
+}
+
+async fn app_assist_github_proxy(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let method = req.method().clone();
+    let permission = github_permission_for(&method, &path);
+    if let Err(err) = require_any_app_permission(&state, &app_id, &permission).await {
+        return err.into_response();
+    }
+    forward_request_to_assist_path(&state, req, format!("/api/assist/github/{path}"), None).await
+}
+
+async fn require_app_permission(
+    state: &AppState,
+    app_id: &str,
+    permission: &str,
+) -> Result<(), ErrorResponse> {
+    if state
+        .local_appstore
+        .has_permission(app_id, permission)
+        .await
+    {
+        Ok(())
+    } else {
+        Err(ErrorResponse::forbidden(format!(
+            "app '{}' requires permission '{}' for this Assist capability",
+            app_id, permission
+        )))
+    }
+}
+
+async fn require_any_app_permission(
+    state: &AppState,
+    app_id: &str,
+    permissions: &[&str],
+) -> Result<(), ErrorResponse> {
+    for permission in permissions {
+        if state
+            .local_appstore
+            .has_permission(app_id, permission)
+            .await
+        {
+            return Ok(());
+        }
+    }
+    Err(ErrorResponse::forbidden(format!(
+        "app '{}' requires one of these permissions: {}",
+        app_id,
+        permissions.join(", ")
+    )))
+}
+
+fn github_permission_for<'a>(method: &axum::http::Method, path: &str) -> Vec<&'a str> {
+    let is_read = matches!(
+        *method,
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    );
+    if is_read && path.contains("/pulls") {
+        return vec!["GitHubPullRequestRead", "GitHubRead"];
+    }
+    if is_read {
+        return vec!["GitHubRead"];
+    }
+    if path.contains("/pulls") && path.contains("/comment") {
+        return vec!["GitHubPullRequestComment", "GitHubWrite"];
+    }
+    if path.contains("/workflows") {
+        return vec!["GitHubWorkflowTrigger", "GitHubWrite"];
+    }
+    vec!["GitHubWrite"]
+}
+
+async fn enrich_app_assist_body(
+    body: axum::body::Body,
+    app_id: &str,
+    capability: &str,
+) -> Result<Vec<u8>, ErrorResponse> {
+    let body_bytes = axum::body::to_bytes(body, 2 * 1024 * 1024)
+        .await
+        .map_err(|e| ErrorResponse::bad_request(format!("Failed to read app Assist body: {e}")))?;
+    let mut payload = if body_bytes.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_slice::<Value>(&body_bytes).map_err(|e| {
+            ErrorResponse::bad_request(format!("App Assist request body must be JSON: {e}"))
+        })?
+    };
+    if !payload.is_object() {
+        payload = json!({ "payload": payload });
+    }
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "origin".to_string(),
+            json!({
+                "kind": "app",
+                "app_id": app_id,
+                "capability": capability,
+                "via": "iora-home-app-assist-bridge",
+            }),
+        );
+    }
+    serde_json::to_vec(&payload)
+        .map_err(|e| ErrorResponse::internal(format!("Failed to encode app Assist body: {e}")))
+}
+
+async fn forward_body_to_assist_path(
+    state: &AppState,
+    method: reqwest::Method,
+    target_path: String,
+    body: Vec<u8>,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+    let url = format!("{}{}", base.trim_end_matches('/'), target_path);
+    forward_reqwest_request(
+        state,
+        method,
+        &url,
+        reqwest::header::HeaderMap::new(),
+        body,
+        &base,
+    )
+    .await
+}
+
+async fn forward_request_to_assist_path(
+    state: &AppState,
+    req: axum::extract::Request,
+    target_path: String,
+    body_override: Option<Vec<u8>>,
+) -> axum::response::Response {
+    let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+    let method = req.method().clone();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+    let mut header_map = reqwest::header::HeaderMap::new();
+    for (name, value) in req.headers().iter() {
+        let n = name.as_str().to_ascii_lowercase();
+        if matches!(
+            n.as_str(),
+            "host" | "content-length" | "connection" | "transfer-encoding" | "upgrade"
+        ) {
+            continue;
+        }
+        if let (Ok(rname), Ok(rvalue)) = (
+            reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+            reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            header_map.append(rname, rvalue);
+        }
+    }
+    let body = match body_override {
+        Some(bytes) => bytes,
+        None => match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+            Ok(bytes) => bytes.to_vec(),
+            Err(e) => {
+                return ErrorResponse::bad_request(format!("Failed to read body: {e}"))
+                    .into_response();
+            }
+        },
+    };
+    let method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
+        Ok(method) => method,
+        Err(_) => return (StatusCode::METHOD_NOT_ALLOWED, "method").into_response(),
+    };
+    let url = format!("{}{}{}", base.trim_end_matches('/'), target_path, query);
+    forward_reqwest_request(state, method, &url, header_map, body, &base).await
+}
+
+async fn forward_reqwest_request(
+    state: &AppState,
+    method: reqwest::Method,
+    url: &str,
+    headers: reqwest::header::HeaderMap,
+    body: Vec<u8>,
+    upstream_label: &str,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use futures_util::TryStreamExt;
+
+    let upstream = state
+        .http_client
+        .request(method, url)
+        .headers(headers)
+        .body(body)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await;
+
+    match upstream {
+        Ok(resp) => {
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let mut builder = axum::http::Response::builder().status(status);
+            let is_event_stream = resp
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.to_ascii_lowercase().contains("text/event-stream"))
+                .unwrap_or(false);
+            for (name, value) in resp.headers().iter() {
+                let n = name.as_str().to_ascii_lowercase();
+                if matches!(
+                    n.as_str(),
+                    "connection"
+                        | "transfer-encoding"
+                        | "content-length"
+                        | "content-encoding"
+                        | "upgrade"
+                        | "trailer"
+                ) {
+                    continue;
+                }
+                if let (Ok(hn), Ok(hv)) = (
+                    axum::http::HeaderName::from_bytes(name.as_str().as_bytes()),
+                    axum::http::HeaderValue::from_bytes(value.as_bytes()),
+                ) {
+                    builder = builder.header(hn, hv);
+                }
+            }
+            if is_event_stream {
+                let stream = resp.bytes_stream().map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Assist stream error: {e}"))
+                });
+                return builder.body(Body::from_stream(stream)).unwrap_or_else(|_| {
+                    (StatusCode::BAD_GATEWAY, "proxy stream build failed").into_response()
+                });
+            }
+            let bytes = resp.bytes().await.unwrap_or_default();
+            builder
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| (StatusCode::BAD_GATEWAY, "proxy build failed").into_response())
+        }
+        Err(e) => ErrorResponse::service_unavailable(format!(
+            "Upstream Assist service not reachable at {}: {}",
+            upstream_label, e
+        ))
+        .into_response(),
+    }
 }
 
 async fn proxy_watchdog(
@@ -4687,7 +7002,11 @@ async fn proxy_core_security(
     let base = microservice_url("IORA_SECURITY_URL", "iora-security", 8095);
     let path = req.uri().path().to_string();
     let new_path = path.replacen("/api/core/security/", "/api/security/", 1);
-    let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
     let new_uri: axum::http::Uri = format!("{}{}", new_path, query)
         .parse()
         .unwrap_or_else(|_| req.uri().clone());
@@ -4739,13 +7058,32 @@ async fn local_appstore_app_delete(
         state.local_appstore.uninstall(&app_id).await
     };
     result.map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
-    Ok(Json(json!({ "success": true, "app_id": app_id, "force": force })))
+    // Best-effort: drop any capabilities this app registered with iora-assist.
+    spawn_remove_app_capabilities(state.clone(), app_id.clone());
+    Ok(Json(
+        json!({ "success": true, "app_id": app_id, "force": force }),
+    ))
 }
 
 async fn local_appstore_app_enable(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    if let Some(app) = state
+        .local_appstore
+        .list()
+        .await
+        .into_iter()
+        .find(|app| app.id == app_id)
+    {
+        if !app.denied_permissions.is_empty() {
+            return Err(ErrorResponse::forbidden(format!(
+                "app '{}' cannot be enabled because permissions were not granted: {}",
+                app_id,
+                app.denied_permissions.join(", ")
+            )));
+        }
+    }
     let app = state
         .local_appstore
         .enable(&app_id, true)
@@ -4775,6 +7113,12 @@ struct AppstoreInstallBody {
     /// Optional original filename for nicer logs.
     #[serde(default)]
     file_name: Option<String>,
+    #[serde(default)]
+    granted_permissions: Option<Vec<String>>,
+    #[serde(default)]
+    denied_permissions: Vec<String>,
+    #[serde(default, alias = "force_replace")]
+    replace_existing: bool,
 }
 
 async fn local_appstore_install(
@@ -4795,7 +7139,9 @@ async fn local_appstore_install(
         .to_string();
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
-        .map_err(|e| ErrorResponse::bad_request(format!("zip_data ist kein gültiges Base64: {e}")))?;
+        .map_err(|e| {
+            ErrorResponse::bad_request(format!("zip_data ist kein gültiges Base64: {e}"))
+        })?;
 
     if bytes.is_empty() {
         return Err(ErrorResponse::bad_request("ZIP-Datei ist leer".to_string()));
@@ -4811,7 +7157,16 @@ async fn local_appstore_install(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "upload.zip".to_string());
 
-    let install_id = state.local_appstore.start_install(file_name, bytes);
+    let install_options = local_appstore::InstallOptions {
+        replace_existing: body.replace_existing,
+        granted_permissions: body.granted_permissions,
+        denied_permissions: body.denied_permissions,
+        actor: Some("admin-api".to_string()),
+    };
+    let install_id =
+        state
+            .local_appstore
+            .start_install_with_options(file_name, bytes, install_options);
     spawn_post_install_runtime_prepare(state.clone(), install_id);
     Ok(Json(json!({
         "success": true,
@@ -4845,12 +7200,20 @@ async fn local_appstore_clear_job(
 ) -> Result<Json<Value>, ErrorResponse> {
     let id = uuid::Uuid::parse_str(&job_id)
         .map_err(|_| ErrorResponse::bad_request("Ungültige Installations-ID".to_string()))?;
-    let removed = state.local_appstore.clear_job(id).await
-        .map_err(|e| ErrorResponse::bad_request(format!("Installations-Eintrag kann nicht entfernt werden: {}", e)))?;
+    let removed = state.local_appstore.clear_job(id).await.map_err(|e| {
+        ErrorResponse::bad_request(format!(
+            "Installations-Eintrag kann nicht entfernt werden: {}",
+            e
+        ))
+    })?;
     if !removed {
-        return Err(ErrorResponse::not_found("Installations-Eintrag nicht gefunden".to_string()));
+        return Err(ErrorResponse::not_found(
+            "Installations-Eintrag nicht gefunden".to_string(),
+        ));
     }
-    Ok(Json(json!({ "success": true, "removed": true, "job_id": job_id })))
+    Ok(Json(
+        json!({ "success": true, "removed": true, "job_id": job_id }),
+    ))
 }
 
 /// SSE stream der Docker-realen App-Status. Pollt alle 10 s `docker compose ps`
@@ -4861,7 +7224,6 @@ async fn apps_status_stream(
     State(state): State<AppState>,
 ) -> axum::response::Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
     use axum::response::sse::{Event, KeepAlive, Sse};
-    use tokio_stream::StreamExt as _;
 
     let stream = futures_util::stream::unfold(state, |state| async move {
         let apps = state.local_appstore.list().await;
@@ -4892,8 +7254,8 @@ async fn apps_status_stream(
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "apps": entries,
         });
-        let event = Event::default()
-            .data(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()));
+        let event =
+            Event::default().data(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()));
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         Some((Ok::<_, Infallible>(event), state))
     });
@@ -4917,17 +7279,19 @@ async fn local_appstore_jobs_stream(
         Ok::<local_appstore::InstallEvent, Infallible>(snapshot)
     });
     let live = BroadcastStream::new(recv).filter_map(
-        |r: Result<local_appstore::InstallEvent, tokio_stream::wrappers::errors::BroadcastStreamRecvError>| {
-            r.ok().map(Ok::<_, Infallible>)
-        },
+        |r: Result<
+            local_appstore::InstallEvent,
+            tokio_stream::wrappers::errors::BroadcastStreamRecvError,
+        >| { r.ok().map(Ok::<_, Infallible>) },
     );
-    let combined = snapshot_stream.chain(live).map(
-        |r: Result<local_appstore::InstallEvent, Infallible>| {
-            let ev = r.unwrap();
-            let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
-            Ok(Event::default().data(data))
-        },
-    );
+    let combined =
+        snapshot_stream
+            .chain(live)
+            .map(|r: Result<local_appstore::InstallEvent, Infallible>| {
+                let ev = r.unwrap();
+                let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                Ok(Event::default().data(data))
+            });
     Sse::new(combined).keep_alive(KeepAlive::default())
 }
 
@@ -4945,16 +7309,23 @@ async fn local_store_register(
     State(state): State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let app_id = body.get("app_id")
+    let app_id = body
+        .get("app_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Feld 'app_id' fehlt"))?;
 
     match app_id {
         "iora-developer-app" => {
-            state.local_appstore.set_developer_app(true).await
-                .map_err(|e| ErrorResponse::internal(format!(
-                    "Developer-App-Registrierung fehlgeschlagen: {}", e
-                )))?;
+            state
+                .local_appstore
+                .set_developer_app(true)
+                .await
+                .map_err(|e| {
+                    ErrorResponse::internal(format!(
+                        "Developer-App-Registrierung fehlgeschlagen: {}",
+                        e
+                    ))
+                })?;
             Ok(Json(json!({
                 "success": true,
                 "app_id": app_id,
@@ -4962,8 +7333,9 @@ async fn local_store_register(
             })))
         }
         _ => Err(ErrorResponse::not_found(format!(
-            "Unbekannte System-App: '{}'", app_id
-        )))
+            "Unbekannte System-App: '{}'",
+            app_id
+        ))),
     }
 }
 
@@ -4999,7 +7371,10 @@ async fn admin_control_restart_service(
     let soft_restart_home = || async {
         let ha_config = load_ha_runtime_config(&state.config_repo).await;
         if ha_config.is_configured() {
-            state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
+            state
+                .ha_client
+                .update_credentials(&ha_config.url, &ha_config.token)
+                .await;
             state.ha_connection.update_url(&ha_config.url).await;
             state.ha_connection.reset_for_reconnect();
         }
@@ -5136,6 +7511,47 @@ async fn supervisor_apps_get(
         "custom_pages": app.custom_pages,
         "ports": app.ports,
         "manifest": app.manifest,
+        "permission_grants": app.permission_grants,
+        "denied_permissions": app.denied_permissions,
+        "permission_audit": app.permission_audit,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct AppPermissionsUpdateRequest {
+    granted_permissions: Vec<String>,
+    #[serde(default)]
+    denied_permissions: Vec<String>,
+}
+
+async fn app_permissions_update(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppPermissionsUpdateRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let updated = state
+        .local_appstore
+        .update_permissions(
+            &app_id,
+            body.granted_permissions,
+            body.denied_permissions,
+            "app-permissions-ui",
+        )
+        .await
+        .map_err(|e| {
+            let message = e.to_string();
+            if message.contains("not found") {
+                ErrorResponse::not_found(message)
+            } else {
+                ErrorResponse::internal(message)
+            }
+        })?;
+    Ok(Json(json!({
+        "success": true,
+        "app_id": updated.id,
+        "permission_grants": updated.permission_grants,
+        "denied_permissions": updated.denied_permissions,
+        "permission_audit": updated.permission_audit,
     })))
 }
 
@@ -5165,7 +7581,28 @@ async fn supervisor_apps_install(
             .filter(|s| !s.is_empty())
             .unwrap_or("upload.zip")
             .to_string();
-        let install_id = state.local_appstore.start_install(file_name, bytes);
+        let granted_permissions = body
+            .get("granted_permissions")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let denied_permissions = body
+            .get("denied_permissions")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+            .unwrap_or_default();
+        let replace_existing = body
+            .get("replace_existing")
+            .or_else(|| body.get("force_replace"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let install_options = local_appstore::InstallOptions {
+            replace_existing,
+            granted_permissions,
+            denied_permissions,
+            actor: Some("supervisor-api".to_string()),
+        };
+        let install_id =
+            state
+                .local_appstore
+                .start_install_with_options(file_name, bytes, install_options);
         spawn_post_install_runtime_prepare(state.clone(), install_id);
         return Ok(Json(json!({
             "success": true,
@@ -5186,6 +7623,14 @@ async fn supervisor_apps_start(
         .find(|a| a.id == app_id)
         .cloned()
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    if !app_meta.denied_permissions.is_empty() {
+        return Err(ErrorResponse::forbidden(format!(
+            "app '{}' cannot be started because permissions were not granted: {}",
+            app_id,
+            app_meta.denied_permissions.join(", ")
+        )));
+    }
 
     let needs_docker = app_meta.docker_config.is_some() || app_meta.bundle_config.is_some();
 
@@ -5348,7 +7793,9 @@ async fn supervisor_apps_stop(
             level: "INFO".to_string(),
             message: match &docker_result {
                 Some(msg) => format!("App gestoppt. {msg}"),
-                None if needs_docker => "App gestoppt. Docker-Down konnte nicht bestaetigt werden.".to_string(),
+                None if needs_docker => {
+                    "App gestoppt. Docker-Down konnte nicht bestaetigt werden.".to_string()
+                }
                 None => "App gestoppt (lokaler Modus).".to_string(),
             },
             source: "app-runtime".to_string(),
@@ -5362,6 +7809,138 @@ async fn supervisor_apps_stop(
         "docker": docker_result,
         "message": format!("App '{}' gestoppt.", app.name),
     })))
+}
+
+async fn docker_compose_control(app_id: &str, action: &str) -> Option<Result<String, String>> {
+    use tokio::process::Command;
+
+    let mut had_binary = false;
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        match Command::new("docker")
+            .args(["compose", "-p", &project, action])
+            .output()
+            .await
+        {
+            Ok(out) => {
+                had_binary = true;
+                if out.status.success() {
+                    let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    return Some(Ok(if msg.is_empty() {
+                        format!("docker compose {action} succeeded")
+                    } else {
+                        msg
+                    }));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(_) => {}
+        }
+    }
+
+    if had_binary {
+        Some(Err(format!(
+            "docker compose {action} failed for app '{app_id}'"
+        )))
+    } else {
+        None
+    }
+}
+
+async fn supervisor_apps_pause(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .cloned()
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Pause is only available for containerized apps".to_string(),
+        ));
+    }
+
+    match docker_compose_control(&app_id, "pause").await {
+        Some(Ok(msg)) => {
+            let updated = state
+                .local_appstore
+                .set_status(&app_id, "paused")
+                .await
+                .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: format!("App paused. {msg}"),
+                    source: "app-runtime".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": true,
+                "app_id": updated.id,
+                "status": "paused",
+                "message": format!("App '{}' paused.", updated.name),
+            })))
+        }
+        Some(Err(err)) => Err(ErrorResponse::bad_request(err)),
+        None => Err(ErrorResponse::service_unavailable(
+            "Docker CLI is unavailable. Pause is not possible.".to_string(),
+        )),
+    }
+}
+
+async fn supervisor_apps_resume(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .iter()
+        .find(|a| a.id == app_id)
+        .cloned()
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Resume is only available for containerized apps".to_string(),
+        ));
+    }
+
+    match docker_compose_control(&app_id, "unpause").await {
+        Some(Ok(msg)) => {
+            let updated = state
+                .local_appstore
+                .set_status(&app_id, "running")
+                .await
+                .map_err(|e| ErrorResponse::bad_request(format!("{e:#}")))?;
+            state.local_appstore.append_log(
+                &app_id,
+                local_appstore::LogEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    level: "INFO".to_string(),
+                    message: format!("App resumed. {msg}"),
+                    source: "app-runtime".to_string(),
+                },
+            );
+            Ok(Json(json!({
+                "success": true,
+                "app_id": updated.id,
+                "status": "running",
+                "message": format!("App '{}' resumed.", updated.name),
+            })))
+        }
+        Some(Err(err)) => Err(ErrorResponse::bad_request(err)),
+        None => Err(ErrorResponse::service_unavailable(
+            "Docker CLI is unavailable. Resume is not possible.".to_string(),
+        )),
+    }
 }
 
 async fn supervisor_apps_restart(
@@ -5426,7 +8005,8 @@ async fn supervisor_apps_restart(
             }
             None => {
                 return Err(ErrorResponse::service_unavailable(
-                    "Docker CLI ist nicht verfügbar. Neustart dieser App ist nicht möglich.".to_string(),
+                    "Docker CLI ist nicht verfügbar. Neustart dieser App ist nicht möglich."
+                        .to_string(),
                 ));
             }
         }
@@ -5497,14 +8077,20 @@ async fn supervisor_apps_compose(
 
     Ok(axum::response::Response::builder()
         .header("content-type", "text/yaml; charset=utf-8")
-        .header("content-disposition", format!("attachment; filename=\"docker-compose-{}.yml\"", app_id))
+        .header(
+            "content-disposition",
+            format!("attachment; filename=\"docker-compose-{}.yml\"", app_id),
+        )
         .body(compose_yaml)
-        .unwrap())
+        .unwrap_or_else(|_| axum::response::Response::new(String::new())))
 }
 
 /// Generate a docker-compose.yml from a bundle definition.
 fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
-    let version = bundle.get("version").and_then(|v| v.as_str()).unwrap_or("3.8");
+    let version = bundle
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("3.8");
     let services = bundle.get("services").and_then(|s| s.as_array());
     let network_config = bundle.get("network");
     let volumes_config = bundle.get("volumes").and_then(|v| v.as_array());
@@ -5519,24 +8105,33 @@ fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
     let net_internal = network_config
         .and_then(|n| n.get("internal").and_then(|v| v.as_bool()))
         .unwrap_or(false);
-    let net_subnet = network_config
-        .and_then(|n| n.get("subnet").and_then(|v| v.as_str()));
+    let net_subnet = network_config.and_then(|n| n.get("subnet").and_then(|v| v.as_str()));
 
     let mut yaml = format!(
         "# IORA App Bundle: {app_id}\n# Bundled components:\n#\n",
         app_id = app_id
     );
 
-    yaml.push_str(&format!("version: '{version}'\nname: iora-bundle-{app_id}\n\nservices:\n", version = version, app_id = app_id));
+    yaml.push_str(&format!(
+        "version: '{version}'\nname: iora-bundle-{app_id}\n\nservices:\n",
+        version = version,
+        app_id = app_id
+    ));
 
     if let Some(svcs) = services {
         for svc in svcs {
-            let name = svc.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let name = svc
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let image = svc.get("image").and_then(|v| v.as_str());
             let build = svc.get("build");
             let command = svc.get("command").and_then(|v| v.as_str());
             let working_dir = svc.get("working_dir").and_then(|v| v.as_str());
-            let restart = svc.get("restart").and_then(|v| v.as_str()).unwrap_or("unless-stopped");
+            let restart = svc
+                .get("restart")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unless-stopped");
             let depends_on = svc.get("depends_on").and_then(|v| v.as_array());
             let ports = svc.get("internal_ports").and_then(|v| v.as_array());
             let env = svc.get("environment").and_then(|v| v.as_object());
@@ -5551,8 +8146,13 @@ fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
             }
             if let Some(bld) = build {
                 let context = bld.get("context").and_then(|v| v.as_str()).unwrap_or(".");
-                let dockerfile = bld.get("dockerfile").and_then(|v| v.as_str()).unwrap_or("Dockerfile");
-                yaml.push_str(&format!("    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"));
+                let dockerfile = bld
+                    .get("dockerfile")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Dockerfile");
+                yaml.push_str(&format!(
+                    "    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"
+                ));
                 if let Some(args) = bld.get("args").and_then(|v| v.as_object()) {
                     yaml.push_str("      args:\n");
                     for (k, v) in args {
@@ -5577,7 +8177,9 @@ fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
                     yaml.push_str("    depends_on:\n");
                     for dep in deps {
                         if let Some(d) = dep.as_str() {
-                            yaml.push_str(&format!("      {d}:\n        condition: service_started\n"));
+                            yaml.push_str(&format!(
+                                "      {d}:\n        condition: service_started\n"
+                            ));
                         }
                     }
                 }
@@ -5590,7 +8192,10 @@ fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
                     for pt in pts {
                         let port = pt.get("port").and_then(|v| v.as_u64()).unwrap_or(0);
                         let proto = pt.get("protocol").and_then(|v| v.as_str()).unwrap_or("tcp");
-                        let mode = pt.get("assignment_mode").and_then(|v| v.as_str()).unwrap_or("random");
+                        let mode = pt
+                            .get("assignment_mode")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("random");
                         if mode == "random" {
                             yaml.push_str(&format!("      - '{port}:{port}/{proto}' # random\n"));
                         } else {
@@ -5651,12 +8256,16 @@ fn generate_compose_yaml(app_id: &str, bundle: &serde_json::Value) -> String {
     }
 
     // Network
-    yaml.push_str(&format!("networks:\n  {net_name}:\n    driver: {net_driver}\n"));
+    yaml.push_str(&format!(
+        "networks:\n  {net_name}:\n    driver: {net_driver}\n"
+    ));
     if net_internal {
         yaml.push_str("    internal: true\n");
     }
     if let Some(subnet) = net_subnet {
-        yaml.push_str(&format!("    ipam:\n      config:\n        - subnet: {subnet}\n"));
+        yaml.push_str(&format!(
+            "    ipam:\n      config:\n        - subnet: {subnet}\n"
+        ));
     }
 
     // Named volumes
@@ -5690,26 +8299,29 @@ async fn supervisor_bundle_start(
         .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
 
     // Bundle apps require docker-compose.
-    let docker_result = match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
-        Some(Ok(msg)) => msg,
-        Some(Err(err_msg)) => {
-            state.local_appstore.append_log(
-                &app_id,
-                local_appstore::LogEntry {
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    level: "ERROR".to_string(),
-                    message: format!("Bundle-Start fehlgeschlagen: {err_msg}"),
-                    source: "app-runtime".to_string(),
-                },
-            );
-            return Err(ErrorResponse::bad_request(format!("Bundle konnte nicht gestartet werden: {err_msg}")));
-        }
-        None => {
-            return Err(ErrorResponse::service_unavailable(
-                "Docker CLI ist nicht verfügbar. Bundle-Start ist nicht möglich.".to_string(),
-            ));
-        }
-    };
+    let docker_result =
+        match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+            Some(Ok(msg)) => msg,
+            Some(Err(err_msg)) => {
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "ERROR".to_string(),
+                        message: format!("Bundle-Start fehlgeschlagen: {err_msg}"),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+                return Err(ErrorResponse::bad_request(format!(
+                    "Bundle konnte nicht gestartet werden: {err_msg}"
+                )));
+            }
+            None => {
+                return Err(ErrorResponse::service_unavailable(
+                    "Docker CLI ist nicht verfügbar. Bundle-Start ist nicht möglich.".to_string(),
+                ));
+            }
+        };
 
     // Verifizieren, dass alle Bundle-Services laufen.
     if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 20).await {
@@ -5790,26 +8402,30 @@ async fn supervisor_bundle_restart(
     let _ = state.local_appstore.stop(&app_id).await;
     let _ = try_docker_compose_down(&app_id).await;
 
-    let docker_result = match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
-        Some(Ok(msg)) => msg,
-        Some(Err(err_msg)) => {
-            state.local_appstore.append_log(
-                &app_id,
-                local_appstore::LogEntry {
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    level: "ERROR".to_string(),
-                    message: format!("Bundle-Neustart fehlgeschlagen: {err_msg}"),
-                    source: "app-runtime".to_string(),
-                },
-            );
-            return Err(ErrorResponse::bad_request(format!("Bundle konnte nicht neu gestartet werden: {err_msg}")));
-        }
-        None => {
-            return Err(ErrorResponse::service_unavailable(
-                "Docker CLI ist nicht verfügbar. Bundle-Neustart ist nicht möglich.".to_string(),
-            ));
-        }
-    };
+    let docker_result =
+        match try_docker_compose_up(&app_id, &app_meta, state.local_appstore.base_dir()).await {
+            Some(Ok(msg)) => msg,
+            Some(Err(err_msg)) => {
+                state.local_appstore.append_log(
+                    &app_id,
+                    local_appstore::LogEntry {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        level: "ERROR".to_string(),
+                        message: format!("Bundle-Neustart fehlgeschlagen: {err_msg}"),
+                        source: "app-runtime".to_string(),
+                    },
+                );
+                return Err(ErrorResponse::bad_request(format!(
+                    "Bundle konnte nicht neu gestartet werden: {err_msg}"
+                )));
+            }
+            None => {
+                return Err(ErrorResponse::service_unavailable(
+                    "Docker CLI ist nicht verfügbar. Bundle-Neustart ist nicht möglich."
+                        .to_string(),
+                ));
+            }
+        };
 
     if let Err(verify_err) = app_lifecycle::wait_until_running(&app_id, 20).await {
         let _ = try_docker_compose_down(&app_id).await;
@@ -5887,11 +8503,23 @@ async fn supervisor_bundle_status(
 
 /// Generate a docker-compose.yml from an app's `docker_config` (single-container).
 fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String {
-    let image = docker.get("base_image").and_then(|v| v.as_str()).unwrap_or("alpine:latest");
-    let working_dir = docker.get("working_dir").and_then(|v| v.as_str()).unwrap_or("/app");
-    let start_cmd = docker.get("start_cmd").and_then(|v| v.as_str()).unwrap_or("");
+    let image = docker
+        .get("base_image")
+        .and_then(|v| v.as_str())
+        .unwrap_or("alpine:latest");
+    let working_dir = docker
+        .get("working_dir")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/app");
+    let start_cmd = docker
+        .get("start_cmd")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let install_cmd = docker.get("install_cmd").and_then(|v| v.as_str());
-    let auto_build = docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false);
+    let auto_build = docker
+        .get("auto_build")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let explicit_dockerfile = docker.get("dockerfile").and_then(|v| v.as_str());
     let image_tag = if auto_build {
         docker
@@ -5908,9 +8536,14 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
     yaml.push_str(&format!("    image: {}\n", image_tag));
 
     if auto_build {
-        let context = docker.get("build_context").and_then(|v| v.as_str()).unwrap_or(".");
+        let context = docker
+            .get("build_context")
+            .and_then(|v| v.as_str())
+            .unwrap_or(".");
         let dockerfile = explicit_dockerfile.unwrap_or(".iora-generated.Dockerfile");
-        yaml.push_str(&format!("    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"));
+        yaml.push_str(&format!(
+            "    build:\n      context: {context}\n      dockerfile: {dockerfile}\n"
+        ));
     }
 
     if auto_build {
@@ -5929,7 +8562,10 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
     if let Some(ports) = docker.get("internal_ports").and_then(|v| v.as_array()) {
         for port in ports {
             let internal = port.get("port").and_then(|v| v.as_u64()).unwrap_or(3000);
-            yaml.push_str(&format!("    ports:\n      - \"{}:{}\"\n", internal, internal));
+            yaml.push_str(&format!(
+                "    ports:\n      - \"{}:{}\"\n",
+                internal, internal
+            ));
         }
     }
 
@@ -5951,7 +8587,11 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
         }
     }
 
-    if docker.get("privileged").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if docker
+        .get("privileged")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         yaml.push_str("    privileged: true\n");
     }
 
@@ -5986,7 +8626,10 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
 
     // Health check
     if let Some(hc) = docker.get("health_check") {
-        let endpoint = hc.get("endpoint").and_then(|v| v.as_str()).unwrap_or("/health");
+        let endpoint = hc
+            .get("endpoint")
+            .and_then(|v| v.as_str())
+            .unwrap_or("/health");
         let interval = hc.get("interval").and_then(|v| v.as_u64()).unwrap_or(30);
         let timeout = hc.get("timeout").and_then(|v| v.as_u64()).unwrap_or(10);
         let retries = hc.get("retries").and_then(|v| v.as_u64()).unwrap_or(3);
@@ -6003,10 +8646,23 @@ fn generate_app_compose_yaml(app_id: &str, docker: &serde_json::Value) -> String
 }
 
 fn generated_auto_build_dockerfile(docker: &serde_json::Value) -> String {
-    let base_image = docker.get("base_image").and_then(|v| v.as_str()).unwrap_or("alpine:latest");
-    let working_dir = docker.get("working_dir").and_then(|v| v.as_str()).unwrap_or("/app");
-    let install_cmd = docker.get("install_cmd").and_then(|v| v.as_str()).unwrap_or(":");
-    let rust_build_deps = if base_image.starts_with("rust:") && (base_image.contains("slim") || base_image.contains("bookworm") || base_image.contains("bullseye")) {
+    let base_image = docker
+        .get("base_image")
+        .and_then(|v| v.as_str())
+        .unwrap_or("alpine:latest");
+    let working_dir = docker
+        .get("working_dir")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/app");
+    let install_cmd = docker
+        .get("install_cmd")
+        .and_then(|v| v.as_str())
+        .unwrap_or(":");
+    let rust_build_deps = if base_image.starts_with("rust:")
+        && (base_image.contains("slim")
+            || base_image.contains("bookworm")
+            || base_image.contains("bullseye"))
+    {
         "RUN apt-get update \\\n+    && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates build-essential \\\n+    && rm -rf /var/lib/apt/lists/*\n"
     } else {
         ""
@@ -6059,7 +8715,10 @@ async fn ensure_vendored_rust_sdk(compose_dir: &std::path::Path) -> Result<(), S
     if !should_vendor_rust_sdk(compose_dir) {
         return Ok(());
     }
-    let Some(source) = candidate_rust_sdk_paths().into_iter().find(|path| path.join("Cargo.toml").exists()) else {
+    let Some(source) = candidate_rust_sdk_paths()
+        .into_iter()
+        .find(|path| path.join("Cargo.toml").exists())
+    else {
         return Err("Rust-App benoetigt iora-sdk via ../../sdks/rust, aber der lokale Rust-SDK wurde nicht gefunden".to_string());
     };
     let target = compose_dir.join(".iora-sdks/rust");
@@ -6073,7 +8732,12 @@ async fn ensure_vendored_rust_sdk(compose_dir: &std::path::Path) -> Result<(), S
     })
     .await
     .map_err(|e| format!("Rust-SDK-Kopie fehlgeschlagen: {e}"))?
-    .map_err(|e| format!("Rust-SDK kann nicht nach {} kopiert werden: {e}", target.display()))?;
+    .map_err(|e| {
+        format!(
+            "Rust-SDK kann nicht nach {} kopiert werden: {e}",
+            target.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -6082,7 +8746,10 @@ async fn write_compose_support_files(
     compose_dir: &std::path::Path,
 ) -> Result<(), String> {
     if let Some(docker) = &app.docker_config {
-        let auto_build = docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false);
+        let auto_build = docker
+            .get("auto_build")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let dockerfile = docker.get("dockerfile").and_then(|v| v.as_str());
         if auto_build && dockerfile.is_none() {
             ensure_vendored_rust_sdk(compose_dir).await?;
@@ -6099,7 +8766,11 @@ async fn write_compose_support_files(
 
 fn docker_prepare_mode(app: &local_appstore::InstalledApp) -> &'static str {
     if let Some(docker) = &app.docker_config {
-        if docker.get("auto_build").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if docker
+            .get("auto_build")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             return "build";
         }
     }
@@ -6110,7 +8781,11 @@ fn docker_prepare_mode(app: &local_appstore::InstalledApp) -> &'static str {
 }
 
 /// Try running docker-compose up for an app (single-container or bundle).
-async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<Result<String, String>> {
+async fn try_docker_compose_up(
+    app_id: &str,
+    app: &local_appstore::InstalledApp,
+    base_dir: &std::path::Path,
+) -> Option<Result<String, String>> {
     use tokio::process::Command;
 
     let compose_content = if let Some(bundle) = &app.bundle_config {
@@ -6134,7 +8809,9 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
     }
 
     let project_name = format!("iora-app-{}", app_id);
-    if let Some(result) = supervisor_compose_up(app_id, &project_name, &compose_content, &compose_dir).await {
+    if let Some(result) =
+        supervisor_compose_up(app_id, &project_name, &compose_content, &compose_dir).await
+    {
         return Some(result);
     }
 
@@ -6148,12 +8825,10 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
         .await;
 
     match result {
-        Ok(output) if output.status.success() => {
-            Some(Ok(format!(
-                "docker compose up erfolgreich. stdout: {}",
-                String::from_utf8_lossy(&output.stdout).trim()
-            )))
-        }
+        Ok(output) if output.status.success() => Some(Ok(format!(
+            "docker compose up erfolgreich. stdout: {}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        ))),
         Ok(output) => Some(Err(format!(
             "docker compose fehlgeschlagen: {}",
             String::from_utf8_lossy(&output.stderr).trim()
@@ -6163,7 +8838,11 @@ async fn try_docker_compose_up(app_id: &str, app: &local_appstore::InstalledApp,
     }
 }
 
-async fn try_docker_compose_prepare(app_id: &str, app: &local_appstore::InstalledApp, base_dir: &std::path::Path) -> Option<Result<String, String>> {
+async fn try_docker_compose_prepare(
+    app_id: &str,
+    app: &local_appstore::InstalledApp,
+    base_dir: &std::path::Path,
+) -> Option<Result<String, String>> {
     use tokio::process::Command;
 
     let prepare_mode = docker_prepare_mode(app);
@@ -6184,12 +8863,21 @@ async fn try_docker_compose_prepare(app_id: &str, app: &local_appstore::Installe
     if let Err(err) = write_compose_support_files(app, &compose_dir).await {
         return Some(Err(err));
     }
-    if let Err(e) = tokio::fs::write(compose_dir.join("docker-compose.yml"), &compose_content).await {
+    if let Err(e) = tokio::fs::write(compose_dir.join("docker-compose.yml"), &compose_content).await
+    {
         return Some(Err(format!("Kann docker-compose.yml nicht schreiben: {e}")));
     }
 
     let project_name = format!("iora-app-{}", app_id);
-    if let Some(result) = supervisor_compose_prepare(app_id, &project_name, &compose_content, &compose_dir, prepare_mode).await {
+    if let Some(result) = supervisor_compose_prepare(
+        app_id,
+        &project_name,
+        &compose_content,
+        &compose_dir,
+        prepare_mode,
+    )
+    .await
+    {
         return Some(result);
     }
 
@@ -6205,7 +8893,9 @@ async fn try_docker_compose_prepare(app_id: &str, app: &local_appstore::Installe
         .await;
 
     match result {
-        Ok(output) if output.status.success() => Some(Ok(format!("docker compose {} erfolgreich", prepare_mode))),
+        Ok(output) if output.status.success() => {
+            Some(Ok(format!("docker compose {} erfolgreich", prepare_mode)))
+        }
         Ok(output) => Some(Err(format!(
             "docker compose {} fehlgeschlagen: {}",
             prepare_mode,
@@ -6238,7 +8928,9 @@ async fn supervisor_compose_up(
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     if status.is_success() {
-        Some(Ok(format!("iora-supervisor compose up erfolgreich: {text}")))
+        Some(Ok(format!(
+            "iora-supervisor compose up erfolgreich: {text}"
+        )))
     } else {
         Some(Err(format!(
             "iora-supervisor compose up fehlgeschlagen ({status}): {text}"
@@ -6254,7 +8946,10 @@ async fn supervisor_compose_prepare(
     prepare_mode: &str,
 ) -> Option<Result<String, String>> {
     let base = microservice_url("IORA_SUPERVISOR_URL", "iora-supervisor", 8097);
-    let url = format!("{}/api/supervisor/compose/prepare", base.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/supervisor/compose/prepare",
+        base.trim_end_matches('/')
+    );
     let body = json!({
         "app_id": app_id,
         "project_name": project_name,
@@ -6270,13 +8965,86 @@ async fn supervisor_compose_prepare(
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     if status.is_success() {
-        Some(Ok(format!("iora-supervisor compose {} erfolgreich: {text}", prepare_mode)))
+        Some(Ok(format!(
+            "iora-supervisor compose {} erfolgreich: {text}",
+            prepare_mode
+        )))
     } else {
         Some(Err(format!(
             "iora-supervisor compose {} fehlgeschlagen ({status}): {text}",
             prepare_mode
         )))
     }
+}
+
+/// Push an installed app's declared assist tools / exposed services to
+/// iora-assist so the agent can discover and call them. Best-effort: failures
+/// are logged but never block install. The capability definitions live in the
+/// manifest's catch-all `extra` map under `assist_tools` / `exposed_services`.
+fn spawn_push_app_capabilities(state: AppState, app: local_appstore::InstalledApp) {
+    tokio::spawn(async move {
+        let extra = &app.manifest.extra;
+        let tools = extra
+            .get("assist_tools")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let services = extra
+            .get("exposed_services")
+            .cloned()
+            .unwrap_or(Value::Null);
+        if tools.is_null() && services.is_null() {
+            return; // app declares no capabilities — nothing to register
+        }
+        let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+        let url = format!(
+            "{}/api/assist/apps/{}/capabilities",
+            base.trim_end_matches('/'),
+            app.id
+        );
+        let body = json!({
+            "app_name": app.name,
+            "tools": if tools.is_null() { json!([]) } else { tools },
+            "services": if services.is_null() { json!([]) } else { services },
+        });
+        match state.http_client.post(&url).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!("Pushed app capabilities for '{}' to iora-assist", app.id);
+            }
+            Ok(resp) => {
+                tracing::warn!(
+                    "iora-assist rejected capabilities for '{}': HTTP {}",
+                    app.id,
+                    resp.status()
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to push app capabilities for '{}' to iora-assist: {}",
+                    app.id,
+                    err
+                );
+            }
+        }
+    });
+}
+
+/// Remove an app's capabilities from iora-assist on uninstall (best-effort).
+fn spawn_remove_app_capabilities(state: AppState, app_id: String) {
+    tokio::spawn(async move {
+        let base = microservice_url("IORA_ASSIST_URL", "iora-assist", 8092);
+        let url = format!(
+            "{}/api/assist/apps/{}/capabilities",
+            base.trim_end_matches('/'),
+            app_id
+        );
+        if let Err(err) = state.http_client.delete(&url).send().await {
+            tracing::warn!(
+                "Failed to remove app capabilities for '{}' from iora-assist: {}",
+                app_id,
+                err
+            );
+        }
+    });
 }
 
 fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
@@ -6296,6 +9064,10 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                     let Some(app) = installed.into_iter().find(|app| app.id == app_id) else {
                         return;
                     };
+                    // Push any declared assist tools / exposed services to
+                    // iora-assist so the agent can discover and call them. This
+                    // runs for every app type (not just Docker apps).
+                    spawn_push_app_capabilities(state.clone(), app.clone());
                     if app.docker_config.is_none() && app.bundle_config.is_none() {
                         let _ = state.local_appstore.set_status(&app_id, "stopped").await;
                         return;
@@ -6307,12 +9079,15 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                         local_appstore::LogEntry {
                             timestamp: chrono::Utc::now().to_rfc3339(),
                             level: "INFO".to_string(),
-                            message: "Bereite Docker-Image bereits bei der Installation vor…".to_string(),
+                            message: "Bereite Docker-Image bereits bei der Installation vor…"
+                                .to_string(),
                             source: "app-install".to_string(),
                         },
                     );
 
-                    match try_docker_compose_prepare(&app_id, &app, state.local_appstore.base_dir()).await {
+                    match try_docker_compose_prepare(&app_id, &app, state.local_appstore.base_dir())
+                        .await
+                    {
                         Some(Ok(msg)) => {
                             let _ = state.local_appstore.set_status(&app_id, "stopped").await;
                             state.local_appstore.append_log(
@@ -6352,14 +9127,19 @@ fn spawn_post_install_runtime_prepare(state: AppState, install_id: uuid::Uuid) {
                     }
                     return;
                 }
-                local_appstore::InstallStatus::Failed | local_appstore::InstallStatus::Canceled => return,
+                local_appstore::InstallStatus::Failed | local_appstore::InstallStatus::Canceled => {
+                    return
+                }
                 _ => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
             }
         }
     });
 }
 
-async fn supervisor_compose_down(app_id: &str, project_name: &str) -> Option<Result<String, String>> {
+async fn supervisor_compose_down(
+    app_id: &str,
+    project_name: &str,
+) -> Option<Result<String, String>> {
     let base = microservice_url("IORA_SUPERVISOR_URL", "iora-supervisor", 8097);
     let url = format!("{}/api/supervisor/compose/down", base.trim_end_matches('/'));
     let body = json!({
@@ -6374,7 +9154,9 @@ async fn supervisor_compose_down(app_id: &str, project_name: &str) -> Option<Res
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     if status.is_success() {
-        Some(Ok(format!("iora-supervisor compose down erfolgreich: {text}")))
+        Some(Ok(format!(
+            "iora-supervisor compose down erfolgreich: {text}"
+        )))
     } else {
         Some(Err(format!(
             "iora-supervisor compose down fehlgeschlagen ({status}): {text}"
@@ -6414,22 +9196,12 @@ async fn try_docker_compose_down(app_id: &str) -> Option<String> {
         }
 
         let result = Command::new("docker")
-            .args([
-                "compose",
-                "-p",
-                &project_name,
-                "down",
-                "--remove-orphans",
-            ])
+            .args(["compose", "-p", &project_name, "down", "--remove-orphans"])
             .output()
             .await;
         match result {
             Ok(output) if output.status.success() => {
                 docker_present = true;
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if !stderr.trim().is_empty() && stderr.contains("Removed") {
-                    any_success = true;
-                }
                 // success ohne "Removed" bedeutet: Project gab es nicht (no-op)
                 any_success = true;
             }
@@ -6520,7 +9292,7 @@ async fn app_pages_list(State(state): State<AppState>) -> Json<Value> {
 async fn app_proxy_handler(
     State(state): State<AppState>,
     axum::extract::Path((app_id, path)): axum::extract::Path<(String, String)>,
-    req: axum::extract::Request,
+    _req: axum::extract::Request,
 ) -> axum::response::Response {
     use axum::body::Body;
     use axum::http::{Response, StatusCode};
@@ -6537,7 +9309,11 @@ async fn app_proxy_handler(
             match proxy_url {
                 Some(base_url) => {
                     // Build the full URL to proxy to
-                    let full_url = format!("{}/{}", base_url.trim_end_matches('/'), path.trim_start_matches('/'));
+                    let full_url = format!(
+                        "{}/{}",
+                        base_url.trim_end_matches('/'),
+                        path.trim_start_matches('/')
+                    );
 
                     // Try to proxy the request
                     match reqwest::get(&full_url).await {
@@ -6546,19 +9322,22 @@ async fn app_proxy_handler(
                             let headers = resp.headers().clone();
                             let body = resp.bytes().await.unwrap_or_default();
 
-                            let axum_status = axum::http::StatusCode::from_u16(status.as_u16()).unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
+                            let axum_status = axum::http::StatusCode::from_u16(status.as_u16())
+                                .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
                             let mut response_builder = Response::builder().status(axum_status);
                             if let Some(content_type) = headers.get("content-type") {
                                 if let Ok(v) = content_type.to_str() {
                                     if let Ok(hv) = axum::http::HeaderValue::from_str(v) {
-                                        response_builder = response_builder.header("content-type", hv);
+                                        response_builder =
+                                            response_builder.header("content-type", hv);
                                     }
                                 }
                             }
                             if let Some(content_length) = headers.get("content-length") {
                                 if let Ok(v) = content_length.to_str() {
                                     if let Ok(hv) = axum::http::HeaderValue::from_str(v) {
-                                        response_builder = response_builder.header("content-length", hv);
+                                        response_builder =
+                                            response_builder.header("content-length", hv);
                                     }
                                 }
                             }
@@ -6569,8 +9348,16 @@ async fn app_proxy_handler(
                         }
                         Err(_) => {
                             // App container not reachable - show informative placeholder
-                            let status_cls = if app.status == "running" { "running" } else { "stopped" };
-                            let status_label = if app.status == "running" { "Läuft (kein Container)" } else { "Gestoppt" };
+                            let status_cls = if app.status == "running" {
+                                "running"
+                            } else {
+                                "stopped"
+                            };
+                            let status_label = if app.status == "running" {
+                                "Läuft (kein Container)"
+                            } else {
+                                "Gestoppt"
+                            };
                             let desc = if app.status == "running" {
                                 "Die App läuft im lokalen Modus ohne Docker-Container. Der Proxy kann die angeforderte Seite nicht laden, da kein Container antwortet."
                             } else {
@@ -6631,24 +9418,20 @@ parent.postMessage({{type:'event',event:{{type:'app.proxy.status',data:{{app_id:
                                 .status(StatusCode::OK)
                                 .header("content-type", "text/html; charset=utf-8")
                                 .body(Body::from(html))
-                                .unwrap()
+                                .unwrap_or_else(|_| Response::new(Body::empty()))
                         }
                     }
                 }
-                None => {
-                    Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .body(Body::from("Keine konfigurierte URL für diese App"))
-                        .unwrap()
-                }
+                None => Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Body::from("Keine konfigurierte URL für diese App"))
+                    .unwrap_or_else(|_| Response::new(Body::empty())),
             }
         }
-        _ => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("App nicht gefunden oder nicht gestartet"))
-                .unwrap()
-        }
+        _ => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("App nicht gefunden oder nicht gestartet"))
+            .unwrap_or_else(|_| Response::new(Body::empty())),
     }
 }
 
@@ -6657,8 +9440,6 @@ async fn app_detail_get(
     State(state): State<AppState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    use local_appstore::LogEntry;
-
     let installed = state.local_appstore.list().await;
     let app = installed
         .into_iter()
@@ -6682,7 +9463,26 @@ async fn app_detail_get(
         .collect();
 
     // Generate a default icon if none
-    let icon = app.icon.clone().unwrap_or_else(|| format!("/api/apps/{}/icon", app.id));
+    let icon = app
+        .icon
+        .clone()
+        .unwrap_or_else(|| format!("/api/apps/{}/icon", app.id));
+
+    let storage_usage = state.app_storage.usage_for_app(&app_id).await;
+
+    let config_key = format!("app.config.{}", app_id);
+    let config_pref = state
+        .config_repo
+        .get_system_preference(&config_key)
+        .await
+        .unwrap_or(None);
+    let config_entries = config_pref
+        .and_then(|pref| serde_json::from_str::<Value>(&pref.preference_value).ok())
+        .and_then(|value| value.as_object().map(|o| o.len()))
+        .unwrap_or(0);
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    let dev_mode_enabled = is_developer_mode_enabled(&state).await;
 
     Ok(Json(json!({
         "id": app.id,
@@ -6693,6 +9493,9 @@ async fn app_detail_get(
         "icon": icon,
         "status": app.status,
         "enabled": app.enabled,
+        "autostart": app.autostart,
+        "last_started_at": app.last_started_at,
+        "last_stopped_at": app.last_stopped_at,
         "kind": app.kind,
         "system": app.system,
         "trust_level": app.trust_level,
@@ -6708,6 +9511,14 @@ async fn app_detail_get(
         "services": app.bundle_config.as_ref().and_then(|b| b.get("services").cloned()).unwrap_or(serde_json::Value::Array(Vec::new())),
         "recent_logs": recent_logs,
         "log_count": logs.len(),
+        "storage_usage": storage_usage,
+        "user_data": {
+            "config_entries": config_entries,
+            "kv_entries": storage_usage.kv_entry_count,
+            "stored_files": storage_usage.file_count,
+            "total_file_bytes": storage_usage.total_file_bytes,
+        },
+        "dev_terminal_available": dev_mode_enabled && needs_docker,
         "open_url": app.custom_pages.first().map(|p| format!("/page/{}", p.id)),
     })))
 }
@@ -6894,6 +9705,319 @@ async fn app_logs_get(
     }))
 }
 
+async fn is_developer_mode_enabled(state: &AppState) -> bool {
+    if state.dev_image.is_os_dev {
+        return true;
+    }
+    match state
+        .config_repo
+        .get_system_preference("developer.mode")
+        .await
+    {
+        Ok(Some(pref)) => serde_json::from_str::<Value>(&pref.preference_value)
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct AppTerminalExecRequest {
+    command: String,
+    #[serde(default)]
+    service: Option<String>,
+    #[serde(default)]
+    timeout_sec: Option<u64>,
+}
+
+async fn app_terminal_exec(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppTerminalExecRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    use tokio::process::Command;
+
+    if !is_developer_mode_enabled(&state).await {
+        return Err(ErrorResponse::forbidden(
+            "Container terminal is only available in Developer Mode".to_string(),
+        ));
+    }
+
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .into_iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Terminal exec is only available for containerized apps".to_string(),
+        ));
+    }
+
+    let command = body.command.trim();
+    if command.is_empty() {
+        return Err(ErrorResponse::bad_request(
+            "command darf nicht leer sein".to_string(),
+        ));
+    }
+    if command.len() > 2000 {
+        return Err(ErrorResponse::bad_request(
+            "command ist zu lang".to_string(),
+        ));
+    }
+
+    let status_info = app_lifecycle::docker_compose_status(&app_id).await;
+    let service = body
+        .service
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            status_info.as_ref().and_then(|s| {
+                s.services
+                    .iter()
+                    .find(|(_, state)| {
+                        let st = state.to_ascii_lowercase();
+                        st.contains("running") || st.contains("started")
+                    })
+                    .map(|(name, _)| name.clone())
+            })
+        })
+        .or_else(|| {
+            status_info
+                .as_ref()
+                .and_then(|s| s.services.keys().next().cloned())
+        })
+        .unwrap_or_else(|| app_id.clone());
+
+    let timeout = std::time::Duration::from_secs(body.timeout_sec.unwrap_or(20).clamp(1, 120));
+    let mut last_stderr = String::new();
+
+    for prefix in ["iora-app-", "iora-bundle-"] {
+        let project = format!("{prefix}{app_id}");
+        let fut = Command::new("docker")
+            .args([
+                "compose", "-p", &project, "exec", "-T", &service, "sh", "-lc", command,
+            ])
+            .output();
+
+        let out = match tokio::time::timeout(timeout, fut).await {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ErrorResponse::service_unavailable(
+                    "Docker CLI is unavailable on this host".to_string(),
+                ));
+            }
+            Ok(Err(e)) => {
+                last_stderr = e.to_string();
+                continue;
+            }
+            Err(_) => {
+                return Err(ErrorResponse::bad_request(
+                    "Terminal command timed out".to_string(),
+                ));
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let code = out.status.code().unwrap_or(-1);
+
+        state.local_appstore.append_log(
+            &app_id,
+            local_appstore::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                level: if code == 0 { "INFO" } else { "WARN" }.to_string(),
+                message: format!(
+                    "Terminal exec in service '{service}': `{}` (exit={code})",
+                    command
+                ),
+                source: "app-terminal".to_string(),
+            },
+        );
+
+        return Ok(Json(json!({
+            "success": code == 0,
+            "app_id": app_id,
+            "service": service,
+            "project": project,
+            "exit_code": code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "command": command,
+        })));
+    }
+
+    Err(ErrorResponse::bad_request(if last_stderr.is_empty() {
+        "Unable to execute command in app container".to_string()
+    } else {
+        format!("Unable to execute command in app container: {last_stderr}")
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct AppTerminalSessionStartRequest {
+    #[serde(default)]
+    service: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct AppTerminalSessionInputRequest {
+    input: String,
+    #[serde(default)]
+    append_newline: Option<bool>,
+}
+
+async fn app_terminal_session_start(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(body): Json<AppTerminalSessionStartRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    if !is_developer_mode_enabled(&state).await {
+        return Err(ErrorResponse::forbidden(
+            "Container terminal is only available in Developer Mode".to_string(),
+        ));
+    }
+
+    let installed = state.local_appstore.list().await;
+    let app = installed
+        .into_iter()
+        .find(|a| a.id == app_id)
+        .ok_or_else(|| ErrorResponse::not_found(format!("app '{}' nicht gefunden", app_id)))?;
+    let needs_docker = app.docker_config.is_some() || app.bundle_config.is_some();
+    if !needs_docker {
+        return Err(ErrorResponse::bad_request(
+            "Terminal sessions are only available for containerized apps".to_string(),
+        ));
+    }
+
+    let session = state
+        .terminal_manager
+        .create_session(&app_id, body.service)
+        .await
+        .map_err(ErrorResponse::bad_request)?;
+
+    state.local_appstore.append_log(
+        &app_id,
+        local_appstore::LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            level: "INFO".to_string(),
+            message: format!(
+                "Interactive terminal opened (service='{}', project='{}')",
+                session.service, session.project
+            ),
+            source: "app-terminal".to_string(),
+        },
+    );
+
+    Ok(Json(json!({
+        "success": true,
+        "session_id": session.id,
+        "app_id": app_id,
+        "service": session.service,
+        "project": session.project,
+        "created_at": session.created_at,
+    })))
+}
+
+async fn app_terminal_session_input(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, session_id)): axum::extract::Path<(String, String)>,
+    Json(body): Json<AppTerminalSessionInputRequest>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let session = state
+        .terminal_manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ErrorResponse::not_found("Terminal session not found".to_string()))?;
+    if session.app_id != app_id {
+        return Err(ErrorResponse::bad_request(
+            "Terminal session does not belong to this app".to_string(),
+        ));
+    }
+
+    state
+        .terminal_manager
+        .send_input(&session_id, body.input, body.append_newline.unwrap_or(true))
+        .await
+        .map_err(ErrorResponse::bad_request)?;
+
+    Ok(Json(json!({ "success": true })))
+}
+
+async fn app_terminal_session_stream(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, session_id)): axum::extract::Path<(String, String)>,
+) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ErrorResponse> {
+    use tokio_stream::StreamExt as _;
+
+    let session = state
+        .terminal_manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ErrorResponse::not_found("Terminal session not found".to_string()))?;
+    if session.app_id != app_id {
+        return Err(ErrorResponse::bad_request(
+            "Terminal session does not belong to this app".to_string(),
+        ));
+    }
+
+    let intro = json!({
+        "type": "system",
+        "session_id": session_id.clone(),
+        "data": format!(
+            "Connected to service '{}' (project '{}').",
+            session.service, session.project
+        ),
+    })
+    .to_string();
+
+    let recv = session.output_tx.subscribe();
+    let sid = session_id.clone();
+    let stream =
+        tokio_stream::wrappers::BroadcastStream::new(recv).filter_map(move |msg| match msg {
+            Ok(line) => {
+                let data = json!({
+                    "type": "output",
+                    "session_id": sid.clone(),
+                    "data": line,
+                })
+                .to_string();
+                Some(Ok(SseEvent::default().data(data)))
+            }
+            Err(_) => None,
+        });
+
+    let initial_event = Ok(SseEvent::default().data(intro));
+    let combined = futures_util::stream::once(async { initial_event }).chain(stream);
+
+    Ok(Sse::new(combined).keep_alive(KeepAlive::default()))
+}
+
+async fn app_terminal_session_close(
+    State(state): State<AppState>,
+    axum::extract::Path((app_id, session_id)): axum::extract::Path<(String, String)>,
+) -> Result<Json<Value>, ErrorResponse> {
+    let session = state
+        .terminal_manager
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ErrorResponse::not_found("Terminal session not found".to_string()))?;
+    if session.app_id != app_id {
+        return Err(ErrorResponse::bad_request(
+            "Terminal session does not belong to this app".to_string(),
+        ));
+    }
+
+    let closed = state.terminal_manager.close_session(&session_id).await;
+    Ok(Json(json!({
+        "success": closed,
+        "session_id": session_id,
+    })))
+}
+
 /// Serve an app's icon.
 ///
 /// Lookup order:
@@ -6914,7 +10038,10 @@ async fn app_icon_get(
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> axum::response::Response {
     use axum::body::Body;
-    let strict = q.get("strict").map(|v| v == "1" || v == "true").unwrap_or(false);
+    let strict = q
+        .get("strict")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
 
     let app = state
         .local_appstore
@@ -6940,8 +10067,13 @@ async fn app_icon_get(
         }
     }
     for name in [
-        "icon.png", "icon.svg", "icon.jpg", "icon.jpeg", "icon.webp",
-        "assets/icon.png", "assets/icon.svg",
+        "icon.png",
+        "icon.svg",
+        "icon.jpg",
+        "icon.jpeg",
+        "icon.webp",
+        "assets/icon.png",
+        "assets/icon.svg",
     ] {
         candidates.push(app_dir.join(name));
     }
@@ -6960,7 +10092,7 @@ async fn app_icon_get(
                 .header("content-type", ct)
                 .header("cache-control", "public, max-age=300")
                 .body(Body::from(bytes))
-                .unwrap();
+                .unwrap_or_else(|_| axum::response::Response::new(Body::empty()));
         }
     }
 
@@ -6972,23 +10104,23 @@ async fn app_icon_get(
                 serde_json::to_vec(&json!({"error": "icon not found", "app_id": app_id}))
                     .unwrap_or_default(),
             ))
-            .unwrap();
+            .unwrap_or_else(|_| axum::response::Response::new(Body::empty()));
     }
 
     // 1x1 transparent PNG fallback so the <img> tag stays quiet.
     static TRANSPARENT_PNG: &[u8] = &[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-        0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-        0x42, 0x60, 0x82,
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ];
     axum::response::Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "image/png")
         .header("cache-control", "no-store")
         .body(Body::from(TRANSPARENT_PNG))
-        .unwrap()
+        .unwrap_or_else(|_| axum::response::Response::new(Body::empty()))
 }
 
 /// SSE stream of logs for a specific app.
@@ -7010,19 +10142,17 @@ async fn app_logs_stream(
     .to_string();
 
     let recv = state.local_appstore.subscribe();
-    let stream = BroadcastStream::new(recv).filter_map(move |msg| {
-        match msg {
-            Ok(local_appstore::InstallEvent::LogEntry { app_id: aid, entry }) if aid == app_id => {
-                let data = json!({
-                    "type": "log",
-                    "app_id": app_id,
-                    "entry": entry,
-                })
-                .to_string();
-                Some(Ok(SseEvent::default().data(data)))
-            }
-            _ => None,
+    let stream = BroadcastStream::new(recv).filter_map(move |msg| match msg {
+        Ok(local_appstore::InstallEvent::LogEntry { app_id: aid, entry }) if aid == app_id => {
+            let data = json!({
+                "type": "log",
+                "app_id": app_id,
+                "entry": entry,
+            })
+            .to_string();
+            Some(Ok(SseEvent::default().data(data)))
         }
+        _ => None,
     });
 
     // Combine initial snapshot with live stream
@@ -7081,7 +10211,9 @@ async fn core_plugins_get(
     let plugin = installed
         .into_iter()
         .find(|a| a.id == plugin_id && a.kind == "plugin")
-        .ok_or_else(|| ErrorResponse::not_found(format!("plugin '{}' nicht gefunden", plugin_id)))?;
+        .ok_or_else(|| {
+            ErrorResponse::not_found(format!("plugin '{}' nicht gefunden", plugin_id))
+        })?;
     Ok(Json(json!({
         "id": plugin.id,
         "name": plugin.name,
@@ -7099,7 +10231,7 @@ async fn core_plugins_enable(
     State(state): State<AppState>,
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let app = state
+    state
         .local_appstore
         .enable(&plugin_id, true)
         .await
@@ -7115,7 +10247,7 @@ async fn core_plugins_disable(
     State(state): State<AppState>,
     axum::extract::Path(plugin_id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let app = state
+    state
         .local_appstore
         .enable(&plugin_id, false)
         .await
@@ -7167,7 +10299,9 @@ async fn core_plugins_execute(
         .ok_or_else(|| ErrorResponse::not_found(format!("Plugin '{}' nicht gefunden", pid)))?;
 
     if !plugin.enabled {
-        return Err(ErrorResponse::bad_request("Plugin ist deaktiviert".to_string()));
+        return Err(ErrorResponse::bad_request(
+            "Plugin ist deaktiviert".to_string(),
+        ));
     }
 
     // Determine sandbox config from manifest
@@ -7197,7 +10331,8 @@ async fn core_plugins_execute(
         .ok()
         .and_then(|m| {
             let v: serde_json::Value = serde_json::from_str(&m).ok()?;
-            v.get("main").and_then(|m| m.as_str().map(|s| s.to_string()))
+            v.get("main")
+                .and_then(|m| m.as_str().map(|s| s.to_string()))
         })
         .unwrap_or_else(|| {
             // Guess entry point
@@ -7276,7 +10411,10 @@ async fn core_plugins_execute(
                 local_appstore::LogEntry {
                     timestamp: chrono::Utc::now().to_rfc3339(),
                     level: "WARNING".to_string(),
-                    message: format!("Plugin '{}' hat Zeitlimit ({}ms) überschritten", plugin.name, max_time),
+                    message: format!(
+                        "Plugin '{}' hat Zeitlimit ({}ms) überschritten",
+                        plugin.name, max_time
+                    ),
                     source: "plugin".to_string(),
                 },
             );
@@ -7381,7 +10519,11 @@ if (typeof handler === 'function') {{
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 serde_json::from_str(stdout.trim()).map_err(|e| {
-                    format!("Plugin-Ausgabe kein gültiges JSON: {} (Output: {})", e, stdout.trim())
+                    format!(
+                        "Plugin-Ausgabe kein gültiges JSON: {} (Output: {})",
+                        e,
+                        stdout.trim()
+                    )
                 })
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -7436,14 +10578,21 @@ print(json.dumps(result))
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 serde_json::from_str(stdout.trim()).map_err(|e| {
-                    format!("Plugin-Ausgabe kein gültiges JSON: {} (Output: {})", e, stdout.trim())
+                    format!(
+                        "Plugin-Ausgabe kein gültiges JSON: {} (Output: {})",
+                        e,
+                        stdout.trim()
+                    )
                 })
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 Err(format!("Plugin-Fehler: {}", stderr.trim()))
             }
         }
-        other => Err(format!("Nicht unterstützte Plugin-Sprache: '{}' (erwartet: js, ts, py)", other)),
+        other => Err(format!(
+            "Nicht unterstützte Plugin-Sprache: '{}' (erwartet: js, ts, py)",
+            other
+        )),
     }
 }
 
@@ -7516,10 +10665,7 @@ async fn plugins_register(
             "plugin_id darf nur Buchstaben, Zahlen, '-', '_' und '.' enthalten",
         ));
     }
-    let manifest = body
-        .get("manifest")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let manifest = body.get("manifest").cloned().unwrap_or_else(|| json!({}));
     let source = body
         .get("source")
         .and_then(|v| v.as_str())
@@ -7615,8 +10761,8 @@ struct ServiceRegistrationRow {
 }
 
 fn registration_row_to_json(row: ServiceRegistrationRow) -> Value {
-    let perms: Value = serde_json::from_str(&row.requested_permissions)
-        .unwrap_or_else(|_| json!([]));
+    let perms: Value =
+        serde_json::from_str(&row.requested_permissions).unwrap_or_else(|_| json!([]));
     json!({
         "id": row.id,
         "provider_id": row.provider_id,
@@ -7642,7 +10788,7 @@ async fn core_registrations_list(
                 requested_permissions, status, api_token, requested_at, reviewed_at, reviewer
          FROM service_registrations
          ORDER BY requested_at DESC
-         LIMIT 500"
+         LIMIT 500",
     )
     .fetch_all(&state.db_pool)
     .await
@@ -7661,7 +10807,7 @@ async fn registration_set_status(
     let res = sqlx::query(
         "UPDATE service_registrations
          SET status = $1, reviewed_at = NOW(), reviewer = COALESCE($2, reviewer)
-         WHERE id = $3"
+         WHERE id = $3",
     )
     .bind(new_status)
     .bind(reviewer)
@@ -7672,7 +10818,8 @@ async fn registration_set_status(
 
     if res.rows_affected() == 0 {
         return Err(ErrorResponse::not_found(format!(
-            "registration {} not found", id
+            "registration {} not found",
+            id
         )));
     }
     Ok(Json(json!({ "ok": true, "id": id, "status": new_status })))
@@ -7729,14 +10876,11 @@ fn read_current_iora_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-async fn core_updates_check(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn core_updates_check(State(state): State<AppState>) -> Json<Value> {
     let current = read_current_iora_version();
     let server = std::env::var("IORA_UPDATE_SERVER")
         .unwrap_or_else(|_| "https://update.kaimdt.com".to_string());
-    let channel = std::env::var("IORA_UPDATE_CHANNEL")
-        .unwrap_or_else(|_| "stable".to_string());
+    let channel = std::env::var("IORA_UPDATE_CHANNEL").unwrap_or_else(|_| "stable".to_string());
 
     let mut updates: Vec<Value> = Vec::new();
     let now = chrono::Utc::now().to_rfc3339();
@@ -7811,14 +10955,12 @@ struct UpdateHistoryRow {
     error_message: Option<String>,
 }
 
-async fn core_updates_history(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn core_updates_history(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let rows = sqlx::query_as::<_, UpdateHistoryRow>(
         "SELECT id, provider_id, from_version, to_version, status, installed_at, error_message
          FROM update_history
          ORDER BY installed_at DESC
-         LIMIT 200"
+         LIMIT 200",
     )
     .fetch_all(&state.db_pool)
     .await
@@ -7851,8 +10993,8 @@ async fn core_updates_install(
 
     // Spawn the iora-updater binary (--yes for non-interactive). If it isn't
     // installed we record the failure in update_history and return 503.
-    let updater_bin = std::env::var("IORA_UPDATER_BIN")
-        .unwrap_or_else(|_| "iora-updater".to_string());
+    let updater_bin =
+        std::env::var("IORA_UPDATER_BIN").unwrap_or_else(|_| "iora-updater".to_string());
 
     let spawn_result = tokio::process::Command::new(&updater_bin)
         .arg("--yes")
@@ -7863,7 +11005,10 @@ async fn core_updates_install(
 
     let (status, error_message): (&str, Option<String>) = match spawn_result {
         Ok(_) => ("in_progress", None),
-        Err(e) => ("failed", Some(format!("Failed to spawn iora-updater: {}", e))),
+        Err(e) => (
+            "failed",
+            Some(format!("Failed to spawn iora-updater: {}", e)),
+        ),
     };
 
     let _ = sqlx::query(
@@ -7904,7 +11049,7 @@ async fn core_updates_rollback(
     let res = sqlx::query(
         "UPDATE update_history
          SET status = 'rolled_back'
-         WHERE id = $1"
+         WHERE id = $1",
     )
     .bind(&update_id)
     .execute(&state.db_pool)
@@ -7913,10 +11058,13 @@ async fn core_updates_rollback(
 
     if res.rows_affected() == 0 {
         return Err(ErrorResponse::not_found(format!(
-            "update {} not found", update_id
+            "update {} not found",
+            update_id
         )));
     }
-    Ok(Json(json!({ "ok": true, "id": update_id, "status": "rolled_back" })))
+    Ok(Json(
+        json!({ "ok": true, "id": update_id, "status": "rolled_back" }),
+    ))
 }
 
 async fn admin_settings_list(
@@ -8032,6 +11180,25 @@ async fn admin_settings_put(
         .record_change("system_preferences", &key, "UPDATE", None)
         .await;
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HOT-RELOAD: Update settings cache and notify all services
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Update the shared settings cache so other services get the new value immediately
+    iora_shared::system_config::update_cached_setting(key.clone(), body.value.to_string());
+
+    // Notify all services about the config change (sends SIGHUP signals)
+    tokio::spawn({
+        let key = key.clone();
+        let value = body.value.to_string();
+        async move {
+            let _ = tokio::process::Command::new("/usr/lib/iora/iora-config-notify")
+                .arg(&key)
+                .arg(&value)
+                .output()
+                .await;
+        }
+    });
+
     if !def.requires_restart.is_empty() {
         info!(
             "Setting '{}' updated – the following services need a restart to pick up the change: {}",
@@ -8052,7 +11219,10 @@ async fn admin_settings_put(
         let ha_config = load_ha_runtime_config(&state.config_repo).await;
         if ha_config.is_configured() {
             // Update the REST client credentials in-place
-            state.ha_client.update_credentials(&ha_config.url, &ha_config.token).await;
+            state
+                .ha_client
+                .update_credentials(&ha_config.url, &ha_config.token)
+                .await;
             // Update connection manager URL
             state.ha_connection.update_url(&ha_config.url).await;
             // Reset failure counters so the next HA call tries with fresh creds
@@ -8132,13 +11302,18 @@ async fn get_sync_changes(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<SyncQuery>,
 ) -> Result<Json<Vec<db::models::SyncMetadata>>, ErrorResponse> {
-    let since = query.since.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+    let since = query
+        .since
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
 
     match state.config_repo.get_changes_since(&since).await {
         Ok(changes) => Ok(Json(changes)),
         Err(e) => {
             warn!("Failed to get sync changes: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get sync changes: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get sync changes: {}",
+                e
+            )))
         }
     }
 }
@@ -8149,15 +11324,16 @@ async fn list_all_users(
 ) -> Result<Json<Vec<db::models::UserListEntry>>, ErrorResponse> {
     match state.config_repo.list_users().await {
         Ok(users) => {
-            let entries: Vec<db::models::UserListEntry> = users.into_iter().map(|u| {
-                db::models::UserListEntry {
+            let entries: Vec<db::models::UserListEntry> = users
+                .into_iter()
+                .map(|u| db::models::UserListEntry {
                     has_pin: u.pin_hash.is_some(),
                     id: u.id,
                     username: u.username,
                     display_name: u.display_name,
                     avatar_url: u.avatar_url,
-                }
-            }).collect();
+                })
+                .collect();
             Ok(Json(entries))
         }
         Err(e) => {
@@ -8189,7 +11365,11 @@ async fn auth_pin_login(
     // Check PIN
     let pin_hash = match &user.pin_hash {
         Some(hash) => hash,
-        None => return Err(ErrorResponse::bad_request("Kein PIN gesetzt. Bitte mit Passwort anmelden.")),
+        None => {
+            return Err(ErrorResponse::bad_request(
+                "Kein PIN gesetzt. Bitte mit Passwort anmelden.",
+            ))
+        }
     };
 
     let is_valid = match auth::verify_password(&request.pin, pin_hash) {
@@ -8224,7 +11404,9 @@ async fn set_user_pin(
     let claims = extract_claims(&headers)?;
 
     if request.pin.len() < 4 || request.pin.len() > 8 {
-        return Err(ErrorResponse::bad_request("PIN muss zwischen 4 und 8 Zeichen lang sein"));
+        return Err(ErrorResponse::bad_request(
+            "PIN muss zwischen 4 und 8 Zeichen lang sein",
+        ));
     }
 
     let pin_hash = match auth::hash_password(&request.pin) {
@@ -8268,7 +11450,9 @@ async fn get_page_layouts(
         Ok(layouts) => Ok(Json(layouts)),
         Err(e) => {
             warn!("Failed to get page layouts: {}", e);
-            Err(ErrorResponse::internal("Layouts konnten nicht geladen werden"))
+            Err(ErrorResponse::internal(
+                "Layouts konnten nicht geladen werden",
+            ))
         }
     }
 }
@@ -8278,11 +11462,17 @@ async fn save_page_layout(
     axum::extract::Path(profile_id): axum::extract::Path<String>,
     Json(request): Json<db::models::SavePageLayoutRequest>,
 ) -> Result<Json<db::models::PageLayout>, ErrorResponse> {
-    match state.config_repo.save_page_layout(&profile_id, request).await {
+    match state
+        .config_repo
+        .save_page_layout(&profile_id, request)
+        .await
+    {
         Ok(layout) => Ok(Json(layout)),
         Err(e) => {
             warn!("Failed to save page layout: {}", e);
-            Err(ErrorResponse::internal("Layout konnte nicht gespeichert werden"))
+            Err(ErrorResponse::internal(
+                "Layout konnte nicht gespeichert werden",
+            ))
         }
     }
 }
@@ -8293,14 +11483,24 @@ async fn set_device_terminal_mode(
     axum::extract::Path(device_id): axum::extract::Path<String>,
     Json(request): Json<db::models::SetTerminalModeRequest>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    match state.config_repo.set_terminal_mode(&device_id, request.is_terminal, request.terminal_name.as_deref()).await {
+    match state
+        .config_repo
+        .set_terminal_mode(
+            &device_id,
+            request.is_terminal,
+            request.terminal_name.as_deref(),
+        )
+        .await
+    {
         Ok(()) => Ok(Json(serde_json::json!({
             "success": true,
             "is_terminal": request.is_terminal,
         }))),
         Err(e) => {
             warn!("Failed to set terminal mode: {}", e);
-            Err(ErrorResponse::internal("Terminal-Modus konnte nicht gesetzt werden"))
+            Err(ErrorResponse::internal(
+                "Terminal-Modus konnte nicht gesetzt werden",
+            ))
         }
     }
 }
@@ -8315,7 +11515,9 @@ async fn get_all_page_settings(
         Ok(settings) => Ok(Json(settings)),
         Err(e) => {
             warn!("Failed to get page settings: {}", e);
-            Err(ErrorResponse::internal("Seiteneinstellungen konnten nicht geladen werden"))
+            Err(ErrorResponse::internal(
+                "Seiteneinstellungen konnten nicht geladen werden",
+            ))
         }
     }
 }
@@ -8324,12 +11526,18 @@ async fn get_page_settings_handler(
     State(state): State<AppState>,
     axum::extract::Path((profile_id, page_id)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    match state.config_repo.get_page_settings(&profile_id, &page_id).await {
-        Ok(Some(settings)) => Ok(Json(serde_json::to_value(settings).unwrap())),
+    match state
+        .config_repo
+        .get_page_settings(&profile_id, &page_id)
+        .await
+    {
+        Ok(Some(settings)) => Ok(Json(serde_json::to_value(settings).unwrap_or(Value::Null))),
         Ok(None) => Ok(Json(serde_json::json!(null))),
         Err(e) => {
             warn!("Failed to get page settings: {}", e);
-            Err(ErrorResponse::internal("Seiteneinstellungen konnten nicht geladen werden"))
+            Err(ErrorResponse::internal(
+                "Seiteneinstellungen konnten nicht geladen werden",
+            ))
         }
     }
 }
@@ -8339,11 +11547,17 @@ async fn save_page_settings_handler(
     axum::extract::Path(profile_id): axum::extract::Path<String>,
     Json(request): Json<db::models::SavePageSettingsRequest>,
 ) -> Result<Json<db::models::PageSettings>, ErrorResponse> {
-    match state.config_repo.save_page_settings(&profile_id, &request).await {
+    match state
+        .config_repo
+        .save_page_settings(&profile_id, &request)
+        .await
+    {
         Ok(settings) => Ok(Json(settings)),
         Err(e) => {
             warn!("Failed to save page settings: {}", e);
-            Err(ErrorResponse::internal("Seiteneinstellungen konnten nicht gespeichert werden"))
+            Err(ErrorResponse::internal(
+                "Seiteneinstellungen konnten nicht gespeichert werden",
+            ))
         }
     }
 }
@@ -8352,11 +11566,17 @@ async fn delete_page_settings_handler(
     State(state): State<AppState>,
     axum::extract::Path((profile_id, page_id)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ErrorResponse> {
-    match state.config_repo.delete_page_settings(&profile_id, &page_id).await {
+    match state
+        .config_repo
+        .delete_page_settings(&profile_id, &page_id)
+        .await
+    {
         Ok(()) => Ok(Json(serde_json::json!({ "success": true }))),
         Err(e) => {
             warn!("Failed to delete page settings: {}", e);
-            Err(ErrorResponse::internal("Seiteneinstellungen konnten nicht gelöscht werden"))
+            Err(ErrorResponse::internal(
+                "Seiteneinstellungen konnten nicht gelöscht werden",
+            ))
         }
     }
 }
@@ -8366,14 +11586,19 @@ fn extract_claims(headers: &HeaderMap) -> Result<auth::Claims, ErrorResponse> {
     let token = match headers.get(header::AUTHORIZATION) {
         Some(value) => match value.to_str() {
             Ok(v) => v.strip_prefix("Bearer ").unwrap_or_default(),
-            Err(_) => return Err(ErrorResponse::unauthorized("Ungültiger Authorization-Header")),
+            Err(_) => {
+                return Err(ErrorResponse::unauthorized(
+                    "Ungültiger Authorization-Header",
+                ))
+            }
         },
         None => return Err(ErrorResponse::unauthorized("Nicht authentifiziert")),
     };
     if token.is_empty() {
         return Err(ErrorResponse::unauthorized("Token fehlt"));
     }
-    auth::verify_token(token).map_err(|_| ErrorResponse::unauthorized("Ungültiges oder abgelaufenes Token"))
+    auth::verify_token(token)
+        .map_err(|_| ErrorResponse::unauthorized("Ungültiges oder abgelaufenes Token"))
 }
 
 // Authentication API handlers
@@ -8385,11 +11610,17 @@ async fn auth_register(
 ) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
     // Validate password length
     if request.password.len() < 8 {
-        return Err(ErrorResponse::bad_request("Password must be at least 8 characters"));
+        return Err(ErrorResponse::bad_request(
+            "Password must be at least 8 characters",
+        ));
     }
 
     // Check if username already exists
-    match state.config_repo.get_user_by_username(&request.username).await {
+    match state
+        .config_repo
+        .get_user_by_username(&request.username)
+        .await
+    {
         Ok(Some(_)) => {
             return Err(ErrorResponse::conflict("Username already exists"));
         }
@@ -8431,7 +11662,11 @@ async fn auth_register(
     }
 
     // Fetch the created user
-    let user = match state.config_repo.get_user_by_username(&request.username).await {
+    let user = match state
+        .config_repo
+        .get_user_by_username(&request.username)
+        .await
+    {
         Ok(Some(user)) => user,
         _ => {
             return Err(ErrorResponse::internal("Failed to register user"));
@@ -8447,7 +11682,9 @@ async fn auth_register(
         Ok(token) => token,
         Err(e) => {
             warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal("Failed to generate authentication token"));
+            return Err(ErrorResponse::internal(
+                "Failed to generate authentication token",
+            ));
         }
     };
 
@@ -8460,7 +11697,11 @@ async fn auth_login(
     Json(request): Json<db::models::LoginRequest>,
 ) -> Result<Json<db::models::AuthResponse>, ErrorResponse> {
     // Get user by username
-    let user = match state.config_repo.get_user_by_username(&request.username).await {
+    let user = match state
+        .config_repo
+        .get_user_by_username(&request.username)
+        .await
+    {
         Ok(Some(user)) => user,
         Ok(None) => {
             return Err(ErrorResponse::unauthorized("Invalid username or password"));
@@ -8512,11 +11753,14 @@ async fn auth_login(
     let remember_me = request.remember_me.unwrap_or(false);
     let expiration_days = if remember_me { 30 } else { 1 };
 
-    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, expiration_days) {
+    let token = match auth::generate_token(&user.id, &user.username, user.is_admin, expiration_days)
+    {
         Ok(token) => token,
         Err(e) => {
             warn!("Failed to generate token: {}", e);
-            return Err(ErrorResponse::internal("Failed to generate authentication token"));
+            return Err(ErrorResponse::internal(
+                "Failed to generate authentication token",
+            ));
         }
     };
 
@@ -8539,7 +11783,11 @@ async fn upload_background_image(
             Ok(header_value) => header_value.strip_prefix("Bearer ").unwrap_or_default(),
             Err(_) => return Err(ErrorResponse::unauthorized("Invalid authorization header")),
         },
-        None => return Err(ErrorResponse::unauthorized("No authorization header provided")),
+        None => {
+            return Err(ErrorResponse::unauthorized(
+                "No authorization header provided",
+            ))
+        }
     };
 
     if token.is_empty() {
@@ -8553,7 +11801,9 @@ async fn upload_background_image(
     let user_upload_dir = format!("./data/uploads/{}", user_id);
     tokio::fs::create_dir_all(&user_upload_dir)
         .await
-        .map_err(|e| ErrorResponse::internal(format!("Failed to prepare upload directory: {}", e)))?;
+        .map_err(|e| {
+            ErrorResponse::internal(format!("Failed to prepare upload directory: {}", e))
+        })?;
 
     while let Some(field) = multipart
         .next_field()
@@ -8584,7 +11834,18 @@ async fn upload_background_image(
             return Err(ErrorResponse::bad_request("Uploaded file is empty"));
         }
 
-        tokio::fs::write(&disk_path, &bytes)
+        // Per-file cap for background images (20 MiB). Larger uploads are
+        // almost certainly malicious or operator error.
+        const MAX_BACKGROUND_BYTES: usize = 20 * 1024 * 1024;
+        if bytes.len() > MAX_BACKGROUND_BYTES {
+            return Err(ErrorResponse::bad_request(format!(
+                "Uploaded file exceeds {} bytes",
+                MAX_BACKGROUND_BYTES
+            )));
+        }
+
+        let disk_path_buf = FsPath::new(&disk_path).to_path_buf();
+        iora_shared::upload_store::atomic_write_async(&disk_path_buf, &bytes)
             .await
             .map_err(|e| ErrorResponse::internal(format!("Failed to save uploaded file: {}", e)))?;
 
@@ -8595,7 +11856,9 @@ async fn upload_background_image(
         }));
     }
 
-    Err(ErrorResponse::bad_request("No file field named 'file' provided"))
+    Err(ErrorResponse::bad_request(
+        "No file field named 'file' provided",
+    ))
 }
 
 /// Validate API key or JWT presented in Authorization/X-API-Key headers.
@@ -8630,7 +11893,9 @@ async fn auth_validate_credentials(
             },
             "is_admin": id.is_admin(),
         }))),
-        None => Err(ErrorResponse::unauthorized("Invalid or missing credentials")),
+        None => Err(ErrorResponse::unauthorized(
+            "Invalid or missing credentials",
+        )),
     }
 }
 
@@ -8646,7 +11911,9 @@ async fn auth_verify(
                 if let Some(token) = header_value.strip_prefix("Bearer ") {
                     token
                 } else {
-                    return Err(ErrorResponse::unauthorized("Invalid authorization header format"));
+                    return Err(ErrorResponse::unauthorized(
+                        "Invalid authorization header format",
+                    ));
                 }
             }
             Err(_) => {
@@ -8654,7 +11921,9 @@ async fn auth_verify(
             }
         },
         None => {
-            return Err(ErrorResponse::unauthorized("No authorization header provided"));
+            return Err(ErrorResponse::unauthorized(
+                "No authorization header provided",
+            ));
         }
     };
 
@@ -8668,7 +11937,11 @@ async fn auth_verify(
     };
 
     // Get user from database
-    let user = match state.config_repo.get_user_by_username(&claims.username).await {
+    let user = match state
+        .config_repo
+        .get_user_by_username(&claims.username)
+        .await
+    {
         Ok(Some(user)) => user,
         Ok(None) => {
             return Err(ErrorResponse::unauthorized("User not found"));
@@ -8689,7 +11962,6 @@ async fn auth_verify(
 
     Ok(Json(response))
 }
-
 
 #[derive(Debug, Deserialize)]
 struct LocalHistoryQuery {
@@ -8713,11 +11985,13 @@ async fn get_local_history(
     axum::extract::Query(query): axum::extract::Query<LocalHistoryQuery>,
 ) -> Result<Json<Vec<HistoryRow>>, ErrorResponse> {
     let start = query.start.unwrap_or_else(|| {
-        (chrono::Utc::now() - chrono::Duration::hours(24)).format("%Y-%m-%dT%H:%M:%S").to_string()
+        (chrono::Utc::now() - chrono::Duration::hours(24))
+            .format("%Y-%m-%dT%H:%M:%S")
+            .to_string()
     });
-    let end = query.end.unwrap_or_else(|| {
-        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string()
-    });
+    let end = query
+        .end
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string());
 
     let rows: Vec<(String, String, Option<String>, String, String)> = sqlx::query_as(
         "SELECT entity_id, state, attributes, last_changed, recorded_at FROM entity_history WHERE entity_id = $1 AND recorded_at >= $2 AND recorded_at <= $3 ORDER BY recorded_at ASC"
@@ -8732,17 +12006,19 @@ async fn get_local_history(
         ErrorResponse::internal(format!("Failed to get local history: {}", e))
     })?;
 
-    let history: Vec<HistoryRow> = rows.into_iter().map(|(entity_id, state_val, attrs, last_changed, recorded_at)| {
-        let attributes = attrs
-            .and_then(|a| serde_json::from_str(&a).ok());
-        HistoryRow {
-            entity_id,
-            state: state_val,
-            attributes,
-            last_changed,
-            recorded_at,
-        }
-    }).collect();
+    let history: Vec<HistoryRow> = rows
+        .into_iter()
+        .map(|(entity_id, state_val, attrs, last_changed, recorded_at)| {
+            let attributes = attrs.and_then(|a| serde_json::from_str(&a).ok());
+            HistoryRow {
+                entity_id,
+                state: state_val,
+                attributes,
+                last_changed,
+                recorded_at,
+            }
+        })
+        .collect();
 
     Ok(Json(history))
 }
@@ -8787,7 +12063,8 @@ async fn save_cached_forecast(
     Path((entity_id, forecast_type)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let forecast_data = body.get("forecast")
+    let forecast_data = body
+        .get("forecast")
         .ok_or_else(|| ErrorResponse::bad_request("Missing 'forecast' field"))?;
 
     let data_str = serde_json::to_string(forecast_data)
@@ -8847,7 +12124,8 @@ async fn search_entities(
         .into_iter()
         .filter(|e| {
             let eid = e.entity_id.to_lowercase();
-            let friendly_name = e.attributes
+            let friendly_name = e
+                .attributes
                 .get("friendly_name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -8861,9 +12139,7 @@ async fn search_entities(
 }
 
 /// Get entity counts grouped by domain (fast, served from cache)
-async fn get_entity_counts(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn get_entity_counts(State(state): State<AppState>) -> impl IntoResponse {
     let all = state.entity_cache.get_all().await;
     let mut domain_counts: HashMap<String, usize> = HashMap::new();
     for e in &all {
@@ -8901,17 +12177,16 @@ async fn get_entity_statistics(
     Path(entity_id): Path<String>,
 ) -> Result<Json<EntityStatistics>, ErrorResponse> {
     // Total changes
-    let (total_changes,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history WHERE entity_id = $1"
-    )
-    .bind(&entity_id)
-    .fetch_one(&state.db_pool)
-    .await
-    .map_err(|e| ErrorResponse::internal(format!("Query failed: {}", e)))?;
+    let (total_changes,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM entity_history WHERE entity_id = $1")
+            .bind(&entity_id)
+            .fetch_one(&state.db_pool)
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("Query failed: {}", e)))?;
 
     // First and last seen
     let time_range: Option<(String, String)> = sqlx::query_as(
-        "SELECT MIN(recorded_at), MAX(recorded_at) FROM entity_history WHERE entity_id = $1"
+        "SELECT MIN(recorded_at), MAX(recorded_at) FROM entity_history WHERE entity_id = $1",
     )
     .bind(&entity_id)
     .fetch_optional(&state.db_pool)
@@ -9000,13 +12275,12 @@ async fn get_dashboard_statistics(
         .format("%Y-%m-%dT%H:%M:%S")
         .to_string();
 
-    let (history_entries_24h,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history WHERE recorded_at >= $1"
-    )
-    .bind(&cutoff_24h)
-    .fetch_one(&state.db_pool)
-    .await
-    .unwrap_or((0,));
+    let (history_entries_24h,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM entity_history WHERE recorded_at >= $1")
+            .bind(&cutoff_24h)
+            .fetch_one(&state.db_pool)
+            .await
+            .unwrap_or((0,));
 
     // Most active entities in last 24h
     let active_rows: Vec<(String, i64)> = sqlx::query_as(
@@ -9019,7 +12293,10 @@ async fn get_dashboard_statistics(
 
     let most_active_entities: Vec<ActiveEntity> = active_rows
         .into_iter()
-        .map(|(entity_id, change_count)| ActiveEntity { entity_id, change_count })
+        .map(|(entity_id, change_count)| ActiveEntity {
+            entity_id,
+            change_count,
+        })
         .collect();
 
     Ok(Json(DashboardStatistics {
@@ -9045,28 +12322,30 @@ const LOG_BUFFER_CAPACITY: usize = 5000;
 
 /// A single log entry captured from the tracing system
 #[derive(Clone, Serialize)]
-struct LogEntry {
+pub(crate) struct LogEntry {
     /// Monotonic ID for ordering
-    id: u64,
+    pub id: u64,
     /// ISO-8601 timestamp
-    timestamp: String,
+    pub timestamp: String,
     /// Log level: trace, debug, info, warn, error
-    level: String,
+    pub level: String,
     /// Source service / module target
-    target: String,
+    pub target: String,
     /// Log message text
-    message: String,
+    pub message: String,
     /// Optional structured fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    fields: Option<Value>,
+    pub fields: Option<Value>,
 }
 
 /// Global log ID counter
-static LOG_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+pub(crate) static LOG_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// In-memory ring buffer for captured log entries
-static LOG_BUFFER: std::sync::LazyLock<std::sync::RwLock<VecDeque<LogEntry>>> =
-    std::sync::LazyLock::new(|| std::sync::RwLock::new(VecDeque::with_capacity(LOG_BUFFER_CAPACITY)));
+pub(crate) static LOG_BUFFER: std::sync::LazyLock<std::sync::RwLock<VecDeque<LogEntry>>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::RwLock::new(VecDeque::with_capacity(LOG_BUFFER_CAPACITY))
+    });
 
 /// Broadcast channel for real-time log streaming
 static LOG_BROADCAST: std::sync::LazyLock<tokio::sync::broadcast::Sender<LogEntry>> =
@@ -9100,7 +12379,11 @@ fn push_log_entry(level: &str, target: &str, message: &str, fields: Option<Value
 struct IoraLogLayer;
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         let level = match *event.metadata().level() {
             tracing::Level::ERROR => "error",
             tracing::Level::WARN => "warn",
@@ -9117,7 +12400,8 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
                 if field.name() == "message" {
                     self.0 = format!("{:?}", value);
                 } else {
-                    self.1.insert(field.name().to_string(), json!(format!("{:?}", value)));
+                    self.1
+                        .insert(field.name().to_string(), json!(format!("{:?}", value)));
                 }
             }
             fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
@@ -9144,13 +12428,45 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for IoraLogLayer {
         event.record(&mut visitor);
 
         match level {
-            "error" => { METRICS.log_error_count.fetch_add(1, Ordering::Relaxed); }
-            "warn" => { METRICS.log_warn_count.fetch_add(1, Ordering::Relaxed); }
-            "info" => { METRICS.log_info_count.fetch_add(1, Ordering::Relaxed); }
+            "error" => {
+                METRICS.log_error_count.fetch_add(1, Ordering::Relaxed);
+            }
+            "warn" => {
+                METRICS.log_warn_count.fetch_add(1, Ordering::Relaxed);
+            }
+            "info" => {
+                METRICS.log_info_count.fetch_add(1, Ordering::Relaxed);
+            }
             _ => {}
         }
-        let fields = if visitor.1.is_empty() { None } else { Some(json!(visitor.1)) };
-        push_log_entry(level, target, &visitor.0, fields);
+        let fields = if visitor.1.is_empty() {
+            None
+        } else {
+            Some(json!(visitor.1))
+        };
+        push_log_entry(level, target, &visitor.0, fields.clone());
+
+        // Auto-capture into the persistent system event log for error/warn
+        // so every tracing-style `error!()` / `warn!()` anywhere in the
+        // codebase is recorded — no call-site changes required.
+        let severity = match level {
+            "error" => Some(system_events::Severity::Error),
+            "warn" => Some(system_events::Severity::Warning),
+            _ => None,
+        };
+        if let Some(sev) = severity {
+            // Skip our own diagnostics to avoid an infinite feedback loop.
+            if !target.contains("system_events") {
+                let meta = event.metadata();
+                let mut emeta = system_events::EventMeta::default();
+                emeta.target = Some(target.to_string());
+                emeta.file = meta.file().map(|f| f.to_string());
+                emeta.line = meta.line().map(|l| l as i32);
+                emeta.extra = fields;
+                let source = target.rsplit("::").next().unwrap_or(target).to_string();
+                system_events::capture_from_tracing(sev, &source, &visitor.0, emeta);
+            }
+        }
     }
 }
 
@@ -9187,23 +12503,24 @@ pub(crate) struct IoraMetrics {
     pub(crate) cache_misses: AtomicU64,
 }
 
-pub(crate) static METRICS: std::sync::LazyLock<IoraMetrics> = std::sync::LazyLock::new(|| IoraMetrics {
-    http_requests_total: AtomicU64::new(0),
-    http_errors_total: AtomicU64::new(0),
-    ws_messages_sent: AtomicU64::new(0),
-    ws_messages_received: AtomicU64::new(0),
-    entity_state_changes: AtomicU64::new(0),
-    service_calls_total: AtomicU64::new(0),
-    ha_ws_reconnects: AtomicU64::new(0),
-    task_runs_total: AtomicU64::new(0),
-    task_errors_total: AtomicU64::new(0),
-    log_error_count: AtomicU64::new(0),
-    log_warn_count: AtomicU64::new(0),
-    log_info_count: AtomicU64::new(0),
-    sse_connections: AtomicU64::new(0),
-    cache_hits: AtomicU64::new(0),
-    cache_misses: AtomicU64::new(0),
-});
+pub(crate) static METRICS: std::sync::LazyLock<IoraMetrics> =
+    std::sync::LazyLock::new(|| IoraMetrics {
+        http_requests_total: AtomicU64::new(0),
+        http_errors_total: AtomicU64::new(0),
+        ws_messages_sent: AtomicU64::new(0),
+        ws_messages_received: AtomicU64::new(0),
+        entity_state_changes: AtomicU64::new(0),
+        service_calls_total: AtomicU64::new(0),
+        ha_ws_reconnects: AtomicU64::new(0),
+        task_runs_total: AtomicU64::new(0),
+        task_errors_total: AtomicU64::new(0),
+        log_error_count: AtomicU64::new(0),
+        log_warn_count: AtomicU64::new(0),
+        log_info_count: AtomicU64::new(0),
+        sse_connections: AtomicU64::new(0),
+        cache_hits: AtomicU64::new(0),
+        cache_misses: AtomicU64::new(0),
+    });
 
 /// Broadcast channel for real-time metrics snapshots (pushed every 2s)
 static METRICS_BROADCAST: std::sync::LazyLock<tokio::sync::broadcast::Sender<Value>> =
@@ -9339,9 +12656,7 @@ fn task_entry(idx: usize) -> &'static TaskEntry {
 }
 
 /// Get system resource usage (CPU, RAM, disk)
-async fn get_system_stats(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn get_system_stats(State(state): State<AppState>) -> impl IntoResponse {
     use sysinfo::System;
 
     // Use spawn_blocking so the CPU measurement doesn't block the async runtime
@@ -9358,8 +12673,15 @@ async fn get_system_stats(
         } else {
             sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
         };
-        (cpu_usage, sys.cpus().len(), sys.total_memory(), sys.used_memory())
-    }).await.unwrap_or((0.0, 0, 0, 0));
+        (
+            cpu_usage,
+            sys.cpus().len(),
+            sys.total_memory(),
+            sys.used_memory(),
+        )
+    })
+    .await
+    .unwrap_or((0.0, 0, 0, 0));
 
     let (cpu_usage, cpu_cores, total_memory, used_memory) = sys_info;
     let memory_usage_pct = if total_memory > 0 {
@@ -9375,19 +12697,17 @@ async fn get_system_stats(
 
     // Database size (optional)
     let db_size: i64 = sqlx::query_scalar::<_, i64>(
-        "SELECT page_count * page_size FROM pragma_page_count, pragma_page_size"
+        "SELECT page_count * page_size FROM pragma_page_count, pragma_page_size",
     )
     .fetch_one(&state.db_pool)
     .await
     .unwrap_or(0);
 
     // History row count
-    let (history_total,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history"
-    )
-    .fetch_one(&state.db_pool)
-    .await
-    .unwrap_or((0,));
+    let (history_total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM entity_history")
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
 
     Json(serde_json::json!({
         "cpu": {
@@ -9422,9 +12742,7 @@ async fn get_system_stats(
 }
 
 /// Get Home Assistant system information
-async fn get_ha_info(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn get_ha_info(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let ha_connected = state.entity_cache.is_ha_connected();
     let ha_ws_connected = state.ha_ws.is_connected();
     let entity_count = state.entity_cache.count().await;
@@ -9442,21 +12760,24 @@ async fn get_ha_info(
     domain_list.sort_by(|a, b| b.1.cmp(&a.1));
 
     // Get HA version from config if available in any entity
-    let ha_version = all_entities.iter()
-        .find(|e| e.entity_id == "sensor.home_assistant_version" || e.entity_id == "update.home_assistant_core_update")
+    let ha_version = all_entities
+        .iter()
+        .find(|e| {
+            e.entity_id == "sensor.home_assistant_version"
+                || e.entity_id == "update.home_assistant_core_update"
+        })
         .map(|e| e.state.clone());
 
     // History entries in last 24h
     let cutoff_24h = (chrono::Utc::now() - chrono::Duration::hours(24))
         .format("%Y-%m-%dT%H:%M:%S")
         .to_string();
-    let (history_24h,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM entity_history WHERE recorded_at >= $1"
-    )
-    .bind(&cutoff_24h)
-    .fetch_one(&state.db_pool)
-    .await
-    .unwrap_or((0,));
+    let (history_24h,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM entity_history WHERE recorded_at >= $1")
+            .bind(&cutoff_24h)
+            .fetch_one(&state.db_pool)
+            .await
+            .unwrap_or((0,));
 
     Ok(Json(serde_json::json!({
         "ha_connected": ha_connected,
@@ -9477,11 +12798,17 @@ async fn get_ha_info(
 fn dispatch_command(state: &AppState, entity_id: &str, domain: &str, service: &str, data: Value) {
     if state.ha_ws.is_connected() {
         // Fast path: instant WS dispatch
-        info!("[dispatch] WS → {}.{} entity={} data={}", domain, service, entity_id, data);
+        info!(
+            "[dispatch] WS → {}.{} entity={} data={}",
+            domain, service, entity_id, data
+        );
         state.ha_ws.call_service(domain, service, entity_id, data);
     } else {
         // Fallback: REST API in background task
-        info!("[dispatch] REST fallback → {}.{} entity={}", domain, service, entity_id);
+        info!(
+            "[dispatch] REST fallback → {}.{} entity={}",
+            domain, service, entity_id
+        );
         let ha_client = state.ha_client.clone();
         let domain = domain.to_string();
         let service = service.to_string();
@@ -9494,7 +12821,10 @@ fn dispatch_command(state: &AppState, entity_id: &str, domain: &str, service: &s
                     obj.insert("entity_id".to_string(), Value::String(entity_id));
                 }
             }
-            if let Err(e) = ha_client.call_service_fast(&domain, &service, call_data).await {
+            if let Err(e) = ha_client
+                .call_service_fast(&domain, &service, call_data)
+                .await
+            {
                 warn!("REST fallback call_service failed: {}", e);
             }
         });
@@ -9520,7 +12850,10 @@ async fn safety_net_poll(
             if !changed.is_empty() {
                 ws_manager.broadcast_state_updates(changed).await;
             }
-            info!("Initial state fetch complete ({} entities)", entity_cache.count().await);
+            info!(
+                "Initial state fetch complete ({} entities)",
+                entity_cache.count().await
+            );
         }
         Err(e) => {
             warn!("Initial state fetch failed (HA WS will retry): {}", e);
@@ -9587,10 +12920,12 @@ async fn cleanup_old_history(db_pool: DbPool) {
         }
 
         let cmd_cutoff = chrono::Utc::now() - chrono::Duration::days(30);
-        match sqlx::query("DELETE FROM desktop_commands WHERE status = 'acknowledged' AND updated_at < $1")
-            .bind(cmd_cutoff)
-            .execute(&db_pool)
-            .await
+        match sqlx::query(
+            "DELETE FROM desktop_commands WHERE status = 'acknowledged' AND updated_at < $1",
+        )
+        .bind(cmd_cutoff)
+        .execute(&db_pool)
+        .await
         {
             Ok(result) => {
                 let rows = result.rows_affected();
@@ -9631,11 +12966,26 @@ async fn background_watchdog_loop(
         for (wid, rule) in watchdogs.iter() {
             let entity_id = rule.get("entity_id").and_then(|v| v.as_str()).unwrap_or("");
             let trigger = rule.get("trigger").and_then(|v| v.as_str()).unwrap_or("");
-            let cooldown = rule.get("cooldown_secs").and_then(|v| v.as_i64()).unwrap_or(300);
-            let last_triggered = rule.get("last_triggered").and_then(|v| v.as_i64()).unwrap_or(0);
-            let action_domain = rule.get("action_domain").and_then(|v| v.as_str()).unwrap_or("homeassistant");
-            let action_service = rule.get("action_service").and_then(|v| v.as_str()).unwrap_or("toggle");
-            let action_data = rule.get("action_data").cloned().unwrap_or(serde_json::json!({}));
+            let cooldown = rule
+                .get("cooldown_secs")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(300);
+            let last_triggered = rule
+                .get("last_triggered")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let action_domain = rule
+                .get("action_domain")
+                .and_then(|v| v.as_str())
+                .unwrap_or("homeassistant");
+            let action_service = rule
+                .get("action_service")
+                .and_then(|v| v.as_str())
+                .unwrap_or("toggle");
+            let action_data = rule
+                .get("action_data")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
 
             if now - last_triggered < cooldown {
                 continue;
@@ -9654,7 +13004,10 @@ async fn background_watchdog_loop(
                         }
                     }
                     "state_equals" => {
-                        let target_state = rule.get("target_state").and_then(|v| v.as_str()).unwrap_or("");
+                        let target_state = rule
+                            .get("target_state")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         entity.state == target_state
                     }
                     _ => false,
@@ -9668,8 +13021,15 @@ async fn background_watchdog_loop(
                 if !entity_id.is_empty() {
                     svc_data.insert("entity_id".into(), Value::String(entity_id.into()));
                 }
-                if let Ok(()) = ha_client.call_service_fast(action_domain, action_service, Value::Object(svc_data)).await {
-                    triggered.push((wid.clone(), entity_id.to_string(), format!("{action_domain}.{action_service}")));
+                if let Ok(()) = ha_client
+                    .call_service_fast(action_domain, action_service, Value::Object(svc_data))
+                    .await
+                {
+                    triggered.push((
+                        wid.clone(),
+                        entity_id.to_string(),
+                        format!("{action_domain}.{action_service}"),
+                    ));
                 }
             }
         }
@@ -9683,7 +13043,10 @@ async fn background_watchdog_loop(
                         obj.insert("last_triggered".into(), serde_json::json!(now));
                     }
                 }
-                info!("Watchdog auto-triggered: {} for entity {} → {}", wid, entity_id, action);
+                info!(
+                    "Watchdog auto-triggered: {} for entity {} → {}",
+                    wid, entity_id, action
+                );
             }
 
             // Notify connected dashboard clients
@@ -9757,18 +13120,24 @@ async fn background_entity_anomaly_detection(
             continue; // Not enough variance to detect anomalies
         }
 
-        let anomalies: Vec<serde_json::Value> = top.iter()
+        let anomalies: Vec<serde_json::Value> = top
+            .iter()
             .filter(|a| (a.change_count as f64) > threshold)
-            .map(|a| serde_json::json!({
-                "entity_id": a.entity_id,
-                "state_changes": a.change_count,
-                "threshold": threshold as u64,
-                "mean": mean as u64,
-            }))
+            .map(|a| {
+                serde_json::json!({
+                    "entity_id": a.entity_id,
+                    "state_changes": a.change_count,
+                    "threshold": threshold as u64,
+                    "mean": mean as u64,
+                })
+            })
             .collect();
 
         if !anomalies.is_empty() {
-            info!("Entity anomaly detection: {} entities with unusual activity", anomalies.len());
+            info!(
+                "Entity anomaly detection: {} entities with unusual activity",
+                anomalies.len()
+            );
             let event = serde_json::json!({
                 "type": "entity_anomalies",
                 "anomalies": anomalies,
@@ -9781,10 +13150,7 @@ async fn background_entity_anomaly_detection(
 
 /// Background analytics aggregation — periodically writes entity analytics snapshots to DB.
 /// Runs every 10 minutes, stores a summary so historical trends can be tracked.
-async fn background_analytics_aggregation(
-    entity_cache: Arc<EntityStateCache>,
-    db_pool: DbPool,
-) {
+async fn background_analytics_aggregation(entity_cache: Arc<EntityStateCache>, db_pool: DbPool) {
     // Wait 2 minutes for initial data
     tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(600));
@@ -9800,8 +13166,10 @@ async fn background_analytics_aggregation(
             total_state_changes INTEGER NOT NULL,
             most_active_entity TEXT,
             most_active_changes INTEGER DEFAULT 0
-        )"
-    ).execute(&db_pool).await;
+        )",
+    )
+    .execute(&db_pool)
+    .await;
 
     loop {
         interval.tick().await;
@@ -9814,7 +13182,10 @@ async fn background_analytics_aggregation(
         let total_entities = entity_cache.count().await as i32;
         let unavailable = health.iter().filter(|h| h.status == "unavailable").count() as i32;
         let stale = health.iter().filter(|h| h.status == "stale").count() as i32;
-        let total_changes = summary.get("total_state_changes").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let total_changes = summary
+            .get("total_state_changes")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
         let most_active = top.first().map(|a| a.entity_id.clone()).unwrap_or_default();
         let most_active_changes = top.first().map(|a| a.change_count as i32).unwrap_or(0);
 
@@ -9866,18 +13237,21 @@ async fn background_stale_entity_monitor(
         task_entry(8).record_run();
 
         let health = entity_cache.entity_health_report(3600).await;
-        let currently_stale: std::collections::HashSet<String> = health.iter()
+        let currently_stale: std::collections::HashSet<String> = health
+            .iter()
             .filter(|h| h.status == "stale" || h.status == "unavailable")
             .map(|h| h.entity_id.clone())
             .collect();
 
         // Find newly stale entities (ones that weren't stale before)
-        let newly_stale: Vec<&String> = currently_stale.iter()
+        let newly_stale: Vec<&String> = currently_stale
+            .iter()
             .filter(|e| !previously_stale.contains(*e))
             .collect();
 
         // Find recovered entities
-        let recovered: Vec<&String> = previously_stale.iter()
+        let recovered: Vec<&String> = previously_stale
+            .iter()
             .filter(|e| !currently_stale.contains(*e))
             .collect();
 
@@ -9892,10 +13266,16 @@ async fn background_stale_entity_monitor(
             ws_manager.broadcast_json(&event).await;
 
             if !newly_stale.is_empty() {
-                info!("Stale entity monitor: {} newly stale entities detected", newly_stale.len());
+                info!(
+                    "Stale entity monitor: {} newly stale entities detected",
+                    newly_stale.len()
+                );
             }
             if !recovered.is_empty() {
-                info!("Stale entity monitor: {} entities recovered", recovered.len());
+                info!(
+                    "Stale entity monitor: {} entities recovered",
+                    recovered.len()
+                );
             }
         }
 
@@ -9904,7 +13284,7 @@ async fn background_stale_entity_monitor(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// API Key Management Endpoints  
+// API Key Management Endpoints
 // ═══════════════════════════════════════════════════════════════════════
 
 /// List API keys for the authenticated user
@@ -9940,28 +13320,34 @@ async fn create_api_key(
     let key_hash = auth::hash_password(&raw_key)
         .map_err(|_| ErrorResponse::internal("Fehler beim Erstellen des API-Keys"))?;
 
-    let permissions = request.permissions.unwrap_or_else(|| vec!["read".to_string()]);
+    let permissions = request
+        .permissions
+        .unwrap_or_else(|| vec!["read".to_string()]);
     let permissions_json = serde_json::to_string(&permissions)
         .map_err(|_| ErrorResponse::internal("Invalid permissions"))?;
 
     let rate_limit = request.rate_limit.unwrap_or(60).clamp(1, 1000);
 
-    let expires_at = request.expires_in_days.map(|days| {
-        chrono::Utc::now() + chrono::Duration::days(days.clamp(1, 365))
-    });
+    let expires_at = request
+        .expires_in_days
+        .map(|days| chrono::Utc::now() + chrono::Duration::days(days.clamp(1, 365)));
 
-    let api_key = state.config_repo.create_api_key(
-        &user_id,
-        request.name.trim(),
-        &key_hash,
-        &prefix,
-        &permissions_json,
-        rate_limit,
-        expires_at,
-    ).await.map_err(|e| {
-        warn!("Failed to create API key: {}", e);
-        ErrorResponse::internal("Fehler beim Erstellen des API-Keys")
-    })?;
+    let api_key = state
+        .config_repo
+        .create_api_key(
+            &user_id,
+            request.name.trim(),
+            &key_hash,
+            &prefix,
+            &permissions_json,
+            rate_limit,
+            expires_at,
+        )
+        .await
+        .map_err(|e| {
+            warn!("Failed to create API key: {}", e);
+            ErrorResponse::internal("Fehler beim Erstellen des API-Keys")
+        })?;
 
     Ok(Json(db::models::ApiKeyWithSecret {
         id: api_key.id,
@@ -9983,7 +13369,10 @@ async fn update_api_key(
     Json(request): Json<db::models::UpdateApiKeyRequest>,
 ) -> Result<Json<db::models::ApiKey>, ErrorResponse> {
     // Verify ownership
-    let keys = state.config_repo.list_api_keys(identity.user_id()).await
+    let keys = state
+        .config_repo
+        .list_api_keys(identity.user_id())
+        .await
         .map_err(|_| ErrorResponse::internal("Fehler"))?;
     if !keys.iter().any(|k| k.id == key_id) {
         return Err(ErrorResponse::not_found("API-Key nicht gefunden"));
@@ -10006,7 +13395,10 @@ async fn delete_api_key(
     Path(key_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
     // Verify ownership
-    let keys = state.config_repo.list_api_keys(identity.user_id()).await
+    let keys = state
+        .config_repo
+        .list_api_keys(identity.user_id())
+        .await
         .map_err(|_| ErrorResponse::internal("Fehler"))?;
     if !keys.iter().any(|k| k.id == key_id) {
         return Err(ErrorResponse::not_found("API-Key nicht gefunden"));
@@ -10030,14 +13422,18 @@ async fn delete_api_key(
 async fn admin_list_users(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<db::models::AdminUserEntry>>, ErrorResponse> {
-    let users = state.config_repo.list_all_users_admin().await
+    let users = state
+        .config_repo
+        .list_all_users_admin()
+        .await
         .map_err(|e| {
             warn!("Failed to list users: {}", e);
             ErrorResponse::internal("Fehler beim Laden der Benutzer")
         })?;
 
-    let entries: Vec<db::models::AdminUserEntry> = users.into_iter().map(|u| {
-        db::models::AdminUserEntry {
+    let entries: Vec<db::models::AdminUserEntry> = users
+        .into_iter()
+        .map(|u| db::models::AdminUserEntry {
             has_password: u.password_hash.is_some(),
             has_pin: u.pin_hash.is_some(),
             id: u.id,
@@ -10048,8 +13444,8 @@ async fn admin_list_users(
             is_admin: u.is_admin,
             created_at: u.created_at,
             updated_at: u.updated_at,
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(Json(entries))
 }
@@ -10060,7 +13456,10 @@ async fn admin_set_user_admin(
     Path(user_id): Path<String>,
     Json(request): Json<db::models::SetAdminRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    state.config_repo.set_user_admin(&user_id, request.is_admin).await
+    state
+        .config_repo
+        .set_user_admin(&user_id, request.is_admin)
+        .await
         .map_err(|e| {
             warn!("Failed to set admin status: {}", e);
             ErrorResponse::internal("Admin-Status konnte nicht geändert werden")
@@ -10080,8 +13479,14 @@ async fn admin_update_user(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
     // Check user exists
-    let user = state.config_repo.get_user_by_id(&user_id).await
-        .map_err(|e| { warn!("Failed to lookup user: {}", e); ErrorResponse::internal("Datenbankfehler") })?
+    let user = state
+        .config_repo
+        .get_user_by_id(&user_id)
+        .await
+        .map_err(|e| {
+            warn!("Failed to lookup user: {}", e);
+            ErrorResponse::internal("Datenbankfehler")
+        })?
         .ok_or_else(|| ErrorResponse::not_found("Benutzer nicht gefunden"))?;
 
     // Update display name if provided
@@ -10090,20 +13495,38 @@ async fn admin_update_user(
             username: None,
             display_name: Some(display_name.to_string()),
         };
-        state.config_repo.update_user(&user_id, req).await
-            .map_err(|e| { warn!("Failed to update user: {}", e); ErrorResponse::internal("Fehler beim Aktualisieren") })?;
+        state
+            .config_repo
+            .update_user(&user_id, req)
+            .await
+            .map_err(|e| {
+                warn!("Failed to update user: {}", e);
+                ErrorResponse::internal("Fehler beim Aktualisieren")
+            })?;
     }
 
     // Update role if provided
     if let Some(role) = body.get("role").and_then(|v| v.as_str()) {
         let valid_roles = ["user", "viewer", "editor", "admin", "maintenance"];
         if valid_roles.contains(&role) {
-            state.config_repo.set_user_role(&user_id, role).await
-                .map_err(|e| { warn!("Failed to set role: {}", e); ErrorResponse::internal("Rolle konnte nicht gesetzt werden") })?;
+            state
+                .config_repo
+                .set_user_role(&user_id, role)
+                .await
+                .map_err(|e| {
+                    warn!("Failed to set role: {}", e);
+                    ErrorResponse::internal("Rolle konnte nicht gesetzt werden")
+                })?;
             // If role is "admin", also set is_admin flag
             if role == "admin" {
-                state.config_repo.set_user_admin(&user_id, true).await
-                    .map_err(|e| { warn!("Failed to set admin: {}", e); ErrorResponse::internal("Admin-Status konnte nicht gesetzt werden") })?;
+                state
+                    .config_repo
+                    .set_user_admin(&user_id, true)
+                    .await
+                    .map_err(|e| {
+                        warn!("Failed to set admin: {}", e);
+                        ErrorResponse::internal("Admin-Status konnte nicht gesetzt werden")
+                    })?;
             }
         }
     }
@@ -10111,10 +13534,18 @@ async fn admin_update_user(
     // Reset password if provided
     if let Some(new_password) = body.get("new_password").and_then(|v| v.as_str()) {
         if !new_password.is_empty() {
-            let hash = auth::hash_password(new_password)
-                .map_err(|e| { warn!("Failed to hash password: {}", e); ErrorResponse::internal("Passwort-Hashing fehlgeschlagen") })?;
-            state.config_repo.set_user_password(&user_id, &hash).await
-                .map_err(|e| { warn!("Failed to set password: {}", e); ErrorResponse::internal("Passwort konnte nicht gesetzt werden") })?;
+            let hash = auth::hash_password(new_password).map_err(|e| {
+                warn!("Failed to hash password: {}", e);
+                ErrorResponse::internal("Passwort-Hashing fehlgeschlagen")
+            })?;
+            state
+                .config_repo
+                .set_user_password(&user_id, &hash)
+                .await
+                .map_err(|e| {
+                    warn!("Failed to set password: {}", e);
+                    ErrorResponse::internal("Passwort konnte nicht gesetzt werden")
+                })?;
         }
     }
 
@@ -10133,14 +13564,15 @@ async fn admin_delete_user(
 ) -> Result<Json<Value>, ErrorResponse> {
     // Prevent self-deletion
     if identity.user_id() == user_id {
-        return Err(ErrorResponse::bad_request("Du kannst dich nicht selbst löschen"));
+        return Err(ErrorResponse::bad_request(
+            "Du kannst dich nicht selbst löschen",
+        ));
     }
 
-    state.config_repo.delete_user(&user_id).await
-        .map_err(|e| {
-            warn!("Failed to delete user: {}", e);
-            ErrorResponse::internal("Benutzer konnte nicht gelöscht werden")
-        })?;
+    state.config_repo.delete_user(&user_id).await.map_err(|e| {
+        warn!("Failed to delete user: {}", e);
+        ErrorResponse::internal("Benutzer konnte nicht gelöscht werden")
+    })?;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -10187,7 +13619,8 @@ async fn ha_api_get(state: &AppState, path: &str) -> Result<Value, ErrorResponse
         return Err(ErrorResponse::internal("Home Assistant is not configured"));
     }
 
-    let response = state.http_client
+    let response = state
+        .http_client
         .get(format!("{}{}", ha_config.url, path))
         .header("Authorization", format!("Bearer {}", ha_config.token))
         .header("Content-Type", "application/json")
@@ -10198,24 +13631,30 @@ async fn ha_api_get(state: &AppState, path: &str) -> Result<Value, ErrorResponse
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        return Err(ErrorResponse::internal(format!("HA API returned {}: {}", status, body)));
+        return Err(ErrorResponse::internal(format!(
+            "HA API returned {}: {}",
+            status, body
+        )));
     }
 
-    response.json::<Value>().await
+    response
+        .json::<Value>()
+        .await
         .map_err(|e| ErrorResponse::internal(format!("Failed to parse HA response: {}", e)))
 }
 
 /// Admin: Get HA configuration
-async fn admin_ha_config(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_config(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Try cache first, then fall back to direct API call. If HA is not yet
     // configured / not reachable we return a 200 with `available: false`
     // instead of a 500 so the admin UI can render a graceful empty state.
-    let config = state.ha_data_cache
-        .get_or_fetch_api("/api/config", std::time::Duration::from_secs(120), || async {
-            ha_api_get(&state, "/api/config").await.ok()
-        })
+    let config = state
+        .ha_data_cache
+        .get_or_fetch_api(
+            "/api/config",
+            std::time::Duration::from_secs(120),
+            || async { ha_api_get(&state, "/api/config").await.ok() },
+        )
         .await;
     match config {
         Some(c) => Ok(Json(c)),
@@ -10231,13 +13670,19 @@ async fn admin_ha_integrations(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     // Get components list from cache
-    let config = state.ha_data_cache
-        .get_or_fetch_api("/api/config", std::time::Duration::from_secs(120), || async {
-            ha_api_get(&state, "/api/config").await.ok()
-        })
+    let config = state
+        .ha_data_cache
+        .get_or_fetch_api(
+            "/api/config",
+            std::time::Duration::from_secs(120),
+            || async { ha_api_get(&state, "/api/config").await.ok() },
+        )
         .await
         .ok_or_else(|| ErrorResponse::internal("HA config not available"))?;
-    let components = config.get("components").cloned().unwrap_or(Value::Array(vec![]));
+    let components = config
+        .get("components")
+        .cloned()
+        .unwrap_or(Value::Array(vec![]));
 
     // Also get the domains from entity cache for a richer view
     let all_entities = state.entity_cache.get_all().await;
@@ -10255,24 +13700,26 @@ async fn admin_ha_integrations(
 }
 
 /// Admin: Get HA devices (from device registry via states)
-async fn admin_ha_devices(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_devices(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let all_entities = state.entity_cache.get_all().await;
 
     // Group entities by device_class and area
     let mut by_device_class: HashMap<String, Vec<Value>> = HashMap::new();
     for e in &all_entities {
-        let device_class = e.attributes
+        let device_class = e
+            .attributes
             .get("device_class")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
-        by_device_class.entry(device_class).or_default().push(serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "friendly_name": e.attributes.get("friendly_name"),
-        }));
+        by_device_class
+            .entry(device_class)
+            .or_default()
+            .push(serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "friendly_name": e.attributes.get("friendly_name"),
+            }));
     }
 
     Ok(Json(serde_json::json!({
@@ -10282,16 +13729,17 @@ async fn admin_ha_devices(
 }
 
 /// Admin: Get HA areas
-async fn admin_ha_areas(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_areas(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // HA REST API doesn't expose areas directly, but we can extract from entity attributes
     let all_entities = state.entity_cache.get_all().await;
 
     let mut areas: HashMap<String, Vec<String>> = HashMap::new();
     for e in &all_entities {
         if let Some(area) = e.attributes.get("area_id").and_then(|v| v.as_str()) {
-            areas.entry(area.to_string()).or_default().push(e.entity_id.clone());
+            areas
+                .entry(area.to_string())
+                .or_default()
+                .push(e.entity_id.clone());
         }
     }
 
@@ -10302,19 +13750,20 @@ async fn admin_ha_areas(
 }
 
 /// Admin: Get HA automations  
-async fn admin_ha_automations(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_automations(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let automations = state.entity_cache.get_by_domain("automation").await;
-    let data: Vec<Value> = automations.iter().map(|a| {
-        serde_json::json!({
-            "entity_id": a.entity_id,
-            "state": a.state,
-            "friendly_name": a.attributes.get("friendly_name"),
-            "last_triggered": a.attributes.get("last_triggered"),
-            "current": a.attributes.get("current"),
+    let data: Vec<Value> = automations
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "entity_id": a.entity_id,
+                "state": a.state,
+                "friendly_name": a.attributes.get("friendly_name"),
+                "last_triggered": a.attributes.get("last_triggered"),
+                "current": a.attributes.get("current"),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "automations": data,
@@ -10323,22 +13772,21 @@ async fn admin_ha_automations(
 }
 
 /// Admin: Get available HA services
-async fn admin_ha_services(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
-    let services = state.ha_data_cache
-        .get_or_fetch_api("/api/services", std::time::Duration::from_secs(300), || async {
-            ha_api_get(&state, "/api/services").await.ok()
-        })
+async fn admin_ha_services(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
+    let services = state
+        .ha_data_cache
+        .get_or_fetch_api(
+            "/api/services",
+            std::time::Duration::from_secs(300),
+            || async { ha_api_get(&state, "/api/services").await.ok() },
+        )
         .await
         .ok_or_else(|| ErrorResponse::internal("HA services not available"))?;
     Ok(Json(services))
 }
 
 /// Admin: Get HA error log
-async fn admin_ha_logs(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_logs(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // 1. Try cached error log first (background worker refreshes every 45s)
     if let Some(cached) = state.ha_data_cache.get_api("/api/error_log").await {
         return Ok(Json(cached));
@@ -10348,11 +13796,14 @@ async fn admin_ha_logs(
     match state.ha_client.get_error_log().await {
         Ok(log_text) => {
             let result = parse_ha_error_log(&log_text);
-            state.ha_data_cache.set_api(
-                "/api/error_log",
-                result.clone(),
-                std::time::Duration::from_secs(30),
-            ).await;
+            state
+                .ha_data_cache
+                .set_api(
+                    "/api/error_log",
+                    result.clone(),
+                    std::time::Duration::from_secs(30),
+                )
+                .await;
             Ok(Json(result))
         }
         Err(e) => {
@@ -10413,34 +13864,42 @@ pub fn parse_ha_error_log(log_text: &str) -> Value {
 }
 
 /// Admin: Get MQTT information (from HA entities)
-async fn admin_ha_mqtt(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_mqtt(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let all_entities = state.entity_cache.get_all().await;
 
-    // Find MQTT-related entities  
-    let mqtt_entities: Vec<Value> = all_entities.iter()
+    // Find MQTT-related entities
+    let mqtt_entities: Vec<Value> = all_entities
+        .iter()
         .filter(|e| {
-            e.entity_id.contains("mqtt") ||
-            e.attributes.get("integration").and_then(|v| v.as_str()) == Some("mqtt") ||
-            e.attributes.get("source").and_then(|v| v.as_str()).map(|s| s.contains("mqtt")).unwrap_or(false)
+            e.entity_id.contains("mqtt")
+                || e.attributes.get("integration").and_then(|v| v.as_str()) == Some("mqtt")
+                || e.attributes
+                    .get("source")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.contains("mqtt"))
+                    .unwrap_or(false)
         })
-        .map(|e| serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "friendly_name": e.attributes.get("friendly_name"),
-            "attributes": e.attributes,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "friendly_name": e.attributes.get("friendly_name"),
+                "attributes": e.attributes,
+            })
+        })
         .collect();
 
     // Try to get MQTT addon status
-    let mqtt_broker_status = all_entities.iter()
+    let mqtt_broker_status = all_entities
+        .iter()
         .find(|e| e.entity_id.contains("mosquitto") || e.entity_id.contains("mqtt_broker"))
-        .map(|e| serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "attributes": e.attributes,
-        }));
+        .map(|e| {
+            serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "attributes": e.attributes,
+            })
+        });
 
     Ok(Json(serde_json::json!({
         "mqtt_entities": mqtt_entities,
@@ -10450,23 +13909,28 @@ async fn admin_ha_mqtt(
 }
 
 /// Admin: Get Matter information (from HA entities)
-async fn admin_ha_matter(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_matter(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let all_entities = state.entity_cache.get_all().await;
 
-    let matter_entities: Vec<Value> = all_entities.iter()
+    let matter_entities: Vec<Value> = all_entities
+        .iter()
         .filter(|e| {
-            e.entity_id.contains("matter") ||
-            e.attributes.get("integration").and_then(|v| v.as_str()) == Some("matter") ||
-            e.attributes.get("source").and_then(|v| v.as_str()).map(|s| s.contains("matter")).unwrap_or(false)
+            e.entity_id.contains("matter")
+                || e.attributes.get("integration").and_then(|v| v.as_str()) == Some("matter")
+                || e.attributes
+                    .get("source")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.contains("matter"))
+                    .unwrap_or(false)
         })
-        .map(|e| serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "friendly_name": e.attributes.get("friendly_name"),
-            "attributes": e.attributes,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "friendly_name": e.attributes.get("friendly_name"),
+                "attributes": e.attributes,
+            })
+        })
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -10478,11 +13942,9 @@ async fn admin_ha_matter(
 // ── MQTT Client Management Handlers ────────────────────────────────
 
 /// Get MQTT client status
-async fn admin_mqtt_status(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_mqtt_status(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let status = state.mqtt_client.status().await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 /// Connect to MQTT broker
@@ -10505,7 +13967,10 @@ async fn admin_mqtt_connect(
         port: req.port.unwrap_or(1883),
         username: req.username.clone(),
         password: req.password.clone(),
-        client_id: req.client_id.clone().unwrap_or_else(|| format!("mdt-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8])),
+        client_id: req
+            .client_id
+            .clone()
+            .unwrap_or_else(|| format!("mdt-dashboard-{}", &uuid::Uuid::new_v4().to_string()[..8])),
         use_tls: req.use_tls.unwrap_or(false),
     };
 
@@ -10514,12 +13979,16 @@ async fn admin_mqtt_connect(
     match state.mqtt_client.connect(config).await {
         Ok(()) => {
             info!("MQTT: Connected to {}:{}", host, port);
-            // Auto-save config to DB on successful connect
+            // Auto-save config to DB on successful connect.
+            // Password is encrypted at rest with AES-256-GCM (see crypto.rs);
+            // legacy plaintext rows are upgraded automatically the next time
+            // the user saves through the API.
+            let stored_password = req.password.as_deref().map(crypto::encrypt_secret);
             let config_value = serde_json::json!({
                 "host": req.host,
                 "port": req.port.unwrap_or(1883),
                 "username": req.username,
-                "password": req.password,
+                "password": stored_password,
                 "client_id": req.client_id,
                 "use_tls": req.use_tls.unwrap_or(false),
             });
@@ -10530,7 +13999,9 @@ async fn admin_mqtt_connect(
             if let Err(e) = state.config_repo.save_system_preference(save_req).await {
                 warn!("MQTT: Connected but failed to save config: {}", e);
             }
-            Ok(Json(serde_json::json!({ "success": true, "message": "Verbunden und gespeichert" })))
+            Ok(Json(
+                serde_json::json!({ "success": true, "message": "Verbunden und gespeichert" }),
+            ))
         }
         Err(e) => {
             warn!("MQTT: Failed to connect: {}", e);
@@ -10544,7 +14015,9 @@ async fn admin_mqtt_disconnect(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     state.mqtt_client.disconnect().await;
-    Ok(Json(serde_json::json!({ "success": true, "message": "Disconnected" })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "message": "Disconnected" }),
+    ))
 }
 
 /// Subscribe to MQTT topic
@@ -10558,7 +14031,9 @@ async fn admin_mqtt_subscribe(
     Json(req): Json<MqttTopicRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
     match state.mqtt_client.subscribe(&req.topic).await {
-        Ok(()) => Ok(Json(serde_json::json!({ "success": true, "topic": req.topic }))),
+        Ok(()) => Ok(Json(
+            serde_json::json!({ "success": true, "topic": req.topic }),
+        )),
         Err(e) => Ok(Json(serde_json::json!({ "success": false, "error": e }))),
     }
 }
@@ -10569,7 +14044,9 @@ async fn admin_mqtt_unsubscribe(
     Json(req): Json<MqttTopicRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
     match state.mqtt_client.unsubscribe(&req.topic).await {
-        Ok(()) => Ok(Json(serde_json::json!({ "success": true, "topic": req.topic }))),
+        Ok(()) => Ok(Json(
+            serde_json::json!({ "success": true, "topic": req.topic }),
+        )),
         Err(e) => Ok(Json(serde_json::json!({ "success": false, "error": e }))),
     }
 }
@@ -10586,16 +14063,18 @@ async fn admin_mqtt_publish(
     State(state): State<AppState>,
     Json(req): Json<MqttPublishRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    match state.mqtt_client.publish(&req.topic, &req.payload, req.retain.unwrap_or(false)).await {
+    match state
+        .mqtt_client
+        .publish(&req.topic, &req.payload, req.retain.unwrap_or(false))
+        .await
+    {
         Ok(()) => Ok(Json(serde_json::json!({ "success": true }))),
         Err(e) => Ok(Json(serde_json::json!({ "success": false, "error": e }))),
     }
 }
 
 /// Get recent MQTT messages
-async fn admin_mqtt_messages(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_mqtt_messages(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let messages = state.mqtt_client.recent_messages().await;
     let topic_values = state.mqtt_client.topic_values().await;
     Ok(Json(serde_json::json!({
@@ -10609,11 +14088,13 @@ async fn admin_mqtt_save_config(
     State(state): State<AppState>,
     Json(req): Json<MqttConnectRequest>,
 ) -> Result<Json<Value>, ErrorResponse> {
+    // Encrypt the password before persisting it. See `crypto.rs` for the format.
+    let stored_password = req.password.as_deref().map(crypto::encrypt_secret);
     let config_value = serde_json::json!({
         "host": req.host,
         "port": req.port.unwrap_or(1883),
         "username": req.username,
-        "password": req.password,
+        "password": stored_password,
         "client_id": req.client_id,
         "use_tls": req.use_tls.unwrap_or(false),
     });
@@ -10625,7 +14106,10 @@ async fn admin_mqtt_save_config(
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
         Err(e) => {
             warn!("Failed to save MQTT config: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save MQTT config: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save MQTT config: {}",
+                e
+            )))
         }
     }
 }
@@ -10638,9 +14122,17 @@ async fn admin_mqtt_get_config(
         Ok(Some(pref)) => {
             // Parse the stored JSON and mask the password
             if let Ok(mut config) = serde_json::from_str::<Value>(&pref.preference_value) {
-                if config.get("password").and_then(|p| p.as_str()).is_some() {
-                    config.as_object_mut().unwrap().insert("has_password".into(), serde_json::json!(true));
-                    config.as_object_mut().unwrap().remove("password");
+                // Defensive: only mutate if the value is actually an object. A corrupted
+                // row could otherwise panic the handler thread.
+                if let Some(obj) = config.as_object_mut() {
+                    if obj
+                        .get("password")
+                        .and_then(|p| p.as_str())
+                        .is_some_and(|s| !s.is_empty())
+                    {
+                        obj.insert("has_password".into(), serde_json::json!(true));
+                        obj.remove("password");
+                    }
                 }
                 Ok(Json(config))
             } else {
@@ -10650,30 +14142,32 @@ async fn admin_mqtt_get_config(
         Ok(None) => Ok(Json(serde_json::json!({}))),
         Err(e) => {
             warn!("Failed to get MQTT config: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to get MQTT config: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to get MQTT config: {}",
+                e
+            )))
         }
     }
 }
 
 // ── Matter Client Management Handlers ──────────────────────────────
 
-/// Get Matter status with device details 
-async fn admin_matter_status(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+/// Get Matter status with device details
+async fn admin_matter_status(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Refresh from entity cache first
     let entities = state.entity_cache.get_all().await;
     state.matter_client.refresh_from_entities(&entities).await;
 
-    let matter_entity_count = entities.iter()
+    let matter_entity_count = entities
+        .iter()
         .filter(|e| {
-            e.entity_id.contains("matter") ||
-            e.attributes.get("integration").and_then(|v| v.as_str()) == Some("matter")
+            e.entity_id.contains("matter")
+                || e.attributes.get("integration").and_then(|v| v.as_str()) == Some("matter")
         })
         .count();
 
     let status = state.matter_client.status(matter_entity_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 /// Save Matter config
@@ -10684,13 +14178,16 @@ async fn admin_matter_save_config(
     state.matter_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "matter_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
         Err(e) => {
             warn!("Failed to save Matter config: {}", e);
-            Err(ErrorResponse::internal(format!("Failed to save Matter config: {}", e)))
+            Err(ErrorResponse::internal(format!(
+                "Failed to save Matter config: {}",
+                e
+            )))
         }
     }
 }
@@ -10700,13 +14197,11 @@ async fn admin_matter_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.matter_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 /// Refresh Matter devices from HA entities
-async fn admin_matter_refresh(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_matter_refresh(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     state.matter_client.refresh_from_entities(&entities).await;
     let devices = state.matter_client.status(0).await;
@@ -10718,15 +14213,22 @@ async fn admin_matter_refresh(
 
 // ── Zigbee Client Management Handlers ──────────────────────────────
 
-async fn admin_zigbee_status(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_zigbee_status(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
-    let integrations: Vec<String> = state.ha_connection.get_integrations().await.iter()
-        .filter(|i| i.available).map(|i| i.domain.clone()).collect();
-    state.zigbee_client.refresh_from_entities(&entities, &integrations).await;
+    let integrations: Vec<String> = state
+        .ha_connection
+        .get_integrations()
+        .await
+        .iter()
+        .filter(|i| i.available)
+        .map(|i| i.domain.clone())
+        .collect();
+    state
+        .zigbee_client
+        .refresh_from_entities(&entities, &integrations)
+        .await;
     let status = state.zigbee_client.status().await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_zigbee_save_config(
@@ -10736,11 +14238,14 @@ async fn admin_zigbee_save_config(
     state.zigbee_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "zigbee_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Failed to save Zigbee config: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Failed to save Zigbee config: {}",
+            e
+        ))),
     }
 }
 
@@ -10748,30 +14253,40 @@ async fn admin_zigbee_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.zigbee_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
-async fn admin_zigbee_refresh(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_zigbee_refresh(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
-    let integrations: Vec<String> = state.ha_connection.get_integrations().await.iter()
-        .filter(|i| i.available).map(|i| i.domain.clone()).collect();
-    state.zigbee_client.refresh_from_entities(&entities, &integrations).await;
+    let integrations: Vec<String> = state
+        .ha_connection
+        .get_integrations()
+        .await
+        .iter()
+        .filter(|i| i.available)
+        .map(|i| i.domain.clone())
+        .collect();
+    state
+        .zigbee_client
+        .refresh_from_entities(&entities, &integrations)
+        .await;
     let status = state.zigbee_client.status().await;
-    Ok(Json(serde_json::json!({ "success": true, "device_count": status.device_count })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "device_count": status.device_count }),
+    ))
 }
 
 // ── Z-Wave Client Management Handlers ──────────────────────────────
 
-async fn admin_zwave_status(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_zwave_status(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     state.zwave_client.refresh_from_entities(&entities).await;
-    let zwave_count = entities.iter().filter(|e| e.entity_id.contains("zwave")).count();
+    let zwave_count = entities
+        .iter()
+        .filter(|e| e.entity_id.contains("zwave"))
+        .count();
     let status = state.zwave_client.status(zwave_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_zwave_save_config(
@@ -10781,11 +14296,14 @@ async fn admin_zwave_save_config(
     state.zwave_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "zwave_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Failed to save Z-Wave config: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Failed to save Z-Wave config: {}",
+            e
+        ))),
     }
 }
 
@@ -10793,30 +14311,29 @@ async fn admin_zwave_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.zwave_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
-async fn admin_zwave_refresh(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_zwave_refresh(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     state.zwave_client.refresh_from_entities(&entities).await;
     let status = state.zwave_client.status(0).await;
-    Ok(Json(serde_json::json!({ "success": true, "node_count": status.node_count })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "node_count": status.node_count }),
+    ))
 }
 
 // ── Bluetooth/BLE Client Management Handlers ───────────────────────
 
-async fn admin_ble_status(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ble_status(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     state.ble_client.refresh_from_entities(&entities).await;
-    let ble_count = entities.iter().filter(|e| {
-        e.entity_id.contains("ble_") || e.entity_id.contains("bluetooth")
-    }).count();
+    let ble_count = entities
+        .iter()
+        .filter(|e| e.entity_id.contains("ble_") || e.entity_id.contains("bluetooth"))
+        .count();
     let status = state.ble_client.status(ble_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_ble_save_config(
@@ -10826,41 +14343,46 @@ async fn admin_ble_save_config(
     state.ble_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "ble_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Failed to save BLE config: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Failed to save BLE config: {}",
+            e
+        ))),
     }
 }
 
-async fn admin_ble_get_config(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ble_get_config(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let config = state.ble_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
-async fn admin_ble_refresh(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ble_refresh(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     state.ble_client.refresh_from_entities(&entities).await;
     let status = state.ble_client.status(0).await;
-    Ok(Json(serde_json::json!({ "success": true, "device_count": status.device_count })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "device_count": status.device_count }),
+    ))
 }
 
 // ── HomeKit Client Management Handlers ─────────────────────────────
 
-async fn admin_homekit_status(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_homekit_status(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     let ha_has_homekit = state.ha_connection.has_integration("homekit").await;
-    state.homekit_client.refresh_from_entities(&entities, ha_has_homekit).await;
-    let hk_count = entities.iter().filter(|e| e.entity_id.contains("homekit")).count();
+    state
+        .homekit_client
+        .refresh_from_entities(&entities, ha_has_homekit)
+        .await;
+    let hk_count = entities
+        .iter()
+        .filter(|e| e.entity_id.contains("homekit"))
+        .count();
     let status = state.homekit_client.status(hk_count).await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 async fn admin_homekit_save_config(
@@ -10870,11 +14392,14 @@ async fn admin_homekit_save_config(
     state.homekit_client.update_config(config.clone()).await;
     let save_req = db::models::SaveSystemPreferenceRequest {
         preference_key: "homekit_config".to_string(),
-        preference_value: serde_json::to_value(&config).unwrap(),
+        preference_value: serde_json::to_value(&config).unwrap_or(Value::Null),
     };
     match state.config_repo.save_system_preference(save_req).await {
         Ok(_) => Ok(Json(serde_json::json!({ "success": true }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Failed to save HomeKit config: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Failed to save HomeKit config: {}",
+            e
+        ))),
     }
 }
 
@@ -10882,7 +14407,7 @@ async fn admin_homekit_get_config(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let config = state.homekit_client.get_config().await;
-    Ok(Json(serde_json::to_value(config).unwrap()))
+    Ok(Json(serde_json::to_value(config).unwrap_or(Value::Null)))
 }
 
 async fn admin_homekit_refresh(
@@ -10890,9 +14415,14 @@ async fn admin_homekit_refresh(
 ) -> Result<Json<Value>, ErrorResponse> {
     let entities = state.entity_cache.get_all().await;
     let ha_has_homekit = state.ha_connection.has_integration("homekit").await;
-    state.homekit_client.refresh_from_entities(&entities, ha_has_homekit).await;
+    state
+        .homekit_client
+        .refresh_from_entities(&entities, ha_has_homekit)
+        .await;
     let status = state.homekit_client.status(0).await;
-    Ok(Json(serde_json::json!({ "success": true, "accessory_count": status.accessory_count })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "accessory_count": status.accessory_count }),
+    ))
 }
 
 // ── HA Connection Health Handlers ──────────────────────────────────
@@ -10901,7 +14431,7 @@ async fn admin_ha_connection_status(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let status = state.ha_connection.status().await;
-    Ok(Json(serde_json::to_value(status).unwrap()))
+    Ok(Json(serde_json::to_value(status).unwrap_or(Value::Null)))
 }
 
 /// Overview of all protocol statuses in one call
@@ -10914,13 +14444,29 @@ async fn admin_protocols_overview(
     let entities = state.entity_cache.get_all().await;
 
     // Refresh all protocol clients from entity cache
-    let integrations: Vec<String> = ha_status.integrations.iter()
-        .filter(|i| i.available).map(|i| i.domain.clone()).collect();
-    state.zigbee_client.refresh_from_entities(&entities, &integrations).await;
+    let integrations: Vec<String> = ha_status
+        .integrations
+        .iter()
+        .filter(|i| i.available)
+        .map(|i| i.domain.clone())
+        .collect();
+    state
+        .zigbee_client
+        .refresh_from_entities(&entities, &integrations)
+        .await;
     state.zwave_client.refresh_from_entities(&entities).await;
     state.ble_client.refresh_from_entities(&entities).await;
     state.matter_client.refresh_from_entities(&entities).await;
-    state.homekit_client.refresh_from_entities(&entities, ha_status.integrations.iter().any(|i| i.domain == "homekit" && i.available)).await;
+    state
+        .homekit_client
+        .refresh_from_entities(
+            &entities,
+            ha_status
+                .integrations
+                .iter()
+                .any(|i| i.domain == "homekit" && i.available),
+        )
+        .await;
 
     let zigbee = state.zigbee_client.status().await;
     let zwave = state.zwave_client.status(0).await;
@@ -10966,9 +14512,7 @@ async fn admin_protocols_overview(
 }
 
 /// Admin: Get HA add-ons (via Supervisor API)
-async fn admin_ha_addons(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_addons(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Try cache first
     if let Some(data) = state.ha_data_cache.get_api("/api/hassio/addons").await {
         let unwrapped = if data.get("result").and_then(|v| v.as_str()) == Some("ok") {
@@ -10999,17 +14543,22 @@ async fn admin_ha_addons(
         Err(_) => {
             // Fallback: show update entities that represent add-ons
             let all = state.entity_cache.get_all().await;
-            let addon_entities: Vec<Value> = all.iter()
-                .filter(|e| e.entity_id.starts_with("update.") &&
-                    e.attributes.get("entity_picture").is_some())
-                .map(|e| serde_json::json!({
-                    "entity_id": e.entity_id,
-                    "state": e.state,
-                    "friendly_name": e.attributes.get("friendly_name"),
-                    "installed_version": e.attributes.get("installed_version"),
-                    "latest_version": e.attributes.get("latest_version"),
-                    "entity_picture": e.attributes.get("entity_picture"),
-                }))
+            let addon_entities: Vec<Value> = all
+                .iter()
+                .filter(|e| {
+                    e.entity_id.starts_with("update.")
+                        && e.attributes.get("entity_picture").is_some()
+                })
+                .map(|e| {
+                    serde_json::json!({
+                        "entity_id": e.entity_id,
+                        "state": e.state,
+                        "friendly_name": e.attributes.get("friendly_name"),
+                        "installed_version": e.attributes.get("installed_version"),
+                        "latest_version": e.attributes.get("latest_version"),
+                        "entity_picture": e.attributes.get("entity_picture"),
+                    })
+                })
                 .collect();
 
             Ok(Json(serde_json::json!({
@@ -11022,11 +14571,13 @@ async fn admin_ha_addons(
 }
 
 /// Admin: Get HA Supervisor info
-async fn admin_ha_supervisor(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_supervisor(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Try cache first
-    if let Some(data) = state.ha_data_cache.get_api("/api/hassio/supervisor/info").await {
+    if let Some(data) = state
+        .ha_data_cache
+        .get_api("/api/hassio/supervisor/info")
+        .await
+    {
         let info = if data.get("result").and_then(|v| v.as_str()) == Some("ok") {
             data.get("data").cloned().unwrap_or(data.clone())
         } else {
@@ -11070,9 +14621,12 @@ async fn admin_ha_supervisor(
                     // Last fallback: check if hassio component is loaded in HA config
                     match ha_api_get(&state, "/api/config").await {
                         Ok(config) => {
-                            let components = config.get("components")
+                            let components = config
+                                .get("components")
                                 .and_then(|c| c.as_array())
-                                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                                .map(|arr| {
+                                    arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
+                                })
                                 .unwrap_or_default();
                             let has_hassio = components.iter().any(|c| *c == "hassio");
                             if has_hassio {
@@ -11103,19 +14657,20 @@ async fn admin_ha_supervisor(
 }
 
 /// Admin: Get HA scenes
-async fn admin_ha_scenes(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_scenes(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     let scenes = state.entity_cache.get_by_domain("scene").await;
-    let data: Vec<Value> = scenes.iter().map(|s| {
-        serde_json::json!({
-            "entity_id": s.entity_id,
-            "state": s.state,
-            "friendly_name": s.attributes.get("friendly_name"),
-            "entity_picture": s.attributes.get("entity_picture"),
-            "last_activated": s.last_changed,
+    let data: Vec<Value> = scenes
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "entity_id": s.entity_id,
+                "state": s.state,
+                "friendly_name": s.attributes.get("friendly_name"),
+                "entity_picture": s.attributes.get("entity_picture"),
+                "last_activated": s.last_changed,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "scenes": data,
@@ -11124,13 +14679,14 @@ async fn admin_ha_scenes(
 }
 
 /// Admin: Get HA backups (requires Supervisor)
-async fn admin_ha_backups(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_backups(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Try cache first
     if let Some(data) = state.ha_data_cache.get_api("/api/hassio/backups").await {
         let backups = if data.get("result").and_then(|v| v.as_str()) == Some("ok") {
-            data.get("data").and_then(|d| d.get("backups")).cloned().unwrap_or(Value::Array(vec![]))
+            data.get("data")
+                .and_then(|d| d.get("backups"))
+                .cloned()
+                .unwrap_or(Value::Array(vec![]))
         } else {
             data.get("backups").cloned().unwrap_or(Value::Array(vec![]))
         };
@@ -11144,7 +14700,10 @@ async fn admin_ha_backups(
     match ha_api_get(&state, "/api/hassio/backups").await {
         Ok(data) => {
             let backups = if data.get("result").and_then(|v| v.as_str()) == Some("ok") {
-                data.get("data").and_then(|d| d.get("backups")).cloned().unwrap_or(Value::Array(vec![]))
+                data.get("data")
+                    .and_then(|d| d.get("backups"))
+                    .cloned()
+                    .unwrap_or(Value::Array(vec![]))
             } else {
                 data.get("backups").cloned().unwrap_or(Value::Array(vec![]))
             };
@@ -11164,11 +14723,13 @@ async fn admin_ha_backups(
 }
 
 /// Admin: Get HA network info (Supervisor)
-async fn admin_ha_network(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_network(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Try cache first
-    if let Some(data) = state.ha_data_cache.get_api("/api/hassio/network/info").await {
+    if let Some(data) = state
+        .ha_data_cache
+        .get_api("/api/hassio/network/info")
+        .await
+    {
         let info = if data.get("result").and_then(|v| v.as_str()) == Some("ok") {
             data.get("data").cloned().unwrap_or(data.clone())
         } else {
@@ -11211,12 +14772,14 @@ async fn admin_ha_network(
 // ── Extended HA Feature Handlers ──────────────────────────────────
 
 /// Admin: Get HA logbook entries (recent activity)
-async fn admin_ha_logbook(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_logbook(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // Try cache first
     if let Some(data) = state.ha_data_cache.get_api("/api/logbook").await {
-        let entries = if data.is_array() { data } else { Value::Array(vec![]) };
+        let entries = if data.is_array() {
+            data
+        } else {
+            Value::Array(vec![])
+        };
         let len = entries.as_array().map(|a| a.len()).unwrap_or(0);
         return Ok(Json(serde_json::json!({
             "entries": entries,
@@ -11228,23 +14791,28 @@ async fn admin_ha_logbook(
     let start = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
     match state.ha_client.get_logbook(&start, "").await {
         Ok(data) => {
-            let entries = if data.is_array() { data } else { Value::Array(vec![]) };
+            let entries = if data.is_array() {
+                data
+            } else {
+                Value::Array(vec![])
+            };
             let len = entries.as_array().map(|a| a.len()).unwrap_or(0);
             Ok(Json(serde_json::json!({
                 "entries": entries,
                 "total": len,
             })))
         }
-        Err(e) => Err(ErrorResponse::internal(format!("Logbook nicht verfügbar: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Logbook nicht verfügbar: {}",
+            e
+        ))),
     }
 }
 
 // ── Public Calendar Endpoints ──────────────────────────────────────────
 
 /// Get available HA calendars (authenticated)
-async fn get_calendars(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn get_calendars(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     if let Some(data) = state.ha_data_cache.get_api("/api/calendars").await {
         return Ok(Json(serde_json::json!({
             "calendars": data,
@@ -11257,7 +14825,10 @@ async fn get_calendars(
             "calendars": data,
             "count": data.as_array().map(|a| a.len()).unwrap_or(0),
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Kalender nicht verfügbar: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Kalender nicht verfügbar: {}",
+            e
+        ))),
     }
 }
 
@@ -11269,20 +14840,30 @@ async fn get_calendar_events(
 ) -> Result<Json<Value>, ErrorResponse> {
     let now = chrono::Utc::now();
     // HA calendar API expects ISO format: YYYY-MM-DDTHH:MM:SS.000Z
-    let start = params.get("start")
+    let start = params
+        .get("start")
         .cloned()
         .unwrap_or_else(|| now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
-    let end = params.get("end")
-        .cloned()
-        .unwrap_or_else(|| (now + chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+    let end = params.get("end").cloned().unwrap_or_else(|| {
+        (now + chrono::Duration::days(30))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string()
+    });
 
-    match state.ha_client.get_calendar_events(&entity_id, &start, &end).await {
+    match state
+        .ha_client
+        .get_calendar_events(&entity_id, &start, &end)
+        .await
+    {
         Ok(data) => Ok(Json(serde_json::json!({
             "entity_id": entity_id,
             "events": data,
             "count": data.as_array().map(|a| a.len()).unwrap_or(0),
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Kalender-Events nicht verfügbar: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Kalender-Events nicht verfügbar: {}",
+            e
+        ))),
     }
 }
 
@@ -11302,23 +14883,24 @@ async fn get_current_time() -> Json<Value> {
 }
 
 /// Get all light entities with their current state
-async fn get_all_lights(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn get_all_lights(State(state): State<AppState>) -> Json<Value> {
     let entities = state.entity_cache.get_all().await;
-    let lights: Vec<Value> = entities.iter()
+    let lights: Vec<Value> = entities
+        .iter()
         .filter(|e| e.entity_id.starts_with("light."))
-        .map(|e| serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "friendly_name": e.attributes.get("friendly_name"),
-            "brightness": e.attributes.get("brightness"),
-            "color_temp": e.attributes.get("color_temp"),
-            "rgb_color": e.attributes.get("rgb_color"),
-            "color_mode": e.attributes.get("color_mode"),
-            "supported_color_modes": e.attributes.get("supported_color_modes"),
-            "last_changed": e.last_changed,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "friendly_name": e.attributes.get("friendly_name"),
+                "brightness": e.attributes.get("brightness"),
+                "color_temp": e.attributes.get("color_temp"),
+                "rgb_color": e.attributes.get("rgb_color"),
+                "color_mode": e.attributes.get("color_mode"),
+                "supported_color_modes": e.attributes.get("supported_color_modes"),
+                "last_changed": e.last_changed,
+            })
+        })
         .collect();
     Json(serde_json::json!({ "lights": lights, "count": lights.len() }))
 }
@@ -11329,7 +14911,10 @@ async fn control_light(
     Path(entity_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("toggle");
+    let action = body
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("toggle");
     let service = match action {
         "on" | "turn_on" => "turn_on",
         "off" | "turn_off" => "turn_off",
@@ -11338,38 +14923,56 @@ async fn control_light(
 
     let mut service_data = serde_json::json!({ "entity_id": entity_id });
     if let Some(obj) = service_data.as_object_mut() {
-        if let Some(brightness) = body.get("brightness") { obj.insert("brightness".into(), brightness.clone()); }
-        if let Some(color_temp) = body.get("color_temp") { obj.insert("color_temp".into(), color_temp.clone()); }
-        if let Some(rgb) = body.get("rgb_color") { obj.insert("rgb_color".into(), rgb.clone()); }
-        if let Some(transition) = body.get("transition") { obj.insert("transition".into(), transition.clone()); }
+        if let Some(brightness) = body.get("brightness") {
+            obj.insert("brightness".into(), brightness.clone());
+        }
+        if let Some(color_temp) = body.get("color_temp") {
+            obj.insert("color_temp".into(), color_temp.clone());
+        }
+        if let Some(rgb) = body.get("rgb_color") {
+            obj.insert("rgb_color".into(), rgb.clone());
+        }
+        if let Some(transition) = body.get("transition") {
+            obj.insert("transition".into(), transition.clone());
+        }
     }
 
-    match state.ha_client.call_service("light", service, service_data, "").await {
-        Ok(resp) => Ok(Json(serde_json::json!({ "success": true, "entity_id": entity_id, "action": service, "response": resp }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Lichtsteuerung fehlgeschlagen: {}", e))),
+    match state
+        .ha_client
+        .call_service("light", service, service_data, "")
+        .await
+    {
+        Ok(resp) => Ok(Json(
+            serde_json::json!({ "success": true, "entity_id": entity_id, "action": service, "response": resp }),
+        )),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Lichtsteuerung fehlgeschlagen: {}",
+            e
+        ))),
     }
 }
 
 /// Get all media player entities with state
-async fn get_all_media_players(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn get_all_media_players(State(state): State<AppState>) -> Json<Value> {
     let entities = state.entity_cache.get_all().await;
-    let players: Vec<Value> = entities.iter()
+    let players: Vec<Value> = entities
+        .iter()
         .filter(|e| e.entity_id.starts_with("media_player."))
-        .map(|e| serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "friendly_name": e.attributes.get("friendly_name"),
-            "media_title": e.attributes.get("media_title"),
-            "media_artist": e.attributes.get("media_artist"),
-            "media_album_name": e.attributes.get("media_album_name"),
-            "volume_level": e.attributes.get("volume_level"),
-            "is_volume_muted": e.attributes.get("is_volume_muted"),
-            "media_content_type": e.attributes.get("media_content_type"),
-            "entity_picture": e.attributes.get("entity_picture"),
-            "last_changed": e.last_changed,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "friendly_name": e.attributes.get("friendly_name"),
+                "media_title": e.attributes.get("media_title"),
+                "media_artist": e.attributes.get("media_artist"),
+                "media_album_name": e.attributes.get("media_album_name"),
+                "volume_level": e.attributes.get("volume_level"),
+                "is_volume_muted": e.attributes.get("is_volume_muted"),
+                "media_content_type": e.attributes.get("media_content_type"),
+                "entity_picture": e.attributes.get("entity_picture"),
+                "last_changed": e.last_changed,
+            })
+        })
         .collect();
     Json(serde_json::json!({ "media_players": players, "count": players.len() }))
 }
@@ -11380,7 +14983,10 @@ async fn control_media_player(
     Path(entity_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("media_play_pause");
+    let action = body
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("media_play_pause");
     let service = match action {
         "play" | "media_play" => "media_play",
         "pause" | "media_pause" => "media_pause",
@@ -11397,13 +15003,26 @@ async fn control_media_player(
 
     let mut service_data = serde_json::json!({ "entity_id": entity_id });
     if let Some(obj) = service_data.as_object_mut() {
-        if let Some(volume) = body.get("volume_level") { obj.insert("volume_level".into(), volume.clone()); }
-        if let Some(mute) = body.get("is_volume_muted") { obj.insert("is_volume_muted".into(), mute.clone()); }
+        if let Some(volume) = body.get("volume_level") {
+            obj.insert("volume_level".into(), volume.clone());
+        }
+        if let Some(mute) = body.get("is_volume_muted") {
+            obj.insert("is_volume_muted".into(), mute.clone());
+        }
     }
 
-    match state.ha_client.call_service("media_player", service, service_data, "").await {
-        Ok(resp) => Ok(Json(serde_json::json!({ "success": true, "entity_id": entity_id, "action": service, "response": resp }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Media-Player-Steuerung fehlgeschlagen: {}", e))),
+    match state
+        .ha_client
+        .call_service("media_player", service, service_data, "")
+        .await
+    {
+        Ok(resp) => Ok(Json(
+            serde_json::json!({ "success": true, "entity_id": entity_id, "action": service, "response": resp }),
+        )),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Media-Player-Steuerung fehlgeschlagen: {}",
+            e
+        ))),
     }
 }
 
@@ -11421,7 +15040,10 @@ async fn get_sensor(
             "last_changed": entity.last_changed,
             "last_updated": entity.last_updated,
         }))),
-        None => Err(ErrorResponse::not_found(format!("Sensor {} nicht gefunden", entity_id))),
+        None => Err(ErrorResponse::not_found(format!(
+            "Sensor {} nicht gefunden",
+            entity_id
+        ))),
     }
 }
 
@@ -11431,9 +15053,18 @@ async fn press_button(
     Path(entity_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let service_data = serde_json::json!({ "entity_id": entity_id });
-    match state.ha_client.call_service("button", "press", service_data, "").await {
-        Ok(resp) => Ok(Json(serde_json::json!({ "success": true, "entity_id": entity_id, "response": resp }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Button-Auslösung fehlgeschlagen: {}", e))),
+    match state
+        .ha_client
+        .call_service("button", "press", service_data, "")
+        .await
+    {
+        Ok(resp) => Ok(Json(
+            serde_json::json!({ "success": true, "entity_id": entity_id, "response": resp }),
+        )),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Button-Auslösung fehlgeschlagen: {}",
+            e
+        ))),
     }
 }
 
@@ -11443,23 +15074,33 @@ async fn control_switch(
     Path(entity_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("toggle");
+    let action = body
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("toggle");
     let service = match action {
         "on" | "turn_on" => "turn_on",
         "off" | "turn_off" => "turn_off",
         _ => "toggle",
     };
     let service_data = serde_json::json!({ "entity_id": entity_id });
-    match state.ha_client.call_service("switch", service, service_data, "").await {
-        Ok(resp) => Ok(Json(serde_json::json!({ "success": true, "entity_id": entity_id, "action": service, "response": resp }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Switch-Steuerung fehlgeschlagen: {}", e))),
+    match state
+        .ha_client
+        .call_service("switch", service, service_data, "")
+        .await
+    {
+        Ok(resp) => Ok(Json(
+            serde_json::json!({ "success": true, "entity_id": entity_id, "action": service, "response": resp }),
+        )),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Switch-Steuerung fehlgeschlagen: {}",
+            e
+        ))),
     }
 }
 
 /// Admin: Get available HA calendars
-async fn admin_ha_calendars(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_ha_calendars(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     if let Some(data) = state.ha_data_cache.get_api("/api/calendars").await {
         return Ok(Json(serde_json::json!({
             "calendars": data,
@@ -11472,7 +15113,10 @@ async fn admin_ha_calendars(
             "calendars": data,
             "count": data.as_array().map(|a| a.len()).unwrap_or(0),
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Kalender nicht verfügbar: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Kalender nicht verfügbar: {}",
+            e
+        ))),
     }
 }
 
@@ -11483,20 +15127,30 @@ async fn admin_ha_calendar_events(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let now = chrono::Utc::now();
-    let start = params.get("start")
+    let start = params
+        .get("start")
         .cloned()
         .unwrap_or_else(|| now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
-    let end = params.get("end")
-        .cloned()
-        .unwrap_or_else(|| (now + chrono::Duration::days(7)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+    let end = params.get("end").cloned().unwrap_or_else(|| {
+        (now + chrono::Duration::days(7))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string()
+    });
 
-    match state.ha_client.get_calendar_events(&entity_id, &start, &end).await {
+    match state
+        .ha_client
+        .get_calendar_events(&entity_id, &start, &end)
+        .await
+    {
         Ok(data) => Ok(Json(serde_json::json!({
             "entity_id": entity_id,
             "events": data,
             "count": data.as_array().map(|a| a.len()).unwrap_or(0),
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Kalender-Events nicht verfügbar: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Kalender-Events nicht verfügbar: {}",
+            e
+        ))),
     }
 }
 
@@ -11505,7 +15159,8 @@ async fn admin_ha_render_template(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let template = body.get("template")
+    let template = body
+        .get("template")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("'template' field required"))?;
 
@@ -11514,7 +15169,10 @@ async fn admin_ha_render_template(
             "result": result,
             "template": template,
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Template-Rendering fehlgeschlagen: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Template-Rendering fehlgeschlagen: {}",
+            e
+        ))),
     }
 }
 
@@ -11530,7 +15188,10 @@ async fn admin_ha_fire_event(
             "event_type": event_type,
             "result": result,
         }))),
-        Err(e) => Err(ErrorResponse::internal(format!("Event konnte nicht gesendet werden: {}", e))),
+        Err(e) => Err(ErrorResponse::internal(format!(
+            "Event konnte nicht gesendet werden: {}",
+            e
+        ))),
     }
 }
 
@@ -11545,9 +15206,16 @@ async fn admin_ha_entity_registry(
     let mut total_unavailable = 0u32;
 
     for e in &all_entities {
-        let domain = e.entity_id.split('.').next().unwrap_or("unknown").to_string();
+        let domain = e
+            .entity_id
+            .split('.')
+            .next()
+            .unwrap_or("unknown")
+            .to_string();
         let is_unavailable = e.state == "unavailable" || e.state == "unknown";
-        if is_unavailable { total_unavailable += 1; }
+        if is_unavailable {
+            total_unavailable += 1;
+        }
 
         domains.entry(domain).or_default().push(serde_json::json!({
             "entity_id": e.entity_id,
@@ -11561,11 +15229,14 @@ async fn admin_ha_entity_registry(
         }));
     }
 
-    let domain_summary: Vec<Value> = domains.iter()
-        .map(|(domain, entities)| serde_json::json!({
-            "domain": domain,
-            "count": entities.len(),
-        }))
+    let domain_summary: Vec<Value> = domains
+        .iter()
+        .map(|(domain, entities)| {
+            serde_json::json!({
+                "domain": domain,
+                "count": entities.len(),
+            })
+        })
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -11588,28 +15259,35 @@ async fn admin_ha_device_registry(
     let mut by_integration: HashMap<String, usize> = HashMap::new();
 
     for e in &all_entities {
-        let device_class = e.attributes
+        let device_class = e
+            .attributes
             .get("device_class")
             .and_then(|v| v.as_str())
             .unwrap_or("other")
             .to_string();
 
         if let Some(area) = e.attributes.get("area_id").and_then(|v| v.as_str()) {
-            by_area.entry(area.to_string()).or_default().push(e.entity_id.clone());
+            by_area
+                .entry(area.to_string())
+                .or_default()
+                .push(e.entity_id.clone());
         }
 
         // Infer integration from domain
         let domain = e.entity_id.split('.').next().unwrap_or("unknown");
         *by_integration.entry(domain.to_string()).or_insert(0) += 1;
 
-        devices.entry(device_class).or_default().push(serde_json::json!({
-            "entity_id": e.entity_id,
-            "state": e.state,
-            "friendly_name": e.attributes.get("friendly_name"),
-            "manufacturer": e.attributes.get("manufacturer"),
-            "model": e.attributes.get("model"),
-            "sw_version": e.attributes.get("sw_version"),
-        }));
+        devices
+            .entry(device_class)
+            .or_default()
+            .push(serde_json::json!({
+                "entity_id": e.entity_id,
+                "state": e.state,
+                "friendly_name": e.attributes.get("friendly_name"),
+                "manufacturer": e.attributes.get("manufacturer"),
+                "model": e.attributes.get("model"),
+                "sw_version": e.attributes.get("sw_version"),
+            }));
     }
 
     Ok(Json(serde_json::json!({
@@ -11631,23 +15309,29 @@ async fn admin_ha_area_registry(
 
     for e in &all_entities {
         if let Some(area) = e.attributes.get("area_id").and_then(|v| v.as_str()) {
-            areas.entry(area.to_string()).or_default().push(serde_json::json!({
-                "entity_id": e.entity_id,
-                "state": e.state,
-                "friendly_name": e.attributes.get("friendly_name"),
-                "domain": e.entity_id.split('.').next().unwrap_or("unknown"),
-            }));
+            areas
+                .entry(area.to_string())
+                .or_default()
+                .push(serde_json::json!({
+                    "entity_id": e.entity_id,
+                    "state": e.state,
+                    "friendly_name": e.attributes.get("friendly_name"),
+                    "domain": e.entity_id.split('.').next().unwrap_or("unknown"),
+                }));
         }
     }
 
-    let area_summary: Vec<Value> = areas.iter()
-        .map(|(area, entities)| serde_json::json!({
-            "area_id": area,
-            "entity_count": entities.len(),
-            "domains": entities.iter()
-                .filter_map(|e| e.get("domain").and_then(|d| d.as_str()))
-                .collect::<std::collections::HashSet<_>>(),
-        }))
+    let area_summary: Vec<Value> = areas
+        .iter()
+        .map(|(area, entities)| {
+            serde_json::json!({
+                "area_id": area,
+                "entity_count": entities.len(),
+                "domains": entities.iter()
+                    .filter_map(|e| e.get("domain").and_then(|d| d.as_str()))
+                    .collect::<std::collections::HashSet<_>>(),
+            })
+        })
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -11669,65 +15353,98 @@ async fn admin_system_logs() -> Result<Json<Value>, ErrorResponse> {
 }
 
 /// Admin: Get database statistics
-async fn admin_database_info(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ErrorResponse> {
+async fn admin_database_info(State(state): State<AppState>) -> Result<Json<Value>, ErrorResponse> {
     // PostgreSQL version
     let pg_version: String = sqlx::query_scalar("SELECT version()")
-        .fetch_one(&state.db_pool).await.unwrap_or_else(|_| "unknown".to_string());
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
 
     // Database size
     let db_name: String = sqlx::query_scalar("SELECT current_database()")
-        .fetch_one(&state.db_pool).await.unwrap_or_else(|_| "iora".to_string());
-    let db_size_bytes: i64 = sqlx::query_scalar(
-        "SELECT pg_database_size(current_database())"
-    ).fetch_one(&state.db_pool).await.unwrap_or(0);
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or_else(|_| "iora".to_string());
+    let db_size_bytes: i64 = sqlx::query_scalar("SELECT pg_database_size(current_database())")
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or(0);
 
     // Active connections
-    let (active_connections,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()"
-    ).fetch_one(&state.db_pool).await.unwrap_or((0,));
+    let (active_connections,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()")
+            .fetch_one(&state.db_pool)
+            .await
+            .unwrap_or((0,));
 
     // Max connections
     let max_conn: String = sqlx::query_scalar("SHOW max_connections")
-        .fetch_one(&state.db_pool).await.unwrap_or_else(|_| "100".to_string());
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or_else(|_| "100".to_string());
 
     // Server uptime
     let pg_uptime: String = sqlx::query_scalar(
         "SELECT date_trunc('second', now() - pg_postmaster_start_time())::text FROM pg_postmaster_start_time()"
     ).fetch_one(&state.db_pool).await.unwrap_or_else(|_| "unknown".to_string());
 
-    // Table row counts  
+    // Table row counts
     let (user_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (history_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM entity_history")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (api_key_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM api_keys")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (page_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM pages")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (widget_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM widgets")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (device_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM devices")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (webhook_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM webhooks")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (pref_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM system_preferences")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (notification_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM system_notifications")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
     let (warning_log_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM warning_log")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
-    let (temp_user_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM temp_db_users WHERE expires_at > NOW()")
-        .fetch_one(&state.db_pool).await.unwrap_or((0,));
+        .fetch_one(&state.db_pool)
+        .await
+        .unwrap_or((0,));
+    let (temp_user_count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM temp_db_users WHERE expires_at > NOW()")
+            .fetch_one(&state.db_pool)
+            .await
+            .unwrap_or((0,));
 
     // Table sizes (top tables by estimated size)
     let table_sizes: Vec<(String, i64)> = sqlx::query_as(
         "SELECT relname::text, pg_total_relation_size(c.oid)::bigint \
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
          WHERE n.nspname = 'public' AND c.relkind = 'r' \
-         ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 20"
-    ).fetch_all(&state.db_pool).await.unwrap_or_default();
+         ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 20",
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .unwrap_or_default();
 
     let table_sizes_json: Vec<Value> = table_sizes.into_iter().map(|(name, size)| {
         json!({ "name": name, "size_bytes": size, "size_mb": (size as f64 / 1_048_576.0 * 100.0).round() / 100.0 })
@@ -11735,7 +15452,12 @@ async fn admin_database_info(
 
     // Connection string info (redacted)
     let db_url = system_config::database_url();
-    let db_host = db_url.split('@').last().and_then(|s| s.split('/').next()).unwrap_or("localhost").to_string();
+    let db_host = db_url
+        .split('@')
+        .last()
+        .and_then(|s| s.split('/').next())
+        .unwrap_or("localhost")
+        .to_string();
 
     Ok(Json(json!({
         "engine": "PostgreSQL",
@@ -11775,23 +15497,29 @@ async fn admin_list_temp_users(
          to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
          revoked, \
          to_char(last_used_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
-         FROM temp_db_users ORDER BY created_at DESC"
-    ).fetch_all(&state.db_pool).await.map_err(|e| {
+         FROM temp_db_users ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    .map_err(|e| {
         warn!("Failed to list temp users: {e}");
         ErrorResponse::internal("Fehler beim Laden der Temp-Benutzer")
     })?;
 
-    let users: Vec<Value> = rows.into_iter().map(|(id, username, desc, perms, expires, revoked, last_used)| {
-        json!({
-            "id": id,
-            "username": username,
-            "description": desc,
-            "permissions": perms,
-            "expires_at": expires,
-            "revoked": revoked,
-            "last_used_at": last_used,
+    let users: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, username, desc, perms, expires, revoked, last_used)| {
+            json!({
+                "id": id,
+                "username": username,
+                "description": desc,
+                "permissions": perms,
+                "expires_at": expires,
+                "revoked": revoked,
+                "last_used_at": last_used,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({ "users": users })))
 }
@@ -11801,34 +15529,62 @@ async fn admin_create_temp_user(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let username = body.get("username").and_then(|v| v.as_str())
+    let username = body
+        .get("username")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Benutzername erforderlich"))?;
-    let password = body.get("password").and_then(|v| v.as_str())
+    let password = body
+        .get("password")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| ErrorResponse::bad_request("Passwort erforderlich"))?;
-    let description = body.get("description").and_then(|v| v.as_str()).unwrap_or("");
-    let permissions = body.get("permissions").and_then(|v| v.as_str()).unwrap_or("readonly");
-    let expires_in_days: i64 = body.get("expires_in_days").and_then(|v| v.as_i64()).unwrap_or(7);
+    let description = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let permissions = body
+        .get("permissions")
+        .and_then(|v| v.as_str())
+        .unwrap_or("readonly");
+    let expires_in_days: i64 = body
+        .get("expires_in_days")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(7);
 
     // Validate
     if username.len() < 3 || username.len() > 63 {
-        return Err(ErrorResponse::bad_request("Benutzername muss 3-63 Zeichen haben"));
+        return Err(ErrorResponse::bad_request(
+            "Benutzername muss 3-63 Zeichen haben",
+        ));
     }
-    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(ErrorResponse::bad_request("Benutzername darf nur Buchstaben, Zahlen und _ enthalten"));
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(ErrorResponse::bad_request(
+            "Benutzername darf nur Buchstaben, Zahlen und _ enthalten",
+        ));
     }
     if password.len() < 8 {
-        return Err(ErrorResponse::bad_request("Passwort muss mindestens 8 Zeichen haben"));
+        return Err(ErrorResponse::bad_request(
+            "Passwort muss mindestens 8 Zeichen haben",
+        ));
     }
     if expires_in_days < 1 || expires_in_days > 31 {
-        return Err(ErrorResponse::bad_request("Ablauf muss zwischen 1 und 31 Tagen liegen"));
+        return Err(ErrorResponse::bad_request(
+            "Ablauf muss zwischen 1 und 31 Tagen liegen",
+        ));
     }
     if permissions != "readonly" && permissions != "readwrite" {
-        return Err(ErrorResponse::bad_request("Berechtigung muss 'readonly' oder 'readwrite' sein"));
+        return Err(ErrorResponse::bad_request(
+            "Berechtigung muss 'readonly' oder 'readwrite' sein",
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let password_hash = auth::hash_password(password)
-        .map_err(|e| { warn!("Hash failed: {e}"); ErrorResponse::internal("Passwort-Hashing fehlgeschlagen") })?;
+    let password_hash = auth::hash_password(password).map_err(|e| {
+        warn!("Hash failed: {e}");
+        ErrorResponse::internal("Passwort-Hashing fehlgeschlagen")
+    })?;
 
     sqlx::query(
         "INSERT INTO temp_db_users (id, username, password_hash, description, permissions, created_by, expires_at) \
@@ -11849,7 +15605,10 @@ async fn admin_create_temp_user(
         }
     })?;
 
-    info!("Temp DB user created: {} (expires in {} days, {})", username, expires_in_days, permissions);
+    info!(
+        "Temp DB user created: {} (expires in {} days, {})",
+        username, expires_in_days, permissions
+    );
     Ok(Json(json!({
         "id": id,
         "username": username,
@@ -11863,14 +15622,15 @@ async fn admin_revoke_temp_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let result = sqlx::query(
-        "UPDATE temp_db_users SET revoked = TRUE, revoked_at = NOW() WHERE id = $1"
-    )
-    .bind(&user_id)
-    .execute(&state.db_pool).await.map_err(|e| {
-        warn!("Failed to revoke temp user: {e}");
-        ErrorResponse::internal("Fehler beim Widerrufen des Temp-Benutzers")
-    })?;
+    let result =
+        sqlx::query("UPDATE temp_db_users SET revoked = TRUE, revoked_at = NOW() WHERE id = $1")
+            .bind(&user_id)
+            .execute(&state.db_pool)
+            .await
+            .map_err(|e| {
+                warn!("Failed to revoke temp user: {e}");
+                ErrorResponse::internal("Fehler beim Widerrufen des Temp-Benutzers")
+            })?;
 
     if result.rows_affected() == 0 {
         return Err(ErrorResponse::bad_request("Temp-Benutzer nicht gefunden"));
@@ -11885,8 +15645,12 @@ async fn admin_revoke_temp_user(
 /// Public endpoint: returns current maintenance status (no auth required)
 async fn public_maintenance_status() -> Json<Value> {
     let settings = DASHBOARD_SETTINGS.read().await;
-    let active = settings.get("maintenance_mode").and_then(|v| v.as_bool()).unwrap_or(false);
-    let message = settings.get("maintenance_message")
+    let active = settings
+        .get("maintenance_mode")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let message = settings
+        .get("maintenance_message")
         .and_then(|v| v.as_str())
         .unwrap_or("Das Dashboard befindet sich im Wartungsmodus.")
         .to_string();
@@ -11899,8 +15663,12 @@ async fn public_maintenance_status() -> Json<Value> {
 /// Admin: get maintenance mode status
 async fn admin_get_maintenance() -> Json<Value> {
     let settings = DASHBOARD_SETTINGS.read().await;
-    let active = settings.get("maintenance_mode").and_then(|v| v.as_bool()).unwrap_or(false);
-    let message = settings.get("maintenance_message")
+    let active = settings
+        .get("maintenance_mode")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let message = settings
+        .get("maintenance_message")
         .and_then(|v| v.as_str())
         .unwrap_or("Das Dashboard befindet sich im Wartungsmodus.")
         .to_string();
@@ -11924,8 +15692,12 @@ async fn admin_set_maintenance(
         settings.insert("maintenance_message".into(), Value::String(msg.to_string()));
     }
 
-    let active = settings.get("maintenance_mode").and_then(|v| v.as_bool()).unwrap_or(false);
-    let message = settings.get("maintenance_message")
+    let active = settings
+        .get("maintenance_mode")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let message = settings
+        .get("maintenance_message")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -11940,7 +15712,11 @@ async fn admin_set_maintenance(
     });
     state.ws_manager.broadcast_json(&event).await;
 
-    info!("Maintenance mode {}: {}", if active { "ENABLED" } else { "DISABLED" }, message);
+    info!(
+        "Maintenance mode {}: {}",
+        if active { "ENABLED" } else { "DISABLED" },
+        message
+    );
 
     Json(serde_json::json!({
         "active": active,
@@ -11951,9 +15727,7 @@ async fn admin_set_maintenance(
 // ── Notification & Alert Handlers ────────────────────────────────────
 
 /// Get all notifications (authenticated user) — from DB
-async fn get_notifications(
-    State(state): State<AppState>,
-) -> Json<Vec<Value>> {
+async fn get_notifications(State(state): State<AppState>) -> Json<Vec<Value>> {
     match sqlx::query_as::<_, (String, String, String, String, String, String, String, String, bool, i32)>(
         "SELECT id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs FROM notifications ORDER BY created_at DESC LIMIT 200"
     )
@@ -11982,7 +15756,8 @@ async fn mark_notification_read(
     match sqlx::query("UPDATE notifications SET read = true WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
-        .await {
+        .await
+    {
         Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
         _ => StatusCode::NOT_FOUND,
     }
@@ -11996,7 +15771,8 @@ async fn dismiss_notification(
     match sqlx::query("DELETE FROM notifications WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
-        .await {
+        .await
+    {
         Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
         _ => StatusCode::NOT_FOUND,
     }
@@ -12030,30 +15806,70 @@ async fn notification_send(
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let req = notification_dispatcher::DispatchRequest {
-        title: body.get("title").and_then(|v| v.as_str()).unwrap_or("Notification").to_string(),
-        message: body.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        level: body.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string(),
-        source: body.get("source").and_then(|v| v.as_str()).unwrap_or("iora").to_string(),
-        icon: body.get("icon").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        entity_id: body.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        auto_dismiss_secs: body.get("auto_dismiss_secs").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        channels: body.get("channels")
+        title: body
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Notification")
+            .to_string(),
+        message: body
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        level: body
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info")
+            .to_string(),
+        source: body
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("iora")
+            .to_string(),
+        icon: body
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        entity_id: body
+            .get("entity_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        auto_dismiss_secs: body
+            .get("auto_dismiss_secs")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32,
+        channels: body
+            .get("channels")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
-        extra_data: body.get("extra_data").cloned().unwrap_or(serde_json::Value::Null),
+        extra_data: body
+            .get("extra_data")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
     };
 
     let (id, results) = state.notification_dispatcher.dispatch(req).await;
     let all_ok = results.iter().all(|r| r.status != "error");
-    let status = if all_ok { StatusCode::OK } else { StatusCode::MULTI_STATUS };
-    (status, Json(serde_json::json!({"id": id, "results": results})))
+    let status = if all_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::MULTI_STATUS
+    };
+    (
+        status,
+        Json(serde_json::json!({"id": id, "results": results})),
+    )
 }
 
 /// GET /api/notifications/channels — list all notification channels.
-async fn notification_channels_list(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn notification_channels_list(State(state): State<AppState>) -> Json<Value> {
     let channels = state.notification_dispatcher.list_channels().await;
     Json(serde_json::json!({"channels": channels}))
 }
@@ -12075,18 +15891,40 @@ async fn notification_channel_create(
 ) -> impl IntoResponse {
     let name = match body.get("name").and_then(|v| v.as_str()) {
         Some(n) if !n.is_empty() => n.to_string(),
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "name required"}))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "name required"})),
+            )
+                .into_response()
+        }
     };
     let channel_type = match body.get("channel_type").and_then(|v| v.as_str()) {
         Some(t) if matches!(t, "iora" | "ha_mobile" | "desktop") => t.to_string(),
         _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "channel_type must be one of: iora, ha_mobile, desktop"}))).into_response(),
     };
-    let target_id = body.get("target_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let target_id = body
+        .get("target_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let config = body.get("config").cloned().unwrap_or(serde_json::json!({}));
 
-    match state.notification_dispatcher.create_channel(name, channel_type, target_id, config).await {
-        Ok(ch) => (StatusCode::CREATED, Json(serde_json::json!({"channel": ch}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+    match state
+        .notification_dispatcher
+        .create_channel(name, channel_type, target_id, config)
+        .await
+    {
+        Ok(ch) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"channel": ch})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -12097,13 +15935,24 @@ async fn notification_channel_update(
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let name = body.get("name").and_then(|v| v.as_str()).map(String::from);
-    let target_id = body.get("target_id").and_then(|v| v.as_str()).map(String::from);
+    let target_id = body
+        .get("target_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let enabled = body.get("enabled").and_then(|v| v.as_bool());
     let config = body.get("config").cloned();
 
-    match state.notification_dispatcher.update_channel(&channel_id, name, target_id, enabled, config).await {
+    match state
+        .notification_dispatcher
+        .update_channel(&channel_id, name, target_id, enabled, config)
+        .await
+    {
         Ok(()) => StatusCode::OK.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 
@@ -12112,16 +15961,18 @@ async fn notification_channel_delete(
     State(state): State<AppState>,
     Path(channel_id): Path<String>,
 ) -> StatusCode {
-    match state.notification_dispatcher.delete_channel(&channel_id).await {
+    match state
+        .notification_dispatcher
+        .delete_channel(&channel_id)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::NOT_FOUND,
     }
 }
 
 /// Get all currently active warning entities (weather warnings, DWD, NINA, etc.)
-async fn get_active_warnings(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn get_active_warnings(State(state): State<AppState>) -> Json<Value> {
     let all_entities = state.entity_cache.get_all().await;
     let mut warnings = Vec::new();
 
@@ -12153,9 +16004,7 @@ async fn get_active_warnings(
 }
 
 /// Admin: list all notifications
-async fn admin_list_notifications(
-    State(state): State<AppState>,
-) -> Json<Vec<Value>> {
+async fn admin_list_notifications(State(state): State<AppState>) -> Json<Vec<Value>> {
     match sqlx::query_as::<_, (String, String, String, String, String, String, String, String, bool, i32)>(
         "SELECT id, title, message, level, source, icon, entity_id, created_at, read, auto_dismiss_secs FROM notifications ORDER BY created_at DESC LIMIT 200"
     )
@@ -12177,10 +16026,10 @@ async fn admin_list_notifications(
 }
 
 /// Admin: clear all notifications
-async fn admin_clear_notifications(
-    State(state): State<AppState>,
-) -> StatusCode {
-    let _ = sqlx::query("DELETE FROM notifications").execute(&state.db_pool).await;
+async fn admin_clear_notifications(State(state): State<AppState>) -> StatusCode {
+    let _ = sqlx::query("DELETE FROM notifications")
+        .execute(&state.db_pool)
+        .await;
     let event = serde_json::json!({ "type": "notification", "action": "clear_all" });
     state.ws_manager.broadcast_json(&event).await;
     StatusCode::OK
@@ -12194,7 +16043,8 @@ async fn admin_mark_notification_read(
     match sqlx::query("UPDATE notifications SET read = true WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
-        .await {
+        .await
+    {
         Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
         _ => StatusCode::NOT_FOUND,
     }
@@ -12208,7 +16058,8 @@ async fn admin_dismiss_notification(
     match sqlx::query("DELETE FROM notifications WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
-        .await {
+        .await
+    {
         Ok(r) if r.rows_affected() > 0 => {
             let event = serde_json::json!({
                 "type": "notification",
@@ -12232,12 +16083,12 @@ async fn admin_get_alert() -> Json<Value> {
 }
 
 /// Admin: set an emergency alert from admin panel
-async fn admin_set_alert(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Json<Value> {
+async fn admin_set_alert(State(state): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
     let id = uuid::Uuid::new_v4().to_string();
-    let level = body.get("level").and_then(|v| v.as_str()).unwrap_or("warning");
+    let level = body
+        .get("level")
+        .and_then(|v| v.as_str())
+        .unwrap_or("warning");
     let alert = serde_json::json!({
         "id": id,
         "title": body.get("title").and_then(|v| v.as_str()).unwrap_or("Warnung"),
@@ -12275,9 +16126,7 @@ async fn admin_set_alert(
 }
 
 /// Admin: dismiss active alert
-async fn admin_dismiss_alert(
-    State(state): State<AppState>,
-) -> StatusCode {
+async fn admin_dismiss_alert(State(state): State<AppState>) -> StatusCode {
     *ACTIVE_EMERGENCY.write().await = None;
     let event = serde_json::json!({
         "type": "emergency_alert",
@@ -12293,8 +16142,14 @@ async fn admin_get_warning_log(
     State(state): State<AppState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {
-    let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100);
-    let offset = params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(100);
+    let offset = params
+        .get("offset")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
     let active_only = params.get("active").map(|v| v == "true").unwrap_or(false);
 
     let rows = if active_only {
@@ -12333,13 +16188,11 @@ async fn admin_get_warning_log(
             }).collect();
 
             // Get total count
-            let total: (i64,) = sqlx::query_as(
-                if active_only {
-                    "SELECT COUNT(*) FROM warning_log WHERE ended_at IS NULL"
-                } else {
-                    "SELECT COUNT(*) FROM warning_log"
-                }
-            )
+            let total: (i64,) = sqlx::query_as(if active_only {
+                "SELECT COUNT(*) FROM warning_log WHERE ended_at IS NULL"
+            } else {
+                "SELECT COUNT(*) FROM warning_log"
+            })
             .fetch_one(&state.db_pool)
             .await
             .unwrap_or((0,));
@@ -12359,9 +16212,7 @@ async fn admin_get_warning_log(
 }
 
 /// Admin: clear warning log
-async fn admin_clear_warning_log(
-    State(state): State<AppState>,
-) -> StatusCode {
+async fn admin_clear_warning_log(State(state): State<AppState>) -> StatusCode {
     let _ = sqlx::query("DELETE FROM warning_log")
         .execute(&state.db_pool)
         .await;
@@ -12376,10 +16227,12 @@ async fn admin_clear_warning_log(
 const NINA_API_BASE: &str = "https://warnung.bund.de/api31";
 
 /// Get NINA settings (ARS codes, enabled state, poll interval)
-async fn get_nina_settings(
-    State(state): State<AppState>,
-) -> Json<Value> {
-    let settings = match state.config_repo.get_system_preference("nina_settings").await {
+async fn get_nina_settings(State(state): State<AppState>) -> Json<Value> {
+    let settings = match state
+        .config_repo
+        .get_system_preference("nina_settings")
+        .await
+    {
         Ok(Some(pref)) => serde_json::from_str::<Value>(&pref.preference_value)
             .unwrap_or(json!({"enabled": false, "ars_regions": [], "poll_interval_minutes": 5})),
         _ => json!({"enabled": false, "ars_regions": [], "poll_interval_minutes": 5}),
@@ -12392,9 +16245,15 @@ async fn save_nina_settings(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let ars_regions = body.get("ars_regions").cloned().unwrap_or(json!([]));
-    let poll_interval = body.get("poll_interval_minutes").and_then(|v| v.as_u64()).unwrap_or(5);
+    let poll_interval = body
+        .get("poll_interval_minutes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5);
 
     let settings = json!({
         "enabled": enabled,
@@ -12409,7 +16268,10 @@ async fn save_nina_settings(
 
     match state.config_repo.save_system_preference(request).await {
         Ok(_) => {
-            info!("[NINA] Settings updated: enabled={}, regions={}", enabled, ars_regions);
+            info!(
+                "[NINA] Settings updated: enabled={}, regions={}",
+                enabled, ars_regions
+            );
             // If enabled, trigger an immediate poll
             if enabled {
                 let http = state.http_client.clone();
@@ -12434,8 +16296,7 @@ async fn save_nina_settings(
 }
 
 /// Get currently cached NINA warnings
-async fn get_nina_warnings(
-) -> Json<Value> {
+async fn get_nina_warnings() -> Json<Value> {
     let warnings = NINA_WARNINGS.read().await;
     Json(json!({ "warnings": *warnings }))
 }
@@ -12479,7 +16340,9 @@ async fn fetch_ars_regions(http: &reqwest::Client) -> Result<Vec<Value>, String>
         return Err(format!("GitHub returned status {}", resp.status()));
     }
 
-    let data: Vec<Value> = resp.json().await
+    let data: Vec<Value> = resp
+        .json()
+        .await
         .map_err(|e| format!("JSON parse failed: {}", e))?;
 
     let mut regions: Vec<Value> = Vec::with_capacity(data.len() + BUNDESLAENDER.len());
@@ -12496,7 +16359,10 @@ async fn fetch_ars_regions(http: &reqwest::Client) -> Result<Vec<Value>, String>
             Some(v) => v,
             None => continue,
         };
-        let raw_name = match entry.get("Kreisfreie Stadt, Kreis/Landkreis").and_then(|v| v.as_str()) {
+        let raw_name = match entry
+            .get("Kreisfreie Stadt, Kreis/Landkreis")
+            .and_then(|v| v.as_str())
+        {
             Some(v) => v,
             None => continue,
         };
@@ -12527,7 +16393,12 @@ async fn fetch_ars_regions(http: &reqwest::Client) -> Result<Vec<Value>, String>
         }));
     }
 
-    info!("[NINA] Parsed {} ARS regions ({} Bundesländer + {} Landkreise)", regions.len(), BUNDESLAENDER.len(), data.len());
+    info!(
+        "[NINA] Parsed {} ARS regions ({} Bundesländer + {} Landkreise)",
+        regions.len(),
+        BUNDESLAENDER.len(),
+        data.len()
+    );
     Ok(regions)
 }
 
@@ -12573,9 +16444,7 @@ async fn background_ars_cache_refresh(http: reqwest::Client) {
 }
 
 /// Get all ARS regions (served from cache, warmed on startup).
-async fn get_nina_regions(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, StatusCode> {
+async fn get_nina_regions(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     // Serve from cache
     {
         let cache = ARS_REGIONS_CACHE.read().await;
@@ -12601,9 +16470,18 @@ async fn admin_send_test_warning(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let level = body.get("level").and_then(|v| v.as_str()).unwrap_or("warning");
-    let headline = body.get("headline").and_then(|v| v.as_str()).unwrap_or("Test-Warnung");
-    let description = body.get("description").and_then(|v| v.as_str()).unwrap_or("Dies ist eine Testwarnung.");
+    let level = body
+        .get("level")
+        .and_then(|v| v.as_str())
+        .unwrap_or("warning");
+    let headline = body
+        .get("headline")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Test-Warnung");
+    let description = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Dies ist eine Testwarnung.");
 
     // Validate level
     let valid_levels = ["info", "warning", "critical", "emergency"];
@@ -12727,7 +16605,10 @@ async fn nina_poll_regions(
             Some(code) => code,
             None => continue,
         };
-        let region_name = region.get("name").and_then(|v| v.as_str()).unwrap_or(raw_ars);
+        let region_name = region
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(raw_ars);
 
         // Truncate to Kreis level: keep first 5 digits, pad with 0000000
         // NINA API only provides data at Kreis level (12 digits, last 7 = 0000000)
@@ -12739,7 +16620,8 @@ async fn nina_poll_regions(
 
         let url = format!("{}/dashboard/{}.json", NINA_API_BASE, ars_code);
 
-        match http.get(&url)
+        match http
+            .get(&url)
             .header("Accept", "application/json")
             .timeout(std::time::Duration::from_secs(10))
             .send()
@@ -12753,23 +16635,38 @@ async fn nina_poll_regions(
                             let payload = item.get("payload").unwrap_or(item);
                             let data = payload.get("data").unwrap_or(payload);
 
-                            let headline = data.get("headline").and_then(|v| v.as_str())
+                            let headline = data
+                                .get("headline")
+                                .and_then(|v| v.as_str())
                                 .or_else(|| data.get("event").and_then(|v| v.as_str()))
                                 .unwrap_or("Warnung");
-                            let description = data.get("description").and_then(|v| v.as_str())
+                            let description = data
+                                .get("description")
+                                .and_then(|v| v.as_str())
                                 .or_else(|| data.get("instruction").and_then(|v| v.as_str()))
                                 .unwrap_or("");
-                            let severity = data.get("severity").and_then(|v| v.as_str())
+                            let severity = data
+                                .get("severity")
+                                .and_then(|v| v.as_str())
                                 .unwrap_or("Moderate");
-                            let sender = data.get("sender").and_then(|v| v.as_str())
+                            let sender = data
+                                .get("sender")
+                                .and_then(|v| v.as_str())
                                 .unwrap_or("NINA");
                             let sent = data.get("sent").and_then(|v| v.as_str()).unwrap_or("");
-                            let effective = data.get("effective").and_then(|v| v.as_str()).unwrap_or(sent);
-                            let expires = data.get("expires").and_then(|v| v.as_str()).unwrap_or("");
-                            let msg_type = item.get("msgType").and_then(|v| v.as_str())
+                            let effective = data
+                                .get("effective")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(sent);
+                            let expires =
+                                data.get("expires").and_then(|v| v.as_str()).unwrap_or("");
+                            let msg_type = item
+                                .get("msgType")
+                                .and_then(|v| v.as_str())
                                 .or_else(|| item.get("type").and_then(|v| v.as_str()))
                                 .unwrap_or("Alert");
-                            let category = data.get("category").and_then(|v| v.as_str()).unwrap_or("");
+                            let category =
+                                data.get("category").and_then(|v| v.as_str()).unwrap_or("");
 
                             // Skip cancelled/expired items
                             if msg_type.eq_ignore_ascii_case("Cancel") {
@@ -12799,12 +16696,19 @@ async fn nina_poll_regions(
                         }
                     }
                     Err(e) => {
-                        warn!("[NINA] Failed to parse response for ARS {}: {}", ars_code, e);
+                        warn!(
+                            "[NINA] Failed to parse response for ARS {}: {}",
+                            ars_code, e
+                        );
                     }
                 }
             }
             Ok(resp) => {
-                warn!("[NINA] API returned status {} for ARS {}", resp.status(), ars_code);
+                warn!(
+                    "[NINA] API returned status {} for ARS {}",
+                    resp.status(),
+                    ars_code
+                );
             }
             Err(e) => {
                 warn!("[NINA] Failed to fetch ARS {}: {}", ars_code, e);
@@ -12815,25 +16719,40 @@ async fn nina_poll_regions(
     // Deduplicate by ID
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     all_warnings.retain(|w| {
-        let id = w.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        if id.is_empty() { return true; }
+        let id = w
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if id.is_empty() {
+            return true;
+        }
         seen_ids.insert(id)
     });
 
     // Compare with previous cache to detect new warnings
     let prev_ids: std::collections::HashSet<String> = {
         let cache = NINA_WARNINGS.read().await;
-        cache.iter().filter_map(|w| w.get("id").and_then(|v| v.as_str()).map(String::from)).collect()
+        cache
+            .iter()
+            .filter_map(|w| w.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect()
     };
 
-    let new_warnings: Vec<&Value> = all_warnings.iter().filter(|w| {
-        let id = w.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        !id.is_empty() && !prev_ids.contains(id)
-    }).collect();
+    let new_warnings: Vec<&Value> = all_warnings
+        .iter()
+        .filter(|w| {
+            let id = w.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            !id.is_empty() && !prev_ids.contains(id)
+        })
+        .collect();
 
     // Broadcast new warnings as notifications + log to DB
     for w in &new_warnings {
-        let headline = w.get("headline").and_then(|v| v.as_str()).unwrap_or("NINA Warnung");
+        let headline = w
+            .get("headline")
+            .and_then(|v| v.as_str())
+            .unwrap_or("NINA Warnung");
         let description = w.get("description").and_then(|v| v.as_str()).unwrap_or("");
         let level = w.get("level").and_then(|v| v.as_str()).unwrap_or("warning");
         let sender = w.get("sender").and_then(|v| v.as_str()).unwrap_or("NINA");
@@ -12843,7 +16762,11 @@ async fn nina_poll_regions(
         info!("[NINA] New warning: [{}] {} ({})", level, headline, region);
 
         let desc_truncated: String = description.chars().take(400).collect();
-        let desc_msg = if desc_truncated.len() < description.len() { format!("{}…", desc_truncated) } else { desc_truncated };
+        let desc_msg = if desc_truncated.len() < description.len() {
+            format!("{}…", desc_truncated)
+        } else {
+            desc_truncated
+        };
 
         // Broadcast as warning_entity_update so the existing WarningBar picks it up
         let event = json!({
@@ -12868,7 +16791,10 @@ async fn nina_poll_regions(
 
         // Log to warning_log DB
         let db = db_pool.clone();
-        let entity_id = format!("nina.{}", id.replace('.', "_").chars().take(80).collect::<String>());
+        let entity_id = format!(
+            "nina.{}",
+            id.replace('.', "_").chars().take(80).collect::<String>()
+        );
         let title_c = headline.to_string();
         let msg_c = desc_msg.clone();
         let level_c = level.to_string();
@@ -12890,13 +16816,21 @@ async fn nina_poll_regions(
     }
 
     // Detect cleared warnings
-    let current_ids: std::collections::HashSet<String> = all_warnings.iter()
+    let current_ids: std::collections::HashSet<String> = all_warnings
+        .iter()
         .filter_map(|w| w.get("id").and_then(|v| v.as_str()).map(String::from))
         .collect();
 
     for old_id in &prev_ids {
         if !current_ids.contains(old_id) {
-            let entity_id = format!("nina.{}", old_id.replace('.', "_").chars().take(80).collect::<String>());
+            let entity_id = format!(
+                "nina.{}",
+                old_id
+                    .replace('.', "_")
+                    .chars()
+                    .take(80)
+                    .collect::<String>()
+            );
             let event = json!({
                 "type": "warning_entity_update",
                 "entity_id": entity_id,
@@ -12930,7 +16864,9 @@ async fn nina_poll_regions(
     drop(cache);
 
     // Persist active warnings to DB for restart recovery
-    let _ = sqlx::query("DELETE FROM nina_warning_cache").execute(db_pool).await;
+    let _ = sqlx::query("DELETE FROM nina_warning_cache")
+        .execute(db_pool)
+        .await;
     for w in &all_warnings {
         let id = w.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let expires = w.get("expires").and_then(|v| v.as_str()).unwrap_or("");
@@ -12955,10 +16891,10 @@ async fn background_nina_poller(
 ) {
     // On startup: restore cached warnings from DB (survive restarts)
     match sqlx::query_as::<_, (String, String, Option<chrono::DateTime<chrono::Utc>>)>(
-        "SELECT id, warning_json, expires_at FROM nina_warning_cache"
+        "SELECT id, warning_json, expires_at FROM nina_warning_cache",
     )
-        .fetch_all(&db_pool)
-        .await
+    .fetch_all(&db_pool)
+    .await
     {
         Ok(rows) => {
             let now = chrono::Utc::now();
@@ -12986,7 +16922,10 @@ async fn background_nina_poller(
                     .execute(&db_pool)
                     .await;
                 // Also close the warning_log entry
-                let entity_id = format!("nina.{}", eid.replace('.', "_").chars().take(80).collect::<String>());
+                let entity_id = format!(
+                    "nina.{}",
+                    eid.replace('.', "_").chars().take(80).collect::<String>()
+                );
                 let _ = sqlx::query("UPDATE warning_log SET ended_at = NOW() WHERE entity_id = $1 AND ended_at IS NULL")
                     .bind(&entity_id)
                     .execute(&db_pool)
@@ -12994,11 +16933,18 @@ async fn background_nina_poller(
             }
 
             if !restored.is_empty() {
-                info!("[NINA] Restored {} cached warnings from DB ({} expired)", restored.len(), expired_ids.len());
+                info!(
+                    "[NINA] Restored {} cached warnings from DB ({} expired)",
+                    restored.len(),
+                    expired_ids.len()
+                );
                 // Broadcast restored warnings to any early-connected clients
                 for w in &restored {
                     let id = w.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    let headline = w.get("headline").and_then(|v| v.as_str()).unwrap_or("NINA Warnung");
+                    let headline = w
+                        .get("headline")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("NINA Warnung");
                     let description = w.get("description").and_then(|v| v.as_str()).unwrap_or("");
                     let level = w.get("level").and_then(|v| v.as_str()).unwrap_or("warning");
                     let region = w.get("region").and_then(|v| v.as_str()).unwrap_or("");
@@ -13028,7 +16974,10 @@ async fn background_nina_poller(
                 let mut cache = NINA_WARNINGS.write().await;
                 *cache = restored;
             } else if !expired_ids.is_empty() {
-                info!("[NINA] All {} cached warnings were expired, cleared", expired_ids.len());
+                info!(
+                    "[NINA] All {} cached warnings were expired, cleared",
+                    expired_ids.len()
+                );
             }
         }
         Err(e) => {
@@ -13041,16 +16990,21 @@ async fn background_nina_poller(
 
     loop {
         // Read settings each iteration (user can change them)
-        let (enabled, regions, interval_min) = match config_repo.get_system_preference("nina_settings").await {
-            Ok(Some(pref)) => {
-                let v = serde_json::from_str::<Value>(&pref.preference_value).unwrap_or_default();
-                let enabled = v.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                let regions = v.get("ars_regions").cloned().unwrap_or(json!([]));
-                let interval = v.get("poll_interval_minutes").and_then(|v| v.as_u64()).unwrap_or(5);
-                (enabled, regions, interval)
-            }
-            _ => (false, json!([]), 5),
-        };
+        let (enabled, regions, interval_min) =
+            match config_repo.get_system_preference("nina_settings").await {
+                Ok(Some(pref)) => {
+                    let v =
+                        serde_json::from_str::<Value>(&pref.preference_value).unwrap_or_default();
+                    let enabled = v.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let regions = v.get("ars_regions").cloned().unwrap_or(json!([]));
+                    let interval = v
+                        .get("poll_interval_minutes")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(5);
+                    (enabled, regions, interval)
+                }
+                _ => (false, json!([]), 5),
+            };
 
         task_entry(9).record_run();
         if enabled {
@@ -13077,16 +17031,30 @@ async fn create_webhook(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
-    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let url = body.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     if name.is_empty() || url.is_empty() {
         return Err(ErrorResponse::bad_request("name and url are required"));
     }
     // Validate URL format
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(ErrorResponse::bad_request("url must start with http:// or https://"));
+        return Err(ErrorResponse::bad_request(
+            "url must start with http:// or https://",
+        ));
     }
-    let secret = body.get("secret").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let secret = body
+        .get("secret")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let events = body.get("events").cloned().unwrap_or_else(|| json!(["*"]));
     let headers = body.get("headers").cloned().unwrap_or_else(|| json!({}));
     let id = uuid::Uuid::new_v4().to_string();
@@ -13099,7 +17067,9 @@ async fn create_webhook(
     .execute(&state.db_pool).await
     .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
-    Ok(Json(json!({ "id": id, "name": name, "url": url, "events": events, "active": true })))
+    Ok(Json(
+        json!({ "id": id, "name": name, "url": url, "events": events, "active": true }),
+    ))
 }
 
 /// List webhooks for the current user
@@ -13116,13 +17086,18 @@ async fn list_webhooks(
         .fetch_all(&state.db_pool).await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
-    let webhooks: Vec<Value> = rows.into_iter().map(|r| json!({
-        "id": r.0, "name": r.1, "url": r.2,
-        "events": serde_json::from_str::<Value>(&r.3).unwrap_or(json!(["*"])),
-        "headers": serde_json::from_str::<Value>(&r.4).unwrap_or(json!({})),
-        "active": r.5, "created_at": r.6, "updated_at": r.7,
-        "last_triggered_at": r.8, "trigger_count": r.9, "consecutive_failures": r.10,
-    })).collect();
+    let webhooks: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.0, "name": r.1, "url": r.2,
+                "events": serde_json::from_str::<Value>(&r.3).unwrap_or(json!(["*"])),
+                "headers": serde_json::from_str::<Value>(&r.4).unwrap_or(json!({})),
+                "active": r.5, "created_at": r.6, "updated_at": r.7,
+                "last_triggered_at": r.8, "trigger_count": r.9, "consecutive_failures": r.10,
+            })
+        })
+        .collect();
 
     Ok(Json(json!({ "webhooks": webhooks })))
 }
@@ -13136,40 +17111,69 @@ async fn update_webhook(
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
     // Verify ownership
-    let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM webhooks WHERE id = $1 AND user_id = $2")
-        .bind(&webhook_id).bind(user_id)
-        .fetch_optional(&state.db_pool).await
-        .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
+    let exists: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM webhooks WHERE id = $1 AND user_id = $2")
+            .bind(&webhook_id)
+            .bind(user_id)
+            .fetch_optional(&state.db_pool)
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
     if exists.is_none() {
         return Err(ErrorResponse::not_found("Webhook not found"));
     }
 
     if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
         sqlx::query("UPDATE webhooks SET name = $1, updated_at = NOW() WHERE id = $2")
-            .bind(name).bind(&webhook_id).execute(&state.db_pool).await.ok();
+            .bind(name)
+            .bind(&webhook_id)
+            .execute(&state.db_pool)
+            .await
+            .ok();
     }
     if let Some(url) = body.get("url").and_then(|v| v.as_str()) {
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(ErrorResponse::bad_request("url must start with http:// or https://"));
+            return Err(ErrorResponse::bad_request(
+                "url must start with http:// or https://",
+            ));
         }
         sqlx::query("UPDATE webhooks SET url = $1, updated_at = NOW() WHERE id = $2")
-            .bind(url).bind(&webhook_id).execute(&state.db_pool).await.ok();
+            .bind(url)
+            .bind(&webhook_id)
+            .execute(&state.db_pool)
+            .await
+            .ok();
     }
     if let Some(secret) = body.get("secret").and_then(|v| v.as_str()) {
         sqlx::query("UPDATE webhooks SET secret = $1, updated_at = NOW() WHERE id = $2")
-            .bind(secret).bind(&webhook_id).execute(&state.db_pool).await.ok();
+            .bind(secret)
+            .bind(&webhook_id)
+            .execute(&state.db_pool)
+            .await
+            .ok();
     }
     if let Some(events) = body.get("events") {
         sqlx::query("UPDATE webhooks SET events = $1, updated_at = NOW() WHERE id = $2")
-            .bind(events.to_string()).bind(&webhook_id).execute(&state.db_pool).await.ok();
+            .bind(events.to_string())
+            .bind(&webhook_id)
+            .execute(&state.db_pool)
+            .await
+            .ok();
     }
     if let Some(headers) = body.get("headers") {
         sqlx::query("UPDATE webhooks SET headers = $1, updated_at = NOW() WHERE id = $2")
-            .bind(headers.to_string()).bind(&webhook_id).execute(&state.db_pool).await.ok();
+            .bind(headers.to_string())
+            .bind(&webhook_id)
+            .execute(&state.db_pool)
+            .await
+            .ok();
     }
     if let Some(active) = body.get("active").and_then(|v| v.as_bool()) {
         sqlx::query("UPDATE webhooks SET active = $1, updated_at = NOW() WHERE id = $2")
-            .bind(active).bind(&webhook_id).execute(&state.db_pool).await.ok();
+            .bind(active)
+            .bind(&webhook_id)
+            .execute(&state.db_pool)
+            .await
+            .ok();
     }
 
     Ok(Json(json!({ "success": true, "id": webhook_id })))
@@ -13183,8 +17187,10 @@ async fn delete_webhook(
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
     let result = sqlx::query("DELETE FROM webhooks WHERE id = $1 AND user_id = $2")
-        .bind(&webhook_id).bind(user_id)
-        .execute(&state.db_pool).await
+        .bind(&webhook_id)
+        .bind(user_id)
+        .execute(&state.db_pool)
+        .await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
     if result.rows_affected() == 0 {
@@ -13200,14 +17206,16 @@ async fn test_webhook(
     Path(webhook_id): Path<String>,
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
-    let row: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT url, secret, headers FROM webhooks WHERE id = $1 AND user_id = $2"
-    )
-    .bind(&webhook_id).bind(user_id)
-    .fetch_optional(&state.db_pool).await
-    .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
+    let row: Option<(String, String, String)> =
+        sqlx::query_as("SELECT url, secret, headers FROM webhooks WHERE id = $1 AND user_id = $2")
+            .bind(&webhook_id)
+            .bind(user_id)
+            .fetch_optional(&state.db_pool)
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
-    let (url, secret, headers_json) = row.ok_or_else(|| ErrorResponse::not_found("Webhook not found"))?;
+    let (url, secret, headers_json) =
+        row.ok_or_else(|| ErrorResponse::not_found("Webhook not found"))?;
 
     let test_payload = json!({
         "event": "webhook.test",
@@ -13215,7 +17223,14 @@ async fn test_webhook(
         "data": { "message": "This is a test webhook delivery" }
     });
 
-    let result = deliver_webhook_payload(&state.http_client, &url, &secret, &headers_json, &test_payload).await;
+    let result = deliver_webhook_payload(
+        &state.http_client,
+        &url,
+        &secret,
+        &headers_json,
+        &test_payload,
+    )
+    .await;
 
     // Log delivery
     sqlx::query(
@@ -13243,15 +17258,22 @@ async fn get_webhook_deliveries(
 ) -> Result<Json<Value>, ErrorResponse> {
     let user_id = identity.user_id();
     // Verify ownership
-    let exists: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM webhooks WHERE id = $1 AND user_id = $2")
-        .bind(&webhook_id).bind(user_id)
-        .fetch_optional(&state.db_pool).await
-        .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
+    let exists: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM webhooks WHERE id = $1 AND user_id = $2")
+            .bind(&webhook_id)
+            .bind(user_id)
+            .fetch_optional(&state.db_pool)
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
     if exists.is_none() {
         return Err(ErrorResponse::not_found("Webhook not found"));
     }
 
-    let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50).min(200);
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50)
+        .min(200);
     let rows: Vec<(i64, String, String, Option<i32>, Option<String>, Option<i64>, i32, bool, Option<String>, String)> =
         sqlx::query_as(
             "SELECT id, event_type, payload, status_code, response_body, duration_ms, attempt, success, error, created_at FROM webhook_deliveries WHERE webhook_id = $1 ORDER BY created_at DESC LIMIT $2"
@@ -13260,12 +17282,17 @@ async fn get_webhook_deliveries(
         .fetch_all(&state.db_pool).await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
-    let deliveries: Vec<Value> = rows.into_iter().map(|r| json!({
-        "id": r.0, "event_type": r.1,
-        "payload": serde_json::from_str::<Value>(&r.2).unwrap_or(json!(null)),
-        "status_code": r.3, "response_body": r.4, "duration_ms": r.5,
-        "attempt": r.6, "success": r.7, "error": r.8, "created_at": r.9,
-    })).collect();
+    let deliveries: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.0, "event_type": r.1,
+                "payload": serde_json::from_str::<Value>(&r.2).unwrap_or(json!(null)),
+                "status_code": r.3, "response_body": r.4, "duration_ms": r.5,
+                "attempt": r.6, "success": r.7, "error": r.8, "created_at": r.9,
+            })
+        })
+        .collect();
 
     Ok(Json(json!({ "deliveries": deliveries })))
 }
@@ -13281,12 +17308,17 @@ async fn admin_list_all_webhooks(
         .fetch_all(&state.db_pool).await
         .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
-    let webhooks: Vec<Value> = rows.into_iter().map(|r| json!({
-        "id": r.0, "user_id": r.1, "name": r.2, "url": r.3,
-        "events": serde_json::from_str::<Value>(&r.4).unwrap_or(json!(["*"])),
-        "active": r.5, "created_at": r.6,
-        "last_triggered_at": r.7, "trigger_count": r.8, "consecutive_failures": r.9,
-    })).collect();
+    let webhooks: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.0, "user_id": r.1, "name": r.2, "url": r.3,
+                "events": serde_json::from_str::<Value>(&r.4).unwrap_or(json!(["*"])),
+                "active": r.5, "created_at": r.6,
+                "last_triggered_at": r.7, "trigger_count": r.8, "consecutive_failures": r.9,
+            })
+        })
+        .collect();
 
     Ok(Json(json!({ "webhooks": webhooks })))
 }
@@ -13294,32 +17326,106 @@ async fn admin_list_all_webhooks(
 // ── IORA Control Center handlers ─────────────────────────────────────────────
 
 /// Fetch service health overview from all IORA subsystems
-async fn admin_control_services(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn admin_control_services(State(state): State<AppState>) -> Json<Value> {
     use futures_util::future::join_all;
 
     let client = state.http_client.clone();
     let services = vec![
-        ("iora-home", system_config::service_url("iora-home", 3001), "Dashboard Backend, API, Auth, Streaming"),
-        ("iora-core", system_config::service_url("iora-core", 8090), "Service Registry, Tasks, Plugins"),
-        ("iora-control", system_config::service_url("iora-control", 8091), "Dashboard Aggregation, System Monitor"),
-        ("iora-assist", system_config::service_url("iora-assist", 8092), "AI Chat, Automation Suggestions"),
-        ("iora-secrets", system_config::service_url("iora-secrets", 8093), "Secret & Credential Management"),
-        ("iora-watchdog", system_config::service_url("iora-watchdog", 8094), "Service Monitoring & Alerting"),
-        ("iora-security", system_config::service_url("iora-security", 8095), "Security Monitoring, Audit Logging"),
-        ("iora-gateway", system_config::service_url("iora-gateway", 8096), "API Gateway, External Integrations"),
-        ("iora-supervisor", system_config::service_url("iora-supervisor", 8097), "App-Container, Docker und Laufzeitverwaltung"),
-        ("iora-appstore", system_config::service_url("iora-appstore", 8098), "App Store, Pakete und Signaturen"),
-        ("iora-intelligence", system_config::service_url("iora-intelligence", 8099), "KI-gestützte Systemanalyse & Health Intelligence"),
-        ("iora-files", system_config::service_url("iora-files", 8100), "Dateien, Freigaben und App-Artefakte"),
-        ("iora-connector", system_config::service_url("iora-connector", 8102), "Remote-Zugriff und Cloud-Verbindung"),
-        ("iora-network-monitor", system_config::service_url("iora-network-monitor", 8103), "Netzwerk-Scan und Geräteerkennung"),
-        ("iora-domain-validator", system_config::service_url("iora-domain-validator", 8104), "Domain-Whitelist und DNS-Prüfung"),
-        ("iora-resource-manager", system_config::service_url("iora-resource-manager", 8105), "CPU-, RAM- und Speicherüberwachung"),
-        ("iora-updater", system_config::service_url("iora-updater", 8106), "System- und App-Updates"),
-        ("iora-backup", system_config::service_url("iora-backup", 8107), "Backups und Wiederherstellung"),
-        ("iora-nginx", system_config::service_url("iora-nginx", 8108), "Reverse Proxy und TLS-Routing"),
+        (
+            "iora-home",
+            system_config::service_url("iora-home", 3001),
+            "Dashboard Backend, API, Auth, Streaming",
+        ),
+        (
+            "iora-core",
+            system_config::service_url("iora-core", 8090),
+            "Service Registry, Tasks, Plugins",
+        ),
+        (
+            "iora-control",
+            system_config::service_url("iora-control", 8091),
+            "Dashboard Aggregation, System Monitor",
+        ),
+        (
+            "iora-assist",
+            system_config::service_url("iora-assist", 8092),
+            "AI Chat, Automation Suggestions",
+        ),
+        (
+            "iora-secrets",
+            system_config::service_url("iora-secrets", 8093),
+            "Secret & Credential Management",
+        ),
+        (
+            "iora-watchdog",
+            system_config::service_url("iora-watchdog", 8094),
+            "Service Monitoring & Alerting",
+        ),
+        (
+            "iora-security",
+            system_config::service_url("iora-security", 8095),
+            "Security Monitoring, Audit Logging",
+        ),
+        (
+            "iora-gateway",
+            system_config::service_url("iora-gateway", 8096),
+            "API Gateway, External Integrations",
+        ),
+        (
+            "iora-supervisor",
+            system_config::service_url("iora-supervisor", 8097),
+            "App-Container, Docker und Laufzeitverwaltung",
+        ),
+        (
+            "iora-appstore",
+            system_config::service_url("iora-appstore", 8098),
+            "App Store, Pakete und Signaturen",
+        ),
+        (
+            "iora-intelligence",
+            system_config::service_url("iora-intelligence", 8099),
+            "KI-gestützte Systemanalyse & Health Intelligence",
+        ),
+        (
+            "iora-files",
+            system_config::service_url("iora-files", 8100),
+            "Dateien, Freigaben und App-Artefakte",
+        ),
+        (
+            "iora-connector",
+            system_config::service_url("iora-connector", 8102),
+            "Remote-Zugriff und Cloud-Verbindung",
+        ),
+        (
+            "iora-network-monitor",
+            system_config::service_url("iora-network-monitor", 8103),
+            "Netzwerk-Scan und Geräteerkennung",
+        ),
+        (
+            "iora-domain-validator",
+            system_config::service_url("iora-domain-validator", 8104),
+            "Domain-Whitelist und DNS-Prüfung",
+        ),
+        (
+            "iora-resource-manager",
+            system_config::service_url("iora-resource-manager", 8105),
+            "CPU-, RAM- und Speicherüberwachung",
+        ),
+        (
+            "iora-updater",
+            system_config::service_url("iora-updater", 8106),
+            "System- und App-Updates",
+        ),
+        (
+            "iora-backup",
+            system_config::service_url("iora-backup", 8107),
+            "Backups und Wiederherstellung",
+        ),
+        (
+            "iora-nginx",
+            system_config::service_url("iora-nginx", 8108),
+            "Reverse Proxy und TLS-Routing",
+        ),
     ];
 
     let checks = services.into_iter().map(|(name, url, description)| {
@@ -13362,10 +17468,10 @@ async fn admin_control_services(
 }
 
 /// List background tasks from iora-core
-async fn admin_control_tasks(
-    State(_state): State<AppState>,
-) -> Json<Value> {
-    let tasks: Vec<Value> = TASK_REGISTRY.iter().enumerate()
+async fn admin_control_tasks(State(_state): State<AppState>) -> Json<Value> {
+    let tasks: Vec<Value> = TASK_REGISTRY
+        .iter()
+        .enumerate()
         .map(|(i, t)| t.to_json(i))
         .collect();
     let total = tasks.len();
@@ -13380,7 +17486,9 @@ async fn admin_control_trigger_task(
     if let Ok(idx) = task_id.parse::<usize>() {
         if idx < TASK_REGISTRY.len() {
             task_entry(idx).record_run();
-            return Json(json!({ "message": "task triggered", "id": idx, "name": TASK_REGISTRY[idx].name }));
+            return Json(
+                json!({ "message": "task triggered", "id": idx, "name": TASK_REGISTRY[idx].name }),
+            );
         }
     }
     Json(json!({ "error": format!("task '{}' not found", task_id) }))
@@ -13404,7 +17512,10 @@ async fn admin_control_toggle_task(
             })));
         }
     }
-    Err(ErrorResponse::bad_request(format!("task '{}' not found", task_id)))
+    Err(ErrorResponse::bad_request(format!(
+        "task '{}' not found",
+        task_id
+    )))
 }
 
 /// Persistent control mode stored in system_preferences
@@ -13414,14 +17525,16 @@ static CONTROL_MODE_KEY: &str = "iora_control_mode";
 async fn admin_control_get_mode(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let pref: Option<(String,)> = sqlx::query_as(
-        "SELECT preference_value FROM system_preferences WHERE preference_key = $1"
-    )
-    .bind(CONTROL_MODE_KEY)
-    .fetch_optional(&state.db_pool).await
-    .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
+    let pref: Option<(String,)> =
+        sqlx::query_as("SELECT preference_value FROM system_preferences WHERE preference_key = $1")
+            .bind(CONTROL_MODE_KEY)
+            .fetch_optional(&state.db_pool)
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
-    let mode = pref.map(|p| p.0).unwrap_or_else(|| "autonomous".to_string());
+    let mode = pref
+        .map(|p| p.0)
+        .unwrap_or_else(|| "autonomous".to_string());
     let parsed: Value = serde_json::from_str(&mode).unwrap_or(json!("autonomous"));
 
     Ok(Json(json!({
@@ -13440,9 +17553,14 @@ async fn admin_control_set_mode(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let mode = body.get("mode").and_then(|v| v.as_str()).unwrap_or("autonomous");
+    let mode = body
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("autonomous");
     if !["autonomous", "manual", "supervised"].contains(&mode) {
-        return Err(ErrorResponse::bad_request("Invalid mode. Use: autonomous, manual, supervised"));
+        return Err(ErrorResponse::bad_request(
+            "Invalid mode. Use: autonomous, manual, supervised",
+        ));
     }
 
     let mode_json = json!(mode).to_string();
@@ -13455,26 +17573,31 @@ async fn admin_control_set_mode(
     .map_err(|e| ErrorResponse::internal(format!("DB error: {}", e)))?;
 
     // Broadcast mode change to all connected WebSocket clients
-    let _ = state.ws_manager.broadcast_json(&json!({
-        "type": "control_mode_changed",
-        "mode": mode,
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    })).await;
+    let _ = state
+        .ws_manager
+        .broadcast_json(&json!({
+            "type": "control_mode_changed",
+            "mode": mode,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }))
+        .await;
 
-    Ok(Json(json!({ "mode": mode, "message": "Betriebsmodus aktualisiert" })))
+    Ok(Json(
+        json!({ "mode": mode, "message": "Betriebsmodus aktualisiert" }),
+    ))
 }
 
 /// Full control center overview (aggregated)
-async fn admin_control_overview(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn admin_control_overview(State(state): State<AppState>) -> Json<Value> {
     // Get control mode
     let mode: String = sqlx::query_as::<_, (String,)>(
-        "SELECT preference_value FROM system_preferences WHERE preference_key = $1"
+        "SELECT preference_value FROM system_preferences WHERE preference_key = $1",
     )
     .bind(CONTROL_MODE_KEY)
-    .fetch_optional(&state.db_pool).await
-    .ok().flatten()
+    .fetch_optional(&state.db_pool)
+    .await
+    .ok()
+    .flatten()
     .map(|p| p.0)
     .unwrap_or_else(|| "\"autonomous\"".to_string());
     let mode_val: Value = serde_json::from_str(&mode).unwrap_or(json!("autonomous"));
@@ -13487,9 +17610,12 @@ async fn admin_control_overview(
 
     // Get maintenance mode
     let maintenance: Option<(String,)> = sqlx::query_as(
-        "SELECT preference_value FROM system_preferences WHERE preference_key = 'maintenance_mode'"
+        "SELECT preference_value FROM system_preferences WHERE preference_key = 'maintenance_mode'",
     )
-    .fetch_optional(&state.db_pool).await.ok().flatten();
+    .fetch_optional(&state.db_pool)
+    .await
+    .ok()
+    .flatten();
     let is_maintenance = maintenance.map(|m| m.0 == "true").unwrap_or(false);
 
     Json(json!({
@@ -13514,7 +17640,11 @@ async fn admin_iora_control_proxy(
     raw_query: RawQuery,
     body: axum::body::Bytes,
 ) -> Response {
-    let qs = raw_query.0.as_deref().map(|q| format!("?{}", q)).unwrap_or_default();
+    let qs = raw_query
+        .0
+        .as_deref()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
     let base = std::env::var("IORA_CONTROL_URL")
         .ok()
         .filter(|v| !v.is_empty())
@@ -13552,15 +17682,11 @@ async fn admin_iora_control_proxy(
         req = req.body(body.to_vec());
     }
 
-    match req
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await
-    {
+    match req.timeout(std::time::Duration::from_secs(15)).send().await {
         Ok(resp) => {
             let status = resp.status();
-            let upstream_status = StatusCode::from_u16(status.as_u16())
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let upstream_status =
+                StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             let content_type = resp
                 .headers()
                 .get("content-type")
@@ -13596,27 +17722,38 @@ async fn admin_iora_control_proxy(
 // ─── IORA Log & Metrics Endpoints ──────────────────────────────────────
 
 /// GET /api/admin/logs — Fetch log entries from the ring buffer
-async fn admin_get_logs(
-    Query(params): Query<HashMap<String, String>>,
-) -> Json<Value> {
+async fn admin_get_logs(Query(params): Query<HashMap<String, String>>) -> Json<Value> {
     let level_filter = params.get("level").map(|s| s.as_str());
     let target_filter = params.get("target").map(|s| s.as_str());
     let search = params.get("search").map(|s| s.to_lowercase());
-    let limit: usize = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(500);
-    let since_id: u64 = params.get("since_id").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let limit: usize = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+    let since_id: u64 = params
+        .get("since_id")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
 
     let entries: Vec<Value> = if let Ok(buf) = LOG_BUFFER.read() {
         buf.iter()
             .filter(|e| {
-                if e.id <= since_id { return false; }
+                if e.id <= since_id {
+                    return false;
+                }
                 if let Some(lf) = level_filter {
-                    if e.level != lf { return false; }
+                    if e.level != lf {
+                        return false;
+                    }
                 }
                 if let Some(tf) = target_filter {
-                    if !e.target.contains(tf) { return false; }
+                    if !e.target.contains(tf) {
+                        return false;
+                    }
                 }
                 if let Some(ref s) = search {
-                    if !e.message.to_lowercase().contains(s) && !e.target.to_lowercase().contains(s) {
+                    if !e.message.to_lowercase().contains(s) && !e.target.to_lowercase().contains(s)
+                    {
                         return false;
                     }
                 }
@@ -13624,14 +17761,16 @@ async fn admin_get_logs(
             })
             .rev()
             .take(limit)
-            .map(|e| json!({
-                "id": e.id,
-                "timestamp": e.timestamp,
-                "level": e.level,
-                "target": e.target,
-                "message": e.message,
-                "fields": e.fields,
-            }))
+            .map(|e| {
+                json!({
+                    "id": e.id,
+                    "timestamp": e.timestamp,
+                    "level": e.level,
+                    "target": e.target,
+                    "message": e.message,
+                    "fields": e.fields,
+                })
+            })
             .collect()
     } else {
         vec![]
@@ -13660,31 +17799,36 @@ async fn admin_clear_logs() -> Json<Value> {
 }
 
 /// GET /api/admin/metrics — Get current metrics snapshot
-async fn admin_get_metrics(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn admin_get_metrics(State(state): State<AppState>) -> Json<Value> {
     let mut snapshot = collect_metrics_snapshot();
     // Enrich with live data from state
     if let Some(obj) = snapshot.as_object_mut() {
         let entity_count = state.entity_cache.count().await;
         let connected_clients = state.ws_manager.client_count().await;
         let entity_metrics = state.entity_cache.metrics();
-        obj.insert("live".to_string(), json!({
-            "entity_count": entity_count,
-            "connected_clients": connected_clients,
-            "ha_connected": state.entity_cache.is_ha_connected(),
-            "entity_updates_total": entity_metrics.update_count,
-            "entity_cache_hits": entity_metrics.cache_hits,
-        }));
+        obj.insert(
+            "live".to_string(),
+            json!({
+                "entity_count": entity_count,
+                "connected_clients": connected_clients,
+                "ha_connected": state.entity_cache.is_ha_connected(),
+                "entity_updates_total": entity_metrics.update_count,
+                "entity_cache_hits": entity_metrics.cache_hits,
+            }),
+        );
         // Task breakdown from registry
-        let task_summary: Vec<Value> = TASK_REGISTRY.iter().enumerate()
-            .map(|(i, t)| json!({
-                "id": i,
-                "name": t.name,
-                "runs": t.run_count.load(Ordering::Relaxed),
-                "errors": t.error_count.load(Ordering::Relaxed),
-                "enabled": t.enabled.load(Ordering::Relaxed),
-            }))
+        let task_summary: Vec<Value> = TASK_REGISTRY
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                json!({
+                    "id": i,
+                    "name": t.name,
+                    "runs": t.run_count.load(Ordering::Relaxed),
+                    "errors": t.error_count.load(Ordering::Relaxed),
+                    "enabled": t.enabled.load(Ordering::Relaxed),
+                })
+            })
             .collect();
         obj.insert("task_breakdown".to_string(), json!(task_summary));
     }
@@ -13795,7 +17939,8 @@ async fn deliver_webhook_payload(
     let body = payload.to_string();
     let start = std::time::Instant::now();
 
-    let mut req = client.post(url)
+    let mut req = client
+        .post(url)
         .header("Content-Type", "application/json")
         .header("User-Agent", "MDT-HOME-Dashboard-Webhook/2.0");
 
@@ -13855,6 +18000,7 @@ async fn background_webhook_delivery(
     ws_manager: Arc<websocket::WebSocketManager>,
     db_pool: DbPool,
     http_client: reqwest::Client,
+    system_events: Arc<system_events::SystemEventLog>,
 ) {
     let mut rx = ws_manager.subscribe();
     loop {
@@ -13863,13 +18009,26 @@ async fn background_webhook_delivery(
                 task_entry(11).record_run();
                 // Load active webhooks
                 let webhooks: Vec<(String, String, String, String, String)> = match sqlx::query_as(
-                    "SELECT id, url, secret, events, headers FROM webhooks WHERE active = 1"
-                ).fetch_all(&db_pool).await {
+                    "SELECT id, url, secret, events, headers FROM webhooks WHERE active = 1",
+                )
+                .fetch_all(&db_pool)
+                .await
+                {
                     Ok(rows) => rows,
-                    Err(_) => continue,
+                    Err(e) => {
+                        system_events
+                            .report_error(
+                                "webhook_delivery",
+                                format!("DB load of active webhooks failed: {}", e),
+                            )
+                            .await;
+                        continue;
+                    }
                 };
 
-                if webhooks.is_empty() { continue; }
+                if webhooks.is_empty() {
+                    continue;
+                }
 
                 for entity in &changed_entities {
                     let event_type = format!("state_changed.{}", entity.entity_id);
@@ -13889,13 +18048,18 @@ async fn background_webhook_delivery(
 
                     for (wh_id, url, secret, events_json, headers_json) in &webhooks {
                         // Check event filter
-                        let events: Vec<String> = serde_json::from_str(events_json).unwrap_or_default();
+                        let events: Vec<String> =
+                            serde_json::from_str(events_json).unwrap_or_default();
                         let matches = events.iter().any(|e| {
-                            e == "*" || e == "state_changed" || e == &event_type
+                            e == "*"
+                                || e == "state_changed"
+                                || e == &event_type
                                 || e == &format!("domain.{}", domain)
                                 || e == &entity.entity_id
                         });
-                        if !matches { continue; }
+                        if !matches {
+                            continue;
+                        }
 
                         let client = http_client.clone();
                         let url = url.clone();
@@ -13904,39 +18068,99 @@ async fn background_webhook_delivery(
                         let payload = payload.clone();
                         let wh_id = wh_id.clone();
                         let pool = db_pool.clone();
+                        let sys = system_events.clone();
 
                         // Fire-and-forget delivery with retry
                         tokio::spawn(async move {
-                            let result = deliver_webhook_payload(&client, &url, &secret, &headers, &payload).await;
+                            let result =
+                                deliver_webhook_payload(&client, &url, &secret, &headers, &payload)
+                                    .await;
 
                             // Log delivery
-                            sqlx::query(
+                            if let Err(e) = sqlx::query(
                                 "INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, error) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
                             )
                             .bind(&wh_id).bind("state_changed").bind(payload.to_string())
                             .bind(result.status_code).bind(&result.response_body)
                             .bind(result.duration_ms).bind(result.success).bind(&result.error)
-                            .execute(&pool).await.ok();
+                            .execute(&pool).await
+                            {
+                                sys.report_warn(
+                                    "webhook_delivery",
+                                    format!("Could not persist delivery log for webhook {}: {}", wh_id, e),
+                                ).await;
+                            }
 
                             // Update webhook stats
                             if result.success {
-                                sqlx::query("UPDATE webhooks SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, consecutive_failures = 0 WHERE id = $1")
-                                    .bind(&wh_id).execute(&pool).await.ok();
+                                if let Err(e) = sqlx::query("UPDATE webhooks SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, consecutive_failures = 0 WHERE id = $1")
+                                    .bind(&wh_id).execute(&pool).await
+                                {
+                                    sys.report_warn(
+                                        "webhook_delivery",
+                                        format!("Could not update success stats for webhook {}: {}", wh_id, e),
+                                    ).await;
+                                }
                             } else {
-                                let _: Option<(i64,)> = sqlx::query_as("SELECT consecutive_failures FROM webhooks WHERE id = $1")
-                                    .bind(&wh_id).fetch_optional(&pool).await.ok().flatten();
-                                sqlx::query("UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1")
-                                    .bind(&wh_id).execute(&pool).await.ok();
+                                sys.report_error_with(
+                                    "webhook_delivery",
+                                    format!(
+                                        "Webhook {} delivery failed: {}",
+                                        wh_id,
+                                        result.error.as_deref().unwrap_or("unknown error")
+                                    ),
+                                    serde_json::json!({
+                                        "webhook_id": wh_id,
+                                        "url": url,
+                                        "status_code": result.status_code,
+                                        "duration_ms": result.duration_ms,
+                                    }),
+                                )
+                                .await;
+                                let _: Option<(i64,)> = sqlx::query_as(
+                                    "SELECT consecutive_failures FROM webhooks WHERE id = $1",
+                                )
+                                .bind(&wh_id)
+                                .fetch_optional(&pool)
+                                .await
+                                .ok()
+                                .flatten();
+                                if let Err(e) = sqlx::query("UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1")
+                                    .bind(&wh_id).execute(&pool).await
+                                {
+                                    sys.report_warn(
+                                        "webhook_delivery",
+                                        format!("Could not increment failure counter for webhook {}: {}", wh_id, e),
+                                    ).await;
+                                }
                                 // Auto-disable after 10 consecutive failures
-                                sqlx::query("UPDATE webhooks SET active = false WHERE id = $1 AND consecutive_failures >= 10")
-                                    .bind(&wh_id).execute(&pool).await.ok();
+                                match sqlx::query("UPDATE webhooks SET active = false WHERE id = $1 AND consecutive_failures >= 10")
+                                    .bind(&wh_id).execute(&pool).await
+                                {
+                                    Ok(res) if res.rows_affected() > 0 => {
+                                        sys.report_error(
+                                            "webhook_delivery",
+                                            format!("Webhook {} auto-disabled after 10 consecutive failures", wh_id),
+                                        ).await;
+                                    }
+                                    Err(e) => {
+                                        sys.report_warn(
+                                            "webhook_delivery",
+                                            format!("Could not auto-disable webhook {}: {}", wh_id, e),
+                                        ).await;
+                                    }
+                                    _ => {}
+                                }
                             }
                         });
                     }
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                warn!("Webhook delivery lagged by {} messages", n);
+                system_events.report_warn(
+                    "webhook_delivery",
+                    format!("State-update broadcast lagged by {} messages — webhook deliveries skipped", n),
+                ).await;
             }
             Err(_) => break,
         }
@@ -13953,10 +18177,12 @@ async fn sse_event_stream(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
-    let domain_filter: Vec<String> = params.get("domains")
+    let domain_filter: Vec<String> = params
+        .get("domains")
         .map(|d| d.split(',').map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
-    let entity_filter: Vec<String> = params.get("entity_ids")
+    let entity_filter: Vec<String> = params
+        .get("entity_ids")
         .map(|d| d.split(',').map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
@@ -14086,10 +18312,7 @@ async fn realtime_ws_handler(
     ws.on_upgrade(|socket| handle_realtime_socket(socket, state))
 }
 
-async fn handle_realtime_socket(
-    socket: axum::extract::ws::WebSocket,
-    state: AppState,
-) {
+async fn handle_realtime_socket(socket: axum::extract::ws::WebSocket, state: AppState) {
     use axum::extract::ws::Message;
     use futures_util::{SinkExt, StreamExt};
 
@@ -14104,14 +18327,19 @@ async fn handle_realtime_socket(
     // Send welcome
     {
         let mut s = sender.lock().await;
-        let _ = s.send(Message::Text(json!({
-            "event": "connected",
-            "data": {
-                "namespaces": ["entities", "system", "notifications"],
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "version": env!("CARGO_PKG_VERSION"),
-            }
-        }).to_string())).await;
+        let _ = s
+            .send(Message::Text(
+                json!({
+                    "event": "connected",
+                    "data": {
+                        "namespaces": ["entities", "system", "notifications"],
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "version": env!("CARGO_PKG_VERSION"),
+                    }
+                })
+                .to_string(),
+            ))
+            .await;
     }
 
     // Spawn broadcast forwarders
@@ -14124,16 +18352,23 @@ async fn handle_realtime_socket(
                 Ok(changed) => {
                     let subs = entity_subs_r.read().await;
                     if let Some(filter) = subs.as_ref() {
-                        let filtered: Vec<&EntityState> = changed.iter().filter(|e| {
-                            if !filter.domains.is_empty() {
-                                let d = e.entity_id.split('.').next().unwrap_or("");
-                                if !filter.domains.contains(&d.to_string()) { return false; }
-                            }
-                            if !filter.entity_ids.is_empty() {
-                                if !filter.entity_ids.contains(&e.entity_id) { return false; }
-                            }
-                            true
-                        }).collect();
+                        let filtered: Vec<&EntityState> = changed
+                            .iter()
+                            .filter(|e| {
+                                if !filter.domains.is_empty() {
+                                    let d = e.entity_id.split('.').next().unwrap_or("");
+                                    if !filter.domains.contains(&d.to_string()) {
+                                        return false;
+                                    }
+                                }
+                                if !filter.entity_ids.is_empty() {
+                                    if !filter.entity_ids.contains(&e.entity_id) {
+                                        return false;
+                                    }
+                                }
+                                true
+                            })
+                            .collect();
                         if !filtered.is_empty() {
                             let msg = json!({
                                 "namespace": "entities",
@@ -14143,7 +18378,9 @@ async fn handle_realtime_socket(
                             });
                             let mut s = entity_sender.lock().await;
                             METRICS.ws_messages_sent.fetch_add(1, Ordering::Relaxed);
-                            if s.send(Message::Text(msg.to_string())).await.is_err() { break; }
+                            if s.send(Message::Text(msg.to_string())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                 }
@@ -14196,10 +18433,14 @@ async fn handle_realtime_socket(
         loop {
             match config_rx.recv().await {
                 Ok(changes) => {
-                    if !*notif_sub_r.read().await { continue; }
+                    if !*notif_sub_r.read().await {
+                        continue;
+                    }
                     let msg = json!({ "namespace": "notifications", "event": "config_changed", "data": changes });
                     let mut s = notif_sender.lock().await;
-                    if s.send(Message::Text(msg.to_string())).await.is_err() { break; }
+                    if s.send(Message::Text(msg.to_string())).await.is_err() {
+                        break;
+                    }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(_) => break,
@@ -14212,42 +18453,73 @@ async fn handle_realtime_socket(
         if let Message::Text(text) = msg {
             METRICS.ws_messages_received.fetch_add(1, Ordering::Relaxed);
             if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
-                let ns = parsed.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
+                let ns = parsed
+                    .get("namespace")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let event = parsed.get("event").and_then(|v| v.as_str()).unwrap_or("");
                 let data = parsed.get("data").cloned().unwrap_or(json!(null));
 
                 match (ns, event) {
                     ("entities", "subscribe") => {
-                        let domains: Vec<String> = data.get("domains")
+                        let domains: Vec<String> = data
+                            .get("domains")
                             .and_then(|v| v.as_array())
-                            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
                             .unwrap_or_default();
-                        let entity_ids: Vec<String> = data.get("entity_ids")
+                        let entity_ids: Vec<String> = data
+                            .get("entity_ids")
                             .and_then(|v| v.as_array())
-                            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
                             .unwrap_or_default();
-                        *entity_subs.write().await = Some(EntitySubFilter { domains, entity_ids });
+                        *entity_subs.write().await = Some(EntitySubFilter {
+                            domains,
+                            entity_ids,
+                        });
                         let mut s = sender.lock().await;
-                        let _ = s.send(Message::Text(json!({
-                            "namespace": "entities", "event": "subscribed",
-                            "data": { "status": "ok" }
-                        }).to_string())).await;
+                        let _ = s
+                            .send(Message::Text(
+                                json!({
+                                    "namespace": "entities", "event": "subscribed",
+                                    "data": { "status": "ok" }
+                                })
+                                .to_string(),
+                            ))
+                            .await;
                     }
                     ("entities", "unsubscribe") => {
                         *entity_subs.write().await = None;
                         let mut s = sender.lock().await;
-                        let _ = s.send(Message::Text(json!({
-                            "namespace": "entities", "event": "unsubscribed",
-                            "data": { "status": "ok" }
-                        }).to_string())).await;
+                        let _ = s
+                            .send(Message::Text(
+                                json!({
+                                    "namespace": "entities", "event": "unsubscribed",
+                                    "data": { "status": "ok" }
+                                })
+                                .to_string(),
+                            ))
+                            .await;
                     }
                     ("system", "subscribe") => {
                         *system_sub.write().await = true;
                         let mut s = sender.lock().await;
-                        let _ = s.send(Message::Text(json!({
-                            "namespace": "system", "event": "subscribed",
-                            "data": { "status": "ok" }
-                        }).to_string())).await;
+                        let _ = s
+                            .send(Message::Text(
+                                json!({
+                                    "namespace": "system", "event": "subscribed",
+                                    "data": { "status": "ok" }
+                                })
+                                .to_string(),
+                            ))
+                            .await;
                     }
                     ("system", "unsubscribe") => {
                         *system_sub.write().await = false;
@@ -14255,17 +18527,24 @@ async fn handle_realtime_socket(
                     ("notifications", "subscribe") => {
                         *notif_sub.write().await = true;
                         let mut s = sender.lock().await;
-                        let _ = s.send(Message::Text(json!({
-                            "namespace": "notifications", "event": "subscribed",
-                            "data": { "status": "ok" }
-                        }).to_string())).await;
+                        let _ = s
+                            .send(Message::Text(
+                                json!({
+                                    "namespace": "notifications", "event": "subscribed",
+                                    "data": { "status": "ok" }
+                                })
+                                .to_string(),
+                            ))
+                            .await;
                     }
                     ("notifications", "unsubscribe") => {
                         *notif_sub.write().await = false;
                     }
                     (_, "ping") => {
                         let mut s = sender.lock().await;
-                        let _ = s.send(Message::Text(json!({"event": "pong"}).to_string())).await;
+                        let _ = s
+                            .send(Message::Text(json!({"event": "pong"}).to_string()))
+                            .await;
                     }
                     _ => {
                         let mut s = sender.lock().await;
@@ -14304,7 +18583,9 @@ struct LocationHistoryQuery {
     limit: i64,
 }
 
-fn default_limit() -> i64 { 5000 }
+fn default_limit() -> i64 {
+    5000
+}
 
 /// Get location history points from our own database (long-term storage)
 async fn get_location_history(
@@ -14312,9 +18593,9 @@ async fn get_location_history(
     Path(entity_id): Path<String>,
     Query(query): Query<LocationHistoryQuery>,
 ) -> Result<Json<Value>, ErrorResponse> {
-    let start = query.start.unwrap_or_else(|| {
-        (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339()
-    });
+    let start = query
+        .start
+        .unwrap_or_else(|| (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339());
     let end = query.end.unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
     let rows: Vec<(f64, f64, Option<i32>, Option<String>, Option<String>, String)> = sqlx::query_as(
@@ -14336,31 +18617,37 @@ async fn get_location_history(
         ErrorResponse::internal(format!("Failed to get location history: {}", e))
     })?;
 
-    let points: Vec<Value> = rows.into_iter().map(|(lat, lng, acc, state, source, time)| {
-        json!({
-            "latitude": lat,
-            "longitude": lng,
-            "gps_accuracy": acc,
-            "state": state,
-            "source": source,
-            "recorded_at": time,
+    let points: Vec<Value> = rows
+        .into_iter()
+        .map(|(lat, lng, acc, state, source, time)| {
+            json!({
+                "latitude": lat,
+                "longitude": lng,
+                "gps_accuracy": acc,
+                "state": state,
+                "source": source,
+                "recorded_at": time,
+            })
         })
-    }).collect();
+        .collect();
 
     // Also return the HA-compatible format for backwards compatibility
-    let ha_compat: Vec<Value> = points.iter().map(|p| {
-        json!({
-            "entity_id": &entity_id,
-            "state": p["state"],
-            "last_changed": p["recorded_at"],
-            "attributes": {
-                "latitude": p["latitude"],
-                "longitude": p["longitude"],
-                "gps_accuracy": p["gps_accuracy"],
-                "source_type": p["source"],
-            }
+    let ha_compat: Vec<Value> = points
+        .iter()
+        .map(|p| {
+            json!({
+                "entity_id": &entity_id,
+                "state": p["state"],
+                "last_changed": p["recorded_at"],
+                "attributes": {
+                    "latitude": p["latitude"],
+                    "longitude": p["longitude"],
+                    "gps_accuracy": p["gps_accuracy"],
+                    "source_type": p["source"],
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({
         "entity_id": entity_id,
@@ -14371,10 +18658,21 @@ async fn get_location_history(
 }
 
 /// Get sync status for all tracked entities
-async fn get_location_sync_status(
-    State(state): State<AppState>,
-) -> Json<Vec<Value>> {
-    match sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, i32, String, Option<String>, String)>(
+async fn get_location_sync_status(State(state): State<AppState>) -> Json<Vec<Value>> {
+    match sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i32,
+            String,
+            Option<String>,
+            String,
+        ),
+    >(
         r#"SELECT entity_id, friendly_name,
                   to_char(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
                   to_char(oldest_data_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
@@ -14385,19 +18683,25 @@ async fn get_location_sync_status(
            ORDER BY entity_id"#,
     )
     .fetch_all(&state.db_pool)
-    .await {
+    .await
+    {
         Ok(rows) => {
-            let statuses: Vec<Value> = rows.into_iter().map(|r| json!({
-                "entity_id": r.0,
-                "friendly_name": r.1,
-                "last_sync_at": r.2,
-                "oldest_data_at": r.3,
-                "newest_data_at": r.4,
-                "total_points": r.5,
-                "sync_state": r.6,
-                "last_error": r.7,
-                "updated_at": r.8,
-            })).collect();
+            let statuses: Vec<Value> = rows
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "entity_id": r.0,
+                        "friendly_name": r.1,
+                        "last_sync_at": r.2,
+                        "oldest_data_at": r.3,
+                        "newest_data_at": r.4,
+                        "total_points": r.5,
+                        "sync_state": r.6,
+                        "last_error": r.7,
+                        "updated_at": r.8,
+                    })
+                })
+                .collect();
             Json(statuses)
         }
         Err(e) => {
@@ -14408,16 +18712,15 @@ async fn get_location_sync_status(
 }
 
 /// Admin: get detailed sync status
-async fn admin_get_sync_status(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn admin_get_sync_status(State(state): State<AppState>) -> Json<Value> {
     let statuses = get_location_sync_status(State(state.clone())).await.0;
 
-    let total_points: i64 = sqlx::query_as("SELECT COALESCE(COUNT(*), 0) FROM location_history_points")
-        .fetch_one(&state.db_pool)
-        .await
-        .map(|(c,): (i64,)| c)
-        .unwrap_or(0);
+    let total_points: i64 =
+        sqlx::query_as("SELECT COALESCE(COUNT(*), 0) FROM location_history_points")
+            .fetch_one(&state.db_pool)
+            .await
+            .map(|(c,): (i64,)| c)
+            .unwrap_or(0);
 
     let oldest: Option<String> = sqlx::query_as(
         r#"SELECT to_char(MIN(recorded_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM location_history_points"#
@@ -14473,19 +18776,42 @@ async fn admin_list_system_notifications(
            WHERE ($1 = false OR category = $2) AND ($3 = true OR resolved = false)
            ORDER BY created_at DESC LIMIT 200"#;
 
-    match sqlx::query_as::<_, (String, String, String, String, String, Option<serde_json::Value>, String, bool, Option<String>, Option<String>, bool, Option<String>, String)>(base)
-        .bind(has_category)
-        .bind(&category_val)
-        .bind(show_resolved)
-        .fetch_all(&state.db_pool)
-        .await {
+    match sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<serde_json::Value>,
+            String,
+            bool,
+            Option<String>,
+            Option<String>,
+            bool,
+            Option<String>,
+            String,
+        ),
+    >(base)
+    .bind(has_category)
+    .bind(&category_val)
+    .bind(show_resolved)
+    .fetch_all(&state.db_pool)
+    .await
+    {
         Ok(rows) => {
-            let notifs: Vec<Value> = rows.into_iter().map(|r| json!({
-                "id": r.0, "category": r.1, "severity": r.2, "title": r.3,
-                "message": r.4, "details": r.5, "source": r.6,
-                "acknowledged": r.7, "acknowledged_by": r.8, "acknowledged_at": r.9,
-                "resolved": r.10, "resolved_at": r.11, "created_at": r.12,
-            })).collect();
+            let notifs: Vec<Value> = rows
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "id": r.0, "category": r.1, "severity": r.2, "title": r.3,
+                        "message": r.4, "details": r.5, "source": r.6,
+                        "acknowledged": r.7, "acknowledged_by": r.8, "acknowledged_at": r.9,
+                        "resolved": r.10, "resolved_at": r.11, "created_at": r.12,
+                    })
+                })
+                .collect();
             Json(notifs)
         }
         Err(e) => {
@@ -14526,11 +18852,12 @@ async fn admin_resolve_system_notification(
     Path(notif_id): Path<String>,
 ) -> StatusCode {
     match sqlx::query(
-        "UPDATE admin_system_notifications SET resolved = true, resolved_at = NOW() WHERE id = $1"
+        "UPDATE admin_system_notifications SET resolved = true, resolved_at = NOW() WHERE id = $1",
     )
     .bind(&notif_id)
     .execute(&state.db_pool)
-    .await {
+    .await
+    {
         Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
         _ => StatusCode::NOT_FOUND,
     }
@@ -14544,16 +18871,15 @@ async fn admin_delete_system_notification(
     match sqlx::query("DELETE FROM admin_system_notifications WHERE id = $1")
         .bind(&notif_id)
         .execute(&state.db_pool)
-        .await {
+        .await
+    {
         Ok(r) if r.rows_affected() > 0 => StatusCode::OK,
         _ => StatusCode::NOT_FOUND,
     }
 }
 
 /// Admin: clear all resolved system notifications
-async fn admin_clear_resolved_system_notifications(
-    State(state): State<AppState>,
-) -> StatusCode {
+async fn admin_clear_resolved_system_notifications(State(state): State<AppState>) -> StatusCode {
     let _ = sqlx::query("DELETE FROM admin_system_notifications WHERE resolved = true")
         .execute(&state.db_pool)
         .await;
@@ -14589,9 +18915,15 @@ struct InternalSystemNotificationRequest {
     coalesce: bool,
 }
 
-fn default_category() -> String { "system".to_string() }
-fn default_severity() -> String { "warning".to_string() }
-fn default_source() -> String { "system".to_string() }
+fn default_category() -> String {
+    "system".to_string()
+}
+fn default_severity() -> String {
+    "warning".to_string()
+}
+fn default_source() -> String {
+    "system".to_string()
+}
 
 async fn internal_create_system_notification(
     State(state): State<AppState>,
@@ -14601,17 +18933,22 @@ async fn internal_create_system_notification(
     // Token check.
     let expected = match std::env::var("IORA_INTERNAL_TOKEN") {
         Ok(v) if !v.is_empty() => v,
-        _ => return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "internal endpoint disabled (IORA_INTERNAL_TOKEN unset)" })),
-        ),
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "internal endpoint disabled (IORA_INTERNAL_TOKEN unset)" })),
+            )
+        }
     };
     let provided = headers
         .get("x-iora-internal-token")
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
     if provided != expected {
-        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "invalid internal token" })));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "invalid internal token" })),
+        );
     }
 
     // Coalesce existing un-resolved notifications with the same identity.
@@ -14638,7 +18975,10 @@ async fn internal_create_system_notification(
             .bind(req.details.clone())
             .execute(&state.db_pool)
             .await;
-            return (StatusCode::OK, Json(json!({ "id": existing_id, "coalesced": true })));
+            return (
+                StatusCode::OK,
+                Json(json!({ "id": existing_id, "coalesced": true })),
+            );
         }
     }
 
@@ -14659,10 +18999,16 @@ async fn internal_create_system_notification(
     .execute(&state.db_pool)
     .await
     {
-        Ok(_) => (StatusCode::CREATED, Json(json!({ "id": id, "coalesced": false }))),
+        Ok(_) => (
+            StatusCode::CREATED,
+            Json(json!({ "id": id, "coalesced": false })),
+        ),
         Err(e) => {
             warn!("internal_create_system_notification insert failed: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() })))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
         }
     }
 }
@@ -14676,6 +19022,7 @@ async fn internal_create_system_notification(
 /// Health check
 ///
 /// Returns system health status including HA connection, entity count, and connected clients.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/health", tag = "health",
     responses((status = 200, description = "Health status", body = Value))
 )]
@@ -14684,6 +19031,7 @@ async fn api_doc_health() {}
 /// Register new user
 ///
 /// Create a new user account. Returns JWT token and user data.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/register", tag = "auth",
     request_body(content = Value, description = "{ username, password, display_name? }"),
     responses(
@@ -14696,6 +19044,7 @@ async fn api_doc_auth_register() {}
 /// Login with credentials
 ///
 /// Authenticate with username and password. Returns JWT token.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/login", tag = "auth",
     request_body(content = Value, description = "{ username, password, remember_me? }"),
     responses(
@@ -14708,6 +19057,7 @@ async fn api_doc_auth_login() {}
 /// Verify JWT token
 ///
 /// Verify the bearer token and return the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/auth/verify", tag = "auth",
     security(("bearer" = [])),
     responses(
@@ -14720,6 +19070,7 @@ async fn api_doc_auth_verify() {}
 /// Login with PIN
 ///
 /// Authenticate with user ID and PIN for quick user switching on shared devices.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/pin-login", tag = "auth",
     request_body(content = Value, description = "{ user_id, pin }"),
     responses(
@@ -14733,6 +19084,7 @@ async fn api_doc_auth_pin_login() {}
 /// List all users
 ///
 /// Returns a list of all users with id, username, display_name, avatar_url, and has_pin flag.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/auth/users", tag = "auth",
     responses((status = 200, description = "User list", body = Vec<Value>))
 )]
@@ -14741,6 +19093,7 @@ async fn api_doc_auth_users() {}
 /// Set login PIN
 ///
 /// Set or update the login PIN for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/auth/pin", tag = "auth",
     security(("bearer" = [])),
     request_body(content = Value, description = "{ pin: string (4-6 digits) }"),
@@ -14754,6 +19107,7 @@ async fn api_doc_auth_set_pin() {}
 /// Remove login PIN
 ///
 /// Remove the login PIN for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/auth/pin", tag = "auth",
     security(("bearer" = [])),
     responses(
@@ -14766,12 +19120,14 @@ async fn api_doc_auth_remove_pin() {}
 /// Get all entity states
 ///
 /// Returns all cached Home Assistant entity states. Updated in real-time via WebSocket.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/states", tag = "entities",
     responses((status = 200, description = "Array of entity states", body = Vec<Value>))
 )]
 async fn api_doc_get_states() {}
 
 /// Get single entity state
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/states/{entity_id}", tag = "entities",
     params(("entity_id" = String, Path, description = "Entity ID (e.g. light.living_room)")),
     responses(
@@ -14784,6 +19140,7 @@ async fn api_doc_get_state() {}
 /// Call Home Assistant service
 ///
 /// Dispatch a service call to HA. Requires JWT auth. Uses WebSocket when connected, REST fallback otherwise.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/services/{domain}/{service}", tag = "services",
     security(("bearer" = [])),
     params(
@@ -14798,6 +19155,7 @@ async fn api_doc_call_service() {}
 /// Get entity history
 ///
 /// Proxy to Home Assistant history API. Returns state history for the given period.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/history/period/{start_time}", tag = "history",
     params(("start_time" = String, Path, description = "ISO 8601 start time")),
     responses((status = 200, description = "History data", body = Value))
@@ -14807,6 +19165,7 @@ async fn api_doc_get_history() {}
 /// Upload background image
 ///
 /// Upload a background image (jpg, png, webp, gif). Max recommended size: 10MB.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/uploads/background", tag = "uploads",
     security(("bearer" = [])),
     responses(
@@ -14820,6 +19179,7 @@ async fn api_doc_upload_background() {}
 /// Get entities by domain
 ///
 /// Filter cached entities by domain (e.g. light, sensor, climate).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/entities/domain/{domain}", tag = "entities",
     params(("domain" = String, Path, description = "Entity domain")),
     responses((status = 200, description = "Filtered entity list", body = Vec<Value>))
@@ -14829,6 +19189,7 @@ async fn api_doc_get_entities_by_domain() {}
 /// Search entities
 ///
 /// Search entities by name or entity_id substring.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/entities/search", tag = "entities",
     params(("q" = String, Query, description = "Search query")),
     responses((status = 200, description = "Matching entities", body = Vec<Value>))
@@ -14838,6 +19199,7 @@ async fn api_doc_search_entities() {}
 /// System statistics
 ///
 /// Returns CPU usage, memory, uptime, database size, entity count, cache metrics, and HA connection status.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/system/stats", tag = "system",
     responses((status = 200, description = "System stats", body = Value))
 )]
@@ -14846,12 +19208,14 @@ async fn api_doc_system_stats() {}
 /// Home Assistant info
 ///
 /// Returns HA connection status, entity count, domain breakdown, and version information.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/system/ha-info", tag = "system",
     responses((status = 200, description = "HA info", body = Value))
 )]
 async fn api_doc_ha_info() {}
 
 /// Create user
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/users", tag = "config",
     request_body(content = Value, description = "{ username, password, display_name? }"),
     responses((status = 200, description = "User created", body = Value))
@@ -14859,6 +19223,7 @@ async fn api_doc_ha_info() {}
 async fn api_doc_create_user() {}
 
 /// Get user by username
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/users/{username}", tag = "config",
     params(("username" = String, Path, description = "Username")),
     responses(
@@ -14871,6 +19236,7 @@ async fn api_doc_get_user() {}
 /// Update user profile
 ///
 /// Update username and/or display name.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/config/users/by-id/{user_id}", tag = "config",
     security(("bearer" = [])),
     params(("user_id" = String, Path, description = "User ID")),
@@ -14882,6 +19248,7 @@ async fn api_doc_update_user() {}
 /// Register device
 ///
 /// Register a new device for settings sync and terminal mode.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/devices", tag = "config",
     request_body(content = Value, description = "{ device_name, device_type?, user_agent? }"),
     responses((status = 200, description = "Device registered", body = Value))
@@ -14889,6 +19256,7 @@ async fn api_doc_update_user() {}
 async fn api_doc_register_device() {}
 
 /// Create configuration profile
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles", tag = "config",
     request_body(content = Value, description = "{ name, profile_type, owner_id }"),
     responses((status = 200, description = "Profile created", body = Value))
@@ -14898,6 +19266,7 @@ async fn api_doc_create_profile() {}
 /// Get profile data
 ///
 /// Returns full profile with pages, theme, and background configuration.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/profiles/{profile_id}", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     responses(
@@ -14910,6 +19279,7 @@ async fn api_doc_get_profile() {}
 /// Save dashboard pages
 ///
 /// Save all pages with widgets, layouts, and ordering for a profile.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/pages", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ pages: DashboardPage[] }"),
@@ -14918,6 +19288,7 @@ async fn api_doc_get_profile() {}
 async fn api_doc_save_pages() {}
 
 /// Save theme settings
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/theme", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ sleep_mode, auto_theme, selected_theme$1 }"),
@@ -14928,6 +19299,7 @@ async fn api_doc_save_theme() {}
 /// Save background configuration
 ///
 /// Save global background config (static image, slideshow, video, or gradient).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/background", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ background_type, config, is_active }"),
@@ -14938,6 +19310,7 @@ async fn api_doc_save_background() {}
 /// Get page layouts
 ///
 /// Returns all page grid layouts (cols, rows, gap) for a profile.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/profiles/{profile_id}/layouts", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     responses((status = 200, description = "Page layouts", body = Vec<Value>))
@@ -14945,6 +19318,7 @@ async fn api_doc_save_background() {}
 async fn api_doc_get_page_layouts() {}
 
 /// Save page layout
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/layouts", tag = "config",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ page_id, cols, rows, gap }"),
@@ -14955,6 +19329,7 @@ async fn api_doc_save_page_layout() {}
 /// Get all page settings
 ///
 /// Returns per-page settings (card style, background override, custom CSS, padding) for all pages in a profile.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/profiles/{profile_id}/page-settings", tag = "page-settings",
     params(("profile_id" = String, Path, description = "Profile ID")),
     responses((status = 200, description = "Array of page settings", body = Vec<Value>))
@@ -14964,6 +19339,7 @@ async fn api_doc_get_page_settings() {}
 /// Save page settings
 ///
 /// Create or update settings for a specific page. Supports card_style, per-page background override, custom_css, hide_header, and padding.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/profiles/{profile_id}/page-settings", tag = "page-settings",
     params(("profile_id" = String, Path, description = "Profile ID")),
     request_body(content = Value, description = "{ page_id, card_style?, background_type?, background_config?, custom_css?, hide_header?, padding? }"),
@@ -14974,6 +19350,7 @@ async fn api_doc_save_page_settings() {}
 /// Delete page settings
 ///
 /// Remove per-page settings, reverting to global defaults.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/config/profiles/{profile_id}/page-settings/{page_id}", tag = "page-settings",
     params(
         ("profile_id" = String, Path, description = "Profile ID"),
@@ -14986,6 +19363,7 @@ async fn api_doc_delete_page_settings() {}
 /// Save user preference
 ///
 /// Save a key-value preference for a user (synced across devices).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/config/preferences/{user_id}", tag = "config",
     params(("user_id" = String, Path, description = "User ID")),
     request_body(content = Value, description = "{ key, value, device_id? }"),
@@ -14996,6 +19374,7 @@ async fn api_doc_save_preference() {}
 /// Get user preferences
 ///
 /// Returns all preferences for a user as key-value pairs.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/config/preferences/{user_id}", tag = "config",
     params(("user_id" = String, Path, description = "User ID")),
     responses((status = 200, description = "Preferences map", body = Value))
@@ -15005,6 +19384,7 @@ async fn api_doc_get_preferences() {}
 /// Dashboard status
 ///
 /// Returns dashboard status and diagnostics for the HA custom integration.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/integration/status", tag = "integration",
     responses((status = 200, description = "Dashboard status with entity counts, connection info", body = Value))
 )]
@@ -15013,6 +19393,7 @@ async fn api_doc_integration_status() {}
 /// Send command
 ///
 /// Send commands from the HA integration (refresh_entities, set_theme, navigate, etc.).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/integration/command", tag = "integration",
     request_body(content = Value, description = "{ command, ...params }"),
     responses((status = 200, description = "Command executed"))
@@ -15022,6 +19403,7 @@ async fn api_doc_integration_command() {}
 /// Get dashboard settings
 ///
 /// Returns current dashboard settings (screensaver, auto_theme, brightness, etc.).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/integration/settings", tag = "integration",
     responses((status = 200, description = "Dashboard settings", body = Value))
 )]
@@ -15030,6 +19412,7 @@ async fn api_doc_integration_get_settings() {}
 /// Update dashboard settings
 ///
 /// Update dashboard settings from the HA integration.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/integration/settings", tag = "integration",
     request_body(content = Value, description = "Settings to update"),
     responses((status = 200, description = "Settings updated"))
@@ -15041,6 +19424,7 @@ async fn api_doc_integration_set_settings() {}
 /// List my API keys
 ///
 /// Returns all API keys for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/keys", tag = "api-keys",
     security(("bearer" = [])),
     responses((status = 200, description = "API keys list", body = Vec<Value>))
@@ -15050,6 +19434,7 @@ async fn api_doc_list_api_keys() {}
 /// Create API key
 ///
 /// Generate a new API key for programmatic access. The raw key is only returned once.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/keys", tag = "api-keys",
     security(("bearer" = [])),
     request_body(content = Value, description = "{ name, permissions?: string[], rate_limit?: number, expires_in_days?: number }"),
@@ -15063,6 +19448,7 @@ async fn api_doc_create_api_key() {}
 /// Update API key
 ///
 /// Update name, permissions, rate limit, or active status of an API key.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/keys/{key_id}", tag = "api-keys",
     security(("bearer" = [])),
     params(("key_id" = String, Path, description = "API key ID")),
@@ -15074,6 +19460,7 @@ async fn api_doc_update_api_key() {}
 /// Delete API key
 ///
 /// Permanently revoke and delete an API key.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/keys/{key_id}", tag = "api-keys",
     security(("bearer" = [])),
     params(("key_id" = String, Path, description = "API key ID")),
@@ -15086,6 +19473,7 @@ async fn api_doc_delete_api_key() {}
 /// Admin: List all users
 ///
 /// Returns all users with admin details. Requires admin access.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/users", tag = "admin",
     security(("bearer" = [])),
     responses((status = 200, description = "All users with admin info"))
@@ -15095,6 +19483,7 @@ async fn api_doc_admin_list_users() {}
 /// Admin: Set user admin status
 ///
 /// Promote or demote a user to/from admin role.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/admin/users/{user_id}/admin", tag = "admin",
     security(("bearer" = [])),
     params(("user_id" = String, Path, description = "User ID")),
@@ -15106,6 +19495,7 @@ async fn api_doc_admin_set_admin() {}
 /// Admin: List all API keys
 ///
 /// Returns all API keys across all users.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/api-keys", tag = "admin",
     security(("bearer" = [])),
     responses((status = 200, description = "All API keys"))
@@ -15115,6 +19505,7 @@ async fn api_doc_admin_list_all_api_keys() {}
 /// Admin: HA Configuration
 ///
 /// Returns Home Assistant core configuration (location, units, version, etc.).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/config", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA configuration"))
@@ -15124,6 +19515,7 @@ async fn api_doc_admin_ha_config() {}
 /// Admin: HA Integrations
 ///
 /// Returns all loaded HA components/integrations and entity domain breakdown.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/integrations", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA integrations and components"))
@@ -15133,6 +19525,7 @@ async fn api_doc_admin_ha_integrations() {}
 /// Admin: HA Devices
 ///
 /// Returns all HA devices grouped by device class.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/devices", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA devices"))
@@ -15142,6 +19535,7 @@ async fn api_doc_admin_ha_devices() {}
 /// Admin: HA Automations
 ///
 /// Returns all automation entities with their status and last triggered time.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/automations", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA automations"))
@@ -15151,6 +19545,7 @@ async fn api_doc_admin_ha_automations() {}
 /// Admin: HA Services
 ///
 /// Returns all available HA services organized by domain.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/services", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA services"))
@@ -15160,6 +19555,7 @@ async fn api_doc_admin_ha_services() {}
 /// Admin: HA Logs
 ///
 /// Returns recent Home Assistant error log entries.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/logs", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA error logs"))
@@ -15169,6 +19565,7 @@ async fn api_doc_admin_ha_logs() {}
 /// Admin: MQTT Status
 ///
 /// Returns MQTT-related entities, broker status, and device information.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/mqtt", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "MQTT information"))
@@ -15178,6 +19575,7 @@ async fn api_doc_admin_ha_mqtt() {}
 /// Admin: Matter Status
 ///
 /// Returns Matter-related entities and fabric information.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/matter", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "Matter information"))
@@ -15187,6 +19585,7 @@ async fn api_doc_admin_ha_matter() {}
 /// Admin: HA Add-ons
 ///
 /// Returns installed add-ons (Supervisor) or update entities as fallback.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/addons", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "HA add-ons"))
@@ -15196,6 +19595,7 @@ async fn api_doc_admin_ha_addons() {}
 /// Admin: HA Supervisor
 ///
 /// Returns Supervisor system information (only available on HA OS / Supervised).
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/ha/supervisor", tag = "admin-ha",
     security(("bearer" = [])),
     responses((status = 200, description = "Supervisor info"))
@@ -15205,6 +19605,7 @@ async fn api_doc_admin_ha_supervisor() {}
 /// Admin: Database Info
 ///
 /// Returns database size and table row counts.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/system/database", tag = "admin",
     security(("bearer" = [])),
     responses((status = 200, description = "Database statistics"))
@@ -15218,6 +19619,7 @@ async fn api_doc_admin_database_info() {}
 /// List calendars
 ///
 /// Returns all available calendar entities from Home Assistant.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/calendars", tag = "calendars",
     security(("bearer" = []), ("api_key" = [])),
     responses(
@@ -15230,6 +19632,7 @@ async fn api_doc_get_calendars() {}
 /// Get calendar events
 ///
 /// Returns events for a specific calendar entity within a time range. Defaults to 30 days from now.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/calendars/{entity_id}/events", tag = "calendars",
     security(("bearer" = []), ("api_key" = [])),
     params(
@@ -15251,6 +19654,7 @@ async fn api_doc_get_calendar_events() {}
 /// Get current time
 ///
 /// Returns the current server date, time, timezone, and UNIX timestamp.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/time", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     responses((status = 200, description = "Current time info", body = Value))
@@ -15260,6 +19664,7 @@ async fn api_doc_get_current_time() {}
 /// List all lights
 ///
 /// Returns all light entities with their state, brightness, color mode, and attributes.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/lights", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     responses((status = 200, description = "Array of light entities", body = Value))
@@ -15269,6 +19674,7 @@ async fn api_doc_get_all_lights() {}
 /// Control a light
 ///
 /// Turn on/off/toggle a light entity with optional brightness, color temperature, RGB color, and transition.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/lights/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Light entity ID (e.g. light.living_room)")),
@@ -15283,6 +19689,7 @@ async fn api_doc_control_light() {}
 /// List all media players
 ///
 /// Returns all media player entities with their current state, media info, and volume.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/media_players", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     responses((status = 200, description = "Array of media player entities", body = Value))
@@ -15292,6 +19699,7 @@ async fn api_doc_get_all_media_players() {}
 /// Control a media player
 ///
 /// Control playback, volume, and mute for a media player entity.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/media_players/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Media player entity ID (e.g. media_player.living_room)")),
@@ -15306,6 +19714,7 @@ async fn api_doc_control_media_player() {}
 /// Get sensor value
 ///
 /// Returns the state and all attributes for a specific sensor entity.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/sensors/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Sensor entity ID (e.g. sensor.temperature_outdoor)")),
@@ -15319,6 +19728,7 @@ async fn api_doc_get_sensor() {}
 /// Press a button
 ///
 /// Triggers a button entity (fires the press service).
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/buttons/{entity_id}/press", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Button entity ID (e.g. button.restart)")),
@@ -15332,6 +19742,7 @@ async fn api_doc_press_button() {}
 /// Control a switch
 ///
 /// Turn on, off, or toggle a switch entity.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/switches/{entity_id}", tag = "convenience",
     security(("bearer" = []), ("api_key" = [])),
     params(("entity_id" = String, Path, description = "Switch entity ID (e.g. switch.garden_pump)")),
@@ -15346,6 +19757,7 @@ async fn api_doc_control_switch() {}
 /// Get NINA settings
 ///
 /// Returns current NINA warning system configuration including enabled state, monitored ARS regions, and poll interval.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/nina/settings", tag = "nina",
     security(("bearer" = []), ("api_key" = [])),
     responses(
@@ -15358,6 +19770,7 @@ async fn api_doc_get_nina_settings() {}
 /// Save NINA settings
 ///
 /// Update NINA warning system configuration. When enabled, triggers an immediate poll of configured regions.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/nina/settings", tag = "nina",
     security(("bearer" = []), ("api_key" = [])),
     request_body(content = Value, description = "{ enabled: bool, ars_regions: [{ars: string, name: string}], poll_interval_minutes: number }"),
@@ -15371,6 +19784,7 @@ async fn api_doc_save_nina_settings() {}
 /// Get NINA warnings
 ///
 /// Returns currently cached NINA warnings from all monitored regions.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/nina/warnings", tag = "nina",
     security(("bearer" = []), ("api_key" = [])),
     responses(
@@ -15384,6 +19798,7 @@ async fn api_doc_get_nina_warnings() {}
 ///
 /// Broadcasts a test warning to all connected WebSocket clients. The warning auto-clears after 30 seconds.
 /// Requires admin privileges.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/admin/nina/test-warning", tag = "nina",
     security(("bearer" = [])),
     request_body(content = Value, description = "{ level: 'info'|'warning'|'critical'|'emergency', headline: string, description: string }"),
@@ -15402,6 +19817,7 @@ async fn api_doc_admin_test_warning() {}
 /// List webhooks
 ///
 /// Returns all webhook registrations for the authenticated user.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/webhooks", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     responses(
@@ -15416,6 +19832,7 @@ async fn api_doc_list_webhooks() {}
 /// Register a new outgoing webhook. The webhook will receive HTTP POST requests with JSON payloads
 /// when matching events occur. Optionally provide a `secret` for HMAC-SHA256 signature verification
 /// via the `X-Webhook-Signature` header.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/webhooks", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     request_body(content = Value, description = "{ name: string, url: string, secret?: string, events?: string[], headers?: object }"),
@@ -15429,6 +19846,7 @@ async fn api_doc_create_webhook() {}
 /// Update webhook
 ///
 /// Update an existing webhook's name, URL, secret, event filters, custom headers, or active state.
+#[allow(dead_code)]
 #[utoipa::path(put, path = "/api/webhooks/{webhook_id}", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(("webhook_id" = String, Path, description = "Webhook ID")),
@@ -15443,6 +19861,7 @@ async fn api_doc_update_webhook() {}
 /// Delete webhook
 ///
 /// Delete a webhook and all its delivery history.
+#[allow(dead_code)]
 #[utoipa::path(delete, path = "/api/webhooks/{webhook_id}", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(("webhook_id" = String, Path, description = "Webhook ID")),
@@ -15456,6 +19875,7 @@ async fn api_doc_delete_webhook() {}
 /// Test webhook
 ///
 /// Send a test payload to the webhook URL and return the delivery result.
+#[allow(dead_code)]
 #[utoipa::path(post, path = "/api/webhooks/{webhook_id}/test", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(("webhook_id" = String, Path, description = "Webhook ID")),
@@ -15470,6 +19890,7 @@ async fn api_doc_test_webhook() {}
 /// Webhook delivery log
 ///
 /// Returns recent delivery attempts for a webhook, ordered by most recent first.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/webhooks/{webhook_id}/deliveries", tag = "webhooks",
     security(("bearer_auth" = []), ("api_key" = [])),
     params(
@@ -15486,6 +19907,7 @@ async fn api_doc_get_webhook_deliveries() {}
 /// Admin: list all webhooks
 ///
 /// Returns all webhook registrations across all users. Requires admin privileges.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/admin/webhooks", tag = "webhooks",
     security(("bearer_auth" = [])),
     responses(
@@ -15503,6 +19925,7 @@ async fn api_doc_admin_list_webhooks() {}
 /// Server-Sent Events stream for real-time entity state changes. Supports filtering by
 /// `domains` (comma-separated) and `entity_ids` (comma-separated) query parameters.
 /// Events: `connected`, `state_changed`, `warning`.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/events/stream", tag = "realtime",
     params(
         ("domains" = Option<String>, Query, description = "Comma-separated domain filter (e.g. light,switch)"),
@@ -15518,6 +19941,7 @@ async fn api_doc_sse_event_stream() {}
 ///
 /// Server-Sent Events stream for system-level events including health checks,
 /// watchdog alerts, anomaly detection, and error messages.
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/api/events/system", tag = "realtime",
     responses(
         (status = 200, description = "SSE system event stream", content_type = "text/event-stream")
@@ -15536,6 +19960,7 @@ async fn api_doc_sse_system_stream() {}
 /// **Subscribe**: `{ "namespace": "entities", "event": "subscribe", "data": { "domains": ["light"], "entity_ids": [] } }`
 /// **Unsubscribe**: `{ "namespace": "entities", "event": "unsubscribe" }`
 /// **Ping**: `{ "event": "ping" }` → `{ "event": "pong" }`
+#[allow(dead_code)]
 #[utoipa::path(get, path = "/ws/realtime", tag = "realtime",
     responses(
         (status = 101, description = "WebSocket upgrade – namespace-based realtime connection")
@@ -15551,15 +19976,30 @@ async fn handle_theme_zip_install(
     use base64::Engine as _;
     let fail = |status: StatusCode, stage: &'static str, message: String| {
         warn!(target: "themes", stage, error = %message, "Theme ZIP installation failed");
-        (status, Json(json!({ "success": false, "stage": stage, "message": message })))
+        (
+            status,
+            Json(json!({ "success": false, "stage": stage, "message": message })),
+        )
     };
     let v: Value = match serde_json::from_str(&body) {
         Ok(v) => v,
-        Err(e) => return Err(fail(StatusCode::BAD_REQUEST, "request", format!("Ungültiges JSON: {}", e))),
+        Err(e) => {
+            return Err(fail(
+                StatusCode::BAD_REQUEST,
+                "request",
+                format!("Ungültiges JSON: {}", e),
+            ))
+        }
     };
     let zip_data = match v.get("zip_data").and_then(|v| v.as_str()) {
         Some(s) => s,
-        None => return Err(fail(StatusCode::BAD_REQUEST, "request", "Feld 'zip_data' fehlt".into())),
+        None => {
+            return Err(fail(
+                StatusCode::BAD_REQUEST,
+                "request",
+                "Feld 'zip_data' fehlt".into(),
+            ))
+        }
     };
     let payload = zip_data.split(',').last().unwrap_or(zip_data).trim();
     let padded_payload;
@@ -15574,33 +20014,75 @@ async fn handle_theme_zip_install(
         .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(decode_payload.as_bytes()))
     {
         Ok(b) => b,
-        Err(e) => return Err(fail(StatusCode::BAD_REQUEST, "request", format!("ZIP-Daten sind kein gültiges Base64: {}", e))),
+        Err(e) => {
+            return Err(fail(
+                StatusCode::BAD_REQUEST,
+                "request",
+                format!("ZIP-Daten sind kein gültiges Base64: {}", e),
+            ))
+        }
     };
-    if bytes.is_empty() { return Err(fail(StatusCode::BAD_REQUEST, "request", "ZIP-Datei ist leer".into())); }
-    if bytes.len() > 256*1024*1024 { return Err(fail(StatusCode::BAD_REQUEST, "request", "ZIP-Datei ist größer als 256 MiB".into())); }
+    if bytes.is_empty() {
+        return Err(fail(
+            StatusCode::BAD_REQUEST,
+            "request",
+            "ZIP-Datei ist leer".into(),
+        ));
+    }
+    if bytes.len() > 256 * 1024 * 1024 {
+        return Err(fail(
+            StatusCode::BAD_REQUEST,
+            "request",
+            "ZIP-Datei ist größer als 256 MiB".into(),
+        ));
+    }
     // Step 1: Extract ZIP on blocking thread (contains non-Send types)
     let tm = gs.theme_manager.clone();
-    let def = tokio::task::spawn_blocking(move || {
-        tm.extract_zip(&bytes)
-    }).await.map_err(|e| fail(StatusCode::INTERNAL_SERVER_ERROR, "extract", format!("Theme-Extraktion konnte nicht gestartet werden: {}", e)))?
-    .map_err(|e| fail(StatusCode::BAD_REQUEST, "extract", format!("Theme-ZIP konnte nicht gelesen werden: {}", e)))?;
+    let def = tokio::task::spawn_blocking(move || tm.extract_zip(&bytes))
+        .await
+        .map_err(|e| {
+            fail(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "extract",
+                format!("Theme-Extraktion konnte nicht gestartet werden: {}", e),
+            )
+        })?
+        .map_err(|e| {
+            fail(
+                StatusCode::BAD_REQUEST,
+                "extract",
+                format!("Theme-ZIP konnte nicht gelesen werden: {}", e),
+            )
+        })?;
 
     // Validate the extracted manifest
     let manifest_json = serde_json::to_value(&def).unwrap_or_default();
     let validation = iora_shared::manifest_validator::validate_theme_manifest(&manifest_json);
     if !validation.is_valid() {
-        let errors: Vec<String> = validation.issues.iter()
+        let errors: Vec<String> = validation
+            .issues
+            .iter()
             .filter(|i| i.severity == iora_shared::manifest_validator::ValidationSeverity::Error)
             .map(|i| format!("{}: {}", i.field, i.message))
             .collect();
-        return Err(fail(StatusCode::BAD_REQUEST, "validate",
-            format!("Manifest enthält Fehler:\n{}", errors.join("\n"))));
+        return Err(fail(
+            StatusCode::BAD_REQUEST,
+            "validate",
+            format!("Manifest enthält Fehler:\n{}", errors.join("\n")),
+        ));
     }
 
     // Step 2: Store in DB (async, no non-Send types)
-    let def = gs.theme_manager.store_theme(def).await
-        .map_err(|e| fail(StatusCode::INTERNAL_SERVER_ERROR, "store", format!("Theme konnte nicht gespeichert werden: {}", e)))?;
-    Ok(Json(json!({"success":true,"status":"ok","theme":{"id":def.id,"name":def.name,"version":def.version}})))
+    let def = gs.theme_manager.store_theme(def).await.map_err(|e| {
+        fail(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "store",
+            format!("Theme konnte nicht gespeichert werden: {}", e),
+        )
+    })?;
+    Ok(Json(
+        json!({"success":true,"status":"ok","theme":{"id":def.id,"name":def.name,"version":def.version}}),
+    ))
 }
 
 /// POST /api/themes/validate-manifest – Validate any manifest before installation
@@ -15609,13 +20091,20 @@ async fn handle_validate_manifest(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let json: serde_json::Value = match serde_json::from_str(&body) {
         Ok(v) => v,
-        Err(e) => return Err((StatusCode::BAD_REQUEST, Json(json!({
-            "valid": false,
-            "errors": [{"field": "manifest", "message": format!("Ungültiges JSON: {}", e)}]
-        })))),
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "valid": false,
+                    "errors": [{"field": "manifest", "message": format!("Ungültiges JSON: {}", e)}]
+                })),
+            ))
+        }
     };
 
     let result = iora_shared::manifest_validator::validate_manifest(&json);
 
-    Ok(Json(serde_json::to_value(&result).unwrap_or(json!({"valid":false,"errors":[]}))))
+    Ok(Json(
+        serde_json::to_value(&result).unwrap_or(json!({"valid":false,"errors":[]})),
+    ))
 }

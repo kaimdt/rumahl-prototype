@@ -19,7 +19,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 
-use crate::local_appstore::{self, InstalledApp, LocalAppStore, LogEntry};
+use crate::local_appstore::{InstalledApp, LocalAppStore, LogEntry};
 
 /// Tatsächlicher Zustand der Container einer App (aus `docker compose ps`).
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -68,15 +68,7 @@ pub async fn docker_compose_status(app_id: &str) -> Option<AppDockerStatus> {
     for prefix in ["iora-app-", "iora-bundle-"] {
         let project = format!("{prefix}{app_id}");
         let out = Command::new("docker")
-            .args([
-                "compose",
-                "-p",
-                &project,
-                "ps",
-                "--all",
-                "--format",
-                "json",
-            ])
+            .args(["compose", "-p", &project, "ps", "--all", "--format", "json"])
             .output()
             .await;
 
@@ -177,7 +169,6 @@ pub async fn wait_until_running(
     max_wait_secs: u64,
 ) -> Result<AppDockerStatus, String> {
     let deadline = std::time::Instant::now() + Duration::from_secs(max_wait_secs);
-    let mut last: Option<AppDockerStatus> = None;
     loop {
         let status = match docker_compose_status(app_id).await {
             Some(s) => s,
@@ -195,13 +186,10 @@ pub async fn wait_until_running(
             ));
         }
 
-        last = Some(status);
-
         if std::time::Instant::now() >= deadline {
-            let s = last.unwrap_or_default();
             return Err(format!(
                 "Timeout nach {max_wait_secs}s: nur {}/{} Container laufen. Services: {:?}",
-                s.running, s.total, s.services
+                status.running, status.total, status.services
             ));
         }
 
@@ -292,7 +280,8 @@ impl Default for CrashTracker {
 /// im Crash-Fall einen Restart mit exponentiellem Backoff (max. 5 Versuche, dann
 /// wird der Status auf "stopped" gesetzt und ein Error-Log geschrieben).
 pub async fn spawn_health_monitor(store: Arc<LocalAppStore>, base_dir: std::path::PathBuf) {
-    let trackers: Arc<RwLock<HashMap<String, CrashTracker>>> = Arc::new(RwLock::new(HashMap::new()));
+    let trackers: Arc<RwLock<HashMap<String, CrashTracker>>> =
+        Arc::new(RwLock::new(HashMap::new()));
     let interval = Duration::from_secs(30);
     const MAX_CONSECUTIVE_RESTARTS: u32 = 5;
 
@@ -491,6 +480,3 @@ async fn restart_app_inplace(
         Err(e) => Err(format!("docker konnte nicht aufgerufen werden: {e}")),
     }
 }
-
-// Re-export, damit main.rs eine stabile API hat
-pub use local_appstore::LogEntry as _LogEntry;

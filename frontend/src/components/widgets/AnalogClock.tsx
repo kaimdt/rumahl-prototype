@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 
 export type ClockSecondsMode = 'tick' | 'sweep' | 'hidden'
 export type ClockFaceStyle = 'numbers' | 'ticks' | 'minimal' | 'none'

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import '@/i18n' // side-effect: initializes i18next
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   ShieldCheck, Users, Key, HardDrive, CloudArrowUp,
   Cpu, WifiHigh, Cube, Gear, ListBullets, Database,
@@ -68,7 +68,7 @@ interface ApiKeyWithSecret extends ApiKeyEntry {
   key: string
 }
 
-type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
+type Tab = 'services' | 'health-intelligence' | 'tasks' | 'control-mode' | 'system' | 'system-info' | 'network' | 'infrastructure' | 'users' | 'presence' | 'api-keys' | 'webhooks' | 'ha-config' | 'ha-connection' | 'integrations' | 'mqtt' | 'matter' | 'zigbee' | 'zwave' | 'ble' | 'homekit' | 'scenes' | 'automations' | 'backups' | 'cloud-settings' | 'logs' | 'system-logs' | 'realtime' | 'database' | 'warnings' | 'entities' | 'scheduler' | 'analytics' | 'logbook' | 'calendars' | 'system-notifications' | 'apps' | 'plugins' | 'registrations' | 'security-monitor' | 'updates' | 'widgets' | 'global-config' | 'developer-mode' | 'documentation' | 'protocols' | 'ha-tools' | 'global-alert' | 'notifications' | 'ai-agent' | 'ai-overview' | 'ai-providers' | 'ai-conversations' | 'ai-tasks' | 'ai-tools' | 'ai-voice' | 'devices' | 'secrets' | 'files' | 'gateway' | 'watchdog' | 'connector' | 'domain-validator' | 'resources' | 'api-bridge' | 'dev-bridge' | 'os-ssh' | 'os-network-config' | 'os-disks' | 'os-processes' | 'os-power' | 'themes'
 
 // ═══ Unified Control Center Design Components ═══
 // Theme-aware, consistent input/button/card primitives for the entire Control Center.
@@ -95,7 +95,7 @@ const ccBtnIcon = (base: string = '') =>
   `inline-flex items-center justify-center rounded-xl p-2 text-foreground/50 hover:text-foreground hover:bg-foreground/[0.06] transition-all duration-200 active:scale-95 ${base}`
 
 const ccCard = (base: string = '') =>
-  `rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-5 ${base}`
+  `rounded-2xl border border-foreground/[0.06] bg-background/60 backdrop-blur-xl p-4 sm:p-5 overflow-x-auto ${base}`
 
 const ccBadge = (color: string, base: string = '') =>
   `inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${color} ${base}`
@@ -109,7 +109,7 @@ const ccSectionTitle = 'text-sm font-semibold text-foreground mb-3'
 const TAB_IDS = new Set<Tab>([
   'services', 'health-intelligence', 'themes', 'developer-mode', 'documentation',
   'protocols', 'ha-tools', 'global-alert', 'notifications', 'tasks', 'control-mode',
-  'system', 'system-info', 'network', 'infrastructure', 'users', 'apps', 'plugins',
+  'system', 'system-info', 'network', 'infrastructure', 'users', 'presence', 'apps', 'plugins',
   'registrations', 'security-monitor', 'updates', 'widgets', 'api-keys', 'webhooks',
   'ha-config', 'ha-connection', 'integrations', 'entities', 'mqtt', 'zigbee', 'zwave',
   'matter', 'ble', 'homekit', 'scenes', 'automations', 'scheduler', 'analytics',
@@ -142,6 +142,7 @@ function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'network', label: 'Netzwerk', icon: Globe, description: 'Netzwerk-Informationen und IP-Konfiguration verwalten' },
     { id: 'infrastructure', label: 'Infrastruktur', icon: TrendUp, description: 'Live-Visualisierung der gesamten IORA-Infrastruktur mit Service-Status und Datenflüssen' },
     { id: 'users', label: 'Benutzer', icon: Users, description: 'Benutzerkonten verwalten, Rollen zuweisen und Zugänge kontrollieren' },
+    { id: 'presence', label: 'Live-Übersicht', icon: Pulse, description: 'Alle angemeldeten Nutzer und ihre Geräte in Echtzeit — wer ist online, auf welchem Browser, Desktop oder Kiosk eingeloggt' },
     { id: 'apps', label: t('admin.apps'), icon: Cube, description: t('admin.appsDesc') },
     { id: 'plugins', label: t('admin.plugins'), icon: Lightning, description: 'Code-Erweiterungen verwalten — Plugins on-demand in Sandbox ausführen' },
     { id: 'registrations', label: 'Registrierungen', icon: ShieldCheck, description: 'App- und Plugin-Registrierungen genehmigen, ablehnen oder widerrufen' },
@@ -167,6 +168,7 @@ function getTabs(t: (key: string) => string): TabEntry[] {
     { id: 'backups', label: 'Backups', icon: Archive, description: 'Dashboard-Konfiguration sichern und wiederherstellen' },
     { id: 'cloud-settings', label: 'IORA Cloud', icon: CloudArrowUp, description: 'Private API-URL und Ports für den Cloud Connector konfigurieren' },
     { id: 'logs', label: 'Logs', icon: ListBullets, description: 'System- und Home Assistant Logs in Echtzeit einsehen' },
+    { id: 'system-logs', label: 'System-Events', icon: Warning, description: 'Zentrale Fehler-, Warn- und Info-Events aus Hintergrundprozessen wie Webhook-Auslieferung, Scheduler und HA-Sync' },
     { id: 'logbook', label: 'Logbuch', icon: BookOpen, description: 'Home Assistant Logbuch — chronologischer Verlauf aller Zustandsänderungen und Ereignisse' },
     { id: 'calendars', label: 'Kalender', icon: CalendarBlank, description: 'Home Assistant Kalender-Entitäten und anstehende Termine anzeigen' },
     { id: 'realtime', label: 'Realtime', icon: Broadcast, description: 'SSE Event-Streams und Socket.IO-Namespace-WebSocket für Echtzeit-Daten testen und überwachen' },
@@ -213,8 +215,8 @@ const tabGroups: TabGroup[] = [
   { id: 'devices', title: 'Geräte & Netzwerk', icon: WifiHigh, items: ['protocols', 'mqtt', 'zigbee', 'zwave', 'matter', 'ble', 'homekit'] },
   { id: 'services', title: 'IORA Backend-Dienste', icon: Plug, items: ['secrets', 'files', 'gateway', 'watchdog', 'connector', 'domain-validator', 'resources', 'api-bridge'] },
   { id: 'os', title: 'IORA OS', icon: Terminal, items: ['os-ssh', 'os-network-config', 'os-disks', 'os-processes', 'os-power'] },
-  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
-  { id: 'access', title: 'Benutzer', icon: Users, items: ['users'] },
+  { id: 'tools', title: 'Tools & Infrastruktur', icon: Wrench, items: ['api-keys', 'webhooks', 'scheduler', 'analytics', 'backups', 'cloud-settings', 'logs', 'system-logs', 'database', 'warnings', 'system-notifications', 'global-alert', 'notifications'] },
+  { id: 'access', title: 'Benutzer', icon: Users, items: ['users', 'presence'] },
 ]
 
 const CLOUD_HOST_KEY = 'iora-cloud-connector-host'
@@ -442,6 +444,17 @@ export async function adminFetch(path: string, token: string, options?: RequestI
       ...(options?.headers || {}),
     },
   })
+  // Any mutating request invalidates the in-memory GET cache so the UI does
+  // not display stale data after a successful save/delete. We clear the exact
+  // path plus its base (e.g. `/api/admin/users/123` -> also clear `/api/admin/users`).
+  const method = (options?.method || 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD') {
+    try {
+      dataCache.delete(path)
+      const base = path.split('?')[0].replace(/\/[^/]+$/, '')
+      if (base.startsWith('/api/')) dataCache.delete(base)
+    } catch { /* cache map may not exist yet during init */ }
+  }
   // Detect HTML responses (e.g. dev-server fallback / nginx 404 page) before
   // we try to parse them as JSON, so the user sees a friendly message instead
   // of "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON".
@@ -482,6 +495,18 @@ export async function adminFetch(path: string, token: string, options?: RequestI
   return res.json()
 }
 
+/**
+ * Surface action errors to the user via a toast. Action handlers in the admin
+ * panel used to swallow errors silently (catch with empty body), which made
+ * users believe buttons "did nothing". This helper centralises the feedback
+ * so every failed mutation produces a visible message and a console trace.
+ */
+function notifyError(e: unknown): void {
+  const message = e instanceof Error ? e.message : (typeof e === 'string' ? e : 'Unbekannter Fehler')
+  console.error('[AdminPanel] action failed:', e)
+  try { toast.error(message) } catch { /* toast container may not be mounted in some contexts */ }
+}
+
 // Simple cache so tab switches don't re-fetch
 const dataCache = new Map<string, { data: unknown; ts: number }>()
 const CACHE_TTL = 120_000 // 2 minutes – backend also caches, so this is safe
@@ -493,7 +518,7 @@ const LONG_TTL_PATHS = new Set([
   '/api/admin/ha/network', '/api/admin/ha/scenes', '/api/admin/ha/automations',
   '/api/admin/ha/mqtt', '/api/admin/ha/matter', '/api/admin/system/database',
 ])
-const LONG_CACHE_TTL = 300_000 // 5 minutes for stable data
+const LONG_CACHE_TTL = 600_000 // 10 minutes for stable data (HA config/services rarely change at runtime)
 
 async function cachedFetch(path: string, token: string): Promise<unknown> {
   const ttl = LONG_TTL_PATHS.has(path) ? LONG_CACHE_TTL : CACHE_TTL
@@ -623,6 +648,43 @@ export function AdminPanel() {
     prefetchAdjacentTabs(activeTab, token)
   }, [activeTab, token])
 
+  // Deep-link support: when something dispatches `iora:open-admin` with
+  // {tab: 'assist'} or writes 'iora-admin-deep-link' to sessionStorage,
+  // jump to the matching admin tab (e.g. "ai-providers" for the AI banner CTA).
+  useEffect(() => {
+    const resolveDeepLink = (raw: string | null | undefined): Tab | null => {
+      if (!raw) return null
+      const map: Record<string, Tab> = {
+        assist: 'ai-providers',
+        'ai-providers': 'ai-providers',
+        'ai-agent': 'ai-agent',
+        'ai-overview': 'ai-overview',
+        'ai-tools': 'ai-tools',
+        'ai-voice': 'ai-voice',
+      }
+      return map[raw] ?? null
+    }
+
+    // 1) Consume any pending deep-link written before mount
+    try {
+      const pending = sessionStorage.getItem('iora-admin-deep-link')
+      const target = resolveDeepLink(pending)
+      if (target) {
+        setActiveTab(target)
+        sessionStorage.removeItem('iora-admin-deep-link')
+      }
+    } catch {}
+
+    // 2) Live listener for events fired while AdminPanel is already mounted
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tab?: string } | undefined
+      const target = resolveDeepLink(detail?.tab)
+      if (target) setActiveTab(target)
+    }
+    window.addEventListener('iora:open-admin', handler)
+    return () => window.removeEventListener('iora:open-admin', handler)
+  }, [])
+
   return (
     <div className="pb-28 safe-bottom-nav">
       {/* ── Mobile Hamburger Button ─────────────────────────────── */}
@@ -643,12 +705,12 @@ export function AdminPanel() {
         </button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(14rem,16rem)_minmax(0,1fr)]">
         {/* ── Sidebar: Hidden on mobile, overlay when open ─────── */}
         <aside className={`
           ${ccCard('lg:sticky lg:top-4 lg:self-start max-h-[calc(100vh-6rem)] overflow-hidden flex flex-col')}
           sidebar-scroll
-          ${sidebarOpen ? 'fixed inset-x-4 top-20 z-50 max-h-[calc(100vh-10rem)] shadow-2xl' : 'hidden lg:flex'}
+          ${sidebarOpen ? 'fixed inset-x-4 top-20 z-[60] max-h-[calc(100vh-10rem)] shadow-2xl' : 'hidden lg:flex'}
         `}>
           {/* Close button for mobile overlay */}
           <div className="lg:hidden flex items-center justify-between mb-3 flex-shrink-0">
@@ -740,12 +802,12 @@ export function AdminPanel() {
         {/* ── Mobile Sidebar Backdrop ──────────────────────────── */}
         {sidebarOpen && (
           <div
-            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[55]"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           {/* ── Active Tab Header ─────────────────────────────────── */}
           <div className={ccCard()}>
             <div className="flex items-center gap-3">
@@ -800,6 +862,8 @@ export function AdminPanel() {
               {activeTab === 'updates' && <UpdateManagementTab token={token} />}
               {activeTab === 'widgets' && <WidgetManagementTab token={token} />}
               {activeTab === 'users' && <UsersTab token={token} />}
+              {activeTab === 'presence' && <PresenceTab token={token} />}
+              {activeTab === 'system-logs' && <SystemLogsTab token={token} />}
               {activeTab === 'api-keys' && <ApiKeysTab token={token} />}
               {activeTab === 'webhooks' && <WebhooksTab token={token} />}
               {activeTab === 'ha-config' && <HaConfigTab token={token} />}
@@ -1675,7 +1739,7 @@ function TasksTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/control/tasks/${taskId}/trigger`, token, { method: 'POST' })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     setTriggerLoading(null)
   }
 
@@ -1683,7 +1747,7 @@ function TasksTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/control/tasks/${taskId}/toggle`, token, { method: 'POST' })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -2012,7 +2076,7 @@ function SystemTab({ token }: { token: string }) {
       })
       setMaintenanceActive(result.active)
       setMaintenanceMsg(result.message || '')
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     setMaintenanceLoading(false)
   }
 
@@ -2024,7 +2088,7 @@ function SystemTab({ token }: { token: string }) {
         body: JSON.stringify({ message: maintenanceMsg }),
       })
       setMaintenanceMsg(result.message || '')
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     setMaintenanceLoading(false)
   }
 
@@ -2171,7 +2235,7 @@ function UsersTab({ token }: { token: string }) {
         body: JSON.stringify({ is_admin: !isAdmin }),
       })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2181,7 +2245,7 @@ function UsersTab({ token }: { token: string }) {
       await adminFetch(`/api/admin/users/${userId}`, token, { method: 'DELETE' })
       setConfirmDelete(null)
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2199,7 +2263,7 @@ function UsersTab({ token }: { token: string }) {
       setEditingUser(null)
       setEditForm({ display_name: '', new_password: '', role: '' })
       await load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2386,7 +2450,7 @@ function ApiKeysTab({ token }: { token: string }) {
       setShowCreate(false)
       setForm({ name: '', permissions: ['read'], rate_limit: 60, expires_in_days: 0 })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -2395,7 +2459,7 @@ function ApiKeysTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/keys/${keyId}`, token, { method: 'DELETE' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -3959,6 +4023,7 @@ interface IoraLogEntry {
 }
 
 function LogsTab({ token }: { token: string }) {
+  const { t } = useTranslation()
   const [logs, setLogs] = useState<IoraLogEntry[]>([])
   const [haLogs, setHaLogs] = useState<Array<{ line: string; severity: string }>>([])
   const [loading, setLoading] = useState(true)
@@ -3967,7 +4032,7 @@ function LogsTab({ token }: { token: string }) {
   const [search, setSearch] = useState('')
   const [targetFilter, setTargetFilter] = useState('')
   const [liveMode, setLiveMode] = useState(false)
-  const [activeView, setActiveView] = useState<'iora' | 'ha'>('iora')
+  const [activeView, setActiveView] = useState<'iora' | 'ha' | 'sources'>('iora')
   const [autoScroll, setAutoScroll] = useState(true)
   const logContainerRef = { current: null as HTMLDivElement | null }
 
@@ -4017,7 +4082,7 @@ function LogsTab({ token }: { token: string }) {
     try {
       await adminFetch('/api/admin/logs/clear', token, { method: 'POST' })
       setLogs([])
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -4050,6 +4115,9 @@ function LogsTab({ token }: { token: string }) {
               </button>
               <button onClick={() => setActiveView('ha')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'ha' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
                 Home Assistant
+              </button>
+              <button onClick={() => setActiveView('sources')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeView === 'sources' ? 'bg-accent/20 text-accent' : 'text-foreground/60 hover:text-foreground/80'}`}>
+                {t('admin.logsSources.title', 'Dienste & Apps')}
               </button>
             </div>
           </div>
@@ -4178,6 +4246,219 @@ function LogsTab({ token }: { token: string }) {
           </AdminCard>
         </>
       )}
+
+      {activeView === 'sources' && (
+        <SourceLogsView token={token} />
+      )}
+    </div>
+  )
+}
+
+// ── Source Logs View (services / apps / plugins / docker) ────
+
+interface LogSource {
+  id: string
+  kind: string
+  transport: string
+  name: string
+  running: boolean
+  description?: string | null
+}
+
+function SourceLogsView({ token }: { token: string }) {
+  const { t } = useTranslation()
+  const [sources, setSources] = useState<LogSource[]>([])
+  const [selected, setSelected] = useState<string>('self:iora-home')
+  const [lines, setLines] = useState<number>(500)
+  const [logLines, setLogLines] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
+  const [auto, setAuto] = useState(false)
+  const [kindFilter, setKindFilter] = useState<'all' | 'service' | 'app' | 'plugin' | 'docker' | 'self'>('all')
+
+  const loadSources = useCallback(async () => {
+    try {
+      const data = await adminFetch('/api/admin/logs/sources', token)
+      setSources((data.sources ?? []) as LogSource[])
+    } catch (e) { setError((e as Error).message) }
+  }, [token])
+
+  const loadLogs = useCallback(async () => {
+    if (!selected) return
+    setError('')
+    try {
+      const data = await adminFetch(`/api/admin/logs/source/${encodeURIComponent(selected)}?lines=${lines}`, token)
+      setLogLines((data.lines ?? []) as string[])
+    } catch (e) {
+      setError((e as Error).message)
+      setLogLines([])
+    }
+    setLoading(false)
+  }, [token, selected, lines])
+
+  useEffect(() => { loadSources() }, [loadSources])
+  useEffect(() => { loadLogs() }, [loadLogs])
+
+  useEffect(() => {
+    if (!auto) return
+    const iv = setInterval(() => { loadLogs() }, 5000)
+    return () => clearInterval(iv)
+  }, [auto, loadLogs])
+
+  const grouped = useMemo(() => {
+    const g: Record<string, LogSource[]> = {}
+    const list = kindFilter === 'all' ? sources : sources.filter(s => s.kind === kindFilter)
+    for (const s of list) {
+      const key = s.kind
+      if (!g[key]) g[key] = []
+      g[key].push(s)
+    }
+    return g
+  }, [sources, kindFilter])
+
+  const filteredLines = filter
+    ? logLines.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
+    : logLines
+
+  const kindLabel = (k: string) => {
+    switch (k) {
+      case 'self': return t('admin.logsSources.kind.self', 'IORA Home')
+      case 'service': return t('admin.logsSources.kind.service', 'Dienste (systemd)')
+      case 'app': return t('admin.logsSources.kind.app', 'Apps')
+      case 'plugin': return t('admin.logsSources.kind.plugin', 'Plugins')
+      case 'docker': return t('admin.logsSources.kind.docker', 'Docker Container')
+      default: return k
+    }
+  }
+  const kindIcon = (k: string) => {
+    switch (k) {
+      case 'self': return <Terminal size={12} />
+      case 'service': return <Cpu size={12} />
+      case 'app': return <Cube size={12} />
+      case 'plugin': return <Plug size={12} />
+      case 'docker': return <Cube size={12} />
+      default: return <ListBullets size={12} />
+    }
+  }
+
+  const selectedSource = sources.find(s => s.id === selected)
+
+  return (
+    <div className="grid grid-cols-12 gap-3">
+      <div className="col-span-12 md:col-span-4 lg:col-span-3">
+        <AdminCard>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium text-foreground/70">
+                {t('admin.logsSources.heading', 'Quellen')}
+              </div>
+              <button onClick={loadSources} className="p-1 rounded text-foreground/50 hover:text-accent hover:bg-accent/10 transition">
+                <ArrowClockwise size={12} />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(['all', 'self', 'service', 'app', 'plugin', 'docker'] as const).map(k => (
+                <button key={k} onClick={() => setKindFilter(k)}
+                  className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium transition ${kindFilter === k ? 'bg-accent/20 text-accent' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+                  {k === 'all' ? t('admin.logsSources.all', 'Alle') : kindLabel(k)}
+                </button>
+              ))}
+            </div>
+            <div className="max-h-[600px] overflow-y-auto space-y-2 pr-1">
+              {Object.entries(grouped).map(([kind, items]) => (
+                <div key={kind} className="space-y-0.5">
+                  <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-foreground/40 px-1 pt-1">
+                    {kindIcon(kind)} {kindLabel(kind)} <span className="text-foreground/30">({items.length})</span>
+                  </div>
+                  {items.map(s => (
+                    <button key={s.id} onClick={() => setSelected(s.id)}
+                      title={s.description ?? s.id}
+                      className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-left text-[10px] transition ${selected === s.id ? 'bg-accent/15 text-accent border border-accent/30' : 'hover:bg-foreground/5 text-foreground/70 border border-transparent'}`}>
+                      <span className="truncate">{s.name}</span>
+                      <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${s.running ? 'bg-green-400' : 'bg-foreground/20'}`} />
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {Object.keys(grouped).length === 0 && (
+                <div className="text-[10px] text-foreground/40 text-center py-4">
+                  {t('admin.logsSources.empty', 'Keine Quellen gefunden.')}
+                </div>
+              )}
+            </div>
+          </div>
+        </AdminCard>
+      </div>
+
+      <div className="col-span-12 md:col-span-8 lg:col-span-9 space-y-3">
+        <AdminCard>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              {selectedSource && kindIcon(selectedSource.kind)}
+              <div className="text-xs font-medium text-foreground/80 truncate">
+                {selectedSource?.name ?? selected}
+              </div>
+              {selectedSource && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${selectedSource.running ? 'bg-green-500/20 text-green-400' : 'bg-foreground/10 text-foreground/50'}`}>
+                  {selectedSource.running ? t('admin.logsSources.running', 'aktiv') : t('admin.logsSources.stopped', 'inaktiv')}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <select value={lines} onChange={e => setLines(Number(e.target.value))}
+                className="px-2 py-1 rounded-lg bg-foreground/5 border border-foreground/10 text-[10px] text-foreground/80 focus:outline-none focus:border-accent/50">
+                {[100, 200, 500, 1000, 2000, 5000].map(n => (
+                  <option key={n} value={n}>{n} {t('admin.logsSources.lines', 'Zeilen')}</option>
+                ))}
+              </select>
+              <button onClick={() => setAuto(!auto)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition ${auto ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}>
+                <Broadcast size={11} weight={auto ? 'fill' : 'regular'} />
+                {t('admin.logsSources.auto', 'Auto')}
+              </button>
+              <button onClick={loadLogs} className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-foreground/70 hover:text-accent hover:bg-accent/10 transition">
+                <ArrowClockwise size={11} /> {t('admin.logsSources.refresh', 'Aktualisieren')}
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 relative">
+            <MagnifyingGlass size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/40" />
+            <input value={filter} onChange={e => setFilter(e.target.value)}
+              placeholder={t('admin.logsSources.filterPlaceholder', 'Logs filtern...')}
+              className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-foreground/5 border border-foreground/10 text-[11px] text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 font-mono" />
+          </div>
+        </AdminCard>
+
+        <AdminCard>
+          {loading ? (
+            <LoadingSpinner />
+          ) : error ? (
+            <ErrorMessage>{error}</ErrorMessage>
+          ) : (
+            <div className="max-h-[600px] overflow-y-auto font-mono text-[10px] leading-relaxed">
+              {filteredLines.length === 0 ? (
+                <div className="text-foreground/50 text-center py-8">
+                  {t('admin.logsSources.noLines', 'Keine Log-Einträge.')}
+                </div>
+              ) : filteredLines.map((line, i) => {
+                const lower = line.toLowerCase()
+                const isErr = lower.includes('error') || lower.includes(' err ') || lower.includes('panic')
+                const isWarn = lower.includes('warn')
+                return (
+                  <div key={i} className={`py-0.5 px-2 rounded whitespace-pre-wrap break-all ${
+                    isErr ? 'text-red-400/90 bg-red-500/5' :
+                    isWarn ? 'text-amber-400/80' :
+                    'text-foreground/70'
+                  }`}>
+                    {line}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </AdminCard>
+      </div>
     </div>
   )
 }
@@ -4234,7 +4515,7 @@ function DatabaseTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/system/database/temp-users/${id}`, token, { method: 'DELETE' })
       loadData()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -4461,35 +4742,35 @@ function SystemNotificationsTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/admin/system-notifications/${id}/acknowledge`, token, { method: 'PUT' })
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, acknowledged: true } : n))
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleResolve = async (id: string) => {
     try {
       await adminFetch(`/api/admin/system-notifications/${id}/resolve`, token, { method: 'PUT' })
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, resolved: true } : n))
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleDelete = async (id: string) => {
     try {
       await adminFetch(`/api/admin/system-notifications/${id}`, token, { method: 'DELETE' })
       setNotifications(prev => prev.filter(n => n.id !== id))
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleClearResolved = async () => {
     try {
       await adminFetch('/api/admin/system-notifications/clear-resolved', token, { method: 'DELETE' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   const handleForceSync = async (entityId: string) => {
     try {
       await adminFetch(`/api/admin/location-sync/${encodeURIComponent(entityId)}/force-sync`, token, { method: 'POST' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
   }
 
   if (loading) return <LoadingSpinner />
@@ -5117,7 +5398,7 @@ function WebhooksTab({ token }: { token: string }) {
       setShowCreate(false)
       setForm({ name: '', url: '', secret: '', events: '*' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -5126,7 +5407,7 @@ function WebhooksTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/webhooks/${id}`, token, { method: 'DELETE' })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -5138,7 +5419,7 @@ function WebhooksTab({ token }: { token: string }) {
         body: JSON.stringify({ active: !active }),
       })
       load()
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -5157,7 +5438,7 @@ function WebhooksTab({ token }: { token: string }) {
     try {
       const data = await adminFetch(`/api/webhooks/${webhookId}/deliveries?limit=20`, token) as { deliveries: WebhookDelivery[] }
       setDeliveryLog({ webhookId, deliveries: data.deliveries || [] })
-    } catch { /* ignore */ }
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6044,7 +6325,7 @@ function SchedulerTab({ token }: { token: string }) {
       setShowCreateSchedule(false)
       setNewSchedule({ entity_id: '', action: 'turn_on', cron: '', name: '' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6053,7 +6334,7 @@ function SchedulerTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/integration/schedules/${id}`, token, { method: 'DELETE' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6067,7 +6348,7 @@ function SchedulerTab({ token }: { token: string }) {
       setShowCreateWatchdog(false)
       setNewWatchdog({ entity_id: '', expected_state: 'on', timeout_minutes: 30, action: 'notify', name: '' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6076,7 +6357,7 @@ function SchedulerTab({ token }: { token: string }) {
     try {
       await adminFetch(`/api/integration/watchdogs/${id}`, token, { method: 'DELETE' })
       load()
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -6084,7 +6365,7 @@ function SchedulerTab({ token }: { token: string }) {
     setActionLoading('check-watchdogs')
     try {
       await adminFetch('/api/integration/watchdogs/check', token, { method: 'POST' })
-    } catch {}
+    } catch (e) { notifyError(e) }
     finally { setActionLoading(null) }
   }
 
@@ -11367,11 +11648,14 @@ function ThemeMarketplace({ token, onInstall }: { token: string; onInstall: () =
 
 // ── Themes Tab ────────────────────────────────────────────────────────
 function ThemesTab({ token }: { token: string }) {
+  const { t: tr } = useTranslation()
   const [themes, setThemes] = useState<{ builtin: ThemeDef[]; installed: InstalledThemeDef[] } | null>(null)
   const [defaultTheme, setDefaultTheme] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [themeSearch, setThemeSearch] = useState('')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'file' | 'app' | 'system'>('all')
   const { refreshThemes } = useTheme()
 
   const load = useCallback(async () => {
@@ -11563,6 +11847,16 @@ function ThemesTab({ token }: { token: string }) {
 
   const installed = themes?.installed || []
   const builtin = themes?.builtin || []
+  const enabledInstalled = installed.filter(t => t.enabled).length
+  const filteredInstalled = installed.filter(t => {
+    const q = themeSearch.trim().toLowerCase()
+    const matchesSearch = !q || [t.name, t.id, t.description, t.developer, t.source]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(q))
+    const matchesSource = sourceFilter === 'all'
+      || (sourceFilter === 'system' ? t.system : t.source === sourceFilter)
+    return matchesSearch && matchesSource
+  })
 
   const allThemeOptions = [
     { id: 'auto', name: 'Automatisch (Tageszeit)', preview: 'linear-gradient(135deg, #e8eaf0 0%, #1a1d2e 100%)' },
@@ -11578,6 +11872,47 @@ function ThemesTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.installed')}</div>
+          <div className="text-lg font-semibold text-foreground">{installed.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.active')}</div>
+          <div className="text-lg font-semibold text-success">{enabledInstalled}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('themes.overview.builtin')}</div>
+          <div className="text-lg font-semibold text-accent">{builtin.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{tr('common.default')}</div>
+          <div className="text-sm font-semibold text-foreground truncate mt-1">{defaultTheme?.theme_id || 'auto'}</div>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+        <div className="relative flex-1">
+          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
+          <input
+            value={themeSearch}
+            onChange={(event) => setThemeSearch(event.target.value)}
+            placeholder={tr('themes.overview.search')}
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+          />
+        </div>
+        <div className="flex gap-1 overflow-x-auto">
+          {(['all', 'file', 'app', 'system'] as const).map(source => (
+            <button
+              key={source}
+              onClick={() => setSourceFilter(source)}
+              className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors whitespace-nowrap ${sourceFilter === source ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
+            >
+              {source === 'all' ? tr('common.all') : source === 'file' ? tr('common.manual') : source === 'app' ? tr('themes.overview.appPlugin') : tr('admin.system')}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Default Theme Section */}
       <AdminCard icon={Palette} title="Standard-Theme">
@@ -11644,11 +11979,12 @@ function ThemesTab({ token }: { token: string }) {
           </div>
         ) : (
           <div className="grid gap-3">
-            {installed.map((t) => {
+            {filteredInstalled.map((t) => {
               let cssVars: Record<string, string> = {}
               try { cssVars = JSON.parse((t as any).css_variables || '{}') } catch {}
               const bgColor = cssVars['background'] || cssVars['bg'] || '#1a1d2e'
               const accentColor = cssVars['accent'] || cssVars['primary'] || '#6366f1'
+              const isDefault = defaultTheme?.theme_id === t.id
               return (
                 <div key={t.id} className="flex items-center gap-4 p-4 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02]">
                   <div className="w-12 h-12 rounded-xl shrink-0 border border-foreground/10" style={{ background: `linear-gradient(135deg, ${bgColor} 0%, ${accentColor} 100%)` }} />
@@ -11657,15 +11993,23 @@ function ThemesTab({ token }: { token: string }) {
                       <p className="text-sm font-medium text-foreground">{t.name}</p>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-foreground/40">v{t.version}</span>
                       {t.system && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">System</span>}
-                      {defaultTheme?.theme_id === t.id && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">Standard</span>}
+                      {isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">Standard</span>}
                     </div>
                     {t.description && <p className="text-xs text-foreground/50 mt-0.5 truncate">{t.description}</p>}
-                    <p className="text-[10px] text-foreground/30 mt-0.5">Von {t.developer || 'Unbekannt'} · {t.source === 'file' ? 'Manuell' : 'App/Plugin'}</p>
+                    <p className="text-[10px] text-foreground/30 mt-0.5">Von {t.developer || 'Unbekannt'} · ID {t.id} · {t.source === 'file' ? 'Manuell' : 'App/Plugin'}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full ${t.enabled ? 'bg-success/10 text-success' : 'bg-foreground/5 text-foreground/40'}`}>
                       {t.enabled ? <Check size={10} /> : <EyeSlash size={10} />} {t.enabled ? 'Aktiv' : 'Inaktiv'}
                     </span>
+                    <button
+                      onClick={() => saveDefaultTheme(t.id)}
+                      disabled={isDefault || !t.enabled}
+                      className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-accent/10 text-accent hover:bg-accent/20 transition-all disabled:opacity-40 disabled:hover:bg-accent/10"
+                      title={t.enabled ? tr('themes.overview.setAsDefault') : tr('themes.overview.inactiveDefaultBlocked')}
+                    >
+                      {tr('common.default')}
+                    </button>
                     {!t.system && (
                       <>
                         <button onClick={() => cloneTheme(t.id, t.name)} className="p-2 rounded-lg text-foreground/30 hover:text-accent hover:bg-accent/10 transition-all" title="Klonen"><Copy size={14} /></button>
@@ -11677,6 +12021,11 @@ function ThemesTab({ token }: { token: string }) {
                 </div>
               )
             })}
+            {filteredInstalled.length === 0 && (
+              <div className="text-center py-10 text-xs text-foreground/45">
+                {tr('themes.overview.noFiltered')}
+              </div>
+            )}
           </div>
         )}
       </AdminCard>
@@ -11727,4 +12076,793 @@ interface InstalledThemeDef {
   id: string; name: string; version: string; developer: string;
   description: string; system: boolean; enabled: boolean;
   source: string; icon?: string;
+}
+
+// ── Presence Tab ────────────────────────────────────────────────
+// Live overview of which users are currently online and on which devices
+// (browser, kiosk, IORA Desktop) they are logged in. Auto-refreshes every
+// 15s; the backend marks a device online when its last_seen is within
+// `online_threshold_seconds` (default 120s).
+
+interface PresenceDeviceRef {
+  device_id: string
+  device_name: string
+  device_type: string | null
+  is_primary: boolean
+  is_desktop_client: boolean
+  online: boolean
+  last_seen: string | null
+}
+
+interface PresenceUser {
+  id: string
+  username: string
+  display_name: string | null
+  avatar_url: string | null
+  role: string
+  is_admin: boolean
+  online: boolean
+  device_count: number
+  devices: PresenceDeviceRef[]
+}
+
+interface PresenceDevice {
+  id: string
+  device_name: string
+  device_type: string | null
+  user_agent: string | null
+  is_terminal: boolean
+  terminal_name: string | null
+  last_seen: string
+  online: boolean
+  seconds_since_seen: number
+  user_ids: string[]
+}
+
+interface PresencePayload {
+  users: PresenceUser[]
+  devices: PresenceDevice[]
+  totals: {
+    users: number
+    online_users: number
+    devices: number
+    online_devices: number
+    connected_ws_clients: number
+  }
+  online_threshold_seconds: number
+  generated_at: string
+}
+
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}min`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  return `${Math.floor(seconds / 86400)}d`
+}
+
+function PresenceTab({ token }: { token: string }) {
+  const [data, setData] = useState<PresencePayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+
+  const load = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const res = await adminFetch('/api/admin/presence', token)
+      setData(res as PresencePayload)
+      setError('')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(load, 15000)
+    return () => window.clearInterval(timer)
+  }, [load])
+
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage>{error}</ErrorMessage>
+  if (!data) return null
+
+  const userById = new Map(data.users.map(u => [u.id, u]))
+  const onlineUsers = data.users.filter(u => u.online)
+  const offlineUsers = data.users.filter(u => !u.online)
+  const onlineDevices = data.devices.filter(d => d.online)
+  const offlineDevices = data.devices.filter(d => !d.online)
+
+  return (
+    <div className="space-y-3">
+      {/* Stats header */}
+      <AdminCard>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Nutzer online</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {data.totals.online_users}
+                <span className="text-sm text-foreground/40 font-normal"> / {data.totals.users}</span>
+              </p>
+            </div>
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Geräte online</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {data.totals.online_devices}
+                <span className="text-sm text-foreground/40 font-normal"> / {data.totals.devices}</span>
+              </p>
+            </div>
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Aktive WebSockets</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{data.totals.connected_ws_clients}</p>
+            </div>
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.04] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-foreground/55">Online-Schwelle</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {data.online_threshold_seconds}s
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={load}
+            disabled={refreshing}
+            className={ccBtnSecondary()}
+          >
+            {refreshing ? <InlineSpinner /> : <Pulse size={14} weight="bold" />}
+            <span>Aktualisieren</span>
+          </button>
+        </div>
+      </AdminCard>
+
+      {/* Users grouped by online state */}
+      <AdminCard>
+        <div className="flex items-center gap-2 mb-3">
+          <Users size={16} className="text-foreground/60" />
+          <h3 className="text-sm font-semibold text-foreground">Angemeldete Nutzer</h3>
+          <span className={ccBadge('bg-emerald-500/15 text-emerald-500')}>
+            {onlineUsers.length} online
+          </span>
+        </div>
+
+        {data.users.length === 0 ? (
+          <p className="text-sm text-foreground/55">Keine Benutzer registriert.</p>
+        ) : (
+          <div className="space-y-2">
+            {[...onlineUsers, ...offlineUsers].map(u => (
+              <div
+                key={u.id}
+                className={`rounded-xl border p-3 transition-colors ${
+                  u.online
+                    ? 'border-emerald-500/30 bg-emerald-500/[0.04]'
+                    : 'border-foreground/10 bg-foreground/[0.02]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={`inline-block w-2.5 h-2.5 rounded-full ${
+                        u.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-foreground/20'
+                      }`}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {u.display_name || u.username}
+                      </p>
+                      <p className="text-xs text-foreground/55 truncate">
+                        @{u.username} · <span className="font-mono">{u.role}</span>
+                        {u.is_admin && <span className="ml-1 text-amber-500">★ Admin</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={ccBadge('bg-foreground/10 text-foreground/70')}>
+                      {u.device_count} Gerät{u.device_count === 1 ? '' : 'e'}
+                    </span>
+                  </div>
+                </div>
+
+                {u.devices.length > 0 && (
+                  <div className="mt-3 pl-5 space-y-1.5 border-l-2 border-foreground/10">
+                    {u.devices.map(d => (
+                      <div
+                        key={d.device_id}
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${
+                              d.online ? 'bg-emerald-500' : 'bg-foreground/25'
+                            }`}
+                            aria-hidden
+                          />
+                          {d.is_desktop_client ? (
+                            <Desktop size={12} className="text-foreground/55 shrink-0" />
+                          ) : (
+                            <Monitor size={12} className="text-foreground/55 shrink-0" />
+                          )}
+                          <span className="text-foreground/85 truncate">{d.device_name}</span>
+                          {d.is_primary && (
+                            <span className="text-[9px] text-amber-500 font-semibold">PRIMÄR</span>
+                          )}
+                          {d.is_desktop_client && (
+                            <span className="text-[9px] text-accent font-semibold">DESKTOP</span>
+                          )}
+                          {d.device_type && (
+                            <span className="text-[10px] text-foreground/45 font-mono">{d.device_type}</span>
+                          )}
+                        </div>
+                        <span className="text-foreground/50 text-[10px] font-mono shrink-0">
+                          {d.last_seen
+                            ? `vor ${formatAge(Math.floor((Date.now() - new Date(d.last_seen).getTime()) / 1000))}`
+                            : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </AdminCard>
+
+      {/* Devices view */}
+      <AdminCard>
+        <div className="flex items-center gap-2 mb-3">
+          <Desktop size={16} className="text-foreground/60" />
+          <h3 className="text-sm font-semibold text-foreground">Verbundene Geräte</h3>
+          <span className={ccBadge('bg-emerald-500/15 text-emerald-500')}>
+            {onlineDevices.length} online
+          </span>
+        </div>
+
+        {data.devices.length === 0 ? (
+          <p className="text-sm text-foreground/55">Keine Geräte registriert.</p>
+        ) : (
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-foreground/55 border-b border-foreground/10">
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium">Gerät</th>
+                  <th className="py-2 pr-3 font-medium">Typ</th>
+                  <th className="py-2 pr-3 font-medium">Angemeldete Nutzer</th>
+                  <th className="py-2 pr-3 font-medium text-right">Zuletzt gesehen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...onlineDevices, ...offlineDevices].map(d => {
+                  const users = d.user_ids
+                    .map(id => userById.get(id))
+                    .filter((u): u is PresenceUser => !!u)
+                  return (
+                    <tr key={d.id} className="border-b border-foreground/[0.06] last:border-0">
+                      <td className="py-2 pr-3">
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${
+                            d.online ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]' : 'bg-foreground/20'
+                          }`}
+                          aria-hidden
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <p className="font-medium text-foreground truncate max-w-[220px]">
+                          {d.device_name}
+                          {d.is_terminal && (
+                            <span className="ml-1 text-[9px] text-accent font-semibold">KIOSK</span>
+                          )}
+                        </p>
+                        {d.terminal_name && (
+                          <p className="text-[10px] text-foreground/45">{d.terminal_name}</p>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-foreground/70 font-mono text-[10px]">
+                        {d.device_type || '—'}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {users.length === 0 ? (
+                          <span className="text-foreground/40">—</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {users.map(u => (
+                              <span
+                                key={u.id}
+                                className={ccBadge(
+                                  u.online
+                                    ? 'bg-emerald-500/15 text-emerald-500'
+                                    : 'bg-foreground/10 text-foreground/70'
+                                )}
+                              >
+                                {u.display_name || u.username}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-right text-foreground/55 font-mono text-[10px]">
+                        vor {formatAge(d.seconds_since_seen)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </AdminCard>
+
+      <p className="text-[10px] text-foreground/40 text-center">
+        Auto-Refresh alle 15s · Daten generiert {new Date(data.generated_at).toLocaleTimeString()}
+      </p>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SystemLogsTab — IORA Control Center central event log.
+//
+// All errors / warnings / infos from anywhere in the stack (backend
+// tracing layer, background tasks, frontend window errors, SDK clients)
+// land in two Postgres tables and are surfaced here:
+//
+//   • "Gruppiert" view — one row per unique (severity, source, message)
+//     fingerprint, with an occurrence counter so repeated failures don't
+//     drown out the signal. Each row can be drilled into to see all of
+//     its individual occurrences with full metadata.
+//
+//   • "Verlauf" view — raw chronological stream of every single
+//     occurrence (no dedup), exactly as it happened.
+//
+// Powered by `system_events::SystemEventLog` + migration
+// `031_system_events.sql`.
+// ═══════════════════════════════════════════════════════════════════════
+
+type Severity = 'error' | 'warning' | 'info'
+type Origin = 'backend' | 'tracing' | 'frontend'
+
+interface EventGroup {
+  fingerprint: string
+  severity: Severity
+  source: string
+  message: string
+  count: number
+  first_seen: string
+  last_seen: string
+  resolved: boolean
+  resolved_at?: string | null
+  resolved_by?: string | null
+  last_details?: unknown
+}
+
+interface EventOccurrence {
+  id: number
+  fingerprint: string
+  severity: Severity
+  source: string
+  message: string
+  origin: Origin
+  occurred_at: string
+  user_id?: string | null
+  request_path?: string | null
+  request_method?: string | null
+  status_code?: number | null
+  file?: string | null
+  line?: number | null
+  target?: string | null
+  error_chain?: string | null
+  details?: unknown
+}
+
+interface EventStats {
+  total_groups: number
+  unresolved_groups: number
+  unresolved_errors: number
+  unresolved_warnings: number
+  total_occurrences: number
+  occurrences_last_hour: number
+  occurrences_last_day: number
+  ingest_drops: number
+}
+
+function severityBadge(sev: Severity): string {
+  switch (sev) {
+    case 'error': return 'bg-red-500/15 text-red-500 border-red-500/30'
+    case 'warning': return 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+    case 'info': return 'bg-blue-500/15 text-blue-500 border-blue-500/30'
+  }
+}
+
+function originBadge(origin: Origin): string {
+  switch (origin) {
+    case 'backend': return 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+    case 'tracing': return 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+    case 'frontend': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+  }
+}
+
+function SystemLogsTab({ token }: { token: string }) {
+  const [view, setView] = useState<'grouped' | 'history'>('grouped')
+  const [severity, setSeverity] = useState<'all' | Severity>('all')
+  const [originFilter, setOriginFilter] = useState<'all' | Origin>('all')
+  const [onlyUnresolved, setOnlyUnresolved] = useState(false)
+  const [groups, setGroups] = useState<EventGroup[]>([])
+  const [occurrences, setOccurrences] = useState<EventOccurrence[]>([])
+  const [stats, setStats] = useState<EventStats | null>(null)
+  const [selectedFingerprint, setSelectedFingerprint] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
+
+  const sevQuery = severity === 'all' ? '' : `&severity=${severity}`
+  const originQuery = originFilter === 'all' ? '' : `&origin=${originFilter}`
+  const unresolvedQuery = onlyUnresolved ? '&unresolved=true' : ''
+
+  const loadGrouped = useCallback(async () => {
+    try {
+      const r = await fetch(
+        `${getBackendUrl()}/api/admin/system-events?limit=200${sevQuery}${unresolvedQuery}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json()
+      setGroups(data.groups || [])
+      setStats(data.stats || null)
+      setGeneratedAt(data.generated_at || null)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token, sevQuery, unresolvedQuery])
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const fpQ = selectedFingerprint ? `&fingerprint=${encodeURIComponent(selectedFingerprint)}` : ''
+      const r = await fetch(
+        `${getBackendUrl()}/api/admin/system-events/occurrences?limit=300${sevQuery}${originQuery}${fpQ}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json()
+      setOccurrences(data.occurrences || [])
+      setGeneratedAt(data.generated_at || null)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [token, sevQuery, originQuery, selectedFingerprint])
+
+  useEffect(() => {
+    setLoading(true)
+    if (view === 'grouped') {
+      loadGrouped()
+      const id = setInterval(loadGrouped, 10_000)
+      return () => clearInterval(id)
+    } else {
+      loadHistory()
+      const id = setInterval(loadHistory, 10_000)
+      return () => clearInterval(id)
+    }
+  }, [view, loadGrouped, loadHistory])
+
+  const resolveGroup = async (fp: string) => {
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}/resolve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const unresolveGroup = async (fp: string) => {
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}/unresolve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const deleteGroup = async (fp: string) => {
+    if (!window.confirm('Diese Fehlergruppe inklusive aller Vorkommen löschen?')) return
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events/${encodeURIComponent(fp)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const clearAll = async () => {
+    if (!window.confirm('Wirklich ALLE gespeicherten System-Events löschen? Dies kann nicht rückgängig gemacht werden.')) return
+    try {
+      await fetch(`${getBackendUrl()}/api/admin/system-events`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setGroups([])
+      setOccurrences([])
+      loadGrouped()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Stats KPI cards */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-red-500/80">Fehler offen</div>
+            <div className="text-2xl font-semibold text-red-500">{stats.unresolved_errors}</div>
+          </div>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-amber-500/80">Warnungen offen</div>
+            <div className="text-2xl font-semibold text-amber-500">{stats.unresolved_warnings}</div>
+          </div>
+          <div className="rounded-lg border border-foreground/15 bg-foreground/[0.02] px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-foreground/60">Letzte Stunde</div>
+            <div className="text-2xl font-semibold text-foreground">{stats.occurrences_last_hour}</div>
+          </div>
+          <div className="rounded-lg border border-foreground/15 bg-foreground/[0.02] px-4 py-3">
+            <div className="text-[10px] uppercase tracking-wider text-foreground/60">Letzte 24h</div>
+            <div className="text-2xl font-semibold text-foreground">{stats.occurrences_last_day}</div>
+          </div>
+        </div>
+      )}
+
+      <AdminCard
+        title="IORA Control Center · System-Events"
+        description="Alle Fehler, Warnungen und Infos aus dem gesamten Stack — Backend-Tracing, Hintergrund-Tasks, Frontend, SDK-Clients. Gleiche Fehler werden gruppiert mit Zähler; im Verlauf bleibt jedes Vorkommen einzeln erhalten."
+      >
+        {/* View tabs */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <div className="flex rounded-md border border-foreground/15 overflow-hidden">
+            <button
+              onClick={() => { setView('grouped'); setSelectedFingerprint(null) }}
+              className={`px-3 py-1.5 text-xs transition ${
+                view === 'grouped' ? 'bg-foreground/10 text-foreground' : 'text-foreground/60 hover:bg-foreground/5'
+              }`}
+            >
+              Gruppiert
+            </button>
+            <button
+              onClick={() => setView('history')}
+              className={`px-3 py-1.5 text-xs transition border-l border-foreground/15 ${
+                view === 'history' ? 'bg-foreground/10 text-foreground' : 'text-foreground/60 hover:bg-foreground/5'
+              }`}
+            >
+              Verlauf {selectedFingerprint ? '(gefiltert)' : ''}
+            </button>
+          </div>
+
+          {/* Severity filter */}
+          <div className="flex flex-wrap items-center gap-1 ml-2">
+            {(['all', 'error', 'warning', 'info'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setSeverity(s)}
+                className={`px-2 py-1 text-[11px] rounded-md border transition ${
+                  severity === s
+                    ? 'bg-foreground/10 border-foreground/30 text-foreground'
+                    : 'border-foreground/15 text-foreground/60 hover:border-foreground/30'
+                }`}
+              >
+                {s === 'all' ? 'Alle' : s === 'error' ? 'Fehler' : s === 'warning' ? 'Warn.' : 'Info'}
+              </button>
+            ))}
+          </div>
+
+          {view === 'grouped' && (
+            <label className="flex items-center gap-1.5 ml-2 text-[11px] text-foreground/70">
+              <input
+                type="checkbox"
+                checked={onlyUnresolved}
+                onChange={(e) => setOnlyUnresolved(e.target.checked)}
+                className="accent-foreground/60"
+              />
+              Nur ungelöste
+            </label>
+          )}
+
+          {view === 'history' && (
+            <select
+              value={originFilter}
+              onChange={(e) => setOriginFilter(e.target.value as 'all' | Origin)}
+              className="ml-2 px-2 py-1 text-[11px] rounded-md border border-foreground/15 bg-transparent text-foreground/70"
+            >
+              <option value="all">Alle Quellen</option>
+              <option value="backend">Backend</option>
+              <option value="tracing">Tracing</option>
+              <option value="frontend">Frontend</option>
+            </select>
+          )}
+
+          {view === 'history' && selectedFingerprint && (
+            <button
+              onClick={() => setSelectedFingerprint(null)}
+              className="px-2 py-1 text-[11px] rounded-md border border-foreground/15 text-foreground/60 hover:border-foreground/30"
+            >
+              Filter aufheben
+            </button>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => (view === 'grouped' ? loadGrouped() : loadHistory())}
+              className="px-3 py-1 text-xs rounded-md border border-foreground/15 text-foreground/70 hover:border-foreground/30"
+            >
+              Aktualisieren
+            </button>
+            <button
+              onClick={clearAll}
+              className="px-3 py-1 text-xs rounded-md border border-red-500/30 text-red-500 hover:bg-red-500/10"
+            >
+              Alles löschen
+            </button>
+          </div>
+        </div>
+
+        {loading && groups.length === 0 && occurrences.length === 0 ? (
+          <div className="text-sm text-foreground/50 py-8 text-center">Lade Events…</div>
+        ) : error ? (
+          <div className="text-sm text-red-500 py-8 text-center">Fehler: {error}</div>
+        ) : view === 'grouped' ? (
+          groups.length === 0 ? (
+            <div className="text-sm text-foreground/50 py-8 text-center">
+              Keine Events {onlyUnresolved ? 'ungelöst' : 'vorhanden'} — alles ruhig.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-foreground/50 text-left">
+                  <tr className="border-b border-foreground/10">
+                    <th className="py-2 px-2 font-medium">Schwere</th>
+                    <th className="py-2 px-2 font-medium">Quelle</th>
+                    <th className="py-2 px-2 font-medium">Meldung</th>
+                    <th className="py-2 px-2 font-medium text-right">Anzahl</th>
+                    <th className="py-2 px-2 font-medium">Zuerst</th>
+                    <th className="py-2 px-2 font-medium">Zuletzt</th>
+                    <th className="py-2 px-2 font-medium">Status</th>
+                    <th className="py-2 px-2 font-medium text-right">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map(g => (
+                    <tr key={g.fingerprint} className={`border-b border-foreground/5 hover:bg-foreground/[0.02] ${g.resolved ? 'opacity-50' : ''}`}>
+                      <td className="py-2 px-2">
+                        <span className={`inline-block px-2 py-0.5 rounded border text-[10px] uppercase tracking-wider ${severityBadge(g.severity)}`}>
+                          {g.severity}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 font-mono text-foreground/70 whitespace-nowrap max-w-[180px] truncate" title={g.source}>{g.source}</td>
+                      <td className="py-2 px-2 text-foreground/90 max-w-[480px] truncate" title={g.message}>{g.message}</td>
+                      <td className="py-2 px-2 text-foreground/80 text-right font-mono">{g.count}</td>
+                      <td className="py-2 px-2 text-foreground/50 whitespace-nowrap">{new Date(g.first_seen).toLocaleString()}</td>
+                      <td className="py-2 px-2 text-foreground/50 whitespace-nowrap">{new Date(g.last_seen).toLocaleString()}</td>
+                      <td className="py-2 px-2 whitespace-nowrap">
+                        {g.resolved ? (
+                          <span className="text-emerald-500 text-[10px]">✓ gelöst{g.resolved_by ? ` (${g.resolved_by})` : ''}</span>
+                        ) : (
+                          <span className="text-foreground/40 text-[10px]">offen</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => { setSelectedFingerprint(g.fingerprint); setView('history') }}
+                          className="px-2 py-0.5 text-[10px] rounded border border-foreground/15 text-foreground/70 hover:border-foreground/30 mr-1"
+                        >
+                          Verlauf
+                        </button>
+                        {g.resolved ? (
+                          <button
+                            onClick={() => unresolveGroup(g.fingerprint)}
+                            className="px-2 py-0.5 text-[10px] rounded border border-foreground/15 text-foreground/70 hover:border-foreground/30 mr-1"
+                          >
+                            Wieder öffnen
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => resolveGroup(g.fingerprint)}
+                            className="px-2 py-0.5 text-[10px] rounded border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 mr-1"
+                          >
+                            Auflösen
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteGroup(g.fingerprint)}
+                          className="px-2 py-0.5 text-[10px] rounded border border-red-500/30 text-red-500 hover:bg-red-500/10"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          occurrences.length === 0 ? (
+            <div className="text-sm text-foreground/50 py-8 text-center">Keine Vorkommen.</div>
+          ) : (
+            <div className="space-y-2">
+              {occurrences.map(o => <OccurrenceRow key={o.id} occ={o} />)}
+            </div>
+          )
+        )}
+      </AdminCard>
+
+      {generatedAt && (
+        <p className="text-[10px] text-foreground/40 text-center">
+          Auto-Refresh alle 10s · Daten generiert {new Date(generatedAt).toLocaleTimeString()}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function OccurrenceRow({ occ }: { occ: EventOccurrence }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="rounded-md border border-foreground/10 bg-foreground/[0.015]">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-foreground/[0.03]"
+      >
+        <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${severityBadge(occ.severity)}`}>
+          {occ.severity}
+        </span>
+        <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider ${originBadge(occ.origin)}`}>
+          {occ.origin}
+        </span>
+        <span className="font-mono text-foreground/60 truncate max-w-[180px]" title={occ.source}>{occ.source}</span>
+        <span className="text-foreground/90 truncate flex-1" title={occ.message}>{occ.message}</span>
+        <span className="text-foreground/40 whitespace-nowrap text-[10px]">{new Date(occ.occurred_at).toLocaleString()}</span>
+        <span className="text-foreground/40 text-[10px]">{expanded ? '▾' : '▸'}</span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 text-[11px] text-foreground/70 space-y-1 border-t border-foreground/10">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <div><span className="text-foreground/40">Fingerprint:</span> <code className="text-foreground/80">{occ.fingerprint}</code></div>
+            {occ.user_id && <div><span className="text-foreground/40">User:</span> {occ.user_id}</div>}
+            {occ.request_path && <div><span className="text-foreground/40">Pfad:</span> <code>{occ.request_method ?? ''} {occ.request_path}</code></div>}
+            {occ.status_code != null && <div><span className="text-foreground/40">Status:</span> {occ.status_code}</div>}
+            {occ.file && <div><span className="text-foreground/40">Datei:</span> <code>{occ.file}{occ.line ? `:${occ.line}` : ''}</code></div>}
+            {occ.target && <div><span className="text-foreground/40">Target:</span> <code>{occ.target}</code></div>}
+          </div>
+          {occ.error_chain && (
+            <div>
+              <div className="text-foreground/40 mt-1">Error-Chain / Stack:</div>
+              <pre className="mt-1 text-[10px] bg-foreground/[0.04] border border-foreground/10 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">{occ.error_chain}</pre>
+            </div>
+          )}
+          {occ.details != null && (
+            <div>
+              <div className="text-foreground/40 mt-1">Details:</div>
+              <pre className="mt-1 text-[10px] bg-foreground/[0.04] border border-foreground/10 rounded p-2 overflow-x-auto">{JSON.stringify(occ.details, null, 2)}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }

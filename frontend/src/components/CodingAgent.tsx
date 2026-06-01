@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   Robot, Terminal, Play, X, PaperPlaneRight,
   Check, Warning, Hourglass, Sparkle,
   Shield, ShieldCheck, ShieldWarning, LockKey, UserCirclePlus,
-  ListChecks, Wrench, Stop,
+  ListChecks, Wrench, Stop, CaretDown, CaretRight,
 } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -102,6 +102,7 @@ export function CodingAgent() {
   const [sessionStatus, setSessionStatus] = useState<string>('idle')
   const [showLog, setShowLog] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
+  const [openSidebarPanel, setOpenSidebarPanel] = useState<'session' | 'subs' | 'changes'>('session')
 
   // Agent settings
   const [settings, setSettings] = useState<AgentSettings>(() => {
@@ -352,6 +353,21 @@ export function CodingAgent() {
 
   const secInfo = SECURITY_LABELS[settings.securityLevel]
   const SecIcon = secInfo.icon
+  const toolCallCount = messages.reduce((sum, m) => sum + (m.toolCalls?.length || 0), 0)
+  const completedTasks = agentTasks.filter(t => t.status === 'completed').length
+  const runningTasks = agentTasks.filter(t => t.status === 'running').length
+  const failedTasks = agentTasks.filter(t => t.status === 'failed').length
+  const sidebarPanels = [
+    { id: 'session' as const, label: 'Session', icon: Hourglass },
+    { id: 'subs' as const, label: 'Subs', icon: UserCirclePlus },
+    { id: 'changes' as const, label: 'Changes', icon: ListChecks },
+  ]
+
+  const delegateToSubagent = () => {
+    const prompt = 'Delegiere die aktuelle Aufgabe an einen passenden Subagent und fasse das Ergebnis kurz zusammen.'
+    setInput(prompt)
+    setTimeout(() => sendMessage(prompt), 50)
+  }
 
   // ─── Render ──────────────────────────────────────────────────────────
   return (
@@ -480,39 +496,113 @@ export function CodingAgent() {
                   className="border-r border-foreground/8 bg-foreground/[0.02] shrink-0 overflow-y-auto"
                 >
                   <div className="p-3 space-y-4">
-                    {/* Settings */}
-                    <div>
-                      <p className="text-[10px] font-medium text-foreground/30 uppercase tracking-wider mb-2">Agent</p>
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-foreground/[0.04] cursor-pointer">
-                          <input type="checkbox" checked={settings.allowSubagents}
-                            onChange={() => toggleSetting('allowSubagents')}
-                            className="w-3.5 h-3.5 rounded accent-accent" />
-                          <span className="text-[11px] text-foreground/60">Subagents</span>
-                        </label>
-                        <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-foreground/[0.04] cursor-pointer">
-                          <input type="checkbox" checked={settings.autoApproveWorkspace}
-                            onChange={() => toggleSetting('autoApproveWorkspace')}
-                            className="w-3.5 h-3.5 rounded accent-accent" />
-                          <span className="text-[11px] text-foreground/60">Auto-Approve</span>
-                        </label>
-                      </div>
+                    <div className="space-y-2">
+                      {sidebarPanels.map(panel => {
+                        const PanelIcon = panel.icon
+                        const isOpen = openSidebarPanel === panel.id
+                        return (
+                          <div key={panel.id} className="rounded-xl border border-foreground/10 bg-foreground/[0.025] overflow-hidden">
+                            <button
+                              onClick={() => setOpenSidebarPanel(panel.id)}
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors ${isOpen ? 'bg-foreground/[0.045]' : 'hover:bg-foreground/[0.035]'}`}
+                            >
+                              <PanelIcon size={13} className={isOpen ? 'text-emerald-400' : 'text-foreground/35'} />
+                              <span className="text-[11px] font-semibold text-foreground/70">{panel.label}</span>
+                              <span className="ml-auto text-foreground/30">
+                                {isOpen ? <CaretDown size={12} /> : <CaretRight size={12} />}
+                              </span>
+                            </button>
+
+                            <AnimatePresence initial={false}>
+                              {isOpen && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  className="overflow-hidden"
+                                >
+                                  {panel.id === 'session' && (
+                                    <div className="p-3 pt-2 space-y-3 border-t border-foreground/8">
+                                      <div className="flex items-center justify-between rounded-lg bg-foreground/[0.035] px-2.5 py-2">
+                                        <div>
+                                          <p className="text-[10px] font-medium text-foreground/65">Status</p>
+                                          <p className="text-[9px] text-foreground/35">{sessionId ? sessionId.slice(0, 12) : 'Keine aktive ID'}</p>
+                                        </div>
+                                        <span className={`h-2 w-2 rounded-full ${sessionStatus === 'running' ? 'bg-emerald-400' : sessionStatus === 'starting' ? 'bg-amber-400 animate-pulse' : 'bg-foreground/20'}`} />
+                                      </div>
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        <SidebarMetric label="Msgs" value={messages.length} />
+                                        <SidebarMetric label="Tools" value={toolCallCount} />
+                                        <SidebarMetric label="Logs" value={logEntries.length} />
+                                      </div>
+                                      <label className="flex items-center justify-between gap-2 rounded-lg bg-foreground/[0.025] px-2.5 py-2 cursor-pointer hover:bg-foreground/[0.045]">
+                                        <span className="text-[10px] text-foreground/55">Auto-Approve</span>
+                                        <input type="checkbox" checked={settings.autoApproveWorkspace}
+                                          onChange={() => toggleSetting('autoApproveWorkspace')}
+                                          className="w-3.5 h-3.5 rounded accent-accent" />
+                                      </label>
+                                    </div>
+                                  )}
+
+                                  {panel.id === 'subs' && (
+                                    <div className="p-3 pt-2 space-y-3 border-t border-foreground/8">
+                                      <div className="rounded-lg bg-foreground/[0.035] px-2.5 py-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-[10px] font-medium text-foreground/65">Subagents</span>
+                                          <input type="checkbox" checked={settings.allowSubagents}
+                                            onChange={() => toggleSetting('allowSubagents')}
+                                            className="w-3.5 h-3.5 rounded accent-accent" />
+                                        </div>
+                                        <p className="mt-1 text-[9px] leading-snug text-foreground/35">
+                                          Spezialisierte Agenten fuer Review, Planung und Ausfuehrung.
+                                        </p>
+                                      </div>
+                                      <button
+                                        onClick={delegateToSubagent}
+                                        disabled={!settings.allowSubagents || isLoading}
+                                        className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500/15 px-3 py-2 text-[11px] font-semibold text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                      >
+                                        <UserCirclePlus size={13} weight="fill" /> Delegieren
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {panel.id === 'changes' && (
+                                    <div className="p-3 pt-2 space-y-3 border-t border-foreground/8">
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        <SidebarMetric label="Aktiv" value={runningTasks} tone="emerald" />
+                                        <SidebarMetric label="Fertig" value={completedTasks} />
+                                        <SidebarMetric label="Fehler" value={failedTasks} tone="red" />
+                                      </div>
+                                      <div className="space-y-1.5">
+                                        {agentTasks.slice(0, 3).map(task => (
+                                          <div key={task.id} className="rounded-lg bg-foreground/[0.025] px-2.5 py-2">
+                                            <div className="flex items-center gap-2">
+                                              <span className={`h-1.5 w-1.5 rounded-full ${task.status === 'completed' ? 'bg-emerald-400' : task.status === 'failed' ? 'bg-red-400' : task.status === 'running' ? 'bg-blue-400' : 'bg-foreground/25'}`} />
+                                              <span className="truncate text-[10px] text-foreground/60">{task.description}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                        {agentTasks.length === 0 && (
+                                          <div className="rounded-lg bg-foreground/[0.025] px-2.5 py-3 text-center text-[10px] text-foreground/35">
+                                            Noch keine Task-Aenderungen.
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )
+                      })}
                     </div>
 
                     {/* Todo Panel */}
                     <div>
                       <p className="text-[10px] font-medium text-foreground/30 uppercase tracking-wider mb-2">Tasks</p>
                       <TodoPanel todos={todos} activeTodoId={activeTodoId} />
-                    </div>
-
-                    {/* Stats */}
-                    <div>
-                      <p className="text-[10px] font-medium text-foreground/30 uppercase tracking-wider mb-2">Session</p>
-                      <div className="text-[10px] text-foreground/40 space-y-1">
-                        <p>Messages: {messages.length}</p>
-                        <p>Log lines: {logEntries.length}</p>
-                        <p>Tool calls: {messages.reduce((sum, m) => sum + (m.toolCalls?.length || 0), 0)}</p>
-                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -775,4 +865,14 @@ function parseTodosFromContent(content: string): TodoItem[] {
     }
   }
   return todos
+}
+
+function SidebarMetric({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'neutral' | 'emerald' | 'red' }) {
+  const toneClass = tone === 'emerald' ? 'text-emerald-300' : tone === 'red' ? 'text-red-300' : 'text-foreground/75'
+  return (
+    <div className="rounded-lg bg-foreground/[0.035] px-2 py-1.5 text-center">
+      <p className={`text-sm font-semibold leading-none ${toneClass}`}>{value}</p>
+      <p className="mt-1 text-[9px] text-foreground/35">{label}</p>
+    </div>
+  )
 }

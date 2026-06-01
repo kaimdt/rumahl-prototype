@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useState, useRef, useCallback, memo } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Thermometer, Drop, Lightning, Gauge, Clock, Calendar } from '@phosphor-icons/react'
 import type { SensorEntity } from '@/lib/types'
 import { haptics } from '@/lib/haptics'

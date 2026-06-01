@@ -1,5 +1,6 @@
 use super::models::*;
 use super::DbPool;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 pub struct ConfigRepository {
@@ -52,7 +53,11 @@ impl ConfigRepository {
         Ok(user)
     }
 
-    pub async fn update_user(&self, user_id: &str, req: UpdateUserRequest) -> anyhow::Result<Option<User>> {
+    pub async fn update_user(
+        &self,
+        user_id: &str,
+        req: UpdateUserRequest,
+    ) -> anyhow::Result<Option<User>> {
         let existing = match self.get_user_by_id(user_id).await? {
             Some(user) => user,
             None => return Ok(None),
@@ -164,8 +169,35 @@ impl ConfigRepository {
         Ok(res.rows_affected() > 0)
     }
 
+    /// List every entry in the `user_devices` association table so the
+    /// admin presence view can map which user is logged in on which device.
+    /// Returns tuples of (user_id, device_id, is_primary).
+    pub async fn list_user_device_links(&self) -> anyhow::Result<Vec<(String, String, bool)>> {
+        let rows: Vec<(String, String, bool)> =
+            sqlx::query_as("SELECT user_id, device_id, is_primary FROM user_devices")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows)
+    }
+
+    /// List all registered IORA Desktop clients with their owning user.
+    /// Returns tuples of (device_id, user_id, device_name, os, last_seen_at).
+    pub async fn list_desktop_clients_raw(
+        &self,
+    ) -> anyhow::Result<Vec<(String, String, String, String, DateTime<Utc>)>> {
+        let rows: Vec<(String, String, String, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT device_id, user_id, device_name, os, last_seen_at FROM desktop_clients ORDER BY last_seen_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     // Configuration Profile operations
-    pub async fn create_profile(&self, req: CreateProfileRequest) -> anyhow::Result<ConfigurationProfile> {
+    pub async fn create_profile(
+        &self,
+        req: CreateProfileRequest,
+    ) -> anyhow::Result<ConfigurationProfile> {
         // Reuse the existing default profile for this owner/type instead of creating duplicates.
         if let Some(existing) = self
             .get_profile_by_owner(&req.owner_id, &req.profile_type)
@@ -196,7 +228,11 @@ impl ConfigRepository {
         Ok(profile)
     }
 
-    pub async fn get_profile_by_owner(&self, owner_id: &str, profile_type: &str) -> anyhow::Result<Option<ConfigurationProfile>> {
+    pub async fn get_profile_by_owner(
+        &self,
+        owner_id: &str,
+        profile_type: &str,
+    ) -> anyhow::Result<Option<ConfigurationProfile>> {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
             "SELECT * FROM configuration_profiles WHERE owner_id = $1 AND profile_type = $2 AND is_default = TRUE ORDER BY updated_at DESC LIMIT 1"
         )
@@ -208,9 +244,29 @@ impl ConfigRepository {
         Ok(profile)
     }
 
-    pub async fn get_profile(&self, profile_id: &str) -> anyhow::Result<Option<ConfigurationProfile>> {
+    /// List all profiles owned by a user. Used by the frontend to discover an
+    /// existing profile for a freshly logged-in user before falling back to
+    /// creating a new one.
+    pub async fn list_profiles_by_owner(
+        &self,
+        owner_id: &str,
+    ) -> anyhow::Result<Vec<ConfigurationProfile>> {
+        let profiles = sqlx::query_as::<_, ConfigurationProfile>(
+            "SELECT * FROM configuration_profiles WHERE owner_id = $1 ORDER BY is_default DESC, updated_at DESC"
+        )
+        .bind(owner_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(profiles)
+    }
+
+    pub async fn get_profile(
+        &self,
+        profile_id: &str,
+    ) -> anyhow::Result<Option<ConfigurationProfile>> {
         let profile = sqlx::query_as::<_, ConfigurationProfile>(
-            "SELECT * FROM configuration_profiles WHERE id = $1"
+            "SELECT * FROM configuration_profiles WHERE id = $1",
         )
         .bind(profile_id)
         .fetch_optional(&self.pool)
@@ -220,7 +276,11 @@ impl ConfigRepository {
     }
 
     // Page operations
-    pub async fn save_pages(&self, profile_id: &str, pages: Vec<SavePageRequest>) -> anyhow::Result<()> {
+    pub async fn save_pages(
+        &self,
+        profile_id: &str,
+        pages: Vec<SavePageRequest>,
+    ) -> anyhow::Result<()> {
         let mut tx = self.pool.begin().await?;
 
         // Delete existing pages for this profile
@@ -290,7 +350,7 @@ impl ConfigRepository {
 
     pub async fn get_pages(&self, profile_id: &str) -> anyhow::Result<Vec<PageWithWidgets>> {
         let pages = sqlx::query_as::<_, Page>(
-            "SELECT * FROM pages WHERE profile_id = $1 ORDER BY position"
+            "SELECT * FROM pages WHERE profile_id = $1 ORDER BY position",
         )
         .bind(profile_id)
         .fetch_all(&self.pool)
@@ -300,7 +360,7 @@ impl ConfigRepository {
 
         for page in pages {
             let widgets = sqlx::query_as::<_, Widget>(
-                "SELECT * FROM widgets WHERE page_id = $1 ORDER BY position_y, position_x"
+                "SELECT * FROM widgets WHERE page_id = $1 ORDER BY position_y, position_x",
             )
             .bind(&page.id)
             .fetch_all(&self.pool)
@@ -313,7 +373,11 @@ impl ConfigRepository {
     }
 
     // Theme operations
-    pub async fn save_theme(&self, profile_id: &str, req: SaveThemeRequest) -> anyhow::Result<ThemeSettings> {
+    pub async fn save_theme(
+        &self,
+        profile_id: &str,
+        req: SaveThemeRequest,
+    ) -> anyhow::Result<ThemeSettings> {
         let now = chrono::Utc::now();
 
         // Try to update existing theme
@@ -358,7 +422,7 @@ impl ConfigRepository {
 
         // Fetch the updated theme
         let theme = sqlx::query_as::<_, ThemeSettings>(
-            "SELECT * FROM theme_settings WHERE profile_id = $1"
+            "SELECT * FROM theme_settings WHERE profile_id = $1",
         )
         .bind(profile_id)
         .fetch_one(&self.pool)
@@ -369,7 +433,7 @@ impl ConfigRepository {
 
     pub async fn get_theme(&self, profile_id: &str) -> anyhow::Result<Option<ThemeSettings>> {
         let theme = sqlx::query_as::<_, ThemeSettings>(
-            "SELECT * FROM theme_settings WHERE profile_id = $1"
+            "SELECT * FROM theme_settings WHERE profile_id = $1",
         )
         .bind(profile_id)
         .fetch_optional(&self.pool)
@@ -379,7 +443,11 @@ impl ConfigRepository {
     }
 
     // Background operations
-    pub async fn save_background(&self, profile_id: &str, req: SaveBackgroundRequest) -> anyhow::Result<BackgroundConfig> {
+    pub async fn save_background(
+        &self,
+        profile_id: &str,
+        req: SaveBackgroundRequest,
+    ) -> anyhow::Result<BackgroundConfig> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
         let config_json = req.config.to_string();
@@ -410,9 +478,12 @@ impl ConfigRepository {
         Ok(background)
     }
 
-    pub async fn get_active_background(&self, profile_id: &str) -> anyhow::Result<Option<BackgroundConfig>> {
+    pub async fn get_active_background(
+        &self,
+        profile_id: &str,
+    ) -> anyhow::Result<Option<BackgroundConfig>> {
         let background = sqlx::query_as::<_, BackgroundConfig>(
-            "SELECT * FROM background_configs WHERE profile_id = $1 AND is_active = TRUE"
+            "SELECT * FROM background_configs WHERE profile_id = $1 AND is_active = TRUE",
         )
         .bind(profile_id)
         .fetch_optional(&self.pool)
@@ -422,7 +493,12 @@ impl ConfigRepository {
     }
 
     // User preferences
-    pub async fn save_preference(&self, user_id: &str, device_id: Option<&str>, req: SavePreferenceRequest) -> anyhow::Result<UserPreference> {
+    pub async fn save_preference(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        req: SavePreferenceRequest,
+    ) -> anyhow::Result<UserPreference> {
         let now = chrono::Utc::now();
         let value_json = req.preference_value.to_string();
 
@@ -479,7 +555,12 @@ impl ConfigRepository {
         Ok(pref)
     }
 
-    pub async fn get_preference(&self, user_id: &str, device_id: Option<&str>, key: &str) -> anyhow::Result<Option<UserPreference>> {
+    pub async fn get_preference(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        key: &str,
+    ) -> anyhow::Result<Option<UserPreference>> {
         let pref = sqlx::query_as::<_, UserPreference>(
             "SELECT * FROM user_preferences WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 AND preference_key = $3"
         )
@@ -492,7 +573,11 @@ impl ConfigRepository {
         Ok(pref)
     }
 
-    pub async fn get_all_preferences(&self, user_id: &str, device_id: Option<&str>) -> anyhow::Result<Vec<UserPreference>> {
+    pub async fn get_all_preferences(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+    ) -> anyhow::Result<Vec<UserPreference>> {
         let prefs = sqlx::query_as::<_, UserPreference>(
             "SELECT * FROM user_preferences WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2"
         )
@@ -505,7 +590,10 @@ impl ConfigRepository {
     }
 
     // Global system preferences
-    pub async fn save_system_preference(&self, req: SaveSystemPreferenceRequest) -> anyhow::Result<SystemPreference> {
+    pub async fn save_system_preference(
+        &self,
+        req: SaveSystemPreferenceRequest,
+    ) -> anyhow::Result<SystemPreference> {
         let now = chrono::Utc::now();
         let value_json = req.preference_value.to_string();
 
@@ -544,7 +632,7 @@ impl ConfigRepository {
         }
 
         let pref = sqlx::query_as::<_, SystemPreference>(
-            "SELECT * FROM system_preferences WHERE preference_key = $1"
+            "SELECT * FROM system_preferences WHERE preference_key = $1",
         )
         .bind(&req.preference_key)
         .fetch_one(&self.pool)
@@ -553,9 +641,12 @@ impl ConfigRepository {
         Ok(pref)
     }
 
-    pub async fn get_system_preference(&self, key: &str) -> anyhow::Result<Option<SystemPreference>> {
+    pub async fn get_system_preference(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<SystemPreference>> {
         let pref = sqlx::query_as::<_, SystemPreference>(
-            "SELECT * FROM system_preferences WHERE preference_key = $1"
+            "SELECT * FROM system_preferences WHERE preference_key = $1",
         )
         .bind(key)
         .fetch_optional(&self.pool)
@@ -566,7 +657,7 @@ impl ConfigRepository {
 
     pub async fn get_all_system_preferences(&self) -> anyhow::Result<Vec<SystemPreference>> {
         let prefs = sqlx::query_as::<_, SystemPreference>(
-            "SELECT * FROM system_preferences ORDER BY preference_key"
+            "SELECT * FROM system_preferences ORDER BY preference_key",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -575,7 +666,10 @@ impl ConfigRepository {
     }
 
     // Get complete profile with all data
-    pub async fn get_profile_with_data(&self, profile_id: &str) -> anyhow::Result<Option<ProfileWithData>> {
+    pub async fn get_profile_with_data(
+        &self,
+        profile_id: &str,
+    ) -> anyhow::Result<Option<ProfileWithData>> {
         let profile = match self.get_profile(profile_id).await? {
             Some(p) => p,
             None => return Ok(None),
@@ -594,7 +688,13 @@ impl ConfigRepository {
     }
 
     // Sync operations
-    pub async fn record_change(&self, table_name: &str, record_id: &str, operation: &str, device_id: Option<&str>) -> anyhow::Result<()> {
+    pub async fn record_change(
+        &self,
+        table_name: &str,
+        record_id: &str,
+        operation: &str,
+        device_id: Option<&str>,
+    ) -> anyhow::Result<()> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
 
@@ -618,7 +718,7 @@ impl ConfigRepository {
 
     pub async fn get_changes_since(&self, since: &str) -> anyhow::Result<Vec<SyncMetadata>> {
         let changes = sqlx::query_as::<_, SyncMetadata>(
-            "SELECT * FROM sync_metadata WHERE changed_at > $1 ORDER BY changed_at"
+            "SELECT * FROM sync_metadata WHERE changed_at > $1 ORDER BY changed_at",
         )
         .bind(since)
         .fetch_all(&self.pool)
@@ -629,11 +729,9 @@ impl ConfigRepository {
 
     // ── User listing for terminal/kiosk mode ───────────────────────────
     pub async fn list_users(&self) -> anyhow::Result<Vec<User>> {
-        let users = sqlx::query_as::<_, User>(
-            "SELECT * FROM users ORDER BY username"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let users = sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY username")
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(users)
     }
@@ -671,7 +769,12 @@ impl ConfigRepository {
     }
 
     // ── Terminal/kiosk device management ────────────────────────────────
-    pub async fn set_terminal_mode(&self, device_id: &str, is_terminal: bool, terminal_name: Option<&str>) -> anyhow::Result<()> {
+    pub async fn set_terminal_mode(
+        &self,
+        device_id: &str,
+        is_terminal: bool,
+        terminal_name: Option<&str>,
+    ) -> anyhow::Result<()> {
         sqlx::query("UPDATE devices SET is_terminal = $1, terminal_name = $2 WHERE id = $3")
             .bind(is_terminal)
             .bind(terminal_name)
@@ -682,7 +785,11 @@ impl ConfigRepository {
     }
 
     // ── Page layout persistence ────────────────────────────────────────
-    pub async fn save_page_layout(&self, profile_id: &str, req: SavePageLayoutRequest) -> anyhow::Result<PageLayout> {
+    pub async fn save_page_layout(
+        &self,
+        profile_id: &str,
+        req: SavePageLayoutRequest,
+    ) -> anyhow::Result<PageLayout> {
         let now = chrono::Utc::now();
 
         let updated = sqlx::query(
@@ -715,7 +822,7 @@ impl ConfigRepository {
         }
 
         let layout = sqlx::query_as::<_, PageLayout>(
-            "SELECT * FROM page_layouts WHERE profile_id = $1 AND page_id = $2"
+            "SELECT * FROM page_layouts WHERE profile_id = $1 AND page_id = $2",
         )
         .bind(profile_id)
         .bind(&req.page_id)
@@ -725,9 +832,13 @@ impl ConfigRepository {
         Ok(layout)
     }
 
-    pub async fn get_page_layout(&self, profile_id: &str, page_id: &str) -> anyhow::Result<Option<PageLayout>> {
+    pub async fn get_page_layout(
+        &self,
+        profile_id: &str,
+        page_id: &str,
+    ) -> anyhow::Result<Option<PageLayout>> {
         let layout = sqlx::query_as::<_, PageLayout>(
-            "SELECT * FROM page_layouts WHERE profile_id = $1 AND page_id = $2"
+            "SELECT * FROM page_layouts WHERE profile_id = $1 AND page_id = $2",
         )
         .bind(profile_id)
         .bind(page_id)
@@ -739,7 +850,7 @@ impl ConfigRepository {
 
     pub async fn get_all_page_layouts(&self, profile_id: &str) -> anyhow::Result<Vec<PageLayout>> {
         let layouts = sqlx::query_as::<_, PageLayout>(
-            "SELECT * FROM page_layouts WHERE profile_id = $1 ORDER BY page_id"
+            "SELECT * FROM page_layouts WHERE profile_id = $1 ORDER BY page_id",
         )
         .bind(profile_id)
         .fetch_all(&self.pool)
@@ -750,12 +861,16 @@ impl ConfigRepository {
 
     // ── Per-page settings ──────────────────────────────────────────────
 
-    pub async fn save_page_settings(&self, profile_id: &str, req: &SavePageSettingsRequest) -> anyhow::Result<PageSettings> {
+    pub async fn save_page_settings(
+        &self,
+        profile_id: &str,
+        req: &SavePageSettingsRequest,
+    ) -> anyhow::Result<PageSettings> {
         let now = chrono::Utc::now();
         let bg_config_json = req.background_config.as_ref().map(|v| v.to_string());
 
         let existing = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2"
+            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2",
         )
         .bind(profile_id)
         .bind(&req.page_id)
@@ -797,7 +912,7 @@ impl ConfigRepository {
         }
 
         let settings = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2"
+            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2",
         )
         .bind(profile_id)
         .bind(&req.page_id)
@@ -807,9 +922,13 @@ impl ConfigRepository {
         Ok(settings)
     }
 
-    pub async fn get_page_settings(&self, profile_id: &str, page_id: &str) -> anyhow::Result<Option<PageSettings>> {
+    pub async fn get_page_settings(
+        &self,
+        profile_id: &str,
+        page_id: &str,
+    ) -> anyhow::Result<Option<PageSettings>> {
         let settings = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2"
+            "SELECT * FROM page_settings WHERE profile_id = $1 AND page_id = $2",
         )
         .bind(profile_id)
         .bind(page_id)
@@ -819,9 +938,12 @@ impl ConfigRepository {
         Ok(settings)
     }
 
-    pub async fn get_all_page_settings(&self, profile_id: &str) -> anyhow::Result<Vec<PageSettings>> {
+    pub async fn get_all_page_settings(
+        &self,
+        profile_id: &str,
+    ) -> anyhow::Result<Vec<PageSettings>> {
         let settings = sqlx::query_as::<_, PageSettings>(
-            "SELECT * FROM page_settings WHERE profile_id = $1 ORDER BY page_id"
+            "SELECT * FROM page_settings WHERE profile_id = $1 ORDER BY page_id",
         )
         .bind(profile_id)
         .fetch_all(&self.pool)
@@ -830,7 +952,11 @@ impl ConfigRepository {
         Ok(settings)
     }
 
-    pub async fn delete_page_settings(&self, profile_id: &str, page_id: &str) -> anyhow::Result<()> {
+    pub async fn delete_page_settings(
+        &self,
+        profile_id: &str,
+        page_id: &str,
+    ) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM page_settings WHERE profile_id = $1 AND page_id = $2")
             .bind(profile_id)
             .bind(page_id)
@@ -870,7 +996,11 @@ impl ConfigRepository {
         Ok(())
     }
 
-    pub async fn set_user_password(&self, user_id: &str, password_hash: &str) -> anyhow::Result<()> {
+    pub async fn set_user_password(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> anyhow::Result<()> {
         let now = chrono::Utc::now();
         sqlx::query("UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3")
             .bind(password_hash)
@@ -891,22 +1021,20 @@ impl ConfigRepository {
 
     /// Ensure at least one admin exists. If no admin found, promote the oldest user.
     pub async fn ensure_admin_exists(&self) -> anyhow::Result<Option<String>> {
-        let admin: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM users WHERE is_admin = TRUE LIMIT 1"
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let admin: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM users WHERE is_admin = TRUE LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?;
 
         if admin.is_some() {
             return Ok(None);
         }
 
         // No admin found – promote oldest user
-        let oldest: Option<(String, String)> = sqlx::query_as(
-            "SELECT id, username FROM users ORDER BY created_at ASC LIMIT 1"
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let oldest: Option<(String, String)> =
+            sqlx::query_as("SELECT id, username FROM users ORDER BY created_at ASC LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?;
 
         if let Some((user_id, username)) = oldest {
             self.set_user_admin(&user_id, true).await?;
@@ -924,7 +1052,16 @@ impl ConfigRepository {
     }
 
     // API Key CRUD
-    pub async fn create_api_key(&self, user_id: &str, name: &str, key_hash: &str, key_prefix: &str, permissions: &str, rate_limit: i32, expires_at: Option<chrono::DateTime<chrono::Utc>>) -> anyhow::Result<ApiKey> {
+    pub async fn create_api_key(
+        &self,
+        user_id: &str,
+        name: &str,
+        key_hash: &str,
+        key_prefix: &str,
+        permissions: &str,
+        rate_limit: i32,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> anyhow::Result<ApiKey> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
 
@@ -953,7 +1090,7 @@ impl ConfigRepository {
 
     pub async fn list_api_keys(&self, user_id: &str) -> anyhow::Result<Vec<ApiKey>> {
         let keys = sqlx::query_as::<_, ApiKey>(
-            "SELECT * FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT * FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -962,17 +1099,15 @@ impl ConfigRepository {
     }
 
     pub async fn list_all_api_keys(&self) -> anyhow::Result<Vec<ApiKey>> {
-        let keys = sqlx::query_as::<_, ApiKey>(
-            "SELECT * FROM api_keys ORDER BY created_at DESC"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let keys = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(keys)
     }
 
     pub async fn get_api_key_by_prefix(&self, prefix: &str) -> anyhow::Result<Option<ApiKey>> {
         let key = sqlx::query_as::<_, ApiKey>(
-            "SELECT * FROM api_keys WHERE key_prefix = $1 AND is_active = TRUE"
+            "SELECT * FROM api_keys WHERE key_prefix = $1 AND is_active = TRUE",
         )
         .bind(prefix)
         .fetch_optional(&self.pool)
@@ -990,7 +1125,11 @@ impl ConfigRepository {
         Ok(())
     }
 
-    pub async fn update_api_key(&self, key_id: &str, req: &UpdateApiKeyRequest) -> anyhow::Result<Option<ApiKey>> {
+    pub async fn update_api_key(
+        &self,
+        key_id: &str,
+        req: &UpdateApiKeyRequest,
+    ) -> anyhow::Result<Option<ApiKey>> {
         let existing = sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
             .bind(key_id)
             .fetch_optional(&self.pool)
@@ -1003,7 +1142,9 @@ impl ConfigRepository {
 
         let now = chrono::Utc::now();
         let name = req.name.as_deref().unwrap_or(&existing.name);
-        let permissions = req.permissions.as_ref()
+        let permissions = req
+            .permissions
+            .as_ref()
             .map(|p| serde_json::to_string(p).unwrap_or_else(|_| existing.permissions.clone()))
             .unwrap_or(existing.permissions.clone());
         let rate_limit = req.rate_limit.unwrap_or(existing.rate_limit);
@@ -1041,7 +1182,7 @@ impl ConfigRepository {
 
         // Try to increment or insert
         let row: Option<(i32,)> = sqlx::query_as(
-            "SELECT request_count FROM api_key_rate_limits WHERE key_id = $1 AND window_start = $2"
+            "SELECT request_count FROM api_key_rate_limits WHERE key_id = $1 AND window_start = $2",
         )
         .bind(key_id)
         .bind(&window)
@@ -1063,11 +1204,13 @@ impl ConfigRepository {
             }
             None => {
                 // Clean old windows and insert new
-                sqlx::query("DELETE FROM api_key_rate_limits WHERE key_id = $1 AND window_start < $2")
-                    .bind(key_id)
-                    .bind(&window)
-                    .execute(&self.pool)
-                    .await?;
+                sqlx::query(
+                    "DELETE FROM api_key_rate_limits WHERE key_id = $1 AND window_start < $2",
+                )
+                .bind(key_id)
+                .bind(&window)
+                .execute(&self.pool)
+                .await?;
                 sqlx::query(
                     "INSERT INTO api_key_rate_limits (key_id, window_start, request_count) VALUES ($1, $2, 1)"
                 )

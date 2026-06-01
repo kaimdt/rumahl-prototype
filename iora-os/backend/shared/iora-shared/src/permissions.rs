@@ -2,8 +2,8 @@
 //!
 //! Granular permission control with request/grant workflow.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -128,6 +128,15 @@ pub enum Permission {
     WebhookDelete,
     WebhookManage,
 
+    // Generic app runtime permissions
+    AppActionExecute,
+    AppQueueManage,
+    ExternalHttpRequest,
+    AppRuntimeAuditRead,
+    AppSecretsRead,
+    AppSecretsWrite,
+    AppSecretsManage,
+
     // Theme permissions
     /// Install custom themes from app/plugin manifests
     ThemeInstall,
@@ -135,6 +144,34 @@ pub enum Permission {
     ThemeManage,
     /// Select and apply themes per user
     ThemeSelect,
+
+    // Assist integration permissions
+    AssistContextRead,
+    AssistEventsSubscribe,
+    AssistChat,
+    AssistTaskCreate,
+    AssistTaskManage,
+    AssistToolExecute,
+
+    // GitHub integration permissions via IORA Assist
+    GitHubRead,
+    GitHubWrite,
+    GitHubPullRequestRead,
+    GitHubPullRequestComment,
+    GitHubWorkflowTrigger,
+
+    // Agentic coding: spawn ephemeral sandbox containers for autonomous coding agents
+    AgentContainerSpawn,
+
+    // --- New in v2.4: Extended App/Plugin capabilities ---
+    /// Provide AI tools (functions) that IORA Assist / pi.dev agents can call
+    AssistToolProvide,
+    /// Expose an RPC service for discovery and invocation by other apps
+    ServiceExport,
+    /// Invoke RPC services exposed by other apps
+    ServiceCall,
+    /// Register lifecycle / system event hooks
+    LifecycleHookRegister,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,7 +257,8 @@ impl PermissionSystem {
         approved_permissions: Vec<Permission>,
     ) -> anyhow::Result<()> {
         let mut requests = self.requests.write().await;
-        let request = requests.get_mut(request_id)
+        let request = requests
+            .get_mut(request_id)
             .ok_or_else(|| anyhow::anyhow!("Permission request '{}' not found", request_id))?;
 
         let all_approved = approved_permissions.len() == request.permissions.len();
@@ -254,7 +292,8 @@ impl PermissionSystem {
     /// Deny permission request
     pub async fn deny_request(&self, request_id: &str) -> anyhow::Result<()> {
         let mut requests = self.requests.write().await;
-        let request = requests.get_mut(request_id)
+        let request = requests
+            .get_mut(request_id)
             .ok_or_else(|| anyhow::anyhow!("Permission request '{}' not found", request_id))?;
 
         request.status = PermissionRequestStatus::Denied;
@@ -265,9 +304,9 @@ impl PermissionSystem {
     pub async fn has_permission(&self, provider_id: &str, permission: &Permission) -> bool {
         let grants = self.grants.read().await;
         if let Some(provider_grants) = grants.get(provider_id) {
-            provider_grants.iter().any(|g|
-                &g.permission == permission && g.is_active && g.expires_at.is_none()
-            )
+            provider_grants
+                .iter()
+                .any(|g| &g.permission == permission && g.is_active && g.expires_at.is_none())
         } else {
             false
         }
@@ -299,7 +338,11 @@ impl PermissionSystem {
     }
 
     /// Revoke a specific permission
-    pub async fn revoke_permission(&self, provider_id: &str, permission: &Permission) -> anyhow::Result<()> {
+    pub async fn revoke_permission(
+        &self,
+        provider_id: &str,
+        permission: &Permission,
+    ) -> anyhow::Result<()> {
         let mut grants = self.grants.write().await;
         if let Some(provider_grants) = grants.get_mut(provider_id) {
             for grant in provider_grants.iter_mut() {
@@ -415,7 +458,9 @@ impl Permission {
             Permission::AppStorageRead => "Lesen des app-eigenen Datei-/KV-Speichers",
             Permission::AppStorageWrite => "Schreiben in den app-eigenen Speicher",
             Permission::AppStorageDelete => "Löschen aus dem app-eigenen Speicher",
-            Permission::AppStorageManage => "Verwaltung von Speicherkontingenten und -Einstellungen",
+            Permission::AppStorageManage => {
+                "Verwaltung von Speicherkontingenten und -Einstellungen"
+            }
             Permission::AppDatabaseSqlite => "Bereitstellung einer app-eigenen SQLite-Datenbank",
             Permission::AppDatabaseManage => "Verwaltung von Datenbankeinstellungen und Backups",
             Permission::AppScheduleCreate => "Erstellen geplanter Aufgaben / Cron-Jobs",
@@ -431,54 +476,155 @@ impl Permission {
             Permission::WebhookUpdate => "Aktualisieren von Webhook-Endpunkten",
             Permission::WebhookDelete => "Löschen von Webhook-Endpunkten",
             Permission::WebhookManage => "Verwaltung aller Webhooks (Admin)",
+            Permission::AppActionExecute => "App-Aktionen im Auftrag eines Benutzers ausführen",
+            Permission::AppQueueManage => "App-Laufzeitjobs und Warteschlangen verwalten",
+            Permission::ExternalHttpRequest => "Externe HTTP- und API-Anfragen ausführen",
+            Permission::AppRuntimeAuditRead => "App-Laufzeit-Audit lesen",
+            Permission::AppSecretsRead => "App-eigene Secrets lesen und verwenden",
+            Permission::AppSecretsWrite => "App-eigene Secrets speichern und aktualisieren",
+            Permission::AppSecretsManage => "App-eigene Secrets verwalten und löschen",
             Permission::ThemeInstall => "Installieren von Themes aus App-/Plugin-Manifesten",
-            Permission::ThemeManage => "Verwalten installierter Themes (aktivieren/deaktivieren/deinstallieren)",
+            Permission::ThemeManage => {
+                "Verwalten installierter Themes (aktivieren/deaktivieren/deinstallieren)"
+            }
             Permission::ThemeSelect => "Auswählen und Anwenden von Themes pro Benutzer",
-
+            Permission::AssistContextRead => "IORA Assist Kontext lesen",
+            Permission::AssistEventsSubscribe => "IORA Assist Ereignisse abonnieren",
+            Permission::AssistChat => "Nachrichten an IORA Assist senden",
+            Permission::AssistTaskCreate => "IORA Assist Agent-Aufgaben erstellen",
+            Permission::AssistTaskManage => "IORA Assist Agent-Aufgaben verwalten",
+            Permission::AssistToolExecute => "IORA Assist Tools ausführen",
+            Permission::GitHubRead => "GitHub-Daten über IORA Assist lesen",
+            Permission::GitHubWrite => "GitHub-Daten über IORA Assist schreiben",
+            Permission::GitHubPullRequestRead => "GitHub Pull Requests über IORA Assist lesen",
+            Permission::GitHubPullRequestComment => "GitHub Pull Requests kommentieren",
+            Permission::GitHubWorkflowTrigger => "GitHub Workflows starten",
+            Permission::AgentContainerSpawn => {
+                "Sandbox-Container für autonome Coding-Agenten erstellen und ausführen"
+            }
+            Permission::AssistToolProvide => {
+                "KI-Tools bereitstellen, die IORA Assist / pi.dev-Agenten aufrufen können"
+            }
+            Permission::ServiceExport => "Einen RPC-Dienst für andere Apps bereitstellen",
+            Permission::ServiceCall => "RPC-Dienste anderer Apps aufrufen",
+            Permission::LifecycleHookRegister => {
+                "Lifecycle-/System-Ereignis-Hooks registrieren"
+            }
         }
     }
 
     /// Get risk level of permission
     pub fn risk_level(&self) -> RiskLevel {
         match self {
-            Permission::ReadEntities | Permission::StorageRead | Permission::SystemInfo
-            | Permission::DatabaseRead | Permission::ReadNotifications | Permission::FileSystemRead
-            | Permission::ReadUserData | Permission::MediaAccess | Permission::FileShareRead
-            | Permission::AppStorageRead | Permission::AppScheduleRead | Permission::WebhookRead => RiskLevel::Low,
+            Permission::ReadEntities
+            | Permission::StorageRead
+            | Permission::SystemInfo
+            | Permission::DatabaseRead
+            | Permission::ReadNotifications
+            | Permission::FileSystemRead
+            | Permission::ReadUserData
+            | Permission::MediaAccess
+            | Permission::FileShareRead
+            | Permission::AppStorageRead
+            | Permission::AppScheduleRead
+            | Permission::WebhookRead
+            | Permission::AppRuntimeAuditRead
+            | Permission::AppSecretsRead
+            | Permission::AssistContextRead
+            | Permission::AssistEventsSubscribe
+            | Permission::GitHubRead
+            | Permission::GitHubPullRequestRead => RiskLevel::Low,
 
-            Permission::ControlEntities | Permission::StorageWrite | Permission::NetworkAccess
-            | Permission::DatabaseWrite | Permission::RegisterApi | Permission::CallApi
-            | Permission::RegisterWidget | Permission::ControlWidget | Permission::SendNotifications
-            | Permission::FileSystemWrite | Permission::WriteUserData | Permission::LocationAccess
-            | Permission::CreateAutomations | Permission::RunAutomations
-            | Permission::AppStorageWrite | Permission::AppScheduleCreate | Permission::AppScheduleUpdate
-            | Permission::MessagingPublish | Permission::MessagingSubscribe | Permission::MessagingDirect
-            | Permission::WebhookCreate | Permission::WebhookUpdate => RiskLevel::Medium,
+            Permission::ControlEntities
+            | Permission::StorageWrite
+            | Permission::NetworkAccess
+            | Permission::DatabaseWrite
+            | Permission::RegisterApi
+            | Permission::CallApi
+            | Permission::RegisterWidget
+            | Permission::ControlWidget
+            | Permission::SendNotifications
+            | Permission::FileSystemWrite
+            | Permission::WriteUserData
+            | Permission::LocationAccess
+            | Permission::CreateAutomations
+            | Permission::RunAutomations
+            | Permission::AppStorageWrite
+            | Permission::AppScheduleCreate
+            | Permission::AppScheduleUpdate
+            | Permission::MessagingPublish
+            | Permission::MessagingSubscribe
+            | Permission::MessagingDirect
+            | Permission::WebhookCreate
+            | Permission::WebhookUpdate
+            | Permission::AppActionExecute
+            | Permission::AppSecretsWrite
+            | Permission::AssistChat
+            | Permission::AssistTaskCreate
+            | Permission::AssistToolExecute
+            | Permission::AssistToolProvide
+            | Permission::ServiceExport
+            | Permission::LifecycleHookRegister => RiskLevel::Medium,
             Permission::ThemeSelect => RiskLevel::Low,
             Permission::ThemeInstall => RiskLevel::Medium,
 
-            Permission::CreateEntities | Permission::DeleteEntities | Permission::StorageDelete
-            | Permission::NetworkOutbound | Permission::NetworkInbound | Permission::NetworkLocalAccess
-            | Permission::DatabaseCreate | Permission::DatabaseDelete | Permission::FileSystemExecute
-            | Permission::InstallPlugins | Permission::UninstallPlugins | Permission::CameraAccess
-            | Permission::MicrophoneAccess | Permission::LocationPrecise | Permission::NetworkScan
-            | Permission::FileShareWrite | Permission::FileShareDelete
-            | Permission::AppStorageDelete | Permission::AppScheduleDelete | Permission::WebhookDelete
-            | Permission::AppDatabaseSqlite | Permission::MessagingWildcard => RiskLevel::High,
+            Permission::CreateEntities
+            | Permission::DeleteEntities
+            | Permission::StorageDelete
+            | Permission::NetworkOutbound
+            | Permission::NetworkInbound
+            | Permission::NetworkLocalAccess
+            | Permission::DatabaseCreate
+            | Permission::DatabaseDelete
+            | Permission::FileSystemExecute
+            | Permission::InstallPlugins
+            | Permission::UninstallPlugins
+            | Permission::CameraAccess
+            | Permission::MicrophoneAccess
+            | Permission::LocationPrecise
+            | Permission::NetworkScan
+            | Permission::FileShareWrite
+            | Permission::FileShareDelete
+            | Permission::AppStorageDelete
+            | Permission::AppScheduleDelete
+            | Permission::WebhookDelete
+            | Permission::AppDatabaseSqlite
+            | Permission::MessagingWildcard
+            | Permission::ExternalHttpRequest
+            | Permission::GitHubPullRequestComment
+            | Permission::GitHubWorkflowTrigger
+            | Permission::ServiceCall => RiskLevel::High,
 
-            Permission::SystemControl | Permission::SystemRestart | Permission::PluginManager
-            | Permission::CreateUser | Permission::ModifyUser | Permission::DeleteUser
-            | Permission::FileShareManage | Permission::DeveloperAccess | Permission::InterAppCommunication
-            | Permission::LiveMetrics | Permission::DirectDeploy | Permission::DebugAccess
-            | Permission::LiveLogs | Permission::HotReload
-            | Permission::AppStorageManage | Permission::AppDatabaseManage | Permission::WebhookManage
-            | Permission::ThemeManage => RiskLevel::Critical,
+            Permission::SystemControl
+            | Permission::SystemRestart
+            | Permission::PluginManager
+            | Permission::CreateUser
+            | Permission::ModifyUser
+            | Permission::DeleteUser
+            | Permission::FileShareManage
+            | Permission::DeveloperAccess
+            | Permission::InterAppCommunication
+            | Permission::LiveMetrics
+            | Permission::DirectDeploy
+            | Permission::DebugAccess
+            | Permission::LiveLogs
+            | Permission::HotReload
+            | Permission::AppStorageManage
+            | Permission::AppDatabaseManage
+            | Permission::WebhookManage
+            | Permission::AppQueueManage
+            | Permission::AppSecretsManage
+            | Permission::ThemeManage
+            | Permission::AssistTaskManage
+            | Permission::GitHubWrite
+            | Permission::AgentContainerSpawn => RiskLevel::Critical,
         }
     }
 
     /// Check if permission is allowed for plugins (false = app-only)
     pub fn is_plugin_allowed(&self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             Permission::ReadEntities |
             Permission::ControlEntities |
             Permission::StorageRead |
@@ -497,16 +643,33 @@ impl Permission {
             Permission::MessagingPublish |
             Permission::MessagingSubscribe |
             Permission::WebhookCreate |
-            Permission::WebhookRead
-        ) || matches!(self,
-            Permission::ThemeInstall |
-            Permission::ThemeSelect
-        )
+            Permission::WebhookRead |
+            Permission::AppActionExecute |
+            Permission::AppRuntimeAuditRead |
+            Permission::ExternalHttpRequest |
+            Permission::AppSecretsRead |
+            Permission::AppSecretsWrite |
+            Permission::AssistContextRead |
+            Permission::AssistEventsSubscribe |
+            Permission::AssistChat |
+            Permission::AssistTaskCreate |
+            Permission::AssistToolExecute |
+            Permission::GitHubRead |
+            Permission::GitHubPullRequestRead
+        ) || matches!(self, Permission::ThemeInstall | Permission::ThemeSelect)
+            || matches!(
+                self,
+                Permission::AssistToolProvide
+                    | Permission::ServiceExport
+                    | Permission::ServiceCall
+                    | Permission::LifecycleHookRegister
+            )
     }
 
     /// Check if permission requires explicit user consent
     pub fn requires_user_consent(&self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             Permission::SystemControl |
             Permission::SystemRestart |
             Permission::PluginManager |
@@ -534,20 +697,33 @@ impl Permission {
             Permission::AppDatabaseManage |
             Permission::MessagingWildcard |
             Permission::WebhookManage |
-            Permission::ThemeManage
+            Permission::AppQueueManage |
+            Permission::ExternalHttpRequest |
+            Permission::AppSecretsManage |
+            Permission::ThemeManage |
+            Permission::AssistChat |
+            Permission::AssistTaskCreate |
+            Permission::AssistTaskManage |
+            Permission::AssistToolExecute |
+            Permission::GitHubWrite |
+            Permission::GitHubPullRequestComment |
+            Permission::GitHubWorkflowTrigger |
+            Permission::AgentContainerSpawn |
+            Permission::ServiceCall
         )
     }
 
     /// Check if permission requires Developer Mode to be enabled
     pub fn requires_developer_mode(&self) -> bool {
-        matches!(self,
-            Permission::DeveloperAccess |
-            Permission::InterAppCommunication |
-            Permission::LiveMetrics |
-            Permission::DirectDeploy |
-            Permission::DebugAccess |
-            Permission::LiveLogs |
-            Permission::HotReload
+        matches!(
+            self,
+            Permission::DeveloperAccess
+                | Permission::InterAppCommunication
+                | Permission::LiveMetrics
+                | Permission::DirectDeploy
+                | Permission::DebugAccess
+                | Permission::LiveLogs
+                | Permission::HotReload
         )
     }
 

@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { X, Plus, Check } from '@phosphor-icons/react'
 import { useEntityDiscovery } from '@/contexts/EntityDiscoveryContext'
 import { toast } from 'sonner'

@@ -9,7 +9,7 @@ import { Power, PlugsConnected } from '@phosphor-icons/react'
 import type { SwitchEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
 
 interface SwitchControlDialogProps {

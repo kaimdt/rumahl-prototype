@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   BookOpen, CaretRight, CaretDown, MagnifyingGlass,
   List, X, ArrowLeft, FileText, Info, House,
@@ -9,6 +9,7 @@ import {
   ChatText, Robot, Key, Package, Brain,
 } from '@phosphor-icons/react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 interface DocsConfig {
@@ -155,7 +156,13 @@ export function DocsPage() {
   }
 
   const renderMarkdown = (content: string) => {
-    const html = marked(content)
+    const html = DOMPurify.sanitize(String(marked(content)), {
+      // Allow common markdown output incl. tables, code blocks and images.
+      // Block scripts, event handlers and inline javascript: URLs.
+      ADD_ATTR: ['target'],
+      FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed'],
+      FORBID_ATTR: ['onerror', 'onload', 'onclick'],
+    })
     return (
       <div
         className="prose prose-sm max-w-none

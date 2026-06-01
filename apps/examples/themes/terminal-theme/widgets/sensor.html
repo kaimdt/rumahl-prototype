@@ -1,0 +1,8 @@
+<div class="theme-widget terminal-widget" data-widget-type="SENSOR" data-entity-id="{{entity_id}}">
+  <span class="term-prompt">$</span> sensor --poll {{entity_id}}
+  <div class="term-output">
+    <span class="term-label">{{friendly_name}}</span>
+    <span class="term-value">{{state}} {{unit}}</span>
+    <span class="term-bar">[{{value_bar}}]</span>
+  </div>
+</div>

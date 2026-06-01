@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   Laptop, Phone, UploadSimple, DownloadSimple,
   File, X, CheckCircle, Clock, Users,

@@ -4,15 +4,15 @@
 //! Apps and Plugins cannot access native IORA services directly - they must
 //! use the API Gateway which provides controlled access and crash isolation.
 
-use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiEndpoint {
     pub id: String,
-    pub provider_id: String,      // App or Plugin ID
+    pub provider_id: String, // App or Plugin ID
     pub provider_type: ProviderType,
     pub path: String,
     pub method: HttpMethod,
@@ -136,8 +136,13 @@ impl ApiGateway {
         let endpoint = endpoints
             .values()
             .find(|e| e.path == request.path && e.method == request.method)
-            .ok_or_else(|| anyhow::anyhow!("No endpoint found for {} {}",
-                request.method.to_string(), request.path))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No endpoint found for {} {}",
+                    request.method.to_string(),
+                    request.path
+                )
+            })?;
 
         let provider_id = endpoint.provider_id.clone();
         let endpoint_id = endpoint.id.clone();
@@ -146,12 +151,16 @@ impl ApiGateway {
 
         // Check if endpoint is healthy
         if !is_healthy {
-            anyhow::bail!("Endpoint {} is currently unavailable (provider unhealthy)", endpoint_id);
+            anyhow::bail!(
+                "Endpoint {} is currently unavailable (provider unhealthy)",
+                endpoint_id
+            );
         }
 
         // Get provider
         let providers = self.providers.read().await;
-        let provider = providers.get(&provider_id)
+        let provider = providers
+            .get(&provider_id)
             .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", provider_id))?
             .clone();
         drop(providers);
@@ -159,8 +168,10 @@ impl ApiGateway {
         // Route request with timeout and crash protection
         match tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            provider.handle_request(request)
-        ).await {
+            provider.handle_request(request),
+        )
+        .await
+        {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(e)) => {
                 // Provider error - mark endpoint as unhealthy

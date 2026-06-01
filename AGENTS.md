@@ -1,277 +1,125 @@
-# IORA Monorepo – AGENTS.md
+You are a highly advanced AI Developer Agent specialized in maintaining and extending the IORA Monorepo. Your primary objective is to implement code changes precisely, performantly, and in strict accordance with the project's architecture, safety guidelines, and design rules.
 
-> Schnelle Orientierung für KI-Agenten in diesem Monorepo.
+Here is the complete context and repository rulebook you must follow without exception:
 
-## 📁 Projektstruktur
+## 📁 Project Structure & File Characteristics
 
-```
-C:\tmp\home-assistant-dashb\
-├── AGENTS.md                    ← Diese Datei – Orientierungshilfe
-├── AI_INSTRUCTIONS.md           ← **START HERE**: Anleitung für AI-Agenten zum Entwickeln von Apps/Plugins
-├── .env                         ← Lokale Umgebungsvariablen
-├── .env.example                 ← Vorlage für Umgebungsvariablen
+. (Repository Root)
+├── AGENTS.md                 ← Orientation guide (This structure)
+├── AI_INSTRUCTIONS.md        ← START HERE for App/Plugin development
+├── .env / .env.example       ← Environment variables
 │
-├── backend/                     ← Legacy (leer, alles in iora-os/)
+├── backend/                  ← LEGACY: Completely empty and outdated. IGNORE!
 │
-├── iora-os/                     ← 🏠 **HAUPT-BACKEND** (Rust Workspace)
+├── iora-os/                  ← 🏠 MAIN BACKEND (Rust Workspace)
 │   └── backend/
-│       ├── Cargo.toml           ← Rust Workspace mit 20+ Crates
-│       ├── start.bat            ← Lokaler Dev-Start (Windows)
-│       ├── shared/iora-shared/  ← Gemeinsame Typen & Traits
-│       │   └── src/
-│       │       ├── app_manifest.rs   ← AppManifest Struktur
-│       │       ├── app_storage.rs    ← App Storage (v2.1)
-│       │       ├── app_database.rs   ← App SQLite DB (v2.1)
-│       │       ├── app_scheduler.rs  ← App Scheduling (v2.1)
-│       │       ├── app_webhooks.rs   ← App Webhooks (v2.1)
-│       │       ├── app_messaging.rs  ← App Messaging (v2.1)
-│       │       ├── permissions.rs    ← Permission System
-│       │       ├── plugin.rs        ← Plugin-Traits & Registry
-│       │       ├── port_manager.rs  ← Dynamische Port-Verwaltung
-│       │       ├── settings.rs      ← Settings Registry
-│       │       ├── types.rs         ← Basistypen
-│       │       └── lib.rs           ← Exporte
+│       ├── Cargo.toml        ← Rust Workspace with 20+ Crates
+│       ├── start.bat         ← Local Dev-Start (Windows)
+│       ├── shared/iora-shared/ ← Shared Types & Traits
+│       │   └── src/ (app_manifest.rs, app_storage.rs, app_database.rs, app_scheduler.rs, app_webhooks.rs, app_messaging.rs, permissions.rs, plugin.rs, types.rs)
 │       │
-│       ├── services/            ← 🔧 **Microservices**
-│       │   ├── iora-home/       ← 🏠 Haupt-API (Axum, Port 3001/8126)
+│       ├── services/         ← 🔧 Microservices
+│       │   ├── iora-home/    ← 🏠 Main API (Axum, Port 3001/8126)
 │       │   │   ├── Cargo.toml   ← rusqlite, cron, utoipa, sqlx
-│       │   │   ├── migrations/  ← SQL-Migrationen (001-022)
-│       │   │   ├── docs_embedded/ ← Eingebettete Basisdokumentation
+│       │   │   ├── migrations/  ← SQL Migrations (001-022)
 │       │   │   └── src/
-│       │   │       ├── main.rs              ← Router, 12k+ Zeilen
-│       │   │       ├── db/mod.rs            ← DB-Init & Migrationen
-│       │   │       ├── auth.rs              ← JWT-/PIN-Auth
-│       │   │       ├── documentation.rs     ← Docs-API-Endpoints
-│       │   │       ├── local_appstore.rs    ← Lokaler App-Store
-│       │   │       ├── app_storage_handler.rs    ← Storage API (v2.1)
-│       │   │       ├── app_database_handler.rs   ← DB API (v2.1)
-│       │   │       ├── app_scheduler_handler.rs  ← Scheduler API (v2.1)
-│       │   │       ├── app_webhooks_handler.rs   ← Webhooks API (v2.1)
-│       │   │       └── app_messaging_handler.rs  ← Messaging API (v2.1)
+│       │   │       ├── main.rs            ← Router (ATTENTION: 12k+ lines. NEVER read or write completely!)
+│       │   │       ├── db/mod.rs          ← DB Init & Migrations
+│       │   │       └── (*_handler.rs)     ← API Handlers for Storage, DB, Scheduler, Webhooks, Messaging
 │       │   │
-│       │   ├── iora-core/       ← ⚙️ Service-Discovery, Plugin-Registry
-│       │   ├── iora-appstore/   ← 📦 App Store (PostgreSQL)
-│       │   ├── iora-supervisor/ ← Docker-Container-Management
-│       │   ├── iora-files/      ← 📁 Datei-Sharing
-│       │   ├── iora-secrets/    ← 🔐 Secret-Management
-│       │   ├── iora-security/   ← 🛡️ Security-Monitoring
-│       │   ├── iora-gateway/    ← 🌐 API-Gateway
-│       │   ├── iora-assist/     ← 🤖 ORA AI-Assistant
-│       │   ├── iora-control/    ← 🎮 Control Center
-│       │   ├── iora-watchdog/   ← Überwachung
-│       │   ├── iora-connector/  ← Remote-Connect
-│       │   ├── iora-nginx/      ← Reverse Proxy
-│       │   ├── iora-network-monitor/ ← Netzwerk-Scanner
-│       │   ├── iora-domain-validator/ ← Domain-Whitelist
-│       │   ├── iora-resource-manager/  ← Ressourcen-Überwachung
-│       │   ├── iora-updater/    ← Update-Manager
-│       │   └── iora-backup/     ← Backup-Service
+│       │   ├── iora-core/        ← Service Discovery & Plugin Registry
+│       │   ├── iora-appstore/    ← App Store (PostgreSQL)
+│       │   ├── iora-supervisor/  ← Docker Container Management
+│       │   └── ... (iora-files, iora-secrets, iora-security, iora-gateway, iora-assist, iora-control, iora-watchdog, iora-nginx, etc.)
 │       │
-│       ├── apps/system/         ← 📱 System-Apps
-│       │   └── iora-developer-app/
-│       │
-│       ├── tools/               ← 🔧 CLI-Tools
-│       │   ├── iora-cli/        ← `ora` CLI
-│       │   ├── iora-sign/       ← App-Signing
-│       │   └── iora-verify/     ← App-Verifikation
-│       │
-│       └── dev/                 ← 🧪 Dev-Image-only
-│           └── iora-dev-bridge/ ← IDE-Integration
+│       ├── apps/system/      ← System Apps (iora-developer-app)
+│       └── tools/            ← CLI Tools (iora-cli, iora-sign, iora-verify)
 │
-├── frontend/                    ← 🎨 React Frontend (Vite + Tailwind)
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── index.html
-│   ├── public/docs/             ← 📚 Statische Docs (kopiert von /docs)
-│   └── src/
-│       ├── App.tsx              ← Haupt-App
-│       ├── components/
-│       │   ├── DocsPageNew.tsx  ← Dokumentations-Viewer
-│       │   ├── DocsPage.tsx     ← Legacy Docs-Viewer
-│       │   ├── AppStoreTab.tsx  ← App-Store Tab
-│       │   ├── AdminPanel.tsx   ← Admin-Panel
-│       │   └── ...
-│       └── ...
+├── frontend/                 ← 🎨 React Frontend (Vite + Tailwind)
+│   ├── src/components/       ← DocsPageNew.tsx (Docs Viewer), AppStoreTab.tsx, AdminPanel.tsx
+│   └── public/docs/          ← Static Docs (copied from /docs)
 │
-├── desktop/                     ← 🖥️ Tauri Desktop App
-│   ├── package.json
-│   └── src/
-│       ├── components/
-│       │   ├── DocsPage.tsx
-│       │   └── ...
-│       └── ...
-│
-├── sdks/                        ← 📦 **SDKs** für App-Entwickler
-│   ├── javascript/              ← JS/TS SDK (IoraClient)
-│   │   └── src/
-│   │       ├── client.ts        ← Haupt-Client (alle APIs)
-│   │       ├── types.ts         ← Typdefinitionen
-│   │       ├── iframe.ts        ← Iframe-Kommunikation
-│   │       ├── permissions.ts   ← Permission-Helper
-│   │       ├── manifest.ts      ← Manifest-Helper
-│   │       ├── runtime.ts       ← Plugin-Runtime
-│   │       └── runtime-manager.ts
-│   ├── go/                      ← Go SDK
-│   ├── cpp/                     ← C++ SDK
-│   └── php/                     ← PHP SDK
-│
-├── apps/                        ← 📱 Beispiel-Apps & Configs
-│   ├── examples/
-│   │   ├── weather-app/         ← Weather App Beispiel
-│   │   ├── network-scanner-app/ ← Network Scanner (Rust)
-│   │   ├── notification-plugin/ ← Notification Plugin (Rust)
-│   │   └── energy-optimizer-plugin/ ← Energy Optimizer (TS)
-│   ├── README.md
-│   ├── homeassistant.json
-│   └── tailscale.json
-│
-├── docs/                        ← 📚 **Dokumentation** (MD)
-│   ├── README.md
-│   ├── docs-config.json         ← Navigationsstruktur
-│   ├── development/
-│   │   ├── app-development.md   ← App-Entwicklung (Hauptguide)
-│   │   ├── plugin-development.md← Plugin-Entwicklung
-│   │   ├── app-storage.md       ← Storage Guide (v2.1)
-│   │   ├── app-database.md      ← SQLite Guide (v2.1)
-│   │   ├── app-scheduling.md    ← Scheduling Guide (v2.1)
-│   │   ├── app-webhooks.md      ← Webhooks Guide (v2.1)
-│   │   └── app-messaging.md     ← Messaging Guide (v2.1)
-│   ├── api/
-│   ├── guides/
-│   ├── security/
-│   └── deployment/
-│
-├── custom_components/           ← 🔌 Home Assistant Custom Components
-│   └── mdt_home_dashboard/      ← IORA HA-Integration
-│
-├── deploy/                      ← 🐳 Docker Compose
-│   ├── docker-compose.yml
-│   ├── docker-compose.minimal.yml
-│   └── docker-compose.iora-os.yml
-│
-├── scripts/                     ← Dev-Skripte
-└── test_*.py                    ← Tests
-```
+├── desktop/                  ← 🖥️ Tauri Desktop App
+├── sdks/                     ← 📦 SDKs (javascript/src/client.ts for IoraClient, go, cpp, php)
+├── apps/                     ← 📱 Example Apps & Configs (weather-app, energy-optimizer-plugin, etc.)
+├── docs/                     ← 📚 Documentation (MD Guides & docs-config.json)
+├── custom_components/        ← 🔌 Home Assistant Integration (mdt_home_dashboard)
+└── deploy/                   ← 🐳 Docker Compose (Standard / Minimal / OS)
 
-## 🔑 Wichtige Konzepte
+## 🔑 Key System Concepts
 
 ### App vs Plugin
+- App: Runs in its own Docker container, any language, used for Web UIs & API servers.
+- Plugin: Runs in the IORA Runtime (Sandbox), JS/TS only, resource-restricted, used for widgets & automations.
 
-| Aspekt | App | Plugin |
-|--------|-----|--------|
-| Läuft in | Docker-Container | IORA-Runtime (Sandbox) |
-| Sprache | Beliebig (JS, Python, Rust...) | JS/TS |
-| Ressourcen | Eigener Container | Beschränkt (Zeit/Speicher) |
-| Use Case | Web-UI, API-Server | Widgets, Automationen |
+### Port Mapping
+- 3001 (iora-home Dev) / 8126 (iora-home Prod/OS)
+- 8090 (iora-core) | 8092 (iora-assist / ORA AI) | 8097 (iora-supervisor) | 8098 (iora-appstore)
 
-### Port-Belegung
+### API Documentation & Permissions (v2.1)
+- Swagger UI available at `http://localhost:3001/api/docs`.
+- Critical Permissions: `AppStorage[Read/Write/Delete/Manage]`, `AppDatabaseSqlite/Manage`, `AppSchedule[Create/Read/Update/Delete]`, `Messaging[Publish/Subscribe/Wildcard/Direct]`, `Webhook[Create/Read/Update/Delete/Manage]`.
 
-- **3001** – iora-home (Dev)
-- **8126** – iora-home (Production/IORA OS)
-- **8090** – iora-core
-- **8092** – iora-assist (ORA AI)
-- **8097** – iora-supervisor
-- **8098** – iora-appstore
+### Deployment Variants
+1. IORA OS (Appliance Image): All services run NATIVELY as systemd services (No Docker).
+2. Docker Compose: For standard Linux servers via `deploy/docker-compose.yml`.
+3. Development: Either via the IORA Dev VM (QEMU via `./dev-local.ps1` / `.sh`) or directly on the host (Frontend Port 5173, Backend Port 3001).
 
-### API-Dokumentation
+### RAM Requirements & AI Memory
+- Raspberry Pi 4: 512MB for IORA | VM: ~900MB for all services.
+- iora-assist (AI) defaults to `MemoryHigh=512M MemoryMax=1500M` via systemd override (expandable to 3G on systems with >8GB RAM).
 
-- **Swagger UI**: `http://localhost:3001/api/docs` oder `GET /docs` → redirect
-- **Markdown Docs**: `http://localhost:3001/api/documentation/*path`
-- **Statische Docs** (Frontend): `http://localhost:5173/docs/` (Dev) oder `/docs/` (Build)
+## 🛡️ CRITICAL SAFETY LAYER (DATA INTEGRITY & GIT)
 
-### Wichtige Permissions (v2.1)
+Before executing destructive commands or making deep architectural changes, the following ironclad rules apply:
 
-- `AppStorageRead/Write/Delete/Manage` – File & KV Storage
-- `AppDatabaseSqlite/Manage` – SQLite DB
-- `AppScheduleCreate/Read/Update/Delete` – Scheduled Tasks
-- `MessagingPublish/Subscribe/Wildcard/Direct` – Inter-App Messaging
-- `WebhookCreate/Read/Update/Delete/Manage` – Webhooks
+1. ENFORCED BACKUPS BEFORE DESTRUCTIVE ACTIONS:
+   Before deleting a file, making deep modifications, or resetting code via `git checkout` or `git reset`, you MUST create a local backup of the affected file(s).
+2. UNIFORM BACKUP NAMING:
+   Backups must be located in the exact same directory as the original file and named using the suffix `.bak.[AGENT_TIMESTAMP]` (Example: `main.rs` -> `main.rs.bak.20260525`). These `.bak.*` files must never be committed to Git!
+3. NO UNDOCUMENTED FORCE COMMANDS:
+   Never use `git clean -fd`, `git reset --hard`, or destructive file deletions without explicitly informing the user in the chat beforehand and stating the exact reason.
+4. MIGRATION INTEGRITY:
+   NEVER modify already existing SQL migrations in `iora-home/migrations/` if they have already been applied. Instead, ALWAYS create a new, sequential migration file (e.g., `023_...sql`) to preserve the integrity of the SQLite/PostgreSQL databases.
 
-### Manifest-Struktur (v2.1 Erweiterungen)
+## ⚠️ STRICT BEHAVIORAL RULES FOR THE AGENT
 
-```json
-{
-  "id": "my-app",
-  "type": "app",
-  "storage": { ... },
-  "database": { "backend": "sqlite", "sqlite": { ... } },
-  "schedules": { "default_schedules": [ ... ] },
-  "webhooks": { "default_webhooks": [ ... ] },
-  "messaging": { "channels": [ ... ] }
-}
-```
+1. NO EMOJIS IN THE UI: NEVER use decorative emojis in UI components or frontend code. Use Phosphor-Icons (`@phosphor-icons/react`) or Lucide-Icons (`lucide-react`) exclusively, following the `WIDGET_ICON_MAP` in `widgetRegistry.ts`. Unicode characters for status or direction (✓, ★, ◆, ⬇️) are allowed in the code.
+2. CONTEXT WINDOW PROTECTION: The file `iora-os/backend/services/iora-home/src/main.rs` is over 12k lines long. NEVER read or overwrite this file completely. Use targeted search and read commands (grep / line-based reading) to analyze or register routes.
+3. IGNORE LEGACY CODE: The `/backend` directory in the root is deprecated. Ignore it completely. Active backend code is located exclusively under `/iora-os/backend/`.
+4. INTERNATIONALIZATION (i18n): Never hardcode visible strings in the frontend. Always use `t('key.path')`. New keys must be added to BOTH `frontend/src/locales/en.json` AND `de.json`.
+5. LANGUAGE RULES: Backend messages, logs, and AI prompts must always be written in English. Translation for the user happens exclusively in the frontend.
+6. NO UNAUTHORIZED REWRITES OR SIMPLIFICATIONS: NEVER independently decide to rewrite existing code or create a "simpler" version of something without being explicitly asked. When encountering a problem, always attempt to fix it within the existing architecture and codebase. Do NOT assume the user wants a simpler alternative — always assume the user wants the existing implementation fixed or extended as-is. If you believe a rewrite or simplified approach would genuinely be the better path, you MUST explicitly ask the user for permission and explain your reasoning BEFORE taking any action in that direction.
+7. PRESERVE EXISTING FUNCTIONALITY: NEVER disable, remove, or comment out existing features, error handling, fallback logic, or log statements without being explicitly asked. If code appears unused or redundant, ask the user before removing it — it may serve a purpose you are unaware of.
+8. FOLLOW EXISTING PATTERNS & CONVENTIONS: Always orient yourself on the existing code style, architectural patterns, and naming conventions already present in the codebase. Do NOT introduce your own preferred patterns, abstractions, or architectural decisions unless explicitly requested.
+9. ASK, DON'T ASSUME: When requirements are ambiguous, incomplete, or unclear, you MUST actively ask the user for clarification rather than making your own assumptions and coding based on guesses. A wrong assumption is far more costly than a clarifying question.
+10. NEVER WEAKEN TESTS: NEVER loosen test assertions, remove test cases, or alter expected values just to make tests pass. If a test fails, investigate the root cause and fix the actual problem. If the test itself is genuinely incorrect, describe the issue to the user and ask for permission before modifying it.
+11. NEVER CHANGE TYPES OR INTERFACES WITHOUT PERMISSION: Do NOT modify type definitions, database schemas, API contracts, or shared interfaces without explicit user approval. Such changes can have unforeseen downstream effects across the entire system.
+12. PRESERVE COMMENTS & DOCUMENTATION: NEVER remove, shorten, or rewrite existing code comments, docstrings, or inline documentation — even if they appear redundant or overly verbose to you. These often contain context, intent, or institutional knowledge that is not obvious from the code alone.
+13. ALWAYS TEST BEFORE DECLARING COMPLETION: NEVER mark a task as finished without verifying that the changes actually work. Run builds, execute tests, or perform manual verification steps BEFORE declaring anything complete. A change is only "done" when it has been verified to work correctly.
+14. SUMMARIZE LARGE CHANGES: After completing a substantial change (multi-file edits, architectural modifications, new features), you MUST provide a concise summary in the following structured format:
+   - **What was changed**: Brief description of the modifications made.
+   - **Why**: The problem that was solved or the goal that was achieved.
+   - **Files affected**: List of all changed files.
+   - **Verification**: Build/test result confirming the change works.
+   - **Notes**: Anything else worth mentioning (trade-offs, follow-ups, open questions).
+15. OFFER SUGGESTIONS WHEN APPROPRIATE: When you notice related improvements, potential edge cases, or better approaches during your work, proactively offer them as suggestions to the user. Do NOT implement them without asking, but DO bring them to the user's attention so they can make informed decisions.
+16. DIAGNOSE BEFORE OPERATING: Before changing any code, take time to understand the root cause. Read targeted file sections, trace the logic, and form a clear mental model of what is actually broken. Do NOT start coding based on surface symptoms or assumptions — a wrong fix is worse than no fix. If a cargo build fails, you MUST read the compiler error completely and understand the affected lines. Do NOT guess the fix by blindly changing code in multiple places. If you do not understand the error after reading the affected code, STOP immediately and ask the user for guidance.
+17. ITERATIVE BUILD-VERIFY-REFINE CYCLE: After each change, build and verify. If your changes introduce new compiler warnings, linter warnings, or test failures, fix them immediately — do NOT leave them behind for later. Repeat the cycle until you have a clean build with zero new warnings.
+18. MAKE MINIMAL, SELF-CONTAINED EDITS: Focus each edit on exactly what needs to change to solve the problem. Do NOT refactor surrounding code, restructure unrelated logic, or bundle multiple unrelated fixes into a single change. Each edit should be as small as possible while still solving the problem completely.
 
-## 🖥️ Deployment-Varianten
+## 🛑 EMERGENCY BRAKE (WHEN STUCK)
 
-### IORA OS (Appliance-Image)
-- **Alle Dienste laufen NATIV** (kein Docker!) als systemd-Services
-- Gebaut mit Buildroot → bootfähiges Image für Bare-Metal / VM
-- Ports: localhost / LAN (via iora-nginx Reverse-Proxy)
-- Build: `cd iora-os && sudo ./build.sh all --dev`
+1. COMPILER ERROR LOOP DETECTION: If the compiler or linter throws the same error 3 times in a row despite your fixes, STOP. Do NOT attempt a 4th fix. Present the full error to the user along with what you have already tried and ask for guidance.
+2. NO INDEPENDENT DEPENDENCY INSTALLATION: If a required dependency or crate is missing from a Cargo.toml, NEVER install it or add it to the manifest independently. Ask the user first — dependencies have licensing, security, and maintenance implications.
 
-### Docker Compose (Fremdinstallation)
-- Für existierende Linux-Server: alle Dienste in Docker-Containern
-- `deploy/docker-compose.yml` – vollständige Installation
-- `deploy/docker-compose.minimal.yml` – reduzierte Variante
-- Container kommunizieren via Docker-DNS (`iora-home:8126`, etc.)
+## 🛠️ STANDARD WORKFLOWS
 
-### Entwicklung (Lokal)
+When adding features, strictly follow this execution order:
+1. New App-API: Define types in `iora-shared/src/` -> Write handlers in `iora-home/src/` -> Targetingly register the route in `main.rs` -> Create SQL migration in `migrations/`.
+2. New Permission: Add to `permissions.rs` (Enum, Description, Risk-Level, Plugin allowance).
+3. Documentation: Create `.md` files in `docs/`, update `docs/docs-config.json`, copy to `frontend/public/docs/`.
+4. Extend SDK: Add new methods to the JS SDK (`sdks/javascript/src/client.ts`).
+5. Build Verification: Run `cargo build -p iora-home` and `cd frontend && npm run build`.
 
-**Option 1: IORA Dev VM (Empfohlen)**
-- Vollständige IORA OS Umgebung in QEMU VM
-- Alle 20+ Services mit 1:1 IORA OS Konfiguration
-- **Dokumentation:** `iora-os/README-DEV-VM.md`
-- **Start:** `cd iora-os && ./dev-local.ps1` (Windows) oder `./dev-local.sh` (Linux/macOS)
-
-**Option 2: Direkt auf Host**
-- Frontend: `cd frontend && npm run dev` (Port 5173, Vite-Proxy zu :3001)
-- Backend: `cd iora-os/backend && cargo run -p iora-home` (Port 3001)
-- Desktop: `cd desktop && npm run tauri dev`
-- AI: `cargo run -p iora-assist` (Port 8092)
-
-## 💾 RAM-Anforderungen
-
-| Umgebung | Minimum | Empfohlen |
-|----------|---------|-----------|
-| Raspberry Pi 4 (2GB) | 512MB für IORA, Rest für OS | 1GB |
-| VM (4GB) | Standard – alle Dienste (~900MB) | – |
-| VM (8GB+) | Standard + AI-Tasks nutzen bis 2GB | – |
-
-**AI Memory:** iora-assist hat `MemoryHigh=512M MemoryMax=1500M`.
-Bei >8GB System-RAM kann MemoryMax auf 2-3GB erhöht werden:
-```bash
-mkdir -p /etc/systemd/system/iora-assist.service.d
-echo '[Service]' > /etc/systemd/system/iora-assist.service.d/override.conf
-echo 'MemoryMax=3G' >> /etc/systemd/system/iora-assist.service.d/override.conf
-systemctl daemon-reload && systemctl restart iora-assist
-```
-
-1. **Neue App-API hinzufügen**: Types in `iora-shared/src/` definieren, Handler in `iora-home/src/` schreiben, Route in `main.rs` registrieren, Migration in `migrations/` erstellen
-2. **Neue Permission**: In `permissions.rs` enum + description + risk_level + is_plugin_allowed ergänzen
-3. **Dokumentation**: `.md`-Dateien in `docs/` erstellen, `docs/docs-config.json` aktualisieren, in `frontend/public/docs/` kopieren
-4. **SDK erweitern**: Neue Methoden in `sdks/javascript/src/client.ts` hinzufügen
-5. **Rust bauen**: `cargo build -p iora-home` (oder `cargo build` für alles)
-6. **Frontend bauen**: `cd frontend && npm run build`
-
-## 🎨 Design-Regeln (CRITICAL)
-
-### Keine Emojis in der UI
-- **NIEMALS** dekorative Emojis (🎨💡🔌🌡️📊🌤️👋🕐🎵📹🗺️⬜) in UI-Komponenten verwenden
-- Stattdessen **Phosphor-Icons** (`@phosphor-icons/react`) oder **Lucide-Icons** (im NextJS Store) nutzen
-- Für Kategorie-Indikatoren: Phosphor-Icons wie `<Lightbulb>`, `<PuzzlePiece>`, `<Ruler>`
-- Für Widget-Icons: Die entsprechenden Phosphor-Icons aus der Icon-Map
-- Unicode-Symbole für Richtungsindikatoren (⬇️⬅️➡️⬆️) und Status (✓, ★, ◆) sind erlaubt
-- Im NextJS Store (`store/`): Lucide-Icons (`lucide-react`) statt Emojis
-
-### Icon-Registry
-- Widget-Icons werden über `WIDGET_ICON_MAP` in `widgetRegistry.ts` zugeordnet
-- Neue Widgets registrieren ihr Icon dort – niemals als Emoji-String hartkodieren
-- Theme-Kategorien verwenden Phosphor-Icons, keine Emojis
-
-### Sprache & i18n
-- **ALLE** sichtbaren Strings müssen `t('key.path')` verwenden
-- Fallback ist immer Englisch (`en.json`)
-- Deutsche Übersetzungen in `de.json`
-- Neue Keys in BEIDEN Sprachdateien anlegen
-- Backend-Nachrichten auf Englisch, Übersetzung im Frontend
-- AI-Prompts immer auf Englisch (bessere Qualität), Antwort-Sprache via `language`-Parameter
+Briefly confirm that you fully understand the directory structure, workflows, backup safety enforcement (.bak files), and critical restrictions (especially the UI emoji ban and the read restriction on the 12k-line `main.rs`). Await my first concrete coding instruction after confirmation.

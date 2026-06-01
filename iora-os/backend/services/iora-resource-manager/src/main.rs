@@ -655,14 +655,30 @@ async fn main() -> Result<()> {
     // Load environment
     dotenv::dotenv().ok();
 
-    // Database connection. The fallback database is `iora_core`, which
-    // is the central PG database created by the IORA OS first-boot
-    // script (see board/iora/post-build.sh). The legacy default
-    // `postgres://iora:iora@localhost/iora` pointed at a DB that does
-    // NOT exist on a real install and produced an endless restart loop
-    // with "database 'iora' does not exist".
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora_core".to_string());
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Global Config Integration - Auto-reload supported
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Database connection using Global Config with hot-reload support
+    let database_url = iora_shared::system_config::get_cached_setting("resource_manager.database_url")
+        .or_else(|| iora_shared::system_config::get_cached_setting("DATABASE_URL"))
+        .unwrap_or_else(|| {
+            // Fallback to environment variable
+            std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "postgres://iora:iora@localhost/iora_core".to_string())
+        });
+
+    // Mask sensitive parts of the database URL for logging
+    let masked_url = if database_url.contains('@') {
+        let parts: Vec<&str> = database_url.split('@').collect();
+        if parts.len() == 2 {
+            format!("***@{}", parts[1])
+        } else {
+            "***".to_string()
+        }
+    } else {
+        database_url.clone()
+    };
+    info!("Using database: {}", masked_url);
 
     let pool = PgPool::connect(&database_url)
         .await
@@ -706,8 +722,13 @@ async fn main() -> Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
-    info!("iora-resource-manager listening on {}", addr);
+    // Use Global Config for port with hot-reload support
+    let port = iora_shared::system_config::get_cached_setting("resource_manager.port")
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PORT);
+
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    info!("iora-resource-manager listening on {} (Global Config hot-reload enabled)", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let _hb = iora_shared::heartbeat::spawn_default(

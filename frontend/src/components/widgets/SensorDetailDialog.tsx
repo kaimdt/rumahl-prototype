@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/dialog'
 import { Thermometer, Drop, Lightning, Gauge } from '@phosphor-icons/react'
 import type { SensorEntity } from '@/lib/types'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
 import { isIsoDateTime, formatDateTime } from '@/lib/formatValue'
 

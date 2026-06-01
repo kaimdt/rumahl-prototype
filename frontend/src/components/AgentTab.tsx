@@ -3,7 +3,7 @@
 // Design: Clean Copilot-inspired interface with glassmorphism
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   ChatCircle, Sparkle, Brain, Robot, PaperPlaneRight, Microphone,
   SpeakerHigh, SpeakerSlash, Plus, Trash, FolderOpen, Code,
@@ -606,32 +606,39 @@ export function AgentTab({ token }: { token: string }) {
   }
 
   // ─── Diff Renderer ─────────────────────────────────────────────────────────
-  const renderDiff = (change: FileDiff) => (
-    <div key={change.file_path} className="rounded-lg bg-foreground/[0.03] border border-foreground/10 overflow-hidden mb-1.5">
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-foreground/5 border-b border-foreground/10 text-xs font-mono">
-        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+  const renderDiff = (change: FileDiff) => {
+    const addedLines = change.hunks.reduce((sum, hunk) => sum + hunk.content.split('\n').filter(line => line.startsWith('+')).length, 0)
+    const removedLines = change.hunks.reduce((sum, hunk) => sum + hunk.content.split('\n').filter(line => line.startsWith('-')).length, 0)
+
+    return (
+    <div key={change.file_path} className="rounded-xl bg-background/35 border border-foreground/10 overflow-hidden shadow-sm shadow-black/5">
+      <div className="flex items-center gap-2 px-3 py-2 bg-foreground/[0.035] border-b border-foreground/10 text-xs">
+        <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase ${
           change.status === 'added' ? 'bg-green-500/15 text-green-300' :
           change.status === 'deleted' ? 'bg-red-500/15 text-red-300' :
           'bg-blue-500/15 text-blue-300'
         }`}>{change.status}</span>
-        <span className="text-foreground/70">{change.file_path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/70">{change.file_path}</span>
+        <span className="rounded-md bg-green-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-green-300">+{addedLines}</span>
+        <span className="rounded-md bg-red-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-red-300">-{removedLines}</span>
       </div>
-      <div className="font-mono text-[10px] leading-relaxed max-h-48 overflow-y-auto">
+      <div className="font-mono text-[10px] leading-relaxed max-h-52 overflow-y-auto bg-black/15">
         {change.hunks.map((hunk, i) => (
           <div key={i}>
-            <div className="px-3 py-0.5 bg-purple-500/5 text-purple-300/50 text-[9px]">
+            <div className="px-3 py-1 bg-foreground/[0.025] text-foreground/35 text-[9px] border-b border-foreground/5">
               @@ -{hunk.old_start},{hunk.old_lines} +{hunk.new_start},{hunk.new_lines} @@
             </div>
             {hunk.content.split('\n').filter(l => l.trim()).slice(0, 20).map((line, j) => {
               const cls = line.startsWith('+') ? 'text-green-300 bg-green-500/10' :
                 line.startsWith('-') ? 'text-red-300 bg-red-500/10' : 'text-foreground/70'
-              return <div key={j} className={`px-3 py-0.5 ${cls}`}>{line}</div>
+              return <div key={j} className={`px-3 py-0.5 whitespace-pre-wrap break-all ${cls}`}>{line}</div>
             })}
           </div>
         ))}
       </div>
     </div>
-  )
+    )
+  }
 
   const selectedWs = workspaces.find(w => w.id === selectedWorkspace)
   const workspaceTasks = tasks.filter(t => t.workspace_id === selectedWorkspace)
@@ -1172,10 +1179,21 @@ export function AgentTab({ token }: { token: string }) {
                         {/* Changes */}
                         {task.changes.length > 0 && (
                           <div className="border-t border-foreground/10 px-4 py-3">
-                            <p className="text-[10px] font-semibold text-foreground/60 mb-2">
-                              {task.changes.length} Änderung(en)
-                            </p>
-                            <div className="space-y-1">{task.changes.map(c => renderDiff(c))}</div>
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <div className="h-6 w-6 rounded-lg bg-blue-500/10 text-blue-300 flex items-center justify-center">
+                                  <GitCommit size={12} />
+                                </div>
+                                <div>
+                                  <p className="text-[11px] font-semibold text-foreground/70">Changes</p>
+                                  <p className="text-[9px] text-foreground/35">{task.changes.length} Datei(en) aktualisiert</p>
+                                </div>
+                              </div>
+                              <span className="rounded-full border border-foreground/10 bg-foreground/[0.035] px-2 py-1 text-[9px] font-medium text-foreground/45">
+                                Review bereit
+                              </span>
+                            </div>
+                            <div className="space-y-2">{task.changes.map(c => renderDiff(c))}</div>
                           </div>
                         )}
 

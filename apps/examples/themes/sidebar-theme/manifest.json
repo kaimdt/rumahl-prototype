@@ -1,0 +1,634 @@
+{
+  "id": "sidebar-theme",
+  "name": "Sidebar Navigation",
+  "version": "1.1.0",
+  "developer": "IORA",
+  "description": "Minimalistisches Dark-Theme mit CSS-getriebener Sidebar-Navigation – elegant, responsive und komplett ohne JavaScript-Layout. Features: 2 Design-Modes (Hell/Dunkel), 4 Akzent-Presets, responsive Mobile-Navigation, Glass-Effekte.",
+  "icon": "Sidebar",
+  "preview_image": "images/preview.svg",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": [
+    "ThemeInstall"
+  ],
+  "theme": {
+    "id": "sidebar-dark",
+    "name": "Sidebar Dark",
+    "version": "1.1.0",
+    "developer": "IORA",
+    "description": "Minimales Dark-Theme mit CSS-getriebener Sidebar-Navigation – elegant und responsive",
+    "icon": "Sidebar",
+    "preview_image": "images/preview.svg",
+    "parent_theme": "night",
+    "source": "inline",
+    "order": 55,
+    "css_files": [],
+    "js_files": [
+      "js/theme.js"
+    ],
+    "fonts": [
+      {
+        "name": "Inter",
+        "family": "'Inter', 'SF Pro', sans-serif",
+        "url": "fonts/inter.css",
+        "weights": "300;400;500",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": false,
+        "is_monospace": false,
+        "format": "woff2"
+      }
+    ],
+    "css_variables": {
+      "layout-nav-position": "left",
+      "layout-nav-width": "240px",
+      "layout-header-style": "compact",
+      "layout-card-radius": "1rem",
+      "layout-widget-gap": "1rem",
+      "background": "oklch(0.18 0.02 260)",
+      "foreground": "oklch(0.85 0.015 260)",
+      "card": "oklch(0.22 0.025 260)",
+      "card-foreground": "oklch(0.88 0.015 260)",
+      "accent": "oklch(0.62 0.20 260)",
+      "accent-foreground": "oklch(0.98 0 0)",
+      "muted": "oklch(0.25 0.02 260)",
+      "muted-foreground": "oklch(0.55 0.02 260)",
+      "border": "oklch(0.28 0.015 260)",
+      "ring": "oklch(0.62 0.20 260)",
+      "glass-bg": "oklch(0.22 0.03 260 / 0.55)",
+      "glass-bg-end": "oklch(0.18 0.02 260 / 0.45)",
+      "glass-border-color": "oklch(0.40 0.02 260 / 0.12)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.15)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.08)",
+      "success": "oklch(0.55 0.16 145)",
+      "destructive": "oklch(0.50 0.22 30)",
+      "transition-duration": "0.4s",
+      "shadow-sm": "0 1px 2px rgba(255,255,255,0.03)",
+      "shadow-md": "0 4px 6px rgba(255,255,255,0.05)",
+      "shadow-lg": "0 10px 25px rgba(255,255,255,0.08)",
+      "shadow-xl": "0 20px 50px rgba(255,255,255,0.08)",
+      "selection-bg": "var(--accent)",
+      "selection-fg": "var(--accent-foreground)",
+      "scrollbar-width": "6px",
+      "scrollbar-track": "transparent",
+      "scrollbar-thumb": "var(--border)",
+      "scrollbar-thumb-hover": "var(--muted-foreground)",
+      "focus-ring-width": "2px",
+      "focus-ring-offset": "2px",
+      "content-max-width": "1500px",
+      "header-height": "56px",
+      "nav-icon-size": "20px",
+      "badge-radius": "9999px",
+      "tooltip-bg": "var(--card)",
+      "tooltip-fg": "var(--card-foreground)",
+      "input-bg": "var(--muted)",
+      "input-border": "var(--border)",
+      "overlay-bg": "rgba(0,0,0,0.5)",
+      "skeleton-shimmer": "rgba(255,255,255,0.05)"
+    },
+    "additional_css": "/* ─── Sidebar Theme: Additional Styling ─── */\n:root[data-nav-position=\"left\"] [data-nav=\"root\"] {\n  background: oklch(0.16 0.025 260 / 0.95) !important;\n  backdrop-filter: blur(30px) saturate(1.4);\n  border-right: 1px solid oklch(0.35 0.02 260 / 0.2);\n  box-shadow: 2px 0 30px oklch(0 0 0 / 0.3);\n}\n:root[data-nav-position=\"left\"] [data-nav=\"root\"] button { min-height: 48px !important; margin: 2px 4px !important; font-size: 14px !important; }\n:root[data-nav-position=\"left\"] [data-nav=\"root\"] button:hover { background: oklch(0.30 0.03 260 / 0.4) !important; }\n:root[data-nav-position=\"left\"] main { padding-top: 1.5rem !important; }\n:root[data-header-style=\"compact\"] .glass-header { background: oklch(0.20 0.02 260 / 0.6) !important; backdrop-filter: blur(20px); border-bottom: 1px solid oklch(0.30 0.02 260 / 0.15); }\n.glass-card { transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease; }\n.glass-card:hover { border-color: oklch(from var(--accent) l c h / 0.15); transform: translateY(-1px); }\n@media (max-width: 768px) {\n  :root[data-nav-position=\"left\"] { --layout-nav-width: 0px; }\n  :root[data-nav-position=\"left\"] [data-nav=\"root\"] {\n    bottom: 0 !important; top: auto !important; left: 50% !important; right: auto !important;\n    transform: translateX(-50%) !important; width: auto !important; max-width: calc(100vw - 1rem) !important;\n    flex-direction: row !important; border-radius: 9999px !important; border-right: none !important;\n  }\n  :root[data-nav-position=\"left\"] [data-nav=\"root\"] .flex.items-center { flex-direction: row !important; }\n  :root[data-nav-position=\"left\"] [data-nav=\"root\"] > div { flex-direction: row !important; height: auto !important; }\n  :root[data-nav-position=\"left\"] main, :root[data-nav-position=\"left\"] .page-content { padding-left: 1rem !important; }\n  :root[data-nav-position=\"left\"] .glass-header { padding-left: 0 !important; }\n}\n/* ─── Sidebar – Individuelle Scrollbars ─── */\n::-webkit-scrollbar { width: 8px; height: 8px; }\n::-webkit-scrollbar-track { background: var(--muted, oklch(0.25 0.02 260)); border-radius: 4px; }\n::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, oklch(0.40 0.025 260)); border-radius: 4px; transition: background var(--transition-duration, 0.4s) ease; }\n::-webkit-scrollbar-thumb:hover { background: var(--accent, oklch(0.62 0.20 260)); }\n::-webkit-scrollbar-corner { background: var(--muted, oklch(0.25 0.02 260)); }\n/* ─── Textauswahl – Indigo-Highlight ─── */\n::selection { background: var(--selection-bg, oklch(0.62 0.20 260 / 0.25)); color: var(--foreground, oklch(0.85 0.015 260)); }\n/* ─── Fokus-Ringe – Präzise Indigo-Outline ─── */\n:focus-visible { outline: none !important; box-shadow: 0 0 0 2px var(--ring, oklch(0.62 0.20 260)); outline-offset: 2px; border-radius: 0.3rem; transition: box-shadow var(--transition-duration, 0.4s) ease; }\nbutton:focus-visible, a:focus-visible, [role=\"button\"]:focus-visible { outline: none !important; box-shadow: 0 0 0 2px var(--accent); }\n/* ─── Badge/Pill – Sidebar-Tags ─── */\n.badge, .pill { display: inline-flex; align-items: center; padding: 0.15em 0.6em; font-family: 'Inter', sans-serif; font-size: 0.7rem; font-weight: 500; border-radius: 10px; background: oklch(from var(--accent) l c h / 0.1); color: var(--accent); border: 1px solid oklch(from var(--accent) l c h / 0.18); transition: all var(--transition-duration, 0.4s) ease; }\n.badge:hover, .pill:hover { background: oklch(from var(--accent) l c h / 0.2); border-color: oklch(from var(--accent) l c h / 0.4); box-shadow: 0 2px 10px oklch(0 0 0 / 0.15); }\n/* ─── Tooltips – Schwebende Sidebar-Hinweise ─── */\n.tooltip { position: relative; }\n.tooltip::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(4px); padding: 0.35rem 0.7rem; font-family: 'Inter', sans-serif; font-size: 0.68rem; font-weight: 400; white-space: nowrap; color: var(--card-foreground, oklch(0.88 0.015 260)); background: var(--card, oklch(0.22 0.025 260)); border: 1px solid var(--border, oklch(0.28 0.015 260)); border-radius: var(--radius, 1rem); box-shadow: 0 8px 24px oklch(0 0 0 / 0.2); opacity: 0; pointer-events: none; transition: opacity var(--transition-duration, 0.4s) ease, transform var(--transition-duration, 0.4s) ease; z-index: 9999; }\n.tooltip:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }\n/* ─── Skeleton Loading – Indigo-Pulsieren ─── */\n.skeleton { background: linear-gradient(90deg, var(--muted, oklch(0.25 0.02 260)) 0%, oklch(from var(--accent) l c h / 0.12) 50%, var(--muted, oklch(0.25 0.02 260)) 100%); background-size: 200% 100%; animation: skeleton-indigo 1.4s ease-in-out infinite; border-radius: var(--radius, 1rem); min-height: 1em; }\n@keyframes skeleton-indigo { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }\n/* ─── Input/Textarea – Klare Sidebar-Felder ─── */\ninput[type=\"text\"], input[type=\"search\"], input[type=\"number\"], input[type=\"password\"], textarea, select { font-family: 'Inter', sans-serif; background: var(--muted, oklch(0.25 0.02 260)); color: var(--foreground, oklch(0.85 0.015 260)); border: 1px solid var(--border, oklch(0.28 0.015 260)); border-radius: 0.6rem; padding: 0.5rem 0.75rem; font-size: 0.82rem; transition: border-color var(--transition-duration, 0.4s) ease, box-shadow var(--transition-duration, 0.4s) ease, background var(--transition-duration, 0.4s) ease; }\ninput:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.15); background: var(--card, oklch(0.22 0.025 260)); outline: none; }\ninput::placeholder, textarea::placeholder { color: var(--muted-foreground, oklch(0.55 0.02 260)); }\n/* ─── Smooth Transitions – Sidebar-Fluss ─── */\nbutton, a, input, select, textarea, .badge, .pill, .tooltip, .skeleton, .glass-card, [role=\"button\"], .clickable { transition: all var(--transition-duration, 0.4s) ease; }\n@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }\n",
+    "capabilities": {
+      "night_mode": {
+        "overlay_color": "oklch(0.04 0.01 260)",
+        "overlay_opacity": 0.9,
+        "css_filter": "saturate(0.25) brightness(0.5)",
+        "transition_ms": 700,
+        "vignette": true,
+        "blend_mode": "normal",
+        "reduce_motion": false
+      },
+      "design_modes": [
+        {
+          "id": "sidebar-light",
+          "name": "Sidebar Hell",
+          "icon": "Sun",
+          "time_start": "07:00",
+          "time_end": "19:00",
+          "css_variables": {
+            "background": "oklch(0.96 0.005 260)",
+            "foreground": "oklch(0.20 0.02 260)",
+            "card": "oklch(0.99 0.002 260)",
+            "card-foreground": "oklch(0.16 0.02 260)",
+            "accent": "oklch(0.55 0.22 260)",
+            "muted": "oklch(0.93 0.005 260)",
+            "muted-foreground": "oklch(0.50 0.02 260)",
+            "border": "oklch(0.87 0.005 260)",
+            "glass-bg": "oklch(0.97 0.003 260 / 0.55)",
+            "glass-bg-end": "oklch(0.99 0.001 260 / 0.45)"
+          }
+        },
+        {
+          "id": "sidebar-dark",
+          "name": "Sidebar Dunkel",
+          "icon": "MoonStars",
+          "time_start": "21:00",
+          "time_end": "05:00",
+          "css_variables": {
+            "background": "oklch(0.18 0.02 260)",
+            "foreground": "oklch(0.85 0.015 260)",
+            "card": "oklch(0.22 0.025 260)",
+            "card-foreground": "oklch(0.88 0.015 260)",
+            "accent": "oklch(0.62 0.20 260)",
+            "muted": "oklch(0.25 0.02 260)",
+            "muted-foreground": "oklch(0.55 0.02 260)",
+            "border": "oklch(0.28 0.015 260)",
+            "glass-bg": "oklch(0.22 0.03 260 / 0.55)",
+            "glass-bg-end": "oklch(0.18 0.02 260 / 0.45)"
+          }
+        },
+        {
+          "id": "sidebar-dawn",
+          "name": "Sidebar Dawn",
+          "icon": "SunHorizon",
+          "time_start": "05:00",
+          "time_end": "07:00",
+          "css_variables": {
+            "background": "oklch(0.30 0.02 250)",
+            "foreground": "oklch(0.88 0.015 250)",
+            "card": "oklch(0.34 0.025 250)",
+            "card-foreground": "oklch(0.90 0.015 250)",
+            "accent": "oklch(0.58 0.22 220)",
+            "muted": "oklch(0.36 0.02 250)",
+            "muted-foreground": "oklch(0.60 0.02 250)",
+            "border": "oklch(0.38 0.015 250)",
+            "glass-bg": "oklch(0.34 0.03 250 / 0.55)",
+            "glass-bg-end": "oklch(0.30 0.02 250 / 0.45)"
+          }
+        },
+        {
+          "id": "sidebar-dusk",
+          "name": "Sidebar Dusk",
+          "icon": "Sunset",
+          "time_start": "19:00",
+          "time_end": "21:00",
+          "css_variables": {
+            "background": "oklch(0.24 0.03 20)",
+            "foreground": "oklch(0.85 0.015 20)",
+            "card": "oklch(0.28 0.03 20)",
+            "card-foreground": "oklch(0.88 0.015 20)",
+            "accent": "oklch(0.55 0.22 30)",
+            "muted": "oklch(0.30 0.02 20)",
+            "muted-foreground": "oklch(0.58 0.02 20)",
+            "border": "oklch(0.32 0.015 20)",
+            "glass-bg": "oklch(0.28 0.04 20 / 0.55)",
+            "glass-bg-end": "oklch(0.24 0.03 20 / 0.45)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "sidebar-dawn": {
+            "start": "05:00",
+            "end": "07:00"
+          },
+          "sidebar-light": {
+            "start": "07:00",
+            "end": "19:00"
+          },
+          "sidebar-dusk": {
+            "start": "19:00",
+            "end": "21:00"
+          },
+          "sidebar-dark": {
+            "start": "21:00",
+            "end": "05:00"
+          }
+        },
+        "default_mode": "sidebar-dark"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          {
+            "name": "Indigo (Standard)",
+            "color": "oklch(0.62 0.20 260)"
+          },
+          {
+            "name": "Violett",
+            "color": "oklch(0.55 0.22 285)"
+          },
+          {
+            "name": "Blau",
+            "color": "oklch(0.60 0.22 240)"
+          },
+          {
+            "name": "Grün",
+            "color": "oklch(0.55 0.18 145)"
+          },
+          {
+            "name": "Lavender",
+            "color": "oklch(0.55 0.18 300)"
+          },
+          {
+            "name": "Mint",
+            "color": "oklch(0.52 0.16 160)"
+          },
+          {
+            "name": "Rose",
+            "color": "oklch(0.52 0.18 15)"
+          }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_on"
+      },
+      "custom_settings": [
+        {
+          "id": "sidebar_collapsed",
+          "name": "Sidebar minimieren",
+          "description": "Sidebar standardmäßig einklappen",
+          "setting_type": "toggle",
+          "default_value": false,
+          "css_variable": "layout-nav-width"
+        },
+        {
+          "id": "card_shadow_intensity",
+          "name": "Kartenschatten",
+          "description": "Intensität des Schattens unter Karten",
+          "setting_type": "slider",
+          "default_value": 50,
+          "min": 0,
+          "max_visible": 100,
+          "step": 10
+        },
+        {
+          "id": "nav_icon_size",
+          "name": "Nav Icon Size",
+          "description": "Größe der Navigations-Icons",
+          "setting_type": "select",
+          "default_value": "medium",
+          "options": [
+            {
+              "label": "Small",
+              "value": "small"
+            },
+            {
+              "label": "Medium",
+              "value": "medium"
+            },
+            {
+              "label": "Large",
+              "value": "large"
+            }
+          ],
+          "css_variable": "layout-nav-icon-size"
+        },
+        {
+          "id": "active_indicator",
+          "name": "Active Indicator",
+          "description": "Stil des aktiven Navigations-Indikators",
+          "setting_type": "select",
+          "default_value": "bar",
+          "options": [
+            {
+              "label": "Dot",
+              "value": "dot"
+            },
+            {
+              "label": "Bar",
+              "value": "bar"
+            },
+            {
+              "label": "Pill",
+              "value": "pill"
+            },
+            {
+              "label": "Glow",
+              "value": "glow"
+            }
+          ],
+          "css_variable": "layout-active-indicator"
+        },
+        {
+          "id": "nav_background",
+          "name": "Nav Background",
+          "description": "Hintergrund-Stil der Navigation",
+          "setting_type": "select",
+          "default_value": "solid",
+          "options": [
+            {
+              "label": "Solid",
+              "value": "solid"
+            },
+            {
+              "label": "Glass",
+              "value": "glass"
+            },
+            {
+              "label": "Transparent",
+              "value": "transparent"
+            }
+          ],
+          "css_variable": "layout-nav-background"
+        },
+        {
+          "id": "glass_intensity",
+          "name": "Glass-Intensität",
+          "description": "Deckkraft des Glas-Effekts",
+          "setting_type": "slider",
+          "default_value": 70,
+          "min": 30,
+          "max_visible": 100,
+          "step": 10,
+          "css_variable": "glass-opacity"
+        },
+        {
+          "id": "nav_indicator_style",
+          "name": "Nav-Indikator",
+          "description": "Stil des aktiven Navigations-Indikators",
+          "setting_type": "select",
+          "default_value": "pill",
+          "options": [
+            {
+              "label": "Pill",
+              "value": "pill"
+            },
+            {
+              "label": "Balken",
+              "value": "bar"
+            },
+            {
+              "label": "Punkt",
+              "value": "dot"
+            }
+          ]
+        },
+        {
+          "id": "header_blur",
+          "name": "Header-Unschärfe",
+          "description": "Hintergrundunschärfe des Headers",
+          "setting_type": "slider",
+          "default_value": 20,
+          "min": 0,
+          "max_visible": 40,
+          "step": 5,
+          "css_variable": "header-blur"
+        },
+        {
+          "id": "scrollbar_style",
+          "name": "Scrollbar-Stil",
+          "description": "Aussehen der Bildlaufleiste",
+          "setting_type": "select",
+          "default_value": "Standard",
+          "options": [
+            {
+              "label": "Standard",
+              "value": "Standard"
+            },
+            {
+              "label": "Minimal",
+              "value": "Minimal"
+            },
+            {
+              "label": "Versteckt",
+              "value": "Versteckt"
+            },
+            {
+              "label": "Theme",
+              "value": "Theme"
+            }
+          ],
+          "css_variable": "scrollbar-width"
+        },
+        {
+          "id": "focus_ring_visible",
+          "name": "Fokus-Ring anzeigen",
+          "description": "Fokus-Ring um aktive Elemente anzeigen",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "content_width",
+          "name": "Inhaltsbreite",
+          "description": "Maximale Breite des Hauptinhalts",
+          "setting_type": "select",
+          "default_value": "Normal (1500px)",
+          "options": [
+            {
+              "label": "Schmal (1200px)",
+              "value": "Schmal (1200px)"
+            },
+            {
+              "label": "Normal (1500px)",
+              "value": "Normal (1500px)"
+            },
+            {
+              "label": "Breit (100%)",
+              "value": "Breit (100%)"
+            }
+          ],
+          "css_variable": "content-max-width"
+        },
+        {
+          "id": "shadow_level",
+          "name": "Schatten-Stärke",
+          "description": "Intensität der Kartenschatten",
+          "setting_type": "select",
+          "default_value": "Mittel",
+          "options": [
+            {
+              "label": "Flach",
+              "value": "Flach"
+            },
+            {
+              "label": "Leicht",
+              "value": "Leicht"
+            },
+            {
+              "label": "Mittel",
+              "value": "Mittel"
+            },
+            {
+              "label": "Stark",
+              "value": "Stark"
+            }
+          ],
+          "css_variable": "shadow-level"
+        },
+        {
+          "id": "border_radius_scale",
+          "name": "Abrundungs-Skalierung",
+          "description": "Skalierungsfaktor für alle Abrundungen",
+          "setting_type": "slider",
+          "default_value": 1.0,
+          "min": 0.5,
+          "max_visible": 2.0,
+          "step": 0.1,
+          "css_variable": "radius-scale"
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2000,
+          "background_color": "oklch(0.18 0.02 260)",
+          "brand_text": "Sidebar",
+          "tagline": "Clean Navigation",
+          "show_progress": true,
+          "exit_animation": "slide-down"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.35,
+          "spring": {
+            "stiffness": 320,
+            "damping": 28,
+            "mass": 1.0
+          }
+        },
+        "widget_animations": {
+          "style": "fade-up",
+          "duration_secs": 0.4,
+          "stagger_secs": 0.03
+        },
+        "keyframes": {
+          "nav-slide-in": "0% { transform: translateX(-100%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; }",
+          "indicator-pulse": "0%, 100% { opacity: 0.6; transform: scaleY(1); } 50% { opacity: 1; transform: scaleY(1.2); }",
+          "menu-expand": "0% { max-height: 0; opacity: 0; } 100% { max-height: 200px; opacity: 1; }"
+        }
+      },
+      "modals": {
+        "backdrop": "blur",
+        "backdrop_blur": 20,
+        "backdrop_opacity": 0.5,
+        "radius": "16px",
+        "enter_animation": "scale",
+        "exit_animation": "slide-down",
+        "close_button": "circle",
+        "shadow": "lg"
+      },
+      "notifications": {
+        "position": "bottom-left",
+        "enter_animation": "slide-up",
+        "exit_animation": "fade",
+        "radius": "12px",
+        "accent_bar": true,
+        "max_visible": 4,
+        "auto_dismiss_ms": 5000
+      },
+      "navigation": {
+        "position": "left",
+        "background": "transparent",
+        "radius": "0px",
+        "show_labels": true,
+        "icon_size": 20,
+        "gap": 6,
+        "buttons": [
+          {
+            "page_id": "home",
+            "label": "Home",
+            "icon": "House"
+          },
+          {
+            "page_id": "lights",
+            "label": "Lights",
+            "icon": "Lightbulb"
+          },
+          {
+            "page_id": "climate",
+            "label": "Climate",
+            "icon": "Thermometer"
+          },
+          {
+            "page_id": "switches",
+            "label": "Switches",
+            "icon": "ToggleRight"
+          },
+          {
+            "page_id": "sensors",
+            "label": "Sensors",
+            "icon": "Gauge"
+          },
+          {
+            "page_id": "music",
+            "label": "Music",
+            "icon": "SpeakerHifi"
+          },
+          {
+            "page_id": "settings",
+            "label": "Settings",
+            "icon": "Gear"
+          }
+        ]
+      }
+    },
+    "widget_templates": [
+      {
+        "widget_type": "light",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/light.html",
+            "label": "Sidebar Light",
+            "icon": "Lightbulb",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "switch",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/switch.html",
+            "label": "Sidebar Toggle",
+            "icon": "Power",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "sensor",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/sensor.html",
+            "label": "Sidebar Sensor",
+            "icon": "Gauge",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "weather",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/weather.html",
+            "label": "Sidebar Weather",
+            "icon": "Cloud",
+            "is_default": true
+          }
+        ]
+      }
+    ],
+    "icon_font": {
+      "font_name": "Sidebar Icons",
+      "css_path": "",
+      "class_prefix": "sb-icon",
+      "icon_map": {
+        "Sidebar": "sb-icon-panel-left",
+        "Sun": "sb-icon-sun",
+        "MoonStars": "sb-icon-moon",
+        "House": "sb-icon-home",
+        "Lightbulb": "sb-icon-bulb",
+        "SunHorizon": "sb-icon-dawn",
+        "Sunset": "sb-icon-dusk",
+        "Gauge": "sb-icon-gauge",
+        "Cloud": "sb-icon-cloud"
+      }
+    },
+    "background": {
+      "type": "pattern",
+      "url": "images/pattern.svg",
+      "overlay_opacity": 0.03,
+      "blend_mode": "overlay"
+    }
+  }
+}

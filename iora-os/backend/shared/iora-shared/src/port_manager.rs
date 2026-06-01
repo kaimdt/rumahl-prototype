@@ -28,36 +28,36 @@ pub const IORA_SERVICES_RANGE_END: u16 = 8099;
 /// Well-known ports that should be automatically reserved
 /// These are standard ports for common services
 const WELL_KNOWN_PORTS: &[u16] = &[
-    20, 21,   // FTP
-    22,       // SSH
-    23,       // Telnet
-    25,       // SMTP
-    53,       // DNS
-    67, 68,   // DHCP
-    80,       // HTTP
-    110,      // POP3
-    123,      // NTP
-    143,      // IMAP
-    161, 162, // SNMP
-    389,      // LDAP
-    443,      // HTTPS
-    445,      // SMB
-    465,      // SMTPS
-    514,      // Syslog
-    587,      // SMTP (submission)
-    636,      // LDAPS
-    993,      // IMAPS
-    995,      // POP3S
-    1433,     // MSSQL
-    1521,     // Oracle
-    3306,     // MySQL
-    5432,     // PostgreSQL
-    5672,     // AMQP
-    6379,     // Redis
-    8080,     // HTTP Alt
-    8443,     // HTTPS Alt
-    9000,     // SonarQube
-    27017,    // MongoDB
+    20, 21, // FTP
+    22, // SSH
+    23, // Telnet
+    25, // SMTP
+    53, // DNS
+    67, 68,  // DHCP
+    80,  // HTTP
+    110, // POP3
+    123, // NTP
+    143, // IMAP
+    161, 162,   // SNMP
+    389,   // LDAP
+    443,   // HTTPS
+    445,   // SMB
+    465,   // SMTPS
+    514,   // Syslog
+    587,   // SMTP (submission)
+    636,   // LDAPS
+    993,   // IMAPS
+    995,   // POP3S
+    1433,  // MSSQL
+    1521,  // Oracle
+    3306,  // MySQL
+    5432,  // PostgreSQL
+    5672,  // AMQP
+    6379,  // Redis
+    8080,  // HTTP Alt
+    8443,  // HTTPS Alt
+    9000,  // SonarQube
+    27017, // MongoDB
 ];
 
 /// IORA reserved ports for system services
@@ -80,17 +80,13 @@ const IORA_RESERVED_PORTS: &[u16] = &[
 /// Port assignment mode
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PortAssignmentMode {
     /// Random port assigned on each restart (default)
+    #[default]
     Random,
     /// Fixed port, persists across restarts
     Fixed,
-}
-
-impl Default for PortAssignmentMode {
-    fn default() -> Self {
-        Self::Random
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,20 +161,18 @@ impl PortManager {
 
         // Check if app already has this port assigned (for fixed mode)
         if mode == PortAssignmentMode::Fixed {
-            if let Some(existing) = assignments
-                .iter()
-                .find(|a| a.app_id == app_id && a.internal_port == internal_port && a.protocol == protocol)
-            {
+            if let Some(existing) = assignments.iter().find(|a| {
+                a.app_id == app_id && a.internal_port == internal_port && a.protocol == protocol
+            }) {
                 return Ok(existing.clone());
             }
         }
 
         // For random mode, always allocate a new port (remove old assignment if exists)
         if mode == PortAssignmentMode::Random {
-            if let Some(pos) = assignments
-                .iter()
-                .position(|a| a.app_id == app_id && a.internal_port == internal_port && a.protocol == protocol)
-            {
+            if let Some(pos) = assignments.iter().position(|a| {
+                a.app_id == app_id && a.internal_port == internal_port && a.protocol == protocol
+            }) {
                 let old = assignments.remove(pos);
                 allocated.remove(&old.external_port);
             }
@@ -249,7 +243,7 @@ impl PortManager {
     /// Check if a specific port is available
     pub async fn is_port_available(&self, port: u16) -> bool {
         let allocated = self.allocated.read().await;
-        !allocated.contains(&port) && port >= APP_PORT_RANGE_START && port <= APP_PORT_RANGE_END
+        !allocated.contains(&port) && (APP_PORT_RANGE_START..=APP_PORT_RANGE_END).contains(&port)
     }
 
     /// Get port allocation statistics
@@ -307,7 +301,12 @@ mod tests {
         let manager = PortManager::new();
 
         let assignment = manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Random)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Random,
+            )
             .await
             .unwrap();
 
@@ -322,12 +321,22 @@ mod tests {
         let manager = PortManager::new();
 
         let first = manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Fixed)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Fixed,
+            )
             .await
             .unwrap();
 
         let second = manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Fixed)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Fixed,
+            )
             .await
             .unwrap();
 
@@ -339,12 +348,22 @@ mod tests {
         let manager = PortManager::new();
 
         let first = manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Random)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Random,
+            )
             .await
             .unwrap();
 
         let second = manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Random)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Random,
+            )
             .await
             .unwrap();
 
@@ -357,7 +376,12 @@ mod tests {
         let manager = PortManager::new();
 
         manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Random)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Random,
+            )
             .await
             .unwrap();
 
@@ -378,7 +402,12 @@ mod tests {
         assert_eq!(stats_before.allocated, 0);
 
         manager
-            .allocate_port("test-app", 8080, PortProtocol::Tcp, PortAssignmentMode::Random)
+            .allocate_port(
+                "test-app",
+                8080,
+                PortProtocol::Tcp,
+                PortAssignmentMode::Random,
+            )
             .await
             .unwrap();
 

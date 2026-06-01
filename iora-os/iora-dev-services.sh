@@ -47,6 +47,8 @@ Documentation=https://iora-os.dev/services/${name}
 ${after:+After=${after}}
 ${after:+Wants=${after}}
 ConditionPathExists=${binary}
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Service]
 Type=simple
@@ -54,7 +56,7 @@ User=root
 WorkingDirectory=${datadir}
 ExecStart=${binary}
 Restart=always
-RestartSec=5
+RestartSec=2
 ${port:+Environment=PORT=${port}}
 StandardOutput=journal
 StandardError=journal
@@ -286,11 +288,6 @@ else
     success "SSL certificate already exists"
 fi
 
-# Generate DH parameters (small for dev speed)
-if [ ! -f "$SSL_DIR/dhparam.pem" ]; then
-    openssl dhparam -out "$SSL_DIR/dhparam.pem" 1024 2>/dev/null || true
-fi
-
 # Nginx configuration matching IORA OS
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
@@ -387,7 +384,6 @@ server {
     # SSL configuration
     ssl_certificate /etc/iora/ssl/server.crt;
     ssl_certificate_key /etc/iora/ssl/server.key;
-    ssl_dhparam /etc/iora/ssl/dhparam.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
@@ -550,6 +546,32 @@ server {
     location /health/ {
         access_log off;
         proxy_pass http://iora_home/health;
+    }
+}
+
+# Port 3001 – Development proxy (Vite dev server on host → VM)
+# The host forwards localhost:3001 → VM:3001 via QEMU port forwarding.
+# This lets the host's Vite dev server (npm run dev) reach the backend.
+server {
+    listen 3001;
+    listen [::]:3001;
+    server_name localhost 127.0.0.1;
+
+    # Allow all origins for dev convenience
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With" always;
+
+    location / {
+        proxy_pass http://iora_home;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
     }
 }
 NGINXEOF

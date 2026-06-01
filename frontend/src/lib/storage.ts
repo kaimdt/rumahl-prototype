@@ -10,12 +10,15 @@ type StorageListener<T> = (value: T) => void
 
 class LocalStorageManager {
   private listeners = new Map<string, Set<StorageListener<any>>>()
+  private memoryFallback = new Map<string, unknown>()
 
   /**
    * Get a value from localStorage
    */
   get<T>(key: string, defaultValue?: T): T | undefined {
     try {
+      const memVal = this.memoryFallback.get(key)
+      if (memVal !== undefined) return memVal as T
       const item = localStorage.getItem(key)
       if (item === null) return defaultValue
       return JSON.parse(item) as T
@@ -31,7 +34,11 @@ class LocalStorageManager {
   set<T>(key: string, value: T): void {
     try {
       const serialized = JSON.stringify(value)
-      localStorage.setItem(key, serialized)
+      try {
+        localStorage.setItem(key, serialized)
+      } catch {
+        this.memoryFallback.set(key, value)
+      }
       this.notifyListeners(key, value)
       // Debounce-push synced keys to backend
       scheduleSyncToBackend(key, serialized)
@@ -100,6 +107,9 @@ class LocalStorageManager {
 }
 
 // Export singleton instance
+// React import at top (was at bottom previously — moved for convention).
+import * as React from 'react'
+
 export const storage = new LocalStorageManager()
 
 /**
@@ -109,16 +119,22 @@ export function useLocalStorage<T>(
   key: string,
   defaultValue: T
 ): [T, (value: T) => void] {
+  // Keep latest defaultValue in a ref so the subscribe effect doesn't
+  // re-subscribe whenever the caller passes a new (referentially fresh)
+  // default. The first render still uses `defaultValue` directly.
+  const defaultValueRef = React.useRef(defaultValue)
+  defaultValueRef.current = defaultValue
+
   const [value, setValue] = React.useState<T>(() => {
     return storage.get(key, defaultValue) ?? defaultValue
   })
 
   React.useEffect(() => {
     const unsubscribe = storage.subscribe<T>(key, (newValue) => {
-      setValue(newValue ?? defaultValue)
+      setValue(newValue ?? defaultValueRef.current)
     })
     return unsubscribe
-  }, [key, defaultValue])
+  }, [key])
 
   const setStorageValue = React.useCallback(
     (newValue: T) => {
@@ -130,8 +146,5 @@ export function useLocalStorage<T>(
 
   return [value, setStorageValue]
 }
-
-// For compatibility with existing code
-import * as React from 'react'
 
 export { useLocalStorage as useKV }

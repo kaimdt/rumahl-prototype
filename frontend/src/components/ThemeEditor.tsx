@@ -16,8 +16,10 @@
 import { useTranslation } from 'react-i18next'
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { authFetch } from '@/lib/authHelpers'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   X, Palette, Sun, Moon, Gear, ArrowsClockwise, FloppyDisk,
   PaintBucket, TextT, Sliders, Layout, Eye, EyeSlash,
@@ -53,6 +55,9 @@ interface EditorState {
     glassBlur: string
     glassOpacity: string
     transitionDuration: string
+    transitionType: string
+    widgetAnimStyle: string
+    widgetStagger: string
   }
 }
 
@@ -391,7 +396,7 @@ function EffectsEditor({
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
         <Eye size={16} className="text-accent" weight="fill" />
-        <h3 className="text-sm font-semibold text-foreground">Effekte</h3>
+        <h3 className="text-sm font-semibold text-foreground">Effekte & Animationen</h3>
       </div>
 
       {/* Glass Blur */}
@@ -428,21 +433,75 @@ function EffectsEditor({
         />
       </div>
 
-      {/* Transition Duration */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-medium text-foreground/60 flex items-center justify-between">
-          <span>Übergangsdauer</span>
-          <span className="text-[10px] font-mono text-accent">{effects.transitionDuration}</span>
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.1"
-          value={parseFloat(effects.transitionDuration.replace('s', '')) || 0.4}
-          onChange={(e) => onChange('transitionDuration', `${e.target.value}s`)}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-foreground/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent"
-        />
+      {/* ─── Animation Section ─── */}
+      <div className="pt-2 border-t border-foreground/10">
+        <p className="text-[10px] text-foreground/40 uppercase tracking-wider mb-3">Seiten-Übergänge</p>
+
+        {/* Page Transition Duration */}
+        <div className="space-y-2">
+          <label className="text-[11px] font-medium text-foreground/60 flex items-center justify-between">
+            <span>Übergangsdauer</span>
+            <span className="text-[10px] font-mono text-accent">{effects.transitionDuration}</span>
+          </label>
+          <input
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.05"
+            value={parseFloat(effects.transitionDuration.replace('s', '')) || 0.4}
+            onChange={(e) => onChange('transitionDuration', `${e.target.value}s`)}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-foreground/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent"
+          />
+        </div>
+
+        {/* Page Transition Type */}
+        <div className="space-y-2 mt-3">
+          <label className="text-[11px] font-medium text-foreground/60">Übergangs-Stil</label>
+          <select
+            value={effects.transitionType || 'fade'}
+            onChange={(e) => onChange('transitionType', e.target.value)}
+            className="w-full px-3 py-1.5 rounded-lg bg-foreground/[0.06] border border-foreground/[0.1] text-xs text-foreground focus:outline-none focus:border-accent"
+          >
+            <option value="fade">Fade + Slide (Standard)</option>
+            <option value="slide">Slide (horizontal)</option>
+            <option value="scale">Scale (vergrößern)</option>
+            <option value="flip">Flip (3D)</option>
+            <option value="custom">Custom (CSS)</option>
+          </select>
+        </div>
+
+        {/* Widget Animation Style */}
+        <div className="space-y-2 mt-3">
+          <label className="text-[11px] font-medium text-foreground/60">Widget-Animation</label>
+          <select
+            value={effects.widgetAnimStyle || 'fade-up'}
+            onChange={(e) => onChange('widgetAnimStyle', e.target.value)}
+            className="w-full px-3 py-1.5 rounded-lg bg-foreground/[0.06] border border-foreground/[0.1] text-xs text-foreground focus:outline-none focus:border-accent"
+          >
+            <option value="fade-up">Fade Up (Standard)</option>
+            <option value="scale-in">Scale In</option>
+            <option value="slide-left">Slide Left</option>
+            <option value="slide-right">Slide Right</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        {/* Widget Stagger */}
+        <div className="space-y-2 mt-3">
+          <label className="text-[11px] font-medium text-foreground/60 flex items-center justify-between">
+            <span>Widget-Staffelung</span>
+            <span className="text-[10px] font-mono text-accent">{effects.widgetStagger || '0.03s'}</span>
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="0.15"
+            step="0.005"
+            value={parseFloat(effects.widgetStagger?.replace('s', '') || '0.03')}
+            onChange={(e) => onChange('widgetStagger', `${e.target.value}s`)}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-foreground/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent"
+          />
+        </div>
       </div>
     </div>
   )
@@ -496,6 +555,87 @@ function WidgetVariantPreview({
         </div>
       )}
     </div>
+  )
+}
+
+// ─── Save Button ──────────────────────────────────────────────────────
+
+interface SaveButtonProps {
+  hasChanges: boolean
+  colors: Record<string, string>
+  fonts: EditorState['fonts']
+  layout: EditorState['layout']
+  effects: EditorState['effects']
+  selectedTheme: string
+  onSaved: () => void
+}
+
+function SaveButton({ hasChanges, colors, fonts, layout, effects, selectedTheme, onSaved }: SaveButtonProps) {
+  const { token, user } = useAuth()
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = useCallback(async () => {
+    if (!user?.id || !token) return
+    setSaving(true)
+
+    // Build CSS variable overrides from editor state
+    const overrides: Record<string, string> = {}
+
+    // Colors map directly to CSS variable names
+    for (const [key, value] of Object.entries(colors)) {
+      overrides[key] = value
+    }
+
+    // Fonts
+    overrides['font-heading'] = fonts.heading
+    overrides['font-body'] = fonts.body
+    overrides['font-mono'] = fonts.mono
+
+    // Layout
+    overrides['layout-nav-position'] = layout.navPosition
+    overrides['layout-header-style'] = layout.headerStyle
+    overrides['card-radius'] = layout.cardRadius
+    overrides['widget-gap'] = layout.widgetGap
+
+    // Effects
+    overrides['glass-blur'] = effects.glassBlur
+    overrides['glass-opacity'] = effects.glassOpacity
+    overrides['page-transition-duration'] = effects.transitionDuration
+    overrides['page-transition-type'] = effects.transitionType
+    overrides['widget-anim-style'] = effects.widgetAnimStyle
+    overrides['widget-stagger'] = effects.widgetStagger
+
+    try {
+      const res = await authFetch(`/api/themes/user/${user.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          theme_id: selectedTheme,
+          auto_theme: false,
+          overrides,
+        }),
+      })
+      if (res.ok) {
+        onSaved()
+        // Also refresh the theme to apply changes immediately
+        window.dispatchEvent(new CustomEvent('iora-theme-saved'))
+      }
+    } catch (err) {
+      console.warn('Failed to save theme overrides:', err)
+    } finally {
+      setSaving(false)
+    }
+  }, [user?.id, token, colors, fonts, layout, effects, selectedTheme, onSaved])
+
+  return (
+    <button
+      onClick={handleSave}
+      disabled={!hasChanges || saving}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium bg-accent text-accent-foreground hover:bg-accent/90 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      <FloppyDisk size={12} />
+      {saving ? 'Speichern...' : 'Speichern'}
+    </button>
   )
 }
 
@@ -554,6 +694,9 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
     glassBlur: '40px',
     glassOpacity: '0.35',
     transitionDuration: '0.4s',
+    transitionType: 'fade',
+    widgetAnimStyle: 'fade-up',
+    widgetStagger: '0.03s',
   })
 
   // Update colors when activeCssVariables changes
@@ -649,13 +792,15 @@ export function ThemeEditor({ open, onOpenChange }: ThemeEditorProps) {
             )}
 
             {/* Save */}
-            <button
-              onClick={() => {/* TODO: save */}}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium bg-accent text-accent-foreground hover:bg-accent/90 transition-all shadow-sm"
-            >
-              <FloppyDisk size={12} />
-              Speichern
-            </button>
+            <SaveButton
+              hasChanges={hasChanges}
+              colors={colors}
+              fonts={fonts}
+              layout={layout}
+              effects={effects}
+              selectedTheme={selectedTheme}
+              onSaved={() => setHasChanges(false)}
+            />
 
             <button
               onClick={() => onOpenChange(false)}

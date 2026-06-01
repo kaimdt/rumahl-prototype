@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Warning, WifiSlash, CheckCircle, Terminal } from '@phosphor-icons/react'
 import { useConnection } from '@/contexts/ConnectionContext'
 

@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import { getBackendUrl } from '@/lib/config'
 
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 interface StatisticsChartWidgetProps {
   entityId?: string
@@ -66,7 +66,7 @@ export default function StatisticsChartWidget({ entityId, config }: StatisticsCh
         const end = new Date().toISOString()
         const start = new Date(Date.now() - rangeMs).toISOString()
         const response = await fetch(
-          `${API_BASE}/api/local-history/${entityId}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+          `${apiBase()}/api/local-history/${entityId}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
         )
         if (response.ok) {
           setHistory(await response.json())

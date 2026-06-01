@@ -950,19 +950,60 @@ async fn get_alerts(State(state): State<AppState>) -> Result<impl IntoResponse, 
     .map_err(AppError::Database)?;
 
     let alerts: Vec<serde_json::Value> = rows.iter().map(|row| {
+        let ack: Option<String> = row.try_get::<Option<String>, _>("acknowledged_at").ok().flatten();
+        // Normalize severity to the UI's expected enum (low|medium|high|critical).
+        // Internal log levels ("info","warning","error") are mapped to UI buckets
+        // so the admin panel's severity badges and filters work correctly.
+        let raw_sev: String = row.get::<String, _>("severity");
+        let severity = match raw_sev.to_ascii_lowercase().as_str() {
+            "critical" | "crit" => "critical",
+            "error" | "err" | "high" => "high",
+            "warning" | "warn" | "medium" | "med" => "medium",
+            "info" | "low" | "debug" | "trace" => "low",
+            _ => "low",
+        };
         serde_json::json!({
             "id": row.get::<i64, _>("id"),
             "alert_type": row.get::<String, _>("alert_type"),
-            "severity": row.get::<String, _>("severity"),
+            "severity": severity,
             "title": row.get::<String, _>("title"),
             "message": row.get::<String, _>("message"),
             "created_at": row.get::<String, _>("created_at"),
+            "acknowledged": ack.is_some(),
+            "acknowledged_at": ack,
         })
     }).collect();
 
     Ok(Json(serde_json::json!({
         "alerts": alerts,
         "total": alerts.len(),
+    })))
+}
+
+/// Mark a pending alert as acknowledged. The frontend security panel uses this
+/// to dismiss critical/high warnings after operator review.
+async fn acknowledge_alert(
+    AxumPath(id): AxumPath<i64>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let now = Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "UPDATE pending_alerts SET acknowledged_at = ?, acknowledged_by = COALESCE(acknowledged_by, 'admin') WHERE id = ?"
+    )
+    .bind(&now)
+    .bind(id)
+    .execute(&*state.security_db)
+    .await
+    .map_err(AppError::Database)?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::BadRequest(format!("alert {} not found", id)));
+    }
+
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "acknowledged": true,
+        "acknowledged_at": now,
     })))
 }
 
@@ -1124,6 +1165,7 @@ async fn main() -> Result<()> {
         .route("/api/security/events", get(get_events))
         .route("/api/security/threats", get(get_threats))
         .route("/api/security/alerts", get(get_alerts))
+        .route("/api/security/alerts/:id/acknowledge", post(acknowledge_alert))
         .route("/api/security/resource-usage", get(get_resource_usage))
         .route("/api/security/whitelist", post(add_whitelist))
         .route("/api/security/block/:ip", post(block_ip))

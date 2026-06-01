@@ -13,8 +13,13 @@
 #   ./dev-local.sh --clean-all      Also remove downloaded cloud image
 #   ./dev-local.sh --status         Show whether VM is running, health check
 #   ./dev-local.sh --stop           Stop the running VM
+#   ./dev-local.sh --reboot          Stop VM + restart fresh
+#   ./dev-local.sh --rebuild        Stop VM, clean cache, start fresh
+#   ./dev-local.sh --log             Live cloud-init / system logs
+#   ./dev-local.sh --ssh            SSH directly into the running VM
 #   ./dev-local.sh --reprovision    Force re-running the in-VM setup steps
-#   ./dev-local.sh --no-watch       Don't auto-launch dev-watch.sh
+#   ./dev-local.sh --no-watch       Don't auto-launch dev-watch TUI
+#   ./dev-local.sh --watcher        Launch dev-watch TUI in new terminal (VM must be running)
 #   ./dev-local.sh --foreground     Attach to QEMU process (Ctrl+C kills VM)
 #   ./dev-local.sh --help
 # ============================================================================
@@ -28,14 +33,34 @@ set -uo pipefail
 #    `log` was called before this point) ────────────────────────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     R=$'\033[0;31m'; G=$'\033[0;32m'; Y=$'\033[1;33m'; C=$'\033[0;36m'; B=$'\033[1m'; N=$'\033[0m'
+    D=$'\033[2m'  # Dim/gray for non-intrusive messages
 else
-    R=''; G=''; Y=''; C=''; B=''; N=''
+    R=''; G=''; Y=''; C=''; B=''; N=''; D=''
 fi
 log()  { printf '%s[*]%s %s\n' "$C" "$N" "$*"; }
 ok()   { printf '%s[+]%s %s\n' "$G" "$N" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$Y" "$N" "$*" >&2; }
 err()  { printf '%s[X]%s %s\n' "$R" "$N" "$*" >&2; }
+dim()  { printf '%s%s%s\n' "$D" "$*" "$N"; }
 die()  { err "$*"; exit 1; }
+
+# ── Load Auto-Repair Library ───────────────────────────────────────────────
+SCRIPT_DIR_TEMP="$(cd "$(dirname "$0")" && pwd)"
+AUTO_REPAIR_LIB="$SCRIPT_DIR_TEMP/lib/dev-auto-repair.sh"
+if [ -f "$AUTO_REPAIR_LIB" ]; then
+    source "$AUTO_REPAIR_LIB"
+    dim "Auto-repair enabled"
+else
+    # Define no-op fallbacks if library not found
+    auto_resolve_port_conflict() { return 0; }
+    detect_low_disk_space() { return 0; }
+    auto_clean_disk_space() { :; }
+    detect_missing_deps() { return 0; }
+    auto_install_deps() { :; }
+    start_health_monitor() { :; }
+    stop_health_monitor() { :; }
+    send_notification() { :; }
+fi
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -133,6 +158,7 @@ log "Host: ${HOST_RAM_GB}GB RAM, ${HOST_CPUS} CPUs ($(uname -s) $HOST_ARCH)"
 log "VM:   ${VM_RAM} RAM, ${VM_CPUS} CPUs, cargo -j${CARGO_JOBS}"
 
 # ── Ports (kept in sync with IORA OS nginx + service config) ───────────────
+VM_HOST=127.0.0.1
 VM_SSH=2222
 VM_HOME=8126
 VM_BRIDGE=8101
@@ -171,20 +197,30 @@ CLEAN=false
 CLEAN_ALL=false
 DO_STATUS=false
 DO_STOP=false
+DO_REBUILD=false
+DO_REBOOT=false
+DO_SSH=false
+DO_LOG=false
 REPROVISION=false
 NO_WATCH=false
 FOREGROUND=false
+DO_WATCHER=false
 for a in "$@"; do
     case "$a" in
         --clean)        CLEAN=true ;;
         --clean-all)    CLEAN=true; CLEAN_ALL=true ;;
         --status)       DO_STATUS=true ;;
         --stop)         DO_STOP=true ;;
+        --rebuild)      DO_REBUILD=true ;;
+        --reboot)       DO_REBOOT=true ;;
+        --ssh)          DO_SSH=true ;;
+        --log)          DO_LOG=true ;;
         --reprovision)  REPROVISION=true ;;
         --no-watch)     NO_WATCH=true ;;
         --foreground)   FOREGROUND=true ;;
+        --watcher)      DO_WATCHER=true ;;
         -h|--help)
-            sed -n '4,21p' "$0"
+            sed -n '4,24p' "$0"
             exit 0 ;;
         *) die "Unknown argument: $a (try --help)" ;;
     esac
@@ -259,10 +295,70 @@ SSH_OPTS=(
 ssh_vm() { ssh "${SSH_OPTS[@]}" -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1 "$@"; }
 scp_to_vm() { scp "${SSH_OPTS[@]}" -i "$SSH_KEY" -P "$VM_SSH" "$@"; }
 
-# ── --status / --stop fast paths ───────────────────────────────────────────
+# ── --status / --stop / --rebuild / --ssh fast paths ────────────────────────
 if $DO_STOP; then
     vm_stop
     exit 0
+fi
+
+if $DO_SSH; then
+    pid=$(vm_pid)
+    if [ -z "$pid" ]; then
+        die "VM is not running. Start it first: ./dev-local.sh"
+    fi
+    log "Connecting to VM via SSH..."
+    exec ssh "${SSH_OPTS[@]}" -i "$SSH_KEY" -p "$VM_SSH" root@127.0.0.1
+    exit 0
+fi
+
+if $DO_WATCHER; then
+    pid=$(vm_pid)
+    if [ -z "$pid" ]; then
+        die "VM is not running. Start it first: ./dev-local.sh"
+    fi
+    # Build the Rust TUI binary if not present
+    DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
+    if [ ! -f "$DASH_BIN" ]; then
+        log "Building dev-watch TUI (one-time Rust compile)..."
+        (cd "$REPO_ROOT/iora-os/backend" && cargo build -p iora-dev-watch 2>&1 | tail -5) || \
+            die "Failed to build iora-dev-watch. Check: cd iora-os/backend && cargo build -p iora-dev-watch"
+        ok "dev-watch TUI built"
+    fi
+    log "Launching IORA Dev Watch TUI..."
+    if $IS_MACOS; then
+        osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY\"" >/dev/null 2>&1 \
+            || die "Couldn't auto-open Terminal.app. Run manually: $DASH_BIN"
+    else
+        if command -v gnome-terminal >/dev/null 2>&1; then
+            gnome-terminal -- bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
+        elif command -v konsole >/dev/null 2>&1; then
+            konsole -e bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
+        elif command -v xterm >/dev/null 2>&1; then
+            xterm -e "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY" &
+        else
+            die "No terminal emulator found. Run manually: $DASH_BIN"
+        fi
+    fi
+    ok "Dev Watch TUI launched in new terminal"
+    exit 0
+fi
+
+if $DO_REBOOT; then
+    log "Reboot: stopping VM..."
+    vm_stop || true
+    log "Starting fresh..."
+    # Fall through to normal start
+fi
+
+if $DO_REBUILD; then
+    log "Rebuild: stopping VM..."
+    vm_stop || true
+    log "Cleaning cache..."
+    rm -f "$VM_DISK" "$SEED_ISO" "$SSH_KEY" "$SSH_KEY.pub" "$PROVISIONED_MARKER"
+    rm -rf "$CACHE/seed"
+    ssh_known_clear
+    log "Starting fresh provision..."
+    # Fall through to normal start below
 fi
 
 if $DO_STATUS; then
@@ -290,6 +386,71 @@ if $DO_STATUS; then
     exit 0
 fi
 
+# ── --log handler (live cloud-init / debian logs) ────────────────────────
+if $DO_LOG; then
+    SERIAL_LOG="$CACHE/qemu-serial.log"
+    CLOUD_OUTPUT="/var/log/cloud-init-output.log"
+    CLOUD_MAIN="/var/log/cloud-init.log"
+    SYSLOG="/var/log/syslog"
+
+    pid=$(vm_pid)
+    if [ -z "$pid" ]; then
+        warn "VM is not running. Showing last QEMU serial log:"
+        echo "═══════════════ QEMU Serial Log ═══════════════"
+        [ -f "$SERIAL_LOG" ] && tail -50 "$SERIAL_LOG" || echo "  (no serial log)"
+        exit 0
+    fi
+
+    log "Following all logs continuously (Ctrl+C to stop)..."
+    dim  "  Auto-switches: serial → cloud-init → syslog as VM boots"
+    echo ""
+
+    # Continuous log follower: tries serial first, then SSH logs when ready
+    (
+        SHOWN_SERIAL=false
+        SHOWN_CLOUD=false
+        while true; do
+            # Check if VM died
+            if ! kill -0 "$pid" 2>/dev/null; then
+                echo ""
+                warn "VM process ended."
+                break
+            fi
+
+            # Try SSH first
+            if ssh_vm "echo OK" 2>/dev/null | grep -q OK; then
+                # Show cloud-init output if available
+                if ssh_vm "test -f $CLOUD_OUTPUT && test -s $CLOUD_OUTPUT" 2>/dev/null; then
+                    if ! $SHOWN_CLOUD; then
+                        echo "═══════════════ Cloud-Init Output ═══════════════"
+                        SHOWN_CLOUD=true
+                    fi
+                    ssh_vm "tail -n 200 $CLOUD_OUTPUT 2>/dev/null" 2>/dev/null | tail -5
+                    # Check if cloud-init is still running
+                    if ssh_vm "test -f /var/lib/cloud/instance/boot-finished" 2>/dev/null; then
+                        if $SHOWN_CLOUD; then
+                            echo "═══════════════ Cloud-Init Complete → Syslog ═══════════════"
+                            SHOWN_CLOUD=false
+                        fi
+                        ssh_vm "journalctl -n 10 --no-pager 2>/dev/null || tail -10 $SYSLOG" 2>/dev/null
+                    fi
+                else
+                    ssh_vm "journalctl -n 10 --no-pager 2>/dev/null || tail -10 $SYSLOG" 2>/dev/null
+                fi
+            else
+                # SSH not ready — show serial
+                if ! $SHOWN_SERIAL && [ -s "$SERIAL_LOG" ]; then
+                    echo "═══════════════ QEMU Serial Console ═══════════════"
+                    SHOWN_SERIAL=true
+                fi
+                [ -f "$SERIAL_LOG" ] && tail -3 "$SERIAL_LOG" 2>/dev/null
+            fi
+            sleep 5
+        done
+    )
+    exit 0
+fi
+
 # ── --clean handling (now safe – all paths are defined) ────────────────────
 if $CLEAN; then
     log "Cleaning cache..."
@@ -305,8 +466,20 @@ if $CLEAN; then
     exit 0
 fi
 
-# ── Sanity: required host tools ────────────────────────────────────────────
+# ── Sanity: required host tools (with auto-install) ────────────────────────
+log "Checking dependencies..."
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1 ($2)"; }
+
+# First, try auto-detection and auto-install
+if command -v detect_missing_deps >/dev/null 2>&1; then
+    missing_deps=$(detect_missing_deps 2>/dev/null || echo "")
+    if [ -n "$missing_deps" ]; then
+        log "Auto-installing missing dependencies: $missing_deps"
+        auto_install_deps $missing_deps || warn "Some dependencies could not be auto-installed"
+    fi
+fi
+
+# Then verify critical tools
 need_cmd "$QEMU_BIN" "Install QEMU (brew install qemu  /  apt install qemu-system-${HOST_ARCH%_*})"
 need_cmd qemu-img   "Comes with QEMU"
 need_cmd curl       "Install curl"
@@ -314,6 +487,7 @@ need_cmd ssh        "Install openssh-client"
 need_cmd ssh-keygen "Install openssh-client"
 need_cmd scp        "Install openssh-client"
 need_cmd rsync      "Install rsync"
+ok "All dependencies available"
 
 # ── Accelerator + display selection (platform-aware) ───────────────────────
 choose_accel() {
@@ -436,6 +610,27 @@ chpasswd:
 # Don't reach out to cloud metadata services
 datasource_list: [ NoCloud ]
 
+# Write DNS config early (before any network operations).
+# QEMU user-mode network sometimes doesn't forward DNS correctly
+# on macOS/HVF, so we set Cloudflare + Google DNS explicitly.
+write_files:
+  - path: /etc/resolv.conf
+    content: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+      nameserver 8.8.4.4
+    permissions: '0644'
+
+# Give the network stack time to initialize before package installs
+bootcmd:
+  - sleep 3
+  - ip link set eth0 up || true
+  - sleep 2
+
+# Update apt cache before installing packages
+package_update: true
+package_upgrade: false
+
 # Speed up first boot: install the absolute minimum here; everything else
 # is installed by dev-local from the host (so it can be retried/recovered).
 packages:
@@ -485,69 +680,99 @@ fi
 # ── Step 4: Start QEMU (only if not already running) ───────────────────────
 ssh_known_clear
 
+# Pre-flight checks: disk space and resources
+if command -v detect_low_disk_space >/dev/null 2>&1; then
+    if ! detect_low_disk_space "$CACHE" 5; then
+        dim "Attempting automatic cache cleanup..."
+        auto_clean_disk_space "$CACHE"
+    fi
+fi
+
 EXISTING_PID=$(vm_pid)
 if [ -n "$EXISTING_PID" ]; then
     ok "QEMU already running (PID $EXISTING_PID) – attaching to existing VM."
     QEMU_CHILD_PID=""  # don't kill someone else's process
 else
-    # If the SSH port is in use by something else, bail out clearly.
+    # Intelligent port conflict resolution
     if port_in_use "$VM_SSH"; then
-        die "Port $VM_SSH is in use by another process. Run './dev-local.sh --stop' or pick a free port."
-    fi
-
-    log "Starting QEMU ($QEMU_BIN, $ACCEL)..."
-
-    NETDEV="user,id=n0,hostfwd=tcp::${VM_SSH}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101"
-    for p in "${FWD_PORTS[@]}"; do
-        NETDEV="${NETDEV},hostfwd=tcp::${p}-:${p}"
-    done
-
-    QEMU_ARGS=(
-        -name "IORA-Dev"
-        -m "$VM_RAM" -smp "$VM_CPUS"
-        -cpu "$QEMU_CPU"
-        -machine "${QEMU_MACHINE},accel=${ACCEL}"
-        -drive "file=$VM_DISK,format=qcow2,if=virtio"
-        -drive "file=$SEED_ISO,format=raw,media=cdrom"
-        -netdev "$NETDEV"
-        -device virtio-gpu
-        -display "$DISPLAY_OPT"
-        -serial "file:$CACHE/qemu-serial.log"
-        -monitor "unix:$QEMU_MONITOR,server,nowait"
-        -pidfile "$QEMU_PIDFILE"
-    )
-
-    # arm64 needs a virtio-net-device variant and UEFI firmware
-    if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-        QEMU_ARGS+=(-device "virtio-net-device,netdev=n0")
-        FW="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
-        if [ ! -f "$FW" ]; then
-            FW=$(find /opt/homebrew /usr/share/qemu /usr/share/edk2 -name "edk2-aarch64-code.fd" 2>/dev/null | head -1)
+        dim "Port $VM_SSH appears to be in use - checking..."
+        if command -v auto_resolve_port_conflict >/dev/null 2>&1; then
+            auto_resolve_port_conflict "$VM_SSH" "IORA VM"
+            resolve_result=$?
+            if [ $resolve_result -eq 2 ]; then
+                # Existing IORA VM found - reuse it
+                EXISTING_PID=$(vm_pid)
+                ok "Reusing existing IORA VM"
+                QEMU_CHILD_PID=""
+            elif [ $resolve_result -ne 0 ]; then
+                die "Port $VM_SSH could not be freed. Run './dev-local.sh --stop' or pick a free port."
+            fi
+        else
+            die "Port $VM_SSH is in use by another process. Run './dev-local.sh --stop' or pick a free port."
         fi
-        [ -n "$FW" ] && [ -f "$FW" ] && QEMU_ARGS+=(-bios "$FW")
-        QEMU_ARGS+=(-boot order=d,menu=off)
-    else
-        QEMU_ARGS+=(-device "virtio-net-pci,netdev=n0")
     fi
 
-    # Detach unless --foreground requested
-    if $FOREGROUND; then
-        "$QEMU_BIN" "${QEMU_ARGS[@]}" &
-        QEMU_CHILD_PID=$!
-        log "QEMU PID: $QEMU_CHILD_PID (foreground mode)"
-    else
-        nohup "$QEMU_BIN" "${QEMU_ARGS[@]}" </dev/null >>"$CACHE/qemu-stdout.log" 2>>"$CACHE/qemu-stderr.log" &
-        QEMU_CHILD_PID=$!
-        disown "$QEMU_CHILD_PID" 2>/dev/null || true
-        log "QEMU PID: $QEMU_CHILD_PID (detached)"
-    fi
+    # Only start QEMU if we didn't find an existing VM
+    if [ -z "$EXISTING_PID" ]; then
+        log "Starting QEMU ($QEMU_BIN, $ACCEL)..."
 
-    # Quick liveness check
-    sleep 4
-    if ! kill -0 "$QEMU_CHILD_PID" 2>/dev/null; then
-        err "QEMU died immediately. Last 20 lines of stderr:"
-        tail -20 "$CACHE/qemu-stderr.log" 2>/dev/null >&2 || true
-        die "Check accelerator (currently '$ACCEL'). Set IORA_DEV_ACCEL=tcg to force software emulation."
+        NETDEV="user,id=n0,hostfwd=tcp::${VM_SSH}-:22,hostfwd=tcp::${VM_HOME}-:8126,hostfwd=tcp::${VM_BRIDGE}-:8101,dns=1.1.1.1"
+        for p in "${FWD_PORTS[@]}"; do
+            NETDEV="${NETDEV},hostfwd=tcp::${p}-:${p}"
+        done
+
+        QEMU_ARGS=(
+            -name "IORA-Dev"
+            -m "$VM_RAM" -smp "$VM_CPUS"
+            -cpu "$QEMU_CPU"
+            -machine "${QEMU_MACHINE},accel=${ACCEL}"
+            # Faster disk I/O: writeback caching, thread-pool AIO, online TRIM.
+            -drive "file=$VM_DISK,format=qcow2,if=virtio,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
+            -drive "file=$SEED_ISO,format=raw,media=cdrom"
+            -netdev "$NETDEV"
+            # virtio-gpu replaces the default VGA; suppress the unused one.
+            -vga none
+            -device virtio-gpu
+            -display "$DISPLAY_OPT"
+            -serial "file:$CACHE/qemu-serial.log"
+            -monitor "unix:$QEMU_MONITOR,server,nowait"
+            -pidfile "$QEMU_PIDFILE"
+            # Sync guest clock to host, avoids drift after suspend/resume.
+            -rtc "base=utc,clock=host"
+        )
+
+        # arm64 needs a virtio-net-device variant and UEFI firmware
+        if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
+            QEMU_ARGS+=(-device "virtio-net-device,netdev=n0")
+            FW="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
+            if [ ! -f "$FW" ]; then
+                FW=$(find /opt/homebrew /usr/share/qemu /usr/share/edk2 -name "edk2-aarch64-code.fd" 2>/dev/null | head -1)
+            fi
+            [ -n "$FW" ] && [ -f "$FW" ] && QEMU_ARGS+=(-bios "$FW")
+            QEMU_ARGS+=(-boot order=d,menu=off)
+        else
+            QEMU_ARGS+=(-device "virtio-net-pci,netdev=n0")
+        fi
+
+        # Detach unless --foreground requested
+        if $FOREGROUND; then
+            "$QEMU_BIN" "${QEMU_ARGS[@]}" &
+            QEMU_CHILD_PID=$!
+            log "QEMU PID: $QEMU_CHILD_PID (foreground mode)"
+        else
+            nohup "$QEMU_BIN" "${QEMU_ARGS[@]}" </dev/null >>"$CACHE/qemu-stdout.log" 2>>"$CACHE/qemu-stderr.log" &
+            QEMU_CHILD_PID=$!
+            disown "$QEMU_CHILD_PID" 2>/dev/null || true
+            log "QEMU PID: $QEMU_CHILD_PID (detached)"
+        fi
+
+        # Quick liveness check
+        sleep 4
+        if ! kill -0 "$QEMU_CHILD_PID" 2>/dev/null; then
+            err "QEMU died immediately. Last 20 lines of stderr:"
+            tail -20 "$CACHE/qemu-stderr.log" 2>/dev/null >&2 || true
+            die "Check accelerator (currently '$ACCEL'). Set IORA_DEV_ACCEL=tcg to force software emulation."
+        fi
     fi
 fi
 
@@ -594,6 +819,15 @@ fi
 # Always sync source code (cheap, idempotent, picks up host edits)
 log "Syncing repository to VM via rsync..."
 ssh_vm "mkdir -p /home/iora/iora" 2>/dev/null || true
+
+# Pre-flight: ensure rsync is installed in the VM (cloud-init may skip it)
+if ! ssh_vm "command -v rsync >/dev/null 2>&1 && echo OK" 2>/dev/null | grep -q OK; then
+    warn "rsync missing in VM (cloud-init may have skipped package install). Installing..."
+    ssh_vm "apt-get update -qq && apt-get install -y -qq rsync" 2>/dev/null || {
+        warn "Could not install rsync automatically. Trying scp fallback..."
+    }
+fi
+
 if rsync -az --delete \
     --exclude='.git' --exclude='target' --exclude='node_modules' \
     --exclude='.cache' --exclude='buildroot-*' --exclude='releases' \
@@ -625,17 +859,78 @@ apt-get install -y -qq \
     python3 python3-pip htop vim mold nginx openssl socat \
     sudo systemd-container
 systemctl enable --now docker postgresql nginx 2>/dev/null || true
+# Fix DNS: disable systemd-resolved which adds broken IPv6 resolver
+systemctl disable systemd-resolved 2>/dev/null || true
+systemctl stop systemd-resolved 2>/dev/null || true
+rm -f /etc/resolv.conf
+echo -e 'nameserver 1.1.1.1\nnameserver 8.8.8.8' > /etc/resolv.conf
 INSTEOF
 
     log "Configuring PostgreSQL roles & dev-mode marker..."
     ssh_vm bash -s <<'PGEOF' || warn "PostgreSQL setup had non-fatal warnings"
 set +e
+# Create admin roles for dev environment
 su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='root'\"" | grep -q 1 \
     || su - postgres -c "psql -c \"CREATE ROLE root WITH LOGIN SUPERUSER PASSWORD 'iora'\""
-su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='iora'\"" | grep -q 1 \
-    || su - postgres -c "psql -c \"CREATE USER iora WITH PASSWORD 'iora' CREATEDB\""
-mkdir -p /etc/iora
+su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='postgres'\"" | grep -q 1 \
+    && su - postgres -c "psql -c \"ALTER USER postgres WITH PASSWORD 'iora'\""
+
+# Mark as dev mode
+mkdir -p /etc/iora /etc/iora/db-credentials
 touch /etc/iora/os-dev-mode
+chmod 700 /etc/iora/db-credentials
+
+# Initialize database manager config (will be used by iora-db-manager)
+cat > /etc/iora/db-config.toml <<'DBCFG'
+# IORA Dev VM Database Configuration
+
+[global]
+default_conn_limit = 20
+enable_rls = true
+recommend_pooling = true
+backup_retention_days = 7
+
+[rotation]
+interval_days = 90
+min_password_length = 32
+grace_period_hours = 24
+auto_rotate = false  # Disabled in dev mode
+
+[services.iora-home]
+conn_limit = 30
+allow_ddl = true
+allow_temp_tables = true
+
+[services.iora-core]
+conn_limit = 25
+allow_ddl = true
+allow_temp_tables = true
+
+[services.iora-secrets]
+conn_limit = 20
+allow_ddl = false
+allow_temp_tables = false
+
+[services.iora-security]
+conn_limit = 20
+allow_ddl = false
+allow_temp_tables = true
+
+[services.iora-watchdog]
+conn_limit = 15
+allow_ddl = false
+allow_temp_tables = false
+
+[services.iora-assist]
+conn_limit = 25
+allow_ddl = true
+allow_temp_tables = true
+
+[services.iora-appstore]
+conn_limit = 20
+allow_ddl = false
+allow_temp_tables = true
+DBCFG
 PGEOF
 
     log "Installing Rust toolchain (for in-VM cargo if needed)..."
@@ -679,27 +974,85 @@ CEOF
 fi
 
 # ── Step 7: Service enablement & DB init (always run; safe to repeat) ──────
-log "Initializing databases..."
-ssh_vm bash -s <<'DBEOF' 2>/dev/null || true
+log "Initializing databases with iora-db-manager..."
+ssh_vm bash -s <<'DBEOF' 2>&1 | tail -10 || warn "Database initialization had warnings"
 set +e
-su - postgres -c "createuser -s root 2>/dev/null"
-for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
-    su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
-        || su - postgres -c "psql -c \"CREATE DATABASE $db OWNER iora\""
-done
-# iora-home dev override (uses PostgreSQL, not SQLite)
+
+# Check if iora-db-manager is available (built services)
+if command -v iora-db-manager >/dev/null 2>&1; then
+    # Use the new database manager for proper security
+    export POSTGRES_ADMIN_URL="postgres://postgres:iora@localhost:5432/postgres"
+    iora-db-manager --config /etc/iora/db-config.toml init
+    iora-db-manager --config /etc/iora/db-config.toml status
+else
+    # Fallback for dev VM before services are built
+    echo "[INFO] iora-db-manager not yet available, using simple init"
+    su - postgres -c "createuser -s root 2>/dev/null || true"
+
+    # Create databases with simple permissions
+    for db in iora_home iora_core iora_security iora_secrets iora_appstore iora_assist iora_watchdog; do
+        su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db'\"" | grep -q 1 \
+            || su - postgres -c "createdb $db"
+    done
+
+    # Grant root superuser access for dev
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE iora_home TO root\" 2>/dev/null || true"
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE iora_core TO root\" 2>/dev/null || true"
+
+    # Create simple credential files for compatibility
+    mkdir -p /etc/iora/db-credentials
+    for db in iora_home iora_core iora_security iora_secrets iora_appstore iora_assist iora_watchdog; do
+        echo "DATABASE_URL=postgres://root:iora@localhost/$db" > /etc/iora/db-credentials/iora-${db#iora_}.env
+    done
+    chmod 600 /etc/iora/db-credentials/*.env
+
+    # Pre-seed extensions and columns that migrations may miss
+    for db in iora_home iora_core iora_security iora_secrets iora_appstore; do
+        su - postgres -c "psql $db -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto'" 2>/dev/null || true
+    done
+    # Force widget_templates_json column (migration 028 sometimes skipped)
+    su - postgres -c "psql iora_home -c 'ALTER TABLE installed_themes ADD COLUMN IF NOT EXISTS widget_templates_json TEXT DEFAULT NULL'" 2>/dev/null || true
+fi
+
+# iora-home systemd override for dev VM
 mkdir -p /etc/systemd/system/iora-home.service.d /opt/iora/build/iora-home/data
 cat > /etc/systemd/system/iora-home.service.d/db.conf <<CFG
 [Service]
-Environment=DATABASE_URL=postgres://root:iora@localhost/iora_home
+# Database URL will be loaded from /etc/iora/db-credentials/iora-home.env
 WorkingDirectory=/opt/iora/build/iora-home
 CFG
+
+# Central log viewer: iora-home must be able to read other services' journals.
+cat > /etc/systemd/system/iora-home.service.d/logs.conf <<CFG
+[Service]
+SupplementaryGroups=systemd-journal
+CFG
+
+# Bootstrap admin credentials for dev VM (idempotent)
+mkdir -p /etc/iora
+[ ! -f /etc/iora/iora-home.env ] && cat > /etc/iora/iora-home.env <<'ENVEOF'
+DATABASE_URL=postgres://root:iora@localhost:5432/iora_home
+RUST_LOG=iora-home=debug
+IORA_BOOTSTRAP_ADMIN_USER=admin
+IORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234
+ENVEOF
+# If file already exists, just ensure bootstrap vars are present
+[ -f /etc/iora/iora-home.env ] && {
+    grep -q 'IORA_BOOTSTRAP_ADMIN_USER' /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_BOOTSTRAP_ADMIN_USER=admin' >> /etc/iora/iora-home.env
+    grep -q 'IORA_BOOTSTRAP_ADMIN_PASSWORD' /etc/iora/iora-home.env 2>/dev/null || echo 'IORA_BOOTSTRAP_ADMIN_PASSWORD=admin1234' >> /etc/iora/iora-home.env
+}
+
 systemctl daemon-reload
-systemctl reset-failed iora-db-init 2>/dev/null
-systemctl restart iora-home 2>/dev/null
-# Enable hot-reload + health-check timers if present
-systemctl enable --now iora-hot-reload.path 2>/dev/null
-systemctl enable --now iora-health-check.timer 2>/dev/null
+systemctl reset-failed iora-db-init iora-migrations 2>/dev/null
+systemctl restart iora-home 2>/dev/null || true
+
+# Enable services and timers
+systemctl enable --now iora-hot-reload.path 2>/dev/null || true
+systemctl enable --now iora-health-check.timer 2>/dev/null || true
+systemctl enable iora-db-init.service 2>/dev/null || true
+systemctl enable iora-migrations.service 2>/dev/null || true
+
+echo "[OK] Database initialization complete"
 DBEOF
 ok "Databases initialized"
 
@@ -756,28 +1109,39 @@ else
     warn "iora-home not yet responding – it may still be building. Check: ssh -i $SSH_KEY -p $VM_SSH root@127.0.0.1 'journalctl -u iora-home -n 50'"
 fi
 
-# ── Step 10: Launch dev-watch in a second terminal (best-effort) ───────────
+# ── Step 10: Launch dev-watch TUI in a second terminal (best-effort) ─────
 if ! $NO_WATCH; then
-    WATCH_SCRIPT="$SCRIPT_DIR/dev-watch.sh"
-    if [ -f "$WATCH_SCRIPT" ]; then
-        TARGET_TRIPLE="x86_64-unknown-linux-gnu"
-        [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ] && TARGET_TRIPLE="aarch64-unknown-linux-gnu"
-        log "Launching dev-watch.sh ($TARGET_TRIPLE)..."
+    DASH_BIN="$REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch"
+    if [ ! -f "$DASH_BIN" ]; then
+        log "Building dev-watch TUI (one-time Rust compile)..."
+        (cd "$REPO_ROOT/iora-os/backend" && cargo build -p iora-dev-watch 2>&1 | tail -5) || \
+            warn "Failed to build dev-watch TUI. Run manually later."
+    fi
+    if [ -f "$DASH_BIN" ]; then
+        log "Launching IORA Dev Watch TUI..."
         if $IS_MACOS; then
-            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE\"" >/dev/null 2>&1 \
-                || warn "Couldn't auto-open Terminal.app. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+            osascript -e "tell app \"Terminal\" to do script \"cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY\"" >/dev/null 2>&1 \
+                || warn "Couldn't auto-open Terminal.app. Run manually: $DASH_BIN"
         else
             if command -v gnome-terminal >/dev/null 2>&1; then
-                gnome-terminal -- bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+                gnome-terminal -- bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
             elif command -v konsole >/dev/null 2>&1; then
-                konsole -e bash -c "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE; exec bash" &
+                konsole -e bash -c "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY; exec bash" &
             elif command -v xterm >/dev/null 2>&1; then
-                xterm -e "cd '$REPO_ROOT' && bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE" &
+                xterm -e "cd '$REPO_ROOT' && '$DASH_BIN' --vm-host $VM_HOST --vm-port $VM_SSH --ssh-key $SSH_KEY" &
             else
-                warn "No terminal emulator found. Run manually: bash '$WATCH_SCRIPT' --target $TARGET_TRIPLE"
+                warn "No terminal emulator found. Run manually: $DASH_BIN"
             fi
         fi
     fi
+fi
+
+# ── Step 11: Start background health monitor ───────────────────────────────
+HEALTH_MONITOR_LOG="$CACHE/health-monitor.log"
+HEALTH_MONITOR_PID="$CACHE/health-monitor.pid"
+
+if command -v start_health_monitor >/dev/null 2>&1; then
+    start_health_monitor "127.0.0.1" "$VM_SSH" "$SSH_KEY" "$HEALTH_MONITOR_LOG" "$HEALTH_MONITOR_PID"
 fi
 
 # ── Banner ─────────────────────────────────────────────────────────────────
@@ -800,14 +1164,27 @@ cat <<EOF
   |    Stop the VM       ./dev-local.sh --stop                          |
   |    Reprovision       ./dev-local.sh --reprovision                   |
   |    Full reset        ./dev-local.sh --clean                         |
+  |    Launch watcher    ./dev-local.sh --watcher                       |
+  |    Dev Watch TUI     $REPO_ROOT/iora-os/backend/target/debug/iora-dev-watch
+  |                                                                     |
+  |  CO-BUDDY FEATURES                                                  |
+  |    Auto-repair       Port conflicts, disk space, dependencies       |
+  |    Health Monitor    Background monitoring (logs: health-monitor.log)|
+  |    Smart Recovery    Auto-restart failed services                   |
   |                                                                     |
   |  Logs                                                               |
   |    Setup log         ${LOG_FILE}
   |    QEMU serial       ${CACHE}/qemu-serial.log
   |    QEMU stderr       ${CACHE}/qemu-stderr.log
+  |    Health monitor    ${HEALTH_MONITOR_LOG}
   +====================================================================+
 EOF
 echo
+
+# Send desktop notification
+if command -v send_notification >/dev/null 2>&1; then
+    send_notification "IORA Dev VM Ready" "Dashboard available at http://localhost:${VM_HOME}" "normal"
+fi
 
 if $FOREGROUND; then
     log "Foreground mode – Ctrl+C to stop the VM."

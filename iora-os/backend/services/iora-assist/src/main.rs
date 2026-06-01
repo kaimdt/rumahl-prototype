@@ -41,6 +41,7 @@ mod subagents;
 mod github;
 mod models_registry;
 mod pi_dev_controller;
+mod app_capability_registry;
 mod system_event_bus;
 mod system_guard;
 mod model_router;
@@ -73,7 +74,7 @@ use self_evolution::{
 
 use sandbox::SandboxManager;
 use agent_task_executor::AgentTaskExecutor;
-use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel};
+use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel, BridgeState, ControlResult};use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
 use system_event_bus::{SystemEventBus, SystemEvent};
 use system_guard::{SystemGuard, SystemState, LoopDetection, ProtectionRule};
 use model_router::{ModelRouter, RoutingDecision, TaskCategory, RouterConfig};
@@ -115,6 +116,7 @@ struct AppState {
     github_actions: Arc<GitHubActionExecutor>,
     models_registry: Option<Arc<models_registry::ModelsRegistry>>,
     pi_dev: Arc<PiDevController>,
+    app_capabilities: Arc<AppCapabilityRegistry>,
     event_bus: Arc<SystemEventBus>,
     guard: Arc<SystemGuard>,
     router: Arc<ModelRouter>,
@@ -254,6 +256,15 @@ struct ChatRequest {
     /// Custom AI instructions/personality from user settings.
     #[serde(default)]
     instructions: Option<String>,
+    /// Optional model override coming from the UI (e.g. "llama3.1:8b").
+    /// The chat handler appends this as a hint to the system prompt; full
+    /// per-request model switching is provider-dependent.
+    #[serde(default)]
+    model: Option<String>,
+    /// Optional agent preset id selected in the UI (e.g. "code", "devops").
+    /// Currently used for logging and prompt tagging.
+    #[serde(default)]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -407,6 +418,21 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
     if let Some(ref instructions) = req.instructions {
         if !instructions.trim().is_empty() {
             system_prompt.push_str(&format!("\n\n### Custom Instructions from User\n{}\n", instructions));
+        }
+    }
+
+    // Soft hint for model override / selected agent preset.
+    if let Some(ref model_hint) = req.model {
+        if !model_hint.trim().is_empty() {
+            system_prompt.push_str(&format!(
+                "\n\n### Preferred Model (advisory)\nThe user selected model `{}` in the UI. Use it if your current backend supports it; otherwise continue with the active model and mention the fallback briefly.\n",
+                model_hint
+            ));
+        }
+    }
+    if let Some(ref agent_id) = req.agent_id {
+        if !agent_id.trim().is_empty() {
+            tracing::debug!(target: "iora-assist", "chat agent_id={} model={:?}", agent_id, req.model);
         }
     }
 
@@ -3340,9 +3366,21 @@ fn load_config_from_env() -> (ProviderType, ProviderConfig) {
 
     let provider = provider_type_from_str(&provider_type).unwrap_or(ProviderType::Local);
 
+    // Local AI (Ollama/LM Studio/LocalAI): default to localhost Ollama port if
+    // the operator hasn't configured an explicit base URL yet. This avoids the
+    // "AI nicht verfügbar" state on a fresh install where Ollama runs locally.
+    let configured_base_url = system_config::ai_base_url();
+    let base_url = if configured_base_url.trim().is_empty()
+        && matches!(provider, ProviderType::Local)
+    {
+        "http://127.0.0.1:11434".to_string()
+    } else {
+        configured_base_url
+    };
+
     let config = ProviderConfig {
         api_key: system_config::ai_api_key(),
-        base_url: Some(system_config::ai_base_url()),
+        base_url: Some(base_url),
         model: system_config::ai_model(),
         api_version: system_config::ai_api_version(),
     };
@@ -4532,6 +4570,87 @@ async fn stop_pidev_session(
     }
 }
 
+#[derive(Deserialize)]
+struct RunPiDevTaskRequest {
+    prompt: String,
+    provider: Option<String>,
+    model: Option<String>,
+}
+
+/// Run a one-shot `pi --mode json` agent task inside an existing session's
+/// container. Returns 202 immediately; progress is streamed over the session
+/// event SSE channel (`/api/assist/pidev/sessions/:id/events`).
+async fn run_pidev_task(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<RunPiDevTaskRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let session = state
+        .pi_dev
+        .get_session(&id)
+        .await
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))?;
+    if session.docker_container_id.is_none() {
+        return Err((
+            StatusCode::CONFLICT,
+            "Session container is not running yet".to_string(),
+        ));
+    }
+
+    let RunPiDevTaskRequest {
+        prompt,
+        provider,
+        model,
+    } = req;
+    let controller = state.pi_dev.clone();
+    tokio::spawn(async move {
+        if let Err(e) = controller.run_task(&id, &prompt, provider, model).await {
+            tracing::error!("pi.dev task failed for session {}: {}", id, e);
+        }
+    });
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Return the live LocalUp-style bridge state for a session: aggregated tool
+/// calls, file changes, messages, and metrics derived from the agent stream.
+async fn get_pidev_bridge(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<BridgeState>, StatusCode> {
+    match state.pi_dev.bridge_state(&id).await {
+        Some(bridge) => Ok(Json(bridge)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+#[derive(Deserialize)]
+struct ControlPiDevRequest {
+    /// One of: ping, pause, resume, set_model, set_thinking, get_state, reset, cancel.
+    command: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    thinking: Option<String>,
+}
+
+/// Send a LocalUp-style control command to a pi.dev session (pause/resume,
+/// set model/thinking, get state, reset, cancel).
+async fn control_pidev_session(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ControlPiDevRequest>,
+) -> Result<Json<ControlResult>, (StatusCode, String)> {
+    match state
+        .pi_dev
+        .send_control_command(&id, &req.command, req.model, req.thinking)
+        .await
+    {
+        Ok(result) => Ok(Json(result)),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e)),
+    }
+}
+
 async fn stream_pidev_events(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -4605,6 +4724,47 @@ async fn install_pidev_plugin(
     // Plugin installation happens during container creation
     // For runtime install, we'd exec into the container
     StatusCode::NOT_IMPLEMENTED
+}
+
+// ─── App Capability Registry Handlers ──────────────────────────────────────
+
+/// Register (or replace) the assist tools / exposed services an installed app
+/// provides. Called by iora-home on app install and on its own startup.
+async fn register_app_capabilities(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+    Json(mut caps): Json<AppCapabilities>,
+) -> impl IntoResponse {
+    // The path is the source of truth for the app id.
+    caps.app_id = app_id;
+    let (tools, services) = state.app_capabilities.register(caps).await;
+    info!(
+        "Registered app capabilities: {} tool(s), {} service(s)",
+        tools, services
+    );
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "registered": true, "tools": tools, "services": services })),
+    )
+}
+
+/// Remove all capabilities for an app. Called by iora-home on uninstall.
+async fn unregister_app_capabilities(
+    State(state): State<AppState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let removed = state.app_capabilities.unregister(&app_id).await;
+    (StatusCode::OK, Json(serde_json::json!({ "removed": removed })))
+}
+
+/// List all registered app capabilities, grouped by app.
+async fn list_app_capabilities(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.app_capabilities.list().await)
+}
+
+/// Flat list of every registered app-provided tool (for agent / UI discovery).
+async fn list_app_tools(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.app_capabilities.list_tools().await)
 }
 
 /// Unified system event stream – admin live log for all background activity
@@ -5419,6 +5579,10 @@ async fn main() -> anyhow::Result<()> {
     let pi_dev = Arc::new(PiDevController::new(sandbox_base));
     info!("Pi.dev controller initialized");
 
+    // Registry for app-/plugin-provided assist tools and exposed RPC services.
+    let app_capabilities = Arc::new(AppCapabilityRegistry::new());
+    info!("App capability registry initialized");
+
     // Initialize system event bus
     let event_bus = Arc::new(SystemEventBus::new(4096));
     event_bus.system_event("startup", "IORA Assist system event bus initialized", "info");
@@ -5472,6 +5636,7 @@ async fn main() -> anyhow::Result<()> {
         github_actions,
         models_registry,
         pi_dev,
+        app_capabilities,
         event_bus,
         guard,
         router,
@@ -5651,12 +5816,19 @@ async fn main() -> anyhow::Result<()> {
         // ─── Pi.dev Docker Sandbox & Plugin Management ───
         .route("/api/assist/pidev/sessions", get(list_pidev_sessions).post(create_pidev_session))
         .route("/api/assist/pidev/sessions/:id", get(get_pidev_session).delete(stop_pidev_session))
+        .route("/api/assist/pidev/sessions/:id/run", post(run_pidev_task))
+        .route("/api/assist/pidev/sessions/:id/bridge", get(get_pidev_bridge))
+        .route("/api/assist/pidev/sessions/:id/control", post(control_pidev_session))
         .route("/api/assist/pidev/sessions/:id/events", get(stream_pidev_events))
         .route("/api/assist/pidev/sessions/:id/approve", post(approve_pidev_action))
         .route("/api/assist/pidev/sessions/:id/deny", post(deny_pidev_action))
         .route("/api/assist/pidev/sessions/:id/security", get(get_pidev_security_events))
         .route("/api/assist/pidev/plugins", get(list_pidev_plugins))
         .route("/api/assist/pidev/plugins/install", post(install_pidev_plugin))
+        // ─── App Capability Registry (app-provided assist tools & services) ───
+        .route("/api/assist/apps/:app_id/capabilities", post(register_app_capabilities).delete(unregister_app_capabilities))
+        .route("/api/assist/apps/capabilities", get(list_app_capabilities))
+        .route("/api/assist/tools", get(list_app_tools))
         // ─── System Event Stream (admin live log) ───
         .route("/api/assist/system/events", get(stream_system_events))
         // ─── System Guard – Protection & Control ───

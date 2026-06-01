@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <!-- Soft radial gradient for organic warmth -->
+    <radialGradient id="warmGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EDE7DE" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#F8F5F0" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="microDot" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="10" cy="10" r="0.5" fill="#C4B5A0" opacity="0.3"/>
+    </pattern>
+  </defs>
+  <!-- Base -->
+  <rect width="200" height="200" fill="#F8F5F0"/>
+  <!-- Micro dot texture -->
+  <rect width="200" height="200" fill="url(#microDot)"/>
+  <!-- Soft glow center -->
+  <circle cx="100" cy="100" r="80" fill="url(#warmGlow)"/>
+  <!-- Organic curves - leaves/petals -->
+  <g opacity="0.25">
+    <path d="M100 100 Q130 60 100 30 Q70 60 100 100Z" fill="#C4B5A0"/>
+    <path d="M100 100 Q130 140 100 170 Q70 140 100 100Z" fill="#D4C9B5"/>
+    <path d="M100 100 Q140 100 170 100 Q140 130 100 100Z" fill="#BFAD8A"/>
+    <path d="M100 100 Q60 100 30 100 Q60 70 100 100Z" fill="#D9CBB5"/>
+  </g>
+  <!-- Concentric organic rings -->
+  <circle cx="100" cy="100" r="25" fill="none" stroke="#BFA07A" stroke-width="0.8" opacity="0.4"/>
+  <circle cx="100" cy="100" r="20" fill="none" stroke="#BFA07A" stroke-width="0.5" opacity="0.3"/>
+  <circle cx="100" cy="100" r="5" fill="#BFA07A" opacity="0.3"/>
+  <!-- Subtle snowflake accent -->
+  <g transform="translate(100,100)" opacity="0.2">
+    <line x1="-8" y1="0" x2="8" y2="0" stroke="#8B7355" stroke-width="0.5"/>
+    <line x1="0" y1="-8" x2="0" y2="8" stroke="#8B7355" stroke-width="0.5"/>
+    <line x1="-5.6" y1="-5.6" x2="5.6" y2="5.6" stroke="#8B7355" stroke-width="0.5"/>
+    <line x1="-5.6" y1="5.6" x2="5.6" y2="-5.6" stroke="#8B7355" stroke-width="0.5"/>
+    <!-- Snowflake branch details -->
+    <line x1="4" y1="-1.5" x2="6.5" y2="-3" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="4" y1="1.5" x2="6.5" y2="3" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="-4" y1="-1.5" x2="-6.5" y2="-3" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="-4" y1="1.5" x2="-6.5" y2="3" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="-1.5" y1="4" x2="-3" y2="6.5" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="1.5" y1="4" x2="3" y2="6.5" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="-1.5" y1="-4" x2="-3" y2="-6.5" stroke="#8B7355" stroke-width="0.3"/>
+    <line x1="1.5" y1="-4" x2="3" y2="-6.5" stroke="#8B7355" stroke-width="0.3"/>
+  </g>
+</svg>

@@ -1,0 +1,547 @@
+{
+  "id": "terminal-cli",
+  "name": "Terminal CLI",
+  "version": "1.0.0",
+  "developer": "IORA Community",
+  "description": "Komplettes Terminal/CLI-Erlebnis – alles im Look einer Unix-Shell. Monospace-Typografie, grüner Text auf Schwarz, blinkender Cursor, ASCII-Box-Rahmen, Kommandozeilen-Navigation und Boot-Sequenz-Splash. Features: 3 Terminal-Color-Schemes, 7 Presets, blinkender Cursor, Hex-Dump-Hintergrund, Matrix-Modus, Terminal-Widget-Templates, Command-Prompt-Navigation.",
+  "icon": "Terminal",
+  "preview_image": "images/preview.svg",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": [
+    "ThemeInstall"
+  ],
+  "theme": {
+    "id": "terminal-cli",
+    "name": "Terminal CLI",
+    "version": "1.0.0",
+    "developer": "IORA Community",
+    "description": "Terminal CLI – Unix-Shell-Look mit grünem Text, Monospace-Font, ASCII-Rahmen und Command-Prompt-Navigation",
+    "icon": "Terminal",
+    "preview_image": "images/preview.svg",
+    "parent_theme": "night",
+    "source": "inline",
+    "order": 90,
+    "css_files": [],
+    "js_files": [
+      "js/theme.js"
+    ],
+    "fonts": [
+      {
+        "name": "IBM Plex Mono",
+        "family": "'IBM Plex Mono', 'JetBrains Mono', 'Courier New', monospace",
+        "url": "fonts/ibm-plex-mono.css",
+        "weights": "300;400;500;600;700",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": true,
+        "is_monospace": true,
+        "format": "woff2"
+      }
+    ],
+    "css_variables": {
+      "background": "#0a0a0a",
+      "foreground": "#50fa7b",
+      "card": "#0d0d0d",
+      "card-foreground": "#f8f8f2",
+      "accent": "#50fa7b",
+      "accent-foreground": "#0a0a0a",
+      "muted": "#111111",
+      "muted-foreground": "#6272a4",
+      "border": "#333333",
+      "ring": "#50fa7b",
+      "radius": "0px",
+      "glass-bg": "rgba(13,13,13,0.95)",
+      "glass-bg-end": "rgba(10,10,10,0.95)",
+      "glass-border-color": "rgba(80,250,123,0.2)",
+      "glass-shadow-1": "rgba(0,0,0,0.5)",
+      "glass-shadow-2": "rgba(0,0,0,0.3)",
+      "success": "#50fa7b",
+      "destructive": "#ff5555",
+      "transition-duration": "0.1s",
+      "shadow-sm": "none",
+      "shadow-md": "none",
+      "shadow-lg": "none",
+      "shadow-xl": "none",
+      "selection-bg": "#50fa7b",
+      "selection-fg": "#0a0a0a",
+      "scrollbar-width": "4px",
+      "scrollbar-track": "#0d0d0d",
+      "scrollbar-thumb": "#333",
+      "scrollbar-thumb-hover": "#50fa7b",
+      "focus-ring-width": "1px",
+      "focus-ring-offset": "0px",
+      "content-max-width": "100%",
+      "header-height": "28px",
+      "nav-icon-size": "14px",
+      "badge-radius": "0px",
+      "input-bg": "#0d0d0d",
+      "input-border": "#333",
+      "overlay-bg": "rgba(0,0,0,0.9)",
+      "skeleton-shimmer": "rgba(80,250,123,0.03)",
+      "layout-card-radius": "0px",
+      "layout-widget-gap": "8px",
+      "layout-nav-position": "bottom"
+    },
+    "html_templates": {
+      "layout": "html/layout.html"
+    },
+    "additional_css": "/* ═══════════════════════════════════════════\n   TERMINAL CLI THEME – Complete Styling\n   ═══════════════════════════════════════════ */\n\n/* ── Global Terminal Reset ── */\n:root[data-theme=\"terminal-cli\"] {\n  font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Courier New', monospace !important;\n}\n:root[data-theme=\"terminal-cli\"] .glass-card,\n:root[data-theme=\"terminal-cli\"] header,\n:root[data-theme=\"terminal-cli\"] [data-nav=\"root\"],\n:root[data-theme=\"terminal-cli\"] input,\n:root[data-theme=\"terminal-cli\"] button,\n:root[data-theme=\"terminal-cli\"] select,\n:root[data-theme=\"terminal-cli\"] textarea {\n  border-radius: 0 !important;\n}\n:root[data-theme=\"terminal-cli\"] h1,\n:root[data-theme=\"terminal-cli\"] h2,\n:root[data-theme=\"terminal-cli\"] h3,\n:root[data-theme=\"terminal-cli\"] p,\n:root[data-theme=\"terminal-cli\"] span {\n  text-shadow: none !important;\n}\n\n:root[data-theme=\"terminal-cli\"] body {\n  background: #0a0a0a;\n  color: #50fa7b;\n  -webkit-font-smoothing: none;\n  -moz-osx-font-smoothing: unset;\n}\n\n/* ── Typography ── */\n:root[data-theme=\"terminal-cli\"] h1,\n:root[data-theme=\"terminal-cli\"] h2,\n:root[data-theme=\"terminal-cli\"] h3 {\n  font-family: 'IBM Plex Mono', monospace !important;\n  text-transform: none;\n  letter-spacing: 0;\n  color: #50fa7b;\n  font-weight: 700;\n}\n\n:root[data-theme=\"terminal-cli\"] h1::before { content: '# '; color: #6272a4; }\n:root[data-theme=\"terminal-cli\"] h2::before { content: '## '; color: #6272a4; }\n:root[data-theme=\"terminal-cli\"] h3::before { content: '### '; color: #6272a4; }\n\n/* ── Terminal Cards ── */\n:root[data-theme=\"terminal-cli\"] .glass-card {\n  border: 1px solid #333 !important;\n  background: #0d0d0d !important;\n  box-shadow: none !important;\n  position: relative;\n  font-size: 0.85em;\n  line-height: 1.5;\n}\n\n:root[data-theme=\"terminal-cli\"] .glass-card::before {\n  content: '┌─ ' attr(data-widget-type) ' ──────────────────────────────┐';\n  display: block;\n  color: #50fa7b;\n  font-size: 0.7em;\n  padding: 2px 4px;\n  white-space: pre;\n  overflow: hidden;\n}\n\n:root[data-theme=\"terminal-cli\"] .glass-card::after {\n  content: '└──────────────────────────────────────────────┘';\n  display: block;\n  color: #50fa7b;\n  font-size: 0.7em;\n  padding: 0 4px 4px;\n}\n\n:root[data-theme=\"terminal-cli\"] .glass-card:hover {\n  border-color: #50fa7b !important;\n}\n\n/* ── Header ── */\n:root[data-theme=\"terminal-cli\"] .glass-header {\n  background: #111 !important;\n  border-bottom: 1px solid #333 !important;\n  backdrop-filter: none !important;\n  height: 28px;\n  font-size: 0.75em;\n}\n\n:root[data-theme=\"terminal-cli\"] .glass-header::before {\n  content: '┌─[iora@home]─[terminal]──────────────────────────────────────────────────────────────────────┐';\n  display: block;\n  color: #50fa7b;\n  font-size: 0.65em;\n  padding: 0 4px;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n/* ── Navigation ── */\n:root[data-theme=\"terminal-cli\"] [data-nav=\"root\"] {\n  background: #0d0d0d !important;\n  border-top: 1px solid #333 !important;\n  font-family: 'IBM Plex Mono', monospace !important;\n  font-size: 0.65em;\n}\n\n:root[data-theme=\"terminal-cli\"] [data-nav=\"root\"] button {\n  font-family: 'IBM Plex Mono', monospace !important;\n  text-transform: none;\n  letter-spacing: 0;\n  min-height: 24px !important;\n  padding: 2px 8px !important;\n  font-size: 0.9em !important;\n  border: 1px solid #333;\n  background: #0d0d0d;\n  color: #6272a4;\n}\n\n:root[data-theme=\"terminal-cli\"] [data-nav=\"root\"] button[data-active=\"true\"] {\n  color: #50fa7b !important;\n  border-color: #50fa7b !important;\n  background: rgba(80,250,123,0.05) !important;\n}\n\n:root[data-theme=\"terminal-cli\"] [data-nav=\"root\"] button:hover {\n  color: #f8f8f2 !important;\n  border-color: #6272a4 !important;\n}\n\n/* ── Buttons ── */\n:root[data-theme=\"terminal-cli\"] button:not([data-nav] button) {\n  font-family: 'IBM Plex Mono', monospace;\n  border: 1px solid #333;\n  background: #0d0d0d;\n  color: #50fa7b;\n  text-transform: none;\n  letter-spacing: 0;\n  padding: 4px 12px;\n  font-size: 0.8em;\n}\n\n:root[data-theme=\"terminal-cli\"] button:hover:not([data-nav] button) {\n  border-color: #50fa7b;\n  background: rgba(80,250,123,0.05);\n}\n\n/* ── Inputs ── */\n:root[data-theme=\"terminal-cli\"] input,\n:root[data-theme=\"terminal-cli\"] textarea,\n:root[data-theme=\"terminal-cli\"] select {\n  font-family: 'IBM Plex Mono', monospace !important;\n  background: #0d0d0d !important;\n  border: 1px solid #333 !important;\n  color: #50fa7b !important;\n  caret-color: #50fa7b;\n}\n\n:root[data-theme=\"terminal-cli\"] input::placeholder {\n  color: #333;\n}\n\n:root[data-theme=\"terminal-cli\"] input:focus,\n:root[data-theme=\"terminal-cli\"] textarea:focus {\n  border-color: #50fa7b !important;\n  outline: none !important;\n}\n\n/* ── Cursor ── */\n:root[data-theme=\"terminal-cli\"] input:focus,\n:root[data-theme=\"terminal-cli\"] textarea:focus {\n  caret-color: #50fa7b;\n  animation: terminal-cursor-blink 1s step-end infinite;\n}\n\n@keyframes terminal-cursor-blink {\n  0%, 100% { caret-color: #50fa7b; }\n  50% { caret-color: transparent; }\n}\n\n/* ── Scrollbar ── */\n:root[data-theme=\"terminal-cli\"] ::-webkit-scrollbar {\n  width: 4px;\n  height: 4px;\n}\n\n:root[data-theme=\"terminal-cli\"] ::-webkit-scrollbar-track {\n  background: #0d0d0d;\n}\n\n:root[data-theme=\"terminal-cli\"] ::-webkit-scrollbar-thumb {\n  background: #333;\n}\n\n:root[data-theme=\"terminal-cli\"] ::-webkit-scrollbar-thumb:hover {\n  background: #50fa7b;\n}\n\n/* ── Selection ── */\n:root[data-theme=\"terminal-cli\"] ::selection {\n  background: #50fa7b;\n  color: #0a0a0a;\n}\n\n/* ── Modals ── */\n:root[data-theme=\"terminal-cli\"] [role=\"dialog\"] {\n  border: 1px solid #50fa7b !important;\n  background: #0d0d0d !important;\n  box-shadow: 0 0 30px rgba(80,250,123,0.1) !important;\n}\n\n/* ── Notifications ── */\n:root[data-theme=\"terminal-cli\"] .sonner-toast {\n  font-family: 'IBM Plex Mono', monospace !important;\n  border: 1px solid #333 !important;\n  background: #0d0d0d !important;\n  border-radius: 0 !important;\n  font-size: 0.75em;\n}\n\n/* ── Progress bars ── */\n:root[data-theme=\"terminal-cli\"] [role=\"progressbar\"] {\n  background: #0d0d0d !important;\n  border: 1px solid #333 !important;\n  height: 12px !important;\n}\n\n:root[data-theme=\"terminal-cli\"] [role=\"progressbar\"] > div {\n  background: #50fa7b !important;\n}\n\n/* ── Toggle/Switch ── */\n:root[data-theme=\"terminal-cli\"] [role=\"switch\"] {\n  border: 1px solid #333 !important;\n}\n\n:root[data-theme=\"terminal-cli\"] [role=\"switch\"][data-state=\"checked\"] {\n  background: #50fa7b !important;\n  border-color: #50fa7b !important;\n}\n\n/* ── Badge/Pill ── */\n:root[data-theme=\"terminal-cli\"] .badge,\n:root[data-theme=\"terminal-cli\"] .pill {\n  font-family: 'IBM Plex Mono', monospace;\n  border: 1px solid #333;\n  background: #0d0d0d;\n  color: #50fa7b;\n  font-size: 0.65em;\n  padding: 1px 6px;\n}\n\n/* ── Tooltip ── */\n:root[data-theme=\"terminal-cli\"] [role=\"tooltip\"] {\n  font-family: 'IBM Plex Mono', monospace;\n  background: #0d0d0d;\n  border: 1px solid #50fa7b;\n  font-size: 0.7em;\n  padding: 4px 8px;\n}\n\n/* ── Tables ── */\n:root[data-theme=\"terminal-cli\"] table {\n  border-collapse: collapse;\n  font-family: 'IBM Plex Mono', monospace;\n  font-size: 0.8em;\n}\n\n:root[data-theme=\"terminal-cli\"] th,\n:root[data-theme=\"terminal-cli\"] td {\n  border: 1px solid #333;\n  padding: 4px 8px;\n  text-align: left;\n}\n\n:root[data-theme=\"terminal-cli\"] th {\n  background: #111;\n  color: #50fa7b;\n  font-weight: 700;\n}\n\n/* ── Code blocks ── */\n:root[data-theme=\"terminal-cli\"] pre,\n:root[data-theme=\"terminal-cli\"] code {\n  background: #0d0d0d;\n  border: 1px solid #333;\n  padding: 8px;\n  color: #f8f8f2;\n  font-size: 0.8em;\n}\n\n/* ── Dialog/Modal title ── */\n:root[data-theme=\"terminal-cli\"] [role=\"dialog\"] h2::before {\n  content: '┌─ ';\n  color: #50fa7b;\n}\n\n:root[data-theme=\"terminal-cli\"] [role=\"dialog\"] h2::after {\n  content: ' ─┐';\n  color: #50fa7b;\n}\n\n/* ── Skeleton loading ── */\n:root[data-theme=\"terminal-cli\"] .skeleton {\n  background: repeating-linear-gradient(90deg, #0d0d0d 0px, #111 20px, #0d0d0d 40px);\n  animation: terminal-scan 2s linear infinite;\n}\n\n@keyframes terminal-scan {\n  0% { background-position: 0 0; }\n  100% { background-position: 40px 0; }\n}\n\n/* ── Terminal prompt decoration ── */\n.terminal-prompt::before {\n  content: 'iora@home:~$ ';\n  color: #50fa7b;\n  font-weight: 700;\n}\n\n/* ── ASCII borders for containers ── */\n.terminal-box {\n  border: 1px solid #333;\n  padding: 8px;\n  position: relative;\n}\n\n.terminal-box::before {\n  content: '┌──────────────────────────────┐';\n  display: block;\n  color: #6272a4;\n  font-size: 0.6em;\n  line-height: 1;\n}\n\n.terminal-box::after {\n  content: '└──────────────────────────────┘';\n  display: block;\n  color: #6272a4;\n  font-size: 0.6em;\n  line-height: 1;\n}\n\n/* ═══════════════════════════════════════════\n   KEYBOARD NAVIGATION — Full Keyboard Support\n   ═══════════════════════════════════════════ */\n\n/* Focus-visible ring for ALL interactive elements */\n:root[data-theme=\"terminal-cli\"] *:focus-visible {\n  outline: 1px solid #50fa7b !important;\n  outline-offset: 1px !important;\n  box-shadow: 0 0 6px rgba(80,250,123,0.3) !important;\n}\n\n/* Skip-to-content for keyboard users */\n:root[data-theme=\"terminal-cli\"] .skip-link {\n  position: absolute;\n  top: -100px;\n  left: 4px;\n  background: #0d0d0d;\n  color: #50fa7b;\n  border: 1px solid #50fa7b;\n  padding: 4px 8px;\n  font-family: 'IBM Plex Mono', monospace;\n  font-size: 0.75em;\n  z-index: 10000;\n}\n:root[data-theme=\"terminal-cli\"] .skip-link:focus {\n  top: 4px;\n}\n\n/* Tab-navigable cards */\n:root[data-theme=\"terminal-cli\"] .glass-card:focus-visible {\n  border-color: #50fa7b !important;\n  box-shadow: 0 0 12px rgba(80,250,123,0.2) !important;\n}\n\n/* Keyboard-active nav buttons */\n:root[data-theme=\"terminal-cli\"] [data-nav=\"root\"] button:focus-visible {\n  outline: 1px solid #50fa7b !important;\n  outline-offset: -2px !important;\n  color: #50fa7b !important;\n  border-color: #50fa7b !important;\n}\n\n/* Focus indicator for links */\n:root[data-theme=\"terminal-cli\"] a:focus-visible {\n  outline: 1px solid #50fa7b !important;\n  outline-offset: 2px !important;\n  text-decoration: underline !important;\n}\n\n/* Dropdown/select keyboard */\n:root[data-theme=\"terminal-cli\"] select:focus-visible {\n  border-color: #50fa7b !important;\n  box-shadow: 0 0 8px rgba(80,250,123,0.2) !important;\n}\n\n/* Range/slider keyboard focus */\n:root[data-theme=\"terminal-cli\"] input[type=\"range\"]:focus-visible {\n  outline: 1px solid #50fa7b !important;\n}\n:root[data-theme=\"terminal-cli\"] input[type=\"range\"]:focus-visible::-webkit-slider-thumb {\n  box-shadow: 0 0 6px rgba(80,250,123,0.4);\n}\n\n/* Checkbox/radio keyboard focus */\n:root[data-theme=\"terminal-cli\"] input[type=\"checkbox\"]:focus-visible + label,\n:root[data-theme=\"terminal-cli\"] input[type=\"radio\"]:focus-visible + label {\n  outline: 1px solid #50fa7b;\n  outline-offset: 2px;\n}\n\n/* Keyboard shortcut hints */\n:root[data-theme=\"terminal-cli\"] [aria-label]::after {\n  font-size: 0.6em;\n  color: #6272a4;\n}\n\n/* Reduced motion for vestibular disorders */\n@media (prefers-reduced-motion: reduce) {\n  :root[data-theme=\"terminal-cli\"] * {\n    animation-duration: 0.01ms !important;\n    transition-duration: 0.01ms !important;\n  }\n  :root[data-theme=\"terminal-cli\"] .terminal-scanlines-overlay {\n    display: none !important;\n  }\n}\n\n\n/* ═══════════════════════════════════════════\n   CRT RETRO MONITOR EFFECT\n   Röhrenmonitor-Simulation mit Scanlines,\n   Phosphor-Glow, Curvature, Chroma-Aberration\n   ═══════════════════════════════════════════ */\n\n/* ── CRT Container ── */\n/* CRT body - overflow hidden disabled for admin panel compatibility */\n\n/* ── CRT Power-On Animation ── */\n:root[data-theme=\"terminal-cli\"].crt-booting body::before {\n  content: '';\n  position: fixed;\n  inset: 0;\n  background: #0a0a0a;\n  z-index: 99999;\n  animation: crt-power-on 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;\n  transform-origin: center;\n}\n\n/* ── CRT Scanlines Overlay ── */\n:root[data-theme=\"terminal-cli\"] body::after {\n  content: '';\n  position: fixed;\n  inset: 0;\n  background: repeating-linear-gradient(\n    0deg,\n    rgba(0,0,0,0) 0px,\n    rgba(0,0,0,0) 2px,\n    rgba(0,0,0,0.08) 2px,\n    rgba(0,0,0,0.08) 4px\n  );\n  pointer-events: none;\n  z-index: 9998;\n  animation: crt-scanline-move 8s linear infinite;\n}\n\n/* ── CRT Scanlines 2: feinere horizontale Linien ── */\n:root[data-theme=\"terminal-cli\"] .crt-scanlines-fine {\n  position: fixed;\n  inset: 0;\n  background: repeating-linear-gradient(\n    0deg,\n    transparent,\n    transparent 1px,\n    rgba(0,0,0,0.05) 1px,\n    rgba(0,0,0,0.05) 2px\n  );\n  pointer-events: none;\n  z-index: 9997;\n}\n\n/* ── CRT Vignette (abdunkelnde Ränder) ── */\n:root[data-theme=\"terminal-cli\"] .crt-vignette {\n  position: fixed;\n  inset: 0;\n  background: radial-gradient(\n    ellipse at center,\n    transparent 50%,\n    rgba(0,0,0,0.3) 85%,\n    rgba(0,0,0,0.6) 100%\n  );\n  pointer-events: none;\n  z-index: 9996;\n}\n\n/* ── CRT Phosphor Glow ── */\n:root[data-theme=\"terminal-cli\"] .crt-glow {\n  position: fixed;\n  inset: 0;\n  background: radial-gradient(\n    ellipse at center,\n    rgba(80,250,123,0.04) 0%,\n    rgba(80,250,123,0.02) 40%,\n    transparent 70%\n  );\n  pointer-events: none;\n  z-index: 9995;\n  animation: crt-phosphor-decay 0.05s ease-in-out infinite;\n}\n\n/* ── CRT Screen Curvature (Bildröhren-Wölbung) ── */\n:root[data-theme=\"terminal-cli\"].crt-curved {\n  border-radius: 18px / 12px !important;\n  overflow: hidden;\n  box-shadow: \n    inset 0 0 60px rgba(0,0,0,0.4),\n    inset 0 0 120px rgba(0,0,0,0.2),\n    0 0 30px rgba(80,250,123,0.08);\n}\n\n:root[data-theme=\"terminal-cli\"] .crt-curvature-mask {\n  position: fixed;\n  inset: -5%;\n  background: radial-gradient(\n    ellipse at center,\n    transparent 55%,\n    rgba(0,0,0,0.05) 75%,\n    rgba(0,0,0,0.15) 90%,\n    rgba(0,0,0,0.3) 100%\n  );\n  pointer-events: none;\n  z-index: 9994;\n  border-radius: 50% / 30%;\n}\n\n/* ── CRT Screen Flicker ── */\n@keyframes crt-flicker-global {\n  0%   { opacity: 1; }\n  3%   { opacity: 0.97; }\n  6%   { opacity: 1; }\n  50%  { opacity: 1; }\n  53%  { opacity: 0.98; }\n  54%  { opacity: 1; }\n  95%  { opacity: 1; }\n  96%  { opacity: 0.96; }\n  97%  { opacity: 1; }\n  100% { opacity: 1; }\n}\n\n:root[data-theme=\"terminal-cli\"].crt-flickering {\n  animation: crt-flicker-global 0.15s infinite;\n}\n\n:root[data-theme=\"terminal-cli\"].crt-flickering * {\n  animation: crt-flicker-global 0.2s infinite !important;\n}\n\n/* ── CRT Noise/Interference Overlay ── */\n:root[data-theme=\"terminal-cli\"] .crt-noise {\n  position: fixed;\n  inset: -50%;\n  background-image: url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E\");\n  background-size: 128px 128px;\n  pointer-events: none;\n  z-index: 9993;\n  opacity: 0.3;\n  animation: crt-noise 0.5s steps(5) infinite;\n}\n\n/* ── CRT Chromatic Aberration (RGB-Shift an Rändern) ── */\n:root[data-theme=\"terminal-cli\"] .crt-chroma {\n  position: fixed;\n  inset: 0;\n  pointer-events: none;\n  z-index: 9992;\n  background: \n    radial-gradient(ellipse at 0% 0%, rgba(255,0,0,0.03) 0%, transparent 40%),\n    radial-gradient(ellipse at 100% 0%, rgba(0,0,255,0.03) 0%, transparent 40%),\n    radial-gradient(ellipse at 0% 100%, rgba(0,0,255,0.02) 0%, transparent 40%),\n    radial-gradient(ellipse at 100% 100%, rgba(255,0,0,0.02) 0%, transparent 40%);\n}\n\n/* ── CRT Text-Shadow Glow ── */\n:root[data-theme=\"terminal-cli\"].crt-text-glow h1,\n:root[data-theme=\"terminal-cli\"].crt-text-glow h2,\n:root[data-theme=\"terminal-cli\"].crt-text-glow h3,\n:root[data-theme=\"terminal-cli\"].crt-text-glow p,\n:root[data-theme=\"terminal-cli\"].crt-text-glow span,\n:root[data-theme=\"terminal-cli\"].crt-text-glow .glass-card {\n  text-shadow: 0 0 4px rgba(80,250,123,0.3), 0 0 8px rgba(80,250,123,0.1);\n}\n\n/* ── CRT Phosphor Persistence (Nachleuchten) ── */\n:root[data-theme=\"terminal-cli\"] .crt-phosphor-trail * {\n  transition: color 0.1s ease-out, background-color 0.15s ease-out !important;\n}\n\n/* ── Glass Screen Reflection ── */\n:root[data-theme=\"terminal-cli\"] .crt-glass-reflection {\n  position: fixed;\n  inset: 0;\n  background: linear-gradient(\n    135deg,\n    rgba(255,255,255,0.03) 0%,\n    transparent 30%,\n    transparent 70%,\n    rgba(255,255,255,0.01) 100%\n  );\n  pointer-events: none;\n  z-index: 9991;\n}\n\n/* ── CRT Subpixel Rendering Simulation ── */\n:root[data-theme=\"terminal-cli\"].crt-subpixel .glass-card {\n  image-rendering: pixelated;\n  -webkit-font-smoothing: none;\n  -moz-osx-font-smoothing: unset;\n}\n\n/* ── Horizontal distortion lines (wie bei alten Monitoren) ── */\n@keyframes crt-distortion-line {\n  0%   { top: -5%; opacity: 0; }\n  5%   { top: 15%; opacity: 0.15; }\n  10%  { top: 15%; opacity: 0; }\n  40%  { top: 55%; opacity: 0; }\n  45%  { top: 55%; opacity: 0.1; }\n  50%  { top: 55%; opacity: 0; }\n  80%  { top: 85%; opacity: 0; }\n  85%  { top: 85%; opacity: 0.12; }\n  90%  { top: 85%; opacity: 0; }\n  100% { top: -5%; opacity: 0; }\n}\n\n:root[data-theme=\"terminal-cli\"] .crt-distortion {\n  position: fixed;\n  left: 0;\n  right: 0;\n  height: 3px;\n  background: rgba(80,250,123,0.1);\n  pointer-events: none;\n  z-index: 9990;\n  animation: crt-distortion-line 8s linear infinite;\n}\n\n/* ── CRT Overscan Borders ── */\n:root[data-theme=\"terminal-cli\"].crt-overscan body {\n  padding: 12px !important;\n  background: #050505 !important;\n}\n\n:root[data-theme=\"terminal-cli\"] .crt-overscan-border {\n  position: fixed;\n  inset: 8px;\n  border: 2px solid rgba(80,250,123,0.04);\n  pointer-events: none;\n  z-index: 9989;\n  border-radius: 12px;\n}\n\n/* Terminal CLI – Core Theme CSS */\n:root[data-theme=\"terminal-cli\"] {\n  font-family: 'IBM Plex Mono', 'JetBrains Mono', monospace;\n  font-size: 14px;\n  line-height: 1.6;\n  -webkit-font-smoothing: none;\n  -moz-osx-font-smoothing: unset;\n}\n\n:root[data-theme=\"terminal-cli\"] * {\n  transition-duration: 0.05s !important;\n  animation-duration: 0.1s !important;\n}\n\n/* CRT Scanline overlay */\n:root[data-theme=\"terminal-cli\"] body::after {\n  content: '';\n  position: fixed;\n  inset: 0;\n  background: repeating-linear-gradient(\n    0deg,\n    transparent,\n    transparent 2px,\n    rgba(0,0,0,0.03) 2px,\n    rgba(0,0,0,0.03) 4px\n  );\n  pointer-events: none;\n  z-index: 9999;\n  opacity: 0.3;\n}\n\n/* Green glow on focus */\n:root[data-theme=\"terminal-cli\"] input:focus,\n:root[data-theme=\"terminal-cli\"] textarea:focus,\n:root[data-theme=\"terminal-cli\"] select:focus {\n  box-shadow: 0 0 8px rgba(80,250,123,0.15);\n}",
+    "capabilities": {
+      "design_modes": [
+        {
+          "id": "terminal-green",
+          "name": "Green Screen",
+          "icon": "Monitor",
+          "time_start": "00:00",
+          "time_end": "00:00",
+          "css_variables": {
+            "background": "#0a0a0a",
+            "foreground": "#50fa7b",
+            "card": "#0d0d0d",
+            "accent": "#50fa7b",
+            "muted": "#111111",
+            "muted-foreground": "#6272a4",
+            "border": "#333333",
+            "ring": "#50fa7b",
+            "success": "#50fa7b"
+          }
+        },
+        {
+          "id": "terminal-amber",
+          "name": "Amber CRT",
+          "icon": "FireSimple",
+          "time_start": "18:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "#0a0800",
+            "foreground": "#ffb86c",
+            "card": "#0d0b00",
+            "accent": "#ffb86c",
+            "muted": "#111008",
+            "muted-foreground": "#8b7355",
+            "border": "#332c1a",
+            "ring": "#ffb86c",
+            "success": "#ffb86c"
+          }
+        },
+        {
+          "id": "terminal-matrix",
+          "name": "Matrix",
+          "icon": "Lightning",
+          "time_start": "22:00",
+          "time_end": "04:00",
+          "css_variables": {
+            "background": "#000000",
+            "foreground": "#00ff41",
+            "card": "#020802",
+            "accent": "#00ff41",
+            "muted": "#010301",
+            "muted-foreground": "#005a18",
+            "border": "#0a2a0a",
+            "ring": "#00ff41",
+            "success": "#00ff41"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "terminal-green": {
+            "start": "06:00",
+            "end": "18:00"
+          },
+          "terminal-amber": {
+            "start": "18:00",
+            "end": "22:00"
+          },
+          "terminal-matrix": {
+            "start": "22:00",
+            "end": "06:00"
+          }
+        },
+        "default_mode": "terminal-green"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          {
+            "name": "Terminal Green",
+            "color": "#50fa7b"
+          },
+          {
+            "name": "Amber CRT",
+            "color": "#ffb86c"
+          },
+          {
+            "name": "Matrix",
+            "color": "#00ff41"
+          },
+          {
+            "name": "Cool Blue",
+            "color": "#8be9fd"
+          },
+          {
+            "name": "Hot Red",
+            "color": "#ff5555"
+          },
+          {
+            "name": "Purple",
+            "color": "#bd93f9"
+          },
+          {
+            "name": "White",
+            "color": "#f8f8f2"
+          }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_off"
+      },
+      "custom_settings": [
+        {
+          "id": "cursor_blink",
+          "name": "Blinkender Cursor",
+          "description": "Cursor-Blinken wie im echten Terminal",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "terminal-cursor-blink"
+        },
+        {
+          "id": "scanlines",
+          "name": "CRT-Scanlines",
+          "description": "Scanline-Effekt wie alte Röhrenmonitore",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "ascii_borders",
+          "name": "ASCII-Rahmen",
+          "description": "Box-Drawing-Rahmen um Karten statt CSS-Borders",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "show_prompt",
+          "name": "Prompt anzeigen",
+          "description": "Kommandozeilen-Prompt im Header anzeigen",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "font_size",
+          "name": "Schriftgröße",
+          "description": "Terminal-Schriftgröße",
+          "setting_type": "select",
+          "default_value": "14px",
+          "options": [
+            {
+              "label": "Klein (12px)",
+              "value": "12px"
+            },
+            {
+              "label": "Normal (14px)",
+              "value": "14px"
+            },
+            {
+              "label": "Groß (16px)",
+              "value": "16px"
+            }
+          ],
+          "css_variable": "font-size"
+        },
+        {
+          "id": "color_scheme",
+          "name": "Farbschema",
+          "description": "Terminal-Farbschema auswählen",
+          "setting_type": "select",
+          "default_value": "dracula",
+          "options": [
+            {
+              "label": "Dracula",
+              "value": "dracula"
+            },
+            {
+              "label": "Nord",
+              "value": "nord"
+            },
+            {
+              "label": "Solarized Dark",
+              "value": "solarized"
+            },
+            {
+              "label": "Monokai",
+              "value": "monokai"
+            },
+            {
+              "label": "Gruvbox Dark",
+              "value": "gruvbox"
+            }
+          ]
+        },
+        {
+          "id": "typing_speed",
+          "name": "Tippgeschwindigkeit",
+          "description": "Geschwindigkeit des Tippeffekts",
+          "setting_type": "slider",
+          "default_value": 50,
+          "min": 10,
+          "max_visible": 100,
+          "step": 10
+        },
+        {
+          "id": "line_numbers",
+          "name": "Zeilennummern",
+          "description": "Zeilennummern wie in vim anzeigen",
+          "setting_type": "toggle",
+          "default_value": false
+        },
+        {
+          "id": "crt_effect",
+          "name": "CRT Retro-Effekt",
+          "description": "Röhrenmonitor-Effekt aktivieren (Scanlines, Glow, Vignette, Curvature)",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "terminal-crt-effect"
+        },
+        {
+          "id": "crt_intensity",
+          "name": "CRT Intensität",
+          "description": "Stärke des Röhrenmonitor-Effekts (Scanlines, Bloom, Chroma)",
+          "setting_type": "slider",
+          "default_value": 60,
+          "min": 10,
+          "max_visible": 100,
+          "step": 10,
+          "css_variable": "terminal-crt-intensity"
+        },
+        {
+          "id": "crt_curvature",
+          "name": "Bildröhren-Wölbung",
+          "description": "Monitor-Curvature-Effekt (leichte Verzerrung an den Rändern)",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "terminal-crt-curvature"
+        },
+        {
+          "id": "crt_flicker",
+          "name": "Monitor-Flackern",
+          "description": "Leichtes 50Hz-Flackern wie alte Röhrenmonitore",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "crt_chromatic",
+          "name": "Chromatische Aberration",
+          "description": "Farbverschiebung an den Rändern (RGB-Split)",
+          "setting_type": "toggle",
+          "default_value": false
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 3000,
+          "background_color": "#0a0a0a",
+          "brand_text": ">_ IORA TERMINAL",
+          "tagline": "CLI Edition v1.0 — Kernel 6.1.0",
+          "show_progress": true,
+          "exit_animation": "custom"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.15,
+          "spring": {
+            "stiffness": 600,
+            "damping": 40,
+            "mass": 0.4
+          }
+        },
+        "widget_animations": {
+          "style": "fade-up",
+          "duration_secs": 0.15,
+          "stagger_secs": 0.01
+        },
+        "keyframes": {
+          "terminal-cursor": "0%, 100% { opacity: 1; } 50% { opacity: 0; }",
+          "terminal-boot-text": "0% { opacity: 0; transform: translateY(4px); } 100% { opacity: 1; transform: translateY(0); }",
+          "matrix-rain": "0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); }",
+          "scanline-move": "0% { background-position: 0 0; } 100% { background-position: 0 4px; }",
+          "prompt-flash": "0%, 100% { opacity: 1; } 50% { opacity: 0.5; }",
+          "crt-flicker": "0%,100%{opacity:1}50%{opacity:0.97}25%{opacity:0.98}75%{opacity:0.99}",
+          "crt-phosphor-decay": "0%{opacity:1;filter:brightness(1)}100%{opacity:0.85;filter:brightness(1.1)}",
+          "crt-scanline-move": "0%{background-position:0 0}100%{background-position:0 4px}",
+          "crt-power-on": "0%{transform:scaleY(0.001);opacity:0}60%{transform:scaleY(1.001);opacity:1}70%{transform:scaleY(0.999)}80%{transform:scaleY(1.001)}100%{transform:scaleY(1)}",
+          "crt-noise": "0%,100%{background-position:0 0}10%{background-position:-5% -10%}20%{background-position:-15% 5%}30%{background-position:7% -25%}40%{background-position:20% 25%}50%{background-position:-25% 10%}60%{background-position:15% 5%}70%{background-position:0 15%}80%{background-position:25% 35%}90%{background-position:-10% 10%}"
+        }
+      },
+      "navigation": {
+        "position": "bottom",
+        "background": "solid",
+        "radius": "0px",
+        "show_labels": true,
+        "icon_size": 14,
+        "gap": 4,
+        "buttons": [
+          {
+            "page_id": "home",
+            "label": "[F1] Home",
+            "icon": "House"
+          },
+          {
+            "page_id": "lights",
+            "label": "[F2] Lights",
+            "icon": "Lightbulb"
+          },
+          {
+            "page_id": "climate",
+            "label": "[F3] Climate",
+            "icon": "Thermometer"
+          },
+          {
+            "page_id": "switches",
+            "label": "[F4] Switch",
+            "icon": "Power"
+          },
+          {
+            "page_id": "sensors",
+            "label": "[F5] Sensors",
+            "icon": "Gauge"
+          },
+          {
+            "page_id": "music",
+            "label": "[F6] Music",
+            "icon": "SpeakerHifi"
+          },
+          {
+            "page_id": "settings",
+            "label": "[ESC] Config",
+            "icon": "Gear"
+          }
+        ]
+      },
+      "modals": {
+        "backdrop": "solid",
+        "backdrop_blur": 0,
+        "backdrop_opacity": 0.9,
+        "radius": "0px",
+        "border": "1px solid #50fa7b",
+        "enter_animation": "fade",
+        "exit_animation": "fade",
+        "close_button": "x",
+        "shadow": "none"
+      },
+      "notifications": {
+        "position": "top-right",
+        "enter_animation": "fade",
+        "exit_animation": "fade",
+        "radius": "0px",
+        "border": "1px solid #333",
+        "accent_bar": true,
+        "max_visible": 3,
+        "auto_dismiss_ms": 4000
+      },
+      "night_mode": {
+        "overlay_color": "#000000",
+        "overlay_opacity": 0.95,
+        "css_filter": "saturate(0.1) brightness(0.4)",
+        "transition_ms": 300,
+        "vignette": false,
+        "blend_mode": "normal",
+        "reduce_motion": true
+      }
+    },
+    "widget_templates": [
+      {
+        "widget_type": "light",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/light.html",
+            "label": "> light --status",
+            "icon": "Lightbulb",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "switch",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/switch.html",
+            "label": "> switch --toggle",
+            "icon": "Power",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "climate",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/climate.html",
+            "label": "> climate --read",
+            "icon": "Thermometer",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "sensor",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/sensor.html",
+            "label": "> sensor --poll",
+            "icon": "Gauge",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "weather",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/weather.html",
+            "label": "> weather --forecast",
+            "icon": "Cloud",
+            "is_default": true
+          }
+        ]
+      }
+    ],
+    "icon_font": {
+      "font_name": "Terminal Icons",
+      "css_path": "",
+      "class_prefix": "term-icon",
+      "icon_map": {
+        "House": "term-icon-home",
+        "Lightbulb": "term-icon-bulb",
+        "Thermometer": "term-icon-temp",
+        "Power": "term-icon-pwr",
+        "Gauge": "term-icon-sensor",
+        "SpeakerHifi": "term-icon-spkr",
+        "Gear": "term-icon-cfg",
+        "Terminal": "term-icon-cli",
+        "Monitor": "term-icon-display",
+        "FireSimple": "term-icon-fire",
+        "Lightning": "term-icon-bolt"
+      }
+    },
+    "background": {
+      "type": "image",
+      "url": "images/background.svg",
+      "overlay_opacity": 0.04,
+      "blend_mode": "screen"
+    }
+  }
+}

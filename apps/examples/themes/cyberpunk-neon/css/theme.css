@@ -1,0 +1,17 @@
+/* Cyberpunk Neon Theme – Core CSS */
+:root[data-theme="cyberpunk-neon"] {
+  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
+}
+
+:root[data-theme="cyberpunk-neon"] h1, 
+:root[data-theme="cyberpunk-neon"] h2, 
+:root[data-theme="cyberpunk-neon"] h3 {
+  font-family: 'Orbitron', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+:root[data-theme="cyberpunk-neon"] .glass-card {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

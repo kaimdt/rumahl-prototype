@@ -172,17 +172,18 @@ impl EntityStateCache {
             let mut trackers = self.trackers.write().await;
             let old_states = self.states.read().await;
             for entity in &changed {
-                let tracker = trackers
-                    .entry(entity.entity_id.clone())
-                    .or_insert_with(|| EntityTracker {
-                        change_count: 0,
-                        first_seen: start,
-                        first_seen_ts: now_ts.clone(),
-                        last_change: None,
-                        last_change_ts: None,
-                        previous_state: None,
-                        change_intervals: Vec::new(),
-                    });
+                let tracker =
+                    trackers
+                        .entry(entity.entity_id.clone())
+                        .or_insert_with(|| EntityTracker {
+                            change_count: 0,
+                            first_seen: start,
+                            first_seen_ts: now_ts.clone(),
+                            last_change: None,
+                            last_change_ts: None,
+                            previous_state: None,
+                            change_intervals: Vec::new(),
+                        });
 
                 // Record the previous state
                 if let Some(old) = old_states.get(&entity.entity_id) {
@@ -208,15 +209,17 @@ impl EntityStateCache {
             // Seed trackers for initial load
             let mut trackers = self.trackers.write().await;
             for entity in new_map.values() {
-                trackers.entry(entity.entity_id.clone()).or_insert_with(|| EntityTracker {
-                    change_count: 0,
-                    first_seen: start,
-                    first_seen_ts: now_ts.clone(),
-                    last_change: None,
-                    last_change_ts: None,
-                    previous_state: None,
-                    change_intervals: Vec::new(),
-                });
+                trackers
+                    .entry(entity.entity_id.clone())
+                    .or_insert_with(|| EntityTracker {
+                        change_count: 0,
+                        first_seen: start,
+                        first_seen_ts: now_ts.clone(),
+                        last_change: None,
+                        last_change_ts: None,
+                        previous_state: None,
+                        change_intervals: Vec::new(),
+                    });
             }
         }
 
@@ -229,7 +232,8 @@ impl EntityStateCache {
 
         self.initialized.store(true, Ordering::Relaxed);
         self.update_count.fetch_add(1, Ordering::Relaxed);
-        self.last_update_ms.store(start.elapsed().as_millis() as u64, Ordering::Relaxed);
+        self.last_update_ms
+            .store(start.elapsed().as_millis() as u64, Ordering::Relaxed);
         (changed, is_initial)
     }
 
@@ -269,7 +273,8 @@ impl EntityStateCache {
                 } else {
                     t.change_intervals.iter().sum::<f64>() / t.change_intervals.len() as f64
                 };
-                let stale_secs = t.last_change
+                let stale_secs = t
+                    .last_change
                     .map(|lc| now.duration_since(lc).as_secs())
                     .unwrap_or_else(|| now.duration_since(t.first_seen).as_secs());
                 EntityAnalytics {
@@ -302,7 +307,8 @@ impl EntityStateCache {
             } else {
                 t.change_intervals.iter().sum::<f64>() / t.change_intervals.len() as f64
             };
-            let stale_secs = t.last_change
+            let stale_secs = t
+                .last_change
                 .map(|lc| now.duration_since(lc).as_secs())
                 .unwrap_or_else(|| now.duration_since(t.first_seen).as_secs());
             EntityAnalytics {
@@ -311,7 +317,10 @@ impl EntityStateCache {
                 last_change_ts: t.last_change_ts.clone(),
                 first_seen_ts: t.first_seen_ts.clone(),
                 avg_change_interval_secs: (avg * 10.0).round() / 10.0,
-                current_state: states.get(entity_id).map(|s| s.state.clone()).unwrap_or_default(),
+                current_state: states
+                    .get(entity_id)
+                    .map(|s| s.state.clone())
+                    .unwrap_or_default(),
                 previous_state: t.previous_state.clone(),
                 stale_seconds: stale_secs,
             }
@@ -335,21 +344,31 @@ impl EntityStateCache {
             let change_count = tracker.map(|t| t.change_count).unwrap_or(0);
 
             let (status, detail) = if entity.state == "unavailable" {
-                ("unavailable", format!("Entity meldet 'unavailable' seit {} Sekunden", stale_secs))
+                (
+                    "unavailable",
+                    format!("Entity meldet 'unavailable' seit {} Sekunden", stale_secs),
+                )
             } else if entity.state == "unknown" {
                 ("unknown", "Entity-Status ist 'unknown'".to_string())
             } else if stale_secs > stale_threshold_secs && change_count > 0 {
-                ("stale", format!(
-                    "Keine Statusänderung seit {} Minuten (letzte: {})",
-                    stale_secs / 60,
-                    tracker.and_then(|t| t.last_change_ts.as_deref()).unwrap_or("?")
-                ))
+                (
+                    "stale",
+                    format!(
+                        "Keine Statusänderung seit {} Minuten (letzte: {})",
+                        stale_secs / 60,
+                        tracker
+                            .and_then(|t| t.last_change_ts.as_deref())
+                            .unwrap_or("?")
+                    ),
+                )
             } else {
                 continue; // healthy — skip
             };
 
             // Check if entity has low battery (common attribute)
-            let battery_low = entity.attributes.get("battery_level")
+            let battery_low = entity
+                .attributes
+                .get("battery_level")
                 .and_then(|v| v.as_f64())
                 .map(|b| b < 15.0)
                 .unwrap_or(false);
@@ -371,8 +390,14 @@ impl EntityStateCache {
 
         // Sort: unavailable first, then stale by staleness
         report.sort_by(|a, b| {
-            let prio = |s: &str| match s { "unavailable" => 0, "unknown" => 1, "stale" => 2, _ => 3 };
-            prio(a.status).cmp(&prio(b.status))
+            let prio = |s: &str| match s {
+                "unavailable" => 0,
+                "unknown" => 1,
+                "stale" => 2,
+                _ => 3,
+            };
+            prio(a.status)
+                .cmp(&prio(b.status))
                 .then(b.stale_seconds.cmp(&a.stale_seconds))
         });
         report
@@ -389,7 +414,8 @@ impl EntityStateCache {
         let unknown_count = states.values().filter(|e| e.state == "unknown").count();
 
         // Top 5 most active
-        let mut top5: Vec<(&String, u64)> = trackers.iter()
+        let mut top5: Vec<(&String, u64)> = trackers
+            .iter()
             .map(|(id, t)| (id, t.change_count))
             .collect();
         top5.sort_by(|a, b| b.1.cmp(&a.1));

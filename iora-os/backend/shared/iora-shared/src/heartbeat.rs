@@ -51,19 +51,19 @@ use crate::types::HealthStatus;
 /// `POST {core_url}/api/core/services/heartbeat`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceHeartbeat {
-    pub name:            String,
-    pub url:             String,
-    pub description:     String,
-    pub version:         String,
-    pub status:          HealthStatus,
-    pub message:         Option<String>,
-    pub uptime_seconds:  u64,
-    pub pid:             u32,
-    pub host:            String,
+    pub name: String,
+    pub url: String,
+    pub description: String,
+    pub version: String,
+    pub status: HealthStatus,
+    pub message: Option<String>,
+    pub uptime_seconds: u64,
+    pub pid: u32,
+    pub host: String,
     /// Free-form numeric metrics (cpu, mem_mb, queue_len, …). Cheap to
     /// transport, easy to render in the UI, no schema lock-in.
-    pub metrics:         HashMap<String, f64>,
-    pub timestamp:       String,
+    pub metrics: HashMap<String, f64>,
+    pub timestamp: String,
 }
 
 /// Configuration for [`HeartbeatClient::spawn`].
@@ -72,16 +72,16 @@ pub struct HeartbeatConfig {
     /// Logical service name (must be unique across the mesh).
     pub service_name: String,
     /// URL the service listens on, used by core for reverse health polls.
-    pub service_url:  String,
+    pub service_url: String,
     /// Human-readable description (shown in the dashboard).
-    pub description:  String,
+    pub description: String,
     /// Version string. Defaults to `CARGO_PKG_VERSION` when empty.
-    pub version:      String,
+    pub version: String,
     /// Core base URL. Honors `$IORA_CORE_URL`, default `http://127.0.0.1:8090`.
-    pub core_url:     String,
+    pub core_url: String,
     /// Heartbeat interval. Honors `$IORA_HEARTBEAT_INTERVAL_SECS`,
     /// default 5s. Clamped to [1s, 60s].
-    pub interval:     Duration,
+    pub interval: Duration,
     /// HTTP timeout per request. Default 3s.
     pub http_timeout: Duration,
 }
@@ -95,12 +95,12 @@ impl Default for HeartbeatConfig {
             .clamp(1, 60);
         Self {
             service_name: String::new(),
-            service_url:  String::new(),
-            description:  String::new(),
-            version:      env!("CARGO_PKG_VERSION").to_string(),
-            core_url:     std::env::var("IORA_CORE_URL")
+            service_url: String::new(),
+            description: String::new(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            core_url: std::env::var("IORA_CORE_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:8090".to_string()),
-            interval:     Duration::from_secs(interval_secs),
+            interval: Duration::from_secs(interval_secs),
             http_timeout: Duration::from_secs(3),
         }
     }
@@ -109,7 +109,7 @@ impl Default for HeartbeatConfig {
 /// Mutable shared state every heartbeat tick reads from.
 #[derive(Debug, Default)]
 struct HeartbeatState {
-    status:  HealthStatus,
+    status: HealthStatus,
     message: Option<String>,
     metrics: HashMap<String, f64>,
     stopped: bool,
@@ -132,7 +132,7 @@ pub struct HeartbeatHandle {
 impl HeartbeatHandle {
     pub async fn set_status(&self, status: HealthStatus, message: Option<String>) {
         let mut s = self.state.write().await;
-        s.status  = status;
+        s.status = status;
         s.message = message;
     }
 
@@ -164,8 +164,8 @@ pub fn spawn_default(
 ) -> HeartbeatHandle {
     HeartbeatClient::spawn(HeartbeatConfig {
         service_name: service_name.into(),
-        service_url:  format!("http://127.0.0.1:{port}"),
-        description:  description.into(),
+        service_url: format!("http://127.0.0.1:{port}"),
+        description: description.into(),
         ..HeartbeatConfig::default()
     })
 }
@@ -181,14 +181,18 @@ impl HeartbeatClient {
             // Fail loud in dev, silent in prod: a nameless heartbeat is
             // useless on the receiver. We log and refuse to spawn.
             tracing::error!("heartbeat: refusing to spawn with empty service_name");
-            return HeartbeatHandle { state: Arc::new(RwLock::new(HeartbeatState::default())) };
+            return HeartbeatHandle {
+                state: Arc::new(RwLock::new(HeartbeatState::default())),
+            };
         }
         if cfg.version.trim().is_empty() {
             cfg.version = env!("CARGO_PKG_VERSION").to_string();
         }
 
         let state = Arc::new(RwLock::new(HeartbeatState::default()));
-        let handle = HeartbeatHandle { state: state.clone() };
+        let handle = HeartbeatHandle {
+            state: state.clone(),
+        };
 
         tokio::spawn(run_loop(cfg, state));
         handle
@@ -207,7 +211,10 @@ async fn run_loop(cfg: HeartbeatConfig, state: Arc<RwLock<HeartbeatState>>) {
     {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("heartbeat({}): cannot build HTTP client: {e}", cfg.service_name);
+            tracing::error!(
+                "heartbeat({}): cannot build HTTP client: {e}",
+                cfg.service_name
+            );
             return;
         }
     };
@@ -235,7 +242,12 @@ async fn run_loop(cfg: HeartbeatConfig, state: Arc<RwLock<HeartbeatState>>) {
         // Snapshot mutable state under a short read lock.
         let (status, message, metrics, stopped) = {
             let s = state.read().await;
-            (s.status.clone(), s.message.clone(), s.metrics.clone(), s.stopped)
+            (
+                s.status.clone(),
+                s.message.clone(),
+                s.metrics.clone(),
+                s.stopped,
+            )
         };
         if stopped {
             tracing::info!("heartbeat({}): stopped", cfg.service_name);
@@ -243,17 +255,17 @@ async fn run_loop(cfg: HeartbeatConfig, state: Arc<RwLock<HeartbeatState>>) {
         }
 
         let beat = ServiceHeartbeat {
-            name:           cfg.service_name.clone(),
-            url:            cfg.service_url.clone(),
-            description:    cfg.description.clone(),
-            version:        cfg.version.clone(),
+            name: cfg.service_name.clone(),
+            url: cfg.service_url.clone(),
+            description: cfg.description.clone(),
+            version: cfg.version.clone(),
             status,
             message,
             uptime_seconds: started.elapsed().as_secs(),
             pid,
-            host:           host.clone(),
+            host: host.clone(),
             metrics,
-            timestamp:      chrono::Utc::now().to_rfc3339(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
         };
 
         match client.post(&endpoint).json(&beat).send().await {

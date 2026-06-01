@@ -2,7 +2,7 @@
 // Shows all user/AI-created tasks with full pause/resume/delete/edit capabilities.
 
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   BellRinging,
   Clock,

@@ -1,0 +1,11 @@
+/* Forest Cabin – Core CSS */
+:root[data-theme="forest-cabin"] {
+  font-family: 'Lora', 'Georgia', serif;
+}
+
+:root[data-theme="forest-cabin"] h1, 
+:root[data-theme="forest-cabin"] h2, 
+:root[data-theme="forest-cabin"] h3 {
+  font-family: 'Lora', serif;
+  font-weight: 500;
+}

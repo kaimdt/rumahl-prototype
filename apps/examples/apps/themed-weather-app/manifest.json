@@ -1,0 +1,41 @@
+{
+  "id": "themed-weather-app",
+  "name": "Themed Weather App",
+  "version": "1.0.0",
+  "developer": "IORA Examples",
+  "description": "Beispiel-App die zeigt, wie man IORA Themes verwendet und anpasst",
+  "icon": "☀️",
+  "type": "app",
+  "entry_point": "index.html",
+  "permissions": [],
+  "theme": {
+    "inherit": true,
+    "variables": {
+      "accent": "#3b82f6",
+      "weather-sunny": "#fbbf24",
+      "weather-cloudy": "#9ca3af",
+      "weather-rainy": "#60a5fa",
+      "weather-stormy": "#7c3aed"
+    }
+  },
+  "settings_schema": {
+    "fields": [
+      {
+        "key": "location",
+        "type": "text",
+        "label": "Standort",
+        "default": "Berlin"
+      },
+      {
+        "key": "units",
+        "type": "select",
+        "label": "Einheiten",
+        "options": [
+          {"label": "Celsius", "value": "metric"},
+          {"label": "Fahrenheit", "value": "imperial"}
+        ],
+        "default": "metric"
+      }
+    ]
+  }
+}

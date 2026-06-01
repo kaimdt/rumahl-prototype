@@ -1,6 +1,6 @@
 // AI Provider Management – Visual interface for managing AI providers, API keys, models, and costs
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   Robot, Key, Plus, Trash, Check, X, Eye, EyeSlash, Wrench, Circle,
   Database, Cpu, Wallet, ArrowUp, ArrowDown, Sparkle, Shield, Warning,

@@ -74,13 +74,7 @@ impl HAWebSocket {
 
     /// Send a service call to HA via WebSocket. Non-blocking, fire-and-forget.
     /// The command is queued and sent over the persistent connection.
-    pub fn call_service(
-        &self,
-        domain: &str,
-        service: &str,
-        entity_id: &str,
-        service_data: Value,
-    ) {
+    pub fn call_service(&self, domain: &str, service: &str, entity_id: &str, service_data: Value) {
         let _ = self.cmd_tx.send(WsCommand {
             domain: domain.to_string(),
             service: service.to_string(),
@@ -140,7 +134,9 @@ async fn connection_loop(
 
         connected.store(false, Ordering::Relaxed);
         cache.set_ha_connected(false);
-        crate::METRICS.ha_ws_reconnects.fetch_add(1, Ordering::Relaxed);
+        crate::METRICS
+            .ha_ws_reconnects
+            .fetch_add(1, Ordering::Relaxed);
         info!("[HA-WS] Reconnecting in {:?}", backoff);
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(Duration::from_secs(30));
@@ -165,19 +161,17 @@ async fn run_connection(
         // Use rustls with native root certificates
         let mut root_store = rustls::RootCertStore::empty();
         if let Ok(certs) = rustls_native_certs::load_native_certs() {
-            for cert in certs { root_store.add(cert).ok(); }
+            for cert in certs {
+                root_store.add(cert).ok();
+            }
         }
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let connector = tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config));
-        let (stream, _) = tokio_tungstenite::connect_async_tls_with_config(
-            ws_url,
-            None,
-            false,
-            Some(connector),
-        )
-        .await?;
+        let (stream, _) =
+            tokio_tungstenite::connect_async_tls_with_config(ws_url, None, false, Some(connector))
+                .await?;
         stream
     } else {
         let (stream, _) = tokio_tungstenite::connect_async(ws_url).await?;
@@ -189,13 +183,10 @@ async fn run_connection(
     let msg_id = AtomicU64::new(1);
 
     // ── Step 1: Wait for auth_required (with timeout) ──
-    let msg = tokio::time::timeout(
-        Duration::from_secs(15),
-        read.next(),
-    )
-    .await
-    .map_err(|_| "Timeout waiting for auth_required from HA")?
-    .ok_or("Connection closed before auth_required")??;
+    let msg = tokio::time::timeout(Duration::from_secs(15), read.next())
+        .await
+        .map_err(|_| "Timeout waiting for auth_required from HA")?
+        .ok_or("Connection closed before auth_required")??;
     let parsed: Value = serde_json::from_str(msg.to_text()?)?;
     if parsed["type"].as_str() != Some("auth_required") {
         return Err(format!("Expected auth_required, got {:?}", parsed["type"]).into());
@@ -212,13 +203,10 @@ async fn run_connection(
         ))
         .await?;
 
-    let msg = tokio::time::timeout(
-        Duration::from_secs(10),
-        read.next(),
-    )
-    .await
-    .map_err(|_| "Timeout waiting for auth response from HA")?
-    .ok_or("Connection closed during authentication")??;
+    let msg = tokio::time::timeout(Duration::from_secs(10), read.next())
+        .await
+        .map_err(|_| "Timeout waiting for auth response from HA")?
+        .ok_or("Connection closed during authentication")??;
     let parsed: Value = serde_json::from_str(msg.to_text()?)?;
     if parsed["type"].as_str() != Some("auth_ok") {
         return Err(format!("Authentication failed: {:?}", parsed).into());
@@ -404,14 +392,17 @@ async fn handle_ha_message(
 
     let changed = cache.update_single(entity.clone()).await;
     if changed {
-        crate::METRICS.entity_state_changes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::METRICS
+            .entity_state_changes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ws_manager
             .broadcast_state_updates(vec![entity.clone()])
             .await;
 
         // Check for warning entities and broadcast warning events
         if is_warning_entity(&entity.entity_id, &entity.attributes) {
-            let old_state = msg.pointer("/event/data/old_state/state")
+            let old_state = msg
+                .pointer("/event/data/old_state/state")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             check_warning_state_change(&entity, old_state, ws_manager, db_pool).await;
@@ -536,8 +527,11 @@ pub fn is_warning_entity(entity_id: &str, attributes: &Value) -> bool {
     // NINA entities can also be identified by their attributes
     if let Some(sender) = attributes.get("sender").and_then(|v| v.as_str()) {
         let sender_lower = sender.to_lowercase();
-        if sender_lower.contains("dwd") || sender_lower.contains("bbk")
-            || sender_lower.contains("lhp") || sender_lower.contains("mowas") {
+        if sender_lower.contains("dwd")
+            || sender_lower.contains("bbk")
+            || sender_lower.contains("lhp")
+            || sender_lower.contains("mowas")
+        {
             return true;
         }
     }
@@ -550,18 +544,19 @@ pub fn is_warning_entity(entity_id: &str, attributes: &Value) -> bool {
 /// Supports DWD, NINA, MeteoAlarm, NWS formats.
 pub fn extract_warning_info(entity: &EntityState) -> (String, String, String) {
     let attrs = &entity.attributes;
-    let friendly_name = attrs.get("friendly_name")
+    let friendly_name = attrs
+        .get("friendly_name")
         .and_then(|v| v.as_str())
         .unwrap_or(&entity.entity_id);
 
     // DWD-specific: warning_count, warning_* attributes
-    let warning_count = attrs.get("warning_count")
-        .and_then(|v| v.as_u64());
+    let warning_count = attrs.get("warning_count").and_then(|v| v.as_u64());
 
     // Try headline from various integration formats
     // NINA: headline, event, sender_name
     // DWD: warning_1_headline, warning_1_name
-    let headline = attrs.get("headline")
+    let headline = attrs
+        .get("headline")
         .or_else(|| attrs.get("warning_1_headline"))
         .or_else(|| attrs.get("warning_1_name"))
         .or_else(|| attrs.get("title"))
@@ -570,7 +565,8 @@ pub fn extract_warning_info(entity: &EntityState) -> (String, String, String) {
         .unwrap_or("");
 
     // Description / message body
-    let description = attrs.get("description")
+    let description = attrs
+        .get("description")
         .or_else(|| attrs.get("warning_1_description"))
         .or_else(|| attrs.get("instruction"))
         .or_else(|| attrs.get("message"))
@@ -580,7 +576,8 @@ pub fn extract_warning_info(entity: &EntityState) -> (String, String, String) {
     // Severity detection from attributes
     // NINA: severity attribute ("Minor", "Moderate", "Severe", "Extreme")
     // DWD: warning_1_level (numeric 1-4)
-    let severity_str = attrs.get("severity")
+    let severity_str = attrs
+        .get("severity")
         .or_else(|| attrs.get("warning_1_level"))
         .or_else(|| attrs.get("warning_level"))
         .or_else(|| attrs.get("level"))
@@ -589,19 +586,32 @@ pub fn extract_warning_info(entity: &EntityState) -> (String, String, String) {
         .unwrap_or("")
         .to_lowercase();
 
-    let severity_num = attrs.get("warning_1_level")
+    let severity_num = attrs
+        .get("warning_1_level")
         .or_else(|| attrs.get("warning_level"))
         .or_else(|| attrs.get("severity"))
         .and_then(|v| v.as_u64());
 
     // Map severity to notification level
-    let level = if severity_str.contains("extreme") || severity_str.contains("extraordinary") || severity_num == Some(4) {
+    let level = if severity_str.contains("extreme")
+        || severity_str.contains("extraordinary")
+        || severity_num == Some(4)
+    {
         "emergency"
-    } else if severity_str.contains("severe") || severity_str.contains("stark") || severity_num == Some(3) {
+    } else if severity_str.contains("severe")
+        || severity_str.contains("stark")
+        || severity_num == Some(3)
+    {
         "critical"
-    } else if severity_str.contains("moderate") || severity_str.contains("markant") || severity_num == Some(2) {
+    } else if severity_str.contains("moderate")
+        || severity_str.contains("markant")
+        || severity_num == Some(2)
+    {
         "warning"
-    } else if severity_str.contains("minor") || severity_str.contains("gering") || severity_num == Some(1) {
+    } else if severity_str.contains("minor")
+        || severity_str.contains("gering")
+        || severity_num == Some(1)
+    {
         "info"
     } else {
         // Default: if entity is active, treat as at least "warning"
@@ -679,7 +689,9 @@ async fn check_warning_state_change(
     let title_c = title.clone();
     let message_c = message.clone();
     let level_c = level.clone();
-    let source = entity.attributes.get("sender")
+    let source = entity
+        .attributes
+        .get("sender")
         .and_then(|v| v.as_str())
         .unwrap_or("Home Assistant")
         .to_string();

@@ -1,4 +1,4 @@
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,10 +12,7 @@ pub enum HAClientError {
     RequestError(#[from] reqwest::Error),
 
     #[error("Upstream status {status}: {body}")]
-    UpstreamStatus {
-        status: u16,
-        body: String,
-    },
+    UpstreamStatus { status: u16, body: String },
 
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
@@ -123,11 +120,6 @@ impl HomeAssistantClient {
         format!("Bearer {}", self.token.read().await)
     }
 
-    /// Helper: build the full URL for a HA API call
-    async fn api_url(&self, path: &str) -> String {
-        format!("{}{}", self.base_url.read().await, path)
-    }
-
     /// Get all entity states (uses poll_client — slow path)
     pub async fn get_states(&self) -> Result<Vec<EntityState>> {
         let url = format!("{}/api/states", self.base_url.read().await);
@@ -185,9 +177,20 @@ impl HomeAssistantClient {
         query: &str,
     ) -> Result<Value> {
         let url = if query.is_empty() {
-            format!("{}/api/services/{}/{}", self.base_url.read().await, domain, service)
+            format!(
+                "{}/api/services/{}/{}",
+                self.base_url.read().await,
+                domain,
+                service
+            )
         } else {
-            format!("{}/api/services/{}/{}?{}", self.base_url.read().await, domain, service, query)
+            format!(
+                "{}/api/services/{}/{}?{}",
+                self.base_url.read().await,
+                domain,
+                service,
+                query
+            )
         };
 
         let response = self
@@ -213,13 +216,13 @@ impl HomeAssistantClient {
     /// Only checks the HTTP status code, then drops the connection.
     /// Much faster because HA returns all changed entity states in the body
     /// which can be very large and slow to transfer/parse.
-    pub async fn call_service_fast(
-        &self,
-        domain: &str,
-        service: &str,
-        data: Value,
-    ) -> Result<()> {
-        let url = format!("{}/api/services/{}/{}", self.base_url.read().await, domain, service);
+    pub async fn call_service_fast(&self, domain: &str, service: &str, data: Value) -> Result<()> {
+        let url = format!(
+            "{}/api/services/{}/{}",
+            self.base_url.read().await,
+            domain,
+            service
+        );
 
         let response = self
             .cmd_client
@@ -241,14 +244,12 @@ impl HomeAssistantClient {
     }
 
     /// Get entity history (uses poll_client — slow path)
-    pub async fn get_history(
-        &self,
-        start_time: &str,
-        query: &str,
-    ) -> Result<Value> {
+    pub async fn get_history(&self, start_time: &str, query: &str) -> Result<Value> {
         let url = format!(
             "{}/api/history/period/{}?{}",
-            self.base_url.read().await, start_time, query
+            self.base_url.read().await,
+            start_time,
+            query
         );
 
         let response = self
@@ -296,10 +297,7 @@ impl HomeAssistantClient {
         // Some image endpoints are intentionally public and may behave differently
         // when an Authorization header is present. Retry without auth when needed.
         let response = if retry_without_auth && matches!(response.status().as_u16(), 401 | 403) {
-            self.cmd_client
-                .get(&url)
-                .send()
-                .await?
+            self.cmd_client.get(&url).send().await?
         } else {
             response
         };
@@ -327,7 +325,8 @@ impl HomeAssistantClient {
         query: &str,
     ) -> Result<ProxyGetResponse> {
         let path = relative_path.trim_start_matches('/');
-        self.proxy_api_get(&format!("hass_agent/{}", path), query, true).await
+        self.proxy_api_get(&format!("hass_agent/{}", path), query, true)
+            .await
     }
 
     /// Proxy a GET request to Home Assistant's /api/image/serve endpoint.
@@ -337,7 +336,8 @@ impl HomeAssistantClient {
         query: &str,
     ) -> Result<ProxyGetResponse> {
         let path = relative_path.trim_start_matches('/');
-        self.proxy_api_get(&format!("image/serve/{}", path), query, true).await
+        self.proxy_api_get(&format!("image/serve/{}", path), query, true)
+            .await
     }
 
     /// Render a Jinja2 template in Home Assistant
@@ -358,7 +358,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.text().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .text()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Get logbook entries for a time period
@@ -366,7 +369,12 @@ impl HomeAssistantClient {
         let url = if query.is_empty() {
             format!("{}/api/logbook/{}", self.base_url.read().await, start_time)
         } else {
-            format!("{}/api/logbook/{}?{}", self.base_url.read().await, start_time, query)
+            format!(
+                "{}/api/logbook/{}?{}",
+                self.base_url.read().await,
+                start_time,
+                query
+            )
         };
 
         let response = self
@@ -382,7 +390,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Get available calendars
@@ -401,7 +412,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Get calendar events for a specific calendar
@@ -412,10 +426,7 @@ impl HomeAssistantClient {
         end: &str,
     ) -> Result<Value> {
         // HA calendar API requires URL-encoded ISO datetime params
-        let url = format!(
-            "{}/api/calendars/{}",
-            self.base_url.read().await, entity_id
-        );
+        let url = format!("{}/api/calendars/{}", self.base_url.read().await, entity_id);
         let response = self
             .cmd_client
             .get(&url)
@@ -430,7 +441,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Fire an event on Home Assistant
@@ -451,7 +465,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Get HA error log as plain text
@@ -470,7 +487,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.text().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .text()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Generic GET to any HA REST API path, returning JSON
@@ -490,7 +510,10 @@ impl HomeAssistantClient {
             return Err(HAClientError::UpstreamStatus { status, body });
         }
 
-        response.json::<Value>().await.map_err(|e| HAClientError::InvalidResponse(e.to_string()))
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| HAClientError::InvalidResponse(e.to_string()))
     }
 
     /// Set entity state directly (POST /api/states/<entity_id>)

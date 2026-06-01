@@ -1,7 +1,7 @@
 // Agent Todo Panel – tracks pi.dev todo tool calls
 // Shows task list with status, progress, and completion
 
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, Circle, Spinner, Trash, Plus, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'

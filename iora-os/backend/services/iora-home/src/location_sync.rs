@@ -72,7 +72,9 @@ impl LocationSyncService {
                 e.attributes.get("latitude").is_some() && e.attributes.get("longitude").is_some()
             })
             .map(|e| {
-                let name = e.attributes.get("friendly_name")
+                let name = e
+                    .attributes
+                    .get("friendly_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&e.entity_id)
                     .to_string();
@@ -80,12 +82,16 @@ impl LocationSyncService {
             })
             .collect();
 
-        debug!("LocationSyncService: found {} trackable entities", trackable.len());
+        debug!(
+            "LocationSyncService: found {} trackable entities",
+            trackable.len()
+        );
 
         for (entity_id, friendly_name) in &trackable {
             if let Err(e) = self.sync_entity(entity_id, friendly_name).await {
                 warn!("LocationSyncService: sync failed for {}: {}", entity_id, e);
-                self.update_sync_status(entity_id, "error", Some(&e.to_string())).await;
+                self.update_sync_status(entity_id, "error", Some(&e.to_string()))
+                    .await;
             }
         }
 
@@ -128,7 +134,10 @@ impl LocationSyncService {
         // Don't re-sync if we synced very recently (< 2 minutes ago)
         if let Some(ls) = last_sync {
             if (Utc::now() - ls).num_seconds() < 120 {
-                debug!("LocationSyncService: {} synced recently, skipping", entity_id);
+                debug!(
+                    "LocationSyncService: {} synced recently, skipping",
+                    entity_id
+                );
                 return Ok(());
             }
         }
@@ -137,7 +146,10 @@ impl LocationSyncService {
 
         // Fetch history from HA
         let start_iso = sync_from.to_rfc3339();
-        let query = format!("filter_entity_id={}&minimal_response&no_attributes=false", entity_id);
+        let query = format!(
+            "filter_entity_id={}&minimal_response&no_attributes=false",
+            entity_id
+        );
         let history = self.ha_client.get_history(&start_iso, &query).await;
 
         match history {
@@ -193,16 +205,22 @@ impl LocationSyncService {
                 if let Some((Some(ref newest_ts),)) = newest {
                     let gap_hours = (Utc::now() - *newest_ts).num_hours();
                     if gap_hours > 24 && points.is_empty() {
-                        self.create_gap_notification(entity_id, friendly_name, gap_hours).await;
+                        self.create_gap_notification(entity_id, friendly_name, gap_hours)
+                            .await;
                     }
                 }
             }
             Err(e) => {
-                warn!("LocationSyncService: HA history fetch failed for {}: {}", entity_id, e);
-                self.update_sync_status(entity_id, "error", Some(&e.to_string())).await;
+                warn!(
+                    "LocationSyncService: HA history fetch failed for {}: {}",
+                    entity_id, e
+                );
+                self.update_sync_status(entity_id, "error", Some(&e.to_string()))
+                    .await;
 
                 // Create admin notification for persistent failures
-                self.create_sync_error_notification(entity_id, friendly_name, &e.to_string()).await;
+                self.create_sync_error_notification(entity_id, friendly_name, &e.to_string())
+                    .await;
             }
         }
 
@@ -210,7 +228,11 @@ impl LocationSyncService {
     }
 
     /// Extract lat/lng points from HA history response
-    fn extract_location_points(&self, entity_id: &str, data: &serde_json::Value) -> Vec<LocationPoint> {
+    fn extract_location_points(
+        &self,
+        entity_id: &str,
+        data: &serde_json::Value,
+    ) -> Vec<LocationPoint> {
         let mut points = Vec::new();
 
         // HA history returns [[{state, last_changed, attributes: {latitude, longitude, ...}}, ...]]
@@ -240,12 +262,14 @@ impl LocationSyncService {
             let recorded_at = entry
                 .get("last_changed")
                 .and_then(|v| v.as_str())
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok().or_else(|| {
-                    // HA sometimes uses formats without timezone
-                    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
-                        .ok()
-                        .map(|ndt| ndt.and_utc().fixed_offset())
-                }))
+                .and_then(|s| {
+                    DateTime::parse_from_rfc3339(s).ok().or_else(|| {
+                        // HA sometimes uses formats without timezone
+                        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
+                            .ok()
+                            .map(|ndt| ndt.and_utc().fixed_offset())
+                    })
+                })
                 .map(|dt| dt.with_timezone(&Utc));
 
             let recorded_at = match recorded_at {
@@ -253,9 +277,18 @@ impl LocationSyncService {
                 None => continue,
             };
 
-            let state = entry.get("state").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let gps_accuracy = attrs.get("gps_accuracy").and_then(|v| v.as_i64()).map(|v| v as i32);
-            let source = attrs.get("source_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let state = entry
+                .get("state")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let gps_accuracy = attrs
+                .get("gps_accuracy")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32);
+            let source = attrs
+                .get("source_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             points.push(LocationPoint {
                 entity_id: entity_id.to_string(),
@@ -285,7 +318,11 @@ impl LocationSyncService {
     }
 
     /// Store points in the database (ignoring duplicates)
-    async fn store_points(&self, _entity_id: &str, points: &[LocationPoint]) -> anyhow::Result<i64> {
+    async fn store_points(
+        &self,
+        _entity_id: &str,
+        points: &[LocationPoint],
+    ) -> anyhow::Result<i64> {
         if points.is_empty() {
             return Ok(0);
         }
@@ -332,13 +369,12 @@ impl LocationSyncService {
         let notif_id = format!("sync_gap_{}_{}", entity_id, Utc::now().format("%Y%m%d"));
 
         // Don't create duplicate notifications for the same day
-        let exists: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM admin_system_notifications WHERE id = $1",
-        )
-        .bind(&notif_id)
-        .fetch_optional(&self.pool)
-        .await
-        .unwrap_or(None);
+        let exists: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM admin_system_notifications WHERE id = $1")
+                .bind(&notif_id)
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or(None);
 
         if exists.is_some() {
             return;
@@ -370,13 +406,12 @@ impl LocationSyncService {
     async fn create_sync_error_notification(&self, entity_id: &str, name: &str, error: &str) {
         let notif_id = format!("sync_err_{}_{}", entity_id, Utc::now().format("%Y%m%d%H"));
 
-        let exists: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM admin_system_notifications WHERE id = $1",
-        )
-        .bind(&notif_id)
-        .fetch_optional(&self.pool)
-        .await
-        .unwrap_or(None);
+        let exists: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM admin_system_notifications WHERE id = $1")
+                .bind(&notif_id)
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or(None);
 
         if exists.is_some() {
             return;
@@ -417,6 +452,7 @@ pub struct LocationPoint {
     pub recorded_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncStatus {
     pub entity_id: String,
@@ -429,6 +465,7 @@ pub struct SyncStatus {
     pub last_error: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminSystemNotification {
     pub id: String,

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="0.8"/>
+    </filter>
+    <!-- Hex sub-grid -->
+    <pattern id="microHex" x="0" y="0" width="16" height="28" patternUnits="userSpaceOnUse">
+      <polygon points="8,0 16,5 16,14 8,19 0,14 0,5" fill="none" stroke="#ff2d95" stroke-width="0.2" opacity="0.06"/>
+      <polygon points="8,14 16,19 16,28 8,33 0,28 0,19" fill="none" stroke="#00f0ff" stroke-width="0.2" opacity="0.06"/>
+    </pattern>
+    <!-- Scanline -->
+    <pattern id="microScan" x="0" y="0" width="120" height="2" patternUnits="userSpaceOnUse">
+      <rect width="120" height="0.5" fill="#ffffff" opacity="0.02"/>
+    </pattern>
+    <!-- Digital noise -->
+    <pattern id="digitalNoise" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect x="1" y="2" width="1" height="1" fill="#00f0ff" opacity="0.04"/>
+      <rect x="4" y="0" width="1" height="1" fill="#ff2d95" opacity="0.03"/>
+      <rect x="2" y="5" width="1" height="1" fill="#00f0ff" opacity="0.02"/>
+    </pattern>
+  </defs>
+  <!-- Transparent base -->
+  <rect width="120" height="120" fill="none"/>
+  <!-- Micro hex grid -->
+  <rect width="120" height="120" fill="url(#microHex)"/>
+  <!-- Scanlines -->
+  <rect width="120" height="120" fill="url(#microScan)"/>
+  <!-- Digital noise -->
+  <rect width="120" height="120" fill="url(#digitalNoise)"/>
+  <!-- Occasional tiny glitch blocks -->
+  <rect x="20" y="18" width="8" height="1.5" fill="#ff2d95" opacity="0.06"/>
+  <rect x="82" y="54" width="14" height="1" fill="#00f0ff" opacity="0.05"/>
+  <rect x="40" y="78" width="6" height="1.5" fill="#b44dff" opacity="0.04"/>
+  <rect x="100" y="90" width="10" height="1" fill="#ff2d95" opacity="0.04"/>
+  <rect x="10" y="102" width="16" height="1" fill="#00f0ff" opacity="0.05"/>
+  <!-- Small circuit dots -->
+  <circle cx="30" cy="30" r="1" fill="#ff2d95" opacity="0.1" filter="url(#subtleGlow)"/>
+  <circle cx="90" cy="60" r="1" fill="#00f0ff" opacity="0.08" filter="url(#subtleGlow)"/>
+  <circle cx="50" cy="90" r="0.8" fill="#b44dff" opacity="0.06"/>
+</svg>

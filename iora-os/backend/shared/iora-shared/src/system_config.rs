@@ -62,7 +62,10 @@ fn env_optional(key: &str) -> Option<String> {
 }
 
 fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string())
+    std::env::var(key)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -77,18 +80,61 @@ pub fn database_url() -> String {
 }
 
 /// Returns a service-specific database URL if set, otherwise the shared one.
+/// Priority order:
+/// 1. Service-specific credentials file (/etc/iora/db-credentials/{service}.env)
+/// 2. Service-specific env var ({SERVICE}_DB_URL)
+/// 3. Shared DATABASE_URL env var
+/// 4. Default SQLite database
 pub fn database_url_for(service: &str) -> String {
+    // Try service-specific credentials file first (managed by iora-db-manager)
+    let cred_file = format!("/etc/iora/db-credentials/{}.env", service);
+    if let Ok(content) = std::fs::read_to_string(&cred_file) {
+        for line in content.lines() {
+            if let Some(url) = line.strip_prefix("DATABASE_URL=") {
+                return url.trim().to_string();
+            }
+        }
+    }
+
+    // Fall back to env var
     let key = format!("{}_DB_URL", service.to_uppercase().replace('-', "_"));
-    env_optional(&key).unwrap_or_else(|| database_url())
+    env_optional(&key).unwrap_or_else(database_url)
 }
 
 // ═══════════════════════════════════════════════════════════════════════
 // JWT / Security Secrets
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Returns the JWT secret. Auto-generated on first boot if not set.
+/// Auto-generated JWT secret cache (lazy init, used as fallback before DB is available).
+static AUTO_JWT_SECRET: OnceLock<String> = OnceLock::new();
+
+/// Returns the JWT secret. Priority:
+/// 1. `IORA_JWT_SECRET` environment variable
+/// 2. Settings cache key `jwt_secret` (populated from system_preferences table)
+/// 3. Auto-generated random secret (set by `persist_jwt_secret` or UUID v4 fallback)
 pub fn jwt_secret() -> String {
-    env_or("IORA_JWT_SECRET", "iora-dev-jwt-change-in-production")
+    // 1. Env var (highest priority, for explicit override)
+    if let Some(secret) = env_optional("IORA_JWT_SECRET") {
+        return secret;
+    }
+    // 2. Settings cache (populated by iora-home from system_preferences table)
+    if let Some(secret) = get_cached_setting("jwt_secret") {
+        return secret;
+    }
+    // 3. Auto-generated fallback (UUID v4 is cryptographically random)
+    AUTO_JWT_SECRET
+        .get_or_init(|| uuid::Uuid::new_v4().to_string())
+        .clone()
+}
+
+/// Persist a generated JWT secret — called by iora-home after writing to the DB.
+/// Updates both the settings cache and the auto-generated fallback so all callers
+/// see the same secret.
+pub fn persist_jwt_secret(secret: &str) {
+    update_cached_setting("jwt_secret".to_string(), secret.to_string());
+    // Also update the auto-generated fallback to match the persisted value.
+    // If the OnceLock is already initialized, force-set it (best-effort).
+    let _ = AUTO_JWT_SECRET.set(secret.to_string());
 }
 
 /// Master encryption key for the secrets service.
@@ -112,14 +158,20 @@ pub fn security_db_key() -> String {
 pub fn service_port(service: &str, default: u16) -> u16 {
     let specific_key = format!("{}_PORT", service.to_uppercase().replace('-', "_"));
     if let Ok(val) = std::env::var(&specific_key) {
-        if let Ok(p) = val.parse() { return p }
+        if let Ok(p) = val.parse() {
+            return p;
+        }
     }
     if let Ok(val) = std::env::var("PORT") {
-        if let Ok(p) = val.parse() { return p }
+        if let Ok(p) = val.parse() {
+            return p;
+        }
     }
     // Look up default from the port map
     for (name, port) in DEFAULT_PORTS {
-        if *name == service { return *port }
+        if *name == service {
+            return *port;
+        }
     }
     default
 }
@@ -133,7 +185,9 @@ pub fn service_port(service: &str, default: u16) -> u16 {
 /// safe default is device-local loopback. Container/service-DNS mode is opt-in.
 pub fn service_url(service: &str, default_port: u16) -> String {
     let url_key = format!("{}_URL", service.to_uppercase().replace('-', "_"));
-    if let Some(url) = env_optional(&url_key) { return url }
+    if let Some(url) = env_optional(&url_key) {
+        return url;
+    }
 
     let port = service_port(service, default_port);
     if std::env::var("IORA_SERVICE_DNS").ok().as_deref() == Some("1")
@@ -171,12 +225,14 @@ pub fn files_storage_dir() -> String {
 
 pub fn files_max_size_bytes() -> usize {
     env_or("IORA_FILES_MAX_SIZE", "104857600") // 100 MB
-        .parse().unwrap_or(104_857_600)
+        .parse()
+        .unwrap_or(104_857_600)
 }
 
 pub fn files_default_quota() -> i64 {
     env_or("IORA_FILES_DEFAULT_QUOTA", "1073741824") // 1 GB
-        .parse().unwrap_or(1_073_741_824)
+        .parse()
+        .unwrap_or(1_073_741_824)
 }
 
 pub fn files_base_url(port: u16) -> String {
@@ -222,8 +278,7 @@ pub fn ai_provider() -> String {
 }
 
 pub fn ai_api_key() -> Option<String> {
-    env_optional("ORA_AI_API_KEY")
-        .or_else(|| env_optional("ASSIST_AI_API_KEY"))
+    env_optional("ORA_AI_API_KEY").or_else(|| env_optional("ASSIST_AI_API_KEY"))
 }
 
 pub fn ai_base_url() -> String {
@@ -233,13 +288,11 @@ pub fn ai_base_url() -> String {
 }
 
 pub fn ai_model() -> Option<String> {
-    env_optional("ORA_AI_MODEL")
-        .or_else(|| env_optional("ASSIST_AI_MODEL"))
+    env_optional("ORA_AI_MODEL").or_else(|| env_optional("ASSIST_AI_MODEL"))
 }
 
 pub fn ai_api_version() -> Option<String> {
-    env_optional("ORA_AI_API_VERSION")
-        .or_else(|| env_optional("ASSIST_AI_API_VERSION"))
+    env_optional("ORA_AI_API_VERSION").or_else(|| env_optional("ASSIST_AI_API_VERSION"))
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -266,16 +319,24 @@ pub fn github_private_key() -> Option<String> {
 // SMTP / Email
 // ═══════════════════════════════════════════════════════════════════════
 
-pub fn smtp_server() -> Option<String> { env_optional("SMTP_SERVER") }
-pub fn smtp_username() -> Option<String> { env_optional("SMTP_USERNAME") }
-pub fn smtp_password() -> Option<String> { env_optional("SMTP_PASSWORD") }
+pub fn smtp_server() -> Option<String> {
+    env_optional("SMTP_SERVER")
+}
+pub fn smtp_username() -> Option<String> {
+    env_optional("SMTP_USERNAME")
+}
+pub fn smtp_password() -> Option<String> {
+    env_optional("SMTP_PASSWORD")
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Gateway
 // ═══════════════════════════════════════════════════════════════════════
 
 pub fn gateway_max_request_size() -> usize {
-    env_or("MAX_REQUEST_SIZE", "10485760").parse().unwrap_or(10_485_760)
+    env_or("MAX_REQUEST_SIZE", "10485760")
+        .parse()
+        .unwrap_or(10_485_760)
 }
 
 pub fn gateway_request_timeout_secs() -> u64 {
@@ -325,7 +386,9 @@ pub fn recovery_threshold() -> u32 {
 }
 
 pub fn recovery_cooldown_secs() -> u64 {
-    env_or("IORA_RECOVERY_COOLDOWN_SECS", "300").parse().unwrap_or(300)
+    env_or("IORA_RECOVERY_COOLDOWN_SECS", "300")
+        .parse()
+        .unwrap_or(300)
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -341,7 +404,9 @@ pub fn environment() -> String {
 }
 
 pub fn db_max_attempts() -> u32 {
-    env_or("IORA_HOME_DB_MAX_ATTEMPTS", "10").parse().unwrap_or(10)
+    env_or("IORA_HOME_DB_MAX_ATTEMPTS", "10")
+        .parse()
+        .unwrap_or(10)
 }
 
 pub fn download_host_allowlist() -> Vec<String> {
@@ -355,7 +420,9 @@ pub fn connector_domain() -> String {
 }
 
 pub fn connector_relay_port() -> u16 {
-    env_or("IORA_CONNECTOR_RELAY_PORT", "0").parse().unwrap_or(0)
+    env_or("IORA_CONNECTOR_RELAY_PORT", "0")
+        .parse()
+        .unwrap_or(0)
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -393,16 +460,64 @@ pub fn tts_service_url() -> String {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Thread-safe cache of settings fetched from iora-home's settings API.
-static SETTINGS_CACHE: OnceLock<std::sync::RwLock<std::collections::HashMap<String, String>>> = OnceLock::new();
+static SETTINGS_CACHE: OnceLock<std::sync::RwLock<std::collections::HashMap<String, String>>> =
+    OnceLock::new();
+
+/// Last update timestamp for cache invalidation
+static CACHE_UPDATED_AT: OnceLock<std::sync::RwLock<std::time::SystemTime>> = OnceLock::new();
 
 fn settings_cache() -> &'static std::sync::RwLock<std::collections::HashMap<String, String>> {
     SETTINGS_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
 }
 
+fn cache_updated_at() -> &'static std::sync::RwLock<std::time::SystemTime> {
+    CACHE_UPDATED_AT.get_or_init(|| std::sync::RwLock::new(std::time::SystemTime::UNIX_EPOCH))
+}
+
 /// Called by iora-home after bootstrapping to populate the cache.
 pub fn seed_settings_cache(entries: Vec<(String, String)>) {
     if let Ok(mut cache) = settings_cache().write() {
-        for (k, v) in entries { cache.insert(k, v); }
+        for (k, v) in entries {
+            cache.insert(k, v);
+        }
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
+    }
+}
+
+/// Update a single setting in the cache (hot-reload).
+/// This is called when a setting is changed via the API.
+pub fn update_cached_setting(key: String, value: String) {
+    if let Ok(mut cache) = settings_cache().write() {
+        cache.insert(key, value);
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
+    }
+}
+
+/// Remove a setting from the cache (hot-reload).
+pub fn remove_cached_setting(key: &str) {
+    if let Ok(mut cache) = settings_cache().write() {
+        cache.remove(key);
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
+    }
+}
+
+/// Clear the entire settings cache.
+pub fn clear_settings_cache() {
+    if let Ok(mut cache) = settings_cache().write() {
+        cache.clear();
+        // Update timestamp
+        if let Ok(mut ts) = cache_updated_at().write() {
+            *ts = std::time::SystemTime::now();
+        }
     }
 }
 
@@ -410,4 +525,14 @@ pub fn seed_settings_cache(entries: Vec<(String, String)>) {
 /// Returns None if not cached — caller should fall back to env var.
 pub fn get_cached_setting(key: &str) -> Option<String> {
     settings_cache().read().ok()?.get(key).cloned()
+}
+
+/// Get the timestamp when the cache was last updated.
+/// Useful for services that want to detect config changes.
+pub fn get_cache_updated_at() -> std::time::SystemTime {
+    cache_updated_at()
+        .read()
+        .ok()
+        .map(|ts| *ts)
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
 }

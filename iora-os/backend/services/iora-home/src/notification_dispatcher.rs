@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{websocket::WebSocketManager, ha_client::HomeAssistantClient};
+use crate::{ha_client::HomeAssistantClient, websocket::WebSocketManager};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -90,7 +90,11 @@ impl NotificationDispatcher {
         ws_manager: Arc<WebSocketManager>,
         ha_client: Arc<HomeAssistantClient>,
     ) -> Self {
-        Self { db, ws_manager, ha_client }
+        Self {
+            db,
+            ws_manager,
+            ha_client,
+        }
     }
 
     /// Load all enabled channels (or a filtered subset by IDs).
@@ -122,10 +126,7 @@ impl NotificationDispatcher {
 
     /// Dispatch a notification to all applicable channels and persist results.
     /// Always dispatches to the IORA internal channel regardless of `channels` filter.
-    pub async fn dispatch(
-        &self,
-        req: DispatchRequest,
-    ) -> (String, Vec<ChannelResult>) {
+    pub async fn dispatch(&self, req: DispatchRequest) -> (String, Vec<ChannelResult>) {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
 
@@ -230,7 +231,7 @@ impl NotificationDispatcher {
         // Prune old notifications (keep max 200)
         let _ = sqlx::query(
             "DELETE FROM notifications WHERE id NOT IN \
-             (SELECT id FROM notifications ORDER BY created_at DESC LIMIT 200)"
+             (SELECT id FROM notifications ORDER BY created_at DESC LIMIT 200)",
         )
         .execute(&self.db)
         .await;
@@ -298,7 +299,10 @@ impl NotificationDispatcher {
                 "warning" => "default",
                 _ => "low",
             };
-            ha_data.insert("importance".to_string(), serde_json::Value::String(importance.to_string()));
+            ha_data.insert(
+                "importance".to_string(),
+                serde_json::Value::String(importance.to_string()),
+            );
         }
         if !ha_data.is_empty() {
             notify_data["data"] = serde_json::Value::Object(ha_data);
@@ -309,7 +313,10 @@ impl NotificationDispatcher {
             .await
             .map_err(|e| format!("HA notify failed: {e}"))?;
 
-        info!("[notif] HA mobile → {}: [{}] {}", channel.target_id, req.level, req.title);
+        info!(
+            "[notif] HA mobile → {}: [{}] {}",
+            channel.target_id, req.level, req.title
+        );
         Ok(())
     }
 
@@ -334,7 +341,10 @@ impl NotificationDispatcher {
             }
         });
         self.ws_manager.broadcast_json(&event).await;
-        info!("[notif] Desktop → {}: [{}] {}", channel.target_id, req.level, req.title);
+        info!(
+            "[notif] Desktop → {}: [{}] {}",
+            channel.target_id, req.level, req.title
+        );
         Ok(())
     }
 
@@ -343,7 +353,7 @@ impl NotificationDispatcher {
     pub async fn list_channels(&self) -> Vec<NotificationChannel> {
         sqlx::query_as(
             "SELECT id, name, channel_type, target_id, enabled, config, created_at, updated_at \
-             FROM notification_channels ORDER BY created_at ASC"
+             FROM notification_channels ORDER BY created_at ASC",
         )
         .fetch_all(&self.db)
         .await
@@ -401,7 +411,7 @@ impl NotificationDispatcher {
              enabled = COALESCE($4, enabled), \
              config = COALESCE($5, config), \
              updated_at = $6 \
-             WHERE id = $1"
+             WHERE id = $1",
         )
         .bind(id)
         .bind(name.as_deref())

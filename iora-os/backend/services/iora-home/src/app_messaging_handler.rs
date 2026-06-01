@@ -11,7 +11,6 @@
 //!   POST   /api/apps/:app_id/messaging/inbox/:id/read – Mark as read
 //!   GET    /api/apps/messaging/events           – SSE stream of messages
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -23,12 +22,11 @@ use axum::{
 };
 use chrono::Utc;
 use futures_util::Stream;
-use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use tracing::{info, warn};
+use tracing::info;
 
 use iora_shared::app_messaging::*;
 
@@ -76,10 +74,14 @@ impl AppMessagingState {
 
     async fn save_channels(&self, channels: &[MessageChannel]) -> Result<(), String> {
         if let Some(parent) = self.channels_path().parent() {
-            fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(channels).map_err(|e| e.to_string())?;
-        fs::write(self.channels_path(), &content).await.map_err(|e| e.to_string())?;
+        fs::write(self.channels_path(), &content)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -96,10 +98,14 @@ impl AppMessagingState {
 
     async fn save_subscriptions(&self, app_id: &str, subs: &[Subscription]) -> Result<(), String> {
         if let Some(parent) = self.subscriptions_path(app_id).parent() {
-            fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(subs).map_err(|e| e.to_string())?;
-        fs::write(self.subscriptions_path(app_id), &content).await.map_err(|e| e.to_string())?;
+        fs::write(self.subscriptions_path(app_id), &content)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -116,10 +122,14 @@ impl AppMessagingState {
 
     async fn save_inbox(&self, app_id: &str, msgs: &[DirectMessage]) -> Result<(), String> {
         if let Some(parent) = self.inbox_path(app_id).parent() {
-            fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let content = serde_json::to_string(msgs).map_err(|e| e.to_string())?;
-        fs::write(self.inbox_path(app_id), &content).await.map_err(|e| e.to_string())?;
+        fs::write(self.inbox_path(app_id), &content)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }
@@ -141,14 +151,21 @@ pub async fn register_channel(
     let channel_name = channel.name.clone();
 
     if channels.iter().any(|c| c.name == channel_name) {
-        return Err((StatusCode::CONFLICT, format!("Channel '{}' already exists", channel_name)));
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Channel '{}' already exists", channel_name),
+        ));
     }
 
     channels.push(channel);
-    state.save_channels(&channels).await
+    state
+        .save_channels(&channels)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    Ok(Json(serde_json::json!({ "success": true, "channel": channel_name })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "channel": channel_name }),
+    ))
 }
 
 /// Publish a message to a channel
@@ -160,7 +177,10 @@ pub async fn publish_message(
 
     // Verify channel exists
     if !channels.iter().any(|c| c.name == req.channel) {
-        return Err((StatusCode::NOT_FOUND, format!("Channel '{}' not found", req.channel)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Channel '{}' not found", req.channel),
+        ));
     }
 
     let msg = Message {
@@ -194,7 +214,10 @@ pub async fn subscribe(
 ) -> Result<Json<Subscription>, (StatusCode, String)> {
     let channels = state.load_channels().await;
     if !channels.iter().any(|c| c.name == req.channel) {
-        return Err((StatusCode::NOT_FOUND, format!("Channel '{}' not found", req.channel)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Channel '{}' not found", req.channel),
+        ));
     }
 
     let mut subs = state.load_subscriptions(&app_id).await;
@@ -209,10 +232,15 @@ pub async fn subscribe(
     };
 
     subs.push(subscription.clone());
-    state.save_subscriptions(&app_id, &subs).await
+    state
+        .save_subscriptions(&app_id, &subs)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    info!("App '{}' subscribed to channel '{}'", app_id, subscription.channel);
+    info!(
+        "App '{}' subscribed to channel '{}'",
+        app_id, subscription.channel
+    );
     Ok(Json(subscription))
 }
 
@@ -235,13 +263,20 @@ pub async fn unsubscribe(
     subs.retain(|s| s.id != sub_id);
 
     if subs.len() == before {
-        return Err((StatusCode::NOT_FOUND, format!("Subscription '{}' not found", sub_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Subscription '{}' not found", sub_id),
+        ));
     }
 
-    state.save_subscriptions(&app_id, &subs).await
+    state
+        .save_subscriptions(&app_id, &subs)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    Ok(Json(serde_json::json!({ "success": true, "deleted": sub_id })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "deleted": sub_id }),
+    ))
 }
 
 /// Send a direct message to another app
@@ -262,7 +297,9 @@ pub async fn send_direct_message(
     // Store in recipient's inbox
     let mut inbox = state.load_inbox(&req.to).await;
     inbox.push(msg.clone());
-    state.save_inbox(&req.to, &inbox).await
+    state
+        .save_inbox(&req.to, &inbox)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     // Also emit via broadcast
@@ -302,15 +339,23 @@ pub async fn mark_message_read(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let mut inbox = state.load_inbox(&app_id).await;
 
-    let msg = inbox.iter_mut().find(|m| m.id == msg_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Message '{}' not found", msg_id)))?;
+    let msg = inbox.iter_mut().find(|m| m.id == msg_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Message '{}' not found", msg_id),
+        )
+    })?;
 
     msg.read = true;
 
-    state.save_inbox(&app_id, &inbox).await
+    state
+        .save_inbox(&app_id, &inbox)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    Ok(Json(serde_json::json!({ "success": true, "message_id": msg_id, "read": true })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "message_id": msg_id, "read": true }),
+    ))
 }
 
 /// SSE stream for real-time messages

@@ -26,10 +26,15 @@ pub struct StorageQuota {
     pub max_file_size_bytes: u64,
 }
 
-fn default_file_limit() -> u64 { 10 * 1024 * 1024 }
-fn default_kv_limit() -> u32 { 1000 }
-fn default_kv_entry_limit() -> u32 { 100 }
-fn default_file_size_limit() -> u64 { 5 * 1024 * 1024 }
+fn default_file_limit() -> u64 {
+    10 * 1024 * 1024
+}
+fn default_kv_limit() -> u32 {
+    1000
+}
+fn default_file_size_limit() -> u64 {
+    5 * 1024 * 1024
+}
 
 impl Default for StorageQuota {
     fn default() -> Self {
@@ -148,4 +153,6 @@ pub struct StorageConfig {
     pub allowed_mime_types: Vec<String>,
 }
 
-fn default_storage_enabled() -> bool { true }
+fn default_storage_enabled() -> bool {
+    true
+}

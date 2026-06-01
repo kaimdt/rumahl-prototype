@@ -9,7 +9,7 @@ import { Fan, Power } from '@phosphor-icons/react'
 import type { EntityState } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { toast } from 'sonner'
 import { EntityHistoryPanel } from './EntityHistoryPanel'
 

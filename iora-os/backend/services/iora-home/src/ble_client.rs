@@ -72,16 +72,28 @@ impl BleClient {
 
     /// Refresh device list from HA entity cache
     pub async fn refresh_from_entities(&self, entities: &[crate::EntityState]) {
-        let ble_entities: Vec<&crate::EntityState> = entities.iter()
+        let ble_entities: Vec<&crate::EntityState> = entities
+            .iter()
             .filter(|e| {
-                e.attributes.get("integration").and_then(|v| v.as_str()).map(|s| {
-                    s == "bluetooth" || s == "ble_monitor" || s == "xiaomi_ble" || 
-                    s == "switchbot" || s == "govee_ble" || s == "ibeacon"
-                }).unwrap_or(false) ||
-                e.attributes.get("source").and_then(|v| v.as_str()).map(|s| {
-                    s.contains("bluetooth") || s.contains("ble")
-                }).unwrap_or(false) ||
-                e.entity_id.contains("ble_") || e.entity_id.contains("bluetooth")
+                e.attributes
+                    .get("integration")
+                    .and_then(|v| v.as_str())
+                    .map(|s| {
+                        s == "bluetooth"
+                            || s == "ble_monitor"
+                            || s == "xiaomi_ble"
+                            || s == "switchbot"
+                            || s == "govee_ble"
+                            || s == "ibeacon"
+                    })
+                    .unwrap_or(false)
+                    || e.attributes
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains("bluetooth") || s.contains("ble"))
+                        .unwrap_or(false)
+                    || e.entity_id.contains("ble_")
+                    || e.entity_id.contains("bluetooth")
             })
             .collect();
 
@@ -89,14 +101,18 @@ impl BleClient {
         let mut seen = std::collections::HashSet::new();
 
         for entity in &ble_entities {
-            let device_id = entity.attributes.get("device_id")
+            let device_id = entity
+                .attributes
+                .get("device_id")
                 .or_else(|| entity.attributes.get("mac"))
                 .and_then(|v| v.as_str())
                 .unwrap_or(&entity.entity_id)
                 .to_string();
 
             if seen.insert(device_id.clone()) {
-                let name = entity.attributes.get("friendly_name")
+                let name = entity
+                    .attributes
+                    .get("friendly_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&entity.entity_id)
                     .to_string();
@@ -104,11 +120,32 @@ impl BleClient {
                 devices.push(BleDevice {
                     address: device_id,
                     name,
-                    device_type: entity.entity_id.split('.').next().unwrap_or("unknown").to_string(),
-                    rssi: entity.attributes.get("rssi").and_then(|v| v.as_i64()).map(|v| v as i32),
-                    manufacturer: entity.attributes.get("manufacturer").and_then(|v| v.as_str()).map(String::from),
-                    model: entity.attributes.get("model").and_then(|v| v.as_str()).map(String::from),
-                    battery: entity.attributes.get("battery").and_then(|v| v.as_f64()).map(|v| v as f32),
+                    device_type: entity
+                        .entity_id
+                        .split('.')
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    rssi: entity
+                        .attributes
+                        .get("rssi")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as i32),
+                    manufacturer: entity
+                        .attributes
+                        .get("manufacturer")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    model: entity
+                        .attributes
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    battery: entity
+                        .attributes
+                        .get("battery")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| v as f32),
                     reachable: entity.state != "unavailable",
                     last_seen: Some(entity.last_updated.clone()),
                 });

@@ -1,0 +1,15 @@
+<div class="theme-widget theme-widget-switch" data-entity-id="{{entity_id}}" data-state="{{state}}">
+  <div class="theme-widget-icon">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  </div>
+  <div class="theme-widget-content">
+    <span class="theme-widget-label">{{friendly_name}}</span>
+    <span class="theme-widget-state">{{state}}</span>
+  </div>
+  <div class="theme-widget-toggle {{state_class}}">
+    <div class="theme-widget-toggle-knob"></div>
+  </div>
+</div>

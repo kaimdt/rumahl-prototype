@@ -71,6 +71,11 @@
           "highlight": true
         },
         {
+          "title": "App Runtime Capabilities",
+          "path": "development/app-runtime-capabilities.md",
+          "highlight": true
+        },
+        {
           "title": "App Database (SQLite)",
           "path": "development/app-database.md",
           "highlight": true

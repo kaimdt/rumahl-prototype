@@ -1,0 +1,30 @@
+<!-- STEAMPUNK – Sensor Widget (Pressure Gauge / Dial) -->
+<div class="steampunk-sensor-widget" style="
+  position:relative; background:linear-gradient(180deg,oklch(0.25 0.025 80/0.7) 0%,oklch(0.20 0.02 75/0.6) 100%);
+  border:2px solid oklch(from var(--accent) calc(l + 0.1) calc(c * 0.4) h / 0.4);
+  border-radius:3px; padding:16px; overflow:hidden;
+  box-shadow:0 3px 12px oklch(0 0 0/0.3), inset 0 1px 0 oklch(from var(--accent) l c h/0.08);">
+
+  <!-- Top label -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <span style="font-family:'IM Fell English',serif;font-size:12px;letter-spacing:0.03em;color:var(--foreground);" data-prop-bind="entity.name">Sensor</span>
+    <span style="font-family:'Courier Prime',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:oklch(from var(--accent) l c h/0.6);background:oklch(from var(--accent) l c h/0.06);padding:2px 6px;border-radius:1px;border:1px solid oklch(from var(--accent) l c h/0.12);" data-prop-bind="entity.state">--</span>
+  </div>
+
+  <!-- Large gauge value -->
+  <div style="display:flex;align-items:baseline;justify-content:center;gap:6px;margin:8px 0;">
+    <span style="font-family:'Courier Prime',monospace;font-size:42px;font-weight:700;color:oklch(from var(--accent) calc(l + 0.12) c h);letter-spacing:-0.02em;line-height:1;text-shadow:0 0 20px oklch(from var(--accent) l c h/0.2);" data-prop-bind="entity.state">--</span>
+    <span style="font-family:'IM Fell English',serif;font-size:14px;color:oklch(from var(--accent) l c h/0.5);margin-left:2px;" data-prop-bind="entity.unit"></span>
+  </div>
+
+  <!-- Mini gauge bar -->
+  <div style="height:3px;background:oklch(0.15 0.015 80/0.5);border-radius:1px;margin:8px 0;overflow:hidden;border:1px solid oklch(from var(--accent) l c h/0.1);">
+    <div style="height:100%;background:linear-gradient(90deg,oklch(from var(--accent) l c h/0.4),oklch(from var(--accent) calc(l + 0.1) c h/0.7));border-radius:1px;transition:width 0.5s ease;box-shadow:0 0 6px oklch(from var(--accent) l c h/0.15);" data-prop-bind="entity.state" data-prop-style="width:%" style="width:50%;"></div>
+  </div>
+
+  <!-- Corner rivets -->
+  <div style="position:absolute;top:3px;left:3px;width:4px;height:4px;border-radius:50%;background:oklch(from var(--accent) l c h/0.4);box-shadow:0 0 2px oklch(0 0 0/0.4);"></div>
+  <div style="position:absolute;top:3px;right:3px;width:4px;height:4px;border-radius:50%;background:oklch(from var(--accent) l c h/0.4);box-shadow:0 0 2px oklch(0 0 0/0.4);"></div>
+  <div style="position:absolute;bottom:3px;left:3px;width:4px;height:4px;border-radius:50%;background:oklch(from var(--accent) l c h/0.4);box-shadow:0 0 2px oklch(0 0 0/0.4);"></div>
+  <div style="position:absolute;bottom:3px;right:3px;width:4px;height:4px;border-radius:50%;background:oklch(from var(--accent) l c h/0.4);box-shadow:0 0 2px oklch(0 0 0/0.4);"></div>
+</div>

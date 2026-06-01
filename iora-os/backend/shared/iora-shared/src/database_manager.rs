@@ -3,8 +3,8 @@
 //! Each App gets its own isolated database with dedicated user.
 //! System retains control over all databases.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,7 +13,7 @@ pub struct DatabaseInfo {
     pub provider_id: String,
     pub provider_type: ProviderType,
     pub db_user: String,
-    pub db_password: String,  // Encrypted in production
+    pub db_password: String, // Encrypted in production
     pub created_at: String,
     pub size_mb: u64,
     pub connection_string: String,
@@ -57,7 +57,7 @@ impl Default for DatabasePermissions {
             can_drop_tables: true,
             can_create_indexes: true,
             can_create_views: true,
-            can_execute_functions: false,  // Security: disabled by default
+            can_execute_functions: false, // Security: disabled by default
             max_table_size_mb: 100,
             max_total_size_mb: 500,
         }
@@ -124,9 +124,14 @@ impl DatabaseManager {
     }
 
     /// Delete a database
-    pub async fn delete_database(&self, provider_id: &str, delete_data: bool) -> anyhow::Result<()> {
+    pub async fn delete_database(
+        &self,
+        provider_id: &str,
+        delete_data: bool,
+    ) -> anyhow::Result<()> {
         let mut databases = self.databases.write().await;
-        let _db_info = databases.remove(provider_id)
+        let _db_info = databases
+            .remove(provider_id)
             .ok_or_else(|| anyhow::anyhow!("Database for provider '{}' not found", provider_id))?;
 
         if !delete_data {
@@ -145,14 +150,16 @@ impl DatabaseManager {
     /// Create a backup of a database
     pub async fn create_backup(&self, provider_id: &str) -> anyhow::Result<DatabaseBackup> {
         let databases = self.databases.read().await;
-        let db_info = databases.get(provider_id)
+        let db_info = databases
+            .get(provider_id)
             .ok_or_else(|| anyhow::anyhow!("Database for provider '{}' not found", provider_id))?;
 
         let backup = DatabaseBackup {
             backup_id: format!("backup_{}", uuid::Uuid::new_v4()),
             database_name: db_info.database_name.clone(),
             provider_id: provider_id.to_string(),
-            backup_path: format!("/var/lib/iora/backups/{}_{}_{}.sql",
+            backup_path: format!(
+                "/var/lib/iora/backups/{}_{}_{}.sql",
                 provider_id,
                 chrono::Utc::now().format("%Y%m%d_%H%M%S"),
                 uuid::Uuid::new_v4()

@@ -55,3 +55,11 @@ __pycache__/
 /iora-os/board
 /iora-os/.cache
 /.iora-dev
+
+# LocalUp backups
+.localup/
+*.tmp
+
+*.bak.*
+*.flywheel-backup
+*.ratatui-backup

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <radialGradient id="fireGrad" cx="50%" cy="60%" r="50%">
+      <stop offset="0%" stop-color="#C4A44A"/>
+      <stop offset="40%" stop-color="#A67C23"/>
+      <stop offset="100%" stop-color="#8B6914"/>
+    </radialGradient>
+    <radialGradient id="fireGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#D4B84A" stop-opacity="0.4"/>
+      <stop offset="60%" stop-color="#A67C23" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#A67C23" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Outer ring -->
+  <circle cx="60" cy="60" r="55" fill="#1A2E1A" stroke="#3D5040" stroke-width="1.5"/>
+  <circle cx="60" cy="60" r="48" fill="none" stroke="#2A4A1A" stroke-width="0.5"/>
+  <!-- Fire glow behind flame -->
+  <circle cx="60" cy="65" r="40" fill="url(#fireGlow)"/>
+  <!-- Flame shape - stylized fire icon -->
+  <g transform="translate(60,70)">
+    <path d="M0,-35 Q8,-25 12,-15 Q15,-5 12,5 Q8,15 0,22 Q-8,15 -12,5 Q-15,-5 -12,-15 Q-8,-25 0,-35Z" fill="url(#fireGrad)" opacity="0.85"/>
+    <!-- Inner flame -->
+    <path d="M0,-22 Q4,-15 6,-8 Q7,-2 6,4 Q3,10 0,14 Q-3,10 -6,4 Q-7,-2 -6,-8 Q-4,-15 0,-22Z" fill="#D4B84A" opacity="0.6"/>
+    <!-- Flame flicker accent -->
+    <path d="M0,-30 Q3,-22 4,-14 Q4,-6 2,3 Q-1,8 0,16 Q1,8 4,3 Q4,-6 3,-14 Q3,-22 0,-30Z" fill="#E8D480" opacity="0.4"/>
+  </g>
+  <!-- Wood ring base -->
+  <g transform="translate(60,95)" opacity="0.3">
+    <ellipse cx="0" cy="0" rx="16" ry="4" fill="none" stroke="#A67C23" stroke-width="0.8"/>
+    <ellipse cx="0" cy="0" rx="12" ry="3" fill="none" stroke="#8B6914" stroke-width="0.6"/>
+    <ellipse cx="0" cy="0" rx="8" ry="2" fill="none" stroke="#A67C23" stroke-width="0.5"/>
+  </g>
+</svg>

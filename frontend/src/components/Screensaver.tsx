@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { useIdleTimer } from 'react-idle-timer'
 import { Warning, ShieldWarning, Siren, CloudWarning } from '@phosphor-icons/react'
 import { useActiveWarnings, type ActiveWarning } from '@/components/NotificationCenter'

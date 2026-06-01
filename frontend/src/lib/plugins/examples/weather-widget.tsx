@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Cloud, CloudRain, Sun, CloudSnow, Wind } from '@phosphor-icons/react'
 import type { WidgetPlugin, WidgetPluginProps } from '../types'
 

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+  <defs>
+    <linearGradient id="matBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="50%" stop-color="#16213e"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="elevation0" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e1e3a" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#1a1a2e" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="accentStripe" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.15"/>
+      <stop offset="50%" stop-color="#8b5cf6" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="gridLine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.02"/>
+    </linearGradient>
+    <pattern id="gridPattern" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <rect width="40" height="40" fill="url(#matBg)"/>
+      <!-- Grid lines -->
+      <line x1="40" y1="0" x2="40" y2="40" stroke="url(#gridLine)" stroke-width="0.5"/>
+      <line x1="0" y1="40" x2="40" y2="40" stroke="url(#gridLine)" stroke-width="0.5"/>
+      <!-- Dot at intersections -->
+      <circle cx="40" cy="40" r="1" fill="#6366f1" opacity="0.06"/>
+      <!-- Diagonal accent -->
+      <line x1="0" y1="0" x2="40" y2="40" stroke="url(#gridLine)" stroke-width="0.3" opacity="0.5"/>
+    </pattern>
+    <pattern id="carbonPattern" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect width="20" height="20" fill="none"/>
+      <circle cx="10" cy="10" r="0.5" fill="#6366f1" opacity="0.04"/>
+    </pattern>
+  </defs>
+  <rect width="400" height="300" fill="url(#gridPattern)"/>
+  <rect width="400" height="300" fill="url(#carbonPattern)"/>
+  <!-- Elevation strips -->
+  <rect y="0" width="400" height="18" fill="url(#elevation0)" opacity="0.3"/>
+  <rect y="282" width="400" height="18" fill="url(#elevation0)" opacity="0.3"/>
+  <!-- Sidebar area overlay -->
+  <rect x="0" y="0" width="85" height="300" fill="#1e1e3a" opacity="0.15"/>
+  <rect x="85" y="0" width="0.5" height="300" fill="#2d2d5e" opacity="0.3"/>
+  <!-- Horizontal accent stripe -->
+  <rect y="145" width="400" height="0.5" fill="url(#accentStripe)"/>
+  <!-- Content block overlays -->
+  <rect x="110" y="30" width="130" height="50" rx="12" fill="#1e1e3a" opacity="0.12"/>
+  <rect x="255" y="30" width="130" height="50" rx="12" fill="#1e1e3a" opacity="0.1"/>
+  <rect x="110" y="95" width="275" height="40" rx="12" fill="#1e1e3a" opacity="0.08"/>
+  <rect x="110" y="165" width="130" height="65" rx="12" fill="#1e1e3a" opacity="0.12"/>
+  <rect x="255" y="165" width="130" height="65" rx="12" fill="#1e1e3a" opacity="0.1"/>
+  <rect x="110" y="245" width="275" height="35" rx="12" fill="#1e1e3a" opacity="0.06"/>
+  <!-- Ripple circles -->
+  <circle cx="300" cy="200" r="40" fill="none" stroke="#6366f1" stroke-width="0.3" opacity="0.08"/>
+  <circle cx="300" cy="200" r="70" fill="none" stroke="#6366f1" stroke-width="0.2" opacity="0.05"/>
+  <circle cx="300" cy="200" r="110" fill="none" stroke="#8b5cf6" stroke-width="0.2" opacity="0.03"/>
+  <circle cx="160" cy="100" r="25" fill="none" stroke="#6366f1" stroke-width="0.3" opacity="0.06"/>
+  <circle cx="160" cy="100" r="50" fill="none" stroke="#8b5cf6" stroke-width="0.2" opacity="0.04"/>
+</svg>

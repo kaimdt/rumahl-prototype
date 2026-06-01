@@ -3,7 +3,6 @@ import { useLocalStorage } from '@/lib/storage'
 import type { DashboardPage, DashboardWidget } from '@/lib/types'
 import { DEFAULT_HOME_WIDGETS } from '@/lib/layoutTemplates'
 import { wsOnMessage } from '@/lib/wsConnection'
-import { getBackendUrl } from '@/lib/config'
 import { loadSettingsFromBackend, pushAllSettingsToBackend } from '@/lib/settingsSync'
 import { loadLightEnhancementSettingsFromBackend } from '@/lib/lightEnhancements'
 import { parseStoredToken, authFetch } from '@/lib/authHelpers'
@@ -315,8 +314,6 @@ function extractDocPath(path: string): string | null {
 
 // ── Backend sync helpers ──────────────────────────────────────────────
 
-const API_BASE = getBackendUrl()
-
 interface BackendPageWidget {
   id: string
   widget_type: string
@@ -472,6 +469,30 @@ async function ensureDevice(): Promise<string> {
 
 /** Get or create a profile and return its id */
 async function ensureProfile(userId: string): Promise<string> {
+  // Check localStorage cache first (survives reloads)
+  const cached = localStorage.getItem('ha-profile-id')
+  if (cached) {
+    // Verify it still exists on backend
+    const check = await authFetch(`/api/config/profiles/${cached}`)
+    if (check.ok) return cached
+    // Fall through to create new
+    localStorage.removeItem('ha-profile-id')
+  }
+
+  // Try to find existing profile for this user
+  try {
+    const listRes = await authFetch(`/api/config/users/${userId}/profiles`)
+    if (listRes.ok) {
+      const profiles = await listRes.json() as Array<{ id: string }>
+      if (profiles.length > 0) {
+        const pid = profiles[0].id
+        localStorage.setItem('ha-profile-id', pid)
+        return pid
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Create new profile
   const res = await authFetch(`/api/config/profiles`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -483,6 +504,7 @@ async function ensureProfile(userId: string): Promise<string> {
   })
   if (res.ok) {
     const p = await res.json()
+    localStorage.setItem('ha-profile-id', p.id)
     return p.id
   }
   throw new Error('Failed to ensure profile')

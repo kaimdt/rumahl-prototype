@@ -2,8 +2,8 @@
 //!
 //! Allows developers to publish updates and users to update installed Apps/Plugins.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,12 +59,20 @@ impl UpdateSystem {
     }
 
     /// Check for updates for a specific provider
-    pub async fn check_updates(&self, provider_id: &str, _current_version: &str) -> Option<UpdateInfo> {
+    pub async fn check_updates(
+        &self,
+        provider_id: &str,
+        _current_version: &str,
+    ) -> Option<UpdateInfo> {
         self.update_infos.read().await.get(provider_id).cloned()
     }
 
     /// Register update information
-    pub async fn register_update(&self, provider_id: String, update_info: UpdateInfo) -> anyhow::Result<()> {
+    pub async fn register_update(
+        &self,
+        provider_id: String,
+        update_info: UpdateInfo,
+    ) -> anyhow::Result<()> {
         let mut infos = self.update_infos.write().await;
         infos.insert(provider_id, update_info);
         Ok(())
@@ -83,7 +91,7 @@ impl UpdateSystem {
             from_version: from_version.to_string(),
             to_version: to_version.to_string(),
             updated_at: chrono::Utc::now().to_rfc3339(),
-            success: true,  // Will be updated based on actual result
+            success: true, // Will be updated based on actual result
             error: None,
             can_rollback: true,
         };
@@ -100,10 +108,12 @@ impl UpdateSystem {
     /// Rollback to previous version
     pub async fn rollback(&self, provider_id: &str) -> anyhow::Result<String> {
         let history = self.update_history.read().await;
-        let provider_history = history.get(provider_id)
+        let provider_history = history
+            .get(provider_id)
             .ok_or_else(|| anyhow::anyhow!("No update history for provider '{}'", provider_id))?;
 
-        let last_update = provider_history.last()
+        let last_update = provider_history
+            .last()
             .ok_or_else(|| anyhow::anyhow!("No updates to rollback"))?;
 
         if !last_update.can_rollback {
@@ -135,7 +145,11 @@ impl UpdateSystem {
     }
 
     /// Set update channel for a provider
-    pub async fn set_channel(&self, provider_id: String, channel: UpdateChannel) -> anyhow::Result<()> {
+    pub async fn set_channel(
+        &self,
+        provider_id: String,
+        channel: UpdateChannel,
+    ) -> anyhow::Result<()> {
         let mut channels = self.update_channels.write().await;
         channels.insert(provider_id, channel);
         Ok(())

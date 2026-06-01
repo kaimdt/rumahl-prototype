@@ -8,7 +8,7 @@ import {
 import { Sun, Cloud, CloudRain, CloudSnow, CloudFog, Wind, Drop, ThermometerSimple, Gauge } from '@phosphor-icons/react'
 import type { WeatherEntity } from '@/lib/types'
 import { haService, type ForecastEntry } from '@/lib/homeAssistant'
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 
 interface WeatherDetailDialogProps {
   entity: WeatherEntity

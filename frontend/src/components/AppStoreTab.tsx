@@ -8,7 +8,6 @@ import {
 } from '@phosphor-icons/react'
 import { AdminCard, LoadingSpinner, ErrorMessage, InlineSpinner, adminFetch } from './AdminPanel'
 import { toast } from 'sonner'
-import { extractManifestFromZip } from '../lib/zip'
 import { AppDetailDialog } from './AppDetailDialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -22,7 +21,10 @@ interface AppInfo {
   icon?: string
   trust_level: 'trusted' | 'untrusted' | 'verified'
   enabled: boolean
+  autostart?: boolean
   status?: string
+  last_started_at?: string
+  last_stopped_at?: string
   installed_at: string
   ports?: PortInfo[]
   kind?: 'app' | 'plugin' | 'system'
@@ -41,8 +43,11 @@ interface AppInfo {
   open_url?: string
   custom_pages?: CustomPage[]
   is_bundle?: boolean
+  docker_config?: any
   bundle_config?: any
   services?: any[]
+  permission_grants?: Array<{ permission: string; risk_level?: string; is_active?: boolean }>
+  denied_permissions?: string[]
 }
 
 interface PortInfo {
@@ -59,6 +64,13 @@ interface CustomPage {
   show_in_nav?: boolean
   order?: number
   iframe?: boolean
+}
+
+interface AppIntegrationInfo {
+  id: string
+  surfaces?: string[]
+  integrations?: unknown[]
+  granted_permissions?: string[]
 }
 
 interface AppManifest {
@@ -91,6 +103,7 @@ export function AppStoreTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [integrations, setIntegrations] = useState<AppIntegrationInfo[]>([])
   // App detail dialog
   const [detailAppId, setDetailAppId] = useState<string | null>(null)
   // On OS-dev images the Developer App may replace/delete *any* app,
@@ -175,6 +188,13 @@ export function AppStoreTab({ token }: { token: string }) {
           system: true,
           ports: [{ internal: 8177, external: 8177, protocol: 'tcp' }],
         }]
+      }
+
+      try {
+        const integrationData = await adminFetch('/api/apps/integrations', token) as { integrations?: AppIntegrationInfo[] }
+        setIntegrations(integrationData.integrations || [])
+      } catch {
+        setIntegrations([])
       }
 
       setApps(appList)
@@ -264,7 +284,7 @@ export function AppStoreTab({ token }: { token: string }) {
           ) : error ? (
             <ErrorMessage>{error}</ErrorMessage>
           ) : (
-            <InstalledAppsView apps={apps} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
+            <InstalledAppsView apps={apps} integrations={integrations} token={token} onReload={loadInstalled} getTrustBadge={getTrustBadge} isOsDev={isOsDev} onAppClick={setDetailAppId} />
           )}
         </>
       )}
@@ -294,6 +314,7 @@ export function AppStoreTab({ token }: { token: string }) {
 
 function InstalledAppsView({
   apps,
+  integrations,
   token,
   onReload,
   getTrustBadge,
@@ -301,13 +322,30 @@ function InstalledAppsView({
   onAppClick,
 }: {
   apps: AppInfo[]
+  integrations: AppIntegrationInfo[]
   token: string
   onReload: () => void
   getTrustBadge: (level: string) => React.ReactNode
   isOsDev: boolean
   onAppClick: (appId: string) => void
 }) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language?.startsWith('de') ? 'de-DE' : 'en-US'
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [kindFilter, setKindFilter] = useState<'all' | 'app' | 'plugin' | 'system'>('all')
+  const [installedSearch, setInstalledSearch] = useState('')
+  const integrationsByApp = new Map(integrations.map(integration => [integration.id, integration]))
+  const filteredApps = apps.filter(app => {
+    const matchesKind = kindFilter === 'all' || (app.kind || 'app') === kindFilter
+    const query = installedSearch.trim().toLowerCase()
+    const matchesSearch = !query || [app.name, app.id, app.developer, app.description, app.kind]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(query))
+    return matchesKind && matchesSearch
+  })
+  const runningCount = apps.filter(app => app.status === 'running').length
+  const pluginCount = apps.filter(app => app.kind === 'plugin').length
+  const integrationCount = integrations.length
 
   const startApp = async (appId: string) => {
     setActionLoading(`start-${appId}`)
@@ -326,6 +364,18 @@ function InstalledAppsView({
     try {
       await adminFetch(`/api/supervisor/apps/${appId}/stop`, token, { method: 'POST' })
       toast.success('App gestoppt')
+      onReload()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+    setActionLoading(null)
+  }
+
+  const pauseApp = async (appId: string) => {
+    setActionLoading(`pause-${appId}`)
+    try {
+      await adminFetch(`/api/supervisor/apps/${appId}/pause`, token, { method: 'POST' })
+      toast.success('App pausiert')
       onReload()
     } catch (e) {
       toast.error((e as Error).message)
@@ -385,6 +435,48 @@ function InstalledAppsView({
 
   return (
     <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.installed')}</div>
+          <div className="text-lg font-semibold text-foreground">{apps.length}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.running')}</div>
+          <div className="text-lg font-semibold text-green-400">{runningCount}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('navigation.plugins')}</div>
+          <div className="text-lg font-semibold text-accent">{pluginCount}</div>
+        </div>
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[10px] text-foreground/50 font-semibold uppercase">{t('apps.overview.integrations')}</div>
+          <div className="text-lg font-semibold text-cyan-300">{integrationCount}</div>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-xl p-2 flex flex-col md:flex-row gap-2">
+        <div className="relative flex-1">
+          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
+          <input
+            value={installedSearch}
+            onChange={(event) => setInstalledSearch(event.target.value)}
+            placeholder={t('apps.overview.searchInstalled')}
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-xs text-foreground placeholder:text-foreground/35 focus:outline-none focus:border-accent/50"
+          />
+        </div>
+        <div className="flex gap-1">
+          {(['all', 'app', 'plugin', 'system'] as const).map(kind => (
+            <button
+              key={kind}
+              onClick={() => setKindFilter(kind)}
+              className={`px-3 py-2 rounded-lg text-[10px] font-semibold transition-colors ${kindFilter === kind ? 'bg-accent text-white' : 'bg-foreground/5 text-foreground/60 hover:bg-foreground/10'}`}
+            >
+              {kind === 'all' ? t('common.all') : kind === 'app' ? t('navigation.apps') : kind === 'plugin' ? t('navigation.plugins') : t('admin.system')}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {apps.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-20 h-20 rounded-3xl bg-foreground/[0.04] flex items-center justify-center mx-auto mb-4">
@@ -395,7 +487,11 @@ function InstalledAppsView({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2">
-          {apps.map((app) => (
+          {filteredApps.map((app) => (
+            (() => {
+              const integration = integrationsByApp.get(app.id)
+              const surfaces = integration?.surfaces || []
+              return (
             <div
               key={app.id}
               className="glass-card rounded-2xl p-4 hover:border-accent/20 transition-all cursor-pointer"
@@ -489,6 +585,10 @@ function InstalledAppsView({
                   <span className="flex items-center gap-1.5 px-2 py-1 bg-foreground/10 text-foreground/50 rounded-lg text-[10px] font-semibold border border-foreground/10">
                     <span className="w-1.5 h-1.5 rounded-full bg-foreground/30" /> Gestoppt
                   </span>
+                ) : app.status === 'paused' ? (
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/15 text-yellow-300 rounded-lg text-[10px] font-semibold border border-yellow-500/20">
+                    <Pause size={12} weight="fill" /> Pausiert
+                  </span>
                 ) : app.status === 'unhealthy' ? (
                   <span className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 text-amber-400 rounded-lg text-[10px] font-semibold border border-amber-500/20">
                     <Warning size={12} weight="fill" /> Unhealthy
@@ -519,6 +619,18 @@ function InstalledAppsView({
                     {app.custom_pages!.length} Seite{(app.custom_pages!.length !== 1) ? 'n' : ''}
                   </span>
                 )}
+                {surfaces.length > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" title={surfaces.join(', ')}>
+                    <Lightning size={11} weight="fill" /> {surfaces.length} Integration{surfaces.length !== 1 ? 'en' : ''}
+                  </span>
+                )}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                  app.autostart ?? app.enabled
+                    ? 'bg-blue-500/15 text-blue-300'
+                    : 'bg-foreground/10 text-foreground/40'
+                }`}>
+                  {app.autostart ?? app.enabled ? 'Autostart an' : 'Autostart aus'}
+                </span>
               </div>
 
               {/* Actions */}
@@ -540,13 +652,34 @@ function InstalledAppsView({
                 ) : (
                   <>
                     {app.status === 'running' ? (
+                      <>
+                        <button
+                          onClick={() => stopApp(app.id)}
+                          disabled={actionLoading === `stop-${app.id}`}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
+                        >
+                          {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                          Stoppen
+                        </button>
+                        {(app.docker || app.docker_config || app.is_bundle) && (
+                          <button
+                            onClick={() => pauseApp(app.id)}
+                            disabled={actionLoading === `pause-${app.id}`}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-yellow-500/15 text-yellow-300 rounded text-[10px] font-semibold hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
+                          >
+                            {actionLoading === `pause-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
+                            Pausieren
+                          </button>
+                        )}
+                      </>
+                    ) : app.status === 'paused' ? (
                       <button
-                        onClick={() => stopApp(app.id)}
-                        disabled={actionLoading === `stop-${app.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors disabled:opacity-40"
+                        onClick={() => startApp(app.id)}
+                        disabled={actionLoading === `start-${app.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/15 text-green-400 rounded text-[10px] font-semibold hover:bg-green-500/25 transition-colors disabled:opacity-40"
                       >
-                        {actionLoading === `stop-${app.id}` ? <InlineSpinner size={12} /> : <Pause size={12} />}
-                        Stoppen
+                        {actionLoading === `start-${app.id}` ? <InlineSpinner size={12} /> : <Play size={12} />}
+                        Fortsetzen
                       </button>
                     ) : app.status === 'starting' || app.status === 'installing' ? (
                       <button
@@ -585,10 +718,10 @@ function InstalledAppsView({
                       </button>
                     )}
                     <button
-                      onClick={() => window.open(`/app-settings/${app.id}`, '_blank')}
+                      onClick={() => { window.location.href = `/app-settings/${app.id}` }}
                       className="flex items-center gap-1 px-2.5 py-1.5 bg-foreground/5 text-foreground/60 rounded text-[10px] font-semibold hover:bg-foreground/10 transition-colors"
                     >
-                      <Gear size={12} /> Einstellungen
+                      <Gear size={12} /> {t('settings.title')}
                     </button>
                     <button
                       onClick={() => uninstallApp(app.id)}
@@ -614,12 +747,26 @@ function InstalledAppsView({
               </div>
 
               <div className="mt-2 text-[10px] text-foreground/30">
-                Installiert: {new Date(app.installed_at).toLocaleDateString('de-DE', {
+                {t('apps.overview.installedAt')}: {new Date(app.installed_at).toLocaleDateString(locale, {
                   year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                 })}
+                {app.last_started_at && (
+                  <span className="ml-2">
+                    · {t('apps.overview.lastStart')}: {new Date(app.last_started_at).toLocaleDateString(locale, {
+                      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    })}
+                  </span>
+                )}
               </div>
             </div>
+              )
+            })()
           ))}
+          {filteredApps.length === 0 && (
+            <div className="text-center py-10 text-xs text-foreground/45">
+              {t('apps.overview.noFilteredEntries')}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -785,6 +932,10 @@ function ZipUploadView({
   const [uploading, setUploading] = useState(false)
   const [manifest, setManifest] = useState<AppManifest | null>(null)
   const [manifestError, setManifestError] = useState<string | null>(null)
+  const [grantedPermissions, setGrantedPermissions] = useState<string[]>([])
+  const [permissionConsent, setPermissionConsent] = useState(false)
+  const [replaceExisting, setReplaceExisting] = useState(false)
+  const [duplicateAppId, setDuplicateAppId] = useState<string | null>(null)
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -793,8 +944,13 @@ function ZipUploadView({
     setFile(selectedFile)
     setManifest(null)
     setManifestError(null)
+    setGrantedPermissions([])
+    setPermissionConsent(false)
+    setReplaceExisting(false)
+    setDuplicateAppId(null)
 
     try {
+      const { extractManifestFromZip } = await import('../lib/zip')
       const extractedManifest = await extractManifestFromZip(selectedFile)
 
       // Validate manifest before setting it
@@ -812,6 +968,15 @@ function ZipUploadView({
       }
 
       setManifest(extractedManifest)
+      setGrantedPermissions(extractedManifest.permissions || [])
+      setPermissionConsent((extractedManifest.permissions || []).length === 0)
+      try {
+        const installed = await adminFetch('/api/appstore/installed', token) as { apps?: AppInfo[] }
+        const duplicate = installed.apps?.find(app => app.id === extractedManifest.id)
+        setDuplicateAppId(duplicate?.id || null)
+      } catch {
+        setDuplicateAppId(null)
+      }
       toast.success('manifest.json erfolgreich gelesen')
     } catch (err) {
       console.error('Manifest extraction failed:', err)
@@ -822,6 +987,15 @@ function ZipUploadView({
 
   const uploadAndInstall = async () => {
     if (!file) return
+    const requestedPermissions = manifest?.permissions || []
+    if (requestedPermissions.length > 0 && !permissionConsent) {
+      toast.error('Bitte bestätige die Berechtigungen vor der Installation.')
+      return
+    }
+    if (duplicateAppId && !replaceExisting) {
+      toast.error('Diese App ist bereits installiert. Aktiviere Ersetzen, um fortzufahren.')
+      return
+    }
 
     setUploading(true)
     try {
@@ -838,6 +1012,9 @@ function ZipUploadView({
               zip_data: base64,
               file_name: fileRef.name,
               manifest: manifest || undefined,
+              granted_permissions: requestedPermissions.filter(permission => grantedPermissions.includes(permission)),
+              denied_permissions: requestedPermissions.filter(permission => !grantedPermissions.includes(permission)),
+              replace_existing: replaceExisting,
             }),
           }) as { install_id?: string }
 
@@ -936,6 +1113,67 @@ function ZipUploadView({
                 )}
               </div>
             )}
+            {manifest.permissions && manifest.permissions.length > 0 && (
+              <div className="pt-2 mt-2 border-t border-green-500/15 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold text-foreground">Berechtigungen</span>
+                  <button
+                    type="button"
+                    onClick={() => setGrantedPermissions(
+                      grantedPermissions.length === manifest.permissions.length ? [] : manifest.permissions
+                    )}
+                    className="text-[10px] text-accent hover:text-accent/80"
+                  >
+                    {grantedPermissions.length === manifest.permissions.length ? 'Alle entziehen' : 'Alle gewähren'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {manifest.permissions.map(permission => {
+                    const checked = grantedPermissions.includes(permission)
+                    return (
+                      <label
+                        key={permission}
+                        className="flex items-center gap-2 p-2 rounded bg-foreground/5 border border-foreground/10 text-[10px] text-foreground/70"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setGrantedPermissions(current =>
+                            checked
+                              ? current.filter(item => item !== permission)
+                              : [...current, permission]
+                          )}
+                          className="accent-accent"
+                        />
+                        <span className="truncate" title={permission}>{permission}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <label className="flex items-start gap-2 text-[10px] text-foreground/65">
+                  <input
+                    type="checkbox"
+                    checked={permissionConsent}
+                    onChange={(event) => setPermissionConsent(event.target.checked)}
+                    className="mt-0.5 accent-accent"
+                  />
+                  <span>Ausgewählte Berechtigungen für diese Installation speichern.</span>
+                </label>
+              </div>
+            )}
+            {duplicateAppId && (
+              <div className="pt-2 mt-2 border-t border-orange-500/20">
+                <label className="flex items-start gap-2 text-[10px] text-orange-300">
+                  <input
+                    type="checkbox"
+                    checked={replaceExisting}
+                    onChange={(event) => setReplaceExisting(event.target.checked)}
+                    className="mt-0.5 accent-orange-400"
+                  />
+                  <span>Bestehende Installation von {duplicateAppId} ersetzen. Die App muss gestoppt sein.</span>
+                </label>
+              </div>
+            )}
           </div>
         )}
 
@@ -963,7 +1201,7 @@ function ZipUploadView({
 
         <button
           onClick={uploadAndInstall}
-          disabled={!file || uploading}
+          disabled={!file || uploading || Boolean(manifest?.permissions?.length && !permissionConsent) || Boolean(duplicateAppId && !replaceExisting)}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {uploading ? (

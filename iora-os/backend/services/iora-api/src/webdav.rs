@@ -20,7 +20,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
-use tracing::warn;
 
 pub async fn webdav_handler_root(
     state: State<Arc<crate::AppState>>,
@@ -120,7 +119,7 @@ async fn webdav_propfind(
     xml.push_str(&format!(
         "  <D:response>\n    <D:href>/webdav/{}</D:href>\n    <D:propstat>\n      <D:prop>\n        <D:resourcetype><D:collection/></D:resourcetype>\n        <D:displayname>{}</D:displayname>\n      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n  </D:response>\n",
         path,
-        path.split('/').last().unwrap_or("IORA Files"),
+        path.split('/').next_back().unwrap_or("IORA Files"),
     ));
 
     // Child entries
@@ -131,7 +130,7 @@ async fn webdav_propfind(
             let size = file["size_bytes"].as_i64().unwrap_or(0);
             let mime = file["mime_type"].as_str().unwrap_or("application/octet-stream");
             let modified = file["updated_at"].as_str().unwrap_or("");
-            let file_id = file["id"].as_str().unwrap_or("");
+            let _file_id = file["id"].as_str().unwrap_or("");
 
             let href = if path.is_empty() || path == "/" {
                 format!("/webdav/{}", name)
@@ -171,7 +170,7 @@ async fn webdav_propfind(
 
 async fn webdav_get(state: &crate::AppState, path: &str, token: &str) -> Response {
     // Extract file ID from path (for now, use the filename to search)
-    let filename = path.split('/').last().unwrap_or("");
+    let filename = path.split('/').next_back().unwrap_or("");
 
     let url = format!("{}/api/files?search={}", state.iora_files_url, filename);
     let resp = state
@@ -236,7 +235,7 @@ async fn webdav_get(state: &crate::AppState, path: &str, token: &str) -> Respons
 }
 
 async fn webdav_put(state: &crate::AppState, path: &str, token: &str, body: Body) -> Response {
-    let filename = path.split('/').last().unwrap_or("unnamed");
+    let filename = path.split('/').next_back().unwrap_or("unnamed");
 
     let body_bytes = match axum::body::to_bytes(body, 512 * 1024 * 1024).await {
         Ok(b) => b,
@@ -258,7 +257,7 @@ async fn webdav_put(state: &crate::AppState, path: &str, token: &str, body: Body
 
     let resp = state
         .http_client
-        .post(&format!("{}/api/files/upload", state.iora_files_url))
+        .post(format!("{}/api/files/upload", state.iora_files_url))
         .header("Authorization", format!("Bearer {}", token))
         .multipart(form)
         .send()
@@ -281,7 +280,7 @@ async fn webdav_put(state: &crate::AppState, path: &str, token: &str, body: Body
 }
 
 async fn webdav_delete(state: &crate::AppState, path: &str, token: &str) -> Response {
-    let filename = path.split('/').last().unwrap_or("");
+    let filename = path.split('/').next_back().unwrap_or("");
 
     let url = format!("{}/api/files?search={}", state.iora_files_url, filename);
     let resp = state.http_client.get(&url)
@@ -296,7 +295,7 @@ async fn webdav_delete(state: &crate::AppState, path: &str, token: &str) -> Resp
     if let Some(file) = files["files"].as_array().and_then(|a| a.first()) {
         let file_id = file["id"].as_str().unwrap_or("");
         let _ = state.http_client
-            .delete(&format!("{}/api/files/{}", state.iora_files_url, file_id))
+            .delete(format!("{}/api/files/{}", state.iora_files_url, file_id))
             .header("Authorization", format!("Bearer {}", token))
             .send().await;
     }
@@ -308,12 +307,12 @@ async fn webdav_delete(state: &crate::AppState, path: &str, token: &str) -> Resp
 }
 
 async fn webdav_mkcol(state: &crate::AppState, path: &str, token: &str) -> Response {
-    let folder_name = path.split('/').last().unwrap_or("New Folder");
+    let folder_name = path.split('/').next_back().unwrap_or("New Folder");
 
     let body = serde_json::json!({ "name": folder_name });
 
     let resp = state.http_client
-        .post(&format!("{}/api/files/folders", state.iora_files_url))
+        .post(format!("{}/api/files/folders", state.iora_files_url))
         .header("Authorization", format!("Bearer {}", token))
         .json(&body)
         .send().await;
@@ -339,14 +338,14 @@ async fn webdav_move(state: &crate::AppState, path: &str, token: &str, headers: 
             .unwrap();
     };
 
-    let filename = path.split('/').last().unwrap_or("");
+    let filename = path.split('/').next_back().unwrap_or("");
     // Strip protocol/host from Destination URL if present
     let dest_path = destination
         .splitn(4, '/')
         .nth(3)
         .map(|s| format!("/{}", s))
         .unwrap_or_else(|| destination.to_string());
-    let new_name = dest_path.split('/').last().unwrap_or(filename);
+    let new_name = dest_path.split('/').next_back().unwrap_or(filename);
 
     if filename == new_name {
         return Response::builder()
@@ -414,13 +413,13 @@ async fn webdav_copy(state: &crate::AppState, path: &str, token: &str, headers: 
             .unwrap(),
     };
 
-    let filename = path.split('/').last().unwrap_or("");
+    let filename = path.split('/').next_back().unwrap_or("");
     let dest_path = destination
         .splitn(4, '/')
         .nth(3)
         .map(|s| format!("/{}", s))
         .unwrap_or_else(|| destination.to_string());
-    let new_name = dest_path.split('/').last().unwrap_or(filename);
+    let new_name = dest_path.split('/').next_back().unwrap_or(filename);
 
     // Find source file
     let url = format!("{}/api/files?search={}", state.iora_files_url, filename);

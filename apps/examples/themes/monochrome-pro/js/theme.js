@@ -1,0 +1,4 @@
+(function(){const T='monochrome-pro';function init(){if(document.documentElement.getAttribute('data-theme')!==T)return;initHighContrast();initFocus()}
+function initHighContrast(){if(document.documentElement.style.getPropertyValue('--mono-high-contrast')==='0')return;document.querySelectorAll('*').forEach(el=>{el.style.setProperty('--border-color','oklch(0.5 0 0)','important')})}
+function initFocus(){document.querySelectorAll('button, input, select, a').forEach(el=>{el.addEventListener('focus',()=>el.style.outline='2px solid oklch(0.6 0 0)');el.addEventListener('blur',()=>el.style.outline='')})}
+document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();new MutationObserver(()=>init()).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})})();

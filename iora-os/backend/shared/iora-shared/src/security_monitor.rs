@@ -2,8 +2,8 @@
 //!
 //! Monitors resource usage, detects anomalies, and alerts on security events.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,9 +136,13 @@ impl SecurityMonitor {
                 usage.provider_id.clone(),
                 SecurityEventType::HighMemoryUsage,
                 Severity::Medium,
-                format!("Memory usage {} MB exceeds limit {} MB", usage.memory_mb, limit.max_memory_mb),
+                format!(
+                    "Memory usage {} MB exceeds limit {} MB",
+                    usage.memory_mb, limit.max_memory_mb
+                ),
                 serde_json::json!({ "memory_mb": usage.memory_mb, "limit": limit.max_memory_mb }),
-            ).await;
+            )
+            .await;
         }
     }
 
@@ -177,13 +181,17 @@ impl SecurityMonitor {
     }
 
     /// Get security events
-    pub async fn get_events(&self, provider_id: Option<&str>, severity: Option<Severity>) -> Vec<SecurityEvent> {
+    pub async fn get_events(
+        &self,
+        provider_id: Option<&str>,
+        severity: Option<Severity>,
+    ) -> Vec<SecurityEvent> {
         let events = self.security_events.read().await;
         events
             .values()
             .filter(|e| {
-                let provider_match = provider_id.map_or(true, |pid| e.provider_id == pid);
-                let severity_match = severity.as_ref().map_or(true, |sev| &e.severity == sev);
+                let provider_match = provider_id.is_none_or(|pid| e.provider_id == pid);
+                let severity_match = severity.as_ref().is_none_or(|sev| &e.severity == sev);
                 provider_match && severity_match
             })
             .cloned()
@@ -237,9 +245,17 @@ impl SecurityMonitor {
 
         let total_entries = provider_usage.len() as f32;
         let avg_cpu = provider_usage.iter().map(|u| u.cpu_percent).sum::<f32>() / total_entries;
-        let avg_memory = provider_usage.iter().map(|u| u.memory_mb).sum::<u64>() / total_entries as u64;
-        let max_cpu = provider_usage.iter().map(|u| u.cpu_percent).fold(0.0, f32::max);
-        let max_memory = provider_usage.iter().map(|u| u.memory_mb).max().unwrap_or(0);
+        let avg_memory =
+            provider_usage.iter().map(|u| u.memory_mb).sum::<u64>() / total_entries as u64;
+        let max_cpu = provider_usage
+            .iter()
+            .map(|u| u.cpu_percent)
+            .fold(0.0, f32::max);
+        let max_memory = provider_usage
+            .iter()
+            .map(|u| u.memory_mb)
+            .max()
+            .unwrap_or(0);
 
         Some(UsageStatistics {
             provider_id: provider_id.to_string(),

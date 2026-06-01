@@ -53,7 +53,9 @@ pub struct ThemeFont {
     pub is_monospace: bool,
 }
 
-fn default_font_format() -> String { "woff2".to_string() }
+fn default_font_format() -> String {
+    "woff2".to_string()
+}
 
 /// Icon font configuration.
 /// Can reference a file inside the theme ZIP or an external URL.
@@ -117,7 +119,9 @@ pub struct WidgetTemplateVariant {
     pub responsive: String,
 }
 
-fn default_responsive() -> String { "all".to_string() }
+fn default_responsive() -> String {
+    "all".to_string()
+}
 
 /// Widget template collection for a single widget type.
 /// Maps widget types ("light", "switch", "climate", etc.) to their theme templates.
@@ -136,7 +140,9 @@ pub struct WidgetTemplate {
     pub replace_default: bool,
 }
 
-fn default_replace() -> bool { true }
+fn default_replace() -> bool {
+    true
+}
 
 // ════════════════════════════════════════════════════════════════
 
@@ -234,7 +240,9 @@ pub struct ThemeDefinition {
     pub widget_templates: Vec<WidgetTemplate>,
 }
 
-fn default_theme_source() -> String { "inline".to_string() }
+fn default_theme_source() -> String {
+    "inline".to_string()
+}
 
 /// A theme that has been installed in the system (DB row).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,6 +287,12 @@ pub struct InstalledTheme {
     /// JSON serialized WidgetTemplate[]
     #[serde(default)]
     pub widget_templates_json: Option<String>,
+    /// CSS variables as key-value JSON
+    #[serde(default)]
+    pub css_variables_json: Option<String>,
+    /// Inline additional CSS
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_css: Option<String>,
 }
 
 /// Per-user theme selection stored in the profile.
@@ -333,6 +347,161 @@ pub struct ThemeCssResponse {
     /// Widget template definitions with resolved asset URLs
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub widget_templates: Vec<WidgetTemplate>,
+    /// Theme animation configuration (splash, page transitions, widget animations)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<ThemeAnimationConfig>,
+}
+
+// ════════════════════════════════════════════════════════════════
+// Theme Animation System – Splash, Page Transitions, Widget Animations
+// ════════════════════════════════════════════════════════════════
+
+/// Splash screen configuration for a theme.
+/// Themes can provide a custom splash/loading screen that appears on startup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SplashConfig {
+    /// Whether the theme provides a custom splash screen
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the splash HTML template inside the theme
+    /// (e.g. "html/splash.html"). If not provided, the default IORA splash is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    /// Path to splash-specific CSS (e.g. "css/splash.css")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css: Option<String>,
+    /// Path to splash-specific JavaScript (e.g. "js/splash.js")
+    /// Can use the Motion API for custom animations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub js: Option<String>,
+    /// Duration of the splash screen in milliseconds
+    #[serde(default = "default_splash_duration")]
+    pub duration_ms: u64,
+    /// Logo/image URL to show in the splash (relative to theme assets or absolute)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo_url: Option<String>,
+    /// Background color for the splash screen (CSS color value)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_color: Option<String>,
+    /// Text to show below the logo during loading
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand_text: Option<String>,
+    /// Subtitle / tagline text
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tagline: Option<String>,
+    /// Whether to show a loading progress bar
+    #[serde(default = "default_true")]
+    pub show_progress: bool,
+    /// Custom exit animation: "fade", "scale", "slide-up", "slide-down", "custom"
+    #[serde(default = "default_exit_animation")]
+    pub exit_animation: String,
+}
+
+fn default_splash_duration() -> u64 {
+    2200
+}
+fn default_exit_animation() -> String {
+    "fade".to_string()
+}
+
+/// Page transition configuration.
+/// Controls how pages animate when the user navigates between them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageTransitionConfig {
+    /// Whether page transitions are enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Transition type: "fade", "slide", "scale", "flip", "custom"
+    #[serde(default = "default_transition_type")]
+    pub transition_type: String,
+    /// Duration of the transition in seconds
+    #[serde(default = "default_transition_duration")]
+    pub duration_secs: f64,
+    /// Spring configuration for motion transitions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spring: Option<SpringConfig>,
+    /// Custom transition: CSS class or motion variant name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
+}
+
+fn default_transition_type() -> String {
+    "fade".to_string()
+}
+fn default_transition_duration() -> f64 {
+    0.35
+}
+
+/// Spring physics configuration for motion animations.
+/// Used by both page transitions and widget animations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpringConfig {
+    /// Spring stiffness (default: 300)
+    #[serde(default = "default_stiffness")]
+    pub stiffness: f64,
+    /// Spring damping (default: 30)
+    #[serde(default = "default_damping")]
+    pub damping: f64,
+    /// Spring mass (default: 1)
+    #[serde(default = "default_mass")]
+    pub mass: f64,
+}
+
+fn default_stiffness() -> f64 {
+    300.0
+}
+fn default_damping() -> f64 {
+    30.0
+}
+fn default_mass() -> f64 {
+    1.0
+}
+
+/// Widget entrance animation configuration.
+/// Controls how widgets animate when they appear on a page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WidgetAnimationConfig {
+    /// Animation style: "fade-up", "scale-in", "slide-left", "slide-right", "custom"
+    #[serde(default = "default_widget_style")]
+    pub style: String,
+    /// Duration per widget in seconds
+    #[serde(default = "default_widget_duration")]
+    pub duration_secs: f64,
+    /// Stagger delay between widgets in seconds
+    #[serde(default = "default_stagger")]
+    pub stagger_secs: f64,
+    /// Spring configuration (optional, uses defaults if not set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spring: Option<SpringConfig>,
+}
+
+fn default_widget_style() -> String {
+    "fade-up".to_string()
+}
+fn default_widget_duration() -> f64 {
+    0.4
+}
+fn default_stagger() -> f64 {
+    0.03
+}
+
+/// Complete theme animation configuration.
+/// Bundles all animation-related settings for a theme.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThemeAnimationConfig {
+    /// Custom splash/startup animation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub splash: Option<SplashConfig>,
+    /// Page transition configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_transitions: Option<PageTransitionConfig>,
+    /// Widget entrance animations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub widget_animations: Option<WidgetAnimationConfig>,
+    /// Custom CSS keyframes provided by the theme
+    /// Maps animation name → CSS @keyframes content
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub keyframes: HashMap<String, String>,
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -364,8 +533,8 @@ pub struct ThemeDesignMode {
 /// Time range for auto-switching
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeRange {
-    pub start: String,  // "06:00"
-    pub end: String,    // "18:00"
+    pub start: String, // "06:00"
+    pub end: String,   // "18:00"
 }
 
 /// Theme's auto-switching behavior (overrides built-in time-based logic)
@@ -382,7 +551,9 @@ pub struct ThemeAutoBehavior {
     pub default_mode: Option<String>,
 }
 
-fn default_auto_mode() -> String { "time".to_string() }
+fn default_auto_mode() -> String {
+    "time".to_string()
+}
 
 /// Accent color preset offered by a theme
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,7 +577,9 @@ pub struct ThemeAccentControl {
     pub presets: Option<Vec<AccentPreset>>,
 }
 
-fn default_accent_mode() -> String { "user".to_string() }
+fn default_accent_mode() -> String {
+    "user".to_string()
+}
 
 /// How the theme controls glass effects
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,7 +595,9 @@ pub struct ThemeGlassControl {
     pub opacity: Option<String>,
 }
 
-fn default_glass_mode() -> String { "user".to_string() }
+fn default_glass_mode() -> String {
+    "user".to_string()
+}
 
 /// Option for a select-type custom setting
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -472,6 +647,222 @@ pub struct ThemeSetting {
     pub css_variable: Option<String>,
 }
 
+// ════════════════════════════════════════════════════════════════
+// Deep UI Customization – Navigation, Modals, Notifications, Night Mode
+// ════════════════════════════════════════════════════════════════
+
+/// Per-button customization for the navigation bar.
+/// Themes can override icons, labels, order, visibility, and style per button.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NavButtonCustomization {
+    /// The page ID this button corresponds to (e.g. "home", "lights", "settings")
+    pub page_id: String,
+    /// Override the Phosphor icon name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Override the display label
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Override the navigation order (lower = first)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<i32>,
+    /// Hide this button entirely
+    #[serde(default)]
+    pub hidden: bool,
+    /// Custom CSS class applied to this button
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css_class: Option<String>,
+    /// Custom background color for this button (active state)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_bg: Option<String>,
+    /// Custom text color for this button (active state)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_color: Option<String>,
+    /// Badge text/count to show on this button
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
+}
+
+/// Complete navigation bar customization.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NavCustomization {
+    /// Position: "bottom", "left", "right", "top", "floating"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<String>,
+    /// Background style: "glass", "solid", "transparent", "gradient"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    /// Height or width in pixels depending on position
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<i32>,
+    /// Border radius
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<String>,
+    /// Custom CSS class for the nav container
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css_class: Option<String>,
+    /// Show labels below icons
+    #[serde(default = "default_true")]
+    pub show_labels: bool,
+    /// Icon size in pixels
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_size: Option<i32>,
+    /// Gap between buttons in pixels
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gap: Option<i32>,
+    /// Per-button overrides
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buttons: Vec<NavButtonCustomization>,
+}
+
+/// Modal/dialog theming configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModalThemeConfig {
+    /// Backdrop style: "blur", "dim", "solid", "none"
+    #[serde(default = "default_modal_backdrop")]
+    pub backdrop: String,
+    /// Backdrop blur amount in pixels
+    #[serde(default = "default_backdrop_blur")]
+    pub backdrop_blur: i32,
+    /// Backdrop opacity (0.0-1.0)
+    #[serde(default = "default_backdrop_opacity")]
+    pub backdrop_opacity: f64,
+    /// Modal border radius
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<String>,
+    /// Modal border style
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border: Option<String>,
+    /// Modal background (CSS value)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    /// Enter animation: "scale", "slide-up", "slide-down", "fade", "custom"
+    #[serde(default = "default_modal_animation")]
+    pub enter_animation: String,
+    /// Exit animation: "scale", "slide-up", "slide-down", "fade", "custom"
+    #[serde(default = "default_modal_animation")]
+    pub exit_animation: String,
+    /// Close button style: "x", "circle", "pill", "none"
+    #[serde(default = "default_close_style")]
+    pub close_button: String,
+    /// Shadow intensity: "none", "sm", "md", "lg", "xl"
+    #[serde(default = "default_shadow_level")]
+    pub shadow: String,
+}
+
+fn default_modal_backdrop() -> String {
+    "blur".to_string()
+}
+fn default_backdrop_blur() -> i32 {
+    16
+}
+fn default_backdrop_opacity() -> f64 {
+    0.6
+}
+fn default_modal_animation() -> String {
+    "scale".to_string()
+}
+fn default_close_style() -> String {
+    "x".to_string()
+}
+fn default_shadow_level() -> String {
+    "md".to_string()
+}
+
+/// Notification theming configuration.
+///
+/// Manifests historically used the short field names `enter`, `exit`, `max`,
+/// `dismiss`. These are accepted as aliases so existing theme manifests keep
+/// working without modification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationThemeConfig {
+    /// Position: "top-right", "top-left", "bottom-right", "bottom-left", "top-center", "bottom-center"
+    #[serde(default = "default_notif_position")]
+    pub position: String,
+    /// Enter animation: "slide-left", "slide-right", "slide-up", "fade", "scale"
+    #[serde(default = "default_notif_animation", alias = "enter")]
+    pub enter_animation: String,
+    /// Exit animation
+    #[serde(default = "default_notif_animation", alias = "exit")]
+    pub exit_animation: String,
+    /// Border radius for notification cards
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<String>,
+    /// Background color
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    /// Border style
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border: Option<String>,
+    /// Icon size in pixels
+    #[serde(default = "default_notif_icon_size")]
+    pub icon_size: i32,
+    /// Show a colored accent bar on the left
+    #[serde(default = "default_true")]
+    pub accent_bar: bool,
+    /// Maximum number of visible notifications
+    #[serde(default = "default_notif_max", alias = "max")]
+    pub max_visible: i32,
+    /// Auto-dismiss timeout in ms (0 = never)
+    #[serde(default = "default_notif_timeout", alias = "dismiss")]
+    pub auto_dismiss_ms: i32,
+}
+
+fn default_notif_position() -> String {
+    "bottom-right".to_string()
+}
+fn default_notif_animation() -> String {
+    "slide-right".to_string()
+}
+fn default_notif_icon_size() -> i32 {
+    20
+}
+fn default_notif_max() -> i32 {
+    5
+}
+fn default_notif_timeout() -> i32 {
+    5000
+}
+
+/// Night mode / light-off overlay customization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NightModeConfig {
+    /// Overlay color (CSS value)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlay_color: Option<String>,
+    /// Overlay opacity (0.0-1.0)
+    #[serde(default = "default_night_opacity")]
+    pub overlay_opacity: f64,
+    /// CSS filter applied to the entire page (e.g. "saturate(0.3) brightness(0.6)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css_filter: Option<String>,
+    /// Transition duration for entering/exiting night mode
+    #[serde(default = "default_night_transition")]
+    pub transition_ms: i32,
+    /// Whether to show a subtle vignette effect
+    #[serde(default)]
+    pub vignette: bool,
+    /// Custom background image/pattern URL for night mode
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_url: Option<String>,
+    /// Blend mode for the overlay
+    #[serde(default = "default_night_blend")]
+    pub blend_mode: String,
+    /// Whether to reduce motion during night mode
+    #[serde(default)]
+    pub reduce_motion: bool,
+}
+
+fn default_night_opacity() -> f64 {
+    0.88
+}
+fn default_night_transition() -> i32 {
+    600
+}
+fn default_night_blend() -> String {
+    "normal".to_string()
+}
+
 /// Complete theme capabilities – what a theme can control beyond colors.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ThemeCapabilities {
@@ -490,6 +881,21 @@ pub struct ThemeCapabilities {
     /// Custom settings fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_settings: Option<Vec<ThemeSetting>>,
+    /// Animation configuration (splash, page transitions, widget animations)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<ThemeAnimationConfig>,
+    /// Navigation bar customization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub navigation: Option<NavCustomization>,
+    /// Modal/dialog theming
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modals: Option<ModalThemeConfig>,
+    /// Notification theming
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notifications: Option<NotificationThemeConfig>,
+    /// Night mode / light-off customization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub night_mode: Option<NightModeConfig>,
 }
 
 /// Global default theme configuration.
@@ -507,7 +913,9 @@ pub struct DefaultThemeConfig {
     pub apply_to_new_users: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for DefaultThemeConfig {
     fn default() -> Self {

@@ -1,6 +1,6 @@
 // HelpTip – Reusable info/help button with tooltip for UI explanations
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Info, Question, X } from '@phosphor-icons/react'
 
 interface Props {

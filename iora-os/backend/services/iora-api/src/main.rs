@@ -12,19 +12,16 @@
 use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, Method, StatusCode},
-    middleware,
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
     routing::{any, get, post},
     Router,
 };
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
+use serde::Deserialize;
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info, warn};
-use uuid::Uuid;
+use tracing::info;
 use iora_shared::system_config;
 
 mod auth;
@@ -215,7 +212,7 @@ async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 // ─── Interfaces ─────────────────────────────────────────────────────────────
 
-async fn list_interfaces(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn list_interfaces(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({
         "interfaces": [
             {
@@ -270,7 +267,7 @@ async fn get_metrics(
     State(state): State<Arc<AppState>>,
     Query(query): Query<MetricsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let limit = query.limit.unwrap_or(100).min(1000);
+    let _limit = query.limit.unwrap_or(100).min(1000);
 
     // Summary counts per interface
     let summary: Vec<(String, i64, f64)> = sqlx::query_as(
@@ -326,7 +323,7 @@ async fn v2_list_entities(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
-    let mut url = format!("{}/api/states", state.iora_home_url);
+    let url = format!("{}/api/states", state.iora_home_url);
     let resp = state
         .http_client
         .get(&url)
@@ -448,7 +445,7 @@ async fn v2_entity_history(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(entity_id): Path<String>,
-    Query(query): Query<V2ListQuery>,
+    Query(_query): Query<V2ListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = extract_bearer(&headers)?;
 
@@ -485,7 +482,7 @@ async fn v2_list_services(
 
     let resp = state
         .http_client
-        .get(&format!("{}/api/admin/ha/services", state.iora_home_url))
+        .get(format!("{}/api/admin/ha/services", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
@@ -527,7 +524,7 @@ async fn v2_list_automations(
 
     let resp = state
         .http_client
-        .get(&format!("{}/api/admin/ha/automations", state.iora_home_url))
+        .get(format!("{}/api/admin/ha/automations", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
@@ -571,7 +568,7 @@ async fn v2_list_areas(
     let token = extract_bearer(&headers)?;
 
     let resp = state.http_client
-        .get(&format!("{}/api/admin/ha/areas", state.iora_home_url))
+        .get(format!("{}/api/admin/ha/areas", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send().await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
@@ -587,7 +584,7 @@ async fn v2_list_devices(
     let token = extract_bearer(&headers)?;
 
     let resp = state.http_client
-        .get(&format!("{}/api/admin/ha/devices", state.iora_home_url))
+        .get(format!("{}/api/admin/ha/devices", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send().await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
@@ -603,7 +600,7 @@ async fn v2_list_users(
     let token = extract_bearer(&headers)?;
 
     let resp = state.http_client
-        .get(&format!("{}/api/auth/users", state.iora_home_url))
+        .get(format!("{}/api/auth/users", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send().await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;

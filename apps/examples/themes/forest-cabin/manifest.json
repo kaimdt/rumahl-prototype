@@ -1,0 +1,626 @@
+{
+  "id": "forest-cabin",
+  "name": "Forest Cabin",
+  "version": "1.0.0",
+  "developer": "IORA Community",
+  "description": "Waldhütten-Atmosphäre – warme Holztöne, tiefes Waldgrün, gedämpftes Laternenlicht. Organische Formen für eine beruhigende Smart-Home-Umgebung. Features: 3 Design-Modes (Morgentau/Waldlicht/Kaminfeuer), 5 Akzent-Presets, Kerzenflackern, Blatt-Partikel.",
+  "icon": "Tree",
+  "preview_image": "images/preview.svg",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": [
+    "ThemeInstall"
+  ],
+  "theme": {
+    "id": "forest-cabin",
+    "name": "Forest Cabin",
+    "version": "1.0.0",
+    "developer": "IORA Community",
+    "description": "Forest Cabin – Waldhütten-Feeling mit warmen Holztönen, Moosgrün und Laternenlicht",
+    "icon": "Tree",
+    "preview_image": "images/preview.svg",
+    "parent_theme": "night",
+    "source": "inline",
+    "order": 45,
+    "css_files": [],
+    "js_files": [
+      "js/theme.js"
+    ],
+    "fonts": [
+      {
+        "name": "Lora",
+        "family": "'Lora', 'Georgia', serif",
+        "url": "fonts/lora.css",
+        "weights": "400;500;600;700",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": true,
+        "is_monospace": false,
+        "format": "woff2"
+      },
+      {
+        "name": "Nunito",
+        "family": "'Nunito', 'Inter', sans-serif",
+        "url": "fonts/nunito.css",
+        "weights": "300;400;500;600",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": false,
+        "is_monospace": false,
+        "format": "woff2"
+      }
+    ],
+    "css_variables": {
+      "background": "oklch(0.12 0.03 145)",
+      "foreground": "oklch(0.85 0.025 90)",
+      "card": "oklch(0.16 0.04 140)",
+      "card-foreground": "oklch(0.88 0.025 90)",
+      "accent": "oklch(0.52 0.14 85)",
+      "accent-foreground": "oklch(0.15 0.03 140)",
+      "muted": "oklch(0.18 0.03 140)",
+      "muted-foreground": "oklch(0.55 0.03 90)",
+      "border": "oklch(0.28 0.04 140)",
+      "ring": "oklch(0.55 0.16 85)",
+      "radius": "1rem",
+      "glass-bg": "oklch(0.16 0.04 140 / 0.60)",
+      "glass-bg-end": "oklch(0.12 0.03 145 / 0.50)",
+      "glass-border-color": "oklch(0.35 0.05 140 / 0.18)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.25)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.12)",
+      "success": "oklch(0.50 0.16 150)",
+      "destructive": "oklch(0.45 0.18 20)",
+      "transition-duration": "0.45s",
+      "shadow-sm": "0 1px 2px rgba(255,255,255,0.03)",
+      "shadow-md": "0 4px 6px rgba(255,255,255,0.05)",
+      "shadow-lg": "0 10px 25px rgba(255,255,255,0.08)",
+      "shadow-xl": "0 20px 50px rgba(255,255,255,0.08)",
+      "selection-bg": "var(--accent)",
+      "selection-fg": "var(--accent-foreground)",
+      "scrollbar-width": "6px",
+      "scrollbar-track": "transparent",
+      "scrollbar-thumb": "var(--border)",
+      "scrollbar-thumb-hover": "var(--muted-foreground)",
+      "focus-ring-width": "2px",
+      "focus-ring-offset": "2px",
+      "content-max-width": "1500px",
+      "header-height": "56px",
+      "nav-icon-size": "20px",
+      "badge-radius": "9999px",
+      "tooltip-bg": "var(--card)",
+      "tooltip-fg": "var(--card-foreground)",
+      "input-bg": "var(--muted)",
+      "input-border": "var(--border)",
+      "overlay-bg": "rgba(0,0,0,0.5)",
+      "skeleton-shimmer": "rgba(255,255,255,0.05)"
+    },
+    "additional_css": ".glass-card { border-radius: 1rem; border: 1px solid oklch(0.35 0.05 140 / 0.15); box-shadow: inset 0 1px 0 oklch(1 1 0 / 0.03); }\n.glass-card:hover { border-color: oklch(0.45 0.10 85 / 0.25); box-shadow: 0 8px 30px oklch(0 0 0 / 0.3), inset 0 1px 0 oklch(1 1 0 / 0.05); }\n.glass-header { background: oklch(0.14 0.035 140 / 0.85) !important; backdrop-filter: blur(20px); border-bottom: 1px solid oklch(0.30 0.04 140 / 0.3); }\n[data-nav=\"root\"] { background: oklch(0.14 0.035 140 / 0.9) !important; backdrop-filter: blur(24px); border-top: 1px solid oklch(0.30 0.04 140 / 0.25); }\n/* ─── Individuelle Scrollbars – Holz-Optik ─── */\n::-webkit-scrollbar { width: 10px; height: 10px; }\n::-webkit-scrollbar-track { background: var(--muted, oklch(0.18 0.03 140)); border-radius: 1rem; }\n::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, oklch(0.42 0.10 85)); border-radius: 1rem; border: 2px solid var(--muted, oklch(0.18 0.03 140)); transition: background 0.45s ease; }\n::-webkit-scrollbar-thumb:hover { background: var(--accent, oklch(0.52 0.14 85)); }\n::-webkit-scrollbar-corner { background: var(--muted, oklch(0.18 0.03 140)); }\n/* ─── Textauswahl – Laternenlicht-Highlight ─── */\n::selection { background: var(--selection-bg, oklch(0.52 0.14 85 / 0.3)); color: var(--foreground, oklch(0.85 0.025 90)); }\n/* ─── Fokus-Ringe – Moosgrün sanft ─── */\n:focus-visible { outline: none !important; box-shadow: 0 0 0 3px var(--ring, oklch(0.55 0.16 85 / 0.4)); border-radius: 0.3rem; transition: box-shadow 0.45s ease; }\nbutton:focus-visible, a:focus-visible { outline: none !important; box-shadow: 0 0 0 3px var(--accent); }\n/* ─── Badge/Pill – Handgefertigte Holzschildchen ─── */\n.badge, .pill { display: inline-flex; align-items: center; padding: 0.2em 0.7em; font-family: 'Nunito', sans-serif; font-size: 0.72rem; font-weight: 500; border-radius: 0.75rem; background: oklch(from var(--accent) l c h / 0.1); color: var(--accent); border: 1px solid oklch(from var(--accent) l c h / 0.2); transition: all 0.45s ease; }\n.badge:hover, .pill:hover { background: oklch(from var(--accent) l c h / 0.2); border-color: oklch(from var(--accent) l c h / 0.35); box-shadow: 0 2px 12px oklch(0 0 0 / 0.2); }\n/* ─── Tooltips – Handgeschnitzte Hinweise ─── */\n.tooltip { position: relative; }\n.tooltip::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(6px); padding: 0.4rem 0.8rem; font-family: 'Lora', serif; font-size: 0.7rem; font-weight: 400; font-style: italic; white-space: nowrap; color: var(--foreground, oklch(0.85 0.025 90)); background: oklch(0.16 0.04 140 / 0.95); border: 1px solid oklch(0.35 0.05 140 / 0.3); border-radius: 0.6rem; box-shadow: 0 4px 20px oklch(0 0 0 / 0.3); opacity: 0; pointer-events: none; transition: opacity 0.45s ease, transform 0.45s ease; z-index: 9999; }\n.tooltip:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }\n/* ─── Skeleton Loading – Flackerndes Kaminlicht ─── */\n.skeleton { background: linear-gradient(90deg, var(--muted, oklch(0.18 0.03 140)) 0%, oklch(from var(--accent) l c h / 0.15) 50%, var(--muted, oklch(0.18 0.03 140)) 100%); background-size: 200% 100%; animation: skeleton-glow 1.8s ease-in-out infinite; border-radius: 0.5rem; min-height: 1em; }\n@keyframes skeleton-glow { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }\n/* ─── Input/Textarea – Rustikale Eingabefelder ─── */\ninput[type=\"text\"], input[type=\"search\"], input[type=\"number\"], input[type=\"password\"], textarea, select { font-family: 'Nunito', sans-serif; background: var(--muted, oklch(0.18 0.03 140)); color: var(--foreground, oklch(0.85 0.025 90)); border: 1px solid oklch(0.28 0.04 140); border-radius: 0.6rem; padding: 0.5rem 0.75rem; font-size: 0.82rem; transition: border-color 0.45s ease, box-shadow 0.45s ease, background 0.45s ease; }\ninput:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 16px oklch(from var(--accent) l c h / 0.2); background: oklch(0.16 0.04 140); outline: none; }\ninput::placeholder, textarea::placeholder { color: oklch(0.42 0.03 90); font-style: italic; }\n/* ─── Smooth Transitions – Alle interaktiven Elemente ─── */\nbutton, a, input, select, textarea, .badge, .pill, .tooltip, .skeleton, .glass-card, [role=\"button\"], .clickable { transition: all 0.45s ease; }\n@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }\n\n/* Forest Cabin – Core CSS */\n:root[data-theme=\"forest-cabin\"] {\n  font-family: 'Lora', 'Georgia', serif;\n}\n\n:root[data-theme=\"forest-cabin\"] h1, \n:root[data-theme=\"forest-cabin\"] h2, \n:root[data-theme=\"forest-cabin\"] h3 {\n  font-family: 'Lora', serif;\n  font-weight: 500;\n}",
+    "capabilities": {
+      "night_mode": {
+        "overlay_color": "oklch(0.05 0.02 140)",
+        "overlay_opacity": 0.9,
+        "css_filter": "saturate(0.3) brightness(0.45)",
+        "transition_ms": 800,
+        "vignette": true,
+        "blend_mode": "overlay",
+        "reduce_motion": false
+      },
+      "design_modes": [
+        {
+          "id": "forest-dawn",
+          "name": "Waldmorgendämmerung",
+          "icon": "CloudFog",
+          "time_start": "04:00",
+          "time_end": "06:00",
+          "css_variables": {
+            "background": "oklch(0.14 0.05 150)",
+            "foreground": "oklch(0.82 0.04 130)",
+            "card": "oklch(0.18 0.06 145)",
+            "accent": "oklch(0.48 0.18 140)",
+            "muted": "oklch(0.20 0.05 145)",
+            "border": "oklch(0.28 0.06 145)"
+          }
+        },
+        {
+          "id": "forest-morning",
+          "name": "Morgentau",
+          "icon": "Leaf",
+          "time_start": "06:00",
+          "time_end": "12:00",
+          "css_variables": {
+            "background": "oklch(0.16 0.04 150)",
+            "foreground": "oklch(0.88 0.03 100)",
+            "card": "oklch(0.20 0.05 145)",
+            "accent": "oklch(0.50 0.18 140)",
+            "muted": "oklch(0.22 0.04 145)",
+            "border": "oklch(0.32 0.05 145)"
+          }
+        },
+        {
+          "id": "forest-afternoon",
+          "name": "Waldlicht",
+          "icon": "Sun",
+          "time_start": "12:00",
+          "time_end": "16:00",
+          "css_variables": {
+            "background": "oklch(0.12 0.03 145)",
+            "foreground": "oklch(0.85 0.025 90)",
+            "card": "oklch(0.16 0.04 140)",
+            "accent": "oklch(0.52 0.14 85)",
+            "muted": "oklch(0.18 0.03 140)",
+            "border": "oklch(0.28 0.04 140)"
+          }
+        },
+        {
+          "id": "forest-dusk",
+          "name": "Goldene Stunde",
+          "icon": "SunHorizon",
+          "time_start": "16:00",
+          "time_end": "18:00",
+          "css_variables": {
+            "background": "oklch(0.10 0.04 130)",
+            "foreground": "oklch(0.88 0.05 60)",
+            "card": "oklch(0.14 0.05 135)",
+            "accent": "oklch(0.55 0.18 65)",
+            "muted": "oklch(0.16 0.04 135)",
+            "border": "oklch(0.25 0.05 135)"
+          }
+        },
+        {
+          "id": "forest-night",
+          "name": "Kaminfeuer",
+          "icon": "FireSimple",
+          "time_start": "18:00",
+          "time_end": "04:00",
+          "css_variables": {
+            "background": "oklch(0.08 0.02 140)",
+            "foreground": "oklch(0.80 0.03 60)",
+            "card": "oklch(0.12 0.03 135)",
+            "accent": "oklch(0.55 0.18 60)",
+            "muted": "oklch(0.14 0.02 135)",
+            "border": "oklch(0.22 0.03 135)",
+            "glass-bg": "oklch(0.12 0.03 135 / 0.55)",
+            "glass-bg-end": "oklch(0.08 0.02 140 / 0.45)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "forest-dawn": {
+            "start": "04:00",
+            "end": "06:00"
+          },
+          "forest-morning": {
+            "start": "06:00",
+            "end": "12:00"
+          },
+          "forest-afternoon": {
+            "start": "12:00",
+            "end": "16:00"
+          },
+          "forest-dusk": {
+            "start": "16:00",
+            "end": "18:00"
+          },
+          "forest-night": {
+            "start": "18:00",
+            "end": "04:00"
+          }
+        },
+        "default_mode": "forest-afternoon"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          {
+            "name": "Gold (Standard)",
+            "color": "oklch(0.52 0.14 85)"
+          },
+          {
+            "name": "Moosgrün",
+            "color": "oklch(0.45 0.16 140)"
+          },
+          {
+            "name": "Kastanie",
+            "color": "oklch(0.42 0.14 45)"
+          },
+          {
+            "name": "Kupfer",
+            "color": "oklch(0.50 0.18 50)"
+          },
+          {
+            "name": "Tannengrün",
+            "color": "oklch(0.38 0.12 155)"
+          },
+          {
+            "name": "Amber",
+            "color": "oklch(0.55 0.18 70)"
+          },
+          {
+            "name": "Moss",
+            "color": "oklch(0.42 0.16 135)"
+          },
+          {
+            "name": "Birch",
+            "color": "oklch(0.60 0.06 90)"
+          }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_on"
+      },
+      "custom_settings": [
+        {
+          "id": "candle_flicker",
+          "name": "Kerzenflackern",
+          "description": "Subtiles Flackern auf Karten wie Kerzenlicht",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "wood_grain",
+          "name": "Holzmaserung",
+          "description": "Holztextur-Hintergrund aktivieren",
+          "setting_type": "toggle",
+          "default_value": false
+        },
+        {
+          "id": "warmth_level",
+          "name": "Wärmestufe",
+          "description": "Farbtemperatur des Ambientes",
+          "setting_type": "slider",
+          "default_value": 70,
+          "min": 30,
+          "max_visible": 100,
+          "step": 10,
+          "css_variable": "forest-warmth"
+        },
+        {
+          "id": "leaf_particles",
+          "name": "Blatt-Partikel",
+          "description": "Animierte fallende Blätter im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "fire_crackle",
+          "name": "Kamin-Knistern",
+          "description": "Visuelles Knistern und Glimmen auf Karten",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "bark_texture",
+          "name": "Rinden-Textur",
+          "description": "Intensität der Holzrinden-Hintergrundtextur",
+          "setting_type": "slider",
+          "default_value": 50,
+          "min": 0,
+          "max_visible": 100,
+          "step": 10,
+          "css_variable": "forest-bark"
+        },
+        {
+          "id": "fire_brightness",
+          "name": "Feuer-Helligkeit",
+          "description": "Leuchtkraft des Kaminfeuers",
+          "setting_type": "slider",
+          "default_value": 70,
+          "min": 30,
+          "max_visible": 100,
+          "step": 10,
+          "css_variable": "forest-fire-brightness"
+        },
+        {
+          "id": "moss_coverage",
+          "name": "Moos-Bedeckung",
+          "description": "Menge der Moostextur",
+          "setting_type": "slider",
+          "default_value": 50,
+          "min": 0,
+          "max_visible": 100,
+          "step": 10
+        },
+        {
+          "id": "season",
+          "name": "Jahreszeit",
+          "description": "Farbpalette nach Jahreszeit",
+          "setting_type": "select",
+          "default_value": "autumn",
+          "options": [
+            {
+              "label": "Frühling",
+              "value": "spring"
+            },
+            {
+              "label": "Sommer",
+              "value": "summer"
+            },
+            {
+              "label": "Herbst",
+              "value": "autumn"
+            },
+            {
+              "label": "Winter",
+              "value": "winter"
+            }
+          ]
+        },
+        {
+          "id": "scrollbar_style",
+          "name": "Scrollbar-Stil",
+          "description": "Aussehen der Bildlaufleiste",
+          "setting_type": "select",
+          "default_value": "Standard",
+          "options": [
+            {
+              "label": "Standard",
+              "value": "Standard"
+            },
+            {
+              "label": "Minimal",
+              "value": "Minimal"
+            },
+            {
+              "label": "Versteckt",
+              "value": "Versteckt"
+            },
+            {
+              "label": "Theme",
+              "value": "Theme"
+            }
+          ],
+          "css_variable": "scrollbar-width"
+        },
+        {
+          "id": "focus_ring_visible",
+          "name": "Fokus-Ring anzeigen",
+          "description": "Fokus-Ring um aktive Elemente anzeigen",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "content_width",
+          "name": "Inhaltsbreite",
+          "description": "Maximale Breite des Hauptinhalts",
+          "setting_type": "select",
+          "default_value": "Normal (1500px)",
+          "options": [
+            {
+              "label": "Schmal (1200px)",
+              "value": "Schmal (1200px)"
+            },
+            {
+              "label": "Normal (1500px)",
+              "value": "Normal (1500px)"
+            },
+            {
+              "label": "Breit (100%)",
+              "value": "Breit (100%)"
+            }
+          ],
+          "css_variable": "content-max-width"
+        },
+        {
+          "id": "shadow_level",
+          "name": "Schatten-Stärke",
+          "description": "Intensität der Kartenschatten",
+          "setting_type": "select",
+          "default_value": "Mittel",
+          "options": [
+            {
+              "label": "Flach",
+              "value": "Flach"
+            },
+            {
+              "label": "Leicht",
+              "value": "Leicht"
+            },
+            {
+              "label": "Mittel",
+              "value": "Mittel"
+            },
+            {
+              "label": "Stark",
+              "value": "Stark"
+            }
+          ],
+          "css_variable": "shadow-level"
+        },
+        {
+          "id": "border_radius_scale",
+          "name": "Abrundungs-Skalierung",
+          "description": "Skalierungsfaktor für alle Abrundungen",
+          "setting_type": "slider",
+          "default_value": 1.0,
+          "min": 0.5,
+          "max_visible": 2.0,
+          "step": 0.1,
+          "css_variable": "radius-scale"
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2600,
+          "background_color": "oklch(0.12 0.03 145)",
+          "brand_text": "Forest Cabin",
+          "tagline": "Welcome Home",
+          "show_progress": true,
+          "exit_animation": "fade"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.45,
+          "spring": {
+            "stiffness": 200,
+            "damping": 26,
+            "mass": 1.4
+          }
+        },
+        "widget_animations": {
+          "style": "scale-in",
+          "duration_secs": 0.45,
+          "stagger_secs": 0.04
+        },
+        "keyframes": {
+          "leaf-fall": "0% { transform: translateY(-10px) rotate(0deg); opacity: 0; } 10% { opacity: 0.6; } 90% { opacity: 0.4; } 100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }",
+          "fire-glow": "0%, 100% { box-shadow: 0 0 15px oklch(0.55 0.18 60 / 0.2); } 50% { box-shadow: 0 0 30px oklch(0.55 0.18 60 / 0.35); }",
+          "branch-sway": "0%, 100% { transform: rotate(-1deg); } 50% { transform: rotate(1deg); }"
+        }
+      },
+      "modals": {
+        "backdrop": "dim",
+        "backdrop_blur": 8,
+        "backdrop_opacity": 0.6,
+        "radius": "1rem",
+        "enter_animation": "slide-up",
+        "exit_animation": "slide-down",
+        "close_button": "pill",
+        "shadow": "md"
+      },
+      "notifications": {
+        "position": "bottom-right",
+        "enter_animation": "slide-up",
+        "exit_animation": "slide-down",
+        "radius": "12px",
+        "accent_bar": true,
+        "max_visible": 4,
+        "auto_dismiss_ms": 6000
+      },
+      "navigation": {
+        "position": "bottom",
+        "background": "solid",
+        "radius": "12px",
+        "show_labels": true,
+        "icon_size": 20,
+        "gap": 6,
+        "buttons": [
+          {
+            "page_id": "home",
+            "label": "Cabin",
+            "icon": "House"
+          },
+          {
+            "page_id": "lights",
+            "label": "Lantern",
+            "icon": "Lightbulb"
+          },
+          {
+            "page_id": "climate",
+            "label": "Hearth",
+            "icon": "Thermometer"
+          },
+          {
+            "page_id": "switches",
+            "label": "Levers",
+            "icon": "ToggleRight"
+          },
+          {
+            "page_id": "sensors",
+            "label": "Gauges",
+            "icon": "Gauge"
+          },
+          {
+            "page_id": "music",
+            "label": "Melody",
+            "icon": "SpeakerHifi"
+          },
+          {
+            "page_id": "settings",
+            "label": "Tools",
+            "icon": "Gear"
+          }
+        ]
+      }
+    },
+    "widget_templates": [
+      {
+        "widget_type": "light",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/light.html",
+            "label": "Lantern",
+            "icon": "Lightbulb",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "switch",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/switch.html",
+            "label": "Wooden Lever",
+            "icon": "Power",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "climate",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/climate.html",
+            "label": "Fireplace",
+            "icon": "Thermometer",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "sensor",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/sensor.html",
+            "label": "Forest Sensor",
+            "icon": "Gauge",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "weather",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/weather.html",
+            "label": "Forest Weather",
+            "icon": "Cloud",
+            "is_default": true
+          }
+        ]
+      }
+    ],
+    "icon_font": {
+      "font_name": "Forest Icons",
+      "css_path": "",
+      "class_prefix": "fc-icon",
+      "icon_map": {
+        "Tree": "fc-icon-pine",
+        "Leaf": "fc-icon-leaf",
+        "Sun": "fc-icon-sun",
+        "FireSimple": "fc-icon-fireplace",
+        "House": "fc-icon-cabin",
+        "Moon": "fc-icon-moon",
+        "Lightbulb": "fc-icon-lantern"
+      }
+    },
+    "background": {
+      "type": "image",
+      "url": "images/background.svg",
+      "overlay_opacity": 0.07,
+      "blend_mode": "overlay"
+    }
+  }
+}

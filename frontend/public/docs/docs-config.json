@@ -17,6 +17,11 @@
           "path": "getting-started/installation.md"
         },
         {
+          "title": "App Runtime Capabilities",
+          "path": "development/app-runtime-capabilities.md",
+          "highlight": true
+        },
+        {
           "title": "Quick Start",
           "path": "getting-started/quick-start.md"
         },

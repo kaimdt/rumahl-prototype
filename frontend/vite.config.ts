@@ -29,7 +29,13 @@ export default defineConfig({
     }
   },
   build: {
-    chunkSizeWarningLimit: 1000,
+    // Target modern evergreen browsers: skips polyfills for ES2020+ features,
+    // produces smaller bundles and faster startup. Adjust if IE/old Safari support is needed.
+    target: 'es2022',
+    // The dashboard shell is intentionally feature-rich and currently lands
+    // around 2 MB after existing route/vendor splitting. Keep the warning just
+    // above that so future unexpected growth still shows up.
+    chunkSizeWarningLimit: 2200,
     // CSS minifiers currently warn (and can mis-handle) valid Tailwind selectors
     // like `.text-white\\/90` and `2xl:grid-cols-*`. Keep CSS unminified to
     // preserve correctness.

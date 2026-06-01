@@ -86,12 +86,27 @@ impl DockerSandbox {
         ];
 
         // Plugin install + pi.dev startup command
+        //
+        // When `IORA_PI_EXTENSION_PATH` is set on the host, the IORA bridge
+        // extension is mounted read-only into the container and loaded via
+        // `pi -e`, giving interactive sessions LocalUp-style live monitoring and
+        // remote control. When unset, behaviour is unchanged.
+        let mut binds = vec![workspace_bind, sandbox_bind];
+        let ext_flag = match std::env::var("IORA_PI_EXTENSION_PATH") {
+            Ok(host_path) if !host_path.trim().is_empty() => {
+                binds.push(format!("{}:/opt/iora/iora-bridge.ts:ro", host_path));
+                " -e /opt/iora/iora-bridge.ts".to_string()
+            }
+            _ => String::new(),
+        };
+
         let start_cmd = if config.plugin_packages.is_empty() {
-            "exec npx pi serve --port 3000 --host 0.0.0.0".to_string()
+            format!("exec npx pi serve --port 3000 --host 0.0.0.0{}", ext_flag)
         } else {
             format!(
-                "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0",
-                config.plugin_packages.join(" ")
+                "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0{}",
+                config.plugin_packages.join(" "),
+                ext_flag
             )
         };
 
@@ -101,7 +116,7 @@ impl DockerSandbox {
             .and_then(|c| parse_cpu(c));
 
         let host_config = BollardHostConfig {
-            binds: Some(vec![workspace_bind, sandbox_bind]),
+            binds: Some(binds),
             memory: memory_bytes,
             nano_cpus,
             cap_drop: Some(vec!["ALL".to_string()]),
@@ -227,6 +242,102 @@ impl DockerSandbox {
             }
             _ => Ok("exec started (detached)".to_string()),
         }
+    }
+
+    /// Run a one-shot pi.dev agent task inside an existing session container
+    /// using the real `pi --mode json` CLI. The agent runs headless and emits
+    /// JSON-Lines events on stdout; each complete line is forwarded through
+    /// `line_tx` for parsing by the controller. Returns the exec exit code when
+    /// known (`None` if it could not be determined).
+    pub async fn run_pi_task(
+        &self,
+        container_id: &str,
+        prompt: &str,
+        provider: Option<&str>,
+        model: Option<&str>,
+        line_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    ) -> Result<Option<i64>, String> {
+        use bollard::exec::{CreateExecOptions, StartExecResults};
+
+        // Build: pi --mode json --no-session [--provider X] [--model Y] "<prompt>"
+        let mut cmd: Vec<String> = vec![
+            "pi".to_string(),
+            "--mode".to_string(),
+            "json".to_string(),
+            "--no-session".to_string(),
+        ];
+        if let Some(p) = provider {
+            cmd.push("--provider".to_string());
+            cmd.push(p.to_string());
+        }
+        if let Some(m) = model {
+            cmd.push("--model".to_string());
+            cmd.push(m.to_string());
+        }
+        cmd.push(prompt.to_string());
+
+        let exec = self
+            .docker
+            .create_exec(
+                container_id,
+                CreateExecOptions {
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    working_dir: Some("/workspace".to_string()),
+                    env: Some(vec![
+                        "PI_OFFLINE=1".to_string(),
+                        "PI_SKIP_VERSION_CHECK=1".to_string(),
+                    ]),
+                    cmd: Some(cmd),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| format!("Exec create failed: {}", e))?;
+
+        let output = self
+            .docker
+            .start_exec(&exec.id, None)
+            .await
+            .map_err(|e| format!("Exec start failed: {}", e))?;
+
+        if let StartExecResults::Attached { mut output, .. } = output {
+            let mut buf = String::new();
+            while let Some(item) = output.next().await {
+                match item {
+                    Ok(msg) => {
+                        buf.push_str(&msg.to_string());
+                        // Drain complete, newline-terminated lines.
+                        while let Some(idx) = buf.find('\n') {
+                            let line: String = buf.drain(..=idx).collect();
+                            let trimmed = line.trim_end_matches(['\n', '\r']).to_string();
+                            if !trimmed.is_empty() && line_tx.send(trimmed).is_err() {
+                                // Receiver dropped — stop reading.
+                                return Ok(None);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("pi exec stream error: {}", e);
+                        break;
+                    }
+                }
+            }
+            // Flush any trailing partial line.
+            let rest = buf.trim().to_string();
+            if !rest.is_empty() {
+                let _ = line_tx.send(rest);
+            }
+        }
+
+        // Resolve the exit code of the pi process.
+        let code = self
+            .docker
+            .inspect_exec(&exec.id)
+            .await
+            .ok()
+            .and_then(|i| i.exit_code);
+        Ok(code)
     }
 
     async fn ensure_image(&self, image: &str) -> Result<(), String> {

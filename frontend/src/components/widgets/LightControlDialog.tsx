@@ -10,7 +10,7 @@ import { Lightbulb, Power, SunHorizon, Palette, Sun, Sparkle, Plus, Snowflake, F
 import type { EntityState, LightEntity } from '@/lib/types'
 import { haService } from '@/lib/homeAssistant'
 import { haptics } from '@/lib/haptics'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
 import { LightGroupMemberRow } from './LightGroupMemberRow'
 import { EntityHistoryPanel } from './EntityHistoryPanel'

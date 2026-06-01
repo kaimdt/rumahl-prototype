@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+  <defs>
+    <linearGradient id="oceanBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a1628"/>
+      <stop offset="40%" stop-color="#0d2847"/>
+      <stop offset="75%" stop-color="#0a1f3a"/>
+      <stop offset="100%" stop-color="#061220"/>
+    </linearGradient>
+    <linearGradient id="waveGrad1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e3a5f" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#0f2744" stop-opacity="0.15"/>
+    </linearGradient>
+    <linearGradient id="waveGrad2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a3a5a" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#0d2847" stop-opacity="0.1"/>
+    </linearGradient>
+    <linearGradient id="accentGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.12"/>
+      <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.03"/>
+    </linearGradient>
+    <pattern id="wavePattern" x="0" y="0" width="400" height="300" patternUnits="userSpaceOnUse">
+      <rect width="400" height="300" fill="url(#oceanBg)"/>
+      <!-- Wave layer 1 - background -->
+      <path d="M0,140 C20,125 40,135 60,140 C80,145 100,130 120,140 C140,150 160,135 180,140 C200,145 220,128 240,140 C260,152 280,138 300,140 C320,142 340,127 360,140 C380,153 400,135 400,140 L400,300 L0,300 Z" fill="url(#waveGrad2)"/>
+      <path d="M0,155 C25,140 50,148 75,155 C100,162 125,140 150,155 C175,170 200,148 225,155 C250,162 275,142 300,155 C325,168 350,148 375,155 C387,158 400,150 400,155 L400,300 L0,300 Z" fill="url(#waveGrad1)"/>
+      <!-- Wave layer 2 - mid -->
+      <path d="M0,170 C30,155 60,165 90,170 C120,175 150,150 180,170 C210,190 240,160 270,170 C300,180 330,158 360,170 C380,178 400,165 400,170 L400,300 L0,300 Z" fill="#0d2847" opacity="0.5"/>
+      <path d="M0,185 C20,172 40,180 60,185 C80,190 100,170 120,185 C140,200 160,178 180,185 C200,192 220,172 240,185 C260,198 280,178 300,185 C320,192 340,170 360,185 C380,200 400,182 400,185 L400,300 L0,300 Z" fill="#0a1f3a" opacity="0.4"/>
+      <!-- Wave layer 3 - foreground -->
+      <path d="M0,205 C35,190 70,200 105,205 C140,210 175,185 210,205 C245,225 280,195 315,205 C350,215 385,198 400,205 L400,300 L0,300 Z" fill="#1e3a5f" opacity="0.25"/>
+      <path d="M0,220 C25,208 50,216 75,220 C100,224 125,205 150,220 C175,235 200,210 225,220 C250,230 275,212 300,220 C325,228 350,210 375,220 C400,230 400,215 400,220 L400,300 L0,300 Z" fill="#0f2744" opacity="0.3"/>
+      <!-- Deep wave -->
+      <path d="M0,240 C40,228 80,236 120,240 C160,244 200,225 240,240 C280,255 320,232 360,240 C400,248 400,235 400,240 L400,300 L0,300 Z" fill="#061220" opacity="0.5"/>
+      <!-- Bubbles scattered -->
+      <circle cx="45" cy="130" r="2.5" fill="#3b82f6" opacity="0.15"/>
+      <circle cx="90" cy="110" r="3.5" fill="#06b6d4" opacity="0.12"/>
+      <circle cx="140" cy="125" r="2" fill="#3b82f6" opacity="0.1"/>
+      <circle cx="195" cy="100" r="4" fill="#06b6d4" opacity="0.1"/>
+      <circle cx="250" cy="135" r="2.5" fill="#3b82f6" opacity="0.12"/>
+      <circle cx="310" cy="115" r="3" fill="#06b6d4" opacity="0.1"/>
+      <circle cx="350" cy="140" r="2" fill="#3b82f6" opacity="0.08"/>
+      <circle cx="370" cy="105" r="1.5" fill="#06b6d4" opacity="0.1"/>
+      <circle cx="60" cy="90" r="1.5" fill="#3b82f6" opacity="0.08"/>
+      <circle cx="280" cy="95" r="2" fill="#06b6d4" opacity="0.06"/>
+      <circle cx="160" cy="108" r="1.8" fill="#3b82f6" opacity="0.07"/>
+      <!-- Coral/geometric shapes -->
+      <g opacity="0.06">
+        <path d="M380,80 L390,75 L385,88 Z" fill="#06b6d4"/>
+        <path d="M10,85 L18,78 L16,90 Z" fill="#3b82f6"/>
+        <path d="M200,55 L208,50 L206,60 Z" fill="#06b6d4"/>
+      </g>
+    </pattern>
+  </defs>
+  <rect width="400" height="300" fill="url(#wavePattern)"/>
+  <!-- Overlay gradient for depth -->
+  <rect width="400" height="300" fill="url(#accentGlow)"/>
+</svg>

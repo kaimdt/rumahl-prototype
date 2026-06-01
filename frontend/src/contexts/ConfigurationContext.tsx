@@ -290,14 +290,25 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
           id: p.page.page_id,
           name: p.page.name,
           icon: p.page.icon,
-          widgets: p.widgets.map((w: any) => ({
-            id: w.id,
-            type: w.widget_type,
-            entity_id: w.entity_id ?? undefined,
-            position: { x: w.position_x, y: w.position_y },
-            size: { w: w.width, h: w.height },
-            config: w.config ? JSON.parse(w.config) : undefined,
-          })),
+          widgets: p.widgets.map((w: any) => {
+            let parsedConfig: any = undefined
+            if (w.config) {
+              try {
+                parsedConfig = JSON.parse(w.config)
+              } catch (parseErr) {
+                console.warn(`ConfigurationContext: invalid widget config JSON for widget ${w.id}`, parseErr)
+                parsedConfig = undefined
+              }
+            }
+            return {
+              id: w.id,
+              type: w.widget_type,
+              entity_id: w.entity_id ?? undefined,
+              position: { x: w.position_x, y: w.position_y },
+              size: { w: w.width, h: w.height },
+              config: parsedConfig,
+            }
+          }),
         })))
 
         setTheme(data.theme)
@@ -428,7 +439,13 @@ export function ConfigurationProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const prefs = await response.json()
         const pref = prefs.find((p: UserPreference) => p.preference_key === key)
-        return pref ? JSON.parse(pref.preference_value) : null
+        if (!pref) return null
+        try {
+          return JSON.parse(pref.preference_value)
+        } catch (parseErr) {
+          console.warn(`ConfigurationContext: invalid JSON in preference '${key}'`, parseErr)
+          return null
+        }
       }
     } catch (err) {
       console.error('Failed to get preference:', err)

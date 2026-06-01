@@ -14,24 +14,19 @@
 //! permission.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Message channel type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ChannelType {
     /// Public channel (any app with permission can subscribe)
+    #[default]
     Public,
     /// Protected channel (only the owning app and permitted apps)
     Protected,
     /// System channel (reserved for IORA core events)
     System,
-}
-
-impl Default for ChannelType {
-    fn default() -> Self {
-        ChannelType::Public
-    }
 }
 
 /// A message channel
@@ -65,8 +60,12 @@ pub struct MessageChannel {
     pub max_message_size_bytes: u64,
 }
 
-fn default_retention() -> u64 { 3600 }
-fn default_max_message_size() -> u64 { 1024 * 100 } // 100 KB
+fn default_retention() -> u64 {
+    3600
+}
+fn default_max_message_size() -> u64 {
+    1024 * 100
+} // 100 KB
 
 /// A message published to a channel
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,20 +94,20 @@ pub struct Message {
     pub ttl_seconds: u64,
 }
 
-fn default_ttl() -> u64 { 300 } // 5 minutes
+fn default_ttl() -> u64 {
+    300
+} // 5 minutes
 
 /// Message priority
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MessagePriority {
     Low,
+    #[default]
     Normal,
     High,
     Critical,
-}
-
-impl Default for MessagePriority {
-    fn default() -> Self { MessagePriority::Normal }
 }
 
 /// Subscription to a message channel

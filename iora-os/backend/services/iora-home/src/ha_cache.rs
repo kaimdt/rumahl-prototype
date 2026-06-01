@@ -128,14 +128,14 @@ impl HaDataCache {
 // ─── Background refresh workers ─────────────────────────────────────────
 
 /// TTLs for different data types
-const TTL_HA_CONFIG: Duration = Duration::from_secs(120);    // HA config rarely changes
-const TTL_HA_SERVICES: Duration = Duration::from_secs(300);  // Services list is very stable
+const TTL_HA_CONFIG: Duration = Duration::from_secs(120); // HA config rarely changes
+const TTL_HA_SERVICES: Duration = Duration::from_secs(300); // Services list is very stable
 const TTL_HA_SUPERVISOR: Duration = Duration::from_secs(120);
 const TTL_HA_ADDONS: Duration = Duration::from_secs(120);
 const TTL_HA_BACKUPS: Duration = Duration::from_secs(180);
 const TTL_HA_NETWORK: Duration = Duration::from_secs(120);
-const TTL_HA_LOGS: Duration = Duration::from_secs(30);       // Logs change frequently
-const TTL_DB_STATS: Duration = Duration::from_secs(60);      // DB stats every minute
+const TTL_HA_LOGS: Duration = Duration::from_secs(30); // Logs change frequently
+const TTL_DB_STATS: Duration = Duration::from_secs(60); // DB stats every minute
 
 /// Background task that proactively refreshes HA API data in cache.
 /// Runs multiple fetches in parallel using tokio::join! for speed.
@@ -165,7 +165,12 @@ pub async fn background_ha_cache_refresh(
         let (config_res, services_res, supervisor_res, addons_res, backups_res, network_res) = tokio::join!(
             fetch_ha_api(&http_client, &ha_url, &ha_token, "/api/config"),
             fetch_ha_api(&http_client, &ha_url, &ha_token, "/api/services"),
-            fetch_ha_api(&http_client, &ha_url, &ha_token, "/api/hassio/supervisor/info"),
+            fetch_ha_api(
+                &http_client,
+                &ha_url,
+                &ha_token,
+                "/api/hassio/supervisor/info"
+            ),
             fetch_ha_api(&http_client, &ha_url, &ha_token, "/api/hassio/addons"),
             fetch_ha_api(&http_client, &ha_url, &ha_token, "/api/hassio/backups"),
             fetch_ha_api(&http_client, &ha_url, &ha_token, "/api/hassio/network/info"),
@@ -179,16 +184,24 @@ pub async fn background_ha_cache_refresh(
             cache.set_api("/api/services", data, TTL_HA_SERVICES).await;
         }
         if let Some(data) = supervisor_res {
-            cache.set_api("/api/hassio/supervisor/info", data, TTL_HA_SUPERVISOR).await;
+            cache
+                .set_api("/api/hassio/supervisor/info", data, TTL_HA_SUPERVISOR)
+                .await;
         }
         if let Some(data) = addons_res {
-            cache.set_api("/api/hassio/addons", data, TTL_HA_ADDONS).await;
+            cache
+                .set_api("/api/hassio/addons", data, TTL_HA_ADDONS)
+                .await;
         }
         if let Some(data) = backups_res {
-            cache.set_api("/api/hassio/backups", data, TTL_HA_BACKUPS).await;
+            cache
+                .set_api("/api/hassio/backups", data, TTL_HA_BACKUPS)
+                .await;
         }
         if let Some(data) = network_res {
-            cache.set_api("/api/hassio/network/info", data, TTL_HA_NETWORK).await;
+            cache
+                .set_api("/api/hassio/network/info", data, TTL_HA_NETWORK)
+                .await;
         }
 
         // Fetch error log (plain text endpoint) and logbook separately
@@ -220,7 +233,11 @@ pub async fn background_ha_cache_refresh(
         });
 
         let (hits, misses) = cache.metrics();
-        tracing::debug!("HA cache refresh complete (hits={}, misses={})", hits, misses);
+        tracing::debug!(
+            "HA cache refresh complete (hits={}, misses={})",
+            hits,
+            misses
+        );
     }
 }
 

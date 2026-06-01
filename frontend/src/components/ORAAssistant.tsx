@@ -2,8 +2,8 @@ import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 import { useLocalStorage } from '@/lib/storage'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass } from '@phosphor-icons/react'
+import { motion, AnimatePresence } from 'motion/react'
+import { Microphone, X, PaperPlaneRight, Sparkle, Globe, ImageSquare, SpeakerHigh, SpeakerSlash, BellRinging, Chat, Check, Warning, MagnifyingGlass, Robot, Code, Wrench, Bug, Books, House, Cpu, Gear, ArrowSquareOut, Camera, Plugs, Spinner } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
@@ -45,11 +45,59 @@ interface PendingTaskAction {
 }
 
 type ORAState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
-type DialogTab = 'chat' | 'tasks'
+type DialogTab = 'chat' | 'tasks' | 'extensions'
 
 import { getAssistUrl, getBackendUrl } from '@/lib/config'
 
 const assistBase = () => getAssistUrl() || getBackendUrl() || ''
+
+// ─── Agent presets ──────────────────────────────────────────────────────────
+//
+// Each agent is a saved system-prompt persona. The selected agent's
+// `systemPrompt` is merged with the user's free-form `aiInstructions` and
+// sent as the `instructions` field of every /api/assist/chat call.
+type AgentId = 'general' | 'code' | 'devops' | 'debug' | 'research' | 'home'
+
+interface AgentPreset {
+  id: AgentId
+  icon: React.ComponentType<{ size?: number; weight?: 'regular' | 'fill' | 'duotone' | 'bold' }>
+  color: string
+  systemPrompt: string
+}
+
+const AGENT_PRESETS: AgentPreset[] = [
+  { id: 'general',  icon: Sparkle, color: 'from-purple-500/30 to-pink-500/30',  systemPrompt: 'You are ORA, the IORA smart-home assistant. Be concise, friendly and accurate.' },
+  { id: 'code',     icon: Code,    color: 'from-blue-500/30 to-cyan-500/30',    systemPrompt: 'You are a senior software engineer. Write, refactor and review code with precision. Prefer minimal diffs and clear explanations.' },
+  { id: 'devops',   icon: Wrench,  color: 'from-amber-500/30 to-orange-500/30', systemPrompt: 'You are a DevOps specialist. Help with Docker, CI/CD, Kubernetes, deployments, monitoring and reliability.' },
+  { id: 'debug',    icon: Bug,     color: 'from-red-500/30 to-rose-500/30',     systemPrompt: 'You are a debugging expert. Analyse stack traces, find root causes and suggest performance improvements.' },
+  { id: 'research', icon: Books,   color: 'from-emerald-500/30 to-teal-500/30', systemPrompt: 'You are a research assistant. Gather information, summarise findings and cite sources where possible.' },
+  { id: 'home',     icon: House,   color: 'from-violet-500/30 to-fuchsia-500/30', systemPrompt: 'You are a Smart-Home specialist for IORA. Help with devices, automations, scenes and Home-Assistant integration.' },
+]
+
+const AGENT_BY_ID = Object.fromEntries(AGENT_PRESETS.map(a => [a.id, a])) as Record<AgentId, AgentPreset>
+
+interface AssistHealth {
+  ai_available: boolean
+  ai_provider?: string
+  status?: string
+  service?: string
+  degraded_reasons?: string[]
+}
+
+interface ProviderModelInfo {
+  id: string
+  name?: string
+  provider?: string
+}
+
+interface ProvidersResponse {
+  current?: {
+    name?: string
+    id?: string
+    available?: boolean
+    models?: ProviderModelInfo[]
+  }
+}
 
 // ─── Instant Task type badge labels ──────────────────────────────────────────
 
@@ -59,6 +107,214 @@ const INSTANT_TASK_LABELS: Record<string, string> = {
   news:    i18n.t('ai.news'),
   music:   i18n.t('ai.music'),
   generic: i18n.t('ai.search'),
+}
+
+// ─── Extensions panel ───────────────────────────────────────────────────────
+//
+// Wraps the built-in iora-assist tools (Internet Search, Web Scrape,
+// Screenshot) into a small UI so the user can invoke them directly from the
+// chat dialog without going through the LLM.
+type ExtensionId = 'search' | 'scrape' | 'screenshot'
+
+interface ExtensionDef {
+  id: ExtensionId
+  icon: typeof MagnifyingGlass
+  endpoint: string
+  /** Input field placeholder i18n key */
+  placeholderKey: string
+}
+
+interface AppAssistIntegration {
+  id: string
+  name: string
+  version: string
+  developer?: string
+  description?: string
+  enabled: boolean
+  status?: string
+  assist?: {
+    enabled?: boolean
+    name?: string
+    description?: string
+    capabilities?: string[]
+    events?: string[]
+  }
+  permissions?: string[]
+  denied_permissions?: string[]
+}
+
+const BUILTIN_EXTENSIONS: ExtensionDef[] = [
+  { id: 'search',     icon: MagnifyingGlass, endpoint: '/api/assist/tools/search',     placeholderKey: 'ai.extQueryPlaceholder' },
+  { id: 'scrape',     icon: Globe,           endpoint: '/api/assist/tools/scrape',     placeholderKey: 'ai.extUrlPlaceholder' },
+  { id: 'screenshot', icon: Camera,          endpoint: '/api/assist/tools/screenshot', placeholderKey: 'ai.extUrlPlaceholder' },
+]
+
+function ExtensionsPanel() {
+  const { t } = useTranslation()
+  const [activeExt, setActiveExt] = useState<ExtensionId>('search')
+  const [extInput, setExtInput] = useState('')
+  const [extResult, setExtResult] = useState<string | null>(null)
+  const [extError, setExtError] = useState<string | null>(null)
+  const [running, setRunning] = useState(false)
+  const [appIntegrations, setAppIntegrations] = useState<AppAssistIntegration[]>([])
+  const [loadingApps, setLoadingApps] = useState(false)
+
+  const current = BUILTIN_EXTENSIONS.find(e => e.id === activeExt) ?? BUILTIN_EXTENSIONS[0]
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingApps(true)
+    fetch(`${getBackendUrl() || ''}/api/apps/assist/integrations`)
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+      .then((data: { integrations?: AppAssistIntegration[] }) => {
+        if (!cancelled) setAppIntegrations(data.integrations ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setAppIntegrations([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingApps(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const run = useCallback(async () => {
+    const value = extInput.trim()
+    if (!value) return
+    setRunning(true)
+    setExtError(null)
+    setExtResult(null)
+    try {
+      const body =
+        current.id === 'search'
+          ? { params: { query: value, limit: 5 } }
+          : { params: { url: value } }
+      const res = await fetch(`${assistBase()}${current.endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const text = await res.text()
+      let parsed: unknown = text
+      try { parsed = JSON.parse(text) } catch {}
+      if (!res.ok) {
+        setExtError(typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2))
+      } else {
+        setExtResult(typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2))
+      }
+    } catch (err) {
+      setExtError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRunning(false)
+    }
+  }, [extInput, current])
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex items-center gap-1.5">
+        <Plugs size={14} className="text-foreground/60" />
+        <p className="text-[11px] uppercase tracking-wide text-foreground/60">{t('ai.extensions')}</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold text-foreground/70">App-Integrationen</p>
+          {loadingApps && <Spinner size={12} className="animate-spin text-foreground/40" />}
+        </div>
+        {appIntegrations.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {appIntegrations.map(app => (
+              <div key={app.id} className="rounded-lg border border-foreground/10 bg-foreground/5 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <Robot size={16} className={app.enabled ? 'text-accent mt-0.5' : 'text-foreground/35 mt-0.5'} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-xs font-semibold text-foreground truncate">{app.assist?.name || app.name}</p>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${app.enabled ? 'bg-green-500/10 text-green-300' : 'bg-foreground/10 text-foreground/45'}`}>
+                        {app.enabled ? 'aktiv' : 'inaktiv'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-foreground/45 truncate">{app.developer || app.id} · {app.version}</p>
+                  </div>
+                </div>
+                {(app.assist?.description || app.description) && (
+                  <p className="text-[10px] text-foreground/60 leading-snug line-clamp-2">{app.assist?.description || app.description}</p>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {(app.assist?.capabilities || app.permissions || []).slice(0, 5).map(capability => (
+                    <span key={capability} className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                      {capability}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-foreground/40">Noch keine App hat Assist-Capabilities registriert.</p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {BUILTIN_EXTENSIONS.map(ext => {
+          const Icon = ext.icon
+          const active = ext.id === activeExt
+          return (
+            <button
+              key={ext.id}
+              onClick={() => { setActiveExt(ext.id); setExtResult(null); setExtError(null) }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all ${
+                active
+                  ? 'bg-accent/15 border-accent/40 text-foreground'
+                  : 'bg-foreground/5 border-foreground/10 text-foreground/70 hover:bg-foreground/10'
+              }`}
+            >
+              <Icon size={13} />
+              <span className="text-xs">{t(`ai.ext_${ext.id}`)}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <p className="text-foreground/60 leading-snug">{t(`ai.ext_${current.id}_desc`)}</p>
+
+      <div className="flex items-center gap-2">
+        <input
+          value={extInput}
+          onChange={e => setExtInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !running) run() }}
+          placeholder={t(current.placeholderKey)}
+          className="flex-1 px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-accent/40 text-xs"
+        />
+        <button
+          onClick={run}
+          disabled={running || !extInput.trim()}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent text-accent-foreground text-xs disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/90 transition-colors"
+        >
+          {running ? <Spinner size={13} className="animate-spin" /> : <PaperPlaneRight size={13} weight="bold" />}
+          <span>{t('ai.extRun')}</span>
+        </button>
+      </div>
+
+      {extError && (
+        <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/25 text-red-200">
+          <p className="font-semibold mb-1">{t('ai.extError')}</p>
+          <pre className="whitespace-pre-wrap break-words text-[11px] leading-snug">{extError}</pre>
+        </div>
+      )}
+
+      {extResult && (
+        <div className="px-3 py-2 rounded-lg bg-foreground/5 border border-foreground/10 max-h-[60vh] overflow-y-auto">
+          <p className="font-semibold mb-1 text-foreground/70">{t('ai.extResult')}</p>
+          <pre className="whitespace-pre-wrap break-words text-[11px] leading-snug text-foreground/85">{extResult}</pre>
+        </div>
+      )}
+
+      <div className="pt-1 text-[10px] text-foreground/40">
+        {t('ai.extHint')}
+      </div>
+    </div>
+  )
 }
 
 export function ORAAssistant() {
@@ -80,6 +336,15 @@ export function ORAAssistant() {
   const [voiceLastUsed, setVoiceLastUsed] = useState(false)
   // Label shown in the voice-task slow-path banner ("Suche läuft…")
   const [voiceTaskBanner, setVoiceTaskBanner] = useState<string | null>(null)
+  // Selected agent preset (persists across sessions)
+  const [agentId, setAgentId] = useLocalStorage<AgentId>('iora-ai-agent', 'general')
+  // Selected model id ('' = automatic = let backend decide)
+  const [modelId, setModelId] = useLocalStorage<string>('iora-ai-model', '')
+  // Health + provider snapshot, refreshed every time the dialog opens
+  const [assistHealth, setAssistHealth] = useState<AssistHealth | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+  const [availableModels, setAvailableModels] = useState<ProviderModelInfo[]>([])
+  const currentAgent = AGENT_BY_ID[agentId] ?? AGENT_BY_ID.general
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
@@ -229,7 +494,7 @@ export function ORAAssistant() {
           setMessages(prev =>
             prev.map(m =>
               m.timestamp === msgTimestamp
-                ? { ...m, instantTaskStatus: 'deferred', instantTaskResult: 'Die Antwort dauert etwas länger – du bekommst eine Benachrichtigung.' }
+                ? { ...m, instantTaskStatus: 'deferred', instantTaskResult: t('ai.deferredResult') }
                 : m
             )
           )
@@ -244,8 +509,8 @@ export function ORAAssistant() {
           if (viTask?.taskId === taskId && isTTSEnabledRef.current) {
             const inConversation = viTask.phase === 'slow-talking'
             const announcement = inConversation
-              ? 'Das dauert noch etwas länger. Ich melde mich gleich, wenn ich das Ergebnis habe.'
-              : 'Das dauert etwas länger. Ich melde mich sobald ich fertig bin.'
+              ? t('ai.deferredAnnounceSlow')
+              : t('ai.deferredAnnounce')
             try { recognitionRef.current?.abort() } catch { /* ok */ }
             synthRef.current?.cancel()
             speak(announcement)
@@ -390,6 +655,57 @@ export function ORAAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // ─── Probe iora-assist health + load models when the dialog opens ───────
+  //
+  // We refresh on every open (not just mount) so the banner reflects the
+  // current state when the user re-opens after configuring a provider.
+  const refreshAssistStatus = useCallback(async () => {
+    setHealthLoading(true)
+    try {
+      const [hRes, pRes] = await Promise.all([
+        fetch(`${assistBase()}/api/assist/health`).catch(() => null),
+        fetch(`${assistBase()}/api/assist/providers`).catch(() => null),
+      ])
+      if (hRes && hRes.ok) {
+        setAssistHealth(await hRes.json())
+      } else {
+        setAssistHealth({ ai_available: false, status: 'unreachable' })
+      }
+      if (pRes && pRes.ok) {
+        const data: ProvidersResponse = await pRes.json()
+        setAvailableModels(data.current?.models ?? [])
+      } else {
+        setAvailableModels([])
+      }
+    } catch {
+      setAssistHealth({ ai_available: false, status: 'unreachable' })
+      setAvailableModels([])
+    } finally {
+      setHealthLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isOpen) return
+    refreshAssistStatus()
+  }, [isOpen, refreshAssistStatus])
+
+  /** Open the Admin panel to configure the AI provider. */
+  const openAdminAssistTab = useCallback(() => {
+    setIsOpen(false)
+    try {
+      window.dispatchEvent(new CustomEvent('iora:open-admin', { detail: { tab: 'assist' } }))
+    } catch { /* noop */ }
+  }, [])
+
+  /** Merge the active agent's system prompt with the user's free-form instructions. */
+  const buildInstructions = useCallback((): string | undefined => {
+    const parts: string[] = []
+    if (currentAgent?.systemPrompt) parts.push(currentAgent.systemPrompt)
+    if (aiInstructions && aiInstructions.trim()) parts.push(aiInstructions.trim())
+    return parts.length > 0 ? parts.join('\n\n') : undefined
+  }, [currentAgent, aiInstructions])
+
   const sendMessage = async (text: string, opts?: { fromVoice?: boolean }) => {
     if (!text.trim()) return
 
@@ -413,11 +729,29 @@ export function ORAAssistant() {
       const response = await fetch(`${assistBase()}/api/assist/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, context: null, voice_mode: fromVoice, language: i18n.language, instructions: aiInstructions || undefined }),
+        body: JSON.stringify({
+          message: text,
+          context: null,
+          voice_mode: fromVoice,
+          language: i18n.language,
+          instructions: buildInstructions(),
+          agent_id: agentId,
+          model: modelId || undefined,
+        }),
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        // Try to surface the upstream proxy error (iora-home -> iora-assist)
+        // Example body: { error: "...", available: false, upstream: "..." }
+        let upstream: { error?: string; available?: boolean; upstream?: string } | null = null
+        try { upstream = await response.json() } catch { /* not JSON */ }
+        // 503 = AI provider not configured / unreachable -> show banner instead of generic message
+        if (response.status === 503 || upstream?.available === false) {
+          await refreshAssistStatus()
+          throw new Error(t('ai.sendFailedUnavailable'))
+        }
+        const upstreamMsg = upstream?.error || upstream?.upstream
+        throw new Error(upstreamMsg ? `${upstreamMsg}` : `HTTP ${response.status}`)
       }
 
       const data: AIChatResponse = await response.json()
@@ -483,7 +817,10 @@ export function ORAAssistant() {
             question: ta.question,
           })
         } else if (!ta.requires_confirmation && ta.task_id) {
-          setTaskCreatedToast(`Aufgabe ${ta.action === 'pause_until' ? 'pausiert' : ta.action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
+          const toastKey = ta.action === 'pause_until' ? 'ai.taskPaused'
+            : ta.action === 'delete' ? 'ai.taskDeleted'
+            : 'ai.taskUpdated'
+          setTaskCreatedToast(t(toastKey))
           setTimeout(() => setTaskCreatedToast(null), 4000)
         }
       } else if (!data.instant_task_id) {
@@ -497,7 +834,7 @@ export function ORAAssistant() {
           .then(r => r.ok ? r.json() : null)
           .then(d => {
             if (d?.success && d?.task_id) {
-              setTaskCreatedToast('Aufgabe wurde erstellt ✓')
+              setTaskCreatedToast(t('ai.taskCreatedConfirm'))
               setTimeout(() => setTaskCreatedToast(null), 4000)
             }
           })
@@ -505,7 +842,7 @@ export function ORAAssistant() {
       }
     } catch (e) {
       console.error('Failed to send message:', e)
-      setError(e instanceof Error ? e.message : 'Nachricht konnte nicht gesendet werden')
+      setError(e instanceof Error ? e.message : t('ai.sendFailed'))
       setState('error')
       setTimeout(() => {
         setState('idle')
@@ -529,7 +866,10 @@ export function ORAAssistant() {
         body: JSON.stringify({ confirmed, action, task_id, resume_at }),
       })
       if (res.ok && confirmed) {
-        setTaskCreatedToast(`Aufgabe ${action === 'pause_until' ? 'pausiert' : action === 'delete' ? 'gelöscht' : 'aktualisiert'} ✓`)
+        const toastKey = action === 'pause_until' ? 'ai.taskPaused'
+          : action === 'delete' ? 'ai.taskDeleted'
+          : 'ai.taskUpdated'
+        setTaskCreatedToast(t(toastKey))
         setTimeout(() => setTaskCreatedToast(null), 4000)
       }
     } catch (e) {
@@ -539,7 +879,7 @@ export function ORAAssistant() {
 
   const handleVoiceInput = () => {
     if (!recognitionRef.current || !isSpeechSupported) {
-      setError('Spracherkennung wird nicht unterstützt')
+      setError(t('ai.speechNotSupported'))
       setState('error')
       setTimeout(() => {
         setState('idle')
@@ -706,11 +1046,11 @@ export function ORAAssistant() {
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">ORA AI</h2>
                   <p className="text-xs text-foreground/50">
-                    {state === 'listening' && (voiceTaskBanner ? 'Höre zu… (sucht noch)' : 'Höre zu...')}
-                    {state === 'thinking' && (voiceTaskBanner ? `Sucht: ${voiceTaskBanner}…` : 'Denke nach...')}
-                    {state === 'speaking' && 'Antworte...'}
-                    {state === 'error' && 'Fehler'}
-                    {state === 'idle' && (voiceTaskBanner ? `Sucht: ${voiceTaskBanner}…` : 'Bereit')}
+                    {state === 'listening' && (voiceTaskBanner ? t('ai.statusListeningSearching') : t('ai.listening'))}
+                    {state === 'thinking' && (voiceTaskBanner ? t('ai.statusSearchingFor', { topic: voiceTaskBanner }) : t('ai.thinking'))}
+                    {state === 'speaking' && t('ai.statusResponding')}
+                    {state === 'error' && t('ai.statusError')}
+                    {state === 'idle' && (voiceTaskBanner ? t('ai.statusSearchingFor', { topic: voiceTaskBanner }) : t('ai.statusReady'))}
                   </p>
                 </div>
               </div>
@@ -724,10 +1064,10 @@ export function ORAAssistant() {
                         ? 'bg-accent text-accent-foreground'
                         : 'text-foreground/60 hover:text-foreground'
                     }`}
-                    title="Chat"
+                    title={t('ai.chat')}
                   >
                     <Chat size={12} />
-                    <span>Chat</span>
+                    <span>{t('ai.chat')}</span>
                   </button>
                   <button
                     onClick={() => setActiveTab('tasks')}
@@ -736,17 +1076,29 @@ export function ORAAssistant() {
                         ? 'bg-accent text-accent-foreground'
                         : 'text-foreground/60 hover:text-foreground'
                     }`}
-                    title="Aufgaben"
+                    title={t('ai.tasks')}
                   >
                     <BellRinging size={12} />
-                    <span>Aufgaben</span>
+                    <span>{t('ai.tasks')}</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('extensions')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-all ${
+                      activeTab === 'extensions'
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/60 hover:text-foreground'
+                    }`}
+                    title={t('ai.extensions')}
+                  >
+                    <Plugs size={12} />
+                    <span>{t('ai.extensions')}</span>
                   </button>
                 </div>
                 {/* TTS Toggle */}
                 <button
                   onClick={() => setIsTTSEnabled(!isTTSEnabled)}
                   className="w-8 h-8 rounded-full bg-foreground/10 hover:bg-foreground/20 transition-colors flex items-center justify-center text-foreground/70 hover:text-foreground"
-                  title={isTTSEnabled ? 'Sprachausgabe deaktivieren' : 'Sprachausgabe aktivieren'}
+                  title={isTTSEnabled ? t('ai.ttsDisable') : t('ai.ttsEnable')}
                 >
                   {isTTSEnabled ? <SpeakerHigh size={16} /> : <SpeakerSlash size={16} />}
                 </button>
@@ -754,6 +1106,8 @@ export function ORAAssistant() {
                 <button
                   onClick={() => setIsOpen(false)}
                   className="w-8 h-8 rounded-full bg-foreground/10 hover:bg-foreground/20 transition-colors flex items-center justify-center text-foreground/70 hover:text-foreground"
+                  title={t('ai.close')}
+                  aria-label={t('ai.close')}
                 >
                   <X size={18} weight="bold" />
                 </button>
@@ -820,7 +1174,7 @@ export function ORAAssistant() {
                     onClick={() => handleTaskConfirmation(false)}
                     className="flex items-center gap-1 px-3 py-1 rounded-lg bg-foreground/10 hover:bg-foreground/15 text-foreground/60 text-xs transition-colors"
                   >
-                    <X size={11} weight="bold" /> Nein
+                    <X size={11} weight="bold" /> {t('common.no')}
                   </button>
                 </div>
               </motion.div>
@@ -840,6 +1194,17 @@ export function ORAAssistant() {
               >
                 <ActiveTasksPanel isVisible={activeTab === 'tasks'} />
               </motion.div>
+            ) : activeTab === 'extensions' ? (
+              <motion.div
+                key="extensions"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 overflow-y-auto px-4 py-4"
+              >
+                <ExtensionsPanel />
+              </motion.div>
             ) : (
               <motion.div
                 key="chat"
@@ -850,7 +1215,51 @@ export function ORAAssistant() {
                 className="flex-1 flex flex-col overflow-hidden"
               >
 
-          {/* Messages container */}
+          {/* Availability banner */}
+          {!healthLoading && assistHealth && !assistHealth.ai_available && (
+            <div className="mx-4 mt-3 mb-1 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/25 text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <Warning size={14} weight="fill" className="text-red-400 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-red-200">{t('ai.unavailableTitle')}</p>
+                  <p className="text-red-200/80 leading-snug mt-0.5">{t('ai.unavailableHint')}</p>
+                </div>
+              </div>
+              <button
+                onClick={openAdminAssistTab}
+                className="ml-6 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-200 transition-colors"
+              >
+                <Gear size={11} weight="bold" />
+                <span>{t('ai.openAdmin')}</span>
+                <ArrowSquareOut size={10} weight="bold" />
+              </button>
+            </div>
+          )}
+
+          {/* Agent preset chip row */}
+          <div className="px-4 pt-3 pb-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-b border-foreground/5">
+            <Robot size={14} weight="duotone" className="text-foreground/40 shrink-0" />
+            {AGENT_PRESETS.map(a => {
+              const Icon = a.icon
+              const active = a.id === agentId
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => setAgentId(a.id)}
+                  title={t(`ai.agentDescriptions.${a.id}`)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] whitespace-nowrap transition-all shrink-0 ${
+                    active
+                      ? `bg-gradient-to-br ${a.color} text-foreground border border-foreground/20`
+                      : 'bg-foreground/5 hover:bg-foreground/10 text-foreground/60 border border-transparent'
+                  }`}
+                >
+                  <Icon size={11} weight={active ? 'fill' : 'regular'} />
+                  <span>{t(`ai.agents.${a.id}`)}</span>
+                </button>
+              )
+            })}
+          </div>
+
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
             <AnimatePresence mode="popLayout">
               {messages.map((msg, i) => (
@@ -878,7 +1287,7 @@ export function ORAAssistant() {
                           <div className="flex items-center gap-1.5 text-xs text-foreground/50">
                             <MagnifyingGlass size={12} className="animate-pulse" />
                             <span>
-                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? t('ai.search')} läuft…
+                              {t('ai.taskRunningSuffix', { label: INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? t('ai.search') })}
                             </span>
                           </div>
                         )}
@@ -890,7 +1299,7 @@ export function ORAAssistant() {
                           >
                             <div className="flex items-center gap-1 text-[10px] text-accent mb-1">
                               <Check size={10} weight="bold" />
-                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? 'Ergebnis'}
+                              {INSTANT_TASK_LABELS[msg.instantTaskType ?? 'search'] ?? t('ai.resultLabel')}
                             </div>
                             <MessageContent content={msg.instantTaskResult} role="assistant" />
                           </motion.div>
@@ -898,7 +1307,7 @@ export function ORAAssistant() {
                         {msg.instantTaskStatus === 'failed' && (
                           <p className="text-xs text-red-400/80 flex items-center gap-1">
                             <Warning size={11} weight="fill" />
-                            {msg.instantTaskResult ?? 'Suche fehlgeschlagen.'}
+                            {msg.instantTaskResult ?? t('ai.instantFailed')}
                           </p>
                         )}
                         {msg.instantTaskStatus === 'deferred' && (
@@ -908,7 +1317,7 @@ export function ORAAssistant() {
                             className="text-xs text-purple-400/80 flex items-center gap-1"
                           >
                             <BellRinging size={11} weight="fill" />
-                            Dauert etwas länger – du bekommst eine Meldung, sobald die Antwort da ist.
+                            {t('ai.deferredHint')}
                           </motion.p>
                         )}
                       </div>
@@ -977,7 +1386,7 @@ export function ORAAssistant() {
                     sendMessage(input)
                   }
                 }}
-                placeholder="Nachricht an ORA..."
+                placeholder={t('ai.messageToOra')}
                 disabled={state === 'thinking' || state === 'speaking'}
                 className="flex-1 px-4 py-2.5 rounded-2xl bg-foreground/5 border border-foreground/10 text-foreground placeholder-foreground/40 text-sm focus:outline-none focus:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               />
@@ -1009,11 +1418,36 @@ export function ORAAssistant() {
                 variant="ghost"
                 size="sm"
                 disabled
+                title={t('ai.attachmentDisabled')}
                 className="h-8 text-xs opacity-50"
               >
                 <ImageSquare size={14} className="mr-1.5" />
                 <span>Screenshot</span>
               </Button>
+
+              {/* Model selector */}
+              {availableModels.length > 0 && (
+                <div className="ml-auto flex items-center gap-1 text-[10px] text-foreground/50">
+                  <Cpu size={11} weight="duotone" />
+                  <select
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    className="bg-foreground/5 border border-foreground/10 rounded-md px-1.5 py-0.5 text-[10px] text-foreground/80 focus:outline-none focus:border-accent max-w-[140px]"
+                    title={t('ai.model')}
+                  >
+                    <option value="">{t('ai.modelDefault')}</option>
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.name ?? m.id}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {availableModels.length === 0 && assistHealth?.ai_available && (
+                <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-400/80">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {t('ai.providerOnline')}
+                </span>
+              )}
             </div>
           </div>
           {/* End of chat tab inner flex */}

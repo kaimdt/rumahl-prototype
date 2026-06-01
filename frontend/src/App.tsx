@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react'
 import '@/i18n'
 import { useTranslation } from 'react-i18next'
 import { getBackendUrl } from '@/lib/config'
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
+import { ThemeIframeProvider } from '@/components/ThemeIframeProvider'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { setAutoContrastUser } from '@/lib/autoContrast'
 import { PageNavigationProvider, usePageNavigation } from '@/contexts/PageNavigationContext'
 import { ConnectionProvider, useConnection } from '@/contexts/ConnectionContext'
 import { ConfigurationProvider } from '@/contexts/ConfigurationContext'
@@ -17,28 +19,30 @@ import { SwitchWidget } from '@/components/widgets/SwitchWidget'
 import { SensorWidget } from '@/components/widgets/SensorWidget'
 import { MediaPlayerWidget } from '@/components/widgets/MediaPlayerWidget'
 import { NavigationMenu } from '@/components/NavigationMenu'
-import { SplashScreen } from '@/components/SplashScreen'
+import { ThemeSplashScreen } from '@/components/ThemeSplashScreen'
 import { LoginModal } from '@/components/LoginModal'
 import { ConnectionStatus, BackendUnavailableOverlay } from '@/components/ConnectionStatus'
 import { EntityDiscoveryNotification } from '@/components/EntityDiscoveryNotification'
-import { PageDesigner } from '@/components/PageDesigner'
+// Heavy admin/editor routes: lazy-loaded to keep the initial bundle small.
+// They are only rendered when the user navigates to the corresponding page.
+const PageDesigner = lazy(() => import('@/components/PageDesigner').then(m => ({ default: m.PageDesigner })))
 import { CustomPageRenderer } from '@/components/CustomPageRenderer'
 import { SettingsPage } from '@/components/SettingsPage'
 import { SimpleDashboard } from '@/components/SimpleDashboard'
 // Share page for the Apps & Features app menu
-import { SharePage } from './components/SharePage'
+const SharePage = lazy(() => import('./components/SharePage').then(m => ({ default: m.SharePage })))
 import { DynamicBackground } from '@/components/DynamicBackground'
 import { Screensaver, useScreensaverSettings } from '@/components/Screensaver'
-import { AdminPanel } from '@/components/AdminPanel'
-import { AgentTab } from '@/components/AgentTab'
-import { DocsPage } from '@/components/DocsPageNew'
-import { StreamSender } from '@/components/StreamSender'
-import { AppSettingsPage } from '@/components/AppSettingsPage'
+const AdminPanel = lazy(() => import('@/components/AdminPanel').then(m => ({ default: m.AdminPanel })))
+const AgentTab = lazy(() => import('@/components/AgentTab').then(m => ({ default: m.AgentTab })))
+const DocsPage = lazy(() => import('@/components/DocsPageNew').then(m => ({ default: m.DocsPage })))
+const StreamSender = lazy(() => import('@/components/StreamSender').then(m => ({ default: m.StreamSender })))
+const AppSettingsPage = lazy(() => import('@/components/AppSettingsPage').then(m => ({ default: m.AppSettingsPage })))
 import { GlobalConfigProvider } from '@/hooks/useGlobalConfig'
 import { NotificationProvider } from '@/contexts/NotificationContext'
 import { EmergencyNavbarBar, EmergencyOverlay, WarningBar, useWarningLevel } from '@/components/NotificationCenter'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ThemeLayout } from '@/components/ThemeLayout'
+import { PageTransitionWrapper } from '@/components/PageTransitionWrapper'
 import { CurrentBackgroundProvider } from '@/contexts/CurrentBackgroundContext'
 import { useAccentColor } from '@/hooks/useAccentColor'
 import { useNightModeSettings } from '@/hooks/useNightModeSettings'
@@ -46,13 +50,15 @@ import { useGlassSettings } from '@/hooks/useGlassSettings'
 import { useLocalStorage } from '@/lib/storage'
 import type { WeatherEntity, LightEntity, ClimateEntity, SwitchEntity, SensorEntity, MediaPlayerEntity } from '@/lib/types'
 import { Sparkle, ShieldCheck, Wrench } from '@phosphor-icons/react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Toaster } from '@/components/ui/sonner'
 import { DEFAULT_DASHBOARD_BACKGROUND_URL, getCardStyleClass } from '@/lib/defaults'
 import { wsOnMessage } from '@/lib/wsConnection'
 import { toast } from 'sonner'
+import { installGlobalErrorHandlers } from '@/lib/errorReporter'
+import { startSystemEventListener } from '@/lib/systemEventListener'
 import { ORAAssistant } from '@/components/ORAAssistant'
-import { CodingAgent } from '@/components/CodingAgent'
+const CodingAgent = lazy(() => import('@/components/CodingAgent').then(m => ({ default: m.CodingAgent })))
 
 // Isolated clock component – only re-renders per minute in the header
 function HeaderClock() {
@@ -109,6 +115,10 @@ function DashboardContent() {
   const { background, savePreference, getPreference } = useConfiguration()
   const { theme } = useTheme()
   const { user, isAuthenticated, isLoading: authLoading, logout, updateProfile, token } = useAuth()
+  // Bind per-user auto-contrast preferences when the active user changes.
+  useEffect(() => {
+    setAutoContrastUser(user?.id || null)
+  }, [user?.id])
   const { currentPageId, currentPage, modalPageId, closeModalPage, pages, setCurrentPageId } = usePageNavigation()
   const { checkForNewEntities } = useEntityDiscovery()
   const { evaluateTriggers, currentVariant } = useDynamicOverview()
@@ -148,6 +158,20 @@ function DashboardContent() {
       document.documentElement.removeAttribute('data-page')
     }
   }, [currentPageId, currentPage?.pageSource?.kind])
+
+  // Allow other components (e.g. ORAAssistant availability banner) to request
+  // navigation to the Admin panel by dispatching a CustomEvent.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tab?: string } | undefined
+      setCurrentPageId('admin')
+      if (detail?.tab) {
+        try { sessionStorage.setItem('iora-admin-deep-link', detail.tab) } catch { /* ignore */ }
+      }
+    }
+    window.addEventListener('iora:open-admin', handler)
+    return () => window.removeEventListener('iora:open-admin', handler)
+  }, [setCurrentPageId])
   const userName = useMemo(() => user?.displayName || user?.username || 'Benutzer', [user])
 
   // Skip splash screen when opening in a new tab or navigating directly to a page
@@ -401,7 +425,7 @@ function DashboardContent() {
   }, [homePage, currentVariant.config])
 
   if (showSplash) {
-    return <SplashScreen onComplete={() => setShowSplash(false)} />
+    return <ThemeSplashScreen onComplete={() => setShowSplash(false)} />
   }
 
   // Gate: show ONLY login screen when not authenticated
@@ -535,15 +559,26 @@ function DashboardContent() {
             transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
           }}
         />
-        {(theme === 'night' || theme === 'sleep') && nightModeSettings.nightFilterEnabled && (
+        {nightModeSettings.isActive && (theme === 'night' || theme === 'sleep' || nightModeSettings.applyAlways) && (
           <div
             className="fixed inset-0 z-10 pointer-events-none"
             style={{
-              background: theme === 'sleep' ? 'rgba(0, 0, 0, 1)' : 'rgba(35, 22, 12, 1)',
+              background: theme === 'sleep'
+                ? 'rgba(0, 0, 0, 1)'
+                : 'var(--night-overlay-color, rgba(35, 22, 12, 1))',
               opacity: theme === 'sleep'
                 ? 0.88 * (nightModeSettings.overlayStrength / 100)
-                : 0.45 * (nightModeSettings.overlayStrength / 100),
-              transition: 'opacity var(--transition-duration) ease',
+                : (() => {
+                    // Mirror the formula in useNightModeSettings.applyNightModeCss for SSR-safe value.
+                    const tempBelow = Math.max(0, 6500 - nightModeSettings.colorTemperature)
+                    const warmthFromTemp = Math.min(1, tempBelow / 5000)
+                    const warmthFromBlue = nightModeSettings.blueLightReduction / 100
+                    const warmth = Math.max(warmthFromTemp, warmthFromBlue * 0.8)
+                    // Scale overlay opacity with overlay strength and warmth so a low temperature
+                    // doesn't produce a strong tint when the user has overlay slider at 0.
+                    return (nightModeSettings.overlayStrength / 100) * 0.55 * (0.4 + warmth * 0.6)
+                  })(),
+              transition: 'opacity var(--transition-duration) ease, background var(--transition-duration) ease',
             }}
           />
         )}
@@ -583,10 +618,11 @@ function DashboardContent() {
           </header>
 
           <main className="max-w-[1500px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 lg:pt-8 pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}>
+          <PageTransitionWrapper pageKey={currentPageId}>
           {(() => {
             // App Settings standalone page (opened in new tab from AppStoreTab)
             if (window.location.pathname.startsWith('/app-settings/')) {
-              return <AppSettingsPage />
+              return <Suspense fallback={null}><AppSettingsPage /></Suspense>
             }
 
             const isHAOfflineForLong = haConnectionStatus === 'error' && lastHACheck && (new Date().getTime() - lastHACheck.getTime() > 10 * 60 * 1000)
@@ -620,7 +656,7 @@ function DashboardContent() {
             // ── Non-HA pages: render immediately, never blocked by loading ──
             if (isNonHAPage) {
               return (
-                <>
+                <Suspense fallback={null}>
                   {currentPageId === 'settings' && (
                     <SettingsPage
                       user={user}
@@ -662,7 +698,7 @@ function DashboardContent() {
                       <AgentTab token={token || ''} />
                     </div>
                   )}
-                </>
+                </Suspense>
               )
             }
 
@@ -708,7 +744,7 @@ function DashboardContent() {
 
               {currentPageId === 'lights' && !showSimpleDashboard && lightEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Beleuchtung</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.lights')}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {lightEntities.map((light, i) => (
                       <div key={light.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -725,7 +761,7 @@ function DashboardContent() {
 
               {currentPageId === 'climate' && !showSimpleDashboard && climateEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Klima</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.climate')}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
                     {climateEntities.map((climate, i) => (
                       <div key={climate.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -741,7 +777,7 @@ function DashboardContent() {
 
               {currentPageId === 'switches' && !showSimpleDashboard && switchEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Schalter</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.switches')}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {switchEntities.map((switchEntity, i) => (
                       <div key={switchEntity.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -757,7 +793,7 @@ function DashboardContent() {
 
               {currentPageId === 'sensors' && !showSimpleDashboard && sensorEntities.length > 0 && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Sensoren</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.sensors')}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {sensorEntities.map((sensor, i) => (
                       <div key={sensor.entity_id} className="widget-animate-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}>
@@ -773,7 +809,7 @@ function DashboardContent() {
 
               {currentPageId === 'music' && !showSimpleDashboard && (
                 <div className="space-y-3 page-transition-enter">
-                  <h3 className="text-xl font-medium text-foreground px-1">Musiksteuerung</h3>
+                  <h3 className="text-xl font-medium text-foreground px-1">{t('navigation.music')}</h3>
                   {mediaPlayerEntities.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 sm:gap-4">
                       {mediaPlayerEntities.map((player, i) => (
@@ -787,7 +823,7 @@ function DashboardContent() {
                     </div>
                   ) : (
                     <div className="p-4 sm:p-6 rounded-2xl glass-card text-center text-foreground/50 border border-foreground/10">
-                      Keine Medienplayer gefunden
+                      {t('dashboard.noMediaPlayers')}
                     </div>
                   )}
                 </div>
@@ -807,6 +843,7 @@ function DashboardContent() {
               </div>
             )
           })()}
+        </PageTransitionWrapper>
         </main>
         </div>
       </div>
@@ -844,14 +881,18 @@ function DashboardContent() {
           </div>
         </DialogContent>
       </Dialog>
-      <PageDesigner
-        isOpen={showPageDesigner}
-        onClose={() => setShowPageDesigner(false)}
-        availableEntities={entities}
-        userName={userName}
-        weatherEntity={weatherEntity}
-        lightEntities={lightEntities}
-      />
+      {showPageDesigner && (
+        <Suspense fallback={null}>
+          <PageDesigner
+            isOpen={showPageDesigner}
+            onClose={() => setShowPageDesigner(false)}
+            availableEntities={entities}
+            userName={userName}
+            weatherEntity={weatherEntity}
+            lightEntities={lightEntities}
+          />
+        </Suspense>
+      )}
       {/* Modal Page Overlay */}
       <AnimatePresence>
         {modalPageId && (() => {
@@ -919,7 +960,7 @@ function DashboardContent() {
       </AnimatePresence>
       <NavigationMenu hidden={showPageDesigner} />
       <ORAAssistant />
-      {aiEnabled && <CodingAgent />}
+      {aiEnabled && <Suspense fallback={null}><CodingAgent /></Suspense>}
     </>
   )
 }
@@ -1065,12 +1106,19 @@ function SetupWizardOverlay({ children }: { children: React.ReactNode }) {
   )
 }
 
+// Install global error handlers and start the backend system-event listener
+// once, at module load. They are idempotent and safe to call before React
+// mounts.
+installGlobalErrorHandlers()
+startSystemEventListener()
+
 function App() {
   return (
     <GlobalConfigProvider>
     <ConnectionProvider>
       <AuthProvider>
         <ThemeProvider>
+          <ThemeIframeProvider />
           <PageNavigationProvider>
             <ConfigurationProvider>
               <CurrentBackgroundProvider>

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="oceanGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d2847"/>
+      <stop offset="100%" stop-color="#061220"/>
+    </linearGradient>
+    <linearGradient id="waveTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="waveMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#0e7490"/>
+    </linearGradient>
+    <linearGradient id="waveBottom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#0f2744"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <filter id="waveGlow">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#3b82f6" flood-opacity="0.3"/>
+    </filter>
+    <filter id="bubbleGlow">
+      <feDropShadow dx="0" dy="0" stdDeviation="1" flood-color="#06b6d4" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="url(#oceanGrad)" stroke="url(#accentGrad)" stroke-width="1.5"/>
+  <circle cx="32" cy="32" r="28" fill="none" stroke="#1e3a5f" stroke-width="0.5" opacity="0.5"/>
+  <!-- Stylized wave icon -->
+  <g transform="translate(32,28)" filter="url(#waveGlow)">
+    <!-- Wave crest -->
+    <path d="M-18,8 Q-12,0 -6,8 Q0,16 6,8 Q12,0 18,8" fill="none" stroke="url(#waveTop)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M-18,14 Q-12,7 -6,14 Q0,21 6,14 Q12,7 18,14" fill="none" stroke="url(#waveMid)" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M-15,20 Q-10,14 -5,20 Q0,26 5,20 Q10,14 15,20" fill="none" stroke="url(#waveBottom)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  </g>
+  <!-- Bubbles -->
+  <g filter="url(#bubbleGlow)">
+    <circle cx="14" cy="18" r="3" fill="none" stroke="#3b82f6" stroke-width="1" opacity="0.7"/>
+    <circle cx="14" cy="18" r="1.5" fill="#3b82f6" opacity="0.3"/>
+    <circle cx="50" cy="14" r="2.5" fill="none" stroke="#06b6d4" stroke-width="1" opacity="0.7"/>
+    <circle cx="50" cy="14" r="1.2" fill="#06b6d4" opacity="0.3"/>
+    <circle cx="48" cy="45" r="2" fill="none" stroke="#3b82f6" stroke-width="0.8" opacity="0.5"/>
+    <circle cx="48" cy="45" r="1" fill="#3b82f6" opacity="0.2"/>
+    <circle cx="20" cy="40" r="1.8" fill="none" stroke="#06b6d4" stroke-width="0.6" opacity="0.4"/>
+    <circle cx="20" cy="40" r="0.8" fill="#06b6d4" opacity="0.15"/>
+  </g>
+  <!-- Subtle radial glow from center -->
+  <circle cx="32" cy="32" r="20" fill="#3b82f6" opacity="0.05"/>
+  <!-- Border ring dots -->
+  <g opacity="0.3" fill="#3b82f6">
+    <circle cx="32" cy="4" r="1.5"/>
+    <circle cx="32" cy="60" r="1.5"/>
+    <circle cx="4" cy="32" r="1.5"/>
+    <circle cx="60" cy="32" r="1.5"/>
+    <circle cx="12.2" cy="12.2" r="1"/>
+    <circle cx="51.8" cy="12.2" r="1"/>
+    <circle cx="12.2" cy="51.8" r="1"/>
+    <circle cx="51.8" cy="51.8" r="1"/>
+  </g>
+</svg>

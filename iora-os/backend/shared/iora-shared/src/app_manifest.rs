@@ -5,9 +5,14 @@
 //! and custom page creation.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
-use crate::{app_storage::StorageConfig, app_database::AppDatabaseConfig, app_scheduler::ScheduleConfig, app_messaging::MessagingConfig, app_webhooks::WebhookConfig};
+use crate::{
+    app_capabilities::{AssistToolDefinition, LifecycleHooks, ServiceExport},
+    app_database::AppDatabaseConfig, app_messaging::MessagingConfig, app_scheduler::ScheduleConfig,
+    app_storage::StorageConfig, app_webhooks::WebhookConfig,
+};
 
 /// Complete app/plugin manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +122,28 @@ pub struct AppManifest {
     /// The theme will be available for users to select in the Settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<crate::theme::ThemeDefinition>,
+
+    /// --- New in v2.4: Extended App/Plugin capabilities ---
+
+    /// AI tools (functions) the app/plugin exposes to IORA Assist and pi.dev
+    /// coding agents. Requires the `AssistToolProvide` permission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assist_tools: Option<Vec<AssistToolDefinition>>,
+
+    /// Lifecycle / system event hooks the app subscribes to. Requires the
+    /// `LifecycleHookRegister` permission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_hooks: Option<LifecycleHooks>,
+
+    /// RPC-style services the app exposes for discovery and invocation by other
+    /// apps. Requires the `ServiceExport` permission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposed_services: Option<Vec<ServiceExport>>,
+
+    /// Forward-compatible extension metadata for capabilities that are not yet
+    /// represented by a dedicated typed manifest field.
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

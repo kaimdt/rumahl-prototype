@@ -1,6 +1,6 @@
 // App Health Monitor – Auto-detects iframe app issues and provides recovery
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { Warning, ArrowClockwise, X, Wrench } from '@phosphor-icons/react'
 
 interface Props {

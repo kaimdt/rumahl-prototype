@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <filter id="waterRipple">
+      <feTurbulence type="turbulence" baseFrequency="0.03 0.06" numOctaves="3" seed="2" result="turb"/>
+      <feColorMatrix type="saturate" values="0" in="turb" result="gray"/>
+      <feComponentTransfer in="gray" result="faded">
+        <feFuncA type="linear" slope="0.08"/>
+      </feComponentTransfer>
+    </filter>
+    <radialGradient id="bubbleGrad" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="30%" stop-color="#3b82f6" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="overlayGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.04"/>
+      <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0a1628" stop-opacity="0.03"/>
+    </linearGradient>
+  </defs>
+  <!-- Base -->
+  <rect width="100" height="100" fill="#0a1628"/>
+  <!-- Water ripple texture -->
+  <rect width="100" height="100" filter="url(#waterRipple)"/>
+  <!-- Bubble pattern -->
+  <circle cx="15" cy="20" r="12" fill="url(#bubbleGrad)"/>
+  <circle cx="55" cy="15" r="9" fill="url(#bubbleGrad)"/>
+  <circle cx="85" cy="25" r="7" fill="url(#bubbleGrad)"/>
+  <circle cx="30" cy="55" r="10" fill="url(#bubbleGrad)"/>
+  <circle cx="70" cy="50" r="8" fill="url(#bubbleGrad)"/>
+  <circle cx="10" cy="80" r="6" fill="url(#bubbleGrad)"/>
+  <circle cx="45" cy="78" r="11" fill="url(#bubbleGrad)"/>
+  <circle cx="80" cy="75" r="6" fill="url(#bubbleGrad)"/>
+  <circle cx="25" cy="40" r="5" fill="url(#bubbleGrad)"/>
+  <circle cx="65" cy="30" r="5" fill="url(#bubbleGrad)"/>
+  <!-- Subtle wave lines -->
+  <line x1="0" y1="35" x2="100" y2="37" stroke="#1e3a5f" stroke-width="0.3" opacity="0.15"/>
+  <line x1="0" y1="65" x2="100" y2="63" stroke="#0d2847" stroke-width="0.3" opacity="0.12"/>
+  <line x1="0" y1="85" x2="100" y2="84" stroke="#061220" stroke-width="0.3" opacity="0.1"/>
+  <!-- Overlay -->
+  <rect width="100" height="100" fill="url(#overlayGrad)"/>
+</svg>

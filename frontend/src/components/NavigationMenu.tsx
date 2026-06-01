@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { usePageNavigation, iconMap } from '@/contexts/PageNavigationContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -257,7 +257,7 @@ export function NavigationMenu({ hidden }: { hidden?: boolean }) {
 
             {/* ── Navigation controls: always at the bottom ── */}
             <div className="px-1.5 sm:px-2.5 py-1.5 sm:py-2">
-              <div className="flex items-center gap-0.5 sm:gap-1">
+              <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {displayPages.map((page) => {
               const Icon = iconMap[page.icon as keyof typeof iconMap]
               const isActive = currentPageId === page.id

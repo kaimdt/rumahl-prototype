@@ -1,0 +1,604 @@
+{
+  "id": "cyberpunk-neon",
+  "name": "Cyberpunk Neon",
+  "version": "1.0.0",
+  "developer": "IORA Community",
+  "description": "Hochkontrast-Cyberpunk-Ästhetik – Neon-Pink, Cyan, Circuit-Traces, Scanlines, Glitch-Effekte. Features: 3 Design-Modes (Pink/Cyan/Day), 8 Akzent-Presets, CRT-Scanlines, Hex-Grid, Glitch-Animationen, Terminal-Modus.",
+  "icon": "HardDrive",
+  "preview_image": "images/preview.svg",
+  "type": "plugin",
+  "plugin_type": "theme",
+  "permissions": [
+    "ThemeInstall"
+  ],
+  "theme": {
+    "id": "cyberpunk-neon",
+    "name": "Cyberpunk Neon",
+    "version": "1.0.0",
+    "developer": "IORA Community",
+    "description": "Cyberpunk Neon – pink & cyan auf schwarz, leuchtende Neon-Akzente, Monospace-Schrift und digitale Ästhetik",
+    "icon": "HardDrive",
+    "preview_image": "images/preview.svg",
+    "parent_theme": "night",
+    "source": "inline",
+    "order": 80,
+    "css_files": [],
+    "js_files": [
+      "js/theme.js"
+    ],
+    "fonts": [
+      {
+        "name": "Share Tech Mono",
+        "family": "'Share Tech Mono', 'JetBrains Mono', monospace",
+        "url": "fonts/share-tech-mono.css",
+        "weights": "400",
+        "subsets": "latin",
+        "is_primary": true,
+        "is_heading": false,
+        "is_monospace": true,
+        "format": "woff2"
+      },
+      {
+        "name": "Orbitron",
+        "family": "'Orbitron', 'Inter', sans-serif",
+        "url": "fonts/orbitron.css",
+        "weights": "400;500;600;700;800;900",
+        "subsets": "latin",
+        "is_primary": false,
+        "is_heading": true,
+        "is_monospace": false,
+        "format": "woff2"
+      }
+    ],
+    "css_variables": {
+      "background": "oklch(0.05 0.005 290)",
+      "foreground": "oklch(0.90 0.02 290)",
+      "card": "oklch(0.08 0.008 290)",
+      "card-foreground": "oklch(0.92 0.02 290)",
+      "accent": "oklch(0.65 0.28 0)",
+      "accent-foreground": "oklch(0.05 0.005 290)",
+      "muted": "oklch(0.10 0.008 290)",
+      "muted-foreground": "oklch(0.50 0.02 290)",
+      "border": "oklch(0.22 0.025 0)",
+      "ring": "oklch(0.70 0.28 0)",
+      "radius": "2px",
+      "glass-bg": "oklch(0.08 0.008 290 / 0.75)",
+      "glass-bg-end": "oklch(0.05 0.005 290 / 0.65)",
+      "glass-border-color": "oklch(0.40 0.15 0 / 0.20)",
+      "glass-shadow-1": "oklch(0 0 0 / 0.40)",
+      "glass-shadow-2": "oklch(0 0 0 / 0.25)",
+      "success": "oklch(0.60 0.25 190)",
+      "destructive": "oklch(0.55 0.28 0)",
+      "transition-duration": "0.25s",
+      "layout-card-radius": "2px",
+      "shadow-sm": "0 1px 2px rgba(255,255,255,0.03)",
+      "shadow-md": "0 4px 6px rgba(255,255,255,0.05)",
+      "shadow-lg": "0 10px 25px rgba(255,255,255,0.08)",
+      "shadow-xl": "0 20px 50px rgba(255,255,255,0.08)",
+      "selection-bg": "var(--accent)",
+      "selection-fg": "var(--accent-foreground)",
+      "scrollbar-width": "6px",
+      "scrollbar-track": "transparent",
+      "scrollbar-thumb": "var(--border)",
+      "scrollbar-thumb-hover": "var(--muted-foreground)",
+      "focus-ring-width": "2px",
+      "focus-ring-offset": "2px",
+      "content-max-width": "1500px",
+      "header-height": "56px",
+      "nav-icon-size": "20px",
+      "badge-radius": "9999px",
+      "tooltip-bg": "var(--card)",
+      "tooltip-fg": "var(--card-foreground)",
+      "input-bg": "var(--muted)",
+      "input-border": "var(--border)",
+      "overlay-bg": "rgba(0,0,0,0.5)",
+      "skeleton-shimmer": "rgba(255,255,255,0.05)"
+    },
+    "additional_css": "/* ─── Cyberpunk Neon ─── */\n.glass-card { border-width: 1px !important; text-transform: uppercase; letter-spacing: 0.05em; }\n.glass-card:hover { border-color: oklch(from var(--accent) l c h / 0.50) !important; box-shadow: 0 0 20px oklch(from var(--accent) l c h / 0.20), 0 0 40px oklch(from var(--accent) l c h / 0.08); }\n.glass-header { border-bottom: 1px solid oklch(0.25 0.15 0 / 0.3) !important; background: oklch(0.06 0.005 290 / 0.85) !important; backdrop-filter: blur(24px); }\n[data-nav=\"root\"] { border-top: 1px solid oklch(0.25 0.15 0 / 0.3) !important; }\n[data-nav=\"root\"] button[data-active=\"true\"] { color: var(--accent) !important; text-shadow: 0 0 12px oklch(from var(--accent) l c h / 0.4); }\nbutton, a { transition: all 0.15s ease; }\nbutton:hover, a:hover { filter: brightness(1.3); }\n/* ─── Individuelle Scrollbars – Cyberpunk-Glitch ─── */\n::-webkit-scrollbar { width: 8px; height: 8px; }\n::-webkit-scrollbar-track { background: var(--muted, oklch(0.10 0.008 290)); border: 1px solid oklch(0.18 0.02 290 / 0.5); }\n::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, oklch(0.55 0.22 0)); border-radius: var(--radius, 2px); box-shadow: 0 0 8px oklch(0.65 0.28 0 / 0.4); transition: background 0.15s ease; }\n::-webkit-scrollbar-thumb:hover { background: var(--accent, oklch(0.65 0.28 0)); box-shadow: 0 0 14px oklch(0.65 0.28 0 / 0.6); }\n::-webkit-scrollbar-corner { background: var(--muted, oklch(0.10 0.008 290)); }\n/* ─── Textauswahl – Neon-Highlight ─── */\n::selection { background: var(--selection-bg, oklch(0.65 0.28 0 / 0.35)); color: var(--foreground, oklch(0.90 0.02 290)); text-shadow: 0 0 6px oklch(0.65 0.28 0 / 0.5); }\n/* ─── Fokus-Ringe – Neon-Glow statt Outline ─── */\n:focus-visible { outline: none !important; box-shadow: 0 0 0 2px var(--background, oklch(0.05 0.005 290)), 0 0 0 4px var(--ring, oklch(0.70 0.28 0)); border-radius: 1px; transition: box-shadow 0.15s ease; }\nbutton:focus-visible, a:focus-visible { outline: none !important; box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--accent); filter: brightness(1.2); }\n/* ─── Badge/Pill – Neon-Tags ─── */\n.badge, .pill { display: inline-flex; align-items: center; padding: 0.15em 0.6em; font-family: 'Share Tech Mono', monospace; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; border-radius: var(--radius, 2px); background: oklch(from var(--accent) l c h / 0.12); color: var(--accent); border: 1px solid oklch(from var(--accent) l c h / 0.3); transition: all 0.15s ease; }\n.badge:hover, .pill:hover { background: oklch(from var(--accent) l c h / 0.22); border-color: oklch(from var(--accent) l c h / 0.55); box-shadow: 0 0 12px oklch(from var(--accent) l c h / 0.25); }\n/* ─── Tooltips – Terminal-Style ─── */\n.tooltip { position: relative; }\n.tooltip::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%) translateY(4px); padding: 0.35rem 0.7rem; font-family: 'Share Tech Mono', monospace; font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; color: oklch(0.90 0.02 290); background: oklch(0.08 0.008 290 / 0.95); border: 1px solid oklch(from var(--accent) l c h / 0.4); border-radius: var(--radius, 2px); box-shadow: 0 0 16px oklch(0 0 0 / 0.5); opacity: 0; pointer-events: none; transition: opacity 0.15s ease, transform 0.15s ease; z-index: 9999; }\n.tooltip:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }\n/* ─── Skeleton Loading – Neon-Pulse ─── */\n.skeleton { background: linear-gradient(90deg, var(--muted, oklch(0.10 0.008 290)) 0%, oklch(from var(--accent) l c h / 0.15) 50%, var(--muted, oklch(0.10 0.008 290)) 100%); background-size: 200% 100%; animation: skeleton-shimmer 1.2s ease-in-out infinite; border-radius: var(--radius, 2px); min-height: 1em; }\n@keyframes skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }\n/* ─── Input/Textarea – Terminal-Felder ─── */\ninput[type=\"text\"], input[type=\"search\"], input[type=\"number\"], input[type=\"password\"], textarea, select { font-family: 'Share Tech Mono', monospace; background: var(--muted, oklch(0.10 0.008 290)); color: var(--foreground, oklch(0.90 0.02 290)); border: 1px solid oklch(0.22 0.025 0); border-radius: var(--radius, 2px); padding: 0.45rem 0.65rem; font-size: 0.8rem; letter-spacing: 0.04em; transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease; }\ninput:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 12px oklch(from var(--accent) l c h / 0.25); background: oklch(0.08 0.008 290); outline: none; }\ninput::placeholder, textarea::placeholder { color: oklch(0.40 0.015 290); font-style: italic; }\n/* ─── Smooth Transitions – Alle interaktiven Elemente ─── */\nbutton, a, input, select, textarea, .badge, .pill, .tooltip, .skeleton, .glass-card, [role=\"button\"], .clickable { transition: all 0.15s ease; }\n@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }\n\n/* Cyberpunk Neon Theme – Core CSS */\n:root[data-theme=\"cyberpunk-neon\"] {\n  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;\n}\n\n:root[data-theme=\"cyberpunk-neon\"] h1, \n:root[data-theme=\"cyberpunk-neon\"] h2, \n:root[data-theme=\"cyberpunk-neon\"] h3 {\n  font-family: 'Orbitron', sans-serif;\n  text-transform: uppercase;\n  letter-spacing: 0.1em;\n}\n\n:root[data-theme=\"cyberpunk-neon\"] .glass-card {\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n}",
+    "capabilities": {
+      "night_mode": {
+        "overlay_color": "oklch(0.02 0.005 290)",
+        "overlay_opacity": 0.95,
+        "css_filter": "saturate(0.2) brightness(0.4) contrast(1.1)",
+        "transition_ms": 400,
+        "vignette": true,
+        "blend_mode": "screen",
+        "reduce_motion": false
+      },
+      "design_modes": [
+        {
+          "id": "cyberpunk-neon-pink",
+          "name": "Neon Pink",
+          "icon": "FireSimple",
+          "time_start": "21:00",
+          "time_end": "02:00",
+          "css_variables": {
+            "accent": "oklch(0.65 0.28 0)",
+            "ring": "oklch(0.70 0.28 0)",
+            "border": "oklch(0.22 0.025 0)"
+          }
+        },
+        {
+          "id": "cyberpunk-cyan",
+          "name": "Neon Cyan",
+          "icon": "Lightning",
+          "time_start": "02:00",
+          "time_end": "05:00",
+          "css_variables": {
+            "accent": "oklch(0.60 0.22 195)",
+            "ring": "oklch(0.65 0.22 195)",
+            "border": "oklch(0.20 0.025 195)"
+          }
+        },
+        {
+          "id": "cyberpunk-day",
+          "name": "Day Mode",
+          "icon": "Sun",
+          "time_start": "07:00",
+          "time_end": "19:00",
+          "css_variables": {
+            "background": "oklch(0.92 0.005 290)",
+            "foreground": "oklch(0.15 0.02 290)",
+            "card": "oklch(0.97 0.003 290)",
+            "accent": "oklch(0.55 0.25 330)",
+            "ring": "oklch(0.60 0.25 330)",
+            "muted": "oklch(0.94 0.005 290)",
+            "muted-foreground": "oklch(0.48 0.02 290)",
+            "border": "oklch(0.85 0.005 290)",
+            "glass-bg": "oklch(0.97 0.003 290 / 0.70)"
+          }
+        },
+        {
+          "id": "cyberpunk-dawn",
+          "name": "Dawn Mode",
+          "icon": "SunHorizon",
+          "time_start": "05:00",
+          "time_end": "07:00",
+          "css_variables": {
+            "background": "oklch(0.08 0.008 50)",
+            "foreground": "oklch(0.88 0.03 50)",
+            "card": "oklch(0.11 0.01 50)",
+            "accent": "oklch(0.62 0.25 50)",
+            "ring": "oklch(0.68 0.25 50)",
+            "muted": "oklch(0.13 0.008 50)",
+            "muted-foreground": "oklch(0.52 0.02 50)",
+            "border": "oklch(0.24 0.03 50)",
+            "glass-bg": "oklch(0.10 0.01 50 / 0.75)",
+            "glass-bg-end": "oklch(0.07 0.008 50 / 0.65)"
+          }
+        },
+        {
+          "id": "cyberpunk-dusk",
+          "name": "Dusk Mode",
+          "icon": "Sunset",
+          "time_start": "19:00",
+          "time_end": "21:00",
+          "css_variables": {
+            "background": "oklch(0.06 0.01 310)",
+            "foreground": "oklch(0.90 0.03 310)",
+            "card": "oklch(0.09 0.012 310)",
+            "accent": "oklch(0.55 0.25 310)",
+            "ring": "oklch(0.62 0.25 310)",
+            "muted": "oklch(0.11 0.01 310)",
+            "muted-foreground": "oklch(0.50 0.025 310)",
+            "border": "oklch(0.22 0.03 310)",
+            "glass-bg": "oklch(0.08 0.012 310 / 0.75)",
+            "glass-bg-end": "oklch(0.05 0.01 310 / 0.65)"
+          }
+        }
+      ],
+      "auto_behavior": {
+        "mode": "time",
+        "time_ranges": {
+          "cyberpunk-neon-pink": {
+            "start": "21:00",
+            "end": "02:00"
+          },
+          "cyberpunk-cyan": {
+            "start": "02:00",
+            "end": "05:00"
+          },
+          "cyberpunk-dawn": {
+            "start": "05:00",
+            "end": "07:00"
+          },
+          "cyberpunk-day": {
+            "start": "07:00",
+            "end": "19:00"
+          },
+          "cyberpunk-dusk": {
+            "start": "19:00",
+            "end": "21:00"
+          }
+        },
+        "default_mode": "cyberpunk-neon-pink"
+      },
+      "accent_control": {
+        "mode": "presets",
+        "presets": [
+          {
+            "name": "Neon Pink",
+            "color": "oklch(0.65 0.28 0)"
+          },
+          {
+            "name": "Neon Cyan",
+            "color": "oklch(0.60 0.22 195)"
+          },
+          {
+            "name": "Neon Green",
+            "color": "oklch(0.60 0.25 140)"
+          },
+          {
+            "name": "Neon Purple",
+            "color": "oklch(0.55 0.25 300)"
+          },
+          {
+            "name": "Neon Yellow",
+            "color": "oklch(0.65 0.22 90)"
+          },
+          {
+            "name": "Toxic Green",
+            "color": "oklch(0.60 0.28 140)"
+          },
+          {
+            "name": "Hot Orange",
+            "color": "oklch(0.62 0.25 50)"
+          },
+          {
+            "name": "UV Purple",
+            "color": "oklch(0.50 0.25 310)"
+          }
+        ]
+      },
+      "glass_control": {
+        "mode": "force_values",
+        "blur": "20px",
+        "opacity": "0.85"
+      },
+      "custom_settings": [
+        {
+          "id": "scanlines",
+          "name": "Scanlines",
+          "description": "CRT-Monitor Scanline-Effekt über das gesamte Interface",
+          "setting_type": "toggle",
+          "default_value": true,
+          "css_variable": "cyberpunk-scanlines"
+        },
+        {
+          "id": "glitch_intensity",
+          "name": "Glitch-Intensität",
+          "description": "Stärke des digitalen Glitch-Effekts auf Karten",
+          "setting_type": "slider",
+          "default_value": 40,
+          "min": 0,
+          "max_visible": 100,
+          "step": 10,
+          "css_variable": "cyberpunk-glitch"
+        },
+        {
+          "id": "grid_overlay",
+          "name": "Grid-Overlay",
+          "description": "Cyberpunk-Gitternetz im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "terminal_mode",
+          "name": "Terminal-Modus",
+          "description": "Alles in Terminal-Grün (Matrix-Style)",
+          "setting_type": "toggle",
+          "default_value": false
+        },
+        {
+          "id": "data_stream",
+          "name": "Data Stream",
+          "description": "Animierter Datenstrom-Effekt auf der Seite",
+          "setting_type": "toggle",
+          "default_value": false,
+          "css_variable": "cyberpunk-data-stream"
+        },
+        {
+          "id": "matrix_rain",
+          "name": "Matrix Rain",
+          "description": "Matrix-artige Regentropfen im Hintergrund",
+          "setting_type": "toggle",
+          "default_value": false,
+          "css_variable": "cyberpunk-matrix-rain"
+        },
+        {
+          "id": "hologram_effect",
+          "name": "Hologram Effect",
+          "description": "Stärke des Hologramm-Effekts auf Karten (0-100)",
+          "setting_type": "slider",
+          "default_value": 30,
+          "min": 0,
+          "max_visible": 100,
+          "step": 5,
+          "css_variable": "cyberpunk-hologram"
+        },
+        {
+          "id": "scrollbar_style",
+          "name": "Scrollbar-Stil",
+          "description": "Aussehen der Bildlaufleiste",
+          "setting_type": "select",
+          "default_value": "Standard",
+          "options": [
+            {
+              "label": "Standard",
+              "value": "Standard"
+            },
+            {
+              "label": "Minimal",
+              "value": "Minimal"
+            },
+            {
+              "label": "Versteckt",
+              "value": "Versteckt"
+            },
+            {
+              "label": "Theme",
+              "value": "Theme"
+            }
+          ],
+          "css_variable": "scrollbar-width"
+        },
+        {
+          "id": "focus_ring_visible",
+          "name": "Fokus-Ring anzeigen",
+          "description": "Fokus-Ring um aktive Elemente anzeigen",
+          "setting_type": "toggle",
+          "default_value": true
+        },
+        {
+          "id": "content_width",
+          "name": "Inhaltsbreite",
+          "description": "Maximale Breite des Hauptinhalts",
+          "setting_type": "select",
+          "default_value": "Normal (1500px)",
+          "options": [
+            {
+              "label": "Schmal (1200px)",
+              "value": "Schmal (1200px)"
+            },
+            {
+              "label": "Normal (1500px)",
+              "value": "Normal (1500px)"
+            },
+            {
+              "label": "Breit (100%)",
+              "value": "Breit (100%)"
+            }
+          ],
+          "css_variable": "content-max-width"
+        },
+        {
+          "id": "shadow_level",
+          "name": "Schatten-Stärke",
+          "description": "Intensität der Kartenschatten",
+          "setting_type": "select",
+          "default_value": "Mittel",
+          "options": [
+            {
+              "label": "Flach",
+              "value": "Flach"
+            },
+            {
+              "label": "Leicht",
+              "value": "Leicht"
+            },
+            {
+              "label": "Mittel",
+              "value": "Mittel"
+            },
+            {
+              "label": "Stark",
+              "value": "Stark"
+            }
+          ],
+          "css_variable": "shadow-level"
+        },
+        {
+          "id": "border_radius_scale",
+          "name": "Abrundungs-Skalierung",
+          "description": "Skalierungsfaktor für alle Abrundungen",
+          "setting_type": "slider",
+          "default_value": 1.0,
+          "min": 0.5,
+          "max_visible": 2.0,
+          "step": 0.1,
+          "css_variable": "radius-scale"
+        }
+      ],
+      "animation": {
+        "splash": {
+          "enabled": true,
+          "duration_ms": 2500,
+          "background_color": "oklch(0.05 0.005 290)",
+          "brand_text": "CYBERPUNK",
+          "tagline": "// NEON EDITION v1.0",
+          "show_progress": true,
+          "exit_animation": "custom"
+        },
+        "page_transitions": {
+          "enabled": true,
+          "transition_type": "fade",
+          "duration_secs": 0.2,
+          "spring": {
+            "stiffness": 500,
+            "damping": 35,
+            "mass": 0.6
+          }
+        },
+        "widget_animations": {
+          "style": "fade-up",
+          "duration_secs": 0.25,
+          "stagger_secs": 0.02
+        },
+        "keyframes": {
+          "neon-flicker": "0%, 100% { opacity: 1; } 92% { opacity: 0.95; } 94% { opacity: 0.8; } 96% { opacity: 1; }",
+          "scanline-move": "0% { transform: translateY(0); } 100% { transform: translateY(4px); }",
+          "glitch-skew": "0% { transform: skew(0deg); } 20% { transform: skew(2deg); } 40% { transform: skew(-1deg); } 60% { transform: skew(0deg); } 80% { transform: skew(-2deg); } 100% { transform: skew(0deg); }",
+          "data-scroll": "0% { transform: translateY(0); opacity: 0.7; } 50% { transform: translateY(-50%); opacity: 1; } 100% { transform: translateY(-100%); opacity: 0.7; }",
+          "hologram-flicker": "0%, 100% { opacity: 0.85; filter: hue-rotate(0deg); } 25% { opacity: 0.9; filter: hue-rotate(2deg); } 50% { opacity: 0.8; filter: hue-rotate(-1deg); } 75% { opacity: 0.95; filter: hue-rotate(3deg); }",
+          "boot-sequence": "0% { opacity: 0; transform: scale(0.95); filter: blur(4px); } 30% { opacity: 0.5; filter: blur(2px); } 60% { opacity: 0.9; filter: blur(0); } 100% { opacity: 1; transform: scale(1); filter: blur(0); }"
+        }
+      },
+      "modals": {
+        "backdrop": "solid",
+        "backdrop_blur": 0,
+        "backdrop_opacity": 0.85,
+        "radius": "2px",
+        "border": "1px solid oklch(0.65 0.28 0 / 0.5)",
+        "enter_animation": "slide-up",
+        "exit_animation": "fade",
+        "close_button": "x",
+        "shadow": "none"
+      },
+      "notifications": {
+        "position": "top-right",
+        "enter_animation": "slide-left",
+        "exit_animation": "slide-right",
+        "radius": "2px",
+        "accent_bar": true,
+        "max_visible": 3,
+        "auto_dismiss_ms": 3000
+      },
+      "navigation": {
+        "position": "bottom",
+        "background": "solid",
+        "radius": "2px",
+        "show_labels": false,
+        "icon_size": 24,
+        "gap": 2,
+        "buttons": [
+          {
+            "page_id": "home",
+            "label": "HUB",
+            "icon": "Circuit"
+          },
+          {
+            "page_id": "lights",
+            "label": "NEON",
+            "icon": "Lightbulb"
+          },
+          {
+            "page_id": "climate",
+            "label": "COOL",
+            "icon": "Thermometer"
+          },
+          {
+            "page_id": "switches",
+            "label": "PWR",
+            "icon": "ToggleRight"
+          },
+          {
+            "page_id": "sensors",
+            "label": "DATA",
+            "icon": "Gauge"
+          },
+          {
+            "page_id": "music",
+            "label": "AUDIO",
+            "icon": "SpeakerHifi"
+          },
+          {
+            "page_id": "settings",
+            "label": "SYS",
+            "icon": "Wrench"
+          }
+        ]
+      }
+    },
+    "widget_templates": [
+      {
+        "widget_type": "light",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/light.html",
+            "label": "Neon Tube",
+            "icon": "Lightbulb",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "switch",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/switch.html",
+            "label": "Cyber Switch",
+            "icon": "Power",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "climate",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/climate.html",
+            "label": "Cooling Grid",
+            "icon": "Thermometer",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "sensor",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/sensor.html",
+            "label": "Neon Sensor",
+            "icon": "Gauge",
+            "is_default": true
+          }
+        ]
+      },
+      {
+        "widget_type": "weather",
+        "replace_default": true,
+        "variants": [
+          {
+            "name": "default",
+            "template": "widgets/weather.html",
+            "label": "Neon Weather",
+            "icon": "Cloud",
+            "is_default": true
+          }
+        ]
+      }
+    ],
+    "icon_font": {
+      "font_name": "Cyberpunk Icons",
+      "css_path": "",
+      "class_prefix": "cp-icon",
+      "icon_map": {
+        "HardDrive": "cp-icon-disk",
+        "FireSimple": "cp-icon-flame",
+        "Lightning": "cp-icon-bolt",
+        "Sun": "cp-icon-day",
+        "House": "cp-icon-hub",
+        "Lightbulb": "cp-icon-neon-tube",
+        "Gear": "cp-icon-circuit",
+        "SunHorizon": "cp-icon-dawn",
+        "Sunset": "cp-icon-dusk",
+        "Gauge": "cp-icon-gauge",
+        "Cloud": "cp-icon-cloud"
+      }
+    },
+    "background": {
+      "type": "image",
+      "url": "images/background.svg",
+      "overlay_opacity": 0.06,
+      "blend_mode": "screen"
+    }
+  }
+}

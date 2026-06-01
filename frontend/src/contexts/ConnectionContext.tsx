@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react'
 
 import { getBackendUrl, getDevBridgeUrl } from '@/lib/config'
-const API_BASE = getBackendUrl()
+const apiBase = () => getBackendUrl() || ''
 
 interface ConnectionStatus {
   backend: 'connected' | 'disconnected' | 'error'
@@ -162,7 +162,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const checkBackend = useCallback(async () => {
     if (!mountedRef.current) return
     try {
-      const response = await fetch(`${API_BASE}/health`, {
+      const response = await fetch(`${apiBase()}/health`, {
         signal: AbortSignal.timeout(5_000),
       })
       if (response.ok) {
@@ -235,7 +235,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
     const detectDevBridge = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/admin/dev-image`, {
+        const response = await fetch(`${apiBase()}/api/admin/dev-image`, {
           signal: AbortSignal.timeout(5_000),
         })
         const data = response.ok ? await response.json() : null

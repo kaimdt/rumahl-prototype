@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 import { MapTrifold, House, ArrowClockwise, GpsFix, User, Users, Plus, ClockCounterClockwise, Crosshair, Stack, FunnelSimple, Eye, EyeSlash, MapPin, NavigationArrow, CaretDown, Compass, Path, CalendarBlank, Play, Pause, Stop } from '@phosphor-icons/react'
 import { useEntityStore } from '@/hooks/useEntityStore'
 import { useLongPressDialog } from '@/hooks/useLongPressDialog'
@@ -509,13 +509,13 @@ function startPlayer(d){
     parent.postMessage({type:'playerProgress',index:0,total:playerPoints.length,
       time:d.points[0].time,date:d.points[0].date,lat:startPos[0],lng:startPos[1],
       state:d.points[0].state,speed:0,elapsedSec:0,totalSec:playerTotalTime,clockTime:'',clockMs:playerStartTimeMs},'*');
-    playerTimer=setInterval(tickPlayer2,50);
+    playerTimer=setInterval(tickPlayer2,100);
   });
 }
 
 function tickPlayer2(){
   if(playerState!=='playing')return;
-  playerElapsed+=0.05*playerSpd;
+  playerElapsed+=0.1*playerSpd;
   if(playerElapsed>=playerTotalTime){
     playerElapsed=playerTotalTime;
     var endPos=playerRoute[playerRoute.length-1];
@@ -554,11 +554,11 @@ function pausePlayer(){
   if(playerTimer){clearInterval(playerTimer);playerTimer=null}
 }
 function resumePlayer(){
-  if(playerState==='paused'){playerState='playing';playerTimer=setInterval(tickPlayer2,50);}
+  if(playerState==='paused'){playerState='playing';playerTimer=setInterval(tickPlayer2,100);}
   else if(playerState==='done'&&playerRoute.length>1){
     playerElapsed=0;playerIdx=0;playerState='playing';
     if(playerMkr)playerMkr.setLatLng(playerRoute[0]);
-    playerTimer=setInterval(tickPlayer2,50);
+    playerTimer=setInterval(tickPlayer2,100);
   }
 }
 function seekToTime(sec){
@@ -580,7 +580,7 @@ function seekToTime(sec){
       elapsedSec:playerElapsed,totalSec:playerTotalTime,clockTime:st.clockTime,clockMs:st.clockMs},'*');
   }
   playerState=wasP?'playing':'paused';
-  if(wasP){playerTimer=setInterval(tickPlayer2,50);}
+  if(wasP){playerTimer=setInterval(tickPlayer2,100);}
 }
 function seekPlayer(idx){seekToTime(idx);} // idx is now seconds
 function setFollowCam(v){playerFollowCam=!!v;if(playerFollowCam&&playerMkr){map.panTo(playerMkr.getLatLng(),{animate:true})}}

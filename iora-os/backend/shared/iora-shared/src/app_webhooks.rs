@@ -21,16 +21,14 @@ use std::collections::HashMap;
 /// HTTP method for the webhook
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
+#[derive(Default)]
 pub enum WebhookMethod {
     Get,
+    #[default]
     Post,
     Put,
     Patch,
     Delete,
-}
-
-impl Default for WebhookMethod {
-    fn default() -> Self { WebhookMethod::Post }
 }
 
 /// A registered webhook
@@ -85,9 +83,15 @@ pub struct AppWebhook {
     pub created_at: String,
 }
 
-fn default_enabled() -> bool { true }
-fn default_max_retries() -> u32 { 3 }
-fn default_timeout() -> u64 { 30 }
+fn default_enabled() -> bool {
+    true
+}
+fn default_max_retries() -> u32 {
+    3
+}
+fn default_timeout() -> u64 {
+    30
+}
 
 /// Request to register a new webhook
 #[derive(Debug, Deserialize)]

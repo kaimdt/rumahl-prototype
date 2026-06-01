@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { VideoCamera } from '@phosphor-icons/react'
 import type { EntityState } from '@/lib/types'
 import { toBackendImageUrl } from '@/lib/imageUrl'

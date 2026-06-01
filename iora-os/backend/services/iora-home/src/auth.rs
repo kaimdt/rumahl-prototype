@@ -1,19 +1,15 @@
 use bcrypt::{hash, verify, DEFAULT_COST};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use serde::{Deserialize, Serialize};
-use std::env;
-use rand::Rng;
 use iora_shared::system_config;
-
-const JWT_SECRET_ENV: &str = "JWT_SECRET";
-const DEFAULT_JWT_SECRET: &str = "your-secret-key-change-in-production";
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,      // user_id
+    pub sub: String, // user_id
     pub username: String,
     pub is_admin: bool,
-    pub exp: usize,       // expiration time
+    pub exp: usize, // expiration time
 }
 
 /// Hash a password using bcrypt
@@ -27,12 +23,20 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::Bcryp
 }
 
 /// Generate a JWT token for a user
-pub fn generate_token(user_id: &str, username: &str, is_admin: bool, expiration_days: i64) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn generate_token(
+    user_id: &str,
+    username: &str,
+    is_admin: bool,
+    expiration_days: i64,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let secret = system_config::jwt_secret();
 
+    // `checked_add_signed` only returns None on extreme overflow. Falling back to
+    // a 24h expiry keeps token generation alive instead of panicking the handler.
     let expiration = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::days(expiration_days.clamp(1, 90)))
-        .expect("valid timestamp")
+        .or_else(|| chrono::Utc::now().checked_add_signed(chrono::Duration::days(1)))
+        .unwrap_or_else(chrono::Utc::now)
         .timestamp() as usize;
 
     let claims = Claims {

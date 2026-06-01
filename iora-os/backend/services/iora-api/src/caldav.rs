@@ -8,12 +8,11 @@
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderMap, Method, StatusCode, Uri},
+    http::{header, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Redirect, Response},
 };
 use chrono::Utc;
 use std::sync::Arc;
-use tracing::{info, warn};
 
 pub async fn well_known_redirect() -> impl IntoResponse {
     Redirect::permanent("/caldav/")
@@ -97,7 +96,7 @@ async fn caldav_propfind(
     // Fetch calendar entities from HA via IORA Home
     let resp = state
         .http_client
-        .get(&format!("{}/api/calendars", state.iora_home_url))
+        .get(format!("{}/api/calendars", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await;
@@ -159,7 +158,7 @@ async fn caldav_propfind(
 
             let events_resp = state
                 .http_client
-                .get(&format!(
+                .get(format!(
                     "{}/api/calendars/{}/events?start={}&end={}",
                     state.iora_home_url, entity_id, start, end
                 ))
@@ -230,7 +229,7 @@ async fn caldav_report(
 
     let events_resp = state
         .http_client
-        .get(&format!(
+        .get(format!(
             "{}/api/calendars/{}/events?start={}&end={}",
             state.iora_home_url,
             entity_id,
@@ -369,7 +368,7 @@ async fn caldav_get(state: &crate::AppState, path: &str, token: &str) -> Respons
 
     let events_resp = state
         .http_client
-        .get(&format!(
+        .get(format!(
             "{}/api/calendars/{}/events?start={}&end={}",
             state.iora_home_url, entity_id, start, end
         ))

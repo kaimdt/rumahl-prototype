@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct MqttPublishRequest {
@@ -100,7 +100,7 @@ pub async fn mqtt_subscribe_ws(
                                     "type": "subscribed",
                                     "topic": topic,
                                 });
-                                let _ = socket.send(Message::Text(ack.to_string().into())).await;
+                                let _ = socket.send(Message::Text(ack.to_string())).await;
                                 info!("MQTT WS client subscribed to: {}", topic);
 
                                 // Subscribe via iora-home, which holds the persistent MQTT
@@ -142,14 +142,14 @@ pub async fn mqtt_subscribe_ws(
                                     "type": "published",
                                     "topic": topic,
                                 });
-                                let _ = socket.send(Message::Text(ack.to_string().into())).await;
+                                let _ = socket.send(Message::Text(ack.to_string())).await;
                             }
                             _ => {
                                 let err = serde_json::json!({
                                     "type": "error",
                                     "message": format!("Unknown message type: {}", msg_type),
                                 });
-                                let _ = socket.send(Message::Text(err.to_string().into())).await;
+                                let _ = socket.send(Message::Text(err.to_string())).await;
                             }
                         }
                     }
@@ -171,7 +171,7 @@ pub async fn list_topics(
     // Get entity list and extract MQTT-related topics
     let resp = state
         .http_client
-        .get(&format!("{}/api/states", state.iora_home_url))
+        .get(format!("{}/api/states", state.iora_home_url))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
