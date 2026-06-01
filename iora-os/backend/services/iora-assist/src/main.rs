@@ -4505,6 +4505,8 @@ struct CreatePiDevSessionRequest {
     session_timeout_secs: Option<u64>,
     security_level: Option<String>,
     plugins: Option<Vec<PluginConfig>>,
+    /// pi.dev extensions to load (-e flags). E.g. ["pi-context-tools", "pi-codex-goal"]
+    extensions: Option<Vec<String>>,
     auto_approve_workspace: Option<bool>,
     max_tool_calls: Option<u32>,
 }
@@ -4540,6 +4542,7 @@ async fn create_pidev_session(
         ]),
         auto_approve_workspace: req.auto_approve_workspace.unwrap_or(true),
         max_tool_calls: req.max_tool_calls.unwrap_or(500),
+        extensions: req.extensions.unwrap_or_default(),
     };
 
     match state.pi_dev.create_session(config).await {

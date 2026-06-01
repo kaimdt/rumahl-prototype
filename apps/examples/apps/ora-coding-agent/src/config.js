@@ -64,6 +64,14 @@ const config = {
   promptOptimizerModel: env('PROMPT_OPTIMIZER_MODEL', 'ora-default'),
   promptOptimizerProvider: env('PROMPT_OPTIMIZER_PROVIDER', ''),
 
+  // pi extensions: comma-separated list of pi.dev extension packages to load.
+  // Supported: pi-context-tools (context management), pi-codex-goal (workflow tracking).
+  // Empty = no additional extensions beyond the IORA Assist provider extension.
+  piExtensions: (env('PI_EXTENSIONS', '') || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean),
+
   // Optional simple bearer token to protect the UI/API when not behind the IORA gateway.
   apiToken: env('APP_API_TOKEN', undefined),
 };

@@ -418,6 +418,13 @@
           { "value": "anthropic", "label": "Anthropic" },
           { "value": "google", "label": "Google Gemini" }
         ]
+      },
+      {
+        "key": "pi_extensions",
+        "label": "pi.dev Erweiterungen",
+        "description": "Kommaseparierte Liste von pi-Erweiterungen die im Agent-Container geladen werden. pi-context-tools: Token-Management & Kontext-Komprimierung. pi-codex-goal: Multi-Step Workflow-Tracking.",
+        "type": "text",
+        "default": ""
       }
     ]
   },

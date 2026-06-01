@@ -45,6 +45,11 @@ pub struct PiDevSessionConfig {
     pub security_level: SecurityLevel,
     /// Plugins to install
     pub plugins: Vec<PluginConfig>,
+    /// pi.dev extensions to load (mapped to -e flags in the pi CLI).
+    /// These add tools like context_info, compact_context, create_goal, etc.
+    /// Extension paths can be npm package names or absolute file paths.
+    #[serde(default)]
+    pub extensions: Vec<String>,
     /// Auto-approve file writes within workspace
     pub auto_approve_workspace: bool,
     /// Maximum tool calls per session
@@ -254,6 +259,7 @@ impl PiDevController {
             plugin_packages: installed_plugins.iter()
                 .map(|p| p.package_name.clone())
                 .collect(),
+            extensions: config.extensions.clone(),
             security_policy: policy.clone(),
         };
 

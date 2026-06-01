@@ -114,6 +114,7 @@ app.get('/api/config', guard, (_req, res) => {
     promptOptimizerEnabled: config.promptOptimizerEnabled,
     promptOptimizerModel: config.promptOptimizerModel,
     promptOptimizerProvider: config.promptOptimizerProvider,
+    piExtensions: config.piExtensions,
     providers: config.getAvailableProviders(),
     assistBaseUrl: config.oraBaseUrl.replace(/\/v1\/?$/, ''),
   });

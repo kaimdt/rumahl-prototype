@@ -30,6 +30,9 @@ pub struct SandboxConfig {
     pub allowed_domains: Vec<String>,
     pub session_timeout_secs: u64,
     pub plugin_packages: Vec<String>,
+    /// pi.dev extensions to load via -e flags (npm package names or paths)
+    #[serde(default)]
+    pub extensions: Vec<String>,
     pub security_policy: SecurityPolicy,
 }
 
@@ -100,13 +103,19 @@ impl DockerSandbox {
             _ => String::new(),
         };
 
+        // Build extension flags from session config (pi-context-tools, pi-codex-goal, etc.)
+        let config_ext_flags: String = config.extensions.iter()
+            .map(|ext| format!(" -e {}", ext))
+            .collect();
+
         let start_cmd = if config.plugin_packages.is_empty() {
-            format!("exec npx pi serve --port 3000 --host 0.0.0.0{}", ext_flag)
+            format!("exec npx pi serve --port 3000 --host 0.0.0.0{}{}", ext_flag, config_ext_flags)
         } else {
             format!(
-                "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0{}",
+                "for pkg in {}; do npx pi install $pkg 2>/dev/null || true; done && exec npx pi serve --port 3000 --host 0.0.0.0{}{}",
                 config.plugin_packages.join(" "),
-                ext_flag
+                ext_flag,
+                config_ext_flags
             )
         };
 

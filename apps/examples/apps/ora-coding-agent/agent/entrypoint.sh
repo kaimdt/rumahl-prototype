@@ -26,6 +26,8 @@ EVENTS_FILE="${WORKSPACE}/pi-events.jsonl"
 COMMIT_LOG="${WORKSPACE}/commits.jsonl"
 EXTENSION_PATH="${ORA_EXTENSION_PATH:-/opt/ora/ora-provider.ts}"
 COMMIT_WATCHER="${COMMIT_WATCHER:-/opt/ora/commit-watcher.js}"
+# pi loads AGENTS.md from PI_CODING_AGENT_DIR at startup for token-efficient project instructions
+export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-/opt/ora}"
 
 emit() {
   node -e 'process.stdout.write(JSON.stringify({type:"ora",stage:process.argv[1],msg:process.argv[2]})+"\n")' "$1" "${2:-}"
@@ -55,10 +57,23 @@ git fetch --quiet origin "$BASE_BRANCH" >/dev/null 2>&1 || true
 git checkout --quiet "$BASE_BRANCH" >/dev/null 2>&1 || true
 git checkout -B "$WORK_BRANCH" >/dev/null 2>&1 || fail "could not create work branch"
 
-# --- Provider flags --------------------------------------------------------
+# --- Provider flags + extensions ----------------------------------------
 PI_ARGS=(--mode json --no-session --name "$TASK_ID" --provider "$PI_PROVIDER" --model "$PI_MODEL")
+
+# IORA Assist extension (always loaded when using ora provider)
 if [ "$PI_PROVIDER" = "ora" ] && [ -f "$EXTENSION_PATH" ]; then
   PI_ARGS+=(-e "$EXTENSION_PATH")
+fi
+
+# Additional pi extensions (comma-separated list from PI_EXTENSIONS env var)
+if [ -n "${PI_EXTENSIONS:-}" ]; then
+  IFS=',' read -ra EXT_LIST <<< "$PI_EXTENSIONS"
+  for ext in "${EXT_LIST[@]}"; do
+    ext_trimmed="${ext// /}"  # remove whitespace
+    if [ -n "$ext_trimmed" ]; then
+      PI_ARGS+=(-e "$ext_trimmed")
+    fi
+  done
 fi
 
 # --- Run pi with incremental commit watcher --------------------------------

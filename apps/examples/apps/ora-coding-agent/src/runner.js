@@ -118,6 +118,7 @@ class AgentRunner {
       PI_SKIP_VERSION_CHECK: '1',
       INCREMENTAL_COMMITS: config.incrementalCommits ? 'true' : 'false',
       INCREMENTAL_COMMIT_INTERVAL: String(config.incrementalCommitInterval),
+      PI_EXTENSIONS: config.piExtensions.join(','),
       ...config.providerEnvForRun(provider),
     };
 
