@@ -1,0 +1,3 @@
+## 2025-02-12 - Replacing O(N) array traversals with O(1) Map lookups in React renders
+**Learning:** In a highly dynamic dashboard, constantly searching an `entities` array via `entities.find(e => e.entity_id === id)` during every render cycle (or visibility check iteration) acts as a hidden performance killer. Even if the array is somewhat small, doing this within nested widgets or large loops scales poorly (O(N²)).
+**Action:** When a global state store provides the items as an array, also expose a memoized/internal Map lookup method (like `getEntity(id)`) from the same store. Then thread `getEntity` through component props/contexts instead of `entities` to instantly retrieve items. Always add performance comments for such architectural shifts.

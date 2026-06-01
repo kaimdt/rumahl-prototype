@@ -1,3 +1,4 @@
+import { useEntityStore } from "@/hooks/useEntityStore"
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { useLocalStorage } from '@/lib/storage'
 import type { EntityState, WidgetType } from '@/lib/types'
@@ -170,6 +171,7 @@ interface DynamicOverviewContextType {
 const DynamicOverviewContext = createContext<DynamicOverviewContextType | undefined>(undefined)
 
 export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
+  const { getEntity } = useEntityStore()
   const [variants, setVariants] = useLocalStorage<OverviewVariant[]>(
     'ha-overview-variants',
     [defaultVariant, ...predefinedVariants]
@@ -220,10 +222,9 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
   }
 
   const checkEntityStateTrigger = (
-    trigger: EntityStateTrigger,
-    entities: EntityState[]
+    trigger: EntityStateTrigger
   ): boolean => {
-    const entity = entities.find((e) => e.entity_id === trigger.entity_id)
+    const entity = getEntity(trigger.entity_id)
     if (!entity) return false
 
     // If no specific state is specified, any entity existence triggers it
@@ -284,7 +285,7 @@ export function DynamicOverviewProvider({ children }: { children: ReactNode }) {
         if (trigger.type === 'time') {
           triggerMatches = checkTimeTrigger(trigger)
         } else if (trigger.type === 'entity_state') {
-          triggerMatches = checkEntityStateTrigger(trigger, entities)
+          triggerMatches = checkEntityStateTrigger(trigger)
         } else if (trigger.type === 'manual') {
           // Manual triggers never auto-activate
           triggerMatches = false
