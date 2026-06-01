@@ -42,6 +42,9 @@ function createCodingTask(store, runner, input, requestedBy) {
     return { ok: false, error: 'cloneUrl or repoFullName is required' };
   }
 
+  // If prompt optimizer is enabled, it will be applied in runner._run() before
+  // the agent starts. The original prompt is stored in the task so the optimizer
+  // log shows the before/after.
   const task = store.create({
     source: input.source || 'assist-tool',
     title: input.title || `Task: ${prompt.slice(0, 60)}`,

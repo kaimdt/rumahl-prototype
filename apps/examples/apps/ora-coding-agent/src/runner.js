@@ -70,6 +70,25 @@ class AgentRunner {
     this.store.update(task.id, { status: 'running', startedAt: new Date().toISOString() });
     this.store.appendLog(task.id, { type: 'ora', stage: 'start', msg: `Starting agent (${config.runnerMode} mode)` });
 
+    // ── Prompt Optimization (optional) ─────────────────────────────────
+    let finalPrompt = task.prompt;
+    if (config.promptOptimizerEnabled) {
+      this.store.appendLog(task.id, { type: 'ora', stage: 'optimize', msg: 'Optimizing prompt via light model...' });
+      const provider = task.provider || config.defaultProvider;
+      const model = task.model || config.defaultModel;
+      try {
+        const optimized = await config.optimizePrompt(task.prompt, provider, model);
+        if (optimized !== task.prompt) {
+          finalPrompt = optimized;
+          this.store.appendLog(task.id, { type: 'ora', stage: 'optimize', msg: `Prompt optimized (${task.prompt.length} → ${optimized.length} chars)` });
+        } else {
+          this.store.appendLog(task.id, { type: 'ora', stage: 'optimize', msg: 'Prompt unchanged by optimizer' });
+        }
+      } catch (err) {
+        this.store.appendLog(task.id, { type: 'ora', stage: 'optimize', msg: `Optimizer failed: ${err.message}, using original` });
+      }
+    }
+
     // Resolve an authenticated clone URL when we have a GitHub installation.
     let cloneUrl = task.cloneUrl;
     let token = null;
@@ -87,7 +106,7 @@ class AgentRunner {
     const model = task.model || config.defaultModel;
     const envForTask = {
       TASK_ID: task.id,
-      TASK_PROMPT: task.prompt,
+      TASK_PROMPT: finalPrompt,
       REPO_URL: cloneUrl || '',
       BASE_BRANCH: task.baseBranch,
       WORK_BRANCH: task.workBranch,
@@ -97,6 +116,8 @@ class AgentRunner {
       GIT_AUTHOR_EMAIL: `${config.botMention}-bot@iora.local`,
       PI_OFFLINE: '1',
       PI_SKIP_VERSION_CHECK: '1',
+      INCREMENTAL_COMMITS: config.incrementalCommits ? 'true' : 'false',
+      INCREMENTAL_COMMIT_INTERVAL: String(config.incrementalCommitInterval),
       ...config.providerEnvForRun(provider),
     };
 
@@ -222,6 +243,7 @@ class AgentRunner {
           ...envForTask,
           WORKSPACE: workspace,
           ORA_EXTENSION_PATH: path.join(__dirname, '..', 'agent', 'ora-provider.ts'),
+          COMMIT_WATCHER: path.join(__dirname, '..', 'agent', 'commit-watcher.js'),
         },
       });
 

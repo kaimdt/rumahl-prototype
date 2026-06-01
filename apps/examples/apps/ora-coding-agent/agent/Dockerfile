@@ -23,6 +23,7 @@ ENV PI_CODING_AGENT_DIR=/opt/pi \
 RUN mkdir -p /opt/ora /workspace
 COPY ora-provider.ts /opt/ora/ora-provider.ts
 COPY entrypoint.sh /opt/ora/entrypoint.sh
+COPY commit-watcher.js /opt/ora/commit-watcher.js
 RUN chmod +x /opt/ora/entrypoint.sh
 
 WORKDIR /workspace

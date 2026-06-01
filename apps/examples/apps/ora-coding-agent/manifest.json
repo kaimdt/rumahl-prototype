@@ -270,9 +270,15 @@
       {
         "key": "default_provider",
         "label": "Standard KI-Provider",
-        "description": "Welcher pi-Provider standardmäßig genutzt wird.",
+        "description": "Welcher pi-Provider standardmäßig genutzt wird. Modelle werden dynamisch von IORA Assist abgerufen.",
         "type": "select",
         "default": "ora",
+        "dynamic_options": {
+          "source": "assist",
+          "endpoint": "/api/assist/config/providers",
+          "value_field": "provider_type",
+          "label_field": "provider_type"
+        },
         "options": [
           { "value": "ora", "label": "IORA Assist (ORA AI)" },
           { "value": "anthropic", "label": "Anthropic (Claude)" },
@@ -283,9 +289,19 @@
       {
         "key": "default_model",
         "label": "Standard Modell",
-        "description": "Modell-Bezeichner für den Standard-Provider (z.B. ora-default, claude-sonnet-4, gpt-4o).",
-        "type": "text",
-        "default": "ora-default"
+        "description": "Modell-Bezeichner für den gewählten Provider. Modelle werden dynamisch von IORA Assist abgerufen.",
+        "type": "select",
+        "default": "ora-default",
+        "dynamic_options": {
+          "source": "assist",
+          "endpoint": "/api/assist/models",
+          "provider_param": "default_provider",
+          "value_field": "id",
+          "label_field": "name"
+        },
+        "options": [
+          { "value": "ora-default", "label": "ora-default" }
+        ]
       },
       {
         "key": "ora_base_url",
@@ -351,6 +367,57 @@
         "type": "number",
         "default": 2,
         "validation": { "min": 1, "max": 10 }
+      },
+      {
+        "key": "incremental_commits",
+        "label": "Inkrementelle Commits",
+        "description": "Wenn aktiviert, erstellt der Agent nach jedem logischen Änderungsschritt einen eigenen Commit. Ermöglicht einfaches Rollback einzelner Änderungen.",
+        "type": "select",
+        "default": "true",
+        "options": [
+          { "value": "true", "label": "Aktiviert (empfohlen)" },
+          { "value": "false", "label": "Deaktiviert (ein Commit am Ende)" }
+        ]
+      },
+      {
+        "key": "incremental_commit_interval",
+        "label": "Inkrementelles Commit-Intervall (Sekunden)",
+        "description": "Minimale Wartezeit zwischen zwei inkrementellen Commits.",
+        "type": "number",
+        "default": 120,
+        "validation": { "min": 30, "max": 600 }
+      },
+      {
+        "key": "prompt_optimizer_enabled",
+        "label": "Prompt-Optimierung",
+        "description": "Wenn aktiviert, wird der Benutzer-Prompt vor der Übergabe an das Hauptmodell von einem leichteren Modell für die KI optimiert.",
+        "type": "select",
+        "default": "false",
+        "options": [
+          { "value": "false", "label": "Deaktiviert" },
+          { "value": "true", "label": "Aktiviert" }
+        ]
+      },
+      {
+        "key": "prompt_optimizer_model",
+        "label": "Prompt-Optimierer Modell",
+        "description": "Leichteres Modell für die Prompt-Optimierung (z.B. ora-default, gpt-4o-mini).",
+        "type": "text",
+        "default": "ora-default"
+      },
+      {
+        "key": "prompt_optimizer_provider",
+        "label": "Prompt-Optimierer Provider",
+        "description": "Provider für das Optimierer-Modell (Standard: gleicher Provider wie Hauptmodell).",
+        "type": "select",
+        "default": "",
+        "options": [
+          { "value": "", "label": "Gleicher Provider wie Hauptmodell" },
+          { "value": "ora", "label": "IORA Assist (ORA AI)" },
+          { "value": "openai", "label": "OpenAI" },
+          { "value": "anthropic", "label": "Anthropic" },
+          { "value": "google", "label": "Google Gemini" }
+        ]
       }
     ]
   },

@@ -56,6 +56,39 @@ app.post('/webhook/github', express.raw({ type: '*/*', limit: '5mb' }), (req, re
 });
 
 // ---------------------------------------------------------------------------
+// Dynamic provider & model listing (proxied from IORA Assist)
+// These endpoints forward to iora-assist so the UI always shows the live set
+// of configured providers and their available models. Handles deduplication
+// when the same model name appears under multiple providers.
+// ---------------------------------------------------------------------------
+
+app.get('/api/providers', guard, async (_req, res) => {
+  try {
+    const providers = config.getAvailableProviders();
+    const enriched = await Promise.all(providers.map(async (p) => {
+      try {
+        const models = await config.fetchModelsForProvider(p.id);
+        return { ...p, modelCount: models.length };
+      } catch {
+        return { ...p, modelCount: 0, _fetchError: true };
+      }
+    }));
+    res.json({ providers: enriched });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to list providers', details: err.message });
+  }
+});
+
+app.get('/api/providers/models', guard, async (_req, res) => {
+  try {
+    const allModels = await config.fetchAllModelsGrouped();
+    res.json(allModels);
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to list models', details: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // JSON body for the rest of the API
 // ---------------------------------------------------------------------------
 app.use(express.json({ limit: '1mb' }));
@@ -76,7 +109,13 @@ app.get('/api/config', guard, (_req, res) => {
     runnerMode: config.runnerMode,
     defaultProvider: config.defaultProvider,
     defaultModel: config.defaultModel,
-    providers: ['ora', 'anthropic', 'openai', 'google'],
+    incrementalCommits: config.incrementalCommits,
+    incrementalCommitInterval: config.incrementalCommitInterval,
+    promptOptimizerEnabled: config.promptOptimizerEnabled,
+    promptOptimizerModel: config.promptOptimizerModel,
+    promptOptimizerProvider: config.promptOptimizerProvider,
+    providers: config.getAvailableProviders(),
+    assistBaseUrl: config.oraBaseUrl.replace(/\/v1\/?$/, ''),
   });
 });
 
