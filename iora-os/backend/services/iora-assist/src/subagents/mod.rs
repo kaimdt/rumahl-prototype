@@ -21,7 +21,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
 use crate::acp::{
-    self, AcpMessage, AcpMessageType, AcpPayload, AcpRouter,
+    self, AcpRouter,
     AgentCapability, AgentId, AgentInfo, AgentStatus,
 };
 use crate::providers::{AIProvider, ChatMessage, ProviderConfig, ProviderType, create_provider, provider_type_from_str};
@@ -340,7 +340,7 @@ impl Subagent {
             .unwrap_or_else(|| format!("{}-{}", agent_type_str.clone(), &Uuid::new_v4().to_string()[..8]));
 
         let capabilities = config.agent_type.default_capabilities();
-        let provider_enum = provider_type_from_str(&config.provider)
+        let _provider_enum = provider_type_from_str(&config.provider)
             .unwrap_or(ProviderType::OpenAI);
 
         let agent_info = AgentInfo {
@@ -414,7 +414,7 @@ impl Subagent {
     }
 
     /// Start the subagent's main event loop
-    pub async fn run(mut self: Arc<Subagent>) {
+    pub async fn run(self: Arc<Subagent>) {
         let _ = self.event_tx.send(SubagentEvent::Spawned {
             agent: self.info.clone(),
         });
@@ -464,7 +464,7 @@ impl Subagent {
             // Execute the task
             let start = std::time::Instant::now();
             let result = self.execute_task(&task).await;
-            let duration = start.elapsed().as_secs_f64();
+            let _duration = start.elapsed().as_secs_f64();
 
             // Update state
             {

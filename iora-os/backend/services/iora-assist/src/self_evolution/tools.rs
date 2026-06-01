@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use crate::providers::{AIProvider, ChatMessage, ChatResponse};
+use crate::providers::{AIProvider, ChatMessage};
 
 /// Base trait for evolution tools
 #[async_trait]
@@ -39,7 +39,7 @@ impl CodeReadTool {
     pub fn list_files(&self, dir: &Path, extension: Option<&str>) -> Result<Vec<PathBuf>, String> {
         let mut files = Vec::new();
         
-        let mut entries = match std::fs::read_dir(dir) {
+        let entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
             Err(e) => return Err(format!("Cannot read directory {}: {}", dir.display(), e)),
         };
@@ -521,8 +521,8 @@ impl CodeDiffTool {
 
     /// Generate a diff summary showing line changes
     pub fn diff_summary(&self, original: &str, modified: &str) -> serde_json::Value {
-        let added = 0i32;
-        let removed = 0i32;
+        let _added = 0i32;
+        let _removed = 0i32;
         
         for (orig_line, mod_line) in original.lines().zip(modified.lines()) {
             if orig_line != mod_line {

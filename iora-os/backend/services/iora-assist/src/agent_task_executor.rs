@@ -4,10 +4,9 @@
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
-use uuid::Uuid;
 
-use crate::providers::{AIProvider, ChatMessage, ProviderConfig, ProviderType, create_provider, provider_type_from_str};
-use crate::sandbox::{AgentTask, FileDiff, SandboxManager, TaskConfig, TaskOutputLine};
+use crate::providers::{ChatMessage, ProviderConfig, ProviderType, create_provider, provider_type_from_str};
+use crate::sandbox::{FileDiff, SandboxManager, TaskOutputLine};
 
 /// Event, das an SSE-Listener gesendet wird
 #[derive(Debug, Clone)]

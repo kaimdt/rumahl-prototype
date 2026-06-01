@@ -1,7 +1,6 @@
 use sqlx::Row;
 // Code generation engine - ORA generates, reviews, and applies its own code modifications
 
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -125,7 +124,7 @@ impl CodeGenerationEngine {
         change_type: ChangeType,
         old_code: Option<String>,
         new_code: String,
-        reflection_id: Option<uuid::Uuid>,
+        _reflection_id: Option<uuid::Uuid>,
     ) -> Result<CodeChangeProposal, String> {
         // Validate the proposal
         self.validate_proposal(&file_path, &change_type, &new_code)?;

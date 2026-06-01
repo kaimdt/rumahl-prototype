@@ -1,9 +1,8 @@
 // Self-Evolution Planner - Multi-step planning engine for ORA's self-improvement
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use super::tools::{EvolutionTool, ToolOutput};
-use crate::providers::{AIProvider, ChatMessage, ChatResponse};
+use super::tools::EvolutionTool;
+use crate::providers::{AIProvider, ChatMessage};
 
 /// A single step in an evolution plan
 #[derive(Debug, Clone, Serialize, Deserialize)]

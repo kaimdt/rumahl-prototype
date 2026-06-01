@@ -2,7 +2,6 @@
 // Enables the admin to see everything the system does: agent tasks, pi.dev sessions,
 // subagent activity, security events, task scheduling, evolution cycles, etc.
 
-use std::sync::Arc;
 
 use serde::Serialize;
 use tokio::sync::broadcast;

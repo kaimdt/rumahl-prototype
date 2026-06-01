@@ -1,8 +1,8 @@
-use sqlx::Row;
 // Tool Execution Framework for ORA AI
 // Provides internet search, web scraping, and other external tool integrations
 
-use headless_chrome::{Browser, LaunchOptions, Tab};
+use base64::Engine;
+use headless_chrome::{Browser, LaunchOptions};
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -260,7 +260,7 @@ impl ToolExecutor {
                     true,
                 )
                 .ok()
-                .map(|data| base64::encode(&data))
+                .map(|data| base64::engine::general_purpose::STANDARD.encode(&data))
             } else {
                 None
             };
@@ -309,7 +309,7 @@ impl ToolExecutor {
                 )
                 .map_err(|e| e.to_string())?;
 
-            Ok(base64::encode(&screenshot_data))
+            Ok(base64::engine::general_purpose::STANDARD.encode(&screenshot_data))
         });
 
         handle

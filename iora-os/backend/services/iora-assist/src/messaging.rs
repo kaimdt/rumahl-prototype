@@ -2,12 +2,11 @@
 // Let users chat with ORA via external messaging platforms
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use parking_lot::RwLock;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

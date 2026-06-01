@@ -9,9 +9,8 @@
 //
 // Returns a structured `ParsedSchedule` that the memory module can persist.
 
-use chrono::{Datelike, DateTime, Duration, NaiveDate, NaiveTime, Timelike, Utc, Weekday};
+use chrono::{Datelike, DateTime, Duration, NaiveTime, Utc, Weekday};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 // ─── Output types ─────────────────────────────────────────────────────────────
 
@@ -36,7 +35,6 @@ impl RecurrenceType {
         match self {
             RecurrenceType::Once => "once",
             RecurrenceType::Hourly => "hourly",
-            RecurrenceType::Daily => "daily",
             RecurrenceType::Daily => "daily",
             RecurrenceType::Weekdays => "weekdays",
             RecurrenceType::Weekly => "weekly",

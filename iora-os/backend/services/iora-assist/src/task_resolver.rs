@@ -310,7 +310,7 @@ fn score_task_match(lower: &str, task: &AutonomousTask) -> f64 {
 }
 
 /// Determine what modification the user wants to make.
-fn detect_modification_action(lower: &str, task: &AutonomousTask) -> TaskModificationAction {
+fn detect_modification_action(lower: &str, _task: &AutonomousTask) -> TaskModificationAction {
     // Determine duration (days), defaulting to 0 if not found
     let days = extract_duration_days(lower).unwrap_or(0);
     let now = Utc::now();

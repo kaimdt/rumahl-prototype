@@ -5,16 +5,16 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bollard::container::{
-    Config as ContainerConfig, CreateContainerOptions, LogOutput, LogsOptions,
+    Config as ContainerConfig, CreateContainerOptions,
     RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::models::{
-    HostConfig as BollardHostConfig, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+    HostConfig as BollardHostConfig, RestartPolicy, RestartPolicyNameEnum,
 };
 use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use super::security_monitor::SecurityPolicy;
 

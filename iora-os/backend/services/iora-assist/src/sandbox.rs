@@ -477,7 +477,7 @@ impl SandboxManager {
 
         if branch.status.success() {
             // Push new branch to remote
-            if let Some(ref remote) = ws.git_remote {
+            if let Some(_remote) = ws.git_remote {
                 tokio::process::Command::new("git")
                     .args(["push", "-u", "origin", branch_name])
                     .current_dir(&dir)

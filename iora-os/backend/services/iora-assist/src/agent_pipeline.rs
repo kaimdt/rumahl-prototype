@@ -6,8 +6,8 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
 
 use crate::agent_task_executor::AgentTaskEvent;
-use crate::providers::{create_provider, provider_type_from_str, AIProvider, ChatMessage, ProviderConfig, ProviderType};
-use crate::sandbox::{AgentTask, FileDiff, SandboxManager, TaskConfig, TaskOutputLine, Workspace, WorkspaceFile};
+use crate::providers::{create_provider, provider_type_from_str, ChatMessage, ProviderConfig, ProviderType};
+use crate::sandbox::{SandboxManager, TaskOutputLine, WorkspaceFile};
 
 /// Status einer Pipeline-Phase
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -155,7 +155,7 @@ impl AgentPipeline {
         task_description: &str,
         pipeline_config: PipelineConfig,
     ) -> Result<(), String> {
-        let workspace = self.sandbox.get_workspace(workspace_id).await
+        let _workspace = self.sandbox.get_workspace(workspace_id).await
             .ok_or_else(|| "Workspace not found".to_string())?;
 
         // Prüfe Provider-Verfügbarkeit

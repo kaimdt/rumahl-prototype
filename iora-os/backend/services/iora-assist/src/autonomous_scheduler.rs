@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc, Timelike, Datelike, Weekday};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tracing::{error, info, warn};
+use tracing::info;
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -164,7 +164,7 @@ impl AutonomousScheduler {
 
     /// Record a task run result
     pub fn record_run(&self, task_id: &str, run: TaskRun) {
-        if let Some(mut task) = self.tasks.write().get_mut(task_id) {
+        if let Some(task) = self.tasks.write().get_mut(task_id) {
             task.last_run = Some(Utc::now());
             if run.success { task.success_count += 1; }
             task.next_run = self.calculate_next_run(&task.schedule);

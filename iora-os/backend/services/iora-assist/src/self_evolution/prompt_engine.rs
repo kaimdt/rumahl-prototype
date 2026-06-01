@@ -1,6 +1,6 @@
 // Prompt optimization engine - ORA learns to craft better prompts over time
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -496,7 +496,7 @@ impl PromptOptimizationEngine {
 
         // Remove vagueness
         for pattern in &["try to ", "maybe ", "possibly "] {
-            let replacement = &pattern[0..pattern.len()-1];  // Remove trailing space and "to"
+            let _replacement = &pattern[0..pattern.len()-1];  // Remove trailing space and "to"
             optimized = optimized.replace(pattern, "");
         }
 

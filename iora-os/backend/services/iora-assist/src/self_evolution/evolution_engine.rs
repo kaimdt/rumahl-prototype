@@ -1,11 +1,10 @@
 // Evolution Engine - Core logic for ORA's self-improvement cycle
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 use crate::providers::{AIProvider, ChatMessage};
 use crate::self_evolution::{EvolutionProposal, EvolutionConfig};
-use super::tools::CodeReadTool;
 
 /// The evolution engine orchestrates ORA's self-improvement cycle:
 /// 1. **Self-Assessment**: Analyze current codebase and identify improvement areas
@@ -62,7 +61,7 @@ impl EvolutionEngine {
 
         let recent_failures = "No recent failures.";
         let codebase_structure = self.scan_codebase().await?;
-        let user_feedback = "No recent feedback.";
+        let _user_feedback = "No recent feedback.";
 
         let context = format!(
             "=== ORA Self-Assessment ===\n\n\

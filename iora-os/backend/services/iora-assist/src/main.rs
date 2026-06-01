@@ -1,3 +1,9 @@
+// iora-assist exposes a large public API surface. Many types, struct fields, and
+// handler methods exist for external consumers (HTTP endpoints, capability
+// registry, pi.dev controller). Suppress dead_code warnings at crate level since
+// the compiler cannot see external usage.
+#![allow(dead_code)]
+
 use std::{sync::Arc, time::Instant, collections::HashMap};
 
 use axum::{
@@ -52,10 +58,10 @@ mod virtual_company;
 mod messaging;
 mod dlp_guard;
 
-use context::{ContextBuilder, SmartHomeContext};
+use context::ContextBuilder;
 use database::DbPool;
 use memory::{ActiveTaskRequest, CreateMemoryRequest, MemoryManager};
-use orchestrator::{ProviderOrchestrator, TaskPurpose};
+use orchestrator::ProviderOrchestrator;
 use task_engine::TaskEngine;
 use instant_task_engine::{InstantTaskEngine, InstantTaskResult};
 use conversation_manager::ConversationManager;
@@ -74,16 +80,16 @@ use self_evolution::{
 
 use sandbox::SandboxManager;
 use agent_task_executor::AgentTaskExecutor;
-use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PiDevSessionEvent, PluginConfig, SecurityLevel, BridgeState, ControlResult};use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
-use system_event_bus::{SystemEventBus, SystemEvent};
-use system_guard::{SystemGuard, SystemState, LoopDetection, ProtectionRule};
-use model_router::{ModelRouter, RoutingDecision, TaskCategory, RouterConfig};
-use memory_system::{MemoryStore, Memory, MemoryQuery, MemoryCategory};
-use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun, Schedule, SchedulerEvent};
+use pi_dev_controller::{PiDevController, PiDevSessionConfig, PiDevSession, PluginConfig, SecurityLevel, BridgeState, ControlResult};use app_capability_registry::{AppCapabilityRegistry, AppCapabilities};
+use system_event_bus::SystemEventBus;
+use system_guard::{SystemGuard, LoopDetection, ProtectionRule};
+use model_router::{ModelRouter, RoutingDecision, RouterConfig};
+use memory_system::{MemoryStore, Memory, MemoryQuery};
+use autonomous_scheduler::{AutonomousScheduler, ScheduledTask, TaskRun};
 use ora_features::{multi_agent::Orchestrator, code_review, self_healing::SelfHealing, cost_intel::CostTracker, mistake_learner::MistakeLearner};
 use virtual_company::{VirtualCompany, CompanyAgent, CompanyProject, CompanyTask, CompanyRole, BriefingSession, BriefingConfig, BriefingTrigger};
-use messaging::{MessagingManager, MessagingConfig, EmailRequest, MessageResult, SmtpConfig, TelegramConfig, WhatsAppConfig};
-use dlp_guard::{DlpGuard, DlpScanResult, AiTokenManager, AiTokenConfig};
+use messaging::{MessagingManager, MessagingConfig, EmailRequest, MessageResult};
+use dlp_guard::{DlpGuard, DlpScanResult, AiTokenManager};
 use cost_manager::{BudgetConfig, CostManager};
 use lsp::LspManager;
 use acp::AcpRouter;
@@ -525,7 +531,7 @@ async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> im
             }
 
             // Create and dispatch instant task if the AI requested one
-            let instant_task_id: Option<Uuid> = if let (Some(ref ite), Some(ref spec)) =
+            let instant_task_id: Option<Uuid> = if let (Some(_ite), Some(ref spec)) =
                 (state.instant_task_engine.as_ref(), maybe_instant.as_ref())
             {
                 if let Some(ref db) = state.db {
@@ -1093,7 +1099,6 @@ async fn transcribe_local(
     // Parse multipart form data
     let mut audio_data = None;
     let mut format = "webm".to_string();
-    let mut language: Option<String> = None;
 
     while let Some(field) = multipart.next_field().await.unwrap_or(None) {
         let name = field.name().unwrap_or("").to_string();
@@ -1109,9 +1114,8 @@ async fn transcribe_local(
                 }
             }
             "language" => {
-                if let Ok(l) = field.text().await {
-                    language = Some(l);
-                }
+                // language hint parsed but transcription returns its own detected language
+                let _ = field.text().await;
             }
             _ => {}
         }
@@ -1303,7 +1307,7 @@ async fn synthesize_local(
 }
 
 /// List available STT models (faster-whisper).
-async fn list_stt_models(State(state): State<AppState>) -> impl IntoResponse {
+async fn list_stt_models(State(_state): State<AppState>) -> impl IntoResponse {
     let stt_config = ProviderConfig {
         base_url: Some(iora_shared::system_config::stt_service_url()),
         ..Default::default()
@@ -1329,7 +1333,7 @@ async fn list_stt_models(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// List available TTS voices (Kokoro).
-async fn list_tts_voices(State(state): State<AppState>) -> impl IntoResponse {
+async fn list_tts_voices(State(_state): State<AppState>) -> impl IntoResponse {
     let tts_config = ProviderConfig {
         base_url: Some(iora_shared::system_config::tts_service_url()),
         ..Default::default()
@@ -1373,7 +1377,7 @@ async fn chat_stream(
     };
 
     // Save user message
-    let user_msg = ChatMessage {
+    let _user_msg = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
         content: req.message.clone(),
@@ -1535,7 +1539,7 @@ struct VideoAnalyzeRequest {
 
 async fn analyze_video(
     State(state): State<AppState>,
-    Json(req): Json<VideoAnalyzeRequest>,
+    Json(_req): Json<VideoAnalyzeRequest>,
 ) -> impl IntoResponse {
     let p = state.current_provider.read().await;
     
@@ -2246,7 +2250,7 @@ async fn stream_agent_task_events(
     let rx = if let Some(ref executor) = state.agent_task_executor {
         executor.subscribe()
     } else {
-        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        let (_tx, rx) = tokio::sync::broadcast::channel(1);
         rx
     };
 

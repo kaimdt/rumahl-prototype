@@ -12,8 +12,8 @@
 // Supports both single-message detection and multi-message conversation context.
 
 use crate::database::DbPool;
-use crate::schedule_engine::{build_conversation_context, ParsedSchedule, RecurrenceType, ScheduleEngine};
-use chrono::{DateTime, Duration, NaiveTime, Utc};
+use crate::schedule_engine::{build_conversation_context, ParsedSchedule, ScheduleEngine};
+use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

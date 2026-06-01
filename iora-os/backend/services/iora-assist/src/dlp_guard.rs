@@ -1,9 +1,6 @@
 // DLP Guard & AI Token System – Sensitive data protection for all AI I/O
 // Prevents accidental leakage of passwords, tokens, secrets, credentials
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
@@ -11,7 +8,7 @@ use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 // ─── Sensitive Data Patterns ───────────────────────────────────────────────
 
@@ -306,7 +303,7 @@ impl AiTokenManager {
         // Check max active tokens
         if tokens.len() >= config.max_active_tokens as usize {
             // Revoke the oldest token
-            if let Some(oldest) = tokens.first() {
+            if let Some(_oldest) = tokens.first() {
                 self.revoke_log.write().push(("max_tokens_exceeded".into(), Utc::now()));
             }
             tokens.remove(0);

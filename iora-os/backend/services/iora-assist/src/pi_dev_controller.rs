@@ -353,7 +353,7 @@ impl PiDevController {
         session_id: &str,
         event_id: &str,
     ) -> Result<(), String> {
-        let session = self.get_session(session_id)
+        let _session = self.get_session(session_id)
             .await
             .ok_or("Session not found")?;
 
@@ -796,7 +796,7 @@ impl PiDevController {
         }
 
         let cmd = command.trim().to_lowercase();
-        let mut message = String::new();
+        let message;
 
         match cmd.as_str() {
             "ping" => {

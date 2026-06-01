@@ -3,7 +3,6 @@
 // Integrates with pi.dev package registry (https://pi.dev/packages/*)
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;

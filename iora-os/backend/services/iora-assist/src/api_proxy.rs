@@ -5,14 +5,12 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use crate::{AppState, TaskPurpose};
+use crate::AppState;
 use crate::providers::ChatMessage;
 use chrono::Utc;
 use regex::Regex;
 use std::collections::HashMap;
 use lazy_static::lazy_static;
-use parking_lot::RwLock;
 
 // Simple privacy filter to mask emails and phone numbers
 lazy_static! {

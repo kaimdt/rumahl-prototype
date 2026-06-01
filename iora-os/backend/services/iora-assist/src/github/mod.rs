@@ -608,7 +608,7 @@ impl GitHubClient {
             "ref": format!("refs/heads/{}", branch_name),
             "sha": base_sha,
         });
-        let response = self.post(&path, &body).await?;
+        let _response = self.post(&path, &body).await?;
         // Now fetch the branch
         self.get_branch(owner, repo, branch_name).await
     }
@@ -1027,7 +1027,7 @@ impl GitHubClient {
         &self,
         query: Option<&str>,
         owner_filter: Option<&str>,
-        language_filter: Option<&str>,
+        _language_filter: Option<&str>,
     ) -> Result<Vec<GitHubRepo>, String> {
         if let Some(q) = query {
             let search = self.search_repos(q, 1, 20).await?;

@@ -9,7 +9,6 @@ use chrono::{DateTime, NaiveTime, Utc};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
-use uuid::Uuid;
 
 pub struct TaskEngine {
     db: DbPool,
@@ -331,7 +330,7 @@ impl TaskEngine {
 
     /// Execute an automation suggestion task
     async fn execute_suggest_task(
-        db: &DbPool,
+        _db: &DbPool,
         orchestrator: &Arc<ProviderOrchestrator>,
         task: &db_tasks::AutonomousTask,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {

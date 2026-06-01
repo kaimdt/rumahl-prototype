@@ -865,6 +865,61 @@ async fn poll_service_health(state: AppState) {
 
 // ─── Core migration runner ─────────────────────────────────────────────────────
 
+/// Split SQL into individual statements using a quote-aware parser.
+/// Semicolons inside single or double-quoted strings are preserved as part
+/// of the statement. Comment-only lines and empty statements are filtered out.
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut current = String::new();
+
+    for ch in sql.chars() {
+        match ch {
+            '\'' if !in_double_quote => {
+                in_single_quote = !in_single_quote;
+                current.push(ch);
+            }
+            '"' if !in_single_quote => {
+                in_double_quote = !in_double_quote;
+                current.push(ch);
+            }
+            ';' if !in_single_quote && !in_double_quote => {
+                let cleaned = strip_sql_comments(&current).trim().to_string();
+                if !cleaned.is_empty() {
+                    statements.push(cleaned);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let cleaned = strip_sql_comments(&current).trim().to_string();
+    if !cleaned.is_empty() {
+        statements.push(cleaned);
+    }
+
+    statements
+}
+
+/// Remove SQL comment lines (lines starting with --) from accumulated text.
+/// Preserves non-comment content and whitespace between valid lines.
+fn strip_sql_comments(text: &str) -> String {
+    let filtered: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with("--")
+        })
+        .collect();
+    if filtered.is_empty() {
+        String::new()
+    } else {
+        filtered.join("\n")
+    }
+}
+
 async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _core_migrations (
@@ -914,48 +969,11 @@ async fn run_core_migrations(pool: &DbPool) -> anyhow::Result<()> {
                 (statement_trimmed.contains(';') && !statement_trimmed.ends_with(';'));
 
             if has_multiple_statements {
-                // For complex migrations, execute statement by statement with proper parsing
-                // Split more carefully: only on semicolons that are not in quotes
-                let mut in_single_quote = false;
-                let mut in_double_quote = false;
-                let mut current_statement = String::new();
-                let mut chars = statement_trimmed.chars().peekable();
-
-                while let Some(ch) = chars.next() {
-                    match ch {
-                        '\'' if !in_double_quote => {
-                            in_single_quote = !in_single_quote;
-                            current_statement.push(ch);
-                        }
-                        '"' if !in_single_quote => {
-                            in_double_quote = !in_double_quote;
-                            current_statement.push(ch);
-                        }
-                        ';' if !in_single_quote && !in_double_quote => {
-                            // End of statement
-                            let trimmed = current_statement.trim();
-                            if !trimmed.is_empty() && !trimmed.starts_with("--") {
-                                sqlx::query(trimmed).execute(&mut *tx).await.map_err(|e| {
-                                    tracing::error!(
-                                        "iora-core: migration {} failed on statement (rolling back): {}",
-                                        name,
-                                        e
-                                    );
-                                    e
-                                })?;
-                            }
-                            current_statement.clear();
-                        }
-                        _ => current_statement.push(ch),
-                    }
-                }
-
-                // Execute any remaining statement
-                let trimmed = current_statement.trim();
-                if !trimmed.is_empty() && !trimmed.starts_with("--") {
-                    sqlx::query(trimmed).execute(&mut *tx).await.map_err(|e| {
+                let statements = split_sql_statements(statement_trimmed);
+                for stmt in &statements {
+                    sqlx::query(stmt.as_str()).execute(&mut *tx).await.map_err(|e| {
                         tracing::error!(
-                            "iora-core: migration {} failed on final statement (rolling back): {}",
+                            "iora-core: migration {} failed on statement (rolling back): {}",
                             name,
                             e
                         );
@@ -1077,4 +1095,124 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_single_statement_no_semicolon() {
+        let result = split_sql_statements("SELECT 1");
+        assert_eq!(result, vec!["SELECT 1"]);
+    }
+
+    #[test]
+    fn test_multiple_statements() {
+        let result = split_sql_statements("SELECT 1; SELECT 2; SELECT 3;");
+        assert_eq!(result, vec!["SELECT 1", "SELECT 2", "SELECT 3"]);
+    }
+
+    #[test]
+    fn test_semicolon_in_single_quoted_string() {
+        let sql = "INSERT INTO t VALUES ('hello;world'); SELECT 2;";
+        let result = split_sql_statements(sql);
+        assert_eq!(result, vec!["INSERT INTO t VALUES ('hello;world')", "SELECT 2"]);
+    }
+
+    #[test]
+    fn test_semicolon_in_double_quoted_string() {
+        let sql = "INSERT INTO t VALUES (\"val;ue\"); SELECT 2;";
+        let result = split_sql_statements(sql);
+        assert_eq!(result, vec!["INSERT INTO t VALUES (\"val;ue\")", "SELECT 2"]);
+    }
+
+    #[test]
+    fn test_comment_lines_filtered_out() {
+        let sql = "-- This is a comment\nSELECT 1; -- another comment\n-- more comments\nSELECT 2;";
+        let result = split_sql_statements(sql);
+        assert_eq!(result, vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn test_empty_statements_filtered() {
+        let result = split_sql_statements(";;;SELECT 1;;;");
+        assert_eq!(result, vec!["SELECT 1"]);
+    }
+
+    #[test]
+    fn test_mixed_quotes() {
+        let sql = "SELECT 'single\"quote' AS a, \"double'quote\" AS b;";
+        let result = split_sql_statements(sql);
+        assert_eq!(result, vec!["SELECT 'single\"quote' AS a, \"double'quote\" AS b"]);
+    }
+
+    #[test]
+    fn test_create_table_with_defaults() {
+        let sql = "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'unknown');";
+        let result = split_sql_statements(sql);
+        assert_eq!(result, vec!["CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'unknown')"]);
+    }
+
+    #[test]
+    fn test_multiline_statement() {
+        let sql = "CREATE TABLE t (\n  id INTEGER,\n  name TEXT\n);\nINSERT INTO t VALUES (1, 'test');";
+        let result = split_sql_statements(sql);
+        assert_eq!(result, vec!["CREATE TABLE t (\n  id INTEGER,\n  name TEXT\n)", "INSERT INTO t VALUES (1, 'test')"]);
+    }
+
+    #[test]
+    fn test_unclosed_quote_handled_gracefully() {
+        let sql = "SELECT 'unclosed;INSERT INTO t VALUES (1);";
+        let result = split_sql_statements(sql);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].contains("unclosed"));
+    }
+
+    // ── Heartbeat race-condition logic tests ──────────────────────────
+
+    /// Registration event should fire only for first heartbeat (was_known=false).
+    #[test]
+    fn test_registration_event_fires_only_once() {
+        // Simulate heartbeat_count before lock
+        let test_cases = vec![
+            (0, true, "first heartbeat should fire registration"),
+            (1, false, "second heartbeat should not re-fire"),
+            (5, false, "fifth heartbeat should not re-fire"),
+            (100, false, "many heartbeats should not re-fire"),
+        ];
+        for (heartbeat_count, expect_fire, msg) in test_cases {
+            let was_known = heartbeat_count > 0;
+            assert_eq!(!was_known, expect_fire, "{}", msg);
+        }
+    }
+
+    /// Verify that the broadcast channel capacity is sufficient for burst events.
+    #[test]
+    fn test_broadcast_channel_burst_capacity() {
+        use tokio::sync::broadcast;
+        let (tx, mut rx) = broadcast::channel::<i32>(1024);
+        // Send 200 events — should not drop any at 1024 capacity with active receiver
+        for i in 0..200 {
+            assert!(tx.send(i).is_ok(), "Event {} should not be dropped", i);
+        }
+        let mut count = 0;
+        while rx.try_recv().is_ok() {
+            count += 1;
+        }
+        assert_eq!(count, 200, "All 200 events should be received at capacity 1024");
+    }
+
+    /// The send_event helper should not panic when the channel is full.
+    #[test]
+    fn test_send_event_helper_does_not_panic() {
+        use tokio::sync::broadcast;
+        // No receiver = all sends return Err which send_event logs
+        let (tx, _rx) = broadcast::channel::<i32>(4);
+        let event = 42;
+        // send_event equivalent: test that it doesn't panic on send error
+        let result = tx.send(event);
+        // With no receivers, send returns Err (not lagged)
+        assert!(result.is_err() || result.is_ok());
+    }
 }

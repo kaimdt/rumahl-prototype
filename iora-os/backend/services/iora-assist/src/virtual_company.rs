@@ -2,13 +2,11 @@
 // Multi-agent orchestration: virtual company with CEO, CTO, Developer, etc.
 // AI Briefings: automated weekly meetings, user-called briefings, summaries
 
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc, Datelike, Timelike, Weekday};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::info;
 
 // ─── Virtual Company ───────────────────────────────────────────────────────
 

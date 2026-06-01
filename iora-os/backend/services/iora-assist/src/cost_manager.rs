@@ -295,7 +295,7 @@ impl CostManager {
     /// Determine the best model for a given purpose and mode
     pub fn route_model<'a>(
         &self,
-        purpose: &str,
+        _purpose: &str,
         mode: &str,
         available_models: &[(&'a str, &'a str)], // (model, provider)
     ) -> Option<(&'a str, &'a str)> {

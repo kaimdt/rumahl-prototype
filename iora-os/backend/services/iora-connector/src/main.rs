@@ -27,7 +27,7 @@
 //! 5. No port forwarding, no WireGuard, no VPN — just a WebSocket
 //! 6. TLS is handled automatically by the cloud relay (ACME/Let's Encrypt)
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::{
     body::Body,
     extract::{
@@ -38,7 +38,7 @@ use axum::{
     http::{header, HeaderMap, Method, StatusCode, Uri},
     middleware,
     response::{IntoResponse, Json, Response},
-    routing::{any, delete, get, post, put},
+    routing::{any, delete, get, post},
     Router,
 };
 use chrono::Utc;
@@ -55,7 +55,7 @@ use std::{
 };
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 // ─── Tunnel Protocol ────────────────────────────────────────────────────────
@@ -987,6 +987,24 @@ async fn cleanup_old_logs(state: Arc<AppState>) {
     }
 }
 
+/// Safety threshold for pending request count. Above this, all pending requests
+/// are considered orphaned and cleared.
+const PENDING_REQUEST_CLEAR_THRESHOLD: usize = 100;
+
+/// Determine orphaned tunnel IDs: those in active but not in connected_in_db.
+fn find_orphaned_tunnel_ids(active_ids: &[String], connected_in_db: &[String]) -> Vec<String> {
+    active_ids
+        .iter()
+        .filter(|id| !connected_in_db.contains(id))
+        .cloned()
+        .collect()
+}
+
+/// Determine whether pending requests should be bulk-cleared based on count.
+fn should_clear_pending_requests(count: usize) -> bool {
+    count > PENDING_REQUEST_CLEAR_THRESHOLD
+}
+
 /// Background task to cleanup orphaned entries in HashMaps (memory leak prevention)
 ///
 /// Runs every 5 minutes to remove:
@@ -996,7 +1014,7 @@ async fn cleanup_orphaned_entries(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(300)).await; // Every 5 minutes
 
-        let now = Utc::now().to_rfc3339();
+        let _now = Utc::now().to_rfc3339();
 
         // 1. Clean up orphaned active_tunnels by cross-referencing with DB
         let active_tunnel_ids: Vec<String> = {
@@ -1014,9 +1032,10 @@ async fn cleanup_orphaned_entries(state: Arc<AppState>) {
             .unwrap_or_default();
 
             // Remove tunnels from HashMap that aren't in DB or are stale
-            let mut active = state.active_tunnels.write().await;
-            for tunnel_id in &active_tunnel_ids {
-                if !connected_in_db.contains(tunnel_id) {
+            let orphaned = find_orphaned_tunnel_ids(&active_tunnel_ids, &connected_in_db);
+            if !orphaned.is_empty() {
+                let mut active = state.active_tunnels.write().await;
+                for tunnel_id in &orphaned {
                     active.remove(tunnel_id);
                     tracing::info!("Cleaned up orphaned active_tunnel entry: {}", tunnel_id);
                 }
@@ -1033,13 +1052,11 @@ async fn cleanup_orphaned_entries(state: Arc<AppState>) {
         let pending_count = {
             let mut pending = state.pending_requests.write().await;
             let count = pending.len();
-            if count > 100 {
-                // If we have >100 pending requests, something is wrong - clear them all
+            if should_clear_pending_requests(count) {
                 tracing::warn!("Found {} orphaned pending_requests - clearing all", count);
                 pending.clear();
                 count
             } else if count > 0 {
-                // Small number - likely transient, log for monitoring
                 tracing::debug!("Found {} pending_requests (may be legitimate)", count);
                 0
             } else {
@@ -1047,8 +1064,68 @@ async fn cleanup_orphaned_entries(state: Arc<AppState>) {
             }
         };
 
-        if pending_count > 100 {
+        if pending_count > PENDING_REQUEST_CLEAR_THRESHOLD {
             tracing::info!("Cleaned up {} orphaned pending_request entries", pending_count);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pending_requests_below_threshold_not_cleared() {
+        assert!(!should_clear_pending_requests(0));
+        assert!(!should_clear_pending_requests(50));
+        assert!(!should_clear_pending_requests(100));
+    }
+
+    #[test]
+    fn test_pending_requests_above_threshold_cleared() {
+        assert!(should_clear_pending_requests(101));
+        assert!(should_clear_pending_requests(500));
+        assert!(should_clear_pending_requests(1000));
+    }
+
+    #[test]
+    fn test_find_orphaned_tunnels_empty() {
+        let active = vec!["t1".to_string(), "t2".to_string()];
+        let connected: Vec<String> = vec![];
+        let orphans = find_orphaned_tunnel_ids(&active, &connected);
+        assert_eq!(orphans, vec!["t1", "t2"]);
+    }
+
+    #[test]
+    fn test_find_orphaned_tunnels_all_connected() {
+        let active = vec!["t1".to_string(), "t2".to_string()];
+        let connected = vec!["t1".to_string(), "t2".to_string()];
+        let orphans = find_orphaned_tunnel_ids(&active, &connected);
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn test_find_orphaned_tunnels_partial() {
+        let active = vec!["t1".to_string(), "t2".to_string(), "t3".to_string()];
+        let connected = vec!["t2".to_string()];
+        let orphans = find_orphaned_tunnel_ids(&active, &connected);
+        assert_eq!(orphans, vec!["t1", "t3"]);
+    }
+
+    #[test]
+    fn test_find_orphaned_tunnels_no_active() {
+        let active: Vec<String> = vec![];
+        let connected = vec!["t1".to_string()];
+        let orphans = find_orphaned_tunnel_ids(&active, &connected);
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn test_threshold_constant_consistent() {
+        assert_eq!(PENDING_REQUEST_CLEAR_THRESHOLD, 100);
+        // Boundary: exactly at threshold should not clear
+        assert!(!should_clear_pending_requests(PENDING_REQUEST_CLEAR_THRESHOLD));
+        // One above threshold should clear
+        assert!(should_clear_pending_requests(PENDING_REQUEST_CLEAR_THRESHOLD + 1));
     }
 }

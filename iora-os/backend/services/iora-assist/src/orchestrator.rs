@@ -1,8 +1,7 @@
-use sqlx::Row;
 // Multi-Provider Orchestrator
 // Manages multiple AI providers simultaneously and routes tasks to appropriate providers
 
-use crate::providers::{AIProvider, ChatMessage, ChatResponse, AudioTranscription, SpeechSynthesis, ProviderConfig, create_provider, provider_type_from_str};
+use crate::providers::{AIProvider, ChatMessage, ChatResponse, ProviderConfig, create_provider, provider_type_from_str};
 use crate::database::{DbPool, providers as db_providers};
 use std::collections::HashMap;
 use std::sync::Arc;

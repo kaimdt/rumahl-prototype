@@ -1,11 +1,9 @@
-use sqlx::Row;
 // Proactive Conversation Manager
 // Manages continuous conversation threads and AI-initiated messages
 
 use crate::database::{DbPool, conversations as db_conversations, notifications as db_notifications};
 use crate::orchestrator::ProviderOrchestrator;
 use crate::providers::ChatMessage;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
@@ -54,7 +52,7 @@ impl ConversationManager {
         drop(is_running);
 
         let db = self.db.clone();
-        let orchestrator = self.orchestrator.clone();
+        let _orchestrator = self.orchestrator.clone();
         let running = self.running.clone();
 
         tokio::spawn(async move {

@@ -5,7 +5,7 @@ use bollard::container::{
     StartContainerOptions, StatsOptions, StopContainerOptions,
 };
 use bollard::image::{BuildImageOptions, CreateImageOptions, ListImagesOptions};
-use bollard::service::{ContainerStateStatusEnum, ContainerSummary, HostConfig};
+use bollard::service::HostConfig;
 use bollard::Docker;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,10 +16,9 @@ use std::sync::Arc;
 use sysinfo::{System, Disks, Networks};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt as _;
-use tracing::{error, info, warn};
-use futures_util::stream::{self, Stream, TryStreamExt};
+use tracing::{error, info};
+use futures_util::stream::TryStreamExt;
 use std::time::Duration;
-use std::pin::Pin;
 
 /// IORA Supervisor - Docker orchestration for IORA OS
 ///
@@ -1051,10 +1050,11 @@ fn safe_compose_token(value: &str) -> String {
 }
 
 fn compose_project_dir(req: &ComposeProjectRequest) -> Result<std::path::PathBuf, String> {
-    // Define allowed base directory
-    let base_dir = std::env::var("IORA_LOCAL_APPS_DIR")
+    // Define allowed base directory (canonicalized to handle macOS /var → /private/var)
+    let base_dir_raw = std::env::var("IORA_LOCAL_APPS_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/iora/local-apps"));
+    let base_dir = base_dir_raw.canonicalize().unwrap_or(base_dir_raw);
 
     if let Some(dir) = req.compose_dir.as_deref().filter(|d| !d.trim().is_empty()) {
         let requested_path = std::path::PathBuf::from(dir);
@@ -1599,7 +1599,7 @@ async fn ensure_developer_app_installed(docker: &Docker) -> Result<(), Box<dyn s
     labels.insert("iora.app.installation_source".to_string(), "developer_app".to_string());
     labels.insert("iora.app.permissions".to_string(), "DeveloperAccess,InterAppCommunication,LiveMetrics,DirectDeploy,DebugAccess,LiveLogs,HotReload".to_string());
 
-    let mut env = vec![
+    let env = vec![
         "RUST_LOG=info".to_string(),
         "SUPERVISOR_URL=http://iora-supervisor:8097".to_string(),
         "IORA_API_URL=http://iora-api:8080".to_string(),
@@ -2198,4 +2198,112 @@ async fn main() -> std::io::Result<()> {
     .bind(("0.0.0.0", port))?
     .run()
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+
+    fn make_req(app_id: &str, compose_dir: Option<&str>) -> ComposeProjectRequest {
+        ComposeProjectRequest {
+            app_id: app_id.to_string(),
+            project_name: "test-project".to_string(),
+            compose_content: None,
+            compose_dir: compose_dir.map(|s| s.to_string()),
+            prepare_mode: None,
+        }
+    }
+
+    #[test]
+    fn test_default_dir_uses_base_plus_app_id() {
+        let tmp = env::temp_dir().join("iora-test-default");
+        fs::create_dir_all(&tmp).unwrap();
+        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
+
+        let req = make_req("my-app", None);
+        let result = compose_project_dir(&req).unwrap();
+        // result is base_dir.join(app_id) where base_dir is canonicalized
+        let canonical_base = tmp.canonicalize().unwrap();
+        assert_eq!(result, canonical_base.join("my-app"));
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    fn canonical_base(tmp: &std::path::Path) -> std::path::PathBuf {
+        tmp.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn test_valid_dir_within_base() {
+        let tmp = env::temp_dir().join("iora-test-valid");
+        fs::create_dir_all(&tmp).unwrap();
+        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
+
+        let sub = tmp.join("my-app");
+        fs::create_dir_all(&sub).unwrap();
+
+        let req = make_req("my-app", Some(sub.to_str().unwrap()));
+        let result = compose_project_dir(&req).unwrap();
+        assert_eq!(result, sub.canonicalize().unwrap());
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_path_traversal_rejected() {
+        let tmp = env::temp_dir().join("iora-test-traversal");
+        fs::create_dir_all(&tmp).unwrap();
+        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
+
+        let req = make_req("evil", Some("../etc/passwd"));
+        match compose_project_dir(&req) {
+            Err(e) => assert!(e.contains("compose_dir") || e.contains("Invalid"), "Expected rejection, got: {}", e),
+            Ok(path) => assert!(
+                path.starts_with(&canonical_base(&tmp)),
+                "Path {:?} must be within base_dir {:?}", path, tmp
+            ),
+        }
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_absolute_path_outside_base_rejected() {
+        let tmp = env::temp_dir().join("iora-test-outside");
+        fs::create_dir_all(&tmp).unwrap();
+        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
+
+        let req = make_req("evil", Some("/etc"));
+        assert!(compose_project_dir(&req).is_err(), "Absolute path outside base_dir must be rejected");
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_empty_compose_dir_uses_default() {
+        let tmp = env::temp_dir().join("iora-test-empty");
+        fs::create_dir_all(&tmp).unwrap();
+        env::set_var("IORA_LOCAL_APPS_DIR", tmp.to_str().unwrap());
+
+        let req = make_req("app1", Some(""));
+        let result = compose_project_dir(&req).unwrap();
+        let canonical_base = tmp.canonicalize().unwrap();
+        assert_eq!(result, canonical_base.join("app1"),
+            "Empty compose_dir should default to base_dir/app_id");
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_safe_compose_token_filters_special_chars() {
+        // safe_compose_token filters non-alphanumeric characters (except - and _)
+        assert_eq!(safe_compose_token("my app"), "myapp");
+        assert_eq!(safe_compose_token("test/app"), "testapp");
+        assert_eq!(safe_compose_token("hello--world"), "hello--world");
+        assert_eq!(safe_compose_token("valid_name"), "valid_name");
+        assert_eq!(safe_compose_token("app!@#123"), "app123");
+        assert_eq!(safe_compose_token("UPPER_case"), "UPPER_case");
+    }
 }

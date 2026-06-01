@@ -203,7 +203,7 @@ impl ReflectionEngine {
     }
 
     /// Generate a lesson learned from failure pattern
-    fn generate_lesson(&self, category: &str, errors: &[String]) -> String {
+    fn generate_lesson(&self, category: &str, _errors: &[String]) -> String {
         match category {
             "timeout" => format!(
                 "Increase timeout thresholds for {} operations. Consider implementing \
@@ -231,7 +231,7 @@ impl ReflectionEngine {
     }
 
     /// Generate action items from failure analysis
-    fn generate_action_items(&self, category: &str, errors: &[String]) -> Vec<String> {
+    fn generate_action_items(&self, category: &str, _errors: &[String]) -> Vec<String> {
         let mut items = Vec::new();
         
         match category {

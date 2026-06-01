@@ -1,7 +1,5 @@
-use sqlx::Row;
 // Self-evolution cycle orchestrator - coordinates reflection, planning, and code generation
 
-use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -10,8 +8,7 @@ use std::collections::HashMap;
 
 use super::reflection::ReflectionEngine;
 use super::prompt_engine::PromptOptimizationEngine;
-use super::code_generation::{CodeGenerationEngine, CodeChangeProposal, ChangeType, ReviewResult};
-use super::EvolutionConfig;
+use super::code_generation::{CodeGenerationEngine, CodeChangeProposal, ChangeType};
 
 /// Orchestrates the complete self-evolution cycle for ORA
 pub struct EvolutionCycle {
