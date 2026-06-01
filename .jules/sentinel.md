@@ -1,0 +1,4 @@
+## 2023-10-25 - XSS Vulnerability via dangerouslySetInnerHTML
+**Vulnerability:** Found multiple instances of un-sanitized dynamic CSS and HTML being injected directly using `dangerouslySetInnerHTML`. Custom page styling injected `globalCustomCss` and others directly, and dynamically generated Recharts CSS strings were being inserted un-sanitized. `marked` output was also injected raw.
+**Learning:** `dangerouslySetInnerHTML` accepts whatever is passed to it, which creates direct DOM-based XSS if user-controlled input makes it through. For CSS specifically, breakout XSS strings like `</style><script>alert(1)</script>` are a major threat.
+**Prevention:** Always wrap raw CSS in `<style>` blocks and pass through `DOMPurify.sanitize(..., { ALLOWED_TAGS: ['style'], FORCE_BODY: true })` before injection. Use DOMPurify for any HTML string generated from Markdown (`marked`) before rendering it using `dangerouslySetInnerHTML`.
