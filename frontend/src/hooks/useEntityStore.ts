@@ -8,6 +8,7 @@ interface EntityStore {
   loading: boolean
   wsConnected: boolean
   refresh: () => Promise<void>
+  getEntity: (id: string) => EntityState | undefined
 }
 
 // ── Global singleton state ──────────────────────────────────────────
@@ -125,5 +126,7 @@ export function useEntityStore(): EntityStore {
     loading: globalLoading,
     wsConnected: globalWsConnected,
     refresh: fetchEntities,
+    // Bolt Optimization: Exposing O(1) map lookup to prevent O(N) array traversals during renders
+    getEntity: (id: string) => globalMap.get(id),
   }
 }

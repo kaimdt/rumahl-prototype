@@ -40,12 +40,12 @@ interface WasteCollectionWidgetProps {
 }
 
 export default function WasteCollectionWidget({ config }: WasteCollectionWidgetProps) {
-  const { entities } = useEntityStore()
+  const { entities, getEntity } = useEntityStore()
 
   // Find configured entity or auto-detect waste-related sensors
   const primaryEntityId = config?.entityId as string | undefined
   const primaryEntity = primaryEntityId
-    ? entities.find(e => e.entity_id === primaryEntityId)
+    ? getEntity(primaryEntityId)
     : null
 
   // Auto-detect all waste-related sensors
@@ -79,7 +79,7 @@ export default function WasteCollectionWidget({ config }: WasteCollectionWidgetP
   const wasteTypesWithStatus = configuredTypes.map(wt => {
     // Check explicit entity mapping first
     const explicitEntityId = (config as Record<string, unknown>)?.[`entity_${wt.id}`] as string | undefined
-    const explicitEntity = explicitEntityId ? entities.find(e => e.entity_id === explicitEntityId) : null
+    const explicitEntity = explicitEntityId ? getEntity(explicitEntityId) : null
 
     let isActive = false
     if (explicitEntity) {
