@@ -37,7 +37,7 @@ export function Footer() {
           {/* Brand column */}
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="inline-block mb-4">
-              <ORALogo showIcon={false} className="h-7 w-auto text-foreground" />
+              <ORALogo className="h-7 w-auto text-foreground" />
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
               The open, local-first smart home platform. AI-powered, privacy-first, and fully yours.
@@ -80,8 +80,7 @@ export function Footer() {
             &copy; {new Date().getFullYear()} ORA. All rights reserved.
           </p>
           <p className="text-xs text-muted-foreground">
-            Powered by{" "}
-            <span className="font-medium gradient-text">IORA OS</span>
+            Open source. Local-first. AI-native.
           </p>
         </div>
       </div>

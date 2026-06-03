@@ -56,6 +56,8 @@ export default function RootLayout({
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="alternate icon" type="image/png" href="/favicon.png" />
+        {/* Plus Jakarta Sans — distinctive geometric sans-serif */}
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet" />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased overflow-x-hidden">
         <ThemeProvider
