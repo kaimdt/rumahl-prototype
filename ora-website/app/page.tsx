@@ -42,6 +42,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AIChatDemo } from "@/components/ai-chat-demo";
+import { ProductName } from "@/components/ora-logo";
 
 export default function HomePage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -75,7 +76,7 @@ export default function HomePage() {
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
                 <span className="text-xs font-medium text-primary/80">
-                  ORA AI — now with local LLM support
+                <span className="text-xs font-medium text-primary/80"><ProductName name="AI" logoSize={42} /> — now with local LLM support</span>
                 </span>
               </div>
 
@@ -165,16 +166,16 @@ export default function HomePage() {
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/15 bg-primary/5 mb-6">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-medium text-primary/80">Powered by ORA AI</span>
+              <span className="text-xs font-medium text-primary/80">Powered by <ProductName name="AI" logoSize={40} /></span>
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
               Meet{" "}
-              <span className="gradient-text-ai">ORA AI</span> —
+              <span className="gradient-text-ai"><ProductName name="AI" /></span> —
               <br />
               <span className="text-foreground/70">your home&apos;s brain.</span>
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto mt-4">
-              ORA AI is not just a voice assistant. It&apos;s a fully local AI that
+              <ProductName name="AI" logoSize={48} /> is not just a voice assistant. It&apos;s a fully local AI that
               understands context, learns your patterns, and proactively manages
               your home — all without sending a single byte to the cloud.
             </p>
@@ -213,7 +214,7 @@ export default function HomePage() {
                 <span className="gradient-text">Zero cloud.</span>
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-                ORA AI runs on your hardware using Ollama, LM Studio, or llama.cpp.
+                <ProductName name="AI" logoSize={46} /> runs on your hardware using Ollama, LM Studio, or llama.cpp.
                 Choose from hundreds of models — from tiny 1B models for Raspberry Pi
                 to powerful 70B models on a home server.
               </p>
@@ -401,13 +402,13 @@ export default function HomePage() {
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/15 bg-primary/5 mb-6">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-medium text-primary/80">ORA Home + Home Assistant</span>
+              <span className="text-xs font-medium text-primary/80"><ProductName name="Home" logoSize={42} /> + Home Assistant</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground mb-4">
-              <span className="gradient-text">ORA Home</span> extends Home Assistant
+              <span className="gradient-text"><ProductName name="Home" logoSize={90} /></span> extends Home Assistant
             </h2>
             <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-              ORA Home integrates with your existing Home Assistant setup — keeping all your devices and automations, while adding a modern AI-powered experience on top.
+              <ProductName name="Home" logoSize={55} /> integrates with your existing Home Assistant setup — keeping all your devices and automations, while adding a modern AI-powered experience on top.
             </p>
           </div>
 
@@ -438,7 +439,7 @@ export default function HomePage() {
             </div>
           </div>
           <p className="text-center text-xs text-muted-foreground mt-6">
-            ORA Home requires a running Home Assistant instance — it extends HA, it doesn&apos;t replace it.
+            <ProductName name="Home" logoSize={48} /> requires a running Home Assistant instance — it extends HA, it doesn&apos;t replace it.
           </p>
         </div>
       </section>
