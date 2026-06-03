@@ -38,7 +38,7 @@ export default function HomePage() {
                 </span>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground leading-[1.06]">
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-[-0.03em] text-foreground leading-[1.04]">
                 Your home,<br />
                 <span className="text-primary">finally intelligent.</span>
               </h1>
@@ -108,7 +108,14 @@ export default function HomePage() {
           {/* Bento grid: 4 columns, varying spans */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 auto-rows-[140px]">
             {/* AI — large cell (2×2) */}
-            <div className="md:col-span-2 md:row-span-2 glass-card p-5 flex flex-col justify-between group">
+            <div className="md:col-span-2 md:row-span-2 glass-card p-5 flex flex-col justify-between group"
+              onMouseMove={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                e.currentTarget.style.setProperty('--mx', `${((e.clientX - r.left) / r.width) * 100}%`);
+                e.currentTarget.style.setProperty('--my', `${((e.clientY - r.top) / r.height) * 100}%`);
+              }}
+              style={{ background: 'radial-gradient(circle at var(--mx, 50%) var(--my, 50%), hsl(var(--primary) / 0.04), transparent 70%), hsl(var(--card) / 0.5)' } as React.CSSProperties}
+            >
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">

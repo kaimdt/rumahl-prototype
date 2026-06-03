@@ -384,12 +384,16 @@
 }
 
 @keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(32px); }
+  from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 20px hsl(var(--ai-glow-blue) / 0.15); }
@@ -405,10 +409,17 @@
 }
 
 @utility animate-fade-in-up {
-  animation: fade-in-up 0.7s ease-out forwards;
+  animation: fade-in-up 0.6s ease-out forwards;
 }
 @utility animate-fade-in {
-  animation: fade-in 0.6s ease-out forwards;
+  animation: fade-in 0.5s ease-out forwards;
+}
+@utility animate-reveal {
+  animation: reveal 0.5s ease-out forwards;
+  animation-play-state: paused;
+}
+@utility animate-reveal-visible {
+  animation-play-state: running;
 }
 @utility animate-float {
   animation: float 5s ease-in-out infinite;
