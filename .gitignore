@@ -63,3 +63,5 @@ __pycache__/
 *.bak.*
 *.flywheel-backup
 *.ratatui-backup
+/example-website
+/ora-website/.next

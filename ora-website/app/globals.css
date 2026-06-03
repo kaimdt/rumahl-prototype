@@ -1,0 +1,304 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-geist-sans);
+}
+
+@layer base {
+  :root {
+    /* ─── Light Mode ─── */
+    --background: 210 20% 98%;
+    --foreground: 215 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 12%;
+
+    /* ORA Brand - Deep blue-teal gradient inspiration */
+    --primary: 210 90% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-accent: 200 90% 48%;
+    --primary-hover: 210 85% 40%;
+
+    /* Warm accent (kaimdt.dev inspired) */
+    --accent: 30 80% 55%;
+    --accent-foreground: 0 0% 100%;
+    --accent-warm: 25 85% 55%;
+    --accent-warm-foreground: 0 0% 100%;
+
+    --secondary: 210 15% 94%;
+    --secondary-foreground: 215 25% 20%;
+
+    --muted: 210 15% 93%;
+    --muted-foreground: 215 15% 45%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 60% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 85% 55%;
+    --warning-foreground: 215 25% 12%;
+
+    --info: 200 85% 50%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 210 12% 88%;
+    --input: 210 12% 92%;
+    --ring: 210 90% 45%;
+
+    --radius: 0.75rem;
+
+    /* ─── Glass Morphism (IORA Home inspired) ─── */
+    --glass-blur: 24px;
+    --glass-opacity: 0.65;
+    --glass-tint: 210 20% 97%;
+    --glass-bg: hsl(210 20% 97% / 0.65);
+    --glass-border: hsl(215 25% 12% / 0.08);
+    --glass-shadow: 0 4px 24px hsl(215 25% 12% / 0.04);
+
+    --header-bg: hsl(210 20% 98% / 0.75);
+    --header-shadow: 0 1px 0 hsl(215 25% 12% / 0.06);
+
+    /* Sidebar */
+    --sidebar: 210 20% 97%;
+    --sidebar-foreground: 215 25% 12%;
+    --sidebar-primary: 210 90% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 15% 93%;
+    --sidebar-accent-foreground: 215 25% 12%;
+    --sidebar-border: 210 12% 88%;
+    --sidebar-ring: 210 90% 45%;
+
+    /* Chart colors */
+    --chart-1: 210 90% 45%;
+    --chart-2: 200 85% 50%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 145 60% 42%;
+    --chart-5: 270 60% 55%;
+  }
+
+  .dark {
+    /* ─── Dark Mode ─── */
+    --background: 220 25% 6%;
+    --foreground: 210 15% 90%;
+
+    --card: 220 20% 9%;
+    --card-foreground: 210 15% 90%;
+
+    --popover: 220 20% 9%;
+    --popover-foreground: 210 15% 90%;
+
+    /* ORA Brand - Brighter in dark mode */
+    --primary: 210 90% 55%;
+    --primary-foreground: 0 0% 100%;
+    --primary-accent: 200 90% 55%;
+    --primary-hover: 210 85% 50%;
+
+    --accent: 30 80% 50%;
+    --accent-foreground: 0 0% 100%;
+    --accent-warm: 25 85% 50%;
+    --accent-warm-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 15%;
+    --secondary-foreground: 210 15% 85%;
+
+    --muted: 220 15% 14%;
+    --muted-foreground: 210 12% 55%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 55% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 85% 50%;
+    --warning-foreground: 220 25% 6%;
+
+    --info: 200 80% 52%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 220 15% 16%;
+    --input: 220 15% 18%;
+    --ring: 210 90% 55%;
+
+    --radius: 0.75rem;
+
+    /* Glass Morphism - Dark */
+    --glass-blur: 24px;
+    --glass-opacity: 0.45;
+    --glass-tint: 220 20% 10%;
+    --glass-bg: hsl(220 20% 10% / 0.45);
+    --glass-border: hsl(210 15% 90% / 0.08);
+    --glass-shadow: 0 4px 24px hsl(0 0% 0% / 0.15);
+
+    --header-bg: hsl(220 25% 6% / 0.75);
+    --header-shadow: 0 1px 0 hsl(210 15% 90% / 0.06);
+
+    /* Sidebar */
+    --sidebar: 220 20% 10%;
+    --sidebar-foreground: 210 15% 90%;
+    --sidebar-primary: 210 90% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 15% 15%;
+    --sidebar-accent-foreground: 210 15% 90%;
+    --sidebar-border: 220 15% 16%;
+    --sidebar-ring: 210 90% 55%;
+
+    /* Chart colors */
+    --chart-1: 210 90% 55%;
+    --chart-2: 200 85% 52%;
+    --chart-3: 30 80% 50%;
+    --chart-4: 145 55% 40%;
+    --chart-5: 270 60% 58%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ─── Custom Scrollbar ─── */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.15) transparent;
+  }
+
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.12);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.25);
+  }
+}
+
+/* ─── Glass Morphism Utilities ─── */
+@utility glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+@utility glass-strong {
+  background: hsl(var(--glass-tint) / 0.85);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px hsl(215 25% 12% / 0.08);
+}
+
+@utility glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s ease;
+}
+
+@utility glass-card-interactive {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s ease;
+  &:hover {
+    border-color: hsl(var(--ring) / 0.3);
+    box-shadow: 0 8px 32px hsl(var(--ring) / 0.08);
+    transform: translateY(-1px);
+  }
+}
+
+/* ─── Gradient Text ─── */
+@utility gradient-text {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-accent)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@utility gradient-text-warm {
+  background: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--accent-warm)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Hero Gradient Background ─── */
+@utility hero-glow {
+  position: relative;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -20%, hsl(var(--primary) / 0.08), transparent),
+      radial-gradient(ellipse 60% 50% at 80% 50%, hsl(var(--accent) / 0.05), transparent),
+      radial-gradient(ellipse 40% 40% at 20% 80%, hsl(var(--primary-accent) / 0.06), transparent);
+    pointer-events: none;
+  }
+}
+
+/* ─── Animations ─── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@utility animate-fade-in {
+  animation: fade-in 0.6s ease-out forwards;
+}
+
+@utility animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@utility animate-float-delayed {
+  animation: float 6s ease-in-out 2s infinite;
+}
+
+/* ─── Skip Link ─── */
+.sr-only.skip-link:focus {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 9999;
+  padding: 0.75rem 1.25rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-radius: var(--radius);
+  font-weight: 500;
+  text-decoration: none;
+  clip: auto;
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
