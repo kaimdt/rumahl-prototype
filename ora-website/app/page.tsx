@@ -1,43 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
-  ArrowRight,
-  Check,
-  Home,
-  Cpu,
-  Shield,
-  Zap,
-  Palette,
-  Smartphone,
-  Wand2,
-  MessageSquare,
-  Github,
-  Lock,
-  Database,
-  LayoutTemplate,
-  Cloud,
-  Monitor,
-  Sparkles,
-  ChevronDown,
-  Star,
-  Heart,
-  Quote,
-  TrendingUp,
-  Server,
-  Terminal,
-  Wrench,
-  RefreshCw,
-  Users,
-  Building2,
-  Brain,
-  Bot,
-  Globe,
-  Sun,
-  Moon,
-  Microscope,
-  Binary,
+  ArrowRight, Check, Home, Cpu, Shield, Zap, Palette,
+  Smartphone, Wand2, MessageSquare, Github, Lock, LayoutTemplate,
+  Monitor, Sparkles, ChevronDown, Star, Heart, Quote,
+  Users, Building2, Brain, Terminal, Sun,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,219 +18,213 @@ export default function HomePage() {
 
   return (
     <>
-      {/* ═══════════════════════════════════════════════════════════
-          HERO — AI-FORWARD WITH ORBS + CHAT DEMO
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="relative ai-hero-bg overflow-hidden min-h-[90vh] flex items-center">
-        {/* Floating orbs */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="orb orb-blue" style={{ top: '10%', left: '-10%' }} />
-          <div className="orb orb-teal" style={{ top: '50%', right: '-15%' }} />
-          <div className="orb orb-purple" style={{ bottom: '-10%', left: '40%' }} />
-          {/* Sparkle dots */}
-          <div className="sparkle-dot" style={{ top: '15%', left: '25%', animationDelay: '0s' }} />
-          <div className="sparkle-dot" style={{ top: '30%', right: '30%', animationDelay: '1.2s', background: 'hsl(var(--ai-glow-teal))' }} />
-          <div className="sparkle-dot" style={{ top: '65%', left: '15%', animationDelay: '0.7s', background: 'hsl(var(--ai-glow-purple))' }} />
-          <div className="sparkle-dot" style={{ top: '20%', right: '20%', animationDelay: '1.8s' }} />
-          <div className="sparkle-dot" style={{ bottom: '25%', right: '35%', animationDelay: '0.4s', background: 'hsl(var(--ai-glow-amber))' }} />
+      {/* ═══════════ HERO — Forensic Black + Immediate Value ═══════════ */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="orb orb-blue" style={{ top: '5%', left: '-5%', opacity: 0.25 }} />
+          <div className="orb orb-purple" style={{ bottom: '10%', right: '-10%', opacity: 0.12 }} />
         </div>
 
-        <div className="mx-auto max-w-6xl px-6 lg:px-10 pt-24 pb-16 lg:pt-32 lg:pb-24 w-full">
-          <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-            {/* Left: Headline + CTA */}
+        <div className="mx-auto max-w-6xl px-6 lg:px-10 pt-28 pb-16 lg:pt-40 lg:pb-28">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <div>
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/15 bg-primary/5 mb-8 animate-fade-in">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/60 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/10 bg-primary/3 mb-6">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
                 </span>
-                <span className="text-xs font-medium text-primary/80">
-                <span className="text-xs font-medium text-primary/80"><ProductName name="AI" logoSize={42} /> — now with local LLM support</span>
+                <span className="text-[11px] font-medium text-primary/70">
+                  <ProductName name="AI" logoSize={34} /> — local LLM support
                 </span>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-foreground leading-[1.05] animate-fade-in">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground leading-[1.06]">
                 Your home,<br />
-                <span className="gradient-text-ai">
-                  finally intelligent.
-                </span>
+                <span className="text-primary">finally intelligent.</span>
               </h1>
 
-              <p className="mt-6 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-lg animate-fade-in stagger-1">
-                ORA is the AI-powered smart home platform. Natural language
-                control, local LLMs, stunning glass UI — all running on your
-                hardware. No cloud, no subscriptions, no compromises.
+              <p className="mt-5 text-base text-muted-foreground leading-relaxed max-w-md">
+                AI-powered smart home platform. Natural language control, local
+                LLMs, stunning glass UI — all on your hardware.
               </p>
 
-              <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center gap-4 animate-fade-in stagger-2">
-                <Button size="xl" className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 transition-shadow" asChild>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                <Button size="lg" className="shadow-lg shadow-primary/10" asChild>
                   <Link href="/docs">
-                    <Sparkles className="mr-2 h-5 w-5" />
-                    Get Started Free
-                    <ArrowRight className="ml-2 h-5 w-5" />
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Get Started
+                    <ArrowRight className="ml-1.5 h-4 w-4" />
                   </Link>
                 </Button>
-                <Button variant="glass" size="xl" asChild>
-                  <Link href="/features">
-                    Explore Features
-                  </Link>
+                <Button variant="glass" size="lg" asChild>
+                  <Link href="/features">Explore Features</Link>
                 </Button>
               </div>
 
-              <div className="mt-8 flex flex-wrap items-center gap-5 text-sm text-muted-foreground animate-fade-in stagger-3">
-                <span className="flex items-center gap-1.5">
-                  <Check className="h-4 w-4 text-success" /> Open Source
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Check className="h-4 w-4 text-success" /> Local-First
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Check className="h-4 w-4 text-success" /> AI-Native
-                </span>
+              {/* Social proof — immediate, per 2026 trend */}
+              <div className="mt-8 flex items-center gap-6 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-success" /> Open Source</span>
+                <span className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-success" /> Local-First</span>
+                <span className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-success" /> AI-Native</span>
               </div>
             </div>
 
-            {/* Right: Animated AI Chat Demo */}
-            <div className="animate-fade-in stagger-2 relative">
-              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary/10 via-primary/3 to-accent/5 blur-3xl -m-8" />
-              <div className="relative">
-                <AIChatDemo />
-              </div>
+            <div className="relative">
+              <AIChatDemo />
             </div>
           </div>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════
-          STATS BAR
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="border-y border-border/20 bg-muted/5">
-        <div className="mx-auto max-w-6xl px-6 lg:px-10 py-12">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+      {/* ═══════════ STATS — Social proof early ═══════════ */}
+      <section className="border-y border-border/10">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10 py-10">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             {[
-              { value: "1000+", label: "Devices Supported" },
-              { value: "100%", label: "Open Source" },
-              { value: "Local", label: "AI Processing" },
-              { value: "24/7", label: "Offline Operation" },
-            ].map((s, i) => (
-              <div key={s.label} className="animate-fade-in" style={{ animationDelay: `${i * 100}ms` }}>
-                <div className="text-3xl sm:text-4xl font-bold gradient-text-ai">{s.value}</div>
-                <div className="mt-1.5 text-sm text-muted-foreground">{s.label}</div>
+              { v: "1000+", l: "Devices" },
+              { v: "100%", l: "Open Source" },
+              { v: "Local", l: "AI Processing" },
+              { v: "24/7", l: "Offline" },
+            ].map((s) => (
+              <div key={s.l}>
+                <div className="text-2xl sm:text-3xl font-bold text-foreground">{s.v}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{s.l}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════
-          AI FEATURE — THE HEART OF ORA
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="py-24 lg:py-36 relative overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="orb orb-purple" style={{ top: '20%', right: '-15%', width: '400px', height: '400px', opacity: 0.15 }} />
-          <div className="orb orb-blue" style={{ bottom: '10%', left: '-10%', width: '350px', height: '350px', opacity: 0.1 }} />
-        </div>
-
-        <div className="mx-auto max-w-6xl px-6 lg:px-10 relative">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/15 bg-primary/5 mb-6">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-medium text-primary/80">Powered by <ProductName name="AI" logoSize={40} /></span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
-              Meet{" "}
-              <span className="gradient-text-ai"><ProductName name="AI" /></span> —
-              <br />
-              <span className="text-foreground/70">your home&apos;s brain.</span>
+      {/* ═══════════ BENTO GRID — Features, varying cell sizes ═══════════ */}
+      <section className="py-24 lg:py-32">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <div className="mb-12">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Platform</p>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground">
+              Everything your <span className="text-primary">smart home</span> needs
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mt-4">
-              <ProductName name="AI" logoSize={48} /> is not just a voice assistant. It&apos;s a fully local AI that
-              understands context, learns your patterns, and proactively manages
-              your home — all without sending a single byte to the cloud.
-            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
-            {aiPillars.map((p, i) => (
-              <div
-                key={p.title}
-                className="ai-card p-6 group"
-                style={{ animationDelay: `${i * 100}ms` }}
-                onMouseMove={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = ((e.clientX - rect.left) / rect.width) * 100;
-                  const y = ((e.clientY - rect.top) / rect.height) * 100;
-                  e.currentTarget.style.setProperty('--mouse-x', `${x}%`);
-                  e.currentTarget.style.setProperty('--mouse-y', `${y}%`);
-                }}
-              >
-                <div className="relative z-10">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 text-primary mb-5 group-hover:scale-110 transition-transform duration-400 shadow-lg shadow-primary/5">
-                    <p.icon className="h-7 w-7" />
+          {/* Bento grid: 4 columns, varying spans */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 auto-rows-[140px]">
+            {/* AI — large cell (2×2) */}
+            <div className="md:col-span-2 md:row-span-2 glass-card p-5 flex flex-col justify-between group">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Brain className="h-4 w-4" />
                   </div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2.5">{p.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{p.description}</p>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">AI Core</span>
                 </div>
+                <h3 className="text-lg font-bold text-foreground mb-1.5">ORA AI</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
+                  Talk to your home naturally. Local LLMs via Ollama, zero cloud.
+                </p>
               </div>
-            ))}
-          </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {["Llama 3", "Mistral", "Phi-3", "DeepSeek"].map(m => (
+                  <span key={m} className="text-[10px] px-2 py-0.5 rounded-full border border-border/30 text-muted-foreground">{m}</span>
+                ))}
+              </div>
+            </div>
 
-          {/* AI Demo Section with code-style blocks */}
-          <div className="grid lg:grid-cols-5 gap-8 items-center">
+            {/* Device Control — wide cell */}
+            <div className="md:col-span-2 glass-card p-5 flex items-center gap-4 group">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Home className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Universal Device Control</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Lights, climate, media, locks &mdash; one interface.</p>
+              </div>
+            </div>
+
+            {/* Automation */}
+            <div className="glass-card p-4 flex flex-col justify-between group">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary mb-2">
+                <Zap className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Automations</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Natural language + visual editor.</p>
+              </div>
+            </div>
+
+            {/* Dashboard */}
+            <div className="glass-card p-4 flex flex-col justify-between group">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary mb-2">
+                <LayoutTemplate className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Dashboards</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Drag & drop designer.</p>
+              </div>
+            </div>
+
+            {/* Energy */}
+            <div className="glass-card p-4 flex flex-col justify-between group">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary mb-2">
+                <Monitor className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Desktop App</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Native Tauri, all OS.</p>
+              </div>
+            </div>
+
+            {/* Privacy */}
+            <div className="glass-card p-4 flex flex-col justify-between group">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary mb-2">
+                <Shield className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Privacy</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Zero telemetry, all local.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ AI SECTION — interactive demo ═══════════ */}
+      <section className="py-24 lg:py-32 border-y border-border/10 bg-card/20">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <div className="grid lg:grid-cols-5 gap-12 items-center">
             <div className="lg:col-span-2">
-              <h3 className="text-xl font-bold text-foreground mb-4">
-                Local LLMs.<br />
-                <span className="gradient-text">Zero cloud.</span>
-              </h3>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Intelligence</p>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground mb-4">
+                Meet <ProductName name="AI" logoSize={52} />
+              </h2>
               <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-                <ProductName name="AI" logoSize={46} /> runs on your hardware using Ollama, LM Studio, or llama.cpp.
-                Choose from hundreds of models — from tiny 1B models for Raspberry Pi
-                to powerful 70B models on a home server.
+                Not just a voice assistant. A fully local AI that understands
+                context, learns your patterns, and manages your home — zero cloud.
               </p>
-              <div className="flex flex-wrap gap-2">
-                {["Llama 3", "Mistral", "Phi-3", "Gemma", "Qwen", "DeepSeek"].map(m => (
-                  <Badge key={m} variant="glass" className="text-xs">{m}</Badge>
+              <div className="space-y-2">
+                {["Natural language control", "Contextual awareness", "100% local LLMs", "Predictive automation"].map(f => (
+                  <div key={f} className="flex items-center gap-2 text-xs text-foreground/70">
+                    <Check className="h-3.5 w-3.5 text-success shrink-0" /> {f}
+                  </div>
                 ))}
               </div>
             </div>
             <div className="lg:col-span-3">
-              <div className="rounded-2xl border border-border/30 bg-card/60 backdrop-blur-xl overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
-                  <div className="flex gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-400/60" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-amber-400/60" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-400/60" />
-                  </div>
-                  <span className="text-[11px] text-muted-foreground ml-2 font-mono">ora-ai ~ local</span>
+              <div className="rounded-xl border border-border/20 bg-card/60 backdrop-blur-xl overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/10 bg-muted/10">
+                  <div className="flex gap-1"><span className="w-2 h-2 rounded-full bg-border/40" /><span className="w-2 h-2 rounded-full bg-border/40" /><span className="w-2 h-2 rounded-full bg-border/40" /></div>
+                  <span className="text-[10px] text-muted-foreground ml-2 font-mono">ora-ai ~ local</span>
                 </div>
-                <div className="p-5 font-mono text-xs leading-relaxed space-y-3 text-muted-foreground">
-                  <div>
-                    <span className="text-primary/70">$</span>{" "}
-                    <span>ora ask "dim the living room lights to 30% and play relaxing music"</span>
+                <div className="p-4 font-mono text-[11px] leading-relaxed space-y-2.5 text-muted-foreground">
+                  <div><span className="text-primary/60">$</span> ora ask &quot;dim the living room lights to 30%&quot;</div>
+                  <div className="pl-3 border-l-2 border-success/20 text-foreground/60">
+                    <span className="text-success">✓</span> Living room → 30%<br />
+                    <span className="text-success">✓</span> Temperature → 21°C
                   </div>
-                  <div className="pl-4 border-l-2 border-success/30 text-foreground/70">
-                    <span className="text-success">✓</span>{" "}
-                    Living room lights → 30% brightness<br />
-                    <span className="text-success">✓</span>{" "}
-                    Media player → Relaxing playlist<br />
-                    <span className="text-success">✓</span>{" "}
-                    Temperature → 21°C (optimal for evening)
+                  <div><span className="text-primary/60">$</span> ora ask &quot;energy this week vs last?&quot;</div>
+                  <div className="pl-3 border-l-2 border-info/20 text-foreground/60">
+                    <span className="text-info">ℹ</span> 42.3 kWh — 12% less<br />
+                    <span className="text-info">ℹ</span> Solar covered 68%
                   </div>
-                  <div>
-                    <span className="text-primary/70">$</span>{" "}
-                    <span>ora ask "what's my energy usage this week compared to last?"</span>
-                  </div>
-                  <div className="pl-4 border-l-2 border-info/30 text-foreground/70">
-                    <span className="text-info">ℹ</span>{" "}
-                    This week: 42.3 kWh — 12% less than last week.<br />
-                    <span className="text-info">ℹ</span>{" "}
-                    Your solar panels covered 68% of consumption.<br />
-                    <span className="text-info">ℹ</span>{" "}
-                    Suggestion: Shift washing machine to daytime for +8% solar use.
-                  </div>
-                  <div>
-                    <span className="animate-typing-cursor">▊</span>
-                  </div>
+                  <div className="text-primary/40">▊</div>
                 </div>
               </div>
             </div>
@@ -269,205 +232,74 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════
-          FEATURES — SMART HOME PLATFORM
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="py-24 lg:py-32 border-t border-border/20">
-        <div className="mx-auto max-w-6xl px-6 lg:px-10">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border/30 bg-muted/20 mb-6">
-              <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground">Platform</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
-              Everything your{" "}
-              <span className="gradient-text">smart home</span> needs
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              From device control to dashboards — one platform, beautifully integrated.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {features.map((f, i) => (
-              <div
-                key={f.title}
-                className="glass-card-interactive p-5 group"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 text-primary group-hover:scale-110 transition-transform duration-300">
-                    <f.icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground mb-1">{f.title}</h3>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════
-          USE CASES
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="py-24 lg:py-32 bg-muted/5 border-y border-border/20">
-        <div className="mx-auto max-w-6xl px-6 lg:px-10">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border/30 bg-muted/20 mb-6">
-              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground">Use Cases</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
-              ORA adapts to{" "}
-              <span className="gradient-text">your life</span>
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              From apartments to enterprises — one platform, infinite possibilities.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {useCases.map((uc, i) => (
-              <div key={uc.title} className="ai-card p-6 group">
-                <div className="relative z-10">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 text-primary mb-5 group-hover:scale-110 transition-transform duration-300">
-                    <uc.icon className="h-6 w-6" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">{uc.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed mb-4">{uc.description}</p>
-                  <ul className="space-y-2">
-                    {uc.highlights.map((h) => (
-                      <li key={h} className="flex items-center gap-2 text-xs text-foreground/70">
-                        <Check className="h-3 w-3 text-success shrink-0" /> {h}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════
-          TESTIMONIALS
-          ═══════════════════════════════════════════════════════════ */}
+      {/* ═══════════ ORA HOME + HA ═══════════ */}
       <section className="py-24 lg:py-32">
-        <div className="mx-auto max-w-6xl px-6 lg:px-10">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border/30 bg-muted/20 mb-6">
-              <Heart className="h-3.5 w-3.5 text-accent" />
-              <span className="text-xs font-medium text-muted-foreground">Community</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
-              Trusted by{" "}
-              <span className="gradient-text">smart home</span> lovers
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {testimonials.map((t, i) => (
-              <div key={t.name} className="glass-card p-6 flex flex-col">
-                <div className="flex gap-0.5 mb-4">
-                  {[...Array(5)].map((_, j) => (
-                    <Star key={j} className="h-3.5 w-3.5 fill-accent/80 text-accent/80" />
-                  ))}
-                </div>
-                <Quote className="h-5 w-5 text-primary/20 mb-3 shrink-0" />
-                <p className="text-sm text-foreground/75 leading-relaxed mb-6 flex-1 italic">
-                  &ldquo;{t.quote}&rdquo;
-                </p>
-                <div className="flex items-center gap-3 pt-4 border-t border-border/20">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary text-xs font-bold shrink-0">
-                    {t.name[0]}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{t.name}</p>
-                    <p className="text-xs text-muted-foreground">{t.role}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════
-          ORA HOME + HOME ASSISTANT
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="py-24 lg:py-32 bg-muted/5 border-y border-border/20">
         <div className="mx-auto max-w-4xl px-6 lg:px-10">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/15 bg-primary/5 mb-6">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-medium text-primary/80"><ProductName name="Home" logoSize={42} /> + Home Assistant</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground mb-4">
-              <span className="gradient-text"><ProductName name="Home" logoSize={90} /></span> extends Home Assistant
+          <div className="text-center mb-10">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Integration</p>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+              <ProductName name="Home" logoSize={72} /> extends Home Assistant
             </h2>
-            <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-              <ProductName name="Home" logoSize={55} /> integrates with your existing Home Assistant setup — keeping all your devices and automations, while adding a modern AI-powered experience on top.
-            </p>
           </div>
 
           <div className="glass-card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/20">
-                    <th className="text-left py-4 px-6 font-semibold text-foreground">Feature</th>
-                    <th className="text-center py-4 px-4 font-semibold text-xs text-muted-foreground">Home Assistant</th>
-                    <th className="text-center py-4 px-4 font-semibold gradient-text-ai">+ ORA</th>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/10">
+                  <th className="text-left py-3 px-5 font-medium text-foreground/60 text-xs uppercase tracking-wider">Feature</th>
+                  <th className="text-center py-3 px-4 font-medium text-foreground/40 text-xs">Home Assistant</th>
+                  <th className="text-center py-3 px-4 font-medium text-primary/70 text-xs">+ ORA Home</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/10">
+                {[
+                  ["Device Connectivity", "1000+ integrations", "Same 1000+"],
+                  ["AI Assistant", "Not built-in", "Full local AI + LLMs"],
+                  ["Natural Language", "Limited", "Built-in, fully local"],
+                  ["UI", "Lovelace (customizable)", "Glass UI + themes"],
+                  ["Dashboard Designer", "YAML / manual", "Visual drag-and-drop"],
+                  ["Desktop App", "Not available", "Native Tauri, all OS"],
+                  ["Backend", "Python", "Rust microservices"],
+                ].map(([f, ha, ora]) => (
+                  <tr key={f} className="hover:bg-muted/5 transition-colors">
+                    <td className="py-3 px-5 font-medium text-foreground/80 text-xs">{f}</td>
+                    <td className="py-3 px-4 text-center text-muted-foreground text-xs">{ha}</td>
+                    <td className="py-3 px-4 text-center text-foreground/80 text-xs">{ora}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-border/15">
-                  {addonRows.map((row) => (
-                    <tr key={row.feature} className="hover:bg-muted/10 transition-colors">
-                      <td className="py-3.5 px-6 font-medium text-foreground/85">{row.feature}</td>
-                      <td className="py-3.5 px-4 text-center text-muted-foreground/60 text-xs">
-                        {row.ha}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="text-xs text-foreground/80 font-medium">{row.ora}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <p className="text-center text-xs text-muted-foreground mt-6">
-            <ProductName name="Home" logoSize={48} /> requires a running Home Assistant instance — it extends HA, it doesn&apos;t replace it.
+          <p className="text-center text-[11px] text-muted-foreground mt-4">
+            <ProductName name="Home" logoSize={38} /> requires Home Assistant — it extends, not replaces.
           </p>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════
-          FAQ
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="py-24 lg:py-32">
-        <div className="mx-auto max-w-3xl px-6 lg:px-10">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
-              Frequently asked{" "}
-              <span className="gradient-text">questions</span>
+      {/* ═══════════ USE CASES ═══════════ */}
+      <section className="py-24 lg:py-32 border-y border-border/10">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <div className="mb-10">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3">Use Cases</p>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+              ORA adapts to <span className="text-primary">your life</span>
             </h2>
           </div>
 
-          <div className="space-y-3">
-            {faqs.map((faq, i) => (
-              <div key={i} className="glass-card overflow-hidden">
-                <button
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                  className="w-full flex items-center justify-between p-5 text-left hover:bg-muted/10 transition-colors"
-                >
-                  <span className="text-sm font-medium text-foreground pr-4">{faq.question}</span>
-                  <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-300 ${openFaq === i ? "rotate-180" : ""}`} />
-                </button>
-                <div className={`transition-all duration-300 overflow-hidden ${openFaq === i ? "max-h-96" : "max-h-0"}`}>
-                  <div className="px-5 pb-5 text-sm text-muted-foreground leading-relaxed">{faq.answer}</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { t: "Smart Apartment", d: "Intelligent control without drilling holes. Plug, play, enjoy.", h: ["Smart lights & switches", "Voice climate", "Energy monitoring"], i: Home },
+              { t: "Family Home", d: "Whole-house automation with scenes and per-room control.", h: ["Multi-user dashboards", "Room scenes", "Camera & security"], i: Users },
+              { t: "Professional", d: "Deploy at scale with ORA OS. Pre-configured appliance images.", h: ["ORA OS appliance", "Remote management", "White-label ready"], i: Building2 },
+            ].map(uc => (
+              <div key={uc.t} className="glass-card p-5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary mb-4">
+                  <uc.i className="h-4 w-4" />
+                </div>
+                <h3 className="text-sm font-bold text-foreground mb-2">{uc.t}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed mb-3">{uc.d}</p>
+                <div className="space-y-1">
+                  {uc.h.map(h => <div key={h} className="flex items-center gap-1.5 text-[11px] text-foreground/60"><Check className="h-3 w-3 text-success/60 shrink-0" />{h}</div>)}
                 </div>
               </div>
             ))}
@@ -475,165 +307,95 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════
-          BOTTOM CTA
-          ═══════════════════════════════════════════════════════════ */}
-      <section className="py-32 lg:py-40 border-t border-border/20 relative overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="orb orb-blue" style={{ top: '-20%', left: '30%', opacity: 0.1 }} />
-          <div className="orb orb-purple" style={{ bottom: '-10%', right: '20%', opacity: 0.08 }} />
-        </div>
-        <div className="mx-auto max-w-3xl px-6 lg:px-10 text-center relative">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-gradient-to-br from-primary to-primary-accent shadow-xl shadow-primary/25 mb-8 mx-auto">
-            <Sparkles className="h-8 w-8 text-white" />
-          </div>
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-6">
-            Ready for an{" "}
-            <span className="gradient-text-ai">intelligent</span> home?
+      {/* ═══════════ TESTIMONIALS ═══════════ */}
+      <section className="py-24 lg:py-32">
+        <div className="mx-auto max-w-6xl px-6 lg:px-10">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3 text-center">Community</p>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground text-center mb-10">
+            Trusted by <span className="text-primary">smart home</span> lovers
           </h2>
-          <p className="text-lg text-muted-foreground leading-relaxed mb-12 max-w-xl mx-auto">
-            Open source. AI-native. Completely free. Your data stays on your
-            hardware — where it belongs.
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { q: "ORA replaced three apps. The AI understands what I want — I just talk. All local is the cherry on top.", n: "Marcus L.", r: "Smart Home Enthusiast" },
+              { q: "Finally a platform that respects privacy. No accounts, no cloud, no data collection. The UI is gorgeous.", n: "Sarah K.", r: "Software Developer" },
+              { q: "My kids control the house by just asking. The dashboard designer means everyone has their perfect view.", n: "Thomas R.", r: "Father of three" },
+            ].map(t => (
+              <div key={t.n} className="glass-card p-5 flex flex-col">
+                <div className="flex gap-0.5 mb-3">{[...Array(5)].map((_, i) => <Star key={i} className="h-3 w-3 fill-amber-500/60 text-amber-500/60" />)}</div>
+                <Quote className="h-4 w-4 text-primary/15 mb-3 shrink-0" />
+                <p className="text-xs text-foreground/65 leading-relaxed mb-5 flex-1 italic">&ldquo;{t.q}&rdquo;</p>
+                <div className="flex items-center gap-2.5 pt-3 border-t border-border/10">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-[10px] font-bold">{t.n[0]}</div>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">{t.n}</p>
+                    <p className="text-[10px] text-muted-foreground">{t.r}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ FAQ ═══════════ */}
+      <section className="py-24 lg:py-32 border-t border-border/10">
+        <div className="mx-auto max-w-2xl px-6 lg:px-10">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3 text-center">FAQ</p>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground text-center mb-10">
+            Frequently asked <span className="text-primary">questions</span>
+          </h2>
+
+          <div className="space-y-2">
+            {[
+              { q: "Is ORA really free?", a: "Yes. 100% open source, MIT license. Every feature included forever — no paid tiers, no subscriptions." },
+              { q: "What hardware do I need?", a: "Raspberry Pi 4 (2GB) for basic use. 4GB+ for AI features. Also runs on Intel NUCs, old laptops, NAS devices, VMs." },
+              { q: "Does ORA AI work offline?", a: "Absolutely. All AI runs locally via Ollama, LM Studio, or llama.cpp. Zero internet required." },
+              { q: "What devices does ORA support?", a: "ORA Home integrates with Home Assistant, giving you 1000+ integrations. Plus MQTT, Zigbee2MQTT, Z-Wave, Matter, BLE, HomeKit." },
+              { q: "How does ORA Home work with HA?", a: "ORA Home uses HA for device connectivity, then layers on: AI assistant, glass UI, drag-and-drop dashboards, desktop app, plugin system." },
+              { q: "Can I use my existing HA setup?", a: "Yes — just point ORA Home at your HA URL and token. All devices and automations stay intact." },
+              { q: "What AI models are supported?", a: "Any model via Ollama/LM Studio/llama.cpp: Llama 3, Mistral, Phi-3, Gemma, Qwen 2.5, DeepSeek, and hundreds more." },
+            ].map((faq, i) => (
+              <div key={i} className="glass-card overflow-hidden">
+                <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/5 transition-colors">
+                  <span className="text-sm font-medium text-foreground pr-4">{faq.q}</span>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200 ${openFaq === i ? "rotate-180" : ""}`} />
+                </button>
+                <div className={`transition-all duration-200 overflow-hidden ${openFaq === i ? "max-h-48" : "max-h-0"}`}>
+                  <div className="px-4 pb-4 text-sm text-muted-foreground leading-relaxed">{faq.a}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════ CTA ═══════════ */}
+      <section className="py-32 lg:py-40 border-t border-border/10 relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="orb orb-blue" style={{ top: '-15%', left: '30%', opacity: 0.08 }} />
+        </div>
+        <div className="mx-auto max-w-2xl px-6 lg:px-10 text-center relative">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-primary/10 text-primary mb-6">
+            <Sparkles className="h-6 w-6" />
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground mb-4">
+            Ready for an <span className="text-primary">intelligent</span> home?
+          </h2>
+          <p className="text-sm text-muted-foreground leading-relaxed mb-8 max-w-md mx-auto">
+            Open source. AI-native. Completely free. Your data stays on your hardware.
           </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button size="xl" className="shadow-lg shadow-primary/20" asChild>
-              <Link href="/docs">
-                <Sparkles className="mr-2 h-5 w-5" />
-                Get Started Free
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Button size="lg" className="shadow-lg shadow-primary/10" asChild>
+              <Link href="/docs"><Sparkles className="mr-2 h-4 w-4" />Get Started<ArrowRight className="ml-1.5 h-4 w-4" /></Link>
             </Button>
-            <Button variant="glass" size="xl" asChild>
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer">
-                <Github className="mr-2 h-5 w-5" />
-                Star on GitHub
-              </a>
+            <Button variant="glass" size="lg" asChild>
+              <a href="https://github.com" target="_blank" rel="noopener noreferrer"><Github className="mr-2 h-4 w-4" />Star on GitHub</a>
             </Button>
           </div>
-          <p className="mt-6 text-xs text-muted-foreground">
-            No credit card. No cloud account. Just download and run.
-          </p>
+          <p className="mt-4 text-[11px] text-muted-foreground">No credit card. No cloud account. Just download.</p>
         </div>
       </section>
     </>
   );
 }
-
-/* ═══════════════════════════════════════════════════════════
-   DATA
-   ═══════════════════════════════════════════════════════════ */
-
-const aiPillars = [
-  {
-    title: "Natural Language",
-    description: "Talk to ORA like you'd talk to a person. No commands to memorize, no syntax to learn. Just say what you want.",
-    icon: MessageSquare,
-  },
-  {
-    title: "Contextual Intelligence",
-    description: "ORA understands your home's state. 'Dim the lights' knows which room you're in. 'I'm cold' adjusts the right thermostat.",
-    icon: Brain,
-  },
-  {
-    title: "100% Local",
-    description: "All AI processing happens on your hardware. Supports Ollama, LM Studio, llama.cpp. Your conversations are yours alone.",
-    icon: Shield,
-  },
-];
-
-const features = [
-  { title: "Universal Device Control", description: "Lights, climate, switches, covers, media, locks — all in one unified interface.", icon: Home },
-  { title: "AI Automation Engine", description: "Create automations by describing what you want. No YAML, no code — just natural language.", icon: Wand2 },
-  { title: "Custom Dashboards", description: "Drag-and-drop designer with widgets, groups, and dynamic overviews that adapt to your needs.", icon: LayoutTemplate },
-  { title: "Glass UI & Themes", description: "Stunning glassmorphism design with custom themes, night mode, and dynamic backgrounds.", icon: Palette },
-  { title: "Energy Intelligence", description: "Real-time monitoring, cost analysis, solar optimization, and smart suggestions to save money.", icon: Zap },
-  { title: "All Platforms", description: "iOS, Android, Windows, Mac, Linux. PWA for instant install on any device with a browser.", icon: Smartphone },
-  { title: "Native Desktop App", description: "Tauri-powered with system tray, glass titlebar, proxy management, and system diagnostics.", icon: Monitor },
-  { title: "Privacy Architecture", description: "Zero cloud dependency. Zero telemetry. Your data processes locally and stays local.", icon: Lock },
-  { title: "Plugin System", description: "Extend ORA with JavaScript/TypeScript plugins in a secure sandboxed runtime.", icon: Cpu },
-];
-
-const useCases = [
-  {
-    title: "Smart Apartment",
-    description: "Perfect for renters — intelligent control without drilling holes or running wires. Just plug and play.",
-    icon: Home,
-    highlights: ["Smart lights & switches", "Voice-controlled climate", "Energy monitoring", "PWA on any device"],
-  },
-  {
-    title: "Family Home",
-    description: "Whole-house automation with scenes, schedules, and per-room control for the entire family.",
-    icon: Users,
-    highlights: ["Multi-user dashboards", "Room-based scenes", "Camera & security", "Child-safe modes"],
-  },
-  {
-    title: "Professional",
-    description: "Deploy ORA at scale with ORA OS. Pre-configured images for Raspberry Pi, Intel NUC, and servers.",
-    icon: Building2,
-    highlights: ["ORA OS appliance", "Remote management", "Backup & restore", "White-label ready"],
-  },
-];
-
-const testimonials = [
-  {
-    quote: "ORA replaced three different apps I was using. The AI actually understands what I want — I just talk and it happens. The fact that it all runs locally is the cherry on top.",
-    name: "Marcus L.",
-    role: "Smart Home Enthusiast",
-  },
-  {
-    quote: "Finally a platform that respects my privacy. Everything runs locally — no accounts, no cloud, no data collection. And the glass UI is genuinely beautiful.",
-    name: "Sarah K.",
-    role: "Software Developer",
-  },
-  {
-    quote: "The AI assistant is a game changer. My kids can control the house by just asking — no apps, no training. The dashboard designer means everyone has their own perfect view.",
-    name: "Thomas R.",
-    role: "Father of three",
-  },
-];
-
-const addonRows = [
-  { feature: "Device Connectivity", ha: "1000+ integrations", ora: "Uses HA — same 1000+" },
-  { feature: "AI Assistant", ha: "Not built-in", ora: "Full local AI with LLMs" },
-  { feature: "Natural Language Control", ha: "Limited (voice assistants)", ora: "Built-in, fully local" },
-  { feature: "Modern UI", ha: "Lovelace (customizable)", ora: "Glass UI with themes & animations" },
-  { feature: "Dashboard Designer", ha: "YAML / manual", ora: "Visual drag-and-drop" },
-  { feature: "Desktop App", ha: "Not available", ora: "Native Tauri app, all OS" },
-  { feature: "Mobile Experience", ha: "Companion app", ora: "PWA + responsive design" },
-  { feature: "Automation Editor", ha: "YAML / visual", ora: "Natural language + visual" },
-  { feature: "Plugin System", ha: "HACS / custom components", ora: "Sandboxed JS/TS runtime" },
-  { feature: "Backend", ha: "Python", ora: "Rust microservices (fast)" },
-  { feature: "Multi-User", ha: "Supported", ora: "Enhanced with per-user dashboards" },
-  { feature: "Privacy", ha: "Local processing", ora: "Local + zero telemetry by design" },
-];
-
-const faqs = [
-  {
-    question: "Is ORA really completely free?",
-    answer: "Yes. ORA is 100% open source under the MIT license. Every feature — including AI — is included for everyone, forever. No paid tiers, no premium locks, no subscriptions. The ORA OS appliance image is also free.",
-  },
-  {
-    question: "What hardware do I need to run ORA?",
-    answer: "A Raspberry Pi 4 with 2GB RAM is sufficient for basic operation. For AI features, we recommend 4GB+ RAM for small models (1-3B parameters) or 8GB+ for larger models. ORA also runs on Intel NUCs, old laptops, NAS devices, and virtual machines.",
-  },
-  {
-    question: "Does ORA AI work without internet?",
-    answer: "Absolutely. ORA AI uses local LLMs via Ollama, LM Studio, or llama.cpp. All processing happens on your device. Voice control, chat, automation suggestions — everything works completely offline.",
-  },
-  {
-    question: "What devices does ORA support?",
-    answer: "ORA Home integrates directly with Home Assistant, giving you access to 1000+ device integrations. It also supports MQTT, Zigbee2MQTT, Z-Wave JS, Matter, BLE, and HomeKit. If a device works with Home Assistant, it works with ORA Home.",
-  },
-  {
-    question: "How does ORA Home work with Home Assistant?",
-    answer: "ORA Home integrates deeply with Home Assistant — it's not a replacement, it's an upgrade. ORA Home uses Home Assistant for device connectivity and state management, then layers on top: a modern glass UI, built-in AI assistant with local LLMs, drag-and-drop dashboard designer, native desktop apps, and a JavaScript plugin system. You keep your existing HA setup — ORA Home makes it more powerful, more beautiful, and more intelligent.",
-  },
-  {
-    question: "Can I use ORA with my existing Home Assistant setup?",
-    answer: "Absolutely — that's exactly how ORA is designed to work. Just point ORA at your Home Assistant URL and token. All your devices, automations, and configurations remain intact. ORA reads your existing setup and instantly gives you the AI assistant, modern dashboards, and all other features on top.",
-  },
-  {
-    question: "What AI models does ORA support?",
-    answer: "ORA supports any model compatible with Ollama, LM Studio, or llama.cpp. This includes Llama 3, Mistral, Phi-3, Gemma, Qwen 2.5, DeepSeek, and hundreds more. Choose the model that fits your hardware and needs.",
-  },
-];

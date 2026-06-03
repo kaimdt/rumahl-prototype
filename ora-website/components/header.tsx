@@ -408,7 +408,7 @@ export function Header() {
         {/* Logo + Navigation */}
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-2.5 shrink-0">
-            <ORALogo className="h-8 w-auto text-foreground" />
+            <ORALogo className="h-6 w-auto text-foreground" />
           </Link>
 
           <nav className="hidden lg:flex lg:items-center lg:gap-x-5">
@@ -527,7 +527,7 @@ export function Header() {
                   setTimeout(() => setMobileSubMenu(null), 300);
                 }}
               >
-                <ORALogo className="h-7 w-auto text-foreground" />
+                <ORALogo className="h-6 w-auto text-foreground" />
               </Link>
               <button
                 onClick={() => {

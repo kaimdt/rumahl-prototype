@@ -51,7 +51,7 @@ interface ProductNameProps {
 
 export function ProductName({ name, className, logoSize = 72 }: ProductNameProps) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 align-baseline whitespace-nowrap", className)}>
+    <span className={cn("inline-flex items-center gap-1 align-baseline whitespace-nowrap", className)}>
       <span className="inline-flex shrink-0" style={{ width: logoSize, height: logoSize * 0.366 }}>
         <ORALogo className="w-full h-full" />
       </span>
