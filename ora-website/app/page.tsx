@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { AIChatDemo } from "@/components/ai-chat-demo";
 import { ProductName } from "@/components/ora-logo";
 import { DemoSection } from "@/components/demo-section";
+import { AnimatedWidgets } from "@/components/animated-widgets";
 
 export default function HomePage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -21,6 +22,7 @@ export default function HomePage() {
     <>
       {/* ═══════════ HERO — Forensic Black + Immediate Value ═══════════ */}
       <section className="relative overflow-hidden">
+        <AnimatedWidgets />
         <div className="absolute inset-0 pointer-events-none">
           <div className="orb orb-blue" style={{ top: '5%', left: '-5%', opacity: 0.25 }} />
           <div className="orb orb-purple" style={{ bottom: '10%', right: '-10%', opacity: 0.12 }} />
