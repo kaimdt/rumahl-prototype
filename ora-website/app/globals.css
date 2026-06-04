@@ -442,3 +442,83 @@
   font-weight: 500; text-decoration: none;
   clip: auto; width: auto; height: auto; overflow: visible;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   IORA WIDGET STYLES — exact from @iora/frontend
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(200%) skewX(-15deg); }
+}
+
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.glass-card {
+  background:
+    linear-gradient(180deg, hsl(var(--foreground) / 0.06) 0%, transparent 38%),
+    linear-gradient(165deg, hsl(var(--card) / 0.7) 0%, hsl(var(--card) / 0.4) 55%, hsl(var(--card) / 0.18) 100%);
+  backdrop-filter: blur(40px) saturate(1.4);
+  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  border: 1px solid hsl(var(--foreground) / 0.08);
+  box-shadow:
+    0 10px 30px hsl(0 0% 0% / 0.08),
+    0 2px 8px hsl(0 0% 0% / 0.04),
+    inset 0 1px 0 hsl(var(--foreground) / 0.06),
+    inset 0 -1px 0 hsl(0 0% 0% / 0.04);
+}
+
+.glass-card-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent 0%, hsl(var(--foreground) / 0.02) 45%, hsl(var(--foreground) / 0.05) 50%, hsl(var(--foreground) / 0.02) 55%, transparent 100%);
+  transform: translateX(-100%) skewX(-15deg);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass-card-shimmer:hover::after {
+  animation: shimmer-sweep 0.8s ease-out;
+}
+
+.widget-glow-active {
+  position: relative;
+}
+
+.widget-glow-active::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse at 30% 50%, hsl(var(--primary) / 0.06) 0%, transparent 60%);
+  animation: glow-breathe 4s ease-in-out infinite;
+}
+
+.icon-container-premium {
+  position: relative;
+}
+
+.icon-container-premium::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1.5px solid hsl(var(--foreground) / 0.06);
+  pointer-events: none;
+}
+
+.icon-container-premium[data-active="true"]::after {
+  border-color: hsl(var(--primary) / 0.20);
+}

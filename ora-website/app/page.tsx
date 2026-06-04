@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AIChatDemo } from "@/components/ai-chat-demo";
 import { ProductName } from "@/components/ora-logo";
+import { DemoSection } from "@/components/demo-section";
 
 export default function HomePage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -376,6 +377,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ═══════════ INTERACTIVE DEMO ═══════════ */}
+      <DemoSection />
 
       {/* ═══════════ CTA ═══════════ */}
       <section className="py-32 lg:py-40 border-t border-border/10 relative overflow-hidden">
